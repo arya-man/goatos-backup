@@ -33,6 +33,8 @@ import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
 import sg.mesha.goatos.feature.counts.CountsFilterOptionUi
+import sg.mesha.goatos.feature.counts.breedsForSpecies
+import sg.mesha.goatos.feature.counts.keepOrFirst
 import sg.mesha.goatos.feature.counts.DeathCauseKind
 import sg.mesha.goatos.feature.counts.DeathCauseOptionUi
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
@@ -102,6 +104,9 @@ class BirthDeathViewModel @Inject constructor(
     val state: StateFlow<BirthDeathUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+
+    /** Every breed the backend offers, before narrowing to the chosen species. */
+    private var allBreedOptions: List<CountsFilterOptionUi> = emptyList()
     private var scanJob: Job? = null
 
     init {
@@ -182,7 +187,14 @@ class BirthDeathViewModel @Inject constructor(
                 BirthDeathField.ID_KIND -> current.copy(idKind = value)
                 BirthDeathField.TAG -> current.copy(tag = value)
                 BirthDeathField.TAG2 -> current.copy(tag2 = value)
-                BirthDeathField.SPECIES -> current.copy(species = value)
+                // A species offers only its own breeds; a breed picked under another species is cleared.
+                BirthDeathField.SPECIES -> breedsForSpecies(allBreedOptions, value).let { offered ->
+                    current.copy(
+                        species = value,
+                        breedOptions = offered,
+                        breed = if (offered.any { it.key == current.breed }) current.breed else "",
+                    )
+                }
                 BirthDeathField.SEX -> current.copy(sex = value)
                 BirthDeathField.BREED -> current.copy(breed = value)
                 BirthDeathField.DOB -> current.copy(dob = value)
@@ -300,13 +312,31 @@ class BirthDeathViewModel @Inject constructor(
         viewModelScope.launch {
             countsRepository.observeBirthBreeds().collect { resource ->
                 val options = resource.data?.breeds
-                    ?.map { CountsFilterOptionUi(it.key, it.label, it.count) }
+                    ?.map { CountsFilterOptionUi(it.key, it.label, it.count, it.species) }
+                    .orEmpty()
+                allBreedOptions = options
+                // The farm's species and genders ride the same cached read (OPEN UP TO NEW SPECIES,
+                // 2026-09-25). A selection the list no longer offers falls back to the list's first
+                // entry, so submit can never name a species the farm archived.
+                val species = resource.data?.species
+                    ?.filter { it.key.isNotBlank() }
+                    ?.map { CountsFilterOptionUi(it.key, it.label.ifBlank { it.key }, 0) }
+                    .orEmpty()
+                val sexes = resource.data?.sexes
+                    ?.filter { it.key.isNotBlank() }
+                    ?.map { CountsFilterOptionUi(it.key, it.label.ifBlank { it.key }, 0) }
                     .orEmpty()
                 _state.update { current ->
-                    val breedStillOffered = options.any { it.key == current.breed }
+                    val chosenSpecies = keepOrFirst(current.species, species)
+                    val offered = breedsForSpecies(options, chosenSpecies)
+                    val breedStillOffered = offered.any { it.key == current.breed }
                     current.copy(
-                        breedOptions = options,
+                        breedOptions = offered,
                         breed = if (breedStillOffered) current.breed else "",
+                        speciesOptions = species,
+                        species = chosenSpecies,
+                        sexOptions = sexes,
+                        sex = keepOrFirst(current.sex, sexes),
                     )
                 }
                 recomputeSubmitGate()
@@ -701,6 +731,8 @@ class BirthDeathViewModel @Inject constructor(
                 mode = current.mode,
                 destinationParks = current.destinationParks,
                 breedOptions = current.breedOptions,
+                speciesOptions = current.speciesOptions,
+                sexOptions = current.sexOptions,
                 // The VOCABULARY survives the reset, the SELECTION does not. Re-fetching the
                 // disease list between two deaths would leave the second animal's form without a
                 // dropdown on a phone that has since lost signal; carrying the previous animal's

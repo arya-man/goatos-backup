@@ -99,7 +99,7 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 	for _, g := range page.OptionGroups {
 		groups[g.ID] = len(g.Options)
 	}
-	if groups["feed_purchase_farms"] != 3 {
+	if groups["feed_purchase_farms"] != 2 {
 		t.Fatalf("feed_purchase_farms options = %d", groups["feed_purchase_farms"])
 	}
 	if groups["feed_purchase_payment_statuses"] != 2 {

@@ -83,6 +83,8 @@ type DecideParams struct {
 
 // Repository is the persistence seam.
 type Repository interface {
+	// ListParkCodes returns the codes of the tenant's active parks: the farms a load may be for.
+	ListParkCodes(ctx context.Context, tenantID string) ([]string, error)
 	CreateLoad(ctx context.Context, p CreateLoadParams) (domain.Load, error)
 	ListLoads(ctx context.Context, tenantID string, cursor domain.Cursor, limit int) (LoadPage, error)
 	GetLoad(ctx context.Context, tenantID, loadID string) (domain.Load, error)

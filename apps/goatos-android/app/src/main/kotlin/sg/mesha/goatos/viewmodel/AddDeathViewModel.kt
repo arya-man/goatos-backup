@@ -130,7 +130,12 @@ class AddDeathViewModel @Inject constructor(
             is AddDeathEvent.SelectDeathCauseKind -> onSelectDeathCauseKind(event.kind)
             is AddDeathEvent.EditDeathCauseQuery -> onEditDeathCauseQuery(event.value)
             is AddDeathEvent.SelectDeathCause -> onSelectDeathCause(event.key)
-            AddDeathEvent.Refresh -> capture.refresh()
+            AddDeathEvent.Refresh -> {
+                capture.refresh()
+                // The disease list changes when Health Config publishes, so returning to the
+                // form picks up a newly authored disease without reinstalling or re-entering.
+                refreshDeathCauses()
+            }
             is AddDeathEvent.CaptureSlot -> if (beginEdit()) capture.capture(event.slotKey, event.kind)
             is AddDeathEvent.Answer -> if (beginEdit()) capture.answer(event.questionId, event.value)
             AddDeathEvent.Submit -> submit()

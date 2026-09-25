@@ -13,6 +13,7 @@ import (
 // fakeFeedPurchaseRepo records what the service passed down, so a test can prove the service
 // normalized and gated BEFORE any write reached the database.
 type fakeFeedPurchaseRepo struct {
+	farms    []string
 	created  domain.FeedPurchaseWrite
 	key      string
 	calls    int
@@ -35,6 +36,15 @@ type fakeFeedPurchaseRepo struct {
 	deliveryCalls      int
 	deliveryPurchaseID string
 	delivery           domain.FeedPurchaseDeliveryWrite
+}
+
+// ListFeedFarms serves the tenant's active park codes; farms overrides the default pair so a test
+// can add a park the way Configuration > Items & settings does.
+func (r *fakeFeedPurchaseRepo) ListFeedFarms(context.Context, string) ([]string, error) {
+	if r.farms != nil {
+		return r.farms, nil
+	}
+	return []string{"CBE", "CPT"}, nil
 }
 
 func (r *fakeFeedPurchaseRepo) ListFeedPurchases(_ context.Context, _, farm, delivery string, limit, offset int) (ports.FeedPurchasePage, error) {
@@ -118,7 +128,7 @@ func TestCreateFeedPurchaseNormalizesBeforeValidating(t *testing.T) {
 	if _, err := svc.CreateFeedPurchase(context.Background(), "t", goodWrite(), "actor", "  key-1  "); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if repo.created.FarmLabel != domain.FeedFarmCPT {
+	if repo.created.FarmLabel != "CPT" {
 		t.Fatalf("farm reached the repo as %q", repo.created.FarmLabel)
 	}
 	if repo.created.FeedItemLabel != "Dry Sorghum Forage" || repo.created.Vendor != "Siddi Srilekha" {
@@ -356,5 +366,28 @@ func TestCreateFeedPurchaseCarriesTheArrivalThrough(t *testing.T) {
 	}
 	if repo.created.ReachedOn != "2026-08-23" || !repo.created.IsReached() || repo.created.ReachedWeightKg == nil {
 		t.Fatalf("repository received %+v", repo.created)
+	}
+}
+
+// A park added on Configuration > Items & settings buys feed and filters the ledger the moment it
+// exists; a code no active park carries is still refused.
+func TestFeedPurchaseFarmsAreTheTenantsParksNotAConstantPair(t *testing.T) {
+	repo := &fakeFeedPurchaseRepo{farms: []string{"CBE", "CPT", "HSR"}}
+	svc := NewFeedPurchaseServiceWithClock(repo, pinnedClock())
+	w := goodWrite()
+	w.FarmLabel = " hsr "
+	if _, err := svc.CreateFeedPurchase(context.Background(), "t", w, "actor", "key-hsr"); err != nil {
+		t.Fatalf("a load bought for a newly added park must be recorded: %v", err)
+	}
+	if repo.created.FarmLabel != "HSR" {
+		t.Fatalf("farm stored as %q, want HSR", repo.created.FarmLabel)
+	}
+	if _, err := svc.ListFeedPurchases(context.Background(), "t", FeedPurchaseListQuery{Farm: "HSR", Limit: 10}); err != nil {
+		t.Fatalf("the ledger must filter to the new park: %v", err)
+	}
+	w.FarmLabel = "XYZ"
+	var v domain.ErrFeedPurchaseValidation
+	if _, err := svc.CreateFeedPurchase(context.Background(), "t", w, "actor", "key-xyz"); !errors.As(err, &v) || v.Field != "farm" {
+		t.Fatalf("a code no park carries must be refused on farm, got %v", err)
 	}
 }

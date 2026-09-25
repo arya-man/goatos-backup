@@ -181,17 +181,16 @@ class DriveCardMetricsTest {
             vaccineLabels = listOf("FMD"),
         )
         val chips = driveStatusChips(summary)
-        assertEquals(5, chips.size)
+        // No "submitted" chip (maintainer decision 2026-08-03, see driveStatusChips).
+        assertEquals(4, chips.size)
         assertEquals("completed", chips[0].key)
         assertEquals(20, chips[0].count)
-        assertEquals("submitted", chips[1].key)
-        assertEquals(30, chips[1].count)
-        assertEquals("due", chips[2].key)
-        assertEquals(40, chips[2].count)
-        assertEquals("overdue", chips[3].key)
-        assertEquals(12, chips[3].count)
-        assertEquals("deferred", chips[4].key)
-        assertEquals(3, chips[4].count)
+        assertEquals("due", chips[1].key)
+        assertEquals(40, chips[1].count)
+        assertEquals("overdue", chips[2].key)
+        assertEquals(12, chips[2].count)
+        assertEquals("deferred", chips[3].key)
+        assertEquals(3, chips[3].count)
     }
 
     @Test

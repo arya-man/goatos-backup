@@ -942,7 +942,7 @@ func (i *Importer) registerValidator(ctx context.Context, tenantID string, reg d
 			if rowVersion == "" {
 				return nil, []domain.FieldError{{Field: domain.SheetColumnRowVersion, Code: "required", Message: "Row version is required for updates. Download the latest sheet and try again."}}
 			}
-			if n, err := strconv.Atoi(rowVersion); err != nil || n < 1 {
+			if n, err := strconv.Atoi(rowVersion); err != nil || n < 0 || (n == 0 && !reg.Unversioned) {
 				return nil, []domain.FieldError{{Field: domain.SheetColumnRowVersion, Code: "invalid", Message: "Row version must be the positive number from the downloaded sheet."}}
 			}
 			clean[domain.SheetColumnRowVersion] = rowVersion

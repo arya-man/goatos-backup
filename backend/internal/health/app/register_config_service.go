@@ -23,6 +23,15 @@ import (
 type RegisterConfigService struct {
 	repo  ports.RegisterAuthoring
 	types ports.DiagnosisTypeAuthoring
+	// rulebookChanged is told the tenant whose published diagnoses may have changed, so the
+	// cause-of-death list shows a newly published disease at once. Optional.
+	rulebookChanged func(tenantID string)
+}
+
+// WithRulebookChanged registers a callback run after a register publish.
+func (s *RegisterConfigService) WithRulebookChanged(fn func(tenantID string)) *RegisterConfigService {
+	s.rulebookChanged = fn
+	return s
 }
 
 // NewRegisterConfigService wires the register editor.
@@ -83,7 +92,11 @@ func (s *RegisterConfigService) SaveDraft(ctx context.Context, cmd domain.SaveRe
 }
 
 func (s *RegisterConfigService) PublishDraft(ctx context.Context, cmd domain.RegisterVersionCommand) (domain.RegisterAuthoringResult, error) {
-	return s.repo.PublishRegisterDraft(ctx, cmd)
+	res, err := s.repo.PublishRegisterDraft(ctx, cmd)
+	if err == nil && s.rulebookChanged != nil {
+		s.rulebookChanged(cmd.TenantID)
+	}
+	return res, err
 }
 
 func (s *RegisterConfigService) DiscardDraft(ctx context.Context, cmd domain.RegisterVersionCommand) (domain.RegisterAuthoringResult, error) {

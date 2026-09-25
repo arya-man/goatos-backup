@@ -114,12 +114,13 @@ func (s *Service) Submit(ctx context.Context, p ports.SubmitParams) (domain.Task
 	return s.repo.Submit(ctx, p)
 }
 
-// OpenCount answers the badge for one person: visits still to record.
+// OpenCount answers the badge for one person: visits they can record TODAY. A visit planned for
+// tomorrow is listed ("Opens on ...") but not counted, since it cannot be filmed yet.
 func (s *Service) OpenCount(ctx context.Context, tenantID, userID string) (int, error) {
-	return s.repo.OpenCount(ctx, tenantID, userID)
+	return s.repo.OpenCount(ctx, tenantID, userID, s.Today())
 }
 
 // OpenReasons is the badge split: the reasons of every visit still to record.
 func (s *Service) OpenReasons(ctx context.Context, tenantID, userID string) ([][]string, error) {
-	return s.repo.OpenReasons(ctx, tenantID, userID)
+	return s.repo.OpenReasons(ctx, tenantID, userID, s.Today())
 }

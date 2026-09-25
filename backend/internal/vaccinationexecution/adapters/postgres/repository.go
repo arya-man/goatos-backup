@@ -227,7 +227,11 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 		// vaccinationExecutionSQL instead of the vaccination_execution_projection_rows read model. A canonical
 		// read cannot be stale relative to the canonical write, so the serving-projection freshness gate (and
 		// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
-		rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, pgx.QueryExecModeExec,
+		// Default (cached-statement) mode, not QueryExecModeExec: Exec re-planned this CTE on every
+		// call (~15 ms). Under plan_cache_mode=auto Postgres settles on the generic plan after five
+		// executions per connection; measured on STG its execution matches the custom plan for both the
+		// all-sheds and single-shed pages, with identical rows.
+		rows, err := r.pool.Query(ctx, vaccinationExecutionSQL,
 			q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
 			q.OpenOnly, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID, partitionLabel)
 		if err != nil {
@@ -1374,28 +1378,6 @@ WITH completion_candidates AS (
   WHERE tenant_id = $1::uuid
     AND COALESCE(administered_at, original_created_at) <= $7::timestamptz
 ),
--- MATERIALIZED: without this hint Postgres inlines the GROUP BY as a correlated subplan and
--- re-executes the completion_candidates append + sort + group-aggregate once PER obligation_instances
--- row (~8k times on a 7k-obligation tenant) instead of computing it once and hash-joining. That
--- re-execution is the dominant cost of this query end to end (~2.9s of a ~3.3s statement, confirmed
--- via EXPLAIN ANALYZE loops=8227 on the completions GroupAggregate). Forcing materialization drops
--- total execution time to ~230ms with an identical result set (verified byte-for-byte).
-completions AS MATERIALIZED (
-  SELECT
-    obligation_id,
-    (ARRAY_AGG(asof_status ORDER BY
-      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
-      administered_at DESC,
-      created_at DESC,
-      completion_id DESC))[1] AS effective_status,
-    (ARRAY_AGG(completion_id ORDER BY
-      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
-      administered_at DESC,
-      created_at DESC,
-      completion_id DESC))[1] AS completion_id
-  FROM completion_candidates
-  GROUP BY obligation_id
-),
 operator_scope_member AS (
   SELECT wm.workforce_member_id
   FROM workforce_members wm
@@ -1410,29 +1392,6 @@ operator_scope_member AS (
            wm.updated_at DESC,
            wm.workforce_member_id DESC
   LIMIT 1
-),
--- MATERIALIZED for the same reason as completions above: this CTE is joined once but has a
--- GROUP BY, so an inlined plan can re-run it as a correlated per-row subplan instead of computing
--- it once. Its own cost is small on this fixture (already narrowed by operator scope before the
--- join), but leaving it un-pinned means the planner is free to choose the expensive per-row shape
--- again on a tenant-wide (no operator scope) read where obligation_status_events is larger.
-asof_terminal AS MATERIALIZED (
-  -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
-  -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
-  -- (latest of missed/waived/deferred <= as_of); NULL means the obligation's only terminal events are after as_of
-  -- (open at as_of), and has_terminal_event then separates that "future-only" case from "no terminal history
-  -- at all" (row absent -> trust the current stored status). Restricted to missed/waived/deferred, which are
-  -- exceptions at herd scale, so the subset stays small and index-bound. Residual: missed->reschedule->missed
-  -- churn is not reopen-aware (last terminal event at/before as_of wins).
-  SELECT
-    obligation_id,
-    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
-       FILTER (WHERE occurred_at <= $7::timestamptz))[1] AS asof_terminal_type,
-    true AS has_terminal_event
-  FROM obligation_status_events
-  WHERE tenant_id = $1::uuid
-    AND event_type IN ('missed', 'waived', 'deferred')
-  GROUP BY obligation_id
 ),
 -- projection-review: membership=the same tenant/category/status/effective-date obligations before canceled-task filtering; group_key=obligation_id; join_cardinality=global primary-key identity lookups retain tenant checks and decorate at most one row; pagination=all classified rows still feed unchanged keyset and whole-filter badges; scope=tenant/park/shed/owner predicates retained, task cancellation applied in raw.
 raw_obligations AS MATERIALIZED (
@@ -1449,8 +1408,6 @@ raw_obligations AS MATERIALIZED (
     oi.window_end,
     oi.completed_at,
     oi.status AS obligation_status,
-    te.asof_terminal_type,
-    te.has_terminal_event,
     pr.dose_code,
     NULLIF(prd.vaccine_code, '') AS vaccine_code,
     pd.name AS protocol_name,
@@ -1472,8 +1429,6 @@ raw_obligations AS MATERIALIZED (
     g.lifecycle_status AS goat_lifecycle_status,
     g.health_status AS goat_health_status,
     g.management_stage AS goat_stage,
-    c.effective_status AS completion_status,
-    c.completion_id,
     CASE
       WHEN g.shed_id IS NOT NULL THEN g.shed_id
       WHEN oi.target_type = 'shed' THEN oi.target_id
@@ -1594,10 +1549,6 @@ raw_obligations AS MATERIALIZED (
     WHERE member_assignment.tenant_id = assignment.tenant_id
       AND member_assignment.assignment_id = assignment.assignment_id
   ) vda_member ON assignment.assignment_id IS NOT NULL
-  LEFT JOIN completions c
-    ON c.obligation_id = oi.obligation_id
-  LEFT JOIN asof_terminal te
-    ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND COALESCE(ob.status, '') NOT IN ('canceled', 'superseded')
@@ -1609,6 +1560,57 @@ raw_obligations AS MATERIALIZED (
       -- A row 'completed' NOW but finalized AFTER as_of was still open at as_of; pull it to re-bucket.
       OR (oi.status = 'completed' AND oi.completed_at > $7::timestamptz)
     )
+),
+-- completions and asof_terminal are defined AFTER raw_obligations and restricted to the obligations
+-- it kept (~1k of the tenant's ~6k completion/terminal histories), then joined in raw. They are
+-- per-obligation decorations that raw_obligations' own WHERE never reads, so joining them after the
+-- window filter returns the identical rows while aggregating only the histories the page can show.
+-- MATERIALIZED: without this hint Postgres inlines the GROUP BY as a correlated subplan and
+-- re-executes the completion_candidates append + sort + group-aggregate once PER obligation_instances
+-- row (~8k times on a 7k-obligation tenant) instead of computing it once and hash-joining. That
+-- re-execution is the dominant cost of this query end to end (~2.9s of a ~3.3s statement, confirmed
+-- via EXPLAIN ANALYZE loops=8227 on the completions GroupAggregate). Forcing materialization drops
+-- total execution time to ~230ms with an identical result set (verified byte-for-byte).
+completions AS MATERIALIZED (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(asof_status ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC,
+      completion_id DESC))[1] AS effective_status,
+    (ARRAY_AGG(completion_id ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC,
+      completion_id DESC))[1] AS completion_id
+  FROM completion_candidates
+  WHERE obligation_id IN (SELECT obligation_id FROM raw_obligations)
+  GROUP BY obligation_id
+),
+-- MATERIALIZED for the same reason as completions above: this CTE is joined once but has a
+-- GROUP BY, so an inlined plan can re-run it as a correlated per-row subplan instead of computing
+-- it once. Its own cost is small on this fixture (already narrowed by operator scope before the
+-- join), but leaving it un-pinned means the planner is free to choose the expensive per-row shape
+-- again on a tenant-wide (no operator scope) read where obligation_status_events is larger.
+asof_terminal AS MATERIALIZED (
+  -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
+  -- as_of from the append-only event log. asof_terminal_type is the terminal status in effect at as_of
+  -- (latest of missed/waived/deferred <= as_of); NULL means the obligation's only terminal events are after as_of
+  -- (open at as_of), and has_terminal_event then separates that "future-only" case from "no terminal history
+  -- at all" (row absent -> trust the current stored status). Restricted to missed/waived/deferred, which are
+  -- exceptions at herd scale, so the subset stays small and index-bound. Residual: missed->reschedule->missed
+  -- churn is not reopen-aware (last terminal event at/before as_of wins).
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $7::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
+  FROM obligation_status_events
+  WHERE tenant_id = $1::uuid
+    AND event_type IN ('missed', 'waived', 'deferred')
+    AND obligation_id IN (SELECT obligation_id FROM raw_obligations)
+  GROUP BY obligation_id
 ),
 -- projection-review: membership=the same allowed task scan fields with exact-obligation or legacy null-obligation goat matching; group_key=task_id; join_cardinality=deduplicated identifier arrays preserve existence without multiplying obligations; pagination=scan state still rolls up at animal then card grain; scope=tenant-bound task identity restricted to the raw obligation task set, with no new as-of or status filter.
 task_scan_keys AS MATERIALIZED (
@@ -1622,6 +1624,10 @@ task_scan_keys AS MATERIALIZED (
 ),
 raw AS MATERIALIZED (
  SELECT r.*,
+    te.asof_terminal_type,
+    te.has_terminal_event,
+    c.effective_status AS completion_status,
+    c.completion_id,
     st.state AS task_state,
     st.task_id AS sop_task_id,
     st.sop_version_id,
@@ -1630,6 +1636,10 @@ raw AS MATERIALIZED (
     (r.obligation_id = ANY(sc.obligation_ids) OR r.target_id = ANY(sc.goat_ids)) IS TRUE AS scanned,
     goat_proof.proofed_at IS NOT NULL AS proofed
  FROM raw_obligations r
+ LEFT JOIN completions c
+   ON c.obligation_id = r.obligation_id
+ LEFT JOIN asof_terminal te
+   ON te.obligation_id = r.obligation_id
  LEFT JOIN LATERAL (
    SELECT st.task_id, st.state, st.sop_version_id, st.row_version, st.assigned_to
    FROM sop_tasks st WHERE st.tenant_id=r.tenant_id AND st.task_id=r.task_lookup_id
@@ -2239,13 +2249,20 @@ SELECT
     OR classified.work_state IN ('proof_pending', 'verification_pending')), '[]'::jsonb) AS roster_memberships
 FROM classified
 -- projection-review: membership=animal_rollup from identical tenant/scope/date source rows; group_key=park/shed/partition/execution_card_id; join_cardinality=one animal-fact array per classified card, no fanout; pagination=summary-only whole-filter data; scope=all canonical classified predicates remain below. Plain paginated reads never construct these internal JSON facts.
+-- The per-card animal facts are built ONCE (MATERIALIZED) and re-read from the tuplestore: the CTE
+-- row estimates upstream are ~1, so the planner nests this join and, as a plain subquery, re-ran the
+-- whole GROUP BY + JSONB_AGG over every animal_rollup row once per classified card (STG 2026-09-25:
+-- 91 cards x ~35 ms = ~3 s of the /vaccination/execution first page). Same rows, same aggregate.
 JOIN (
+ WITH membership_animals_once AS MATERIALIZED (
  SELECT park_uuid,shed_uuid,partition_key,execution_card_id,
    BOOL_OR(has_outstanding) AS has_outstanding,
    JSONB_AGG(JSONB_BUILD_OBJECT('id',animal_id,'done',has_done,
      'open',has_outstanding,'accepted',all_completions_accepted) ORDER BY animal_id) AS animals
  FROM animal_rollup
  GROUP BY park_uuid,shed_uuid,partition_key,execution_card_id
+ )
+ SELECT * FROM membership_animals_once
 ) membership_animals
  ON membership_animals.park_uuid=classified.park_uuid
  AND membership_animals.shed_uuid=classified.shed_uuid
@@ -4540,7 +4557,7 @@ SELECT EXISTS (
 		return fmt.Errorf("vaccination execution: validate operator park: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("vaccination execution: operator %s is not an active operator for park %s", operatorID, parkID)
+		return fmt.Errorf("%w: operator %s is not an active operator for park %s", ports.ErrOperatorNotActiveInPark, operatorID, parkID)
 	}
 	return nil
 }

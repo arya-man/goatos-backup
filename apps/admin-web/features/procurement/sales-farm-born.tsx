@@ -267,8 +267,9 @@ function FarmBornSections({
               ariaLabel: copy(pageContract, "section.sold.aria"),
               notRecorded: copy(pageContract, "value.not_recorded"),
               noDeal: copy(pageContract, "value.no_deal"),
-              male: sexLabel("male"),
-              female: sexLabel("female"),
+              sexLabels: Object.fromEntries(
+                optionGroup(pageContract, "farm_born_sexes").map((option) => [option.key, option.label]),
+              ),
               empty: <div className="empty">{copy(pageContract, "empty.sold")}</div>,
             }}
           />

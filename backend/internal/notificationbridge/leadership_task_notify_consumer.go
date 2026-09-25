@@ -172,6 +172,12 @@ func (c *LeadershipTaskNotifyConsumer) notifyStatusChanged(ctx context.Context, 
 	// The key carries the event id: a task can be moved, reopened and moved again, and each
 	// change is its own news.
 	eventKey := EventLeadershipTaskStatusChanged + ":" + p.TaskID + ":" + eventID
+	// WHO made the change, named from changed_by_user_id -- never from the recipient's opposite
+	// party. Since 2026-09-18 a leadership monitor (the CEO) may move any task; reading the name
+	// off the party position then told the raiser the assignee did it and the assignee the raiser
+	// did (2026-09-25). A monitor's name is not on the payload, so it reads neutrally, exactly as
+	// the note and edit pushes read it (authorName).
+	actor := nameOrFallback(authorName(p), "Someone on the leadership team")
 
 	// UP to the raiser when someone else moved the task.
 	if raiser := strings.TrimSpace(p.RaisedByUserID); raiser != "" && raiser != changedBy {
@@ -186,9 +192,8 @@ func (c *LeadershipTaskNotifyConsumer) notifyStatusChanged(ctx context.Context, 
 					"tenant_id", tenantID, "task_id", p.TaskID, "raised_by_user_id", raiser, "status", p.Status)
 			}
 		} else {
-			assignee := nameOrFallback(p.AssigneeName, "The leadership desk")
-			title := fmt.Sprintf("%s marked %s %s", assignee, number, chip)
-			body := fmt.Sprintf("Task %s, %s, was marked %s by %s on %s.", number, leadershipTaskTitle(p.Title), chip, assignee, when)
+			title := fmt.Sprintf("%s marked %s %s", actor, number, chip)
+			body := fmt.Sprintf("Task %s, %s, was marked %s by %s on %s.", number, leadershipTaskTitle(p.Title), chip, actor, when)
 			if _, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 				TenantID:         tenantID,
 				CalendarEventID:  "leadership_task:" + p.TaskID,
@@ -223,9 +228,8 @@ func (c *LeadershipTaskNotifyConsumer) notifyStatusChanged(ctx context.Context, 
 			}
 			return nil
 		}
-		raiser := nameOrFallback(p.RaisedByName, "A director")
-		title := fmt.Sprintf("%s marked %s %s", raiser, number, chip)
-		body := fmt.Sprintf("Task %s, %s, was marked %s by %s on %s.", number, leadershipTaskTitle(p.Title), chip, raiser, when)
+		title := fmt.Sprintf("%s marked %s %s", actor, number, chip)
+		body := fmt.Sprintf("Task %s, %s, was marked %s by %s on %s.", number, leadershipTaskTitle(p.Title), chip, actor, when)
 		if _, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 			TenantID:         tenantID,
 			CalendarEventID:  "leadership_task:" + p.TaskID,

@@ -94,7 +94,7 @@ interface LeadershipTasksRepository {
     fun observeTaskDetail(taskId: String): Flow<LeadershipTaskDto?>
 
     /** Network -> Room detail refresh. Non-blocking contract: a failure leaves the cache serving. */
-    suspend fun refreshTaskDetail(taskId: String)
+    suspend fun refreshTaskDetail(taskId: String): Boolean
 
     /** The CXOs a director may raise a task for (online). */
     // offline-first-guard:ignore: small permission-scoped compose-form vocabulary; no screen list renders from this one-shot call
@@ -195,17 +195,23 @@ class DefaultLeadershipTasksRepository(
                     now = clock(),
                     quarantine = { database.leadershipTaskDetailCacheDao().delete(it) },
                 ).data
+                    // No detail cached yet (first open with the server down): the list row IS the
+                    // same DTO, so render it rather than an endless spinner. The next detail
+                    // refresh replaces it with the full detail.
+                    ?: cachedListRow(taskId)
             }
             .flowOn(Dispatchers.Default)
 
-    override suspend fun refreshTaskDetail(taskId: String) {
+    override suspend fun refreshTaskDetail(taskId: String): Boolean { // offline-first-guard:ignore: writes Room through persistServerDetail (detail cache + list rows)
         // exception:exempt expected refresh failure (offline/timeout/5xx); the cache keeps serving
-        // and the next successful open/refresh repairs it — the non-blocking refresh contract.
-        runCatching { persistServerDetail(api.getLeadershipTask(taskId)) }
+        // and the next successful open/refresh repairs it — the non-blocking refresh contract. The
+        // outcome is RETURNED so the screen can tell "still loading" from "nothing to show".
+        return runCatching { persistServerDetail(api.getLeadershipTask(taskId)) }
             .onFailure {
                 if (it is CancellationException) throw it
                 android.util.Log.w(LOG_TAG, "leadership_task_detail_refresh_failed task=$taskId", it)
             }
+            .isSuccess
     }
 
     // offline-first-guard:ignore: small permission-scoped compose-form vocabulary; no screen list renders from this one-shot call
@@ -368,6 +374,14 @@ class DefaultLeadershipTasksRepository(
 
     private fun scopeKey(scope: String, filter: String): String =
         cacheKey(LEADERSHIP_TASK_CACHE_SHAPE, "leadership-tasks", scope, filter, LEADERSHIP_TASK_PAGE_SIZE.toString())
+
+    /** The newest cached LIST copy of [taskId], decoded; null when no list page ever held it. */
+    private suspend fun cachedListRow(taskId: String): LeadershipTaskDto? {
+        val row = database.leadershipTaskItemDao().rowsForTask(taskId).maxByOrNull { it.updatedAt } ?: return null
+        // exception:exempt an undecodable fallback row is simply not used; the detail cache and
+        // the next refresh remain the source, and the list mediator overwrites the row
+        return runCatching { json.decodeFromString<LeadershipTaskDto>(row.dtoJson) }.getOrNull()
+    }
 
     private companion object {
         const val LOG_TAG = "GoatOsLeadershipTasks"

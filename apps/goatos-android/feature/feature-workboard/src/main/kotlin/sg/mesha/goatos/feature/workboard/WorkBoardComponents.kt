@@ -207,6 +207,7 @@ internal fun moduleLabel(module: String): String = when (module) {
     "procurement" -> stringResource(R.string.work_board_module_procurement)
     "verification" -> stringResource(R.string.work_board_module_verification)
     "tasks" -> stringResource(R.string.work_board_module_tasks)
+    "sales" -> stringResource(R.string.work_board_module_sales)
     "" -> stringResource(R.string.work_board_filter_all)
     else -> module
 }
@@ -249,5 +250,26 @@ internal fun moduleIcon(module: String): ImageVector = when (module) {
     "procurement" -> MeshaIcons.Store
     "verification" -> MeshaIcons.CheckCircle
     "tasks" -> MeshaIcons.Module
+    "sales" -> MeshaIcons.Sale
     else -> MeshaIcons.Module
+}
+
+/** "17 in review · 6 not started": the row's pending work broken down, empty buckets left out. */
+@Composable
+internal fun pendingSplitLine(row: WorkBoardRowUi): String = listOfNotNull(
+    if (row.inReview > 0) stringResource(R.string.work_board_split_in_review_fmt, row.inReview) else null,
+    if (row.started > 0) stringResource(R.string.work_board_split_started_fmt, row.started) else null,
+    if (row.notStarted > 0) stringResource(R.string.work_board_split_not_started_fmt, row.notStarted) else null,
+).joinToString(" · ")
+
+/** Farm label for a subtask step state (the closed seven-value vocabulary). */
+@Composable
+internal fun stepStateLabel(state: String): String = when (state) {
+    "done" -> stringResource(R.string.work_board_step_done)
+    "in_review" -> stringResource(R.string.work_board_step_in_review)
+    "in_progress" -> stringResource(R.string.work_board_step_in_progress)
+    "rework" -> stringResource(R.string.work_board_step_rework)
+    "needs_attention" -> stringResource(R.string.work_board_step_needs_attention)
+    "locked" -> stringResource(R.string.work_board_step_locked)
+    else -> stringResource(R.string.work_board_step_todo)
 }

@@ -619,6 +619,7 @@ run_backend() {
   step "agent: api-latency-policy" make api-latency-policy-test
   step "scale-guard"              make scale-guard
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
+  step "scale-guard-plan-proof"   make scale-guard-plan-proof
   step "clinical-defer-guard"     make clinical-defer-guard
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
   step "ceo-ai-schema-card-guard" make ceo-ai-schema-card-guard
@@ -779,6 +780,7 @@ run_admin_web() {
   step "admin-web proof media egress" make admin-web-proof-media-egress-guard
   step "admin-web phone viewport"  make admin-web-phone-viewport-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard
+  step "admin-web-heavy-client-imports-guard" make admin-web-heavy-client-imports-guard
   step "admin-web server/client values" make admin-web-server-client-values-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
   step "admin-web interaction patterns" make admin-web-interaction-patterns-guard

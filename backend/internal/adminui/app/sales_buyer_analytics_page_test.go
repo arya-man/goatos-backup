@@ -85,8 +85,8 @@ func TestSalesBuyerAnalyticsPageContract(t *testing.T) {
 	for _, g := range page.OptionGroups {
 		groups[g.ID] = len(g.Options)
 	}
-	if groups["sales_farms"] != 3 {
-		t.Fatalf("sales_farms options = %d, want 3", groups["sales_farms"])
+	if groups["sales_farms"] != 2 {
+		t.Fatalf("sales_farms options = %d, want 2 (All farms + the one fake park)", groups["sales_farms"])
 	}
 
 	found := false

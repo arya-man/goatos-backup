@@ -704,8 +704,39 @@
       ]
     },
     {
+      "eventType": "counts.birth.rejected",
+      "producer": "counts birth approval rejection (maintainer decision 2026-09-25, superseding 'work remains available')",
+      "producerFiles": [
+        "backend/internal/counts/domain/types.go",
+        "backend/internal/counts/adapters/postgres/approval_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "tasks",
+          "file": "backend/internal/tasks/app/event_handlers.go",
+          "notes": "CountsBirthRejectedHandler cancels the rejected litter's birth_kid workflows and its shared birth_mother track (open steps canceled, staged proof refs cleared, completed steps kept as history) and withdraws the still-pending workflow_birth_action verifier items through the tasks verification bridge (verification.WithdrawItemsBySource). Idempotent: a redelivery changes nothing and retries a failed withdraw."
+        },
+        {
+          "module": "counts",
+          "file": "backend/internal/counts/app/birth_capture_verification.go",
+          "notes": "BirthRejectedCaptureWithdrawHandler withdraws the report's still-pending birth_capture items (ref_id birth_event_id) through countsbridge; a verdict already cast stays history."
+        }
+      ],
+      "owningDoc": "docs/decisions/birth-death-workflows.md",
+      "e2eProof": [
+        "backend/tests/e2e/story_birth_rejected_retires_kid_test.go",
+        "backend/internal/eventwiring/workflows_test.go"
+      ],
+      "durableBusRegistration": "backend/internal/eventwiring/workflows.go (RegisterWorkflowConsumers + RegisterCountsCaptureConsumers) is called by every domain-event bus composition: bootstrap/api.go, cmd/outbox-relay, cmd/domain-event-consumer, internal/domainconsumer/wiring and internal/kernelstages.",
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
       "eventType": "goat.exited",
-      "producer": "identity goat exit",
+      "producer": "identity goat exit (death, sale, cull, transfer, loss, and -- since 2026-09-25 -- a rejected birth's kid retired through RetireGoatRecordedInErrorInTx with lifecycle inactive / exit_reason recorded_in_error)",
       "producerFiles": [
         "backend/internal/identity/adapters/postgres/goat_lifecycle.go"
       ],
@@ -1308,9 +1339,10 @@
     },
     {
       "eventType": "vaccination.roster.changed",
-      "producer": "vaccination-execution operator assignment config write (default-operator change), durable outbox enqueue",
+      "producer": "vaccination-execution operator assignment config write (default-operator change) and operator shift set/clear (PUT/DELETE /vaccination/operator-shifts), durable outbox enqueue in the write transaction",
       "producerFiles": [
-        "backend/internal/vaccinationexecution/adapters/postgres/repository.go"
+        "backend/internal/vaccinationexecution/adapters/postgres/repository.go",
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_shift_repository.go"
       ],
       "consumers": [
         {
@@ -1322,7 +1354,8 @@
       "e2eProof": [
         "backend/internal/obligation/app/operator_config_replan_test.go",
         "backend/internal/obligation/adapters/postgres/operator_config_replan_integration_test.go",
-        "backend/internal/vaccinationexecution/adapters/postgres/operator_config_cascade_outbox_test.go"
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_config_cascade_outbox_test.go",
+        "backend/internal/vaccinationexecution/adapters/postgres/operator_shift_integration_test.go"
       ],
       "surfaces": [
         "backend",

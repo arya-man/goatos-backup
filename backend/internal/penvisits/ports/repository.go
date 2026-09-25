@@ -110,11 +110,11 @@ type Repository interface {
 	ForPens(ctx context.Context, tenantID, sourceKind string, pens []domain.PenRef) (map[string]domain.Task, error)
 	// OpenCount answers the badge for one person: visits still awaiting a recording in the
 	// parks they are configured to visit.
-	OpenCount(ctx context.Context, tenantID, userID string) (int, error)
+	OpenCount(ctx context.Context, tenantID, userID, today string) (int, error)
 	// OpenReasons is the same set, one reasons array per visit, so the badge can be split
 	// across the parent modules' tabs (a visit sits on the tab of its first care reason, or
 	// on vaccination when it has none). Bounded by the visits one person still owes.
-	OpenReasons(ctx context.Context, tenantID, userID string) ([][]string, error)
+	OpenReasons(ctx context.Context, tenantID, userID, today string) ([][]string, error)
 	// Materialize writes one task per pen that had preventive-care work submitted on sourceDate,
 	// due on the later of sourceDate+1 and today, for every park with a configured assignee. It
 	// is idempotent on the natural key. It returns the digests of tasks CREATED by this call so

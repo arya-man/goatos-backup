@@ -37,6 +37,7 @@ func TestHealthAnalyticsDeathWithTwoOpenCasesCountsOneToManyOnce(t *testing.T) {
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
+	routeAdultAnimals(t, ctx, pool)
 
 	repo := NewRepository(pool, 30*time.Second)
 
@@ -164,6 +165,7 @@ func TestHealthAnalyticsAdherenceStatusBucketsAreDisjointAndComplete(t *testing.
 	defer pool.Close()
 	seedHealthScope(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
+	routeAdultAnimals(t, ctx, pool)
 
 	opened := diagnoseFever(t, ctx, pool, healthGoat, "obs-status-matrix")
 

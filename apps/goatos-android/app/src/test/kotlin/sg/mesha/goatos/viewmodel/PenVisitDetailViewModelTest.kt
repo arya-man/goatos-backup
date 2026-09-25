@@ -346,4 +346,24 @@ class PenVisitDetailViewModelTest {
         startedAtMs = 1_000L,
         endedAtMs = 9_000L,
     )
+
+    // ---- Offline, found on the phone 2026-09-25 (server stopped, nothing cached) ------------
+
+    @Test
+    fun `with no cached visit and a refresh that never lands the spinner stops and says so`() = runTest(dispatcher) {
+        val repository = FakePenVisitsRepository(initialDetail = null)
+        val captureSource = FakeProofCaptureSource()
+        captureSource.queue(video())
+        val vm = viewModel(repository, captureSource = captureSource)
+        advanceUntilIdle()
+
+        assertFalse("no endless spinner", vm.state.value.loading)
+        assertTrue("the screen offers Try again", vm.state.value.unavailable)
+
+        // Record never silently no-ops: the camera stays shut and the tap is answered.
+        vm.onEvent(PenVisitDetailEvent.RecordVideo)
+        advanceUntilIdle()
+        assertEquals(0, captureSource.captureCount)
+        assertTrue(vm.state.value.message?.isNotBlank() == true)
+    }
 }

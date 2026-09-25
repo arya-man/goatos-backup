@@ -93,6 +93,37 @@ var growthStageSex = map[string]string{
 	"Pregnant":     "female",
 }
 
+// ShiftTypeLabel is the farm word for a shift type -- the same words the phone's raise form offers
+// (Growth, Health, Breeding, Delivery, Spacing, Flushing, Normal). An unknown key returns "" so a
+// raw category code never reaches a screen.
+func ShiftTypeLabel(category string) string {
+	switch strings.ToLower(strings.TrimSpace(category)) {
+	case ShiftTypeHealth:
+		return "Health"
+	case ShiftTypeGrowth:
+		return "Growth"
+	case ShiftTypeBreeding:
+		return "Breeding"
+	case ShiftTypeDelivery:
+		return "Delivery"
+	case ShiftTypeSpacing:
+		return "Spacing"
+	case ShiftTypeFlushing:
+		return "Flushing"
+	case ShiftTypeNormal:
+		return "Normal"
+	}
+	return ""
+}
+
+// ShiftTypeMoveLabel is ShiftTypeLabel as a clause on an approval line: "Normal move".
+func ShiftTypeMoveLabel(category string) string {
+	if label := ShiftTypeLabel(category); label != "" {
+		return label + " move"
+	}
+	return ""
+}
+
 // FlushingShiftStage is the tag a flushing movement stamps; same constant the stage-resolution
 // rules already carry (FlushingStageName) -- aliased here so this file reads self-contained.
 const FlushingShiftStage = FlushingStageName

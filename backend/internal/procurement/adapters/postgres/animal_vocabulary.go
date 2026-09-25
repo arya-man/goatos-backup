@@ -1,0 +1,18 @@
+package postgres
+
+import (
+	"context"
+
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
+	"github.com/vgoats/goatos/backend/internal/procurement/ports"
+)
+
+var _ ports.AnimalVocabularySource = (*Repository)(nil)
+
+// AnimalVocabulary returns the tenant's active species and genders, so a species added on
+// Configuration > Items & settings can be put on a procurement load at once.
+func (r *Repository) AnimalVocabulary(ctx context.Context, tenantID string) (animalvocab.Vocabulary, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	return animalvocab.Load(ctx, r.pool, tenantID)
+}

@@ -233,7 +233,7 @@ func TestAskRefusesForeignTenantFacts(t *testing.T) {
 	cache := &countingCache{m: map[string]domain.Answer{}}
 	audit := &fakeAudit{}
 	tel := &fakeSQLTelemetry{}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics, Cache: cache, Audit: audit, Telemetry: tel})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics, Cache: cache, Audit: audit, Telemetry: tel})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "plot overdue by shed"})
 	if err != nil {
 		t.Fatal(err)

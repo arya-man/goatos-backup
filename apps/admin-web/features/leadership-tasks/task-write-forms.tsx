@@ -185,6 +185,7 @@ export function TaskDeadlineFields({
   defaultLocal,
   min,
   required,
+  missing = false,
   label,
   hint,
 }: {
@@ -194,6 +195,12 @@ export function TaskDeadlineFields({
   /** Earliest selectable day, `YYYY-MM-DD`. */
   min?: string;
   required: boolean;
+  /**
+   * The form found the day, hour or minute blank on Send. One sentence under the field says so
+   * (2026-09-25): the browser's own bubble fired on the HOUR box with "Please select an item in
+   * the list", and nothing told the raiser the DAY was missing.
+   */
+  missing?: boolean;
   label: string;
   hint: string;
 }) {
@@ -245,7 +252,10 @@ export function TaskDeadlineFields({
             name="deadline_date"
             label={text("deadline.day", "Choose a day")}
             min={min}
-            required={required}
+            // The New task form checks day, hour and minute itself and says so in ONE sentence
+            // (`missing`); the picker's own required check opened the calendar with a second red
+            // line ("Pick a day on or after ..."), so it is not asked to.
+            required={false}
             defaultValue={initial.date}
             previousMonthLabel={text("date.previous_month", "Previous month")}
             nextMonthLabel={text("date.next_month", "Next month")}
@@ -256,7 +266,8 @@ export function TaskDeadlineFields({
           <span className="lt-fld-sub">{text("deadline.hour", "Hour")}</span>
           <select
             name="deadline_hour"
-            required={required}
+            aria-required={required}
+            aria-invalid={missing && !hour ? true : undefined}
             value={hour}
             aria-describedby={hintId}
             onChange={(event) => setHour(event.target.value)}
@@ -273,7 +284,8 @@ export function TaskDeadlineFields({
           <span className="lt-fld-sub">{text("deadline.minute", "Minute")}</span>
           <select
             name="deadline_minute"
-            required={required}
+            aria-required={required}
+            aria-invalid={missing && !minute ? true : undefined}
             value={minute}
             aria-describedby={hintId}
             onChange={(event) => setMinute(event.target.value)}
@@ -287,6 +299,11 @@ export function TaskDeadlineFields({
           </select>
         </label>
       </div>
+      {missing ? (
+        <small className="lt-fnote" role="alert" data-testid="lt-deadline-missing">
+          {text("feedback.missing_deadline", "Choose the deadline day and time.")}
+        </small>
+      ) : null}
       <small id={hintId} className="lt-assignee-hint lt-deadline-hint">
         <CalendarClock className="ic" aria-hidden="true" />
         <span>{hint}</span>

@@ -4235,11 +4235,19 @@ fun AppNavHost(
                     rows.refresh()
                 }
             }
-            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
-            val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
-                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            // The header spinner and its "Updated / Couldn't refresh" line follow the pager's own
+            // REFRESH state, so they turn while the page is really loading and never read "Up to
+            // date" over a refresh that failed.
+            val refreshState = rows.loadState.refresh
+            LaunchedEffect(refreshState) {
+                when (refreshState) {
+                    is LoadState.Loading -> vm.onRowsLoading()
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+                }
             }
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
             LeadershipTaskListScreen(
                 state = state,
                 rows = rows,
@@ -4368,11 +4376,19 @@ fun AppNavHost(
             LaunchedEffect(vm) { vm.bind(PEN_VISITS_TAB_TITLE) }
             val state by vm.state.collectAsStateWithLifecycle()
             val rows = vm.rows.collectAsLazyPagingItems()
-            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
-            val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
-                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            // The header spinner and its "Updated / Couldn't refresh" line follow the pager's own
+            // REFRESH state, so they turn while the page is really loading and never read "Up to
+            // date" over a refresh that failed.
+            val refreshState = rows.loadState.refresh
+            LaunchedEffect(refreshState) {
+                when (refreshState) {
+                    is LoadState.Loading -> vm.onRowsLoading()
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+                }
             }
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
             PenVisitListScreen(
                 state = state,
                 rows = rows,
@@ -4539,6 +4555,7 @@ fun AppNavHost(
                                 navController.navigate(openRoute) { launchSingleTop = true }
                             }
                         }
+                        WorkBoardDetailEvent.Refresh, WorkBoardDetailEvent.LoadMoreSubtasks -> vm.onEvent(event)
                     }
                 },
             )

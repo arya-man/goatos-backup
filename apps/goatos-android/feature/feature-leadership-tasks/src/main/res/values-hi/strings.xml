@@ -41,4 +41,8 @@
     <string name="leadership_tasks_deadline_ok">ठीक है</string>
     <string name="leadership_tasks_deadline_cancel">रद्द करें</string>
     <string name="leadership_tasks_deadline_prefix">समय सीमा</string>
+    <string name="leadership_tasks_refresh_failed">ताज़ा नहीं हो सका · सहेजे गए काम दिख रहे हैं</string>
+    <string name="leadership_tasks_detail_unavailable">यह काम लोड नहीं हो सका। कनेक्शन देखें और फिर कोशिश करें।</string>
+    <string name="leadership_tasks_list_unavailable">आपके काम लोड नहीं हो सके। कनेक्शन देखें और फिर कोशिश करें।</string>
+    <string name="leadership_tasks_action_try_again">फिर कोशिश करें</string>
 </resources>

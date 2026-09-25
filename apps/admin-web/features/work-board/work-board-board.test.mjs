@@ -49,7 +49,11 @@ test("work-board page requests the optimized vocabulary shape only for module fi
   assert.match(apiSource, /client\.request<WorkBoardPageData>\("\/work-board\/page"/);
   assert.match(apiSource, /page_lane: page\.lanes \? \(page\.lanes\.length \? page\.lanes\.join\(","\) : "__none__"\) : undefined/);
   assert.match(apiSource, /include_vocabulary: scope\.modules && scope\.modules\.length \? "1" : undefined/);
-  assert.match(pageSource, /const pageResults = noneSelected\s*\n\s*\? \[\]\s*\n\s*: await runBounded/);
+  // "Clear all" still reads a SUMMARY-ONLY page per park (no lanes -> page_lane=__none__): the
+  // Module menu lists only modules with work and needs the counts to know which.
+  assert.match(pageSource, /const pageResults = await runBounded\(pagePlans/);
+  assert.match(pageSource, /if \(!noneSelected\) \{\s*\n\s*for \(const lane of laneKeys\)/);
+  assert.match(pageSource, /modulesWithWork\(/);
   assert.match(pageSource, /if \(!noneSelected\) \{\s*\n\s*pagePlans\.forEach/);
   assert.match(pageSource, /result\.data\.vocabulary_summary \?\? result\.data\.summary/);
   assert.match(pageSource, /const vocabularySummary = mergeSummaries\(okVocabulary\) \?\? summary/);

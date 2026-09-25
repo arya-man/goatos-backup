@@ -124,6 +124,9 @@ func newAsk(t *testing.T, d Deps) *Assistant {
 	if d.Registry == nil {
 		d.Registry = NewRegistry(nil, nil, nil)
 	}
+	if d.Parks == nil {
+		d.Parks = testParks{}
+	}
 	return NewAssistant(Config{}, d)
 }
 
@@ -149,7 +152,7 @@ func TestCubeFirstRoutingForKPI(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "vaccination_overdue", Route: domain.RouteSQL},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "which sheds are overdue"})
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +176,7 @@ func TestOperationalQuestionRoutesToAPINotCube(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "feed_direction_preview", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "feed today"})
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +201,7 @@ func TestModelPlannedMissedVaccinationAPIReadBecomesAggregateMissedMetric(t *tes
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "vaccination_shed_summary", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals missed vaccine"})
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +232,7 @@ func TestAllParksVaccinationQuestionDropsInjectedPageScope(t *testing.T) {
 			"shed_id": "00000000-0000-4000-8000-000000004001",
 		}},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals missed vaccination across all parks"})
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +258,7 @@ func TestModelPlannedVaccinationGraphAPIReadCarriesShedSeriesIntent(t *testing.T
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "vaccination_shed_summary", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "show vaccination overdue by shed as graph"})
 	if err != nil {
 		t.Fatal(err)
@@ -286,7 +289,7 @@ func TestMultiToolDecompositionSynthesizesOneAnswer(t *testing.T) {
 		{ID: "0", ToolName: "active_animals", Route: domain.RouteCube},
 		{ID: "1", ToolName: "admin_roster_coverage", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "animals and staffing gaps"})
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +316,7 @@ func TestNaturalActiveAnimalQuestionUsesLiveSQLFallbackForCPT(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals present in cpt"})
 	if err != nil {
@@ -378,7 +381,7 @@ func TestNaturalFarmBornQuestionUsesOriginAndParkScope(t *testing.T) {
 		Facts: []domain.Fact{{TenantID: "t1", Label: "Farm-born animals", Value: "42", Scope: "goat"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true}, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{byModel: true}, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals are farm born in cbe"})
 	if err != nil {
@@ -410,14 +413,15 @@ func TestNaturalOwnFarmsQuestionDefaultsToKnownParks(t *testing.T) {
 		},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{byModel: true}, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{byModel: true}, Registry: reg})
 
 	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals are from our own farms"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// "Our own farms" is EVERY active park, the third one included -- not a constant CBE/CPT pair.
 	for _, want := range []string{
-		"park_id IN ('00000000-0000-4000-8000-000000003002', '00000000-0000-4000-8000-000000003001')",
+		"park_id IN ('00000000-0000-4000-8000-000000003002', '00000000-0000-4000-8000-000000003001', '00000000-0000-4000-8000-000000003099')",
 		"origin_type = 'birth'",
 		"park_label AS scope",
 	} {
@@ -438,7 +442,7 @@ func TestNaturalActiveAnimalQuestionToleratesTyposAndCBEAbbrev(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "what abt cbe goats sheep split"})
 	if err != nil {
@@ -467,7 +471,7 @@ func TestNaturalActiveAnimalFollowupUsesRememberedParkForBreed(t *testing.T) {
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
 	mem := &fakeMemory{recall: []domain.ResolvedEntities{{ParkLabel: "CPT"}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Memory: mem})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Memory: mem})
 
 	ans, err := a.Ask(context.Background(), domain.Question{
 		Actor:          leadershipActor(),
@@ -499,7 +503,7 @@ func TestNaturalActiveAnimalGraphByPenUsesSQLAndReturnsChart(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "mesha_count_by_scope", Route: domain.RouteToolbox},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "make graph of animals present in cpt by pen"})
 	if err != nil {
@@ -528,7 +532,7 @@ func TestNaturalWeighingQuestionToleratesAvgShorthand(t *testing.T) {
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{Refusal: "wrong fallback"}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "which pens have lowest avg weight?"})
 	if err != nil {
@@ -558,7 +562,7 @@ func TestNaturalWeighingCountQuestionsUseDashboardDenominatorTerms(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Animals weighed", Value: "1", Scope: "Coimbatore"}}}}
 			reg := NewRegistry(nil, nil, sqlFB)
-			a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+			a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{}, Registry: reg})
 			_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: tc.text})
 			if err != nil {
 				t.Fatal(err)
@@ -598,7 +602,7 @@ func TestNaturalMortalityQuestionsUseMortalityBase(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Deaths", Value: "1", Scope: "Coimbatore"}}}}
 			reg := NewRegistry(nil, nil, sqlFB)
-			a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+			a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{}, Registry: reg})
 			_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: tc.text, AsOf: time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)})
 			if err != nil {
 				t.Fatal(err)
@@ -618,7 +622,7 @@ func TestNaturalFeedQuestionUsesAsOfDate(t *testing.T) {
 		Facts: []domain.Fact{{TenantID: "t1", Label: "Feed variance kg", Value: "-42", Scope: "Godel 2"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{}, Registry: reg})
 
 	asOf := time.Date(2026, 9, 18, 9, 0, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "feed pending today for cpt", AsOf: asOf})
@@ -644,7 +648,7 @@ func TestNaturalSQLQuestionRemembersScopedParkForFollowup(t *testing.T) {
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
 	mem := &fakeMemory{}
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg, Memory: mem})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{}, Registry: reg, Memory: mem})
 
 	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), ConversationID: "c1", Text: "feed pending today for cpt"})
 	if err != nil {
@@ -660,7 +664,7 @@ func TestNaturalHealthOneToManyPageBoundaryDateShiftParkScope(t *testing.T) {
 		Facts: []domain.Fact{{TenantID: "t1", Label: "Vendor A", Value: "2", Scope: "Load 12345678"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{}, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "source entry health issues in cpt"})
 	if err != nil {
@@ -716,7 +720,7 @@ func TestModelCannotRequestTrustedSQLThroughParams(t *testing.T) {
 			"trusted_sql": "server_natural",
 		},
 	}}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "model drafted sql"})
 	if err != nil {
@@ -740,7 +744,7 @@ func TestGenericHealthQuestionDoesNotUseSourceEntrySQL(t *testing.T) {
 		Route:    domain.RouteAPI,
 		ToolName: "mesha_health_today",
 	}}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "health blockers in cpt"})
 	if err != nil {
@@ -759,7 +763,7 @@ func TestNaturalAdultGoatCountDoesNotRouteToHealth(t *testing.T) {
 		Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "185", Scope: "goat"}},
 	}}
 	reg := NewRegistry(nil, nil, sqlFB)
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{}, Registry: reg})
 
 	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many adult goats in cpt"})
 	if err != nil {
@@ -787,7 +791,7 @@ func TestNaturalSalesQuestionWinsOverAnimalCountWords(t *testing.T) {
 	}
 	reg := NewRegistry(nil, nil, &fakeSQLFallback{})
 	reg.Register(sales)
-	a := NewAssistant(Config{}, Deps{Provider: &fakeProvider{}, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{}, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "sales this month how many animals sold?"})
 	if err != nil {
@@ -802,7 +806,7 @@ func TestNaturalSalesQuestionWinsOverAnimalCountWords(t *testing.T) {
 }
 
 func TestCacheKeyIncludesConversation(t *testing.T) {
-	a := NewAssistant(Config{}, Deps{Registry: NewRegistry(nil, nil, nil)})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Registry: NewRegistry(nil, nil, nil)})
 	asOf := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
 	q1 := domain.Question{Actor: leadershipActor(), ConversationID: "cpt-thread", Text: "and their breed?", AsOf: asOf}
 	q2 := domain.Question{Actor: leadershipActor(), ConversationID: "cbe-thread", Text: "and their breed?", AsOf: asOf}
@@ -821,7 +825,7 @@ func TestMaxStepsProducesPartial(t *testing.T) {
 		subs = append(subs, domain.SubQuestion{ID: string(rune('0' + i)), ToolName: "counts_breakdown", Route: domain.RouteAPI})
 	}
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: subs}}
-	a := NewAssistant(Config{MaxSteps: 2}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{MaxSteps: 2}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "big"})
 	if err != nil {
 		t.Fatal(err)
@@ -843,7 +847,7 @@ func TestPlannerFailureFallsBackToDeterministic(t *testing.T) {
 	fb := &fakeProvider{byModel: false, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: primary, Fallback: fb, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: primary, Fallback: fb, Registry: reg})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "count by shed"})
 	if err != nil {
 		t.Fatal(err)
@@ -862,7 +866,7 @@ func TestRuntimeReviewCatchesHallucinatedNumber(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many"})
 	if err != nil {
 		t.Fatal(err)
@@ -910,7 +914,7 @@ func TestAuditRecordedWithRouteField(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "active_animals", Route: domain.RouteCube},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics, Audit: audit})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics, Audit: audit})
 	if _, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "total animals"}); err != nil {
 		t.Fatal(err)
 	}
@@ -943,7 +947,7 @@ func TestAuditSinkErrorIsLoggedNotSwallowed(t *testing.T) {
 	}}}
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelError}))
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics,
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics,
 		Audit: &failingAudit{err: errors.New("audit insert: connection refused")}, Logger: logger})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "total animals"})
 	if err != nil {
@@ -962,7 +966,7 @@ func TestAuditSinkErrorIsLoggedNotSwallowed(t *testing.T) {
 	logs.Reset()
 	foreign := &fakeMetrics{specs: []ports.MetricSpec{{Name: "active_animals"}},
 		result: domain.ToolResult{Surface: "Cube · active_animals", Facts: []domain.Fact{{TenantID: "t-other", Label: "n", Value: "1"}}}}
-	a = NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(foreign, nil, nil), Metrics: foreign,
+	a = NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(foreign, nil, nil), Metrics: foreign,
 		Audit: &failingAudit{err: errors.New("audit insert: connection refused")}, Logger: logger})
 	ans, err = a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "total animals"})
 	if err != nil || ans.Mode != domain.ModeRefused {
@@ -983,7 +987,7 @@ func TestMemoryRememberedForFollowups(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI, Params: map[string]any{"park_label": "Castro 1"}},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Memory: mem, Convo: convo})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Memory: mem, Convo: convo})
 	if _, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), ConversationID: "c1", Text: "count in Castro 1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -999,7 +1003,7 @@ func TestDraftMetricLabelled(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "feed_cost", Route: domain.RouteCube},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "feed cost"})
 	if err != nil {
 		t.Fatal(err)
@@ -1017,7 +1021,7 @@ func TestCacheHitReturnsStoredAnswer(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "active_animals", Route: domain.RouteCube},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics, Cache: cache})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics, Cache: cache})
 	q := domain.Question{Actor: leadershipActor(), Text: "total animals", AsOf: time.Now()}
 	if _, err := a.Ask(context.Background(), q); err != nil {
 		t.Fatal(err)
@@ -1053,3 +1057,21 @@ type countingCache struct {
 
 func (c *countingCache) Get(k string) (domain.Answer, bool) { a, ok := c.m[k]; return a, ok }
 func (c *countingCache) Set(k string, a domain.Answer)      { c.m[k] = a }
+
+// A park added on Configuration > Items & settings is understood by name and by code exactly like
+// the first two: the planner matches against the tenant's live park list, not a constant.
+func TestNaturalQuestionNamingANewParkIsScopedToIt(t *testing.T) {
+	for _, text := range []string{"how many active animals in Hosur", "active animals at HSR"} {
+		sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "40", Scope: "Hosur"}}}}
+		a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: &fakeProvider{byModel: true}, Registry: NewRegistry(nil, nil, sqlFB)})
+		if _, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: text}); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(sqlFB.lastSQL, "'00000000-0000-4000-8000-000000003099'") {
+			t.Fatalf("%q must be scoped to the new park, SQL: %s", text, sqlFB.lastSQL)
+		}
+		if strings.Contains(sqlFB.lastSQL, "3001'") || strings.Contains(sqlFB.lastSQL, "3002'") {
+			t.Fatalf("%q must not include the other parks, SQL: %s", text, sqlFB.lastSQL)
+		}
+	}
+}

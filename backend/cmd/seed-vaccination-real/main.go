@@ -1058,7 +1058,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	st.Protocols = 1
 
 	// 4. Animals: import each goat with shed_id + park_id (the read model groups on these).
-	breedIDs, err := ensureSeedBreeds(ctx, tx, goats)
+	breedIDs, err := ensureSeedBreeds(ctx, tx, tenantID, goats)
 	if err != nil {
 		return st, err
 	}
@@ -3314,7 +3314,7 @@ func seedBreedKey(species, breed string) string {
 // before goats are inserted. The text column remains for display/backward
 // compatibility, but every reviewed source breed must also resolve through the
 // canonical breeds table so sheep cannot inherit a goat-only NULL breed_id.
-func ensureSeedBreeds(ctx context.Context, tx pgx.Tx, goats []goatRecord) (map[string]string, error) {
+func ensureSeedBreeds(ctx context.Context, tx pgx.Tx, tenantID string, goats []goatRecord) (map[string]string, error) {
 	ids := make(map[string]string)
 	for _, g := range goats {
 		species := deriveSeedSpecies(g.Species, g.Breed)
@@ -3325,10 +3325,10 @@ func ensureSeedBreeds(ctx context.Context, tx pgx.Tx, goats []goatRecord) (map[s
 		}
 		var breedID string
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO breeds (species, canonical_name, status, created_at, updated_at)
-			VALUES ($1,$2,'active',now(),now())
-			ON CONFLICT (species, canonical_name) DO UPDATE SET status='active', updated_at=now()
-			RETURNING breed_id`, species, breed).Scan(&breedID); err != nil {
+			INSERT INTO breeds (tenant_id, species, canonical_name, status, created_at, updated_at)
+			VALUES ($1,$2,$3,'active',now(),now())
+			ON CONFLICT (tenant_id, species, canonical_name) DO UPDATE SET status='active', updated_at=now()
+			RETURNING breed_id`, tenantID, species, breed).Scan(&breedID); err != nil {
 			return nil, fmt.Errorf("ensure source breed %s/%s: %w", species, breed, err)
 		}
 		ids[key] = breedID

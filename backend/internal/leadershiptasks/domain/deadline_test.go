@@ -167,3 +167,45 @@ func TestValidateDeadline(t *testing.T) {
 		t.Fatalf("future: %v", err)
 	}
 }
+
+// Maintainer 2026-09-25: a task FINISHED ON ITS DEADLINE DAY is on time and green, even when the
+// hour had passed; only a task finished on a LATER day is late (red). The sentence no longer
+// says "after the deadline", so a green badge never contradicts itself.
+func TestTaskFinishedOnTheDeadlineDayIsGreen(t *testing.T) {
+	raised, deadline := ist(2026, time.September, 10, 9, 0), ist(2026, time.September, 15, 9, 0)
+	later := ist(2026, time.October, 1, 9, 0)
+	onDay := withDeadline(StatusDone, raised, deadline)
+	afterHour := ist(2026, time.September, 15, 11, 43)
+	onDay.DoneAt = &afterHour
+	if got := DeadlineTone(onDay, later); got != DeadlineToneOK {
+		t.Fatalf("done on the deadline day after the hour: tone=%q want ok (green)", got)
+	}
+	if got := DeadlineStateLabel(onDay, later); got != "Finished on the day" {
+		t.Fatalf("state=%q want %q", got, "Finished on the day")
+	}
+	if got := DaysLeftLabel(onDay, later); got != "On the day" {
+		t.Fatalf("number label=%q", got)
+	}
+	nextDay := withDeadline(StatusDone, raised, deadline)
+	dayAfter := ist(2026, time.September, 16, 8, 0)
+	nextDay.DoneAt = &dayAfter
+	if got := DeadlineTone(nextDay, later); got != DeadlineToneOver {
+		t.Fatalf("done the day after: tone=%q want over (red)", got)
+	}
+}
+
+// Maintainer 2026-09-25: a CANCELLED task shows no countdown at all -- "5 days early" on a task
+// nobody finished reads as praise for work that was dropped.
+func TestCancelledTaskShowsNoCountdown(t *testing.T) {
+	c := withDeadline(StatusCancelled, ist(2026, time.September, 10, 9, 0), ist(2026, time.September, 30, 9, 0))
+	at := ist(2026, time.September, 25, 19, 0)
+	c.CancelledAt = &at
+	now := ist(2026, time.September, 26, 9, 0)
+	if ShowsCountdown(c) || DeadlineTone(c, now) != "" || DaysLeftLabel(c, now) != "" || DeadlineStateLabel(c, now) != "" {
+		t.Fatalf("a cancelled task must carry no countdown: shows=%v tone=%q number=%q state=%q",
+			ShowsCountdown(c), DeadlineTone(c, now), DaysLeftLabel(c, now), DeadlineStateLabel(c, now))
+	}
+	if !ShowsCountdown(withDeadline(StatusDone, ist(2026, time.September, 10, 9, 0), ist(2026, time.September, 30, 9, 0))) {
+		t.Fatal("a done task with a deadline still shows its countdown")
+	}
+}

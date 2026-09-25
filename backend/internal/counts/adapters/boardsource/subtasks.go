@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
@@ -25,11 +26,10 @@ import (
 
 // approvalSubtaskRankSQL is the SQL twin of domain.RankFor for a request, stated once.
 //
-//	rejected -> 0 needs attention
 //	pending  -> 1 to do (awaiting the approver pool)
+//	(a rejected request is off the board -- see approvals.go -- so it has no subtasks)
 //	approved -> 4 done
 const approvalSubtaskRankSQL = `CASE
-  WHEN a.status = 'rejected' THEN 0
   WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'rejected' THEN 0
   WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'authorized' THEN 2
   WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'pending_verification' THEN 3
@@ -52,7 +52,7 @@ LEFT JOIN shifting_events se ON se.tenant_id = a.tenant_id AND se.shifting_event
 LEFT JOIN goats g ON g.tenant_id = a.tenant_id AND g.goat_id = a.subject_goat_id
 WHERE a.tenant_id = $1::uuid
   AND a.approval_request_id = $5::uuid
-  AND a.status = ANY(ARRAY['pending','approved','rejected'])
+  AND a.status = ANY(ARRAY['pending','approved'])
   AND a.request_type = ANY(ARRAY['birth','shifting','death'])
   AND a.raised_at >= $3::timestamptz AND a.raised_at < $4::timestamptz
   AND ` + approvalParkSQL + ` = $2::text
@@ -76,7 +76,11 @@ func (s *ApprovalsSource) ListSubtasks(ctx context.Context, q ports.SubtaskQuery
 	limit := domain.BoundSubtaskLimit(q.Limit)
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, approvalSubtasksSQL, q.TenantID, q.ParkID, start, end, q.SourceID, afterRank, afterID, limit+1)
+	bound, err := sqlbind.Bind(approvalSubtasksSQL, q.TenantID, q.ParkID, start, end, q.SourceID, afterRank, afterID, limit+1)
+	if err != nil {
+		return domain.SubtaskPage{}, fmt.Errorf("counts boardsource subtasks bind: %w", err)
+	}
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SubtaskPage{}, fmt.Errorf("counts boardsource subtasks: %w", err)
 	}
@@ -230,24 +234,24 @@ func scanMilkSubtask(rows pgx.Rows) (domain.Subtask, error) {
 		return domain.Subtask{}, fmt.Errorf("milk boardsource subtask scan: %w", err)
 	}
 	due := dueAt.In(biztime.DefaultLocation())
-	prepare := domain.Step{Name: "Prepare", State: domain.StepTodo}
 	feed := domain.Step{Name: "Feed", State: domain.StepTodo}
 	submit := domain.Step{Name: "Submit", State: domain.StepTodo}
 	verify := domain.Step{Name: "Verify", State: domain.StepLocked}
 	state := domain.WorkStateDue
 	attention := false
-	// The task records ONE fact about the work -- the submit -- so prepare and feed follow it:
-	// they are done once the proof is in, and to do until then.
+	// The task records ONE fact about the work -- the submit -- so feed follows it: done once
+	// the proof is in, and to do until then. Preparation is NOT a step here: it is a different
+	// task, on the day before, with its own card (milk_preparation.go; maintainer, 2026-09-25).
 	switch status {
 	case "pending_verification":
-		prepare.State, feed.State, submit.State = domain.StepDone, domain.StepDone, domain.StepDone
+		feed.State, submit.State = domain.StepDone, domain.StepDone
 		verify.State = domain.StepInReview
 		state = domain.WorkStateVerificationPending
 	case "completed":
-		prepare.State, feed.State, submit.State, verify.State = domain.StepDone, domain.StepDone, domain.StepDone, domain.StepDone
+		feed.State, submit.State, verify.State = domain.StepDone, domain.StepDone, domain.StepDone
 		state = domain.WorkStateCompleted
 	case "rework":
-		prepare.State, feed.State = domain.StepDone, domain.StepDone
+		feed.State = domain.StepDone
 		submit.State = domain.StepRework
 		verify.State, verify.Detail = domain.StepRework, reason
 		state, attention = domain.WorkStateRejected, true
@@ -260,7 +264,7 @@ func scanMilkSubtask(rows pgx.Rows) (domain.Subtask, error) {
 		Key: domain.SubtaskKey(rank, taskID), Name: "Session " + strconv.Itoa(sessionNo),
 		Subtitle:  due.Format("15:04") + " · " + kidsText(headCount),
 		WorkState: state, NeedsAttention: attention, Owner: ownerState,
-		Steps: []domain.Step{prepare, feed, submit, verify},
+		Steps: []domain.Step{feed, submit, verify},
 	}.Finalize(), nil
 }
 

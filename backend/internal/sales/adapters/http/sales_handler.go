@@ -21,6 +21,7 @@ import (
 // SalesService is the behaviour this transport depends on.
 type SalesService interface {
 	GetOverview(ctx context.Context, tenantID, farm string) (domain.Overview, error)
+	ListFarms(ctx context.Context, tenantID string) ([]string, error)
 	GetValuationAssumptions(ctx context.Context, tenantID string) (domain.ValuationAssumptions, error)
 	ListStageRegister(ctx context.Context, tenantID string) ([]domain.StageRegisterEntry, error)
 	PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error)
@@ -120,10 +121,17 @@ func (h *SalesHandler) GetOptions(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, app.SalesHTTPError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, buildSalesOptionsPayload(products, variants))
+	farms, err := h.service.ListFarms(r.Context(), tenantID(r))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, buildSalesOptionsPayload(farms, products, variants))
 }
 
-func buildSalesOptionsPayload(products []domain.Product, variants map[string][]string) salesOptionsPayload {
+// buildSalesOptionsPayload composes the record-sale vocabularies. farms is the tenant's active
+// park codes, so a park added on Configuration > Items & settings is offered at once.
+func buildSalesOptionsPayload(farms []string, products []domain.Product, variants map[string][]string) salesOptionsPayload {
 	statuses := make([]salesStatusOptionPayload, 0, len(domain.Statuses))
 	for _, s := range domain.Statuses {
 		statuses = append(statuses, salesStatusOptionPayload{Key: s, Label: s, Tone: domain.StatusTone(s)})
@@ -147,7 +155,7 @@ func buildSalesOptionsPayload(products []domain.Product, variants map[string][]s
 		breeds[p.Name] = list
 	}
 	return salesOptionsPayload{
-		Farms:                append([]string(nil), domain.Farms...),
+		Farms:                append([]string{}, farms...),
 		ProductTypes:         names,
 		Products:             options,
 		Breeds:               breeds,

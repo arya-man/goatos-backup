@@ -130,6 +130,7 @@ export function DateRangePicker({
   markerFetchPath,
   minDate,
   singleDayOnly = false,
+  emptyLabel,
   onChange,
 }: {
   labels: DateRangePickerLabels;
@@ -138,6 +139,12 @@ export function DateRangePicker({
   to: string;
   /** Today's business day (Asia/Kolkata), resolved on the server. */
   today: string;
+  /**
+   * For a host whose filter is OPTIONAL: shown on the trigger while no span is chosen (`from` is
+   * blank), so "no date filter" never reads as today's date. Hosts that always carry a window omit
+   * it and behave exactly as before.
+   */
+  emptyLabel?: string;
   /** True while the host's navigation is in flight; announced on the popover. */
   busy?: boolean;
   /** Business-day keys that should show a small marker inside the calendar grid. */
@@ -266,7 +273,11 @@ export function DateRangePicker({
   // and it read identically on a screenshot taken a week earlier. The calendar still marks today,
   // and the footer button still jumps back to it.
   const triggerValue =
-    from === to ? formatShort(from) : `${formatShort(from)} ${labels.rangeSeparator} ${formatShort(to)}`;
+    !from && emptyLabel
+      ? emptyLabel
+      : from === to
+        ? formatShort(from)
+        : `${formatShort(from)} ${labels.rangeSeparator} ${formatShort(to)}`;
 
   // While the first end of a range is chosen, the grid previews THAT day as the selection rather
   // than the range still on screen — otherwise the click appears to have done nothing.

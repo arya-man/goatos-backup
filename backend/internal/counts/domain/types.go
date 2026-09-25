@@ -16,6 +16,12 @@ const (
 	EventProjectionExceptionClosed  = "counts.projection_exception.closed"
 	EventDeathReported              = "counts.death.reported"
 	EventDeathRejected              = "counts.death.rejected"
+	// EventBirthRejected is written in the SAME transaction that rejects a birth approval request
+	// (maintainer decision 2026-09-25): it carries the litter (approval request = birth_event_id),
+	// its child goat ids and the mother, so the tasks module cancels the birth follow-up workflows
+	// and each producer withdraws its still-pending verifier items. The kids themselves are retired
+	// in that same transaction through identity's terminal exit.
+	EventBirthRejected = "counts.birth.rejected"
 	// EventBirthReported is written in the SAME transaction as the birth approval request and
 	// its canonical children; it carries the Add birth form's capture snapshot so the report's
 	// own proof reaches the verifier (birth_evidence, ref_type birth_capture).
@@ -488,6 +494,16 @@ type CountsBreakdownSeriesPoint struct {
 	Count int64  `json:"count"`
 }
 
+// BirthBreedOption is one choice on the operator birth form's breed picker: a breed from the
+// Configuration breed register, its species (the phone offers only the chosen species' breeds) and
+// how many live animals carry it today (0 for a breed nobody carries yet).
+type BirthBreedOption struct {
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Species string `json:"species"`
+	Count   int64  `json:"count"`
+}
+
 // CountsBreakdownStageSexPoint is one management-stage bar, split by sex.
 //
 // A CROSS-TAB, not two series read side by side: a reader asking "how many of the kids on K1 are
@@ -602,6 +618,13 @@ type CountsBreakdownPenRow struct {
 	// Rows are this pen's stage x breed x sex grain rows, largest first -- exactly the rows the
 	// grain-grouped page would list for this pen, carrying the pen's own location on each.
 	Rows []CountsBreakdownRow `json:"rows"`
+	// AuthoredStage is the pen's CONFIGURED stage tag (shed_partitions.animal_stage_id for a pen,
+	// shed_profiles.animal_stage_id for an undivided shed) as a stage code, or "" when none is set.
+	// It is what newborn placement and shifting adoption read, and it is the only stage an EMPTY
+	// pen has -- Stages is derived from residents and is empty for one. AuthoredStageLabel is the
+	// reader's label for it (StageDisplayLabel), "" when no tag is set.
+	AuthoredStage      string `json:"authored_stage"`
+	AuthoredStageLabel string `json:"authored_stage_label"`
 }
 
 // CountsBreakdownLoadTag is one current goat identifier value carried by filtered animals on a

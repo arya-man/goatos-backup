@@ -21,7 +21,9 @@ test("the trigger always names the date, never the word Today", () => {
   // A chip reading "Today" made the reader work out which business day they were looking at, and
   // read identically on a screenshot taken a week earlier. labels.today survives on the footer
   // button, which JUMPS to today — that is a verb, not a value.
-  assert.match(pickerSource, /const triggerValue =\s*\n\s*from === to \? formatShort\(from\)/);
+  // A chosen span always renders as its date(s). The only other branch is an OPTIONAL host's
+  // "no filter" label (Approvals, 2026-09-25), shown only while no span is chosen.
+  assert.match(pickerSource, /const triggerValue =\s*\n\s*!from && emptyLabel\s*\n\s*\? emptyLabel\s*\n\s*: from === to\s*\n\s*\? formatShort\(from\)/);
   assert.doesNotMatch(pickerSource, /\? labels\.today\b/);
   assert.match(pickerSource, /onClick=\{\(\) => commit\(today, today\)\}/);
 });

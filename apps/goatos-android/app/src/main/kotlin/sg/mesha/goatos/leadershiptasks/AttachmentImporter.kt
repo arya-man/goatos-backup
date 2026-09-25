@@ -62,7 +62,7 @@ class ContentResolverAttachmentImporter(
                 ?: DEFAULT_MIME
             val extension = displayName.substringAfterLast('.', "").takeIf { it.isNotBlank() && it.length <= MAX_EXT_CHARS }
                 ?: MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType).orEmpty()
-            val dir = File(context.filesDir, DRAFT_DIR).apply { mkdirs() }
+            val dir = File(context.filesDir, LEADERSHIP_TASK_DRAFT_DIR).apply { mkdirs() }
             val target = File(dir, "pick-${System.currentTimeMillis()}-${(0..999_999).random()}" + if (extension.isBlank()) "" else ".$extension")
             val input = resolver.openInputStream(parsed) ?: throw IOException("cannot open $uri")
             var copied = 0L
@@ -113,7 +113,6 @@ class ContentResolverAttachmentImporter(
     }
 
     private companion object {
-        const val DRAFT_DIR = "leadership-task-drafts"
         const val DEFAULT_MIME = "application/octet-stream"
         const val MAX_EXT_CHARS = 8
         const val COPY_BUFFER_BYTES = 64 * 1024

@@ -65,6 +65,10 @@ type SalesRepository interface {
 	// or an exact farm code; the caller has already validated it.
 	GetOverview(ctx context.Context, tenantID, farm string) (domain.Overview, error)
 
+	// ListFarms returns the codes of the tenant's active parks, in park order: the only farms a
+	// deal, buyer lead or sold-tag list may name, and the farm filter's choices.
+	ListFarms(ctx context.Context, tenantID string) ([]string, error)
+
 	// ListDeals returns one ledger page (all statuses), ordered (sale_date DESC, id), plus the
 	// whole-filter total.
 	ListDeals(ctx context.Context, tenantID, farm string, limit, offset int) (DealPage, error)

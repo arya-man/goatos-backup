@@ -162,6 +162,21 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	// THE CARD (FEED SOP, 2026-09-16): the sheet's pinned packing card decides which captures, of
 	// which kind, this bag owes, and which questions. Nothing is written until every compulsory
 	// slot has a completed, tenant-owned upload of the right kind.
+	//
+	// The frozen-sheet read behind the submit-time decorations (packingSheetRow, below) depends on
+	// nothing the card judge produces, so it runs alongside the judge instead of after it: two
+	// independent read chains, one wait. It is fail-open and read-only, so a judge refusal simply
+	// discards it.
+	type sheetRowResult struct {
+		row   domain.PackingRow
+		found bool
+	}
+	sheetRowCh := make(chan sheetRowResult, 1)
+	sheetRowIn := in
+	go func() {
+		row, found := s.packingSheetRow(ctx, sheetRowIn)
+		sheetRowCh <- sheetRowResult{row: row, found: found}
+	}()
 	rules, err := s.sheetRulesForWrite(ctx, in.TenantID, in.ParkID, biztime.BusinessDate(in.TargetDate), in.Workflow, domain.StagePacking)
 	if err != nil {
 		return ports.CompletePackingResult{}, err
@@ -183,7 +198,8 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	// directed at the moment the bag was filled, kept so the afternoon correction can say "you
 	// packed 4 kg for 2 animals; this bag is now 24 kg for 12" instead of silently rewriting the
 	// card. Both are fail-open: an unreadable sheet yields a nil row, a nil snapshot, and no fields.
-	sheetRow, sheetRowFound := s.packingSheetRow(ctx, in)
+	sheetRowRes := <-sheetRowCh
+	sheetRow, sheetRowFound := sheetRowRes.row, sheetRowRes.found
 	var packedAgainst *ports.PackedAgainstSnapshot
 	if sheetRowFound {
 		packedAgainst = packedAgainstFromRow(sheetRow)

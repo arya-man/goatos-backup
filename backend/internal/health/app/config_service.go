@@ -21,6 +21,22 @@ type ConfigService struct {
 	// catalog is the item registry a medication step must name. Optional so a caller that
 	// only reads protocols (a fixture, a contract test) needs no registry.
 	catalog ports.MedicineCatalog
+	// rulebookChanged is told the tenant whose ACTIVE disease set may have changed, so the
+	// cause-of-death list (DeathCauseCatalogService.Invalidate) shows it at once. Optional.
+	rulebookChanged func(tenantID string)
+}
+
+// WithRulebookChanged registers a callback run after a write that can change which diseases
+// are active or what they are called.
+func (s *ConfigService) WithRulebookChanged(fn func(tenantID string)) *ConfigService {
+	s.rulebookChanged = fn
+	return s
+}
+
+func (s *ConfigService) notifyRulebookChanged(tenantID string) {
+	if s.rulebookChanged != nil {
+		s.rulebookChanged(tenantID)
+	}
 }
 
 func NewConfigService(repo ports.ProtocolAuthoring) *ConfigService {
@@ -162,7 +178,11 @@ func (s *ConfigService) CreateDisease(ctx context.Context, cmd domain.CreateDise
 			{Field: "display_name", Message: "Use a name with at least one letter."},
 		}}
 	}
-	return s.repo.CreateDisease(ctx, cmd)
+	res, err := s.repo.CreateDisease(ctx, cmd)
+	if err == nil {
+		s.notifyRulebookChanged(cmd.TenantID)
+	}
+	return res, err
 }
 
 // SaveDraft normalizes, validates as a draft, and orders the steps before persisting.
@@ -190,7 +210,11 @@ func (s *ConfigService) SaveDraft(ctx context.Context, cmd domain.SaveDraftComma
 // publish is rejected before a transaction is opened, and so the caller gets the same field errors
 // either way.
 func (s *ConfigService) PublishDraft(ctx context.Context, cmd domain.ProtocolVersionCommand) (domain.AuthoringResult, error) {
-	return s.repo.PublishDraft(ctx, cmd)
+	res, err := s.repo.PublishDraft(ctx, cmd)
+	if err == nil {
+		s.notifyRulebookChanged(cmd.TenantID)
+	}
+	return res, err
 }
 
 func (s *ConfigService) DiscardDraft(ctx context.Context, cmd domain.ProtocolVersionCommand) (domain.AuthoringResult, error) {

@@ -10,7 +10,7 @@ import (
 // breeds, sold to one buyer in one deal.
 func mixedWrite() DealWrite {
 	return DealWrite{
-		SaleDate: "2026-09-12", Farm: FarmCPT,
+		SaleDate: "2026-09-12", Farm: "CPT",
 		BuyerName: "Tanveer", BuyerPlace: "Madur",
 		BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
 		AdvanceAmount: fp(50000),
@@ -24,7 +24,7 @@ func mixedWrite() DealWrite {
 
 func TestNormalizeRollsTheLinesUpOntoTheDeal(t *testing.T) {
 	w := mixedWrite().Normalize(builtinCatalog())
-	if err := w.Validate(builtinCatalog()); err != nil {
+	if err := w.Validate(builtinCatalog(), testFarms); err != nil {
 		t.Fatalf("mixed sale rejected: %v", err)
 	}
 	if w.ProductType != ProductMixed || w.Breed != ProductMixed {
@@ -117,7 +117,7 @@ func TestLegacySingleProductBodyBecomesOneLine(t *testing.T) {
 	if l.ProductType != ProductSheep || l.Breed != "Anantapur" || l.SalesValue != 201500 || *l.AnimalCount != 23 {
 		t.Fatalf("legacy line = %+v", l)
 	}
-	if err := w.Validate(builtinCatalog()); err != nil {
+	if err := w.Validate(builtinCatalog(), testFarms); err != nil {
 		t.Fatalf("legacy body rejected: %v", err)
 	}
 }
@@ -139,7 +139,7 @@ func TestLineValidationNamesTheLine(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := mixedWrite()
 			tc.mutate(&w)
-			err := w.Normalize(builtinCatalog()).Validate(builtinCatalog())
+			err := w.Normalize(builtinCatalog()).Validate(builtinCatalog(), testFarms)
 			var v ErrDealValidation
 			if !errors.As(err, &v) {
 				t.Fatalf("want ErrDealValidation, got %v", err)
@@ -155,7 +155,7 @@ func TestLineValidationNamesTheLine(t *testing.T) {
 			w.Lines = append(w.Lines, w.Lines[0])
 		}
 		var v ErrDealValidation
-		if err := w.Normalize(builtinCatalog()).Validate(builtinCatalog()); !errors.As(err, &v) || v.Field != "lines" {
+		if err := w.Normalize(builtinCatalog()).Validate(builtinCatalog(), testFarms); !errors.As(err, &v) || v.Field != "lines" {
 			t.Fatalf("want lines cap refusal, got %v", err)
 		}
 	})
@@ -174,7 +174,7 @@ func TestBuildDealAggregatesOneToManyLinesCountTheDealOnce(t *testing.T) {
 func TestBuildDealAggregatesStatusMatrixOnlyClosedMixedDealsCount(t *testing.T) {
 	mk := func(status string) Deal {
 		return Deal{
-			DealID: "d-" + status, SaleDate: "2026-09-12", Farm: FarmCPT, BuyerName: "Tanveer",
+			DealID: "d-" + status, SaleDate: "2026-09-12", Farm: "CPT", BuyerName: "Tanveer",
 			ProductType: ProductMixed, Breed: ProductMixed, SalesValue: 165000, Status: status,
 			Lines: []DealLine{
 				{LineNo: 1, ProductType: ProductSheep, Breed: "Anantapur", AnimalCount: fp(10), TotalWeightKg: fp(300), SalesValue: 120000},
@@ -202,7 +202,7 @@ func TestBuildDealAggregatesStatusMatrixOnlyClosedMixedDealsCount(t *testing.T) 
 
 func TestBuildDealAggregatesSplitsAMixedDealByLine(t *testing.T) {
 	deal := Deal{
-		DealID: "d1", SaleDate: "2026-09-12", Farm: FarmCPT, BuyerName: "Tanveer",
+		DealID: "d1", SaleDate: "2026-09-12", Farm: "CPT", BuyerName: "Tanveer",
 		ProductType: ProductMixed, Breed: ProductMixed,
 		AnimalCount: fp(19), TotalWeightKg: fp(540), SalesValue: 221000, Status: StatusDealClosed,
 		Lines: []DealLine{
@@ -253,7 +253,7 @@ func TestBuildDealAggregatesSplitsAMixedDealByLine(t *testing.T) {
 // exactly as it did before 000296 -- its own columns ARE its one line.
 func TestBuildDealAggregatesWithoutLinesIsTheSingleLineCase(t *testing.T) {
 	deal := Deal{
-		DealID: "d1", SaleDate: "2026-09-12", Farm: FarmCPT, BuyerName: "Tanveer",
+		DealID: "d1", SaleDate: "2026-09-12", Farm: "CPT", BuyerName: "Tanveer",
 		ProductType: ProductGoat, Breed: "Sirohi",
 		AnimalCount: fp(4), TotalWeightKg: fp(100), SalesValue: 45000, Status: StatusDealClosed,
 	}
@@ -283,14 +283,14 @@ func TestDealAnimalsSumsLinesAndSkipsManure(t *testing.T) {
 // shape is accepted on the value it carries.
 func TestQueuedManureFromAnOlderAppStillRecords(t *testing.T) {
 	w := DealWrite{
-		SaleDate: "2026-09-24", Farm: FarmCPT,
+		SaleDate: "2026-09-24", Farm: "CPT",
 		BuyerName: "Manure Agent", BuyerVendorID: "8f2f0d1e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
 		Lines: []DealLineWrite{{
 			ProductType: ProductManure, Breed: ProductManure,
 			TotalWeightKg: fp(800), SalesValue: 3200,
 		}},
 	}.Normalize(farmCatalog())
-	if err := w.Validate(farmCatalog()); err != nil {
+	if err := w.Validate(farmCatalog(), testFarms); err != nil {
 		t.Fatalf("a manure sale queued by an installed app was refused: %v", err)
 	}
 	if w.SalesValue != 3200 {
@@ -303,7 +303,7 @@ func TestQueuedManureFromAnOlderAppStillRecords(t *testing.T) {
 // saying how much left the farm.
 func TestManureWithAQuantityOfZeroIsStillRefused(t *testing.T) {
 	w := DealWrite{
-		SaleDate: "2026-09-24", Farm: FarmCPT,
+		SaleDate: "2026-09-24", Farm: "CPT",
 		BuyerName: "Manure Agent", BuyerVendorID: "8f2f0d1e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
 		Lines: []DealLineWrite{{
 			ProductType: ProductManure, Breed: ProductManure,
@@ -311,7 +311,7 @@ func TestManureWithAQuantityOfZeroIsStillRefused(t *testing.T) {
 		}},
 	}.Normalize(farmCatalog())
 	var ve ErrDealValidation
-	if err := w.Validate(farmCatalog()); !errors.As(err, &ve) || ve.Field != "lines[1].quantity" {
+	if err := w.Validate(farmCatalog(), testFarms); !errors.As(err, &ve) || ve.Field != "lines[1].quantity" {
 		t.Fatalf("error = %v, want lines[1].quantity refused", err)
 	}
 }
@@ -321,12 +321,12 @@ func TestManureWithAQuantityOfZeroIsStillRefused(t *testing.T) {
 // the money while leaving the sacks on the shelf.
 func TestFeedWithoutKilogramsIsRefusedEvenThoughManureIsNot(t *testing.T) {
 	w := DealWrite{
-		SaleDate: "2026-09-24", Farm: FarmCPT,
+		SaleDate: "2026-09-24", Farm: "CPT",
 		BuyerName: "Ramesh Traders", BuyerVendorID: "8f2f0d1e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
 		Lines: []DealLineWrite{{ProductType: "Feed", Breed: "Maize", SalesValue: 42000}},
 	}.Normalize(farmCatalog())
 	var ve ErrDealValidation
-	if err := w.Validate(farmCatalog()); !errors.As(err, &ve) || ve.Field != "lines[1].quantity" {
+	if err := w.Validate(farmCatalog(), testFarms); !errors.As(err, &ve) || ve.Field != "lines[1].quantity" {
 		t.Fatalf("error = %v, want the feed line refused for its kilograms", err)
 	}
 }
@@ -338,12 +338,12 @@ func TestFeedCountedByThePieceCannotBeSold(t *testing.T) {
 		Product{Code: "bagged_feed", Name: "Bagged feed", Kind: KindFeed, Unit: UnitNumber, SortOrder: 40},
 	))
 	w := DealWrite{
-		SaleDate: "2026-09-24", Farm: FarmCPT,
+		SaleDate: "2026-09-24", Farm: "CPT",
 		BuyerName: "Ramesh Traders", BuyerVendorID: "8f2f0d1e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
 		Lines: []DealLineWrite{{ProductType: "Bagged feed", Breed: "Maize", Quantity: fp(20), RatePerUnit: fp(900)}},
 	}.Normalize(cat)
 	var ve ErrDealValidation
-	if err := w.Validate(cat); !errors.As(err, &ve) || ve.Field != "lines[1].product_type" {
+	if err := w.Validate(cat, testFarms); !errors.As(err, &ve) || ve.Field != "lines[1].product_type" {
 		t.Fatalf("error = %v, want the sale refused because the item is not sold by the kilogram", err)
 	}
 }

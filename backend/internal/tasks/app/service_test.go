@@ -296,6 +296,33 @@ func (f *fakeRepo) DeathEvidenceForVerification(_ context.Context, tenantID, goa
 	return ports.DeathEvidenceReview{}, domain.ErrNotFound
 }
 
+func (f *fakeRepo) CancelBirthWorkflowsForRejectedBirth(_ context.Context, tenantID, birthEventID, motherGoatID string, childGoatIDs []string) ([]string, error) {
+	children := map[string]bool{}
+	for _, c := range childGoatIDs {
+		children[c] = true
+	}
+	var ids []string
+	for workflowID, w := range f.workflows {
+		kid := w.TemplateKey == domain.TemplateKeyBirthKid && children[w.SubjectGoatID]
+		mom := w.TemplateKey == domain.TemplateKeyBirthMother && w.SubjectGoatID == motherGoatID &&
+			w.BirthEventID != nil && *w.BirthEventID == birthEventID
+		if w.TenantID != tenantID || (!kid && !mom) {
+			continue
+		}
+		w.State = domain.WorkflowStateCanceled
+		f.workflows[workflowID] = w
+		for i := range f.actions[workflowID] {
+			ids = append(ids, f.actions[workflowID][i].ActionID)
+			switch f.actions[workflowID][i].Status {
+			case domain.ActionStatusPending, domain.ActionStatusInReview, domain.ActionStatusRework:
+				f.actions[workflowID][i].Status = domain.ActionStatusCanceled
+				f.actions[workflowID][i].ProofRef = nil
+			}
+		}
+	}
+	return ids, nil
+}
+
 func (f *fakeRepo) CancelDeathWorkflowForGoat(_ context.Context, tenantID, goatID string, _ time.Time) error {
 	for workflowID, w := range f.workflows {
 		if w.TenantID == tenantID && w.SubjectGoatID == goatID && w.TemplateKey == domain.TemplateKeyDeath {
@@ -545,7 +572,7 @@ func TestReportedDeathOpensUploadWorkflowBeforeApproval(t *testing.T) {
 	repo := newFakeRepo()
 	repo.goats[testGoat] = ports.GoatWorkflowFacts{GoatID: testGoat, LifecycleStatus: "alive"}
 	svc := NewService(repo, nil)
-	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat,
+	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat, "",
 		time.Date(2026, 7, 28, 9, 0, 0, 0, biztime.DefaultLocation()), authored.Evidence{}); err != nil {
 		t.Fatalf("open reported death: %v", err)
 	}

@@ -26,7 +26,7 @@ import type {
 } from "@/lib/api/procurement";
 import { fmtDate, fmtDateTime, shortId } from "@/lib/format";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
-import { actionFeedbackCopy, copy, optionLabel, optionTitle, optionTone, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { actionFeedbackCopy, copy, optionLabel, optionTitle, optionTone, optionalOption, readableOptionKey, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { Tag } from "@/components/ui-primitives";
 import type { Tone } from "@/components/ui-primitives";
 import { LoadWriteActions } from "./load-forms";
@@ -137,6 +137,17 @@ function WarmupTag({ days, purpose, pageContract }: { days: number | null | unde
 }
 
 // ---- Journey timeline ----
+// A goat event carries a goat state, a load event a load status; each has its own contract group.
+// The chip shows the farm label ("Accepted intake"), never the stored key (`accepted_herd_intake`).
+function timelineStateLabel(pageContract: AdminUiPageContract, event: ProcurementTimelineEvent): string {
+  const state = event.state ?? "";
+  const groups = event.goat_id ? ["proc_goat_state", "proc_selection_state"] : ["source_load_status", "proc_goat_state"];
+  for (const groupId of groups) {
+    const option = optionalOption(pageContract, groupId, state);
+    if (option) return option.label;
+  }
+  return readableOptionKey(state);
+}
 function TimelineCard({ events, pageContract }: { events: ProcurementTimelineEvent[]; pageContract: AdminUiPageContract }) {
   return (
     <section className="card" style={{ marginBottom: 16 }}>
@@ -161,7 +172,7 @@ function TimelineCard({ events, pageContract }: { events: ProcurementTimelineEve
               <div style={{ paddingBottom: 14, minWidth: 0, flex: 1 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <b style={{ fontSize: 13 }}>{event.summary || event.event_type || copy(pageContract, "label.event_fallback")}</b>
-                  {event.state ? <Tag tone="info">{event.state}</Tag> : null}
+                  {event.state ? <Tag tone="info">{timelineStateLabel(pageContract, event)}</Tag> : null}
                   {event.occurred_at ? <span className="muted small">{fmtDateTime(event.occurred_at)}</span> : null}
                 </div>
                 {event.goat_id ? <div className="muted small" style={{ marginTop: 3 }}>{copy(pageContract, "label.goat_prefix")} {shortId(event.goat_id)}</div> : null}

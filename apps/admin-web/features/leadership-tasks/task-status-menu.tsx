@@ -9,7 +9,7 @@ import { statusTone } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 import { changeLeadershipTaskStatusInPlaceAction, loadLeadershipTaskAction, type StatusChangeResult } from "./actions";
 import { refusalSentence } from "./task-feedback-copy";
-import { publishTaskRow, useTaskRow } from "./task-row-store";
+import { currentTaskRowVersion, publishTaskRow, runTaskWrite, useTaskRow, useTaskWriteInFlight } from "./task-row-store";
 import { rowFromTask } from "./task-row";
 
 /**
@@ -53,7 +53,11 @@ export function TaskStatusMenu({
   const task = useTaskRow(serverTask);
   const rowVersion = task.rowVersion;
   const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const [ownPending, startTransition] = useTransition();
+  // A comment (or any other write) to this task still on the wire holds the menu: the status write
+  // would otherwise be queued behind it carrying the fence from BEFORE the comment landed.
+  const writing = useTaskWriteInFlight(task.id);
+  const pending = ownPending || writing;
   const [refusal, setRefusal] = useState<string>("");
   // The cancel confirm is IN the menu (the console's own control), never the browser's
   // `window.confirm` dialog -- "127.0.0.1 says" is not a thing the CEO should read (2026-09-18).
@@ -100,7 +104,13 @@ export function TaskStatusMenu({
     startTransition(async () => {
       let result: StatusChangeResult;
       try {
-        result = await changeLeadershipTaskStatusInPlaceAction(formData);
+        // Serialised behind any write to this task still in flight; the fence is read when the
+        // write is SENT, so it is the version the previous write published, not the one on
+        // screen at the click.
+        result = await runTaskWrite(task.id, () => {
+          formData.set("row_version", String(currentTaskRowVersion(task.id, serverTask.rowVersion)));
+          return changeLeadershipTaskStatusInPlaceAction(formData);
+        });
       } catch {
         result = { ok: false, code: "network" };
       }

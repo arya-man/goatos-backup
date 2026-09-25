@@ -176,9 +176,9 @@ class CalendarRepositoryPaginationTest {
                     val request = Request(
                         status = args?.get(3) as String?,
                         dateFrom = args?.get(4) as String?,
-                        includeDriveSummary = args.get(7) as Boolean,
-                        cursor = args.get(10) as String?,
-                        limit = args.get(11) as Int?,
+                        includeDriveSummary = args.get(8) as Boolean,
+                        cursor = args.get(11) as String?,
+                        limit = args.get(12) as Int?,
                     )
                     requests += request
                     if (backend.offline) throw IOException("offline")

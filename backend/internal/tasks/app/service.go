@@ -565,6 +565,10 @@ type OpenDeathWorkflowInput struct {
 	// CaptureEvidence is the Add death form's snapshot from counts.death.reported; it is stamped
 	// on the instance at open and leads the verifier bundle.
 	CaptureEvidence authored.Evidence
+	// ReportID is the counts approval request (the death REPORT) this open answers. It is stamped
+	// as the workflow's subject_ref_id so a NEW report can reopen a workflow a rejected report
+	// canceled, while a redelivery of the rejected report's own event cannot (2026-09-25).
+	ReportID string
 }
 
 // OpenDeathWorkflow opens the death workflow. Idempotent on the natural key.
@@ -580,6 +584,7 @@ func (s *Service) OpenDeathWorkflow(ctx context.Context, in OpenDeathWorkflowInp
 		EventAt:         occurred,
 		ParkID:          optionalUUID(in.ParkID),
 		ShedID:          optionalUUID(in.ShedID),
+		SubjectRefID:    optionalUUID(in.ReportID),
 		CaptureEvidence: in.CaptureEvidence,
 	})
 	return err
@@ -588,7 +593,7 @@ func (s *Service) OpenDeathWorkflow(ctx context.Context, in OpenDeathWorkflowInp
 // OpenReportedDeathWorkflow reads the still-live goat's canonical placement and opens the
 // SOP's death steps as soon as the death report is submitted, before any admin decision. The
 // report's capture snapshot is stamped on the instance so the verifier bundle leads with it.
-func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatID string, reportedAt time.Time, capture authored.Evidence) error {
+func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatID, reportID string, reportedAt time.Time, capture authored.Evidence) error {
 	facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, goatID)
 	if err != nil {
 		return err
@@ -596,7 +601,7 @@ func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatI
 	return s.OpenDeathWorkflow(ctx, OpenDeathWorkflowInput{
 		TenantID: tenantID, GoatID: goatID,
 		ParkID: derefOr(facts.ParkID), ShedID: derefOr(facts.ShedID), OccurredAt: reportedAt,
-		CaptureEvidence: capture,
+		CaptureEvidence: capture, ReportID: reportID,
 	})
 }
 
@@ -620,6 +625,33 @@ func (s *Service) ReleaseApprovedDeathEvidence(ctx context.Context, tenantID, go
 // goat. The admin decision remains visible in approval history through the existing web behavior.
 func (s *Service) CancelRejectedDeathWorkflow(ctx context.Context, tenantID, goatID string, at time.Time) error {
 	return s.repo.CancelDeathWorkflowForGoat(ctx, tenantID, goatID, at)
+}
+
+// BirthStepVerificationWithdrawer is the optional withdraw half of the verification bridge: it
+// retires the still-PENDING workflow_birth_action items raised for the given steps (a verdict
+// already cast stays history). tasks/adapters/verificationbridge implements it over
+// verification's own WithdrawItemsBySource seam; tasks never writes verification's tables.
+type BirthStepVerificationWithdrawer interface {
+	WithdrawBirthStepVerification(ctx context.Context, tenantID string, actionIDs []string) error
+}
+
+// CancelRejectedBirthWorkflows is the counts.birth.rejected consumer's work (maintainer decision
+// 2026-09-25): the litter's kid workflows and its mother track are canceled, then the verifier
+// items still pending for their steps are withdrawn. A redelivery re-runs both halves and changes
+// nothing; a withdraw that failed is retried by the redelivery (the cancel returns the same ids).
+func (s *Service) CancelRejectedBirthWorkflows(ctx context.Context, tenantID, birthEventID, motherGoatID string, childGoatIDs []string) error {
+	actionIDs, err := s.repo.CancelBirthWorkflowsForRejectedBirth(ctx, tenantID, birthEventID, motherGoatID, childGoatIDs)
+	if err != nil {
+		return err
+	}
+	if len(actionIDs) == 0 {
+		return nil
+	}
+	withdrawer, ok := s.enqueuer.(BirthStepVerificationWithdrawer)
+	if !ok || withdrawer == nil {
+		return domain.ErrVerificationEnqueuerNotWired
+	}
+	return withdrawer.WithdrawBirthStepVerification(ctx, tenantID, actionIDs)
 }
 
 // CompleteTagAction records the permanent-RFID prerequisite when the identifier event lands.

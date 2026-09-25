@@ -43,28 +43,26 @@ func NewModuleBadges(inner BadgeSource, visits *Service) *ModuleBadges {
 }
 
 // ModuleBadgeCounts implements workforce/app.ModuleBadgeSource.
+//
+// The pen-visit count is read concurrently with the inner source (independent reads); the inner
+// source's error still takes precedence, as it did when they ran in turn.
 func (b *ModuleBadges) ModuleBadgeCounts(ctx context.Context, tenantID, userID string, moduleKeys []string) (map[string]int, error) {
+	own := b.startOpenCount(ctx, tenantID, userID, containsKey(moduleKeys, ModuleKey))
 	out := map[string]int{}
 	if b.inner != nil {
 		counts, err := b.inner.ModuleBadgeCounts(ctx, tenantID, userID, moduleKeys)
 		if err != nil {
+			own.wait()
 			return nil, err
 		}
 		for k, v := range counts {
 			out[k] = v
 		}
 	}
-	wanted := false
-	for _, k := range moduleKeys {
-		if k == ModuleKey {
-			wanted = true
-			break
-		}
-	}
-	if !wanted || b.visits == nil {
+	if !own.wanted {
 		return out, nil
 	}
-	n, err := b.visits.OpenCount(ctx, tenantID, userID)
+	n, err := own.wait()
 	if err != nil {
 		return nil, err
 	}
@@ -77,27 +75,22 @@ func (b *ModuleBadges) ModuleBadgeCounts(ctx context.Context, tenantID, userID s
 // NavItemBadgeCounts implements workforce/app.NavItemBadgeSource: the "For me" tab carries the
 // pens still owed; the "Raised by me" tab is delegated to the leadership tasks source.
 func (b *ModuleBadges) NavItemBadgeCounts(ctx context.Context, tenantID, userID string, hrefs []string) (map[string]int, error) {
+	own := b.startOpenCount(ctx, tenantID, userID, containsKey(hrefs, ForMeHref))
 	out := map[string]int{}
 	if inner, ok := b.inner.(NavItemBadgeSource); ok && inner != nil {
 		counts, err := inner.NavItemBadgeCounts(ctx, tenantID, userID, hrefs)
 		if err != nil {
+			own.wait()
 			return nil, err
 		}
 		for k, v := range counts {
 			out[k] = v
 		}
 	}
-	wanted := false
-	for _, h := range hrefs {
-		if h == ForMeHref {
-			wanted = true
-			break
-		}
-	}
-	if !wanted || b.visits == nil {
+	if !own.wanted {
 		return out, nil
 	}
-	n, err := b.visits.OpenCount(ctx, tenantID, userID)
+	n, err := own.wait()
 	if err != nil {
 		return nil, err
 	}
@@ -105,4 +98,42 @@ func (b *ModuleBadges) NavItemBadgeCounts(ctx context.Context, tenantID, userID 
 		out[ForMeHref] = n
 	}
 	return out, nil
+}
+
+func containsKey(keys []string, want string) bool {
+	for _, k := range keys {
+		if k == want {
+			return true
+		}
+	}
+	return false
+}
+
+// pendingCount is an OpenCount read started in the background.
+type pendingCount struct {
+	wanted bool
+	done   chan struct{}
+	n      int
+	err    error
+}
+
+func (p *pendingCount) wait() (int, error) {
+	if !p.wanted {
+		return 0, nil
+	}
+	<-p.done
+	return p.n, p.err
+}
+
+func (b *ModuleBadges) startOpenCount(ctx context.Context, tenantID, userID string, wanted bool) *pendingCount {
+	p := &pendingCount{wanted: wanted && b.visits != nil}
+	if !p.wanted {
+		return p
+	}
+	p.done = make(chan struct{})
+	go func() {
+		defer close(p.done)
+		p.n, p.err = b.visits.OpenCount(ctx, tenantID, userID)
+	}()
+	return p
 }

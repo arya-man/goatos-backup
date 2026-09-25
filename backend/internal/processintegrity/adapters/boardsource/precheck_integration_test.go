@@ -15,8 +15,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// legacyVaccinationDueWorkPrecheckSQL is the pre-2026-09-24 precheck, kept verbatim as the
-// equivalence oracle: one EXISTS whose day window is OR'ed across obligation_instances,
+// legacyVaccinationDueWorkPrecheckSQL is the pre-2026-09-24 precheck, kept as the equivalence
+// oracle with ONE correction of 2026-09-25: its due_at clause counts UNBATCHED obligations only,
+// as the canonical read does (a batched obligation belongs to its drive's planned day). Otherwise
+// verbatim: one EXISTS whose day window is OR'ed across obligation_instances,
 // obligation_batches and the two drive-assignment tables, which leaves only tenant_id sargable
 // and so walks every obligation of the tenant (86k rows / 228 ms on the stg clone) whenever the
 // day has no vaccination work.
@@ -33,7 +35,7 @@ SELECT EXISTS (
     AND oi.status <> 'canceled'
     AND ($5::boolean OR oi.status <> 'completed')
     AND (
-      (oi.due_at >= $3::timestamptz AND oi.due_at < $4::timestamptz)
+      (oi.batch_id IS NULL AND oi.due_at >= $3::timestamptz AND oi.due_at < $4::timestamptz)
       OR ((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $3::timestamptz
         AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $4::timestamptz)
       OR EXISTS (
@@ -122,6 +124,23 @@ VALUES ($1::uuid, '00000000-0000-4000-8000-00000000d912'::uuid, '00000000-0000-4
 		}
 	}
 	check("all four sources", true)
+
+	// 2026-09-25: an obligation due on a day whose DRIVE is planned for another day is not work
+	// on its due day -- the canonical read files it under the drive's day. Before the fix the
+	// precheck said "work today" and the board paid the canonical read for nothing (Channapatna,
+	// 25/09: two obligations due that day, both in drives planned elsewhere). The seeded
+	// obligations are batched (batch 09-12, park assignment 09-16), so their due day 09-10 is empty.
+	for _, inc := range []bool{true, false} {
+		if precheckAnswer(t, ctx, pool, vaccinationDueWorkPrecheckSQL, precheckArgs(stPark, "2026-09-10", inc)) {
+			t.Fatalf("includeCompleted %v: a batched obligation's due day (its drive is 09-12) must not read as work", inc)
+		}
+	}
+	// ...while an obligation with NO drive is work on its due day.
+	execST(t, ctx, pool, `UPDATE obligation_instances SET batch_id = NULL WHERE tenant_id = $1::uuid AND obligation_id <> '00000000-0000-4000-8000-00000000d708'::uuid`, stTenant)
+	if !precheckAnswer(t, ctx, pool, vaccinationDueWorkPrecheckSQL, precheckArgs(stPark, "2026-09-10", true)) {
+		t.Fatal("an unbatched obligation due 09-10 must read as work on 09-10")
+	}
+	check("unbatched due day", true)
 
 	// Only completed work left: the includeCompleted flag decides.
 	execST(t, ctx, pool, `UPDATE obligation_instances SET status = 'completed' WHERE tenant_id = $1::uuid`, stTenant)

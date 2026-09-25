@@ -652,6 +652,12 @@ export function updateManifestHashes(directory, manifest) {
 // default 'anchored'); only generation's approved adult catch-up for a blank vaccine family with no
 // DOB/entry anchor sets 'anchor_missing_catch_up'. No source column, source date, or validation input
 // changes; HRMS seed/source imports never set it and seeded rows rely on the default.
+// Coupling review 2026-09-26: migrations 000441/000442 open species, gender and breeds to the farm's
+// Configuration lists. 000441 turns goat/sheep and female/male CHECKs on purchase candidates, sale-price
+// assumptions and protocol_rule_dimensions into not-blank guards (every seeded value still passes);
+// 000442 adds breeds.tenant_id / breed_aliases.tenant_id, the oldest tenant keeping every existing row
+// and breed_id, and seed-vaccination-real now names its tenant on the breed insert. No source column,
+// source date, fixture byte, hash, count or validation input changes.
 // Coupling review 2026-08-21: seed-roster-real adds pc_care (deworming / ticks removal /
 // hoof trimming / hair trimming) to the preventive_care department module grant; migration
 // 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases. This

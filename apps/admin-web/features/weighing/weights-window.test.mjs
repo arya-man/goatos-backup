@@ -75,7 +75,10 @@ test("admin weighing reads are short-cached per user and cleared on writes", () 
 	);
 	assert.match(
 		serverSource,
-		/\} finally \{[\s\S]{0,300}?if \(method\.toUpperCase\(\) !== "GET"\) await noteBackendWrite\(\);/,
+		// A write that throws has status 0, which writeMayHaveLanded treats as landed, so it still
+		// stamps and clears; a 4xx refusal or a /preview read clears the caches without the stamp
+		// (the stamp's cookie refreshed the page and closed open drawers, 2026-09-25).
+		/\} finally \{[\s\S]{0,600}?if \(method\.toUpperCase\(\) !== "GET" && !isReadOnlyPost\(url\.pathname\) && writeMayHaveLanded\(responseStatus\)\) await noteBackendWrite\(\);\s*else if \(method\.toUpperCase\(\) !== "GET"\) clearBackendReadCaches\(\);/,
 		"the post-write clear must run in finally so a write that throws still clears",
 	);
 	assert.match(serverSource, /async function noteBackendWrite\(\): Promise<void> \{\s*clearBackendReadCaches\(\);\s*await markCallerWrite\(\);/);

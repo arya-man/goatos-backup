@@ -35,7 +35,7 @@ type Props = {
   initialView?: "list" | "flow";
 };
 
-export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial, initialView = "list" }: Props) {
+export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versionLabel, initial, initialView = "list" }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<ToxinRows>(initial);
   const [result, setResult] = useState<ToxinSaveResult | null>(null);
@@ -229,7 +229,7 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, sopCod
           <h1>{copy(pc, "tsop.title")}</h1>
           <div className="sub">{copy(pc, "tsop.subtitle")}</div>
           <div className="muted small" style={{ marginTop: 4 }}>
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, "tsop.notice.pinned")}
+            {versionLabel} · {copy(pc, "tsop.notice.pinned")}
           </div>
         </div>
         <div className="acts">

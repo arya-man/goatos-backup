@@ -104,6 +104,7 @@ import sg.mesha.goatos.core.network.dto.PenRoutineSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.PenVisitDetailDto
 import sg.mesha.goatos.core.network.dto.PenVisitPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
+import sg.mesha.goatos.core.network.dto.WorkBoardSubtaskPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardSummaryDto
 import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
@@ -1441,6 +1442,15 @@ interface AppApiService {
         @Query("owner") owner: String?,
     ): WorkBoardSummaryDto
 
+    @GET("work-board/rows/{row_key}/subtasks")
+    suspend fun getWorkBoardSubtasks(
+        @Path("row_key") rowKey: String,
+        @Query("park") park: String?,
+        @Query("business_date") businessDate: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): WorkBoardSubtaskPageDto
+
     @POST("app/pen-visits/{task_id}/submit")
     suspend fun submitPenVisit(
         @Header("Idempotency-Key") idempotencyKey: String,
@@ -2726,6 +2736,14 @@ class RetrofitAppApi(
         state: String?,
         owner: String?,
     ): WorkBoardSummaryDto = service.getWorkBoardSummary(park, businessDate, module, state, owner)
+
+    override suspend fun getWorkBoardSubtasks(
+        rowKey: String,
+        park: String?,
+        businessDate: String?,
+        limit: Int?,
+        cursor: String?,
+    ): WorkBoardSubtaskPageDto = service.getWorkBoardSubtasks(rowKey, park, businessDate, limit, cursor)
 
     override suspend fun submitPenVisit(
         idempotencyKey: String,

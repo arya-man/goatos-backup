@@ -10,8 +10,11 @@ export type FarmBornSoldTableLabels = {
   ariaLabel: string;
   notRecorded: string;
   noDeal: string;
-  male: string;
-  female: string;
+  /**
+   * The farm's own name for each stored gender code (the page's farm_born_sexes group, compiled from
+   * Configuration). A plain record because it crosses the server/client boundary.
+   */
+  sexLabels: Record<string, string>;
   empty: React.ReactNode;
 };
 
@@ -48,7 +51,7 @@ export function FarmBornSoldTable({
     },
     sex: {
       cell: (row) =>
-        row.sex === "male" ? labels.male : row.sex === "female" ? labels.female : orDash(""),
+        row.sex ? (labels.sexLabels[row.sex] ?? row.sex) : orDash(""),
       sortValue: (row) => row.sex,
     },
     stage: {

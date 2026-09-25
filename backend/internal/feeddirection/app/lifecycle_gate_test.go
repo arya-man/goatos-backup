@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 )
@@ -114,4 +117,42 @@ func TestPackingFreezesNormalAtSevenAndExperimentAtTwo(t *testing.T) {
 			t.Fatalf("15:00 must carry both workflows, got %v", seen)
 		}
 	})
+}
+
+// A park whose feed schedule is added TODAY (a new park, set up on Feed Config this morning) had no
+// schedule yesterday, when today's sheet was due to be issued. Found on the phone 2026-09-25: the
+// gate read the schedule as of NOW, called today's sheet due, and the issue -- which reads the
+// schedule as of its own dispatch instant, yesterday -- failed, so Feed Direction answered 500 and
+// the phone said "Couldn't load the feed sheet". Today's sheet was never owed: the answer is an
+// honest empty day, while tomorrow's sheet (dispatched today, under the new schedule) freezes.
+func TestScheduleAddedTodayOwesNoSheetForToday(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	newPark := func() (*Service, *fakeIssueStore) {
+		svc, _, _, store := newLifecycleService(istInstant(2026, 7, 29, 10))
+		svc.schedule = &fakeScheduleReader{clocks: []domain.WorkflowClock{normalClock()}, parks: []string{testPark}, validFrom: "2026-07-29"}
+		return svc, store
+	}
+
+	svc, store := newPark()
+	today := time.Date(2026, 7, 29, 0, 0, 0, 0, biztime.DefaultLocation())
+	page, err := svc.Preview(ctx, domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: today})
+	if err != nil {
+		t.Fatalf("Preview(today) for a schedule added today = %v, want an empty day", err)
+	}
+	if len(page.Items) != 0 || len(store.headers) != 0 {
+		t.Fatalf("today's sheet was never owed: items=%d issues=%d, want none", len(page.Items), len(store.headers))
+	}
+	if page.Lifecycle.State != domain.LifecycleStateNotIssued || page.Lifecycle.Message == "" {
+		t.Fatalf("lifecycle = %+v, want not_issued with a sentence the screen can show", page.Lifecycle)
+	}
+
+	svc, store = newPark()
+	tomorrow, err := svc.Preview(ctx, domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
+	if err != nil {
+		t.Fatalf("Preview(tomorrow) = %v", err)
+	}
+	if len(tomorrow.Items) == 0 || len(store.headers) != 1 {
+		t.Fatalf("tomorrow's sheet is dispatched today under the new schedule: items=%d issues=%d", len(tomorrow.Items), len(store.headers))
+	}
 }

@@ -11,7 +11,7 @@ func sp(v string) *string   { return &v }
 
 func validWrite() DealWrite {
 	return DealWrite{
-		SaleDate: "2026-08-17", Farm: FarmCBE, ProductType: ProductSheep, Breed: "Anantapur",
+		SaleDate: "2026-08-17", Farm: "CBE", ProductType: ProductSheep, Breed: "Anantapur",
 		BuyerName: "Tanveer", BuyerPlace: "Madur",
 		BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
 		AnimalCount:   fp(23), TotalWeightKg: fp(600), SalesValue: 201500,
@@ -19,7 +19,7 @@ func validWrite() DealWrite {
 }
 
 func TestDealWriteValidateAcceptsARealSale(t *testing.T) {
-	if err := validWrite().Normalize(builtinCatalog()).Validate(builtinCatalog()); err != nil {
+	if err := validWrite().Normalize(builtinCatalog()).Validate(builtinCatalog(), testFarms); err != nil {
 		t.Fatalf("valid write rejected: %v", err)
 	}
 }
@@ -52,7 +52,7 @@ func TestDealWriteValidateRejectsEachBrokenField(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := validWrite()
 			tc.mutate(&w)
-			err := w.Normalize(builtinCatalog()).Validate(builtinCatalog())
+			err := w.Normalize(builtinCatalog()).Validate(builtinCatalog(), testFarms)
 			var v ErrDealValidation
 			if !errors.As(err, &v) {
 				t.Fatalf("want ErrDealValidation, got %v", err)
@@ -65,16 +65,32 @@ func TestDealWriteValidateRejectsEachBrokenField(t *testing.T) {
 }
 
 func TestNormalizeFarmFilter(t *testing.T) {
-	for raw, want := range map[string]string{"": "", "all": "", "ALL": "", "CBE": "CBE", "CPT": "CPT"} {
-		got, ok := NormalizeFarmFilter(raw)
+	farms := []string{"CBE", "CPT", "HSR"}
+	for raw, want := range map[string]string{"": "", "all": "", "ALL": "", "CBE": "CBE", "CPT": "CPT", "HSR": "HSR"} {
+		got, ok := NormalizeFarmFilter(raw, farms)
 		if !ok || got != want {
 			t.Fatalf("NormalizeFarmFilter(%q) = %q,%v want %q,true", raw, got, ok, want)
 		}
 	}
 	for _, raw := range []string{"cbe", "Bangalore", "CBE,CPT"} {
-		if _, ok := NormalizeFarmFilter(raw); ok {
+		if _, ok := NormalizeFarmFilter(raw, farms); ok {
 			t.Fatalf("NormalizeFarmFilter(%q) accepted; must reject rather than widen to all", raw)
 		}
+	}
+}
+
+// A park added on Configuration > Items & settings is a sales farm: the deal validator reads the
+// tenant's park codes, never a constant CBE/CPT pair.
+func TestDealAcceptsAParkAddedOnConfiguration(t *testing.T) {
+	w := validWrite()
+	w.Farm = "HSR"
+	var ve ErrDealValidation
+	if err := w.Validate(ProductCatalog{}, testFarms); !errors.As(err, &ve) || ve.Field != "farm" {
+		t.Fatalf("a park the tenant does not have must be refused on farm, got %v", err)
+	}
+	withNewPark := append(append([]string{}, testFarms...), "HSR")
+	if err := w.Normalize(builtinCatalog()).Validate(builtinCatalog(), withNewPark); err != nil {
+		t.Fatalf("a sale at a newly added park must be accepted, got %v", err)
 	}
 }
 
@@ -97,13 +113,13 @@ func TestAnimalsPrefersAnimalCountAndNeverCountsManure(t *testing.T) {
 // deals in different months, one goat deal, one manure deal.
 func TestBuildDealAggregates(t *testing.T) {
 	closed := []Deal{
-		{SaleDate: "2025-04-15", Farm: FarmCPT, ProductType: ProductSheep, Breed: "Anantapur",
+		{SaleDate: "2025-04-15", Farm: "CPT", ProductType: ProductSheep, Breed: "Anantapur",
 			BuyerName: "Tanveer", BuyerPlace: sp("Madur"), AnimalCount: fp(20), TotalWeightKg: fp(500), SalesValue: 150000},
-		{SaleDate: "2025-05-02", Farm: FarmCPT, ProductType: ProductSheep, Breed: "Anantapur",
+		{SaleDate: "2025-05-02", Farm: "CPT", ProductType: ProductSheep, Breed: "Anantapur",
 			BuyerName: "Tanveer", AnimalCount: fp(10), TotalWeightKg: fp(250), SalesValue: 100000},
-		{SaleDate: "2025-05-20", Farm: FarmCBE, ProductType: ProductGoat, Breed: "Sojat",
+		{SaleDate: "2025-05-20", Farm: "CBE", ProductType: ProductGoat, Breed: "Sojat",
 			BuyerName: "Irshad", MaleCount: fp(3), FemaleCount: fp(2), TotalWeightKg: fp(200), SalesValue: 90000},
-		{SaleDate: "2025-05-25", Farm: FarmCBE, ProductType: ProductManure, Breed: "Manure",
+		{SaleDate: "2025-05-25", Farm: "CBE", ProductType: ProductManure, Breed: "Manure",
 			BuyerName: "Raitha FPO", TotalWeightKg: fp(3000), SalesValue: 30000},
 	}
 

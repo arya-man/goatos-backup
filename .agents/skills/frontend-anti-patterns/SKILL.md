@@ -130,3 +130,13 @@ chapters below; do not review from the summary.
 - **Browser proof:** prefer role/label locators and web-first assertions; no new
   fixed sleeps. Axe plus pixel screenshots do not replace keyboard and visual
   review.
+
+## Proven performance patterns (from main + #415)
+
+Fix catalog PP-1..PP-21 (bad/good snippet, source commit, enforcing guard or
+"review-only"): [`docs/decisions/scale-anti-patterns.md` → "Proven performance
+patterns (from main + #415)"](../../../docs/decisions/scale-anti-patterns.md).
+Machine gates added 2026-09-25: `make scale-guard` rules `count-distinct-sort`,
+`cte-self-join`, `hand-rolled-read-cache`, `non-sargable-cast` (now `::text IN`),
+and `make admin-web-heavy-client-imports-guard`. Baselines only shrink.
+Apply the review-only rows (PP-7..PP-21) by hand when reviewing a hot read.

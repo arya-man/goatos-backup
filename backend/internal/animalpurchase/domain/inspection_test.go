@@ -112,7 +112,8 @@ func TestLoadFormIsAuthoredAndValidated(t *testing.T) {
 		t.Fatalf("extra load questions should validate: %v", problems)
 	}
 	cat := Catalog{Version: 2, Questions: CompileInspection(dsl), LoadQuestions: dsl.LoadForm.Questions}
-	w := LoadWrite{Catalog: cat, Answers: Answers{"load_ref": j("L-9"), "vendor": j("11111111-1111-4111-8111-111111111111"), "farm": j("CBE")}}
+	farms := []string{"CBE", "CPT"}
+	w := LoadWrite{Catalog: cat.WithFarms(farms), Farms: farms, Answers: Answers{"load_ref": j("L-9"), "vendor": j("11111111-1111-4111-8111-111111111111"), "farm": j("CBE")}}
 	w.Normalize()
 	if w.LoadRef != "L-9" || w.FarmLabel != "CBE" {
 		t.Fatalf("identity answers must fill the typed columns: %+v", w)
@@ -141,5 +142,35 @@ func TestLoadFormIsAuthoredAndValidated(t *testing.T) {
 		if !strings.Contains(problems, want) {
 			t.Errorf("expected %q in:\n%s", want, problems)
 		}
+	}
+}
+
+// A load's farm choices are the tenant's active parks, whatever the published document stored:
+// a park added on Configuration > Items & settings is offered and accepted on an existing
+// version, and a code no active park carries is refused.
+func TestLoadFarmChoicesAreTheTenantsParks(t *testing.T) {
+	dsl, _ := ParseInspection(map[string]any{"inspection": json.RawMessage(SeededInspectionJSON())})
+	cat := Catalog{Version: 1, Questions: CompileInspection(dsl), LoadQuestions: dsl.LoadForm.Questions}
+	farms := []string{"CBE", "CPT", "HSR"}
+	live := cat.WithFarms(farms)
+	for _, q := range live.LoadQuestions {
+		if q.ID == "farm" && !hasOption(q.Options, "HSR") {
+			t.Fatalf("the farm question must offer the new park, got %+v", q.Options)
+		}
+	}
+	for _, q := range cat.LoadQuestions {
+		if q.ID == "farm" && hasOption(q.Options, "HSR") {
+			t.Fatal("WithFarms must not mutate the catalog it copies")
+		}
+	}
+	w := LoadWrite{Catalog: live, Farms: farms, Answers: Answers{"load_ref": j("L-1"), "vendor": j("11111111-1111-4111-8111-111111111111"), "farm": j("HSR")}}
+	w.Normalize()
+	if err := w.Validate(); err != nil {
+		t.Fatalf("a load for a newly added park must be accepted: %v", err)
+	}
+	gone := LoadWrite{Catalog: cat.WithFarms([]string{"CBE"}), Farms: []string{"CBE"}, FarmLabel: "CPT", LoadRef: "L-2", VendorID: "11111111-1111-4111-8111-111111111111"}
+	gone.Normalize()
+	if err := gone.Validate(); field(err) != "farm" {
+		t.Fatalf("a park no longer active must be refused on farm, got %v", err)
 	}
 }

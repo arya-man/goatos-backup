@@ -14,7 +14,7 @@ import (
 // and renders everything else from the document, so a ledger column marked untyped renders
 // TWICE -- once as the drawer's own input and once as an "extra".
 func TestEachFormMarksItsOwnTypedColumns(t *testing.T) {
-	catalog := domain.FeedPurchaseFormCatalog(domain.FeedFarms, []string{"Maize"}, domain.FeedPaymentStatuses)
+	catalog := domain.FeedPurchaseFormCatalog([]string{"CBE", "CPT"}, []string{"Maize"}, domain.FeedPaymentStatuses)
 	feed := toFeedPurchaseFormPayload(domain.CompileVendorForm(domain.SeededFeedPurchaseFormDSL(), 1, catalog))
 	for _, page := range feed.Pages {
 		for _, q := range page.Questions {

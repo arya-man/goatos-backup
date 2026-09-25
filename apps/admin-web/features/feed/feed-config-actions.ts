@@ -6,6 +6,7 @@ import {
   createFeedConfigFeedItem,
   setFeedConfigExperimentShedStatus,
   setFeedConfigFeedItemStatus,
+  setFeedConfigSessionPlan,
   setFeedConfigSessionTemplateItem,
   upsertFeedConfigExperiment,
   upsertFeedConfigExperimentBatch,
@@ -13,6 +14,7 @@ import {
   upsertFeedConfigSchedule,
   upsertFeedConfigShedFactor,
 } from "@/lib/api/server";
+import { parseSessionPlanForm } from "./session-plan";
 
 // =================================================================================================
 // Feed Config writes. Two rules govern every function here.
@@ -306,6 +308,28 @@ export async function saveSessionFeed(formData: FormData): Promise<FeedConfigAct
   revalidatePath("/feed/direction");
   revalidatePath("/feed/packing");
   return { ok: true, messageKey: SESSION_FEED_SAVED };
+}
+
+/**
+ * Sets the park's feeding sessions (name + share of the day). The shares are checked to add up to
+ * 100% here AND on the server; a session whose name was cleared is removed, which the server refuses
+ * while it still serves a feed.
+ */
+export async function saveSessionPlan(formData: FormData): Promise<FeedConfigActionResult> {
+  const parkId = readRequiredText(formData, "park_id");
+  if (!parkId) return { ok: false, messageKey: "action.sessions_rejected" };
+  const parsed = parseSessionPlanForm((name) => readRequiredText(formData, name));
+  if (!parsed.ok) return { ok: false, messageKey: parsed.messageKey };
+
+  const result = await setFeedConfigSessionPlan({ park_id: parkId, sessions: parsed.sessions }, readIdempotencyKey(formData));
+  if (!result.ok) {
+    const known: Record<string, string> = { session_has_feeds: "reason.session_has_feeds" };
+    const messageKey = known[result.error.code ?? ""];
+    return { ok: false, messageKey: messageKey ?? "action.sessions_rejected", detail: messageKey ? undefined : result.error.message };
+  }
+  // interaction-guard:ignore: the session table is rendered from server props with no client row store (the same FeedConfigFormShell contract every editor on this page uses); the form closes on success and the re-render shows the saved split.
+  for (const path of ["/feed/config", "/feed/direction", "/feed/packing"]) revalidatePath(path);
+  return { ok: true, messageKey: "action.sessions_saved" };
 }
 
 export async function saveShedFactor(formData: FormData): Promise<FeedConfigActionResult> {

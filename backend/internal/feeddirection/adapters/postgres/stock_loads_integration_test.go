@@ -199,6 +199,47 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 			t.Fatalf("unknown feed filter matches nothing: %+v", none)
 		}
 	})
+
+	// OneToMany / StatusBuckets / ParkScope / PageBoundary on the "is a LATER load already
+	// depleting today?" test, now a window over the ledger order instead of a correlated scan: two
+	// loads that share BOTH depletes_from and purchase_date are ordered by batch alone, so batch 1
+	// must hand the overrun to batch 2 on the day it runs out, and batch 2 -- the newest -- carries
+	// everything after that.
+	t.Run("OneToManyStatusBucketsParkScopePageBoundarySameDayLoadsHandOffByBatch", func(t *testing.T) {
+		const park3 = "fd100000-0000-4000-8000-000000003003"
+		if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'PGI', 'PGI', 'active')
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, park3); err != nil {
+			t.Fatalf("seed third park: %v", err)
+		}
+		purchase(park3, "PGI", 1, "2026-08-09", "2026-08-10", "50.000", nil, "reached")
+		purchase(park3, "PGI", 2, "2026-08-09", "2026-08-10", "50.000", nil, "reached")
+		for _, day := range []string{"2026-08-11", "2026-08-12", "2026-08-13"} {
+			feed(park3, "PGI", fdiShedA, day, "30.000")
+		}
+		scoped, err := repo.StockLoads(ctx, fdiTenant, []uuid.UUID{uuid.MustParse(park3)}, domain.StockLoadsQuery{Limit: 1})
+		if err != nil {
+			t.Fatalf("scoped: %v", err)
+		}
+		// 90 kg over two 50 kg loads: batch 1 finishes on the 12th (history, not listed); batch 2
+		// took 10 kg that day and 30 on the 13th.
+		if scoped.Total != 1 || len(scoped.Rows) != 1 || scoped.Rows[0].BatchNo != 2 {
+			t.Fatalf("want only batch 2 still in store, got %+v", scoped)
+		}
+		b2 := scoped.Rows[0]
+		if b2.Status != domain.StockLoadInUse || b2.ConsumedKg != "40.0" || b2.LeftKg != "10.0" ||
+			b2.ConsumptionFrom != "2026-08-12" || b2.DaysConsumed != 2 {
+			t.Errorf("batch 2 takes the overrun from the day batch 1 runs out: %+v", b2)
+		}
+		next, err := repo.StockLoads(ctx, fdiTenant, []uuid.UUID{uuid.MustParse(park3)}, domain.StockLoadsQuery{Limit: 1, Offset: 1})
+		if err != nil {
+			t.Fatalf("page 2: %v", err)
+		}
+		if next.Total != 1 || len(next.Rows) != 0 {
+			t.Errorf("page 2 is empty but keeps the whole-filter total: %+v", next)
+		}
+	})
 }
 
 func itoa(v int64) string {

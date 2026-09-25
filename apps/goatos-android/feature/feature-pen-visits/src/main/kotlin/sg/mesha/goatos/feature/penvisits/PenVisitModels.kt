@@ -67,6 +67,8 @@ enum class PenVisitVideoState {
 data class PenVisitDetailUiState(
     /** True until the first cached/fetched detail lands. */
     val loading: Boolean = true,
+    /** Nothing cached and the server unreachable: show the error with Try again, not a spinner. */
+    val unavailable: Boolean = false,
     val taskId: String = "",
     val title: String = "",
     val penLabel: String = "",
@@ -145,6 +147,8 @@ data class PenVisitListUiState(
     val title: String = "",
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
+    /** True when the last refresh did not reach the server: the rows on screen are the saved copy. */
+    val refreshFailed: Boolean = false,
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
     val filters: List<PenVisitFilterUi> = emptyList(),

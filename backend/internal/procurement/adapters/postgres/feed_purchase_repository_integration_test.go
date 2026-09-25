@@ -33,7 +33,7 @@ ON CONFLICT (tenant_id, feed_item_key) DO NOTHING`, testTenant); err != nil {
 func feedWrite() domain.FeedPurchaseWrite {
 	return domain.FeedPurchaseWrite{
 		PurchaseDate:  "2026-08-20",
-		FarmLabel:     domain.FeedFarmCPT,
+		FarmLabel:     "CPT",
 		FeedItemLabel: "Dry Sorghum Forage",
 		QuantityKg:    5420,
 		FeedCost:      f64(48980),
@@ -108,7 +108,7 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 			Scan(&parkID, &consumed, &depletesFrom); err != nil {
 			t.Fatalf("read back: %v", err)
 		}
-		wantPark := parkIDByCode(t, ctx, pool, domain.FeedFarmCPT)
+		wantPark := parkIDByCode(t, ctx, pool, "CPT")
 		if parkID == nil || *parkID != wantPark {
 			t.Fatalf("park_id = %v want the CPT park %s", parkID, wantPark)
 		}
@@ -142,7 +142,7 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		}
 		// The counter is per (farm, feed): the SAME feed at the OTHER farm starts again at 1.
 		other := feedWrite()
-		other.FarmLabel = domain.FeedFarmCBE
+		other.FarmLabel = "CBE"
 		cbe, err := repo.CreateFeedPurchase(ctx, testTenant, other, "", "load-3")
 		if err != nil {
 			t.Fatalf("other farm: %v", err)
@@ -157,11 +157,11 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		if err := pool.QueryRow(ctx, `SELECT park_id::text FROM feed_purchases WHERE feed_purchase_id = $1`, cbe.FeedPurchaseID).Scan(&parkID); err != nil {
 			t.Fatalf("read back CBE: %v", err)
 		}
-		wantCBE := parkIDByCode(t, ctx, pool, domain.FeedFarmCBE)
+		wantCBE := parkIDByCode(t, ctx, pool, "CBE")
 		if parkID == nil || *parkID != wantCBE {
 			t.Fatalf("CBE park_id = %v want %s", parkID, wantCBE)
 		}
-		if wantCBE == parkIDByCode(t, ctx, pool, domain.FeedFarmCPT) {
+		if wantCBE == parkIDByCode(t, ctx, pool, "CPT") {
 			t.Fatal("the two farms must resolve to different parks, or this assertion proves nothing")
 		}
 	})
@@ -299,7 +299,7 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		}
 
 		// The farm filter narrows rows and totals through the SAME predicate.
-		cbe, err := repo.ListFeedPurchases(ctx, testTenant, domain.FeedFarmCBE, "", 25, 0)
+		cbe, err := repo.ListFeedPurchases(ctx, testTenant, "CBE", "", 25, 0)
 		if err != nil {
 			t.Fatalf("list CBE: %v", err)
 		}
@@ -307,7 +307,7 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 			t.Fatalf("CBE total %d vs %d rows -- one page holds them all, so they must agree", cbe.Total, len(cbe.Purchases))
 		}
 		for _, p := range cbe.Purchases {
-			if p.FarmLabel != domain.FeedFarmCBE {
+			if p.FarmLabel != "CBE" {
 				t.Fatalf("CBE filter returned a %s row", p.FarmLabel)
 			}
 		}
@@ -718,7 +718,7 @@ WHERE tenant_id = $1 AND event_type = 'procurement.feed_purchase.reached'`, test
 
 	t.Run("a load recorded as already reached is stock and tested at once", func(t *testing.T) {
 		write := feedWrite()
-		write.FarmLabel = domain.FeedFarmCBE
+		write.FarmLabel = "CBE"
 		write.ReachedOn = "2026-08-22"
 		kg := 5400.0
 		write.ReachedWeightKg = &kg

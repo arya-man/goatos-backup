@@ -83,7 +83,8 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	// Android client evolve separately, and a stale extra param must not blank the list.
 	// (DisallowUnknownFields is for the write bodies only.)
 	q := r.URL.Query()
-	filterKey := domain.FilterKeyOrDefault(q.Get("filter"))
+	// The RAW key goes to the service, which refuses an unknown one; normalising here hid it.
+	filterKey := strings.TrimSpace(q.Get("filter"))
 	limit := 0
 	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
@@ -130,7 +131,7 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		Title:       listTitle,
 		Rows:        rows,
 		NextCursor:  next,
-		Filters:     toFilterPayloads(filterKey, page, actor.CanRaise),
+		Filters:     toFilterPayloads(domain.FilterKeyOrDefault(filterKey), page, actor.CanRaise),
 		Scopes:      toScopePayloads(scopeKey, page, actor),
 		UnseenCount: page.UnseenCount,
 		CanRaise:    actor.CanRaise,

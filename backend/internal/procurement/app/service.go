@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
@@ -31,6 +32,15 @@ func NewService(repo ports.Repository) *Service {
 func (s *Service) WithVaccinationCanceler(c ports.VaccinationCanceler) *Service {
 	s.canceler = c
 	return s
+}
+
+// animalVocabulary is the tenant's active species and genders; a repository that cannot answer
+// (a unit-test fake) reads as the four built-ins.
+func (s *Service) animalVocabulary(ctx context.Context, tenantID string) (animalvocab.Vocabulary, error) {
+	if src, ok := s.repo.(ports.AnimalVocabularySource); ok {
+		return src.AnimalVocabulary(ctx, tenantID)
+	}
+	return animalvocab.Builtins(), nil
 }
 
 func (s *Service) ListLoads(ctx context.Context, q domain.LoadQuery) (domain.LoadListResult, error) {
@@ -316,19 +326,26 @@ func (s *Service) AddGoatToLoad(ctx context.Context, in ports.AddGoatToLoad) (do
 	if !blankPtr(in.AnimalIdentifier1) && !blankPtr(in.AnimalIdentifier2) && normalizeAnimalIdentifier(*in.AnimalIdentifier1) == normalizeAnimalIdentifier(*in.AnimalIdentifier2) {
 		return domain.LoadGoat{}, BadRequest("duplicate_animal_identifiers", "animal identifier 1 and animal identifier 2 must be different")
 	}
+	// Species and sex are the tenant's Configuration lists (OPEN UP TO NEW SPECIES, maintainer
+	// decision 2026-09-25): a species added there can be put on a load at once, while a code no
+	// ACTIVE row carries is refused.
 	in.Species = strings.TrimSpace(in.Species)
 	if in.Species == "" {
-		return domain.LoadGoat{}, BadRequest("missing_species", "species is required and must be goat or sheep")
-	}
-	if !oneOf(in.Species, "goat", "sheep") {
-		return domain.LoadGoat{}, BadRequest("invalid_species", "species must be goat or sheep")
+		return domain.LoadGoat{}, BadRequest("missing_species", "species is required")
 	}
 	in.Sex = strings.TrimSpace(in.Sex)
 	if in.Sex == "" {
-		return domain.LoadGoat{}, BadRequest("missing_sex", "sex is required and must be female or male")
+		return domain.LoadGoat{}, BadRequest("missing_sex", "sex is required")
 	}
-	if !oneOf(in.Sex, "female", "male") {
-		return domain.LoadGoat{}, BadRequest("invalid_sex", "sex must be female or male")
+	vocab, err := s.animalVocabulary(ctx, in.TenantID)
+	if err != nil {
+		return domain.LoadGoat{}, err
+	}
+	if !animalvocab.Has(vocab.Species, in.Species) {
+		return domain.LoadGoat{}, BadRequest("invalid_species", animalvocab.ReasonUnknownSpecies)
+	}
+	if !animalvocab.Has(vocab.Sexes, in.Sex) {
+		return domain.LoadGoat{}, BadRequest("invalid_sex", animalvocab.ReasonUnknownSex)
 	}
 	if err := validateOptionalUUID("holding_location_id", in.HoldingLocationID); err != nil {
 		return domain.LoadGoat{}, err

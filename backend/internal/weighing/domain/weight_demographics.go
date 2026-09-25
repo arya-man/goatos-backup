@@ -106,12 +106,16 @@ type WeightGainOriginBucket struct {
 
 // WeightGainShedTypeBucket is one breed's daily gain for one physical shed class.
 //
-// The farm wants this as ELEVATED pen versus NON-ELEVATED pen. Unlike the per-shed
-// leaderboard, this is not a list of pens: it is an aggregate by breed and pen class.
+// The farm compares its pen TYPES (elevated, non-elevated, and whatever else it authors).
+// Unlike the per-shed leaderboard, this is not a list of pens: it is an aggregate by breed and pen
+// type.
 //
-// The class is CONFIGURED per pen on Configuration -> Items and settings -> Pens and is read
-// from shed_profiles.shed_type. It is never guessed from the pen's name or notes: a pen nobody
-// has typed is unclassified, is absent from both bars, and is never folded into one of them.
+// The type is CONFIGURED per partition on Configuration -> Items and settings -> Partitions, from
+// the farm's own Pen types register (migration 000437), and is read here as the stored CODE on
+// shed_partitions.shed_type. Weighing never reads the register itself (it is not on weighing's
+// table allowlist): the code is the bucket key, and the chart takes each code's NAME and order
+// from the page contract's pen_types option group. It is never guessed from the pen's name or
+// notes: a pen nobody has typed is unclassified and is absent from every bar.
 type WeightGainShedTypeBucket struct {
 	Label              string  `json:"label"`
 	ShedType           string  `json:"shed_type"`
@@ -135,7 +139,8 @@ type ShedTypeMember struct {
 	// naming every elevated pen beside one breed's elevated bar would name mostly other breeds'
 	// pens.
 	Label string `json:"label"`
-	// ShedType is the stable key the bars are grouped by: "elevated" or "non_elevated". Never copy.
+	// ShedType is the stable key the bars are grouped by: a code from the farm's Pen types register
+	// (elevated, non_elevated, or any type the farm adds). Never copy.
 	ShedType string `json:"shed_type"`
 	// LocationID and PartitionLabel are the weighing bucket's own grain, carried so a client can
 	// key on identity rather than on the composed name.

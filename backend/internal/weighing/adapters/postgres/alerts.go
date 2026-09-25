@@ -62,8 +62,8 @@ func decodeAlertCursor(value string) (alertCursor, error) {
 // never a recipient of it.
 //
 // DEDUPE: QueueRoleNotifications writes one row per recipient DEVICE, so a
-// two-phone operator has two rows for one transition. DISTINCT ON the producer's
-// event_key collapses them back to one alert.
+// two-phone operator has two rows for one transition. Only the newest row per
+// producer event_key is kept (see the mine CTE), collapsing them back to one alert.
 //
 // BOUNDED: the rolling AlertRetentionDays window plus the per-member equality
 // predicate keep this off a full-history scan; both are served by
@@ -86,20 +86,46 @@ WITH me AS (
   ) AS workforce_member_id
 ),
 mine AS (
-  SELECT DISTINCT ON (nr.context->>'event_key')
-    nr.notification_request_id,
-    nr.requested_at,
-    nr.title,
-    nr.body,
-    nr.context
-  FROM notification_requests nr, me
+  -- DEDUPE without sorting the whole window: a row survives when no NEWER candidate row (same
+  -- predicates, compared on (requested_at, notification_request_id) -- the DISTINCT ON tie-break
+  -- this replaced) carries its event_key, which is exactly "the newest row of its event_key
+  -- group" (NULL keys form one group, as DISTINCT ON grouped them). The outer keyset walk then
+  -- stops after the page instead of deduping 30 days of one leader's per-device rows first
+  -- (16k rows on STG: 300-900 ms -> ~15-40 ms, full result sets and cursor pages identical).
+  -- The probe spells the module predicate with starts_with (identical to LIKE 'weighing.%': '.'
+  -- is literal in LIKE) so it is served by notification_requests_member_dedupe_idx, whose key
+  -- carries the event_key, instead of re-walking every newer row of the partial feed index.
+  SELECT nr.notification_request_id, nr.requested_at, nr.title, nr.body, nr.context
+  FROM me, notification_requests nr
   WHERE nr.tenant_id = $1::uuid
     AND me.workforce_member_id IS NOT NULL
     AND nr.context->>'member_id' = me.workforce_member_id::text
     AND nr.context->>'message_key' LIKE 'weighing.%'
     AND nr.requested_at >= now() - ($3::int * INTERVAL '1 day')
     AND ($4::bool OR nr.context->>'park_id' = ANY($5::text[]))
-  ORDER BY nr.context->>'event_key', nr.requested_at DESC, nr.notification_request_id DESC
+    AND CASE WHEN COALESCE(nr.context->>'event_key', '') <> '' THEN NOT EXISTS (
+          SELECT 1 FROM notification_requests n2
+          WHERE COALESCE(NULLIF(n2.context->>'event_key', ''), n2.notification_request_id::text)
+                  = nr.context->>'event_key'
+          AND n2.context->>'event_key' = nr.context->>'event_key'
+          AND n2.tenant_id = $1::uuid
+          AND n2.context->>'member_id' = me.workforce_member_id::text
+          AND starts_with(n2.context->>'message_key', 'weighing.')
+          AND n2.requested_at >= now() - ($3::int * INTERVAL '1 day')
+          AND ($4::bool OR n2.context->>'park_id' = ANY($5::text[]))
+          AND n2.requested_at >= nr.requested_at
+          AND (n2.requested_at, n2.notification_request_id) > (nr.requested_at, nr.notification_request_id))
+        ELSE NOT EXISTS (
+          SELECT 1 FROM notification_requests n2
+          WHERE n2.context->>'event_key' IS NOT DISTINCT FROM nr.context->>'event_key'
+          AND n2.tenant_id = $1::uuid
+          AND n2.context->>'member_id' = me.workforce_member_id::text
+          AND starts_with(n2.context->>'message_key', 'weighing.')
+          AND n2.requested_at >= now() - ($3::int * INTERVAL '1 day')
+          AND ($4::bool OR n2.context->>'park_id' = ANY($5::text[]))
+          AND n2.requested_at >= nr.requested_at
+          AND (n2.requested_at, n2.notification_request_id) > (nr.requested_at, nr.notification_request_id))
+        END
 )
 SELECT
   mine.notification_request_id::text,

@@ -48,7 +48,8 @@ func (p Plan) empty() bool {
 }
 
 // SecondWave returns the species-specific second wave. Blank means goats.species' default
-// ('goat'); any species outside the goats_species_check set has no second wave.
+// ('goat'); any other species -- including one the farm added on Configuration (OPEN UP TO NEW
+// SPECIES, 2026-09-25) -- has no second wave until one is authored for it.
 func (p Plan) SecondWave(species string) []string {
 	switch strings.ToLower(strings.TrimSpace(species)) {
 	case "sheep":

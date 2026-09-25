@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,8 +48,21 @@ func assertProblemsAddUp(t *testing.T, problems domain.HealthAnalyticsProblems) 
 	}
 }
 
+// The pen types these tests type pens with. They are ROWS of the tenant's Pen types register
+// (migration 000437), created here the way the farm creates them on Configuration.
+const (
+	testPenElevated    = "elevated"
+	testPenNonElevated = "non_elevated"
+)
+
 func setPenType(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedID, penType string) {
 	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO pen_types (tenant_id, pen_type_key, name, sort_order)
+VALUES ($1::uuid, 'elevated', 'Elevated', 10), ($1::uuid, 'non_elevated', 'Non-elevated', 20)
+ON CONFLICT (tenant_id, pen_type_key) DO NOTHING`, healthTenant); err != nil {
+		t.Fatalf("seed pen types: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, shed_type)
 VALUES ($2::uuid, $1::uuid, 'Part 1', '1', 'active', 'manual', $3)
@@ -73,10 +87,22 @@ func TestHealthProblemsOneToManyCountsEachEpisodeOnceAcrossEveryBreakdown(t *tes
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
-	setPenType(t, ctx, pool, healthShed, domain.HealthPenTypeElevated)
+	routeAdultAnimals(t, ctx, pool)
+	setPenType(t, ctx, pool, healthShed, testPenElevated)
 	if _, err := pool.Exec(ctx, `UPDATE goats SET breed = 'Beetal' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		healthTenant, analyticsDeadGoat); err != nil {
 		t.Fatalf("set breed: %v", err)
+	}
+
+	// The case snapshots the partition the animal SITS in (goat_shed_partitions) at diagnosis, so
+	// the animal must be in the typed pen for its case to land on that pen's type. Without this row
+	// the case is honestly unclassified and the elevated bar below reads zero.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Part 1')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
+		healthTenant, analyticsDeadGoat, healthShed); err != nil {
+		t.Fatalf("place the animal in the typed pen: %v", err)
 	}
 
 	repo := NewRepository(pool, 30*time.Second)
@@ -110,7 +136,7 @@ LIMIT 1`, healthTenant, analyticsDeadGoat); err != nil {
 	if n := problemBucket(t, got.Problems.ByBreed, "Beetal"); n != 2 {
 		t.Fatalf("Beetal = %d, want 2", n)
 	}
-	if n := problemBucket(t, got.Problems.ByPenType, domain.HealthPenTypeElevated); n != 2 {
+	if n := problemBucket(t, got.Problems.ByPenType, testPenElevated); n != 2 {
 		t.Fatalf("elevated = %d, want 2; a second shed_profiles row must never multiply a case", n)
 	}
 	assertProblemsAddUp(t, got.Problems)
@@ -127,7 +153,8 @@ func TestHealthProblemsBreedPaginationCapNeverMovesTheTotal(t *testing.T) {
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
-	setPenType(t, ctx, pool, healthShed, domain.HealthPenTypeNonElevated)
+	routeAdultAnimals(t, ctx, pool)
+	setPenType(t, ctx, pool, healthShed, testPenNonElevated)
 
 	repo := NewRepository(pool, 30*time.Second)
 	diagnoseFever(t, ctx, pool, analyticsDeadGoat, "problems-cap-seed")
@@ -192,7 +219,8 @@ func TestHealthProblemsParkScopeNarrowsEveryBreakdownTogether(t *testing.T) {
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
-	setPenType(t, ctx, pool, healthShed, domain.HealthPenTypeElevated)
+	routeAdultAnimals(t, ctx, pool)
+	setPenType(t, ctx, pool, healthShed, testPenElevated)
 
 	repo := NewRepository(pool, 30*time.Second)
 	diagnoseFever(t, ctx, pool, analyticsDeadGoat, "problems-scope-in")
@@ -211,7 +239,7 @@ VALUES ($3::uuid,$1::uuid,'shed','CBE-H1','Other Pen',$2::uuid,'active') ON CONF
 		healthTenant, otherPark, otherShed); err != nil {
 		t.Fatalf("seed other pen: %v", err)
 	}
-	setPenType(t, ctx, pool, otherShed, domain.HealthPenTypeNonElevated)
+	setPenType(t, ctx, pool, otherShed, testPenNonElevated)
 	if _, err := pool.Exec(ctx, `
 WITH new_goat AS (
   INSERT INTO goats (tenant_id, display_id, species, breed, sex, lifecycle_status, age_band,
@@ -249,7 +277,7 @@ LIMIT 1`, healthTenant, healthParty, otherPark, otherShed); err != nil {
 	if narrow.Problems.Total != 1 {
 		t.Fatalf("one park total = %d, want 1", narrow.Problems.Total)
 	}
-	if n := problemBucket(t, narrow.Problems.ByPenType, domain.HealthPenTypeNonElevated); n != 0 {
+	if n := problemBucket(t, narrow.Problems.ByPenType, testPenNonElevated); n != 0 {
 		t.Fatalf("the other park's non-elevated pen leaked into the scoped read: %d", n)
 	}
 	assertProblemsAddUp(t, narrow.Problems)
@@ -271,6 +299,7 @@ func TestHealthProblemsStatusMatrixCountsEveryStatusAndNamesTheUnknowns(t *testi
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
+	routeAdultAnimals(t, ctx, pool)
 	// healthShed is left UNTYPED on purpose: that is the unclassified bucket.
 
 	repo := NewRepository(pool, 30*time.Second)
@@ -315,4 +344,102 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, healthTenant, analyticsRecov
 		t.Fatalf("unknown age = %d, want 3 counted rather than dropped", n)
 	}
 	assertProblemsAddUp(t, got.Problems)
+}
+
+// routeAdultAnimals gives the analytics fixtures what diagnosis now requires of every animal
+// (maintainer decision 2026-09-23, migration 000400): a management stage, and an authored route
+// from that stage to a diagnosis type. The analytics tests seed plain adults with no stage and a
+// tenant with no routing, so every observation they submit was refused before it opened a case --
+// the reads under test never saw a row. This routes the band the way the shipped seed does (adult
+// wildcard -> adult type) and gives each stageless adult the Adult stage, both as input facts;
+// the case itself is still opened by the production submit path.
+func routeAdultAnimals(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO health_diagnosis_types (tenant_id, type_key, label, is_builtin)
+VALUES ($1::uuid, 'adult', 'Adult', true)
+ON CONFLICT (tenant_id, type_key) DO NOTHING`, healthTenant); err != nil {
+		t.Fatalf("seed the adult diagnosis type: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO health_diagnosis_stage_routes (tenant_id, age_band, stage_code, type_key)
+VALUES ($1::uuid, 'adult', '*', 'adult')
+ON CONFLICT (tenant_id, age_band, stage_code) DO NOTHING`, healthTenant); err != nil {
+		t.Fatalf("route adult animals: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET management_stage = 'Adult'
+WHERE tenant_id = $1::uuid AND COALESCE(btrim(management_stage), '') = ''`, healthTenant); err != nil {
+		t.Fatalf("stage adult animals: %v", err)
+	}
+}
+
+// A PEN TYPE THE FARM ADDS on Configuration -> Pen types (migration 000437, maintainer instruction
+// 2026-09-25) is its own bucket, under the NAME the farm gave it, in the register's order -- read
+// from the register on a real database, never from a list in Go. A rename shows at once. The app
+// refuses to archive a type any pen still holds, so the archived-with-cases step below is the
+// defensive path: were a type ever archived underneath its pens, no case may drop out of the total.
+func TestHealthProblemsFarmAddedPenTypeIsItsOwnNamedBucket(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+	seedAnalyticsAnimals(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	routeAdultAnimals(t, ctx, pool)
+	setPenType(t, ctx, pool, healthShed, testPenElevated) // seeds the two stock types, types the pen
+	if _, err := pool.Exec(ctx, `
+INSERT INTO pen_types (tenant_id, pen_type_key, name, sort_order) VALUES ($1::uuid, 'slatted', 'Slatted floor', 5);
+`, healthTenant); err != nil {
+		t.Fatalf("author the third pen type: %v", err)
+	}
+	setPenType(t, ctx, pool, healthShed, "slatted")
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Part 1', 'Part 1')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
+		healthTenant, analyticsDeadGoat, healthShed); err != nil {
+		t.Fatalf("place the animal in the typed pen: %v", err)
+	}
+	diagnoseFever(t, ctx, pool, analyticsDeadGoat, "problems-farm-type-1")
+
+	repo := NewRepository(pool, 30*time.Second)
+	from, to := analyticsWindow(t)
+	read := func() domain.HealthAnalyticsProblems {
+		got, err := repo.GetHealthAnalytics(ctx, domain.HealthAnalyticsQuery{TenantID: healthTenant, FromDate: from, ToDate: to})
+		if err != nil {
+			t.Fatalf("health analytics: %v", err)
+		}
+		return got.Problems
+	}
+
+	problems := read()
+	var keys []string
+	for _, bucket := range problems.ByPenType {
+		keys = append(keys, bucket.Key)
+	}
+	if strings.Join(keys, ",") != "slatted,elevated,non_elevated,unclassified" {
+		t.Fatalf("pen type buckets = %v, want the register's order (slatted sorts first) then not-set", keys)
+	}
+	if problems.ByPenType[0].Label != "Slatted floor" || problems.ByPenType[0].Cases != 1 {
+		t.Fatalf("farm-added bucket = %+v, want Slatted floor with 1 case", problems.ByPenType[0])
+	}
+	assertProblemsAddUp(t, problems)
+
+	if _, err := pool.Exec(ctx, `UPDATE pen_types SET name = 'Slatted' WHERE tenant_id = $1::uuid AND pen_type_key = 'slatted'`, healthTenant); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if got := read().ByPenType[0].Label; got != "Slatted" {
+		t.Fatalf("after a rename the bucket reads %q, want Slatted", got)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE pen_types SET status = 'archived' WHERE tenant_id = $1::uuid AND pen_type_key = 'slatted'`, healthTenant); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	archived := read()
+	if n := problemBucket(t, archived.ByPenType, "slatted"); n != 1 {
+		t.Fatalf("an archived type with a case in its pen reads %d, want 1: the case must not be lost", n)
+	}
+	assertProblemsAddUp(t, archived)
 }

@@ -99,6 +99,12 @@ data class CountsBreakdownSeriesPointDto(
     @SerialName("key") val key: String = "",
     @SerialName("label") val label: String = "",
     @SerialName("count") val count: Int = 0,
+    /**
+     * The breed's species code, sent only by `GET /app/counts/breeds` (the Configuration breed
+     * register) so the birth form offers only the chosen species' breeds. Blank everywhere else and
+     * from an older backend, where the breed is offered under every species.
+     */
+    @SerialName("species") val species: String = "",
 )
 
 /**
@@ -112,6 +118,21 @@ data class CountsBreakdownSeriesPointDto(
 @Serializable
 data class CountsBreedsResponseDto(
     @SerialName("breeds") val breeds: List<CountsBreakdownSeriesPointDto> = emptyList(),
+    /**
+     * The farm's species and genders from Configuration > Items & settings (OPEN UP TO NEW
+     * SPECIES, 2026-09-25), in the lists' order and under the farm's names: the birth form's
+     * species and sex choices. Empty from an older backend, and the form then keeps its built-in
+     * goat/sheep, female/male choices.
+     */
+    @SerialName("species") val species: List<CountsVocabularyOptionDto> = emptyList(),
+    @SerialName("sexes") val sexes: List<CountsVocabularyOptionDto> = emptyList(),
+)
+
+/** One Configuration species or gender: the code a write stores and the name the form shows. */
+@Serializable
+data class CountsVocabularyOptionDto(
+    @SerialName("key") val key: String = "",
+    @SerialName("label") val label: String = "",
 )
 
 @Serializable

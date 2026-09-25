@@ -43,9 +43,18 @@ func NewSalesServiceWithClock(repo ports.SalesRepository, now func() time.Time) 
 	return &SalesService{repo: repo, now: now}
 }
 
+// ListFarms returns the tenant's active park codes: every farm a sale may be recorded against.
+func (s *SalesService) ListFarms(ctx context.Context, tenantID string) ([]string, error) {
+	return s.repo.ListFarms(ctx, tenantID)
+}
+
 // GetOverview returns the whole page contract for one farm scope.
 func (s *SalesService) GetOverview(ctx context.Context, tenantID, farmRaw string) (domain.Overview, error) {
-	farm, ok := domain.NormalizeFarmFilter(farmRaw)
+	farms, err := s.repo.ListFarms(ctx, tenantID)
+	if err != nil {
+		return domain.Overview{}, err
+	}
+	farm, ok := domain.NormalizeFarmFilter(farmRaw, farms)
 	if !ok {
 		// REJECTED rather than widened: an unknown farm silently treated as "all" would show the
 		// caller company numbers under a farm label.
@@ -63,7 +72,11 @@ type DealListQuery struct {
 
 // ListDeals returns one ledger page plus the whole-filter total.
 func (s *SalesService) ListDeals(ctx context.Context, tenantID string, q DealListQuery) (ports.DealPage, error) {
-	farm, ok := domain.NormalizeFarmFilter(q.Farm)
+	farms, err := s.repo.ListFarms(ctx, tenantID)
+	if err != nil {
+		return ports.DealPage{}, err
+	}
+	farm, ok := domain.NormalizeFarmFilter(q.Farm, farms)
 	if !ok {
 		return ports.DealPage{}, ErrSalesInvalidFarm
 	}
@@ -108,8 +121,12 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 	if err != nil {
 		return domain.Deal{}, err
 	}
+	farms, err := s.repo.ListFarms(ctx, tenantID)
+	if err != nil {
+		return domain.Deal{}, err
+	}
 	normalized := write.Normalize(catalog)
-	if err := normalized.Validate(catalog); err != nil {
+	if err := normalized.Validate(catalog, farms); err != nil {
 		return domain.Deal{}, err
 	}
 	if len(domain.AggregateFeedDemand(normalized.Lines)) > 0 {
@@ -393,8 +410,12 @@ func (s *SalesService) CreateBuyerLead(ctx context.Context, tenantID string, wri
 	if err != nil {
 		return domain.BuyerLead{}, err
 	}
+	farms, err := s.repo.ListFarms(ctx, tenantID)
+	if err != nil {
+		return domain.BuyerLead{}, err
+	}
 	normalized := write.Normalize()
-	if err := normalized.Validate(); err != nil {
+	if err := normalized.Validate(farms); err != nil {
 		return domain.BuyerLead{}, err
 	}
 	return s.repo.CreateBuyerLead(ctx, tenantID, normalized, actorID, key)
@@ -422,8 +443,12 @@ func (s *SalesService) UpdateBuyerLead(ctx context.Context, tenantID, leadID str
 	if err != nil {
 		return domain.BuyerLead{}, err
 	}
+	farms, err := s.repo.ListFarms(ctx, tenantID)
+	if err != nil {
+		return domain.BuyerLead{}, err
+	}
 	normalized := write.Normalize()
-	if err := normalized.Validate(); err != nil {
+	if err := normalized.Validate(farms); err != nil {
 		return domain.BuyerLead{}, err
 	}
 	return s.repo.UpdateBuyerLead(ctx, tenantID, leadID, normalized, actorID, key)
@@ -495,8 +520,12 @@ func (s *SalesService) CreateSoldTags(ctx context.Context, tenantID string, writ
 	if err != nil {
 		return 0, err
 	}
+	farms, err := s.repo.ListFarms(ctx, tenantID)
+	if err != nil {
+		return 0, err
+	}
 	normalized := write.Normalize()
-	if err := normalized.Validate(); err != nil {
+	if err := normalized.Validate(farms); err != nil {
 		return 0, err
 	}
 	return s.repo.CreateSoldTags(ctx, tenantID, normalized, actorID, key)

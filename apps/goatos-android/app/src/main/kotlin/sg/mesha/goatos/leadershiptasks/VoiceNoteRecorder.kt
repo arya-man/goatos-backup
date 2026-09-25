@@ -41,7 +41,7 @@ class MediaRecorderVoiceNoteRecorder(
 
     override fun start() {
         discard()
-        val dir = File(context.filesDir, DRAFT_DIR).apply { mkdirs() }
+        val dir = File(context.filesDir, LEADERSHIP_TASK_DRAFT_DIR).apply { mkdirs() }
         val target = File(dir, "voice-${System.currentTimeMillis()}.m4a")
         @Suppress("DEPRECATION")
         val created = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else MediaRecorder()
@@ -91,7 +91,6 @@ class MediaRecorderVoiceNoteRecorder(
     }
 
     private companion object {
-        const val DRAFT_DIR = "leadership-task-drafts"
         const val AUDIO_BIT_RATE = 96_000
         const val AUDIO_SAMPLE_RATE = 44_100
     }

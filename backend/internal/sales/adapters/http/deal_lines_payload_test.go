@@ -21,7 +21,7 @@ func TestDealWriteBodyDecodesLinesAndLegacyShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := withLines.toDomain().Normalize(builtinCatalog())
-	if err := w.Validate(builtinCatalog()); err != nil {
+	if err := w.Validate(builtinCatalog(), []string{"CBE", "CPT"}); err != nil {
 		t.Fatalf("lines body rejected: %v", err)
 	}
 	if len(w.Lines) != 2 || w.ProductType != domain.ProductMixed || w.SalesValue != 165000 {
@@ -35,7 +35,7 @@ func TestDealWriteBodyDecodesLinesAndLegacyShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := legacy.toDomain().Normalize(builtinCatalog())
-	if err := l.Validate(builtinCatalog()); err != nil {
+	if err := l.Validate(builtinCatalog(), []string{"CBE", "CPT"}); err != nil {
 		t.Fatalf("legacy body rejected: %v", err)
 	}
 	if len(l.Lines) != 1 || l.Lines[0].Breed != "Sirohi" || l.ProductType != domain.ProductGoat {

@@ -59,9 +59,9 @@ UPDATE goats SET breed = $3, sex = $4 WHERE tenant_id = $1::uuid AND goat_id = $
 func seedCorrectionBreeds(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
-INSERT INTO breeds (species, canonical_name, status)
-VALUES ('goat', 'Beetal', 'active'), ('goat', 'Sirohi', 'active')
-ON CONFLICT DO NOTHING`); err != nil {
+INSERT INTO breeds (tenant_id, species, canonical_name, status)
+VALUES ($1::uuid, 'goat', 'Beetal', 'active'), ($1::uuid, 'goat', 'Sirohi', 'active')
+ON CONFLICT DO NOTHING`, ssTenant); err != nil {
 		t.Fatalf("seed breeds: %v", err)
 	}
 }

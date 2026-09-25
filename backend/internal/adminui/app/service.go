@@ -606,7 +606,7 @@ func pages() []domain.PageContract {
 		// with the deals ledger LAST; FARM VALUE holds the live-herd valuation -- total farm
 		// value, total meat, Over 35 kg with its error margin, and the by-category breakdown.
 		// Both stay read-only by contract; entry is still /sales/config alone.
-		page("sales-sold", "/sales/sold", "/sales/sold", "Summary", "What has sold across CBE and CPT — revenue, animals, price per kg, buyers and the deals ledger.", "module-surface",
+		page("sales-sold", "/sales/sold", "/sales/sold", "Summary", "What has sold across every park — revenue, animals, price per kg, buyers and the deals ledger.", "module-surface",
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
@@ -681,7 +681,7 @@ func pages() []domain.PageContract {
 		// animals on the phone; this page never records, so its only control is the decision.
 		page("animal-purchases", "/procurement/animal-purchases", "/procurement/animal-purchases", "Animal purchases", "Loads on offer and the animals filmed in them. Watch each video and accept or reject the animal; the buying desk sees the answer on the phone at once.", "module-surface",
 			[]domain.TableContract{animalPurchaseLoadTable(), animalPurchaseAnimalTable()}),
-		page("feed-purchases", "/procurement/feed-purchases", "/procurement/feed-purchases", "Feed Purchases", "Feed bought for CBE and CPT — quantity, landed cost, vendor and payment state. These loads are what the stock and days-left cards on Feed Analytics are counted from.", "module-surface",
+		page("feed-purchases", "/procurement/feed-purchases", "/procurement/feed-purchases", "Feed Purchases", "Feed bought for each park — quantity, landed cost, vendor and payment state. These loads are what the stock and days-left cards on Feed Analytics are counted from.", "module-surface",
 			[]domain.TableContract{
 				feedPurchaseTable(),
 			}),
@@ -2487,7 +2487,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"feedback.invalid_status_transition":        "That is not a move this task can make from where it is now.",
 			"feedback.missing_title":                    "A task needs a title.",
 			"feedback.missing_assignee":                 "Choose who the task is for.",
-			"feedback.missing_deadline":                 "A task needs a deadline.",
+			"feedback.missing_deadline":                 "Choose the deadline day and time.",
 			"feedback.missing_note":                     "Write the update before sending it.",
 			"feedback.invalid_deadline":                 "That deadline is not a date and time.",
 			"feedback.invalid_edit":                     "The task could not be saved. Reload the page and try again.",
@@ -2789,6 +2789,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"card.done":                           "done",
 			"card.in_review":                      "in review",
 			"card.started":                        "started",
+			"card.not_started":                    "not started",
 			"card.attention":                      "needs attention",
 			"card.past_clock":                     "past clock",
 			"drawer.title":                        "Work item",
@@ -5669,14 +5670,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.birth.aria":    "Daily gain by breed and origin",
 			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
 
-			// Pen-wise. Exactly the comparison requested in the voice note: elevated pens
-			// against ground pens within every breed.
-			"section.shed.title":          "Elevated vs ground pens",
-			"section.shed.caption":        "Daily gain for each breed, split by physical pen type: elevated pen against ground pen. A pen without that profile is left out rather than guessed.",
-			"section.shed.aria":           "Daily gain by breed and pen type",
-			"empty.shed.body":             "No pen-type profile has daily gain in this period. Add elevated or ground pen profiles, then weigh twice.",
-			"view.shed_type.elevated":     "Elevated pen",
-			"view.shed_type.non_elevated": "Non-elevated pen",
+			// Pen-wise: daily gain per breed, one bar per PEN TYPE. The types and their names are
+			// the farm's Pen types register (migration 000437), served as the pen_types option group;
+			// no pen type is named in this copy (maintainer instruction 2026-09-25).
+			"section.shed.title":   "Daily gain by pen type",
+			"section.shed.caption": "Daily gain for each breed, split by pen type. Pen types are set in Configuration, Items and settings, Pen types, and each partition is given one. A pen with no type is left out rather than guessed.",
+			"section.shed.aria":    "Daily gain by breed and pen type",
+			"empty.shed.body":      "No typed pen has daily gain in this period. Give partitions a pen type in Configuration, then weigh twice.",
 			// The two bars come out of a classification the reader cannot see on the chart, so each
 			// legend entry carries an info affordance naming the pens behind it. Backend-owned
 			// copy, rendered verbatim -- the client composes no part of this sentence.
@@ -6379,9 +6379,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"problems.chart.breed.hint": "Which breeds the farm is treating most. Read it against how many of each breed " +
 				"the farm keeps: a breed with twice the animals will show more problems without being less healthy.",
 			"problems.chart.pen_type.title": "Health problems by pen type",
-			"problems.chart.pen_type.hint": "Elevated pens against non-elevated ones. A pen's type is set on its own row " +
-				"in Configuration, Items and settings, Pens; problems in a pen nobody has typed are shown separately " +
-				"rather than counted into either side.",
+			"problems.chart.pen_type.hint": "One bar per pen type. Pen types are set in Configuration, Items and settings, " +
+				"Pen types, and each partition is given one; problems in a pen nobody has typed are shown separately " +
+				"rather than counted into any type.",
 			"problems.chart.age.title": "Health problems by age",
 			"problems.chart.age.hint": "How old each animal was when the case was opened, not how old it is today. " +
 				"Animals with no date of birth on record are shown in their own band.",
@@ -6537,6 +6537,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"summary_card.k2.label":             "K2",
 			"summary_card.k3.label":             "K3",
 			"summary_card.k4.label":             "K4",
+			"summary_card.other_stages.label":   "Other stages",
 			"summary_card.group.aria":           "Stage summary cards",
 			"table.breakdown.aria":              "Detail breakdown rows",
 			// Says WHAT it totals (maintainer report, 2026-08-12). The value is the whole-filter sum —
@@ -6619,6 +6620,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.unassigned_shed":       "No pen",
 			"label.unassigned_stage":      "No stage",
 			"label.unassigned_breed":      "No breed",
+			"label.unassigned_sex":        "No animals",
 			"empty.breakdown":             "No animals registered in this scope yet.",
 			"empty.breakdown_filtered":    "No animals match these filters.",
 			"state.breakdown_unavailable": "Breakdown unavailable",
@@ -7785,6 +7787,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"reason.slot_rates_incomplete":    "This feed has no quantity set in every part of the ration grid for this park. Serving it would stop those pens getting a sheet at all, so set its quantities first — zero is a valid answer.",
 			"reason.slot_not_declared":        "This session does not serve that feed, so there was nothing to remove. Check whether you meant the other session.",
 			"reason.session_feed_required":    "Choose a feed to add.",
+			"action.edit_sessions":            "Edit sessions",
+			"action.add_sessions":             "Set up sessions",
+			"action.sessions_open":            "Name each feeding session and the share of the day's feed it carries. The shares must add up to 100%. Clear a session's name to remove it.",
+			"label.session_name":              "Session name",
+			"label.session_share":             "Share of the day (%)",
+			"action.sessions_saved":           "Sessions saved. The next sheet issued for this park is split this way.",
+			"action.sessions_rejected":        "The sessions were not changed. Correct the problem and try again.",
+			"reason.session_split_not_whole":  "The shares must add up to exactly 100%.",
+			"reason.session_share_invalid":    "Enter each share as a number from 0.01 to 100, with at most two decimal places.",
+			"reason.session_has_feeds":        "That session still serves feeds. Remove its feeds before removing the session.",
+			"reason.sessions_required":        "Name at least one session.",
 			"empty.session_feeds":             "No feeds — this session serves nothing and its pens will not be fed. Add a feed to start serving it.",
 			"section.schedule.title":          "Feed day clock",
 			"section.schedule.aria":           "Per-park feed day dispatch clock",
@@ -7890,9 +7903,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.ration_grid_filtered":         "No ration rates match these filters.",
 			"empty.shed_factors":                 "No feed factors authored. Every location is treated as a factor of 1.0.",
 			"empty.shed_factors_filtered":        "No feed factors match these filters.",
-			"empty.session_template":             "No session template authored for this park, so the daily quantity cannot be split across sessions.",
+			"empty.session_template":             "No feeding sessions set for this park, so the daily quantity cannot be split across sessions. Use Set up sessions to add them.",
 			"empty.session_template_filtered":    "No sessions match these filters.",
 			"empty.schedule":                     "No feeding schedule authored for this park yet.",
+			"action.add_schedule":                "Set schedule",
+			"label.schedule_missing":             "Not set. This park gets no feed direction or packing for this until a schedule is set.",
 			"empty.schedule_filtered":            "No schedule rows match these filters.",
 			"state.ration_grid_unavailable":      "Ration grid unavailable",
 			"state.shed_factors_unavailable":     "Feed factors unavailable",
@@ -8033,6 +8048,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"option.no_vaccination_sheds":              "No vaccination-usable pens",
 			"option.optional":                          "— optional —",
 			"option.select_species":                    "Select species",
+			"option.select_breed":                      "Select breed",
+			"option.select_species_first":              "Choose the species first",
+			"note.no_breeds_for_species":               "No breeds for this species yet. Add one in Configuration › Items & settings › Breeds.",
 			"option.select_sex":                        "Select sex",
 			"option.select_origin":                     "Select origin",
 			"note.identifier_required":                 "Tag 1 is required now; Tag 2 is optional until double tagging is live. Tag values are never reused, even after death, sale, transfer, tag loss, or tag breakage.",
@@ -8786,7 +8804,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.field.name":                "SOP name",
 			"modal.builder.placeholder.name":          "Vaccination session",
 			"modal.builder.domain_locked":             "domain locked",
-			"modal.builder.code_prefix":               "sop_code",
 			"modal.builder.policy_label":              "vaccination drive/session policy",
 			"modal.builder.field.trigger":             "Trigger — what starts it?",
 			"modal.builder.field.steps":               "Steps & questions — add/remove, pick a type, set conditional rules",
@@ -9331,11 +9348,11 @@ func salesOptionGroups() []domain.OptionGroup {
 			},
 		},
 		{
+			// The farms are the tenant's parks, compiled in by compilePages from the park
+			// catalog; only the "All farms" choice is declared here.
 			ID: "sales_farms",
 			Options: []domain.Option{
 				option("all", "All farms", "", ""),
-				option("CBE", "CBE", "", ""),
-				option("CPT", "CPT", "", ""),
 			},
 		},
 		{
@@ -9462,6 +9479,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				option("procurement", "Procurement", "", "warn"),
 				option("verification", "Verification", "", "info"),
 				option("tasks", "Tasks", "", "pur"),
+				option("sales", "Sales", "", "ok"),
 			}},
 			{ID: "work_board_states", Options: []domain.Option{
 				option("scheduled", "Scheduled", "", ""),
@@ -9577,15 +9595,15 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		// The FEED list is deliberately NOT here: it is live tenant rows (feed_item_catalog), and
 		// a constant list of feed labels in contract code is the banned pattern. The form reads it
 		// from GET /procurement/feed-purchase-options, which serves exactly the set the write path
-		// accepts. Farms and payment states ARE closed contract vocabulary -- the same sets the
-		// domain validates against -- so they belong here.
+		// accepts. Farms are the tenant's parks, compiled in from the park catalog; payment states
+		// ARE closed contract vocabulary -- the set the domain validates against.
 		return withGenericOptionGroups([]domain.OptionGroup{
 			{
+				// The farms are the tenant's parks, compiled in by compilePages from the park
+				// catalog; only the "All farms" choice is declared here.
 				ID: "feed_purchase_farms",
 				Options: []domain.Option{
 					option("all", "All farms", "", ""),
-					option("CBE", "CBE", "", ""),
-					option("CPT", "CPT", "", ""),
 				},
 			},
 			{
@@ -9610,7 +9628,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			},
 		})
 	case "sales-farm-born":
-		// Sex and species are fixed register vocabularies; the other filters' choices (parks,
+		// Sex and species are Configuration's lists, compiled over these fallback options by
+		// compileAnimalVocabularyGroups; the other filters' choices (parks,
 		// pens, breeds, stages) are LIVE herd facts and ride on the data read itself, never
 		// here. There is no origin group, and since 2026-09-22 there could not be one: origin IS the
 		// page's membership, so every animal on it carries the same value and a filter on it would
@@ -10043,7 +10062,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card.
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
 	case "weighing-sops":
-		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
+		// The Assumptions drawer's sale-price grid is one row per species and one column per
+		// gender: Configuration's lists, compiled over these fallback options
+		// (compileAnimalVocabularyGroups; OPEN UP TO NEW SPECIES, 2026-09-25).
+		return withGenericOptionGroups(append(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...), assumptionVocabularyOptionGroups()...))
 	case "pc-care-sops":
 		// PC CARE SOP (2026-09-22): the care cards editor reuses the weighing card's question and
 		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card --
@@ -10817,8 +10839,9 @@ func liveTrackerOptionGroups() []domain.OptionGroup {
 	}
 }
 
-// countsBreakdownOptionGroups holds only the option group whose vocabulary is a fixed schema
-// constraint: sex is CHECK (female|male) on goats, so it can be declared here.
+// countsBreakdownOptionGroups declares the gender group. Its female/male options are only the
+// fallback: the compiler replaces them with Configuration's gender list (compileAnimalVocabularyGroups,
+// OPEN UP TO NEW SPECIES 2026-09-25), so a gender added there is a breakdown column at once.
 //
 // Farm, shed, breed and stage are deliberately NOT declared here. Their values are live tenant
 // data, so hardcoding them would be exactly the "CBE/CPT-style constants in backend contract
@@ -10988,6 +11011,28 @@ func feedOptionGroups() []domain.OptionGroup {
 	}
 }
 
+// assumptionVocabularyOptionGroups are the sale-price grid's species rows and gender columns. The
+// options here are only the fallback for a family that did not load; the compiler replaces them with
+// Configuration's species and gender lists.
+func assumptionVocabularyOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "assumption_species",
+			Options: []domain.Option{
+				option("goat", "Goat", "", ""),
+				option("sheep", "Sheep", "", ""),
+			},
+		},
+		{
+			ID: "assumption_sexes",
+			Options: []domain.Option{
+				option("male", "Male", "", ""),
+				option("female", "Female", "", ""),
+			},
+		},
+	}
+}
+
 func herdRegisterOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
 		{
@@ -11023,6 +11068,12 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 				option("Anantapur", "Anantapur", "", ""),
 				option("Kenguri", "Kenguri", "", ""),
 			},
+		},
+		{
+			// Register animal's breed picker: the farm's own breeds (Configuration > Breeds), each
+			// carrying its species in Group so the form offers only the chosen species' breeds.
+			ID:      "herd_breeds",
+			Options: []domain.Option{},
 		},
 		{
 			ID: "herd_filter_sexes",
@@ -11091,6 +11142,16 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 		// hardcodes a reproductive vocabulary. Empty here means "unavailable" until seeded.
 		{
 			ID:      "herd_reproductive",
+			Options: []domain.Option{},
+		},
+		// herd_health is the same source-backed shape for the register's Health chip: the table
+		// renders the tenant's status_definitions label ("Under treatment"), never the stored key.
+		{
+			ID:      "herd_health",
+			Options: []domain.Option{},
+		},
+		{
+			ID:      "herd_lifecycle",
 			Options: []domain.Option{},
 		},
 	}

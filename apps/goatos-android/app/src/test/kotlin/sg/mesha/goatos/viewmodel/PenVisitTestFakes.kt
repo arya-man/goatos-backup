@@ -56,8 +56,10 @@ class FakePenVisitsRepository(
     override fun observeVisit(taskId: String): Flow<PenVisitDto?> =
         detail.map { current -> current?.takeIf { it.taskId == taskId } }
 
-    override suspend fun refreshVisit(taskId: String) {
+    /** A server that holds no such visit is unreachable here: a refresh "lands" only with a detail. */
+    override suspend fun refreshVisit(taskId: String): Boolean {
         refreshDetailCalls++
+        return detail.value != null
     }
 
     override suspend fun persistServerDetail(detail: PenVisitDetailDto) {

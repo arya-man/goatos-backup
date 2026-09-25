@@ -80,6 +80,11 @@ func (f *fakeApprovalRepo) ListApprovalRequests(_ context.Context, q domain.Appr
 	return f.listResult, nil
 }
 
+func (f *fakeApprovalRepo) CountPendingApprovalRequests(_ context.Context, q domain.ApprovalRequestQuery) (int, error) {
+	f.listQuery = q
+	return len(f.listResult.Items), nil
+}
+
 func (f *fakeApprovalRepo) CreateApprovalRequest(_ context.Context, in domain.ApprovalRequestSubmission) (domain.ApprovalRequest, bool, error) {
 	return domain.ApprovalRequest{
 		ApprovalRequestID: "request-1",

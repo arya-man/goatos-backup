@@ -176,15 +176,19 @@ type Repository interface {
 	// ListApprovalRequests returns one keyset page of requests, restricted to the types the caller
 	// may decide.
 	ListApprovalRequests(ctx context.Context, q domain.ApprovalRequestQuery) (domain.ApprovalRequestPage, error)
+	// CountPendingApprovalRequests counts the whole-queue rows ListApprovalRequests would page
+	// through for the same tenant, types and caller park scope (status pending, no cursor).
+	CountPendingApprovalRequests(ctx context.Context, q domain.ApprovalRequestQuery) (int, error)
 
 	// ShiftingDestinationCatalog returns the active park -> shed option tree an operator picks a
 	// shifting destination from, ordered for a stable dropdown. Bounded config catalog, not a feed.
 	ShiftingDestinationCatalog(ctx context.Context, tenantID string) (domain.ShiftingDestinationCatalog, error)
 
-	// ActiveBreeds lists the breeds present on the tenant's live herd (key=label=goats.breed, with a
-	// head count, most-common first) for the operator birth form's breed picker. Same source/grain as
-	// the Counts Breakdown breed facet, served on the operator surface. Bounded, not a feed.
-	ActiveBreeds(ctx context.Context, tenantID string) ([]domain.CountsBreakdownSeriesPoint, error)
+	// ActiveBreeds lists the breeds an operator may give a newborn: every active breed in the
+	// Configuration breed register plus any breed the live herd already carries, each with its
+	// species and live head count (key=label=the breed name goats.breed stores), carried breeds
+	// first. Bounded, not a feed.
+	ActiveBreeds(ctx context.Context, tenantID string) ([]domain.BirthBreedOption, error)
 
 	// GoatShiftingFacts reads the narrow breed/stage/sex facts needed to derive a shifting impact
 	// for the named animals. It is READ-ONLY: counts never writes goats. It must return exactly one

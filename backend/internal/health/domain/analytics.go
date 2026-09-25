@@ -361,43 +361,32 @@ type HealthAnalyticsProblems struct {
 	Total int64 `json:"total"`
 	// ByBreed is ordered most problems first, then by label.
 	ByBreed []HealthAnalyticsProblemBucket `json:"by_breed"`
-	// ByPenType is ELEVATED, NON-ELEVATED and unclassified, always in that
-	// order and always all three, so the two real bars never swap places
-	// between windows and a side with no cases is still REPORTED. The client
-	// names the empty buckets under the chart: the shared bar chart draws
-	// nothing for a zero, and one bar alone would read as "the farm only has
-	// elevated pens" rather than "non-elevated pens had no problems".
+	// ByPenType is one bucket per pen type the farm has authored on
+	// Configuration -> Items and settings -> Pen types (migration 000437), in
+	// that register's order, then "Pen type not set" last. Every ACTIVE type
+	// is present even at zero, so a side with no cases is still REPORTED and
+	// the bars never swap places between windows; an archived type appears
+	// only while cases still sit in its pens. The client names the empty
+	// buckets under the chart: the shared bar chart draws nothing for a zero.
 	ByPenType []HealthAnalyticsProblemBucket `json:"by_pen_type"`
 	// ByAge is ordered youngest band first, with the unknown band last.
 	ByAge []HealthAnalyticsProblemBucket `json:"by_age"`
 }
 
-// Pen-type bucket keys. The first two match shed_profiles.shed_type exactly;
-// the third is this read's own name for "nobody has typed this pen yet".
+// HealthPenTypeUnclassified is this read's own bucket for "nobody has typed
+// this pen yet". It is the ONLY pen-type key the code names: every other key and
+// label is a row of the farm's Pen types register (migration 000437), so a pen
+// type the farm adds appears on the chart with no code change.
 const (
-	HealthPenTypeElevated     = "elevated"
-	HealthPenTypeNonElevated  = "non_elevated"
-	HealthPenTypeUnclassified = "unclassified"
+	HealthPenTypeUnclassified      = "unclassified"
+	HealthPenTypeUnclassifiedLabel = "Pen type not set"
 )
 
-// HealthPenTypeOrder is the fixed display order. It is FIXED rather than
-// sorted by size because these two bars are read against each other: a chart
-// whose sides swap when one window has more elevated cases than the other
-// invites exactly the misreading it exists to prevent.
-var HealthPenTypeOrder = []string{HealthPenTypeElevated, HealthPenTypeNonElevated, HealthPenTypeUnclassified}
-
-var healthPenTypeLabels = map[string]string{
-	HealthPenTypeElevated:     "Elevated pen",
-	HealthPenTypeNonElevated:  "Non-elevated pen",
-	HealthPenTypeUnclassified: "Pen type not set",
-}
-
-// HealthPenTypeLabel resolves a pen-type key to farm copy.
-func HealthPenTypeLabel(key string) string {
-	if label, ok := healthPenTypeLabels[key]; ok {
-		return label
-	}
-	return key
+// HealthPenType is one row of the farm's Pen types register, in register order.
+type HealthPenType struct {
+	Key    string
+	Name   string
+	Active bool
 }
 
 // HealthProblemAgeBandOrder is the age-at-diagnosis spine, youngest first.

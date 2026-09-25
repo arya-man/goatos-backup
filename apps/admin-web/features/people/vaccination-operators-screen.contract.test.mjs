@@ -101,3 +101,14 @@ test("missing authored assignment config can still save the first rowVersion-0 c
     "after creating the first config, the returned config must become the editable assignmentConfig",
   );
 });
+
+// The screen named "CPT · Channapatna" in its header and "Channapatna" in every roster row whatever
+// park it showed. The park it names must come from the backend park list (Configuration > Items &
+// settings > Parks), so no park name or code may be written into the screen.
+test("the screen names its park from the backend park list, never a literal", () => {
+  for (const literal of ["Channapatna", "Coimbatore", "CPT ·", "CBE ·", ">CPT<", ">CBE<"]) {
+    assert.ok(!source.includes(literal), `vaccination operators screen must not hard-code ${literal}`);
+  }
+  assert.match(source, /parks\.find\(\(p\) => p\.parkId === parkId\)/, "the scoped park is looked up in the backend park list");
+  assert.match(hrmsSource, /top_bar\.park_selector\.options/, "the park list is the backend-compiled top-bar park list");
+});

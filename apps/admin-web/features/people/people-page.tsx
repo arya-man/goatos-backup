@@ -4,6 +4,7 @@ import Link from "@/components/no-prefetch-link";
 import { PeopleBoard } from "./people-board";
 import { ClockScreen } from "./clock-screen";
 import { NotificationsScreen } from "./notifications-screen";
+import { getAdminWebBootstrap } from "@/lib/api/server";
 
 const VaccinationOperatorsScreen = async ({
   initialParkId,
@@ -12,8 +13,17 @@ const VaccinationOperatorsScreen = async ({
   initialParkId?: string;
   pageContract: AdminUiPageContract;
 }) => {
-  const mod = await import("./vaccination-operators-screen");
-  return <mod.VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />;
+  // The screen names the park it is scoped to. The names come from the same backend-compiled park
+  // list the top bar uses (Configuration > Items & settings > Parks), never a literal in the page.
+  const [mod, bootstrap] = await Promise.all([import("./vaccination-operators-screen"), getAdminWebBootstrap()]);
+  const parks = bootstrap.ok
+    ? bootstrap.data.top_bar.park_selector.options.map((option) => ({
+        parkId: option.key,
+        code: option.label,
+        name: option.title || option.label,
+      }))
+    : [];
+  return <mod.VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} parks={parks} />;
 };
 
 /**

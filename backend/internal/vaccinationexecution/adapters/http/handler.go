@@ -125,8 +125,10 @@ type Handler struct {
 	writer       Writer
 	operatorCfgW OperatorAssignmentConfigWriter
 	capacityCfgW CapacityConfigWriter
-	log          *slog.Logger
-	clock        func() time.Time
+	// operatorShiftW is the park operator-shift read/write path (see operator_shift_handler.go).
+	operatorShiftW OperatorShiftWriter
+	log            *slog.Logger
+	clock          func() time.Time
 }
 
 // NewHandler constructs the vaccination execution handler.
@@ -196,6 +198,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /vaccination/capacity-config", h.PutCapacityConfig)
 	mux.HandleFunc("GET /vaccination/operator-assignment/config", h.GetOperatorAssignmentConfig)
 	mux.HandleFunc("PUT /vaccination/operator-assignment/config", h.PutOperatorAssignmentConfig)
+	RegisterOperatorShiftRoutes(mux, h)
 	mux.HandleFunc("GET /app/vaccination/alerts", h.ListAlerts)
 	mux.HandleFunc("GET /app/vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)

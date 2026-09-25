@@ -140,6 +140,40 @@ duration to cover them, are each a guess about a medical document.
   rows (one retired, one published), a discard leaves none, and an `unchanged` save writes no
   version row at all — so the write's identity belongs to none of them.
 
+## Cause of death: the built-in register PLUS Health Config (maintainer decision 2026-09-25)
+
+The death form's "due to disease" list (`GET /app/health/death-causes`, read by the phone's
+Add death / Birth & death screens) was the embedded diagnosis register alone, built once per
+process. It is now, PER TENANT:
+
+- the **built-in** register's problem rules (`kind: register_rule`), always;
+- the problem rules of the tenant's **published diagnosis registers** — the documents the engine
+  diagnoses from — for every diagnosis type that is not retired (`kind: register_rule`);
+- every **treatment-tab disease** (`POST /health-config/diseases`) that is **published today** in
+  either age band (`kind: disease_key`, keyed by its stable `disease_key`, never by its name).
+
+**One row per disease.** A treatment disease that is the same illness as a register diagnosis is
+listed once, as the register row, because the register key is the precise one the incidence board
+counts. "Same illness" is: the same name (Mastitis / MASTITIS), the same key ignoring case and
+separators (foot_rot / FOOT_ROT), or the course that diagnosis opens (`treats`, or `sop_ref` for the
+built-in register — bloating is BLOAT's course, pregnancy_toxemia PREG_TOX's). On the shipped data
+this adds Abscesses, Dog Bite, Horn Damage and Not Eating (and any other authored disease, such as
+Ear tag cleaning) to the 33 built-in diseases. A folded disease is still **accepted** under its own
+key; it is an active disease.
+
+**Active means published.** A bare draft is not offered or accepted; a disease whose every version
+is retired leaves the list and is **refused on a NEW death**. A death already recorded under it is
+untouched: a stored cause is never re-validated (only the raise path calls `ValidateCause`), and the
+mortality board still names it, because the label read covers every disease the tenant ever
+authored, active or not. Unknown keys are still refused under either kind.
+
+**Serving.** The built-in half is built once; the tenant half is two bounded, tenant-scoped reads
+(`death_cause_sources.go`) cached per tenant for 30 seconds in a 256-entry map, and dropped at once
+by the Health Config publish paths on the same instance (`WithRulebookChanged` ->
+`DeathCauseCatalogService.Invalidate`). Another API instance catches up within the TTL. The phone
+keeps the list in Room for offline use and refreshes it every time the death form opens; the web
+has no death form and renders no list of its own.
+
 ## Machine gates
 
 - `make ci-local` — the standard path.

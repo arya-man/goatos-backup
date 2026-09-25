@@ -102,6 +102,11 @@ var (
 	// backstop for whatever reopens that gap.
 	ErrSlotRatesIncomplete = errors.New("feedconfig: feed has no ration rate in every cell of this park")
 
+	// ErrSessionHasFeeds refuses to retire a feeding session that still serves a feed. Generation
+	// walks only active sessions, so retiring one with declared feeds would drop those feeds from
+	// every sheet without a gap being raised. Withdraw its feeds first.
+	ErrSessionHasFeeds = errors.New("feedconfig: session still serves feeds")
+
 	// ErrSlotNotDeclared is returned when a withdrawal names a feed the session does not serve.
 	// Reported rather than treated as an idempotent success, because the author asked to stop a feed
 	// being served and the honest answer is that it never was -- possibly because they are looking at
@@ -199,6 +204,12 @@ type Repository interface {
 	// and withdrawn on the same business day is retired in place instead, because the schema's
 	// valid_to > valid_from rules out a same-day window and the row has served nothing.
 	SetSessionTemplateItem(ctx context.Context, cmd domain.SetSessionTemplateItemCommand) (domain.WriteResult, error)
+
+	// SetSessionPlan replaces a park's ACTIVE feeding sessions (label + share of the day) with the
+	// command's list, in one transaction. A listed session is added or edited in place; an active
+	// session not listed is retired -- REFUSED (ErrSessionHasFeeds) while it still serves a feed,
+	// because retiring it would silently stop those feeds reaching any animal.
+	SetSessionPlan(ctx context.Context, cmd domain.SetSessionPlanCommand) (domain.WriteResult, error)
 
 	// UpsertScheduleConfig authors one park/workflow dispatch clock on the same effective-dated
 	// terms. All three times are stored as LOCAL Asia/Kolkata wall-clock values with no offset.

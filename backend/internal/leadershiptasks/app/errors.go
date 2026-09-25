@@ -108,6 +108,8 @@ func HTTPError(err error) *Error {
 		return Forbidden("not_raiser", "Only the person who raised this task can change it.")
 	case errors.Is(err, domain.ErrNotAssignee):
 		return Forbidden("not_assignee", "Only the person this task is for can update its status.")
+	case errors.Is(err, domain.ErrNotOnTask):
+		return Forbidden("not_on_task", "Only the people on this task, or someone named in a note on it, can write a note here.")
 	case errors.Is(err, ports.ErrVersionConflict):
 		return Conflict("version_conflict", "This task changed after it was opened. Reload and try again.")
 	case errors.Is(err, ports.ErrIdempotencyConflict):

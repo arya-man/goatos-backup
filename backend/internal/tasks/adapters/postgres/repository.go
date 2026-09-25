@@ -205,14 +205,27 @@ RETURNING workflow_id::text`,
 		mustCaptureJSON(cmd.CaptureEvidence),
 	).Scan(&workflowID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Natural-key conflict: the workflow already exists. Do not touch its actions.
-		if err := tx.Commit(ctx); err != nil {
-			return false, err
+		// Natural-key conflict: the workflow already exists. Do not touch its actions -- UNLESS it
+		// is an animal's death workflow that a rejected report canceled and this is a NEW report of
+		// the same animal (reopenCanceledDeathWorkflowInTx). Without that, the one-per-animal death
+		// key made a rejected report permanent: the re-report's steps never opened and approval
+		// refused it for ever (2026-09-25).
+		reopenedID := ""
+		if cmd.TemplateKey == domain.TemplateKeyDeath {
+			reopenedID, err = reopenCanceledDeathWorkflowInTx(ctx, tx, cmd, template, sopVersionID, nextKey, nextTitle, nextDue)
+			if err != nil {
+				return false, err
+			}
 		}
-		committed = true
-		return false, nil
-	}
-	if err != nil {
+		if reopenedID == "" {
+			if err := tx.Commit(ctx); err != nil {
+				return false, err
+			}
+			committed = true
+			return false, nil
+		}
+		workflowID = reopenedID
+	} else if err != nil {
 		return false, err
 	}
 
@@ -282,6 +295,76 @@ RETURNING workflow_id::text`,
 	}
 	committed = true
 	return true, nil
+}
+
+// reopenCanceledDeathWorkflowInTx reopens an animal's death workflow IN PLACE for a new death
+// report, when the existing row was canceled by an earlier report's rejection.
+//
+// workflow_instances_death_uq keeps ONE death workflow per animal, so a rejected report's canceled
+// row is the only place a later report's steps can live. The row is reopened exactly as a fresh
+// open would build it: the steps are compiled from the SOP version in force NOW (the caller's
+// template -- "a workflow opens on the version in force"), stamped with the new report's event
+// time, placement and capture snapshot, and keyed to the new report through subject_ref_id. The
+// canceled step rows are replaced: a cancel already cleared their proofs, and the rejected report
+// itself stays on record in counts (the decided approval request) and in any verification history.
+//
+// It reopens ONLY when all of these hold, under the instance row lock:
+//   - the row is 'canceled' (an open or approved death workflow is never touched);
+//   - the animal is still alive (a dead animal's workflow is that death's evidence);
+//   - the command names its report (SubjectRefID), and it is NOT the report the row was opened
+//     for -- so an at-least-once redelivery of the rejected report's own counts.death.reported
+//     can never resurrect it.
+//
+// Returns the reopened workflow id, or "" when nothing was reopened.
+// Reopen-in-place statements for a canceled death workflow (reopenCanceledDeathWorkflowInTx). All
+// three address one workflow by its natural key or primary key.
+const (
+	// scale-guard:plan-proof-exempt: single-subject statements: workflow_instances by workflow_instances_natural_uq / subject_idx (tenant_id, [template_key,] subject_goat_id) and goats by its (tenant_id, goat_id) key; no range read over goats.
+	sqlLockDeathWorkflowForReopen = `
+SELECT wi.workflow_id::text, wi.state, COALESCE(wi.subject_ref_id::text, ''), g.lifecycle_status
+FROM workflow_instances wi
+JOIN goats g ON g.tenant_id = wi.tenant_id AND g.goat_id = wi.subject_goat_id
+WHERE wi.tenant_id = $1::uuid AND wi.subject_goat_id = $2::uuid AND wi.template_key = $3
+FOR UPDATE OF wi`
+	sqlClearCanceledDeathSteps     = `DELETE FROM workflow_actions WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`
+	sqlReopenCanceledDeathWorkflow = `
+UPDATE workflow_instances
+SET state = 'open', event_at = $3::timestamptz, event_date = $4::date,
+    park_id = nullif($5::text,'')::uuid, shed_id = nullif($6::text,'')::uuid,
+    actions_total = $7, actions_done = 0, next_action_key = $8, next_action_title = $9, next_due_at = $10::timestamptz,
+    sop_version_id = nullif($11::text,'')::uuid, subject_ref_id = $12::uuid, capture_evidence = $13::jsonb,
+    awaiting_verification = false, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid AND state = 'canceled'`
+)
+
+func reopenCanceledDeathWorkflowInTx(
+	ctx context.Context, tx pgx.Tx, cmd ports.OpenWorkflowCommand, template domain.Template,
+	sopVersionID string, nextKey, nextTitle, nextDue any,
+) (string, error) {
+	if cmd.SubjectRefID == nil || strings.TrimSpace(*cmd.SubjectRefID) == "" {
+		return "", nil
+	}
+	var workflowID, state, ref, lifecycle string
+	err := tx.QueryRow(ctx, sqlLockDeathWorkflowForReopen, cmd.TenantID, cmd.SubjectGoatID, domain.TemplateKeyDeath).Scan(&workflowID, &state, &ref, &lifecycle)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if state != domain.WorkflowStateCanceled || lifecycle != "alive" || strings.EqualFold(ref, strings.TrimSpace(*cmd.SubjectRefID)) {
+		return "", nil
+	}
+	if _, err := tx.Exec(ctx, sqlClearCanceledDeathSteps, cmd.TenantID, workflowID); err != nil {
+		return "", fmt.Errorf("tasks: clear canceled death steps: %w", err)
+	}
+	if _, err := tx.Exec(ctx, sqlReopenCanceledDeathWorkflow,
+		cmd.TenantID, workflowID, cmd.EventAt.UTC(), biztime.BusinessDate(cmd.EventAt), deref(cmd.ParkID), deref(cmd.ShedID),
+		template.OperatorActionCount(), nextKey, nextTitle, nextDue, sopVersionID, strings.TrimSpace(*cmd.SubjectRefID),
+		mustCaptureJSON(cmd.CaptureEvidence)); err != nil {
+		return "", fmt.Errorf("tasks: reopen canceled death workflow: %w", err)
+	}
+	return workflowID, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -573,7 +656,22 @@ type cardScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
+// BoardCardColumns and BoardCardJoins are the ONE workflow card read (the columns scanCard reads
+// and the 1:0..1 display joins behind them), exported so the Work Board's engine source
+// (tasks/adapters/boardsource) titles a workflow with the very words the phone's card uses
+// instead of composing its own. A caller appends its own columns AFTER BoardCardColumns and
+// passes their destinations to ScanBoardCard as extra.
+const (
+	BoardCardColumns = cardSelectColumns
+	BoardCardJoins   = cardJoins
+)
+
+// ScanBoardCard scans one BoardCardColumns row plus the caller's trailing columns.
+func ScanBoardCard(row interface{ Scan(dest ...any) error }, now time.Time, extra ...any) (domain.WorkflowCard, error) {
+	return scanCard(row, now, extra...)
+}
+
+func scanCard(row cardScanner, now time.Time, extra ...any) (domain.WorkflowCard, error) {
 	var (
 		partitionLabel                 string
 		card                           domain.WorkflowCard
@@ -587,7 +685,7 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		saleAnimals                    int
 		saleFarm                       string
 	)
-	if err := row.Scan(
+	dests := []any{
 		&card.WorkflowID, &card.Module, &card.TemplateKey, &card.Subject.GoatID,
 		&card.EventAt, &card.EventDate, &card.State,
 		&card.ActionsTotal, &card.ActionsDone,
@@ -597,7 +695,8 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		&card.ParkLabel, &card.ShedLabel, &partitionLabel, &card.SOPName,
 		&card.SubjectRefID, &saleBuyer, &saleAnimals, &saleFarm,
 		&loadRef, &loadVendor, &loadFarm, &feedItem, &feedVendor, &feedFarm, &feedBatch,
-	); err != nil {
+	}
+	if err := row.Scan(append(dests, extra...)...); err != nil {
 		return domain.WorkflowCard{}, err
 	}
 	card.SubjectLabel = saleSubjectLabel(card.TemplateKey, saleBuyer, saleAnimals, saleFarm)
@@ -1495,8 +1594,13 @@ WHERE tenant_id = $1::uuid AND subject_goat_id = $2::uuid AND template_key = $3
 }
 
 // CancelDeathWorkflowForGoat closes staged work after an admin rejection. The set is bounded to
-// one workflow and its three template actions, and repeated rejection-event delivery is a no-op.
-func (r *Repository) CancelDeathWorkflowForGoat(ctx context.Context, tenantID, goatID string, _ time.Time) error {
+// one workflow and its template actions, and repeated rejection-event delivery is a no-op.
+//
+// rejectedAt is the rejection's own instant. A workflow whose event_at is LATER than it was
+// (re)opened by a report raised after that rejection (reopenCanceledDeathWorkflowInTx), so a
+// rejection delivered late -- after the re-report's counts.death.reported -- must not cancel the
+// re-report's steps. A zero rejectedAt keeps the unconditional behaviour.
+func (r *Repository) CancelDeathWorkflowForGoat(ctx context.Context, tenantID, goatID string, rejectedAt time.Time) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -1506,12 +1610,13 @@ func (r *Repository) CancelDeathWorkflowForGoat(ctx context.Context, tenantID, g
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var workflowID, lifecycle string
+	var eventAt time.Time
 	err = tx.QueryRow(ctx, `
-SELECT wi.workflow_id::text, g.lifecycle_status
+SELECT wi.workflow_id::text, g.lifecycle_status, wi.event_at
 FROM workflow_instances wi
 JOIN goats g ON g.tenant_id = wi.tenant_id AND g.goat_id = wi.subject_goat_id
 WHERE wi.tenant_id = $1::uuid AND wi.subject_goat_id = $2::uuid AND wi.template_key = $3
-FOR UPDATE OF wi`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID, &lifecycle)
+FOR UPDATE OF wi`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID, &lifecycle, &eventAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return tx.Commit(ctx)
 	}
@@ -1522,6 +1627,9 @@ FOR UPDATE OF wi`, tenantID, goatID, domain.TemplateKeyDeath).Scan(&workflowID, 
 	// workflow is that death's evidence under review; a later-rejected report (a duplicate left
 	// pending beside the approved one) must never cancel it (E2E 2026-09-17).
 	if lifecycle != "alive" {
+		return tx.Commit(ctx)
+	}
+	if !rejectedAt.IsZero() && eventAt.After(rejectedAt) {
 		return tx.Commit(ctx)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -1540,6 +1648,106 @@ WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid AND state <> 'canceled'`, 
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// Rejected-birth cancellation statements (CancelBirthWorkflowsForRejectedBirth). Every read and
+// write is bounded by one litter: its kid workflows (<= 3, on (tenant, template_key,
+// subject_goat_id)) and its one mother track, the prefix of workflow_instances_birth_event_uq.
+const (
+	sqlLockRejectedBirthWorkflows = `
+SELECT workflow_id::text
+FROM workflow_instances
+WHERE tenant_id = $1::uuid
+  AND ((template_key = 'birth_kid' AND subject_goat_id = ANY($3::uuid[])
+        AND (birth_event_id = $2::uuid OR birth_event_id IS NULL))
+    OR (template_key = 'birth_mother' AND subject_goat_id = nullif($4::text, '')::uuid AND birth_event_id = $2::uuid))
+ORDER BY workflow_id
+FOR UPDATE`
+	sqlRejectedBirthActionIDs = `
+SELECT action_id::text FROM workflow_actions
+WHERE tenant_id = $1::uuid AND workflow_id = ANY($2::uuid[])
+ORDER BY action_id`
+	sqlCancelRejectedBirthActions = `
+UPDATE workflow_actions
+SET status = 'canceled', proof_ref = NULL, proof_refs = '[]'::jsonb,
+    row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = ANY($2::uuid[])
+  AND status IN ('pending', 'in_review', 'rework')`
+	sqlCancelRejectedBirthWorkflows = `
+UPDATE workflow_instances
+SET state = 'canceled', next_action_key = NULL, next_action_title = NULL, next_due_at = NULL,
+    awaiting_verification = false, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = ANY($2::uuid[]) AND state <> 'canceled'`
+)
+
+// CancelBirthWorkflowsForRejectedBirth closes the operator work of a REJECTED birth (maintainer
+// decision 2026-09-25, superseding "work remains available" in birth-death-workflows.md): the
+// litter's kid workflows and its shared mother track become 'canceled', every step still open
+// (pending / in_review / rework) is canceled with its staged proof cleared, and steps already
+// completed are kept as history. It mirrors CancelDeathWorkflowForGoat.
+//
+// It returns EVERY action id of those workflows -- on a redelivery too -- so the caller can
+// (re)try withdrawing their pending verifier items; the withdraw seam itself touches only items
+// still pending, so a verdict already cast stays history.
+func (r *Repository) CancelBirthWorkflowsForRejectedBirth(ctx context.Context, tenantID, birthEventID, motherGoatID string, childGoatIDs []string) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if childGoatIDs == nil {
+		childGoatIDs = []string{}
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, sqlLockRejectedBirthWorkflows, tenantID, birthEventID, childGoatIDs, motherGoatID)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: lock rejected birth workflows: %w", err)
+	}
+	var workflowIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		workflowIDs = append(workflowIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(workflowIDs) == 0 {
+		return nil, tx.Commit(ctx)
+	}
+	actionRows, err := tx.Query(ctx, sqlRejectedBirthActionIDs, tenantID, workflowIDs)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: read rejected birth steps: %w", err)
+	}
+	var actionIDs []string
+	for actionRows.Next() {
+		var id string
+		if err := actionRows.Scan(&id); err != nil {
+			actionRows.Close()
+			return nil, err
+		}
+		actionIDs = append(actionIDs, id)
+	}
+	actionRows.Close()
+	if err := actionRows.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, sqlCancelRejectedBirthActions, tenantID, workflowIDs); err != nil {
+		return nil, fmt.Errorf("tasks: cancel rejected birth steps: %w", err)
+	}
+	if _, err := tx.Exec(ctx, sqlCancelRejectedBirthWorkflows, tenantID, workflowIDs); err != nil {
+		return nil, fmt.Errorf("tasks: cancel rejected birth workflows: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return actionIDs, nil
 }
 
 // ApplyDeathSignoffApproved closes the workflow verification gate after approval. Idempotent under

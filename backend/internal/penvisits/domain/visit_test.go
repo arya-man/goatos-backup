@@ -71,7 +71,7 @@ func TestCopyIsFarmWordedAndBackendOwned(t *testing.T) {
 	if StateChip(rework, "2026-09-07") != "Visit needs another video" || StateTone(rework) != "danger" || !rework.CanSubmit(Actor{UserID: "u-second"}) {
 		t.Fatalf("rework copy wrong: %q", StateChip(rework, "2026-09-07"))
 	}
-	if got := Instruction(rework); got == Instruction(task) || !containsAll(got, "pen not visible", "record a new video") {
+	if got := Instruction(rework, "2026-09-07"); got == Instruction(task, "2026-09-07") || !containsAll(got, "pen not visible", "record a new video") {
 		t.Fatalf("rework instruction must carry the verifier's reason: %q", got)
 	}
 	done := submitted
@@ -107,38 +107,38 @@ func TestSubmitRuleIsAssigneeOpenProofAndVersion(t *testing.T) {
 	me := Actor{UserID: "u-dinakar"}
 	second := Actor{UserID: "u-second"}
 	other := Actor{UserID: "u-chandrakant"}
-	if err := CheckSubmit(task, me, "proof-1", 1); err != nil {
+	if err := CheckSubmit(task, me, "proof-1", 1, "2026-09-07"); err != nil {
 		t.Fatalf("assignee submit refused: %v", err)
 	}
-	if err := CheckSubmit(task, second, "proof-1", 1); err != nil {
+	if err := CheckSubmit(task, second, "proof-1", 1, "2026-09-07"); err != nil {
 		t.Fatalf("second configured visitor refused: %v", err)
 	}
 	inReview := task
 	inReview.Status = StatusPendingVerification
-	if err := CheckSubmit(inReview, me, "proof-1", 1); !errors.Is(err, ErrInReview) {
+	if err := CheckSubmit(inReview, me, "proof-1", 1, "2026-09-07"); !errors.Is(err, ErrInReview) {
 		t.Fatalf("in review = %v, want ErrInReview", err)
 	}
-	if err := CheckSubmit(task, me, "proof-1", 0); err != nil {
+	if err := CheckSubmit(task, me, "proof-1", 0, "2026-09-07"); err != nil {
 		t.Fatalf("zero row_version must mean no fence: %v", err)
 	}
-	if err := CheckSubmit(task, other, "proof-1", 1); !errors.Is(err, ErrNotAssignee) {
+	if err := CheckSubmit(task, other, "proof-1", 1, "2026-09-07"); !errors.Is(err, ErrNotAssignee) {
 		t.Fatalf("other person = %v, want ErrNotAssignee", err)
 	}
-	if err := CheckSubmit(task, me, "", 1); !errors.Is(err, ErrProofRequired) {
+	if err := CheckSubmit(task, me, "", 1, "2026-09-07"); !errors.Is(err, ErrProofRequired) {
 		t.Fatalf("no proof = %v, want ErrProofRequired", err)
 	}
-	if err := CheckSubmit(task, me, "proof-1", 2); !errors.Is(err, ErrVersionConflict) {
+	if err := CheckSubmit(task, me, "proof-1", 2, "2026-09-07"); !errors.Is(err, ErrVersionConflict) {
 		t.Fatalf("stale version = %v, want ErrVersionConflict", err)
 	}
 	done := task
 	done.WorkState = WorkStateCompleted
 	done.Status = StatusCompleted
-	if err := CheckSubmit(done, me, "proof-1", 1); !errors.Is(err, ErrAlreadyDone) {
+	if err := CheckSubmit(done, me, "proof-1", 1, "2026-09-07"); !errors.Is(err, ErrAlreadyDone) {
 		t.Fatalf("done = %v, want ErrAlreadyDone", err)
 	}
 	canceled := task
 	canceled.WorkState = WorkStateCanceled
-	if err := CheckSubmit(canceled, me, "proof-1", 1); !errors.Is(err, ErrCanceled) {
+	if err := CheckSubmit(canceled, me, "proof-1", 1, "2026-09-07"); !errors.Is(err, ErrCanceled) {
 		t.Fatalf("canceled = %v, want ErrCanceled", err)
 	}
 	if !task.CanSubmit(me) || task.CanSubmit(other) || done.CanSubmit(me) {
@@ -184,5 +184,54 @@ func TestReasonsAreOrderedDedupedAndUnknownsDropped(t *testing.T) {
 		if ReasonLabel(r) == r || ReasonLabel(r) == "" {
 			t.Fatalf("reason %s has no farm label", r)
 		}
+	}
+}
+
+// A PEN VISIT CANNOT BE FILMED BEFORE ITS DAY (maintainer decision 2026-09-25). The visit is owed
+// the day AFTER the work; a submit on the work day itself (or earlier) is refused with a farm
+// sentence naming the day it opens, compared as India business DATES, and the card says so.
+func TestVisitCannotBeFilmedBeforeItsPlannedDay(t *testing.T) {
+	task := openTask() // work 06/09, visit planned 07/09
+	me := Actor{UserID: "u-dinakar"}
+
+	err := CheckSubmit(task, me, "proof-1", 1, "2026-09-06")
+	if !errors.Is(err, ErrNotOpenYet) {
+		t.Fatalf("submit on the work day: err = %v, want ErrNotOpenYet", err)
+	}
+	var notOpen *NotOpenYetError
+	if !errors.As(err, &notOpen) || notOpen.Message() != "This visit opens on 07/09/2026." {
+		t.Fatalf("refusal sentence = %v, want \"This visit opens on 07/09/2026.\"", err)
+	}
+	if err := CheckSubmit(task, me, "proof-1", 1, "2026-09-07"); err != nil {
+		t.Fatalf("submit on the planned day: %v", err)
+	}
+	if err := CheckSubmit(task, me, "proof-1", 1, "2026-09-08"); err != nil {
+		t.Fatalf("submit after the planned day (delayed): %v", err)
+	}
+
+	early := StepFor(task, me, "2026-09-06")
+	if early.CanSubmit {
+		t.Fatal("before its day the card must not offer the camera (can_submit=false)")
+	}
+	if !strings.Contains(early.ReasonLine, "Opens on 07/09/2026") {
+		t.Fatalf("reason_line = %q, want it to say when the visit opens", early.ReasonLine)
+	}
+	if !strings.Contains(early.Instruction, "07/09/2026") {
+		t.Fatalf("instruction = %q, want the opening day", early.Instruction)
+	}
+	onDay := StepFor(task, me, "2026-09-07")
+	if !onDay.CanSubmit || strings.Contains(onDay.ReasonLine, "Opens on") {
+		t.Fatalf("on its day: can_submit=%t reason_line=%q, want recordable and no opening note", onDay.CanSubmit, onDay.ReasonLine)
+	}
+}
+
+// The done line is a farm TIMESTAMP: DD/MM/YYYY HH:MM, 24-hour, India time (date display lock).
+func TestDoneLineIsAFarmTimestamp(t *testing.T) {
+	task := openTask()
+	at := time.Date(2026, 9, 19, 12, 51, 0, 0, time.UTC) // 18:21 IST
+	task.SubmittedAt = &at
+	task.Status = StatusPendingVerification
+	if got := DoneLine(task); got != "Visited 19/09/2026 18:21" {
+		t.Fatalf("DoneLine = %q, want \"Visited 19/09/2026 18:21\"", got)
 	}
 }

@@ -2482,6 +2482,7 @@ CREATE TABLE public.breeds (
     review_notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id uuid NOT NULL,
     CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
 );
 
@@ -2549,9 +2550,7 @@ CREATE TABLE public.goats (
     CONSTRAINT goats_merge_redirect_shape_check CHECK (((merged_into_goat_id IS NULL) OR (merged_into_goat_id <> goat_id))),
     CONSTRAINT goats_milk_cohort_check CHECK (((milk_cohort IS NULL) OR (milk_cohort = ANY (ARRAY['K1'::text, 'K2'::text, 'K3'::text])))),
     CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text])))),
-    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
-    CONSTRAINT goats_species_check CHECK ((species = ANY (ARRAY['goat'::text, 'sheep'::text])))
+    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1))
 );
 
 
@@ -5157,7 +5156,8 @@ CREATE TABLE public.breed_aliases (
     alias text NOT NULL,
     normalized_alias text NOT NULL,
     source_system text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id uuid NOT NULL
 );
 
 
@@ -5737,7 +5737,7 @@ CREATE TABLE public.feed_config_write_log (
     CONSTRAINT feed_config_write_log_actor_check CHECK ((btrim(actor_ref) <> ''::text)),
     CONSTRAINT feed_config_write_log_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
     CONSTRAINT feed_config_write_log_insert_shape_check CHECK (((outcome <> ALL (ARRAY['inserted'::text, 'corrected'::text])) OR (result_row_id IS NOT NULL))),
-    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text, 'feed_item'::text, 'session_template_item'::text]))),
+    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text, 'feed_item'::text, 'session_template_item'::text, 'session_template'::text]))),
     CONSTRAINT feed_config_write_log_outcome_check CHECK ((outcome = ANY (ARRAY['inserted'::text, 'superseded'::text, 'corrected'::text, 'unchanged'::text]))),
     CONSTRAINT feed_config_write_log_supersede_shape_check CHECK (((outcome <> 'superseded'::text) OR ((result_row_id IS NOT NULL) AND (superseded_row_id IS NOT NULL))))
 );
@@ -7582,7 +7582,7 @@ CREATE TABLE public.protocol_rule_dimensions (
     CONSTRAINT protocol_rule_dimensions_animal_stage_check CHECK ((animal_stage <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_breed_check CHECK ((breed <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_procurement_purpose_check CHECK ((procurement_purpose <> ''::text)),
-    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text, 'all'::text]))),
+    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((btrim(sex) <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_species_check CHECK ((species <> ''::text))
 );
 
@@ -7700,7 +7700,7 @@ CREATE TABLE public.sales_deals (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT sales_deals_breed_not_blank CHECK ((btrim(breed) <> ''::text)),
     CONSTRAINT sales_deals_buyer_name_not_blank CHECK ((btrim(buyer_name) <> ''::text)),
-    CONSTRAINT sales_deals_farm_check CHECK ((farm = ANY (ARRAY['CBE'::text, 'CPT'::text]))),
+    CONSTRAINT sales_deals_farm_check CHECK ((btrim(farm) <> ''::text)),
     CONSTRAINT sales_deals_product_type_check CHECK ((product_type = ANY (ARRAY['Sheep'::text, 'Goat'::text, 'Manure'::text]))),
     CONSTRAINT sales_deals_sales_value_nonneg CHECK ((sales_value >= (0)::numeric)),
     CONSTRAINT sales_deals_status_check CHECK ((status = ANY (ARRAY['Deal Closed'::text, 'Deal Failed'::text, 'In Discussion'::text, 'Advance Paid'::text])))
@@ -8945,7 +8945,7 @@ ALTER TABLE ONLY public.breed_aliases
 --
 
 ALTER TABLE ONLY public.breed_aliases
-    ADD CONSTRAINT breed_aliases_unique_alias UNIQUE (normalized_alias, source_system);
+    ADD CONSTRAINT breed_aliases_unique_alias UNIQUE (tenant_id, normalized_alias, source_system);
 
 
 --
@@ -8961,7 +8961,7 @@ ALTER TABLE ONLY public.breeds
 --
 
 ALTER TABLE ONLY public.breeds
-    ADD CONSTRAINT breeds_unique_name UNIQUE (species, canonical_name);
+    ADD CONSTRAINT breeds_unique_name UNIQUE (tenant_id, species, canonical_name);
 
 
 --
@@ -15130,7 +15130,7 @@ CREATE TRIGGER admin_ui_animal_stages_revision_trg AFTER INSERT OR DELETE OR UPD
 -- Name: breeds admin_ui_breeds_revision_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER admin_ui_breeds_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.breeds FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_global_family_trg('breeds');
+CREATE TRIGGER admin_ui_breeds_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.breeds FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('breeds');
 
 
 --

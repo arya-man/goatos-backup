@@ -18,7 +18,8 @@ func TestWeightDemographicsResolvesBucketLocationsBeforeFallbackPartitions(t *te
 	for _, predicate := range []string{
 		"WHERE l.tenant_id = s.tenant_id", "AND phys.tenant_id = l.tenant_id",
 		"AND phys.parent_location_id = l.parent_location_id", "AND phys.location_type = 'shed'",
-		"AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id",
+		"AND gg.lifecycle_status = 'alive'", "live ON live.shed_id = s.location_id",
+		"AND gsp.scrubbed_label = k.want_label", "AND phys.name = k.phys_name",
 	} {
 		if strings.Count(src, predicate) != 2 {
 			t.Fatalf("both target reads must preserve %q", predicate)

@@ -59,6 +59,13 @@ data class AddBirthUiState(
     val timeOfBirth: String = "",
     val breed: String = "",
     val breedOptions: List<CountsFilterOptionUi> = emptyList(),
+    /**
+     * The farm's species and genders (Configuration > Items & settings, served beside the breeds and
+     * Room-cached with them). Empty until the first read, and from an older backend -- the form then
+     * offers the built-in goat/sheep, female/male.
+     */
+    val speciesOptions: List<CountsFilterOptionUi> = emptyList(),
+    val sexOptions: List<CountsFilterOptionUi> = emptyList(),
     val destinationParks: List<ShiftingParkUi> = emptyList(),
     val parkId: String = "",
     val shedId: String = "",
@@ -157,18 +164,26 @@ fun AddBirthScreen(
                         style = MeshaType.cardSubtitle,
                     )
                     CountsSegmented(
-                        options = listOf(
-                            "goat" to stringResource(R.string.counts_species_goat),
-                            "sheep" to stringResource(R.string.counts_species_sheep),
+                        options = birthVocabularyOptions(
+                            state.speciesOptions,
+                            listOf(
+                                "goat" to stringResource(R.string.counts_species_goat),
+                                "sheep" to stringResource(R.string.counts_species_sheep),
+                            ),
                         ),
+                        maxPerRow = BIRTH_VOCABULARY_PER_ROW,
                         selectedKey = state.species,
                         onSelect = { onEvent(AddBirthEvent.EditField(AddBirthField.SPECIES, it)) },
                     )
                     CountsSegmented(
-                        options = listOf(
-                            "female" to stringResource(R.string.counts_sex_female),
-                            "male" to stringResource(R.string.counts_sex_male),
+                        options = birthVocabularyOptions(
+                            state.sexOptions,
+                            listOf(
+                                "female" to stringResource(R.string.counts_sex_female),
+                                "male" to stringResource(R.string.counts_sex_male),
+                            ),
                         ),
+                        maxPerRow = BIRTH_VOCABULARY_PER_ROW,
                         selectedKey = state.sex,
                         onSelect = { onEvent(AddBirthEvent.EditField(AddBirthField.SEX, it)) },
                     )

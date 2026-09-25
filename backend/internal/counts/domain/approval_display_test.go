@@ -13,6 +13,7 @@ func TestApprovalSummaryLineNeverRendersAnID(t *testing.T) {
 	const parkID = "7f3a91c2-4d18-4a2b-9f31-2c7d5e8a1b41"
 
 	const goatID = "5c1e91c2-4d18-4a2b-9f31-2c7d5e8a1b42"
+	const farmID = "9d2e91c2-4d18-4a2b-9f31-2c7d5e8a1b43"
 
 	cases := []struct {
 		name          string
@@ -26,21 +27,53 @@ func TestApprovalSummaryLineNeverRendersAnID(t *testing.T) {
 			name:        "shifting with both shed names resolved",
 			requestType: ApprovalRequestTypeShifting,
 			summary: `{"goat_ids":["a","b","c"],"source_shed_id":"` + parkID +
-				`","destination_shed_id":"` + shedID + `","category":"Routine"}`,
+				`","destination_shed_id":"` + shedID + `","category":"growth"}`,
 			names: ApprovalNameLookup{Locations: map[string]string{
 				parkID: "Gandhi 1",
 				shedID: "Gandhi 2",
 			}},
-			want: "3 animals · Gandhi 1 → Gandhi 2 · Routine",
+			want: "3 animals · Gandhi 1 → Gandhi 2 · Growth move",
+		},
+		{
+			// 2026-09-25: the raw category ("normal") reached the line, and two parks both have a
+			// "Castro 1" -- the farm name now leads the pens.
+			name:        "shifting names the farm and a human category label",
+			requestType: ApprovalRequestTypeShifting,
+			summary: `{"goat_ids":["a","b"],"destination_park_id":"` + farmID + `","source_shed_id":"` + parkID +
+				`","source_partition_label":"2","destination_shed_id":"` + shedID + `","destination_partition_label":"3","category":"normal"}`,
+			names: ApprovalNameLookup{Locations: map[string]string{
+				farmID: "Coimbatore",
+				parkID: "Castro",
+				shedID: "Castro",
+			}},
+			want: "2 animals · Coimbatore · Castro 2 → Castro 3 · Normal move",
+		},
+		{
+			name:        "an unknown shifting category is dropped, never rendered raw",
+			requestType: ApprovalRequestTypeShifting,
+			summary:     `{"goat_ids":["a"],"category":"some_future_type"}`,
+			want:        "1 animal",
+		},
+		{
+			// The approver must know WHICH animal died: its real RFID tag leads the line.
+			name:          "death leads with the animal's tag",
+			requestType:   ApprovalRequestTypeDeath,
+			summary:       `{"reason":"Found dead in shed"}`,
+			subjectGoatID: goatID,
+			names: ApprovalNameLookup{
+				AnimalLocations: map[string]string{goatID: "CBE, Castro 2"},
+				AnimalTags:      map[string]string{goatID: "982000123456789"},
+			},
+			want: "Tag 982000123456789 · Found dead in shed · CBE, Castro 2",
 		},
 		{
 			// The regression this whole change exists for. With no name available the clause is
 			// DROPPED; the old Kotlin composer printed "to shed 0b4e91c2-...".
 			name:        "shifting with an unresolvable shed drops the clause, never prints the id",
 			requestType: ApprovalRequestTypeShifting,
-			summary:     `{"goat_ids":["a"],"destination_shed_id":"` + shedID + `","category":"Routine"}`,
+			summary:     `{"goat_ids":["a"],"destination_shed_id":"` + shedID + `","category":"spacing"}`,
 			names:       ApprovalNameLookup{Locations: map[string]string{}},
-			want:        "1 animal · Routine",
+			want:        "1 animal · Spacing move",
 		},
 		{
 			name:        "shifting names only the destination when the source is absent",
@@ -177,9 +210,9 @@ func TestApprovalSummaryGoatIDs(t *testing.T) {
 // every location a row references -- and nothing for the types that reference none.
 func TestApprovalSummaryLocationIDs(t *testing.T) {
 	got := ApprovalSummaryLocationIDs(ApprovalRequestTypeShifting,
-		json.RawMessage(`{"source_shed_id":"src","destination_shed_id":"dst"}`))
-	if len(got) != 2 || got[0] != "src" || got[1] != "dst" {
-		t.Fatalf("shifting location ids = %v, want [src dst]", got)
+		json.RawMessage(`{"source_shed_id":"src","destination_shed_id":"dst","destination_park_id":"park"}`))
+	if len(got) != 4 || got[0] != "src" || got[1] != "dst" || got[2] != "park" || got[3] != "" {
+		t.Fatalf("shifting location ids = %v, want [src dst park \"\"] (the park names the farm; blanks are deduped by the resolver)", got)
 	}
 
 	// Birth and death name no shed, so they must contribute nothing to the batch.

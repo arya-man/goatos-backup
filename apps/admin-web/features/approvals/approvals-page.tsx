@@ -6,6 +6,7 @@ import { Gavel } from "lucide-react";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import {
   firstAuthRequiredError,
+  getAdminWebApproval,
   listAdminWebApprovals,
   type AdminWebApprovalItem,
   type AdminWebApprovalRequestType,
@@ -13,12 +14,15 @@ import {
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDateTime, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
 import { ApprovalsDrawer } from "./approvals-drawer";
+import { ApprovalsDateFilter } from "./approvals-date-filter";
+import { approvalDateRange, approvalStatusLabel, approvalSubject, approvalSuccessSentence } from "./approval-display";
 
 const PATHNAME = "/approvals";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATUS_TABS: AdminWebApprovalStatus[] = ["pending", "approved", "rejected"];
 const TYPE_TABS: Array<"all" | AdminWebApprovalRequestType> = ["all", "birth", "death", "shifting"];
 
@@ -26,10 +30,25 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const sp = searchParams ?? {};
   const status = STATUS_TABS.find((s) => s === one(sp, "status")) ?? "pending";
   const typeFilter = TYPE_TABS.find((t) => t === one(sp, "type")) ?? "all";
-  const farmFilter = one(sp, "farm")?.trim() ?? "";
+  // A farm id reaches the server only when it is a uuid; anything else is treated as "all farms"
+  // rather than turned into a 400 by a hand-edited URL.
+  const rawFarm = one(sp, "farm")?.trim() ?? "";
+  const farmFilter = UUID_RE.test(rawFarm) ? rawFarm : "";
+  const cursor = one(sp, "ap_cursor");
+  // The calendar filter reaches the server only as a well-formed, ordered pair of YYYY-MM-DD days;
+  // a hand-edited URL degrades to "any date" rather than a 400 page.
+  const dateRange = approvalDateRange(one(sp, "raised_from"), one(sp, "raised_to"));
 
   const [queue, locations] = await Promise.all([
-    listAdminWebApprovals({ status, page_size: 20, cursor: one(sp, "ap_cursor") }),
+    listAdminWebApprovals({
+      status,
+      page_size: 20,
+      cursor,
+      request_type: typeFilter === "all" ? undefined : typeFilter,
+      park_id: farmFilter || undefined,
+      raised_from: dateRange.from || undefined,
+      raised_to: dateRange.to || undefined,
+    }),
     // Park/shed NAMES so the list + drawer render human-readable farm/shed text instead of UUIDs.
     // These are backend-owned canonical location names, resolved id -> name in the renderer.
     getCensusLocations(),
@@ -43,17 +62,26 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   // shed moves stay within one park. These are the Farm filter options.
   const farms = locations.parks.map((p) => ({ id: p.id, name: p.name }));
 
-  const allItems = queue.ok ? queue.data.items : [];
-  // Type + farm are not backend query params; narrow the already-fetched bounded page (max 20 rows)
-  // client-side rather than a second fetch — the same posture verification-review uses for park.
-  const items = allItems.filter(
-    (item) =>
-      (typeFilter === "all" || item.request_type === typeFilter) &&
-      (farmFilter === "" || itemParkId(item) === farmFilter),
-  );
+  // Type and farm are applied by the server (and bound into its cursor), so every page is already
+  // narrowed; the page never filters a fetched page client-side, which used to hide older rows.
+  const items = queue.ok ? queue.data.items : [];
+  const nextCursor = queue.ok ? queue.data.next_cursor ?? "" : "";
 
   const selectedId = one(sp, "ap_row");
+  // A link to a request that is not on this page (older than the first 20, or under another tab
+  // or filter -- a Work Board row, a bookmark) still opens its drawer: that one request is read on
+  // its own, under the same authority as the list (maintainer 2026-09-25). It opens the drawer only;
+  // the table keeps showing the page the reader is on.
+  // After a decision the redirect still names the decided row; its confirmation is the page-level
+  // banner, so that row is NOT re-read into a reopened drawer.
+  const justDecided = one(sp, "ap_status") === "success";
+  const onPage = !selectedId || justDecided || items.some((item) => item.approval_request_id === selectedId);
+  const linked = !onPage && UUID_RE.test(selectedId ?? "") ? await getAdminWebApproval(selectedId as string) : null;
+  const drawerItems = linked && linked.ok ? [...items, linked.data] : items;
   const feedback = { status: one(sp, "ap_status"), code: one(sp, "ap_code") };
+  // A decided row leaves the Pending list on the redirect, so the drawer (which renders only a row
+  // still in the list) can never carry the confirmation. It lives at page level instead.
+  const successSentence = approvalSuccessSentence(feedback.status, feedback.code);
 
   return (
     <div className="screen on">
@@ -68,14 +96,17 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
         <div className="sp" style={{ flex: 1 }} />
       </div>
 
+      {successSentence ? (
+        <div className="alert ok" role="status" style={{ marginBottom: 14 }}>
+          <b>{successSentence}</b>
+        </div>
+      ) : null}
+
       {queue.ok ? null : (
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{COPY.error.queueUnavailable}</b>
           <div className="small" style={{ marginTop: 4 }}>
             {COPY.error.queueUnavailableBody}
-          </div>
-          <div className="small muted" style={{ marginTop: 4 }}>
-            {queue.error.code ?? queue.error.kind} · {queue.error.message}
           </div>
         </div>
       )}
@@ -109,7 +140,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
         {TYPE_TABS.map((key) => (
           <Link
             key={key}
-            href={hrefWith(sp, { type: key === "all" ? null : key, ap_row: null, ap_status: null, ap_code: null })}
+            href={hrefWith(sp, { type: key === "all" ? null : key, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null })}
             replace
             scroll={false}
             className={typeFilter === key ? "on" : ""}
@@ -122,7 +153,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
       {/* Farm filter — the top-level park each request belongs to (Coimbatore / Channapatna). */}
       <div className="subtabs" style={{ marginBottom: 14 }}>
         <Link
-          href={hrefWith(sp, { farm: null, ap_row: null, ap_status: null, ap_code: null })}
+          href={hrefWith(sp, { farm: null, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null })}
           replace
           scroll={false}
           className={farmFilter === "" ? "on" : ""}
@@ -132,7 +163,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
         {farms.map((farm) => (
           <Link
             key={farm.id}
-            href={hrefWith(sp, { farm: farm.id, ap_row: null, ap_status: null, ap_code: null })}
+            href={hrefWith(sp, { farm: farm.id, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null })}
             replace
             scroll={false}
             className={farmFilter === farm.id ? "on" : ""}
@@ -140,6 +171,29 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
             {farm.name}
           </Link>
         ))}
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <ApprovalsDateFilter
+          labels={{
+            field: COPY.dateFilter.field,
+            today: COPY.dateFilter.today,
+            single: COPY.dateFilter.single,
+            range: COPY.dateFilter.range,
+            aria: COPY.dateFilter.aria,
+            previousMonth: COPY.dateFilter.previousMonth,
+            nextMonth: COPY.dateFilter.nextMonth,
+            rangeStartHint: COPY.dateFilter.rangeStartHint,
+            rangeEndHint: COPY.dateFilter.rangeEndHint,
+            rangeSeparator: COPY.dateFilter.rangeSeparator,
+          }}
+          from={dateRange.from}
+          to={dateRange.to}
+          today={todayIso()}
+          anyLabel={COPY.dateFilter.any}
+          clearLabel={COPY.dateFilter.clear}
+          basePath={PATHNAME}
+        />
       </div>
 
       <section className="card" style={{ minWidth: 0 }}>
@@ -173,9 +227,23 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
             </tbody>
           </table>
         </div>
+        {cursor || nextCursor ? (
+          <div className="pager" style={{ padding: "10px 12px", justifyContent: "flex-end", flexWrap: "wrap" }}>
+            {cursor ? (
+              <Link href={hrefWith(sp, { ap_cursor: null, ap_row: null, ap_status: null, ap_code: null })} replace scroll={false} className="btn sm">
+                {COPY.pager.first}
+              </Link>
+            ) : null}
+            {nextCursor ? (
+              <Link href={hrefWith(sp, { ap_cursor: nextCursor, ap_row: null, ap_status: null, ap_code: null })} replace scroll={false} className="btn sm">
+                {COPY.pager.next}
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
-      <ApprovalsDrawer items={items} initialSelectedId={selectedId} searchParams={sp} feedback={feedback} locationNames={locationNames} />
+      <ApprovalsDrawer items={drawerItems} initialSelectedId={selectedId} searchParams={sp} feedback={feedback} locationNames={locationNames} />
     </div>
   );
 }
@@ -190,18 +258,19 @@ function ApprovalRow({
   locationNames: Record<string, string>;
 }) {
   const href = hrefWith(searchParams, { ap_row: item.approval_request_id, ap_status: null, ap_code: null });
-  const subject = readableSubject(item, locationNames);
+  const subject = approvalSubject(item, locationNames);
   return (
     <tr>
       <td>
         <Tag tone={item.request_type === "shifting" ? "info" : "warn"}>{titleCaseType(item.request_type)}</Tag>
       </td>
       <td>{subject}</td>
+      <td className="muted">{item.raised_by_name ?? ""}</td>
       <td className="muted" style={{ whiteSpace: "nowrap" }}>
         {fmtDateTime(item.raised_at)}
       </td>
       <td>
-        <Tag tone={statusTone(item.status)}>{item.status}</Tag>
+        <Tag tone={statusTone(item.status)}>{approvalStatusLabel(item.status)}</Tag>
       </td>
       <td>
         <LocalOverlayLink href={href} className="btn sm" scroll={false}>
@@ -224,45 +293,6 @@ function KPI({ label, value, tone }: { label: string; value: string; tone: Tone 
 
 function titleCaseType(v: string): string {
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : v;
-}
-
-function summaryObject(item: AdminWebApprovalItem): Record<string, unknown> {
-  return item.summary && typeof item.summary === "object" && !Array.isArray(item.summary)
-    ? (item.summary as Record<string, unknown>)
-    : {};
-}
-
-// The top-level park ("farm") an approval belongs to: shifting source park, else a birth placement
-// park, else the destination park. Empty when the request carries no park (e.g. some deaths).
-function itemParkId(item: AdminWebApprovalItem): string {
-  const s = summaryObject(item);
-  const str = (k: string): string => (typeof s[k] === "string" ? (s[k] as string) : "");
-  return str("source_park_id") || str("park_id") || str("destination_park_id");
-}
-
-// Readable list subject: "<Farm>: <srcShed> → <dstShed>" for a shed move (all names resolved from
-// backend location data), the animal's BACKEND-OWNED operational location for a death (this page
-// has no shed/park id to resolve locally for death — see subject_animal_location on
-// AdminWebApprovalItem), otherwise the title-cased request type prefixed with its farm when known.
-// Never a raw UUID.
-function readableSubject(item: AdminWebApprovalItem, locationNames: Record<string, string>): string {
-  const s = summaryObject(item);
-  const str = (k: string): string => (typeof s[k] === "string" ? (s[k] as string) : typeof s[k] === "number" ? String(s[k]) : "");
-  const nm = (id: string): string => (id && locationNames[id] ? locationNames[id] : "");
-  const farm = nm(itemParkId(item));
-  if (item.request_type === "death" && item.subject_animal_location) {
-    return item.subject_animal_location;
-  }
-  if (item.request_type === "shifting") {
-    const from = nm(str("source_shed_id"));
-    const to = nm(str("destination_shed_id"));
-    if (from || to) {
-      const move = `${from || "?"} → ${to || "?"}`;
-      return farm ? `${farm}: ${move}` : move;
-    }
-  }
-  const label = titleCaseType(item.request_type);
-  return farm ? `${farm}: ${label}` : label;
 }
 
 function statusTone(status: AdminWebApprovalStatus): Tone {

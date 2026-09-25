@@ -45,7 +45,7 @@ func (s *HerdRegisterService) GetMortality(ctx context.Context, req domain.Morta
 	}
 	resolve := func(key string) string {
 		if s.deathCauses != nil {
-			if label := s.deathCauses.LabelDeathCause(ctx, key); label != "" {
+			if label := s.deathCauses.LabelDeathCause(ctx, req.TenantID, key); label != "" {
 				return label
 			}
 		}

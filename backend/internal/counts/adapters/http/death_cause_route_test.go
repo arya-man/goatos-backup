@@ -20,7 +20,7 @@ type fakeDeathCauses struct {
 	err      error
 }
 
-func (f *fakeDeathCauses) ValidateCause(_ context.Context, key, kind string) error {
+func (f *fakeDeathCauses) ValidateCause(_ context.Context, _ string, key, kind string) error {
 	f.calls++
 	f.lastKey, f.lastKind = key, kind
 	return f.err

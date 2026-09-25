@@ -38,18 +38,26 @@ func (s *Service) pinnedRules(ctx context.Context, tenantID, stage string, versi
 // version pinned on the issue header (direction for distribution / wastage, packing for packing).
 // No sheet yet (a completion racing the first read) reads as the seed, the honest pre-SOP answer.
 func (s *Service) sheetRules(ctx context.Context, tenantID, parkID, feedDay, workflow, stage string) (domain.Rules, error) {
-	version := 0
+	var headers []domain.IssueHeader
 	if s.issues != nil {
-		headers, err := s.issues.LoadIssueHeaders(ctx, tenantID, parkID, feedDay, workflow)
+		var err error
+		headers, err = s.issues.LoadIssueHeaders(ctx, tenantID, parkID, feedDay, workflow)
 		if err != nil {
 			return domain.Rules{}, err
 		}
-		if len(headers) > 0 {
-			if stage == domain.StagePacking {
-				version = headers[0].PackingSOPVersion
-			} else {
-				version = headers[0].SOPVersion
-			}
+	}
+	return s.rulesForHeaders(ctx, tenantID, stage, headers)
+}
+
+// rulesForHeaders resolves the card pinned on already-loaded issue headers, so a caller that has
+// read the headers for its own checks does not read them a second time.
+func (s *Service) rulesForHeaders(ctx context.Context, tenantID, stage string, headers []domain.IssueHeader) (domain.Rules, error) {
+	version := 0
+	if len(headers) > 0 {
+		if stage == domain.StagePacking {
+			version = headers[0].PackingSOPVersion
+		} else {
+			version = headers[0].SOPVersion
 		}
 	}
 	return s.pinnedRules(ctx, tenantID, stage, version)
@@ -60,8 +68,10 @@ func (s *Service) sheetRules(ctx context.Context, tenantID, parkID, feedDay, wor
 // before), and a distribution or wastage day must have been reached. Packing is exempt from the
 // day check because a bag is packed the day BEFORE its feed day.
 func (s *Service) sheetRulesForWrite(ctx context.Context, tenantID, parkID, feedDay, workflow, stage string) (domain.Rules, error) {
+	var headers []domain.IssueHeader
 	if s.issues != nil {
-		headers, err := s.issues.LoadIssueHeaders(ctx, tenantID, parkID, feedDay, workflow)
+		var err error
+		headers, err = s.issues.LoadIssueHeaders(ctx, tenantID, parkID, feedDay, workflow)
 		if err != nil {
 			return domain.Rules{}, err
 		}
@@ -75,7 +85,9 @@ func (s *Service) sheetRulesForWrite(ctx context.Context, tenantID, parkID, feed
 			return domain.Rules{}, ports.ErrFeedDayNotReached
 		}
 	}
-	return s.sheetRules(ctx, tenantID, parkID, feedDay, workflow, stage)
+	// The headers just read ARE the sheet the card is pinned on: resolve from them rather than
+	// reading the same headers a second time.
+	return s.rulesForHeaders(ctx, tenantID, stage, headers)
 }
 
 // judgedProof is one accepted capture: the slot it proves, its ref and the kind the register says

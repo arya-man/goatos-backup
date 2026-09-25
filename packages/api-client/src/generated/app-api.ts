@@ -2008,6 +2008,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/operator-shifts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every authored vaccination operator shift of one park.
+         * @description Returned whether or not the park has a drive-operator assignment yet: a newly added park has none, and its operators' shifts must be set before one can be saved.
+         */
+        get: operations["listVaccinationOperatorShifts"];
+        /**
+         * Set (create or replace) one operator's vaccination shift for a park.
+         * @description Validate-or-reject: a missing or bad shift label, start/end time ("HH:MM", 24-hour, end after start on the same day) or week-off returns 400 naming the field; nothing is defaulted. The operator must be an ACTIVE workforce member whose home park is this park. The shift write and a vaccination.roster.changed event commit in one transaction. Idempotent on Idempotency-Key: an exact replay returns the original result; the same key with a different body is 409.
+         */
+        put: operations["putVaccinationOperatorShift"];
+        post?: never;
+        /**
+         * Clear one operator's vaccination shift for a park.
+         * @description Refused with 409 operator_shift_in_use while the park's drive-operator assignment names the operator as its default or a selected operator (the planner would otherwise fail closed). 404 when the operator has no shift for the park. Idempotent on Idempotency-Key.
+         */
+        delete: operations["deleteVaccinationOperatorShift"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/generation-preview": {
         parameters: {
             query?: never;
@@ -3840,7 +3868,7 @@ export interface paths {
         put?: never;
         /**
          * Submit the visit's live-camera video and complete the task.
-         * @description The proof must be a FINISHED upload in this tenant, declared `video`, stored as video/*, and captured by the in-app camera (a gallery pick is refused). Only the assignee may submit, only while the visit is still owed, and only on the row_version the screen loaded with (0 skips the fence). Submit IS completion: there is no verifier. Idempotent on the Idempotency-Key header: an exact replay returns the same completed visit.
+         * @description The proof must be a FINISHED upload in this tenant, declared `video`, stored as video/*, and captured by the in-app camera (a gallery pick is refused). Only the assignee may submit, only while the visit is still owed, only from the visit's planned India business day onward (earlier is 409 `visit_not_open_yet` with the farm sentence "This visit opens on DD/MM/YYYY."; the card then carries can_submit=false and a reason_line ending "Opens on DD/MM/YYYY"), and only on the row_version the screen loaded with (0 skips the fence). Submit IS completion: there is no verifier. Idempotent on the Idempotency-Key header: an exact replay returns the same completed visit.
          */
         post: operations["submitPenVisit"];
         delete?: never;
@@ -4004,7 +4032,7 @@ export interface paths {
         put?: never;
         /**
          * Add a two-way note to a task.
-         * @description Appends a chronological task note while the task is not cancelled. The assignee, the raiser and a leadership monitor can all write; the compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
+         * @description Appends a chronological task note while the task is not cancelled. The assignee, the raiser, a leadership monitor and anyone a note on the task mentioned (a participant; maintainer decision 2026-09-25 -- a mention may reply, and may not move status, edit or cancel) can all write; anyone else is 403 `not_on_task`. The compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
          */
         post: operations["setLeadershipTaskComment"];
         delete?: never;
@@ -4862,7 +4890,11 @@ export interface paths {
          */
         get: operations["listFeedConfigSessionTemplates"];
         put?: never;
-        post?: never;
+        /**
+         * Set a park's feeding sessions and each one's share of the day.
+         * @description Replaces the park's ACTIVE feeding sessions with exactly the listed ones: a listed session is added or edited in place (name and share of the day), and an active session that is not listed is retired. The shares must add up to exactly 1 (the whole day), because generation splits each pen's daily quantity across these sessions -- a plan short of 1 under-feeds every pen by the gap. Retiring a session that still serves a feed is refused with 409 `session_has_feeds`, because generation walks only active sessions and those feeds would silently stop reaching any animal. This is how a park added on Configuration > Items & settings gets its sessions; before it only a seed command could create them. Idempotent on the same terms as every other feed-config write.
+         */
+        post: operations["setFeedConfigSessionPlan"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6320,13 +6352,13 @@ export interface paths {
         };
         /**
          * The searchable disease list the death form's "due to disease" dropdown reads.
-         * @description Every disease a death may be attributed to, from the DIAGNOSIS REGISTER — the same vocabulary `health_cases.register_rule_id` stores and the Health Analytics disease board counts, so a cause of death can be read straight against the incidence board.
+         * @description Every disease a death may be attributed to: the built-in DIAGNOSIS REGISTER — the same vocabulary `health_cases.register_rule_id` stores and the Health Analytics disease board counts — PLUS every disease the tenant has authored in Health Config (maintainer decision 2026-09-25): the problem rules of its published diagnosis registers (`kind: register_rule`) and every treatment-tab disease that is published today (`kind: disease_key`, keyed by its stable disease key). One row per disease: a Health Config disease that is the same illness as a register diagnosis (same name, same key, or the course that diagnosis opens) is listed once, as the register row.
          *
-         *     ONE READ, NO PAGING, and static for the life of the server process: the register is embedded, validated at start-up, and cannot change under a running process, so a client may cache the list as long as it likes. It is roughly 33 diseases — an operator searches it with a thumb while standing over a dead animal, and a paged dropdown that round-trips per keystroke is the wrong shape for that moment.
+         *     ONE READ, NO PAGING, PER TENANT. It changes when Health Config publishes, so a client caches it for offline use and refreshes it when the death form opens. It is a few dozen diseases — an operator searches it with a thumb while standing over a dead animal, and a paged dropdown that round-trips per keystroke is the wrong shape for that moment. A disease later retired leaves this list but stays valid on the deaths already recorded under it.
          *
          *     FIELD ACTIONS ARE EXCLUDED. The register also carries advisory actions (tick treatment, hoof trimming, antihistamine, separate feeding); those are things to DO, not conditions an animal dies of, and never appear here.
          *
-         *     `animal_classes` says which registers carry each disease. A client may narrow the list to the animal in front of the operator, but it is never a reason to REJECT a selection: an animal can change class between its diagnosis and its death.
+         *     `animal_classes` says which registers carry each disease (empty for a treatment-tab disease, which belongs to no register class). A client may narrow the list to the animal in front of the operator, but it is never a reason to REJECT a selection: an animal can change class between its diagnosis and its death.
          */
         get: operations["listHealthDeathCauses"];
         put?: never;
@@ -6791,6 +6823,26 @@ export interface paths {
          * @description The approver's queue. Returns ONLY the request types the caller is authorised to decide - a park_head sees shifting requests, a ceo_internal sees birth and death requests - because the filter is derived from the caller's permissions, not from the query string. A caller with neither approval permission receives an empty list. Keyset-paginated with a maximum page size of 20: this queue is read from a phone, so a client asking for more receives one screen of work, not the whole backlog.
          */
         get: operations["listAppCountsApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin-web/counts/approvals/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read ONE approval request the caller may decide, whatever its status or page.
+         * @description The admin-web Approvals page lists 20 requests at a time; a link straight to one request (a Work Board row, a bookmark) must open its drawer even when that request sits on a later page, under another status tab or another filter (maintainer decision 2026-09-25). Returns the request in exactly the list's item shape. AUTHORITY IS THE LIST'S: a request type the caller may not decide, or a farm outside the caller's park scope, reads as 404 -- the request's existence is not disclosed -- and a malformed id is 400. Read-only.
+         */
+        get: operations["getAdminWebCountsApproval"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7744,13 +7796,16 @@ export interface components {
             has_more: boolean;
         };
         HealthDeathCauseOption: {
-            /** @description The diagnosis register rule id, submitted verbatim as `death_cause_key`. */
+            /** @description The register rule id or Health Config disease key, submitted verbatim as `death_cause_key`. */
             key: string;
-            /** @enum {string} */
-            kind: "register_rule";
+            /**
+             * @description Submitted verbatim as `death_cause_kind`.
+             * @enum {string}
+             */
+            kind: "register_rule" | "disease_key";
             /** @description What the operator reads. Never the rule id, which is a machine key. */
             label: string;
-            /** @description The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening). */
+            /** @description The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening, or an authored type); empty for a Health Config treatment disease. */
             animal_classes: string[];
         };
         HealthDeathCauseCatalog: {
@@ -7971,7 +8026,7 @@ export interface components {
             total: number;
             /** @description Most problems first, then by label. Capped at the busiest 15 breeds, AFTER `total` is taken, so the cap never moves the headline. */
             by_breed: components["schemas"]["HealthAnalyticsProblemBucket"][];
-            /** @description Always exactly three buckets in a FIXED order -- elevated, non-elevated, pen type not set -- so the two sides never swap places between windows and an empty side reads as a zero rather than vanishing. The class is configured per pen on Configuration -> Items and settings -> Pens, never guessed from the pen's name. */
+            /** @description One bucket per pen type in the farm's Pen types register (Configuration -> Items and settings -> Pen types), in that register's order, then "pen type not set" last. Every active type is present even at zero, so the bars never swap places between windows and an empty type reads as a zero rather than vanishing; an archived type appears only while cases sit in its pens. A pen's type is configured per partition, never guessed from the pen's name. Keys are the register's codes; labels are its names. */
             by_pen_type: components["schemas"]["HealthAnalyticsProblemBucket"][];
             /** @description The animal's age WHEN THE CASE WAS OPENED, in the same bands the mortality board uses, youngest first and "Age not recorded" last. Always the full spine, including empty bands, because the gap between bands is the shape being read. */
             by_age: components["schemas"]["HealthAnalyticsProblemBucket"][];
@@ -9294,7 +9349,7 @@ export interface components {
          * @description The operational module a board row belongs to, in board (keyset) order.
          * @enum {string}
          */
-        WorkBoardModule: "feed" | "health" | "vaccination" | "weighing" | "counts" | "milk" | "pc_care" | "toxin" | "procurement" | "verification" | "tasks";
+        WorkBoardModule: "feed" | "health" | "vaccination" | "weighing" | "counts" | "milk" | "pc_care" | "toxin" | "procurement" | "verification" | "tasks" | "sales";
         /**
          * @description REUSED VERBATIM from process integrity; the board adds no state of its own.
          * @enum {string}
@@ -9326,6 +9381,10 @@ export interface components {
             done: number;
             pending: number;
             needs_attention: number;
+            /** @description Of pending, the units handed in and waiting for a verdict. Sent only by a source that knows it (the feed cards); absent means unknown, and the card reads pending as before. */
+            in_review?: number;
+            /** @description Of pending, the units nobody has started (feed pens not filmed). Sent only by a source that knows it. Pending less in_review, not_started and needs_attention is work started and not handed in. */
+            not_started?: number;
         };
         WorkBoardRow: {
             module: components["schemas"]["WorkBoardModule"];
@@ -9472,6 +9531,18 @@ export interface components {
             };
             by_module: {
                 [key: string]: number;
+            };
+            /** @description Every module's per-lane counts over the same whole filter. */
+            by_module_lane?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /** @description Every module's per-work-state counts over the same whole filter, so a client narrowed to a module and a lane can count that selection's done, pending and needs-attention cards without a second read. */
+            by_module_state?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
             };
             needs_attention: number;
             modules: components["schemas"]["WorkBoardModule"][];
@@ -9711,11 +9782,11 @@ export interface components {
             seq_no: number;
             /** @description Backend-owned row title ("Animal 7 · Female goat"). */
             title: string;
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             species_label: string;
-            /** @enum {string} */
-            sex: "male" | "female";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             sex_label: string;
             breed: string;
             age_months?: number;
@@ -11087,6 +11158,16 @@ export interface components {
             /** @description Packing order within the session. Derived by the backend on declare (appended to the end) rather than chosen by the author, so declaring a feed never renumbers slots packers already know. */
             slot_no: number;
             feed_item: string;
+        };
+        SetFeedConfigSessionPlanRequest: {
+            /** Format: uuid */
+            park_id: string;
+            sessions: {
+                session_no: number;
+                session_label: string;
+                /** @description This session's share of the day's quantity as a decimal string with at most four places ("0.6"). The shares of all listed sessions must add up to exactly 1. */
+                split_fraction: string;
+            }[];
         };
         SetFeedConfigSessionTemplateItemRequest: {
             /** Format: uuid */
@@ -13618,6 +13699,8 @@ export interface components {
             enabled: boolean;
             disabled_reason: string;
             tone: string;
+            /** @description The option this one belongs under, so a picker can narrow by an earlier choice (a breed's species code on Register animal). Absent when the option has no group. */
+            group?: string;
         };
         AdminWebDisplayRule: {
             id: string;
@@ -13745,8 +13828,8 @@ export interface components {
             animal_identifier_1: string;
             animal_identifier_2?: string | null;
             breed: string | null;
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             age_band: string | null;
             lifecycle_status: string;
             reproductive_status: string | null;
@@ -13777,8 +13860,8 @@ export interface components {
             /** Format: uuid */
             goat_id: string;
             display_id: string;
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             summary: components["schemas"]["GoatSummary"];
             identifiers: components["schemas"]["GoatIdentifier"][];
             evidence_refs: components["schemas"]["EvidenceRef"][];
@@ -14765,8 +14848,8 @@ export interface components {
             parkName: string;
             /** @description Management stage from goat classification (e.g., Buck, Non-Pregnant Female). */
             managementStage: string;
-            /** @enum {string} */
-            sex: "male" | "female";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             animalCount: number;
         };
         /** @description One farm × cohort × dose-qualified-vaccine cell, at OBLIGATION grain (COUNT(DISTINCT obligation_id)). pendingCount, submittedCount and verifiedCount are a DISJOINT partition of the cell's obligations along "who owes the next move": the operator, the verifier, nobody. pendingCount previously fused the first two, because obligation status advances only on VERIFICATION and never on submission — a park whose every animal had been vaccinated and submitted rendered byte-identically to a park nobody had touched, and the page showed "40 awaiting verification" in the KPI row above "40 pending" in this matrix with no column reconciling them. submittedCount is that reconciling column. GRAIN NOTE: these counts are obligation grain while VaccinationCommandBoardKPI is animal grain; the two agree exactly at one-obligation-per-animal-per-vaccine, the grain every live drive uses, and the matrix stays obligation grain by design so a multi-vaccine animal is visible once per vaccine. */
@@ -15811,6 +15894,11 @@ export interface components {
             operatorId: string;
             /** @description Backend-owned operator display name (workforce_members.display_name). */
             displayName: string;
+            /**
+             * Format: uuid
+             * @description The park this shift is for.
+             */
+            parkId?: string;
             /** @enum {string} */
             shiftLabel: "am" | "pm" | "rover";
             shiftStartMinute: number;
@@ -15820,6 +15908,48 @@ export interface components {
              * @enum {string}
              */
             weekOffWeekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+        };
+        VaccinationOperatorShiftList: {
+            /** Format: uuid */
+            parkId: string;
+            shifts: components["schemas"]["VaccinationOperatorShift"][];
+        };
+        PutVaccinationOperatorShiftRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /**
+             * Format: uuid
+             * @description The operator's workforce member id.
+             */
+            operator_id: string;
+            /** @enum {string} */
+            shift_label: "am" | "pm" | "rover";
+            /** @description 24-hour start time, "HH:MM". */
+            shift_start: string;
+            /** @description 24-hour end time, "HH:MM"; must be later the same day than shift_start. */
+            shift_end: string;
+            /** @description Lowercase weekday name, or null / empty for no week-off. */
+            week_off_weekday?: string | null;
+        };
+        VaccinationOperatorShiftWriteResult: {
+            shift: components["schemas"]["VaccinationOperatorShift"];
+            idempotentReplay: boolean;
+        };
+        VaccinationOperatorShiftClearResult: {
+            /** Format: uuid */
+            parkId: string;
+            /** Format: uuid */
+            operatorId: string;
+            cleared: boolean;
+            idempotentReplay: boolean;
+        };
+        VaccinationOperatorShiftFieldError: {
+            code: string;
+            /** @description Farm-worded reason, rendered verbatim beside the named field. */
+            message: string;
+            /** @description The request field the refusal is about, when it is about one. */
+            field?: string;
+            trace_id: string;
         };
         /** @description One selectable park in the backend-owned park-scope vocabulary. Ids and labels are canonical Postgres `locations` rows compiled by the backend; clients render them and send parkId back. */
         VaccinationParkScopeOption: {
@@ -16459,12 +16589,12 @@ export interface components {
         };
         /** @description One assumed live-weight sale price in force. management_stage and sex are both "" on the SPECIES DEFAULT; an override names both (maintainer decision 2026-09-24). An animal is valued at its own (species, stage, sex) override when one is in force, else its species default. */
         GrowthSalePrice: {
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             /** @description A stage_code from the tenant stage vocabulary; "" on the species default. */
             management_stage: string;
-            /** @enum {string} */
-            sex: "" | "female" | "male";
+            /** @description '' on the species default; otherwise A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             /** Format: double */
             price_per_kg_inr: number;
             /** Format: date */
@@ -16503,12 +16633,12 @@ export interface components {
         /** @description The whole set the caller wants to hold. A row absent from the request is left untouched. */
         GrowthAssumptionsUpdate: {
             sale_prices?: {
-                /** @enum {string} */
-                species: "goat" | "sheep";
+                /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+                species: string;
                 /** @description Stage code of an override; "" (or absent) for the species default. Named together with sex. */
                 management_stage?: string;
-                /** @enum {string} */
-                sex?: "" | "female" | "male";
+                /** @description '' on the species default; otherwise A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+                sex?: string;
                 /**
                  * Format: double
                  * @description The price to hold. Null clears a stage x sex override (that combination falls back to the species default from today); a species default can never be null.
@@ -17602,12 +17732,12 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
-        /** @description One breed's daily gain for ONE physical pen type, for the Pen-wise comparison Manju asked for. It compares elevated pens against non-elevated pens. The class is CONFIGURED per pen on Configuration -> Items and settings -> Pens; a pen nobody has typed is omitted from both sides rather than guessed from its name. */
+        /** @description One breed's daily gain for ONE pen type, for the Pen-wise comparison. Pen types are the farm's own register (Configuration -> Items and settings -> Pen types) and each partition is given one; a pen nobody has typed is omitted rather than guessed from its name. */
         WeighingWeightGainShedTypeBucket: {
             /** @description The breed */
             label: string;
-            /** @enum {string} */
-            shed_type: "elevated" | "non_elevated";
+            /** @description A code from the farm's Pen types register. The page contract's pen_types option group carries each code's name and order. */
+            shed_type: string;
             /** @description Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed. */
             animals: number;
             /** Format: double */
@@ -17617,8 +17747,8 @@ export interface components {
         WeighingShedTypeMember: {
             /** @description The breed whose bar this pen sits behind; matches WeighingWeightGainShedTypeBucket.label. */
             label: string;
-            /** @enum {string} */
-            shed_type: "elevated" | "non_elevated";
+            /** @description A code from the farm's Pen types register; matches WeighingWeightGainShedTypeBucket.shed_type. */
+            shed_type: string;
             /** Format: uuid */
             location_id: string;
             /** @description Empty for an undivided shed. */
@@ -17743,7 +17873,7 @@ export interface components {
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
             /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
-            /** @description Daily gain per breed split by elevated vs non-elevated pen type, as configured per pen. Unclassified pens are omitted rather than guessed. */
+            /** @description Daily gain per breed split by pen type, as configured per partition from the farm's Pen types register. Unclassified pens are omitted rather than guessed. */
             gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];
             /** @description Which sheds each BAR counted, so the classification behind it is inspectable. Ordered by breed, then class, then park, then shed name in natural order. */
             shed_type_members: components["schemas"]["WeighingShedTypeMember"][];
@@ -17962,8 +18092,8 @@ export interface components {
             tag1?: string | null;
             tag2?: string | null;
             breed?: string | null;
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             age?: string | null;
             lifecycleStatus: string;
             healthStatus?: string | null;
@@ -18351,8 +18481,12 @@ export interface components {
             breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
             /** @description Composition by sex, largest bucket first. */
             sexes: components["schemas"]["CountsBreakdownSeriesPoint"][];
-            /** @description This pen's stage x breed x sex grain rows, largest first, each carrying the pen's own location. */
+            /** @description This pen's stage x breed x sex grain rows, largest first, each carrying the pen's own location. Empty for a pen holding no live animal. */
             rows: components["schemas"]["CountsBreakdownRow"][];
+            /** @description The pen's CONFIGURED stage tag as a stage code (the pen's own tag, or the shed's for an undivided shed), "" when none is set. It is what newborn placement and shifting adoption read, and the only stage an empty pen (count 0, no rows) has. */
+            authored_stage: string;
+            /** @description The reader's label for authored_stage; "" when no tag is set. */
+            authored_stage_label: string;
         };
         CountsBreakdownResponse: {
             /** @description The grain page. Empty when group_by=pen. */
@@ -20230,8 +20364,8 @@ export interface components {
             temporary_identifier?: string | null;
             /** @description Optional until double RFID tagging is live; that rollout must make this mandatory in both app validation and DB constraints. */
             animal_identifier_2?: string | null;
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             /** Format: uuid */
             farm_id?: string;
             farm_code?: string;
@@ -20248,8 +20382,8 @@ export interface components {
             /** @description The pen within shed_id the newborn is placed into ('1', 'Part 3'), matching a row in shed_partitions for that shed. OPTIONAL and additive: omitting it keeps the previous behaviour exactly (the animal is placed at shed level with no goat_shed_partitions row), so clients that predate this field continue to work unchanged. When present it is validated against the shed's real partitions and a mismatch is rejected rather than stored, and it is persisted in the SAME transaction as the goat insert. Never the literal string "whole" - that is a matching sentinel, not a pen. */
             partition_label?: string | null;
             breed: string;
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             /**
              * Format: date
              * @description Date of birth. Required, and must not be after entry_date.
@@ -20310,10 +20444,10 @@ export interface components {
             exit_reason: "died";
             /** @description The operator's account of the death. REQUIRED on a normal death and OPTIONAL once a disease is named, where the coded cause is the recorded fact and the note is extra detail. A note that IS supplied is length-checked either way. */
             reason?: string;
-            /** @description The disease the animal died of, chosen from `GET /app/health/death-causes`. ABSENT means a NORMAL death — a complete answer, not missing data. A key the diagnosis register does not name is REJECTED rather than stored as typed: the value of a coded cause is that it groups, and one death filed under `MASTITIS` beside another under a near-miss is two diseases on the board and one in the barn. Must be given together with `death_cause_kind`, and only on a death — a cull is refused with sales and transfers, because a cull is a decision and a death is an outcome. */
+            /** @description The disease the animal died of, chosen from `GET /app/health/death-causes`. ABSENT means a NORMAL death — a complete answer, not missing data. A key the tenant's cause-of-death list does not name is REJECTED rather than stored as typed: the value of a coded cause is that it groups, and one death filed under `MASTITIS` beside another under a near-miss is two diseases on the board and one in the barn. Must be given together with `death_cause_kind`, and only on a death — a cull is refused with sales and transfers, because a cull is a decision and a death is an outcome. */
             death_cause_key?: string;
             /**
-             * @description Which vocabulary `death_cause_key` belongs to. Only `register_rule` may be submitted; `disease_key` exists in stored data for a pre-engine case and is resolved by the server from the animal's own case, never accepted from a client.
+             * @description Which vocabulary `death_cause_key` belongs to, echoed verbatim from the chosen option: `register_rule` for a diagnosis-register rule, `disease_key` for a disease authored in Health Config. A `disease_key` is accepted only while that disease is published (2026-09-25); a death already recorded under one stays valid after it is retired.
              * @enum {string}
              */
             death_cause_kind?: "register_rule" | "disease_key";
@@ -25006,6 +25140,122 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    listVaccinationOperatorShifts: {
+        parameters: {
+            query: {
+                park_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The park's operator shifts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    putVaccinationOperatorShift: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutVaccinationOperatorShiftRequest"];
+            };
+        };
+        responses: {
+            /** @description The shift as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftWriteResult"];
+                };
+            };
+            /** @description A field was refused; `field` names it. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftFieldError"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The Idempotency-Key was already used with a different request body. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteVaccinationOperatorShift: {
+        parameters: {
+            query: {
+                park_id: string;
+                operator_id: string;
+            };
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The shift was cleared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftClearResult"];
+                };
+            };
+            /** @description A field was refused; `field` names it. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftFieldError"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description operator_shift_in_use (the park's drive assignment still names this operator) or idempotency_conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
     getFeedDirectionGenerationPreview: {
         parameters: {
             query: {
@@ -28371,8 +28621,8 @@ export interface operations {
             query?: {
                 /** @description Monitoring scope key. Callers without `leadership_tasks.raise` are confined to `assigned_to_me`; `assigned_by_me` requires raise authority, and `team_progress` requires CEO/COO-style monitor authority. Unknown or unavailable scopes resolve to the caller's default scope. */
                 scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
-                /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at is before the server's farm clock at request time. Its chip count in `filters[]` is that same late subset, whole-list, under the request's other filters. */
-                filter?: "all" | "open" | "in_progress" | "done" | "overdue";
+                /** @description The chip KEY. Absent resolves to `all` (which hides cancelled tasks); `cancelled` lists only the cancelled tasks. An UNKNOWN key is 400 `invalid_filter`, never widened to all. `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at is before the server's farm clock at request time. Its chip count in `filters[]` is that same late subset, whole-list, under the request's other filters. */
+                filter?: "all" | "open" | "in_progress" | "done" | "cancelled" | "overdue";
                 limit?: number;
                 /** @description Keyset cursor from a previous page's next_cursor. The cursor is SORT-AWARE: it carries the name of the sort it was minted under, and a cursor presented under a different `sort` is refused 400 `invalid_cursor` rather than served as a wrong page. Drop the cursor whenever the sort changes. */
                 cursor?: string;
@@ -29107,7 +29357,7 @@ export interface operations {
                 park_id?: string;
                 /** @description A pen key from `options.pens` — `<shed_id>` for an undivided pen, `<shed_id>|<partition>` for a partition. */
                 pen?: string;
-                species?: "goat" | "sheep";
+                species?: string;
                 /** @description A breed key from `options.breeds` (matched case-insensitively). */
                 breed?: string;
                 sex?: "male" | "female";
@@ -30115,6 +30365,38 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setFeedConfigSessionPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFeedConfigSessionPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -33470,8 +33752,16 @@ export interface operations {
                 status?: "pending" | "approved" | "rejected";
                 /** @description Server-capped at 20. */
                 page_size?: number;
-                /** @description Opaque keyset cursor from a previous page's next_cursor. */
+                /** @description Opaque keyset cursor from a previous page's next_cursor. A cursor is bound to the request_type / park_id filter it was minted under; replaying it under a different filter is 400 invalid_cursor. */
                 cursor?: string;
+                /** @description Optional server-side filter to one request type. It only NARROWS what the caller may decide: a type outside the caller's authority returns an empty page. Any other value is 400 invalid_request_type. */
+                request_type?: "birth" | "death" | "shifting";
+                /** @description Optional server-side farm filter, applied on top of the caller's park scope (a farm the caller does not hold returns an empty page). A shifting request matches on its destination farm, a birth on its farm, a death on the subject animal's farm. A malformed id is 400 invalid_park_id. */
+                park_id?: string;
+                /** @description Optional calendar filter: the first India business day (YYYY-MM-DD, inclusive) a request was raised on. A bad date, or a start after raised_to, is 400 invalid_date_range. Bound into the page cursor like the other filters. */
+                raised_from?: string;
+                /** @description Optional calendar filter: the last India business day (YYYY-MM-DD, inclusive) a request was raised on. */
+                raised_to?: string;
             };
             header?: never;
             path?: never;
@@ -33491,6 +33781,33 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAdminWebCountsApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request, in the approvals list's item shape. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalListItem"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

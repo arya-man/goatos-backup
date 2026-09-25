@@ -661,6 +661,40 @@ func (s *Service) SetSessionTemplateItem(ctx context.Context, in SetSessionTempl
 	})
 }
 
+// SetSessionPlanInput sets a park's feeding sessions: each one's number, name and share of the day.
+type SetSessionPlanInput struct {
+	TenantID string
+	ActorRef string
+	ParkID   string
+	Sessions []domain.SessionPlanEntry
+
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// SetSessionPlan validates a park's session plan (shares must add up to the whole day) and hands it
+// to the repository. It is how a park added on Configuration > Items & settings gets the sessions
+// its feed sheet is split across; until it existed only a seed command could create them.
+func (s *Service) SetSessionPlan(ctx context.Context, in SetSessionPlanInput) (domain.WriteResult, error) {
+	identity, err := s.writeIdentity(in.TenantID, in.ActorRef, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	sessions, err := domain.ValidateSessionPlan(in.Sessions)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	return s.repo.SetSessionPlan(ctx, domain.SetSessionPlanCommand{
+		WriteIdentity: identity,
+		ParkID:        parkID,
+		Sessions:      sessions,
+	})
+}
+
 // CreateFeedItemInput adds one entry to the tenant's feed-item catalog.
 //
 // NO park_id, on purpose: feed_item_catalog is keyed (tenant, feed_item_key), so the vocabulary is

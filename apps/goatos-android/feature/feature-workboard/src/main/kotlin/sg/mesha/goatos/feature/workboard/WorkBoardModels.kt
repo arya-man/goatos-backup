@@ -86,10 +86,20 @@ data class WorkBoardRowUi(
     val done: Int = 0,
     val pending: Int = 0,
     val needsAttention: Int = 0,
+    /** Of [pending], units handed in and waiting for a verdict; 0 when the source does not say. */
+    val inReview: Int = 0,
+    /** Of [pending], units nobody has started (feed pens not filmed); 0 when the source does not say. */
+    val notStarted: Int = 0,
     /** Where the module's own screen opens this row; blank when it has none yet. */
     val href: String = "",
 ) {
     val total: Int get() = done + pending
+
+    /** True when the source said where its pending work is (the feed cards). */
+    val hasPendingSplit: Boolean get() = inReview > 0 || notStarted > 0
+
+    /** Pending work started and not handed in: what is left after review, not started and attention. */
+    val started: Int get() = (pending - inReview - notStarted - minOf(pending, needsAttention)).coerceAtLeast(0)
 }
 
 /** One filter chip over a BOUNDED vocabulary (the four lanes, or the caller's visible modules). */
@@ -163,11 +173,47 @@ data class WorkBoardDetailUiState(
     val row: WorkBoardRowUi? = null,
     /** True only when [WorkBoardRowUi.href] names a screen THIS build can open. */
     val canOpen: Boolean = false,
+    /**
+     * The row's units of work (its pens, animals, steps), worst first, as the backend drills them:
+     * the pages loaded so far, in order. The admin-web drawer's list, on the phone.
+     */
+    val subtasks: List<WorkBoardSubtaskUi> = emptyList(),
+    /** The WHOLE count for the row, never the pages loaded. */
+    val subtaskTotal: Int = 0,
+    /** True while nothing is cached yet and the first page is on its way. */
+    val subtasksLoading: Boolean = true,
+    /** True when the last read failed and nothing is cached to show. */
+    val subtasksFailed: Boolean = false,
+    /** True while a further page exists; the list asks for it as the reader nears the end. */
+    val hasMoreSubtasks: Boolean = false,
 )
+
+/** One unit of a row's work, every string backend-composed and rendered verbatim. */
+@Immutable
+data class WorkBoardSubtaskUi(
+    val key: String,
+    val name: String,
+    val subtitle: String = "",
+    val workState: String = "",
+    val lane: String = "",
+    val ownerName: String = "",
+    val needsAttention: Boolean = false,
+    val steps: List<WorkBoardStepUi> = emptyList(),
+)
+
+/** One link of a subtask's chain; [state] is the closed seven-value step vocabulary. */
+@Immutable
+data class WorkBoardStepUi(val name: String, val state: String, val detail: String = "")
 
 sealed interface WorkBoardDetailEvent {
     data object Back : WorkBoardDetailEvent
 
     /** Open the module's own screen through the row's backend `href`. */
     data object Open : WorkBoardDetailEvent
+
+    /** Re-read the loaded subtask pages (the screen came back into view). */
+    data object Refresh : WorkBoardDetailEvent
+
+    /** The reader neared the end of the loaded subtasks; fetch the next page if there is one. */
+    data object LoadMoreSubtasks : WorkBoardDetailEvent
 }

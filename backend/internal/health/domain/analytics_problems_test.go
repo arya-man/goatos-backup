@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -26,26 +28,22 @@ func TestHealthProblemAgeBandsMatchMortality(t *testing.T) {
 	}
 }
 
-// The two real sides must never swap places between windows: a chart whose bars reorder by size
-// invites exactly the elevated-versus-non-elevated misreading it exists to prevent. Unclassified
-// is always last, because it is not a third kind of pen -- it is the pens nobody has typed.
-func TestPenTypeOrderIsFixedAndUnclassifiedIsLast(t *testing.T) {
-	want := []string{"elevated", "non_elevated", "unclassified"}
-	if len(HealthPenTypeOrder) != len(want) {
-		t.Fatalf("pen type spine changed length: %v", HealthPenTypeOrder)
+// Pen types are the farm's own register (migration 000437, maintainer instruction 2026-09-25):
+// "not set" is the ONLY pen-type key this package may name. A key or label for elevated,
+// non-elevated or any other kind typed here is exactly the hard-coding the register replaced --
+// a type the farm adds would then be missing from, or mislabelled on, the chart.
+func TestHealthNamesNoPenTypeOfItsOwn(t *testing.T) {
+	text, err := os.ReadFile("analytics.go")
+	if err != nil {
+		t.Fatalf("read analytics.go: %v", err)
 	}
-	for i, key := range want {
-		if HealthPenTypeOrder[i] != key {
-			t.Fatalf("pen type %d is %q, want %q", i, HealthPenTypeOrder[i], key)
-		}
-		if HealthPenTypeLabel(key) == key {
-			t.Fatalf("pen type %q has no farm copy; the client renders the label verbatim", key)
+	code := strings.ToLower(string(text))
+	for _, banned := range []string{`"elevated"`, `"non_elevated"`, `"ground"`, `"elevated pen"`, `"non-elevated pen"`} {
+		if strings.Contains(code, banned) {
+			t.Fatalf("health/domain names the pen type %s; pen types come from the Pen types register", banned)
 		}
 	}
-	// The retired weighing key must not come back under the new spine.
-	for _, key := range HealthPenTypeOrder {
-		if key == "ground" {
-			t.Fatal("the retired 'ground' key is back; one farm concept has one name")
-		}
+	if HealthPenTypeUnclassifiedLabel == HealthPenTypeUnclassified {
+		t.Fatal("the not-set bucket has no farm copy; the client renders the label verbatim")
 	}
 }

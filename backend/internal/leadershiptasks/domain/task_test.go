@@ -258,3 +258,58 @@ func TestScopeDefaultsAndCopy(t *testing.T) {
 		t.Fatal("scope copy must be stable for the dashboard")
 	}
 }
+
+// MENTIONS CAN REPLY (maintainer decision 2026-09-25): someone a note on the task mentioned may
+// write a note back, and may do NOTHING ELSE -- no status move, no edit, no cancel. A stranger
+// still may not comment.
+func TestAMentionedParticipantMayCommentButNotAct(t *testing.T) {
+	mentioned := Actor{UserID: "99999999-9999-4999-8999-999999999999", CanAct: true, CanRaise: true}
+	task := sample(StatusInProgress)
+	task.ParticipantUserIDs = []string{mentioned.UserID}
+	if !task.CanComment(mentioned) {
+		t.Fatal("a mentioned participant must be able to reply with a note")
+	}
+	if task.CanChangeStatus(mentioned) || task.CanEdit(mentioned) || task.CanCancel(mentioned) {
+		t.Fatal("a mention grants a reply, never status, edit or cancel")
+	}
+	if err := CheckTransition(task, mentioned, StatusDone); !errors.Is(err, ErrNotAssignee) {
+		t.Fatalf("a mentioned participant moving status must still be refused not-assignee, got %v", err)
+	}
+	cancelled := sample(StatusCancelled)
+	cancelled.ParticipantUserIDs = []string{mentioned.UserID}
+	if cancelled.CanComment(mentioned) {
+		t.Fatal("a cancelled task takes no notes, from anyone")
+	}
+	if sample(StatusInProgress).CanComment(mentioned) {
+		t.Fatal("someone never mentioned on the task still may not comment")
+	}
+}
+
+// CANCELLED TASKS ARE LISTED (maintainer decision 2026-09-25): a `cancelled` chip lists exactly
+// the cancelled tasks, labelled "Cancelled"; All keeps meaning the working desk (no cancelled).
+func TestCancelledFilterListsOnlyCancelledTasks(t *testing.T) {
+	if got := StatusesForFilter(FilterCancelled); len(got) != 1 || got[0] != StatusCancelled {
+		t.Fatalf("StatusesForFilter(cancelled) = %v, want [cancelled]", got)
+	}
+	for _, s := range StatusesForFilter(FilterAll) {
+		if s == StatusCancelled {
+			t.Fatal("All must keep meaning the working desk -- no cancelled tasks")
+		}
+	}
+	if FilterLabel(FilterCancelled) != "Cancelled" {
+		t.Fatalf("label = %q, want Cancelled", FilterLabel(FilterCancelled))
+	}
+	found := false
+	for _, k := range FilterKeys {
+		found = found || k == FilterCancelled
+	}
+	if !found {
+		t.Fatal("the cancelled chip must be served in FilterKeys")
+	}
+	if !IsKnownFilterKey(FilterCancelled) || !IsKnownFilterKey("") || IsKnownFilterKey("canceled") {
+		t.Fatal("known keys: every chip and blank (the default); anything else is unknown")
+	}
+	if FilterCount(FilterCancelled, map[string]int{StatusCancelled: 3, StatusOpen: 5}) != 3 {
+		t.Fatal("the cancelled chip counts the cancelled bucket")
+	}
+}

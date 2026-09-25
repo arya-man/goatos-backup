@@ -79,6 +79,12 @@ func ClockEnd(t Task, now time.Time) time.Time {
 	return now
 }
 
+// ShowsCountdown reports whether the task carries a countdown at all: it needs a deadline, and
+// a CANCELLED task shows none (maintainer 2026-09-25: "5 days early" on a dropped task read as
+// praise). Every label below is blank when this is false, and the payload sends no day count,
+// so both clients draw nothing.
+func ShowsCountdown(t Task) bool { return t.DeadlineAt != nil && t.Status != StatusCancelled }
+
 // IsFinished reports whether the task's clock is frozen.
 func IsFinished(t Task) bool { return t.Status == StatusDone || t.Status == StatusCancelled }
 
@@ -101,8 +107,16 @@ func DaysLeft(t Task, now time.Time) int {
 // deadline (ok) or missed it (over) -- there is nothing left to hurry. Blank when the task has
 // no deadline.
 func DeadlineTone(t Task, now time.Time) string {
-	if t.DeadlineAt == nil {
+	if !ShowsCountdown(t) {
 		return ""
+	}
+	// A FINISHED task is judged by DAY (maintainer 2026-09-25): done on the deadline day is on
+	// time and green even after the hour; only a later day is late.
+	if IsFinished(t) {
+		if DaysLeft(t, now) < 0 {
+			return DeadlineToneOver
+		}
+		return DeadlineToneOK
 	}
 	if ClockEnd(t, now).After(*t.DeadlineAt) {
 		return DeadlineToneOver
@@ -125,7 +139,7 @@ func DeadlineLabel(deadline *time.Time) string {
 // "3 days over"; for a finished task "2 days early", "1 day late", "On the day". Blank
 // without a deadline.
 func DaysLeftLabel(t Task, now time.Time) string {
-	if t.DeadlineAt == nil {
+	if !ShowsCountdown(t) {
 		return ""
 	}
 	days := DaysLeft(t, now)
@@ -163,7 +177,7 @@ func dayWord(n int) string {
 // "Overdue by 3 days". Finished: "Finished 2 days early" / "Finished on the day" /
 // "Finished 1 day late". Blank without a deadline.
 func DeadlineStateLabel(t Task, now time.Time) string {
-	if t.DeadlineAt == nil {
+	if !ShowsCountdown(t) {
 		return ""
 	}
 	days := DaysLeft(t, now)
@@ -174,9 +188,8 @@ func DeadlineStateLabel(t Task, now time.Time) string {
 			return fmt.Sprintf("Finished %s early", dayWord(days))
 		case days < 0:
 			return fmt.Sprintf("Finished %s late", dayWord(-days))
-		case over:
-			return "Finished on the day, after the deadline"
 		default:
+			// On the deadline day is on time, whatever the hour (maintainer 2026-09-25).
 			return "Finished on the day"
 		}
 	}

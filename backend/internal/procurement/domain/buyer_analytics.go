@@ -155,18 +155,20 @@ func ClampBuyerPageSize(requested int) int {
 }
 
 // NormalizeBuyerFarmFilter resolves the page's farm query parameter exactly as the sales pages
-// do: "" and "all" mean the whole company; CBE or CPT must be exact. ok is false for anything
-// else -- the caller rejects rather than silently widening the filter.
-func NormalizeBuyerFarmFilter(raw string) (farm string, ok bool) {
+// do: "" and "all" mean the whole company; anything else must be exactly one of farms, the
+// tenant's active park codes. ok is false for anything else -- the caller rejects rather than
+// silently widening the filter.
+func NormalizeBuyerFarmFilter(raw string, farms []string) (farm string, ok bool) {
 	trimmed := strings.TrimSpace(raw)
-	switch {
-	case trimmed == "" || strings.EqualFold(trimmed, "all"):
+	if trimmed == "" || strings.EqualFold(trimmed, "all") {
 		return "", true
-	case trimmed == "CBE" || trimmed == "CPT":
-		return trimmed, true
-	default:
-		return "", false
 	}
+	for _, f := range farms {
+		if f == trimmed {
+			return trimmed, true
+		}
+	}
+	return "", false
 }
 
 // NormalizeBuyerName is the matching key for a typed buyer name: whitespace collapsed, lower

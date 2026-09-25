@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 var (
@@ -23,6 +25,15 @@ var (
 	ErrApprovalForbiddenScope = errors.New("counts: caller scope does not include this request")
 	// ErrApprovalReasonRequired is returned when a reject arrives without a reason.
 	ErrApprovalReasonRequired = errors.New("counts: a reason is required to reject a request")
+	// ErrInvalidApprovalTypeFilter / ErrInvalidApprovalParkFilter refuse an unknown list filter
+	// value; a filter is never silently widened to "everything" (2026-09-25).
+	ErrInvalidApprovalTypeFilter = errors.New("counts: request_type filter must be birth, death or shifting")
+	ErrInvalidApprovalParkFilter = errors.New("counts: park_id filter must be a park id")
+	// ErrInvalidApprovalDateRange refuses a calendar filter that is not a YYYY-MM-DD date, or whose
+	// start is after its end; it is never read as "no filter".
+	ErrInvalidApprovalDateRange = errors.New("counts: raised_from / raised_to must be dates (YYYY-MM-DD), from on or before to")
+	// ErrApprovalCursorFilterMismatch refuses a cursor minted under a different filter.
+	ErrApprovalCursorFilterMismatch = errors.New("counts: cursor does not belong to this filter")
 	// ErrApprovalInvalidStoredPayload is returned when a stored request payload can no longer be
 	// replayed through its owning module (for example the animal it names has since been merged).
 	ErrApprovalInvalidStoredPayload = errors.New("counts: stored approval payload is no longer applicable")
@@ -126,6 +137,17 @@ func (s *ApprovalService) SubmitBirthRequest(
 func (s *ApprovalService) ListPending(
 	ctx context.Context, tenantID, status string, decidableTypes []string, callerParkIDs []string, pageSize int, cursor string,
 ) (domain.ApprovalRequestPage, error) {
+	return s.ListFiltered(ctx, tenantID, status, decidableTypes, callerParkIDs, domain.ApprovalListFilter{}, pageSize, cursor)
+}
+
+// ListFiltered is ListPending with the client's optional type/farm filter applied SERVER-SIDE
+// (2026-09-25). The filter only ever NARROWS: a type the caller may not decide reads empty (never
+// widened), a farm outside the caller's park scope reads empty (both predicates apply), and an
+// unknown value is refused. The cursor is bound to the filter it was minted under.
+func (s *ApprovalService) ListFiltered(
+	ctx context.Context, tenantID, status string, decidableTypes []string, callerParkIDs []string,
+	filter domain.ApprovalListFilter, pageSize int, cursor string,
+) (domain.ApprovalRequestPage, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ApprovalRequestPage{}, ErrMissingRequiredField
 	}
@@ -135,17 +157,160 @@ func (s *ApprovalService) ListPending(
 	if !domain.ValidApprovalStatus(status) {
 		return domain.ApprovalRequestPage{}, ErrInvalidExceptionFilter
 	}
+	filter.RequestType = strings.TrimSpace(filter.RequestType)
+	filter.ParkID = strings.ToLower(strings.TrimSpace(filter.ParkID))
+	if filter.RequestType != "" && !domain.ValidApprovalRequestType(filter.RequestType) {
+		return domain.ApprovalRequestPage{}, ErrInvalidApprovalTypeFilter
+	}
+	if filter.ParkID != "" && !uuidutil.IsUUIDString(filter.ParkID) {
+		return domain.ApprovalRequestPage{}, ErrInvalidApprovalParkFilter
+	}
+	filter.RaisedFrom = strings.TrimSpace(filter.RaisedFrom)
+	filter.RaisedTo = strings.TrimSpace(filter.RaisedTo)
+	raisedFrom, raisedBefore, err := approvalRaisedRange(filter.RaisedFrom, filter.RaisedTo)
+	if err != nil {
+		return domain.ApprovalRequestPage{}, err
+	}
 	decoded, err := domain.DecodeApprovalRequestCursor(cursor)
 	if err != nil {
 		return domain.ApprovalRequestPage{}, ErrInvalidExceptionFilter
 	}
+	if decoded != nil && decoded.Filter != filter.Key() {
+		return domain.ApprovalRequestPage{}, ErrApprovalCursorFilterMismatch
+	}
+	types := decidableTypes
+	if filter.RequestType != "" {
+		types = nil
+		for _, t := range decidableTypes {
+			if t == filter.RequestType {
+				types = []string{t}
+				break
+			}
+		}
+	}
 	return s.repo.ListApprovalRequests(ctx, domain.ApprovalRequestQuery{
 		TenantID:      tenantID,
 		Status:        status,
-		RequestTypes:  decidableTypes,
+		RequestTypes:  types,
 		CallerParkIDs: callerParkIDs,
+		FilterParkID:  filter.ParkID,
+		RaisedFrom:    raisedFrom,
+		RaisedBefore:  raisedBefore,
+		FilterKey:     filter.Key(),
 		PageSize:      pageSize,
 		Cursor:        decoded,
+	})
+}
+
+// approvalRaisedRange turns the calendar filter's inclusive YYYY-MM-DD dates into a half-open
+// instant range over INDIA business days: from the start of the first day to the start of the
+// day after the last. UTC never defines the day (a 02:00 IST request is on its own date).
+func approvalRaisedRange(from, to string) (*time.Time, *time.Time, error) {
+	loc := biztime.DefaultLocation()
+	parse := func(raw string) (*time.Time, error) {
+		if raw == "" {
+			return nil, nil
+		}
+		day, err := time.ParseInLocation("2006-01-02", raw, loc)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %q: %w", ErrInvalidApprovalDateRange, raw, err)
+		}
+		return &day, nil
+	}
+	start, err := parse(from)
+	if err != nil {
+		return nil, nil, err
+	}
+	end, err := parse(to)
+	if err != nil {
+		return nil, nil, err
+	}
+	if start != nil && end != nil && start.After(*end) {
+		return nil, nil, ErrInvalidApprovalDateRange
+	}
+	var before *time.Time
+	if end != nil {
+		next := end.AddDate(0, 0, 1)
+		before = &next
+	}
+	return start, before, nil
+}
+
+// requestInCallerScope is the ONE farm-scope rule for a single request, shared by Decide and
+// GetForCaller so reading and deciding can never disagree. A tenant-scoped caller (no parks) sees
+// every farm. A park-scoped caller sees a request only when its farm is one of THEIR parks: a pen
+// move's destination_park_id (== source park by P0-1), a birth's park_id, a death's subject animal
+// (goats.park_id, the indexed authority read). Fail CLOSED: a farm we cannot prove is out of scope.
+//
+// Live E2E 2026-09-11 found both named approvers (park_head in BOTH parks) refused on every
+// decision: the scope was ONE park (the first grant), births were denied to any scoped caller on
+// the wrong premise that a birth carries no park, and the refusal surfaced as a 500.
+func (s *ApprovalService) requestInCallerScope(ctx context.Context, req domain.ApprovalRequest, callerParkIDs []string) bool {
+	if len(callerParkIDs) == 0 {
+		return true
+	}
+	requestPark := ""
+	switch req.RequestType {
+	case domain.ApprovalRequestTypeShifting:
+		var shiftPayload shiftingApprovalPayload
+		if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &shiftPayload) == nil {
+			requestPark = strings.TrimSpace(shiftPayload.DestinationParkID)
+		}
+	case domain.ApprovalRequestTypeBirth:
+		var birthPayload struct {
+			ParkID string `json:"park_id"`
+		}
+		if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &birthPayload) == nil {
+			requestPark = strings.TrimSpace(birthPayload.ParkID)
+		}
+	case domain.ApprovalRequestTypeDeath:
+		if req.SubjectGoatID != nil && *req.SubjectGoatID != "" {
+			if reader, ok := s.repo.(approvalSubjectParkReader); ok {
+				if parkID, err := reader.ApprovalSubjectPark(ctx, req.TenantID, *req.SubjectGoatID); err == nil {
+					requestPark = strings.TrimSpace(parkID)
+				}
+			}
+		}
+	}
+	return requestPark != "" && containsString(callerParkIDs, requestPark)
+}
+
+// GetForCaller reads ONE request for a caller, whatever its status or place in the queue, so a
+// link to it (a Work Board row, a bookmark) opens it even when it is older than the first page
+// (maintainer 2026-09-25). It applies exactly the list's authority: a type the caller may not
+// decide, or a farm outside their scope, reads as NOT FOUND -- the request's existence is not
+// disclosed -- and a malformed id is refused.
+func (s *ApprovalService) GetForCaller(ctx context.Context, tenantID, approvalRequestID string, decidableTypes, callerParkIDs []string) (domain.ApprovalRequestSummary, error) {
+	approvalRequestID = strings.ToLower(strings.TrimSpace(approvalRequestID))
+	if strings.TrimSpace(tenantID) == "" || !uuidutil.IsUUIDString(approvalRequestID) {
+		return domain.ApprovalRequestSummary{}, ErrInvalidExceptionFilter
+	}
+	req, err := s.repo.GetApprovalRequest(ctx, tenantID, approvalRequestID)
+	if err != nil {
+		return domain.ApprovalRequestSummary{}, err
+	}
+	if !containsString(decidableTypes, req.RequestType) || !s.requestInCallerScope(ctx, req, callerParkIDs) {
+		return domain.ApprovalRequestSummary{}, ports.ErrApprovalRequestNotFound
+	}
+	return domain.ApprovalRequestSummary{
+		ApprovalRequestID: req.ApprovalRequestID, RequestType: req.RequestType, Status: req.Status,
+		RaisedByUserID: req.RaisedByUserID, RaisedAt: req.RaisedAt,
+		ShiftingEventID: req.ShiftingEventID, SubjectGoatID: req.SubjectGoatID, Summary: req.Payload,
+		DecidedByUserID: req.DecidedByUserID, DecidedAt: req.DecidedAt, DecisionReason: req.DecisionReason,
+		Capture: req.Capture, CaptureReviewStatus: req.CaptureReviewStatus, CaptureReviewReason: req.CaptureReviewReason,
+	}, nil
+}
+
+// CountPending is the number of PENDING requests this caller may decide -- the same decidable
+// types and park scope the list applies, over the whole queue (never a page). It answers the
+// phone's Approvals badge, so the badge equals what the queue lists.
+func (s *ApprovalService) CountPending(ctx context.Context, tenantID string, decidableTypes, callerParkIDs []string) (int, error) {
+	if strings.TrimSpace(tenantID) == "" || len(decidableTypes) == 0 {
+		return 0, nil
+	}
+	return s.repo.CountPendingApprovalRequests(ctx, domain.ApprovalRequestQuery{
+		TenantID: tenantID, Status: domain.ApprovalStatusPending,
+		RequestTypes: decidableTypes, CallerParkIDs: callerParkIDs,
 	})
 }
 
@@ -215,33 +380,8 @@ func (s *ApprovalService) Decide(ctx context.Context, in DecisionInput) (domain.
 	// Live E2E 2026-09-11 found both named approvers (park_head in BOTH parks) refused on every
 	// decision: the scope was ONE park (the first grant), births were denied to any scoped
 	// caller on the wrong premise that a birth carries no park, and the refusal surfaced as a 500.
-	if len(in.CallerParkIDs) > 0 {
-		requestPark := ""
-		switch req.RequestType {
-		case domain.ApprovalRequestTypeShifting:
-			var shiftPayload shiftingApprovalPayload
-			if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &shiftPayload) == nil {
-				requestPark = strings.TrimSpace(shiftPayload.DestinationParkID)
-			}
-		case domain.ApprovalRequestTypeBirth:
-			var birthPayload struct {
-				ParkID string `json:"park_id"`
-			}
-			if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &birthPayload) == nil {
-				requestPark = strings.TrimSpace(birthPayload.ParkID)
-			}
-		case domain.ApprovalRequestTypeDeath:
-			if req.SubjectGoatID != nil && *req.SubjectGoatID != "" {
-				if reader, ok := s.repo.(approvalSubjectParkReader); ok {
-					if parkID, err := reader.ApprovalSubjectPark(ctx, req.TenantID, *req.SubjectGoatID); err == nil {
-						requestPark = strings.TrimSpace(parkID)
-					}
-				}
-			}
-		}
-		if requestPark == "" || !containsString(in.CallerParkIDs, requestPark) {
-			return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
-		}
+	if !s.requestInCallerScope(ctx, req, in.CallerParkIDs) {
+		return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
 	}
 
 	decision := domain.ApprovalDecision{

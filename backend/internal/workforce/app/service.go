@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
@@ -493,20 +494,78 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		return nil, err
 	}
 	localeTag = localization.Normalize(localeTag)
+	// The reads keyed only by (tenant, actor) -- the department module grants, the person's own
+	// module ticks and the tenant's feed & water cutoff -- run concurrently with the profile ->
+	// capabilities chain instead of after it. Errors keep their sequential precedence below
+	// (profile, capabilities, module grants, person assignments), so a caller sees exactly the
+	// error the one-at-a-time version returned.
+	var (
+		grantedModules    []string
+		grantedErr        error
+		personAssignments []permissions.ModuleAssignment
+		assignmentsErr    error
+		cutoffTime        string
+		deviceItem        domain.DeviceSummary
+		deviceErr         error
+		side              sync.WaitGroup
+	)
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID != "" {
+		// The device READ is keyed by (tenant, actor, device) only, so it joins the first wave.
+		// Its result is consumed exactly where the sequential version read it, after every
+		// earlier error has had its chance; a recoverable device is still only reactivated
+		// (a write) once the profile, capabilities and module reads have all succeeded.
+		side.Add(1)
+		go func() {
+			defer side.Done()
+			deviceItem, deviceErr = s.repo.GetDeviceForActor(ctx, tenantID, actorID, deviceID)
+		}()
+	}
+	side.Add(3)
+	go func() {
+		defer side.Done()
+		// Module grants drive which modules appear in the drawer and which bottom bar is
+		// served. A person with no department/grants gets an empty module set rather than
+		// an implicit default, so nav reflects real authority.
+		grantedModules, grantedErr = s.repo.ListGrantedModuleKeys(ctx, tenantID, actorID)
+	}()
+	go func() {
+		defer side.Done()
+		personAssignments, assignmentsErr = s.repo.ListPersonAssignments(ctx, tenantID, actorID)
+	}()
+	go func() {
+		defer side.Done()
+		cutoffTime = s.feedWaterRemovalCutoffTime(ctx, tenantID)
+	}()
 	profile, grants, err := s.activeProfileAndGrants(ctx, tenantID, actorID)
+	var (
+		caps    []domain.CapabilityAssignment
+		capsErr error
+	)
+	capsDone := make(chan struct{})
+	if err == nil {
+		// Capabilities need the operator id; the module badges (below) need only the grants and
+		// the first-wave reads. They run side by side instead of one after the other.
+		go func() {
+			defer close(capsDone)
+			caps, capsErr = s.repo.ListCapabilities(ctx, tenantID, profile.OperatorID)
+		}()
+	} else {
+		close(capsDone)
+	}
+	side.Wait()
 	if err != nil {
 		return nil, err
 	}
-	caps, err := s.repo.ListCapabilities(ctx, tenantID, profile.OperatorID)
-	if err != nil {
-		return nil, mapRepoErr(err)
-	}
-	// Module grants drive which modules appear in the drawer and which bottom bar is
-	// served. A person with no department/grants gets an empty module set rather than
-	// an implicit default, so nav reflects real authority.
-	grantedModules, err := s.repo.ListGrantedModuleKeys(ctx, tenantID, actorID)
-	if err != nil {
-		return nil, mapRepoErr(err)
+	if grantedErr != nil || assignmentsErr != nil {
+		// Capabilities keep their precedence over these two errors.
+		<-capsDone
+		if capsErr != nil {
+			return nil, mapRepoErr(capsErr)
+		}
+		if grantedErr != nil {
+			return nil, mapRepoErr(grantedErr)
+		}
 	}
 	// PER-PERSON PHONE MODULES (maintainer decision 2026-08-27). The ticks decide the bar,
 	// the same way they decide the web sidebar.
@@ -517,9 +576,8 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	// place -- for ever. Not on a refresh, and not on a log out and log in, because nothing
 	// was stale: the server kept answering "yes, he has it" from a source the tick never
 	// touched. The operator tapped a module he still saw and the work failed.
-	personAssignments, err := s.repo.ListPersonAssignments(ctx, tenantID, actorID)
-	if err != nil {
-		return nil, mapRepoErr(err)
+	if assignmentsErr != nil {
+		return nil, mapRepoErr(assignmentsErr)
 	}
 	personModules := make([]string, 0, len(personAssignments))
 	for _, a := range personAssignments {
@@ -558,11 +616,19 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		}
 		moduleKeysForBootstrap = tickedModules
 	}
+	bootstrapModules := modulesForScope(scope, moduleKeysForBootstrap, localeTag, fromTicks, tickedModules)
+	navChrome := navChromeFor(grants, bootstrapModules)
+	visibleNav := visibleNavigationForTicks(scope, moduleKeysForBootstrap, localeTag, tickedModules)
+	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
+	s.applyModuleBadges(ctx, tenantID, actorID, bootstrapModules)
+	<-capsDone
+	if capsErr != nil {
+		return nil, mapRepoErr(capsErr)
+	}
 	var device *domain.DeviceSummary
 	deviceState := domain.BootstrapDeviceState{Required: true, Status: "not_registered"}
-	deviceID = strings.TrimSpace(deviceID)
 	if deviceID != "" {
-		item, err := s.repo.GetDeviceForActor(ctx, tenantID, actorID, deviceID)
+		item, err := deviceItem, deviceErr
 		if err != nil {
 			if errors.Is(err, ports.ErrNotFound) {
 				item = domain.DeviceSummary{DeviceID: deviceID, Status: "not_registered"}
@@ -584,11 +650,6 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		}
 	}
 	now := s.now().UTC()
-	bootstrapModules := modulesForScope(scope, moduleKeysForBootstrap, localeTag, fromTicks, tickedModules)
-	navChrome := navChromeFor(grants, bootstrapModules)
-	visibleNav := visibleNavigationForTicks(scope, moduleKeysForBootstrap, localeTag, tickedModules)
-	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
-	s.applyModuleBadges(ctx, tenantID, actorID, bootstrapModules)
 	return &domain.BootstrapResponse{
 		Actor:                      domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
 		OperatorProfile:            profile,
@@ -596,7 +657,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		Capabilities:               caps,
 		DeviceState:                deviceState,
 		AppMinSupportedVersion:     "0.1.0",
-		FeedWaterRemovalCutoffTime: s.feedWaterRemovalCutoffTime(ctx, tenantID),
+		FeedWaterRemovalCutoffTime: cutoffTime,
 		FeatureFlags: map[string]bool{
 			"tasks":                       true,
 			"sop_runner":                  true,
@@ -631,7 +692,19 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 }
 
 func (s *Service) activeProfileAndGrants(ctx context.Context, tenantID, actorID string) (domain.OperatorProfile, []domain.GrantSummary, error) {
+	// The grants read does not depend on the profile; it runs alongside it. The profile's
+	// verdict is still checked first, so the errors are exactly the sequential version's.
+	var (
+		grants    []domain.GrantSummary
+		grantsErr error
+		grantRead = make(chan struct{})
+	)
+	go func() {
+		defer close(grantRead)
+		grants, grantsErr = s.repo.ListActiveGrantsForActor(ctx, tenantID, actorID)
+	}()
 	profile, err := s.repo.GetMemberForActor(ctx, tenantID, actorID)
+	<-grantRead
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
 			return domain.OperatorProfile{}, nil, Forbidden("operator_profile_missing", "active operator profile is required")
@@ -641,9 +714,8 @@ func (s *Service) activeProfileAndGrants(ctx context.Context, tenantID, actorID 
 	if profile.Status != "active" {
 		return domain.OperatorProfile{}, nil, Forbidden("operator_profile_inactive", "operator profile is not active")
 	}
-	grants, err := s.repo.ListActiveGrantsForActor(ctx, tenantID, actorID)
-	if err != nil {
-		return domain.OperatorProfile{}, nil, mapRepoErr(err)
+	if grantsErr != nil {
+		return domain.OperatorProfile{}, nil, mapRepoErr(grantsErr)
 	}
 	if len(grants) == 0 {
 		return domain.OperatorProfile{}, nil, Forbidden("operator_grant_missing", "active operator grant is required")

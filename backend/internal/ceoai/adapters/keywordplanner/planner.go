@@ -113,7 +113,7 @@ func (p *Planner) Plan(_ context.Context, q domain.Question, _ []domain.Resolved
 				IntentClass: r.intent,
 				Route:       r.route,
 				ToolName:    r.tool,
-				Params:      withGroupBy(extractParams(clause), r.groupBy),
+				Params:      withGroupBy(extractParams(clause, q.Parks), r.groupBy),
 			})
 		}
 	}
@@ -122,7 +122,7 @@ func (p *Planner) Plan(_ context.Context, q domain.Question, _ []domain.Resolved
 		if r, ok := classify(text); ok {
 			subs = append(subs, domain.SubQuestion{
 				ID: "0", Text: text, IntentClass: r.intent, Route: r.route,
-				ToolName: r.tool, Params: withGroupBy(extractParams(text), r.groupBy),
+				ToolName: r.tool, Params: withGroupBy(extractParams(text, q.Parks), r.groupBy),
 			})
 		}
 	}
@@ -202,11 +202,13 @@ func splitClauses(text string) []string {
 	return out
 }
 
-var knownParks = []string{"Castro 1", "Castro 2", "Channapatna", "Gandhi 1", "Gandhi 2", "CBE", "CPT"}
-
 var scopedIDRE = regexp.MustCompile(`(?i)\b(park_id|shed_id):([0-9a-f-]{36})\b`)
 
-func extractParams(text string) map[string]any {
+// extractParams reads the few filters a keyword can carry. The park is matched against parks, the
+// tenant's ACTIVE parks attached to the question (Configuration > Items & settings > Parks), by
+// name or by code, and the matched text is what is bound -- it used to be a constant list that
+// also mixed in pen names (Castro 1, Gandhi 2) as if they were parks.
+func extractParams(text string, parks []domain.ParkRef) map[string]any {
 	params := map[string]any{}
 	low := strings.ToLower(text)
 	for _, m := range scopedIDRE.FindAllStringSubmatch(text, -1) {
@@ -214,10 +216,13 @@ func extractParams(text string) map[string]any {
 			params[strings.ToLower(m[1])] = m[2]
 		}
 	}
-	for _, park := range knownParks {
-		if strings.Contains(low, strings.ToLower(park)) {
-			params["park_label"] = park
-			break
+parkLoop:
+	for _, park := range parks {
+		for _, candidate := range []string{park.Name, park.Code} {
+			if candidate != "" && strings.Contains(low, strings.ToLower(candidate)) {
+				params["park_label"] = candidate
+				break parkLoop
+			}
 		}
 	}
 	mentionsGoat := strings.Contains(low, "goat")

@@ -928,6 +928,35 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	if row.SessionNo != 1 || row.PlannedKg != "2.000" || row.VerifiedKg != "1.500" || row.VarianceKg != "-0.500" {
 		t.Errorf("row = %+v, want session 1 compared against the 2.000 grain SUM, short 0.500", row)
 	}
+	// OneToMany cohort proof for the planned-side rewrite (MIN = MAX instead of COUNT(DISTINCT),
+	// planned restricted to measured keys): the two grains carry two breeds, so the bag must still
+	// report the mixed cohort rather than either breed, and the unmeasured-but-planned session 2
+	// row the planned side now skips must not change the session 1 comparison.
+	if row.BreedLabel != domain.MixedCohortLabel {
+		t.Errorf("row breed = %q, want %q: two breeds on one bag go bare", row.BreedLabel, domain.MixedCohortLabel)
+	}
+	// ParkScope + StatusMatrix after the rewrite: the fixture's OWN park, named explicitly, reads
+	// the identical single row (the planned side joins only measured keys of completed sessions,
+	// so the pending session 2 still never surfaces), and PageBoundary: the next page is empty
+	// rather than repeating the bag.
+	ownPark, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		ParkIDs: []uuid.UUID{uuid.MustParse(fdiPark)}, DateFrom: target, DateTo: target,
+	})
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics(own park): %v", err)
+	}
+	if len(ownPark.PackingVariance) != 1 || ownPark.PackingVariance[0] != row {
+		t.Errorf("ParkScope own-park variance = %+v, want exactly the unscoped row %+v", ownPark.PackingVariance, row)
+	}
+	nextPage, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		DateFrom: target, DateTo: target, PackingVarianceLimit: 1, PackingVarianceOffset: 1,
+	})
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics(page 2): %v", err)
+	}
+	if len(nextPage.PackingVariance) != 0 {
+		t.Errorf("PageBoundary page 2 variance = %+v, want empty: one measured bag, one page", nextPage.PackingVariance)
+	}
 	// Label-source proof, added to the same OneToMany / ParkScope / StatusMatrix / PageBoundary
 	// adversarial fixture: farm/shed labels resolve from the completion's own canonical locations
 	// rows (1:1 by the locations PK), NOT the sheet's label copies -- so a "not on sheet" reading

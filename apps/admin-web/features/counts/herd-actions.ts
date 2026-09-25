@@ -31,8 +31,16 @@ import {
 } from "@/lib/api/server";
 import { parseCSVRecords } from "./herd-import-utils";
 
-const SEXES = ["female", "male"] as const;
-const SPECIES = ["goat", "sheep"] as const;
+// Species and sex are the tenant's Configuration lists (OPEN UP TO NEW SPECIES, 2026-09-25): the form
+// offers them from the page contract and the backend checks membership, so this only checks a code's shape.
+const ANIMAL_CODE_RE = /^[a-z][a-z0-9_]{0,39}$/;
+
+function animalCode(value: string | undefined, field: string): string {
+  if (!value || !ANIMAL_CODE_RE.test(value)) {
+    throw new Error(`${field} must be one of the farm's ${field === "sex" ? "genders" : "species"}`);
+  }
+  return value;
+}
 const ORIGIN_TYPES = ["birth", "procured", "imported"] as const;
 const EVIDENCE_TYPES = ["source_record", "identifier", "goat", "event", "media", "decision", "import_run", "conflict", "location", "actor"] as const;
 
@@ -160,14 +168,14 @@ export async function createGoatAction(formData: FormData): Promise<void> {
     const body: CreateAdminGoatRequest = {
       animal_identifier_1: animalIdentifier1,
       ...(animalIdentifier2 ? { animal_identifier_2: animalIdentifier2 } : {}),
-      species: inEnum(optionalString(formData, "species"), SPECIES, "species"),
+      species: animalCode(optionalString(formData, "species"), "species"),
       park_id: requiredString(formData, "park_id"),
       shed_id: requiredString(formData, "shed_id"),
       ...(partitionLabel ? { partition_label: partitionLabel } : {}),
       farm_id: optionalString(formData, "farm_id"),
       breed: optionalString(formData, "breed"),
       management_stage: requiredString(formData, "management_stage"),
-      sex: inEnum(optionalString(formData, "sex"), SEXES, "sex"),
+      sex: animalCode(optionalString(formData, "sex"), "sex"),
       dob: requiredString(formData, "dob"),
       dob_estimated: formData.get("dob_estimated") === "on",
       origin_type: inEnum(optionalString(formData, "origin_type"), ORIGIN_TYPES, "origin_type"),

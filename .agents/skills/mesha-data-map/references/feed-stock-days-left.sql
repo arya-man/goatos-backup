@@ -1,5 +1,6 @@
 -- Feed stock days left: runtime stockItemsSQL with maintained family/rate bindings.
 -- Re-derived 25/09/2026 for family-level sale depletion; no new live-data snapshot claimed.
+-- Re-checked 26/09/2026 after #415: stock SQL constants unchanged (sections now read in parallel only).
 
 WITH rate_override AS (
     -- HARD-CODED burn rates (domain.StockRateOverrides). Keyed on (farm, feed);

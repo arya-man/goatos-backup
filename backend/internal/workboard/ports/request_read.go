@@ -90,3 +90,30 @@ func SeedRequestRead[T any, K comparable](ctx context.Context, key K, value T) {
 	close(entry.done)
 	memo.entries[typedKey] = entry
 }
+
+// PeekRequestRead returns a value already stored under key in this request -- a finished,
+// successful read or a seed -- and never starts a read or waits for one in flight. Outside a
+// request memo, or when nothing is stored yet, it reports false.
+func PeekRequestRead[T any, K comparable](ctx context.Context, key K) (T, bool) {
+	var zero T
+	memo, ok := ctx.Value(requestReadContextKey{}).(*requestReadMemo)
+	if !ok {
+		return zero, false
+	}
+	typedKey := typedRequestReadKey[T, K]{key: key}
+	memo.mu.Lock()
+	entry, exists := memo.entries[typedKey]
+	memo.mu.Unlock()
+	if !exists {
+		return zero, false
+	}
+	select {
+	case <-entry.done:
+	default:
+		return zero, false
+	}
+	if entry.err != nil {
+		return zero, false
+	}
+	return entry.value.(requestReadValue[T]).value, true
+}

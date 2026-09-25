@@ -224,6 +224,7 @@ type Breed struct {
 	ReviewNotes   pgtype.Text
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
+	TenantID      pgtype.UUID
 }
 
 type BreedAlias struct {
@@ -233,6 +234,7 @@ type BreedAlias struct {
 	NormalizedAlias string
 	SourceSystem    pgtype.Text
 	CreatedAt       pgtype.Timestamptz
+	TenantID        pgtype.UUID
 }
 
 type BulkStatusJob struct {

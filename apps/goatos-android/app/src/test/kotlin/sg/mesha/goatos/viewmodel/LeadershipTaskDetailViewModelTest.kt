@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -131,6 +132,53 @@ class LeadershipTaskDetailViewModelTest {
     }
 
     @Test
+    fun `a retry after the task moved to a new version is a new write, never a stuck conflict`() = runTest(dispatcher) {
+        // Live defect: the key was kept per target status only, the server fingerprints the row
+        // version, so a timed-out move retried after a refresh (new version) was refused as an
+        // idempotency conflict forever.
+        val repository = FakeLeadershipTasksRepository(initialDetail = leadershipTask(isSeen = true, rowVersion = 7))
+        repository.failNextStatus = true
+        val vm = viewModel(repository)
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(LeadershipTaskDetailEvent.ChangeStatus("in_progress"))
+        advanceUntilIdle()
+        // Somebody else touched the task meanwhile: the refresh brings version 8.
+        repository.emitDetail(leadershipTask(isSeen = true, rowVersion = 8))
+        advanceUntilIdle()
+        vm.onEvent(LeadershipTaskDetailEvent.ChangeStatus("in_progress"))
+        advanceUntilIdle()
+
+        assertEquals(listOf(7, 8), repository.statusCalls.map { it.request.rowVersion })
+        assertNotEquals(
+            "a key minted for version 7 must never be re-sent with version 8",
+            repository.statusCalls[0].idempotencyKey,
+            repository.statusCalls[1].idempotencyKey,
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun `each note carries when it was written as DD-MM-YYYY HH-MM in IST`() = runTest(dispatcher) {
+        val repository = FakeLeadershipTasksRepository(
+            initialDetail = leadershipTask(
+                isSeen = true,
+                notes = listOf(
+                    LeadershipTaskNoteDto(noteId = "note-1", authorName = "Ravi", body = "Checked", createdAt = "2026-09-08T08:00:00Z"),
+                    LeadershipTaskNoteDto(noteId = "note-2", authorName = "Satish", body = "No time", createdAt = ""),
+                ),
+            ),
+        )
+        val vm = viewModel(repository)
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(listOf("08/09/2026 13:30", ""), vm.state.value.notes.map { it.whenLabel })
+        job.cancel()
+    }
+
+    @Test
     fun `cancel is confirmed first and then sent as the cancelled status`() = runTest(dispatcher) {
         val repository = FakeLeadershipTasksRepository(
             initialDetail = leadershipTask(isSeen = true, canChangeStatus = false, canEdit = true, canCancel = true, statusOptions = emptyList()),
@@ -195,6 +243,25 @@ class LeadershipTaskDetailViewModelTest {
         assertEquals(listOf(FakeLeadershipTasksRepository.FetchCall(LEADERSHIP_TEST_TASK_ID, "proof-1")), repository.fetchCalls)
         assertEquals("/cache/proof-1", vm.state.value.attachments[0].localPath)
 
+        job.cancel()
+    }
+
+    @Test
+    fun `with no cached task and a refresh that never lands the spinner stops and offers Try again`() = runTest(dispatcher) {
+        val repository = FakeLeadershipTasksRepository(initialDetail = null)
+        val vm = viewModel(repository)
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse("no endless spinner", vm.state.value.loading)
+        assertTrue(vm.state.value.unavailable)
+
+        // Try again re-reads, and a task that lands replaces the error.
+        repository.emitDetail(leadershipTask(isSeen = true))
+        vm.onEvent(LeadershipTaskDetailEvent.Refresh)
+        advanceUntilIdle()
+        assertFalse(vm.state.value.unavailable)
+        assertEquals("#12", vm.state.value.numberLabel)
         job.cancel()
     }
 }

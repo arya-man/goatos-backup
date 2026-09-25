@@ -138,8 +138,8 @@ func TestNormalizeBuyerNameAndFarmFilter(t *testing.T) {
 	for raw, want := range map[string]struct {
 		farm string
 		ok   bool
-	}{"": {"", true}, "all": {"", true}, "ALL": {"", true}, "CBE": {"CBE", true}, "CPT": {"CPT", true}, "cbe": {"", false}, "Pollachi": {"", false}} {
-		farm, ok := NormalizeBuyerFarmFilter(raw)
+	}{"": {"", true}, "all": {"", true}, "ALL": {"", true}, "CBE": {"CBE", true}, "CPT": {"CPT", true}, "HSR": {"HSR", true}, "cbe": {"", false}, "Pollachi": {"", false}} {
+		farm, ok := NormalizeBuyerFarmFilter(raw, []string{"CBE", "CPT", "HSR"})
 		if farm != want.farm || ok != want.ok {
 			t.Fatalf("farm filter %q = %q/%v, want %q/%v", raw, farm, ok, want.farm, want.ok)
 		}

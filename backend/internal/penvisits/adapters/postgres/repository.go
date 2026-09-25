@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"strings"
 	"time"
 
@@ -185,7 +186,11 @@ func (r *Repository) ListMine(ctx context.Context, p ports.ListParams) (ports.Pa
 		where += fmt.Sprintf(" AND (t.due_business_date, t.task_id) < ($%d::date, $%d::uuid)", len(args)-1, len(args))
 	}
 	query := fmt.Sprintf(`SELECT %s %s WHERE %s ORDER BY t.due_business_date DESC, t.task_id DESC LIMIT %d`, taskColumns, taskFrom, where, limit+1)
-	rows, err := r.pool.Query(ctx, query, args...)
+	listQ, err := sqlbind.Bind(query, args...)
+	if err != nil {
+		return ports.Page{}, fmt.Errorf("pen visit: bind list: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, listQ.SQL(), listQ.Args()...)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("pen visit: list: %w", err)
 	}
@@ -253,7 +258,11 @@ func (r *Repository) getRow(ctx context.Context, q querier, tenantID, taskID str
 		lock = " FOR UPDATE OF t"
 	}
 	query := fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2%s`, taskColumns, taskFrom, lock)
-	t, err := scanTask(q.QueryRow(ctx, query, tenantID, taskID))
+	getQ, err := sqlbind.Bind(query, tenantID, taskID)
+	if err != nil {
+		return domain.Task{}, fmt.Errorf("pen visit: bind get: %w", err)
+	}
+	t, err := scanTask(q.QueryRow(ctx, getQ.SQL(), getQ.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Task{}, ports.ErrTaskNotFound
 	}
@@ -275,7 +284,11 @@ func (r *Repository) ForSources(ctx context.Context, tenantID, sourceKind string
 	// projection-review: membership=pen_visit_task_sources rows for (tenant, kind, ref) -- unique per parent by pen_visit_task_sources_parent_uq, so the join to pen_visit_tasks is 1:1 and each parent maps to at most ONE visit; group_key=source_ref_id; join_cardinality=1:1 (sources -> tasks on task_id PK); pagination=none -- bounded by the caller's page of parents (one batched read per page); scope=tenant + explicit ref ids
 	query := fmt.Sprintf(`SELECT s.source_ref_id::text, %s %s JOIN pen_visit_task_sources s ON s.tenant_id = t.tenant_id AND s.task_id = t.task_id
 WHERE s.tenant_id = $1::uuid AND s.source_kind = $2 AND s.source_ref_id = ANY($3::uuid[])`, taskColumns, taskFrom)
-	rows, err := r.pool.Query(ctx, query, tenantID, sourceKind, refIDs)
+	sourcesQ, err := sqlbind.Bind(query, tenantID, sourceKind, refIDs)
+	if err != nil {
+		return nil, fmt.Errorf("pen visit: bind for sources: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, sourcesQ.SQL(), sourcesQ.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("pen visit: for sources: %w", err)
 	}
@@ -331,22 +344,22 @@ func (r *Repository) ForPens(ctx context.Context, tenantID, sourceKind string, p
 
 // OpenCount answers the badge: visits still awaiting a recording in the parks one person is
 // configured to visit.
-func (r *Repository) OpenCount(ctx context.Context, tenantID, userID string) (int, error) {
+func (r *Repository) OpenCount(ctx context.Context, tenantID, userID, today string) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var n int
-	if err := r.pool.QueryRow(ctx, sqlRepository4, tenantID, userID).Scan(&n); err != nil {
+	if err := r.pool.QueryRow(ctx, sqlRepository4, tenantID, userID, today).Scan(&n); err != nil {
 		return 0, fmt.Errorf("pen visit: open count: %w", err)
 	}
 	return n, nil
 }
 
 // OpenReasons reads the reasons of every visit one person still has to record.
-func (r *Repository) OpenReasons(ctx context.Context, tenantID, userID string) ([][]string, error) {
+func (r *Repository) OpenReasons(ctx context.Context, tenantID, userID, today string) ([][]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	// scale-guard:ignore: bounded by the open visits of ONE person's parks (pens worked yesterday, tens of rows), on pen_visit_tasks_park_idx; a badge read, no page.
-	rows, err := r.pool.Query(ctx, sqlRepository14, tenantID, userID)
+	rows, err := r.pool.Query(ctx, sqlRepository14, tenantID, userID, today)
 	if err != nil {
 		return nil, fmt.Errorf("pen visit: open reasons: %w", err)
 	}
@@ -394,7 +407,7 @@ func (r *Repository) Submit(ctx context.Context, p ports.SubmitParams) (domain.T
 	if err != nil {
 		return domain.Task{}, err
 	}
-	if err := domain.CheckSubmit(before, p.Actor, p.ProofRef, p.RowVersion); err != nil {
+	if err := domain.CheckSubmit(before, p.Actor, p.ProofRef, p.RowVersion, biztime.BusinessDate(r.now())); err != nil {
 		return domain.Task{}, err
 	}
 	now := r.now().UTC()
@@ -488,7 +501,11 @@ func (r *Repository) applyVerdict(ctx context.Context, p ports.VerdictParams, ap
 		query = sqlRepository12
 		args = []any{p.TenantID, p.TaskID, strings.TrimSpace(p.Reason), now, before.RowVersion}
 	}
-	tag, err := tx.Exec(ctx, query, args...)
+	verdictQ, err := sqlbind.Bind(query, args...)
+	if err != nil {
+		return ports.VerdictResult{}, fmt.Errorf("pen visit: bind verdict: %w", err)
+	}
+	tag, err := tx.Exec(ctx, verdictQ.SQL(), verdictQ.Args()...)
 	if err != nil {
 		return ports.VerdictResult{}, fmt.Errorf("pen visit: apply verdict: %w", err)
 	}
@@ -882,7 +899,9 @@ GROUP BY t.work_state`
 SELECT count(*)::int
 FROM pen_visit_tasks t
 WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
-  AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')`
+  AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')
+  -- Only a visit that can be filmed NOW is owed (maintainer 2026-09-25: it opens on its day).
+  AND t.planned_business_date <= $3::date`
 	// Submit: the gate flips to pending_verification; the kernel clock is untouched. A rework
 	// resubmit clears the verifier's old reason -- the new clip supersedes it.
 	sqlRepository5 = `
@@ -993,6 +1012,7 @@ SELECT t.reasons
 FROM pen_visit_tasks t
 WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
   AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')
+  AND t.planned_business_date <= $3::date
 LIMIT 500`
 	// The latest visit per pen raised by one parent kind (ForPens), on
 	// pen_visit_tasks_pen_source_idx; the EXISTS is a semijoin and never multiplies rows.

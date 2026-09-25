@@ -47,8 +47,9 @@ weighing free-flow guard still scans it.
 
 Sources in v1: weighing work items, feed transport tasks, verification items, counts
 approval requests, milk feeding tasks, health treatment sessions, PC care tasks, and
-vaccination (wrapping the existing process-integrity read). Procurement and toxin have
-no source yet and the board hides them until they do.
+vaccination (wrapping the existing process-integrity read). Procurement and toxin had no
+source and the board hid them silently for two weeks -- fixed 2026-09-25, see "Every module is on
+the board" below.
 
 Added 2026-09-12, RESHAPED 2026-09-14 -- **the pen visit, as a task of its own under Tasks.**
 The 2026-09-12 shape (the PC Care row deriving its state from the visit, a "Pen visit" unit
@@ -152,6 +153,8 @@ finer grain returns itself as one subtask -- a live row never drills into an emp
 | PC care | scanned animal (tag verbatim) | scan -> proof -> submit -> verify |
 | vaccination | animal in the pen for that drive (its obligation) | vaccinate -> verify |
 | pen visit (Tasks) | the visit itself | visit -> verify |
+| any engine workflow (births, deaths, pen moves, pen returns, sales, animal and feed purchases, general SOP runs) | step of the workflow, in the SOP's words | do -> verify (verify only when the step records proof) |
+| toxin | step of the procedure the round was opened on | do; the reading step adds review |
 
 Rules that are the contract:
 
@@ -229,3 +232,122 @@ source resolution and page bounds), `workboard/adapters/http` (operator, park he
 tenant-wide and director lenses; the subtask read's row gate and codes), and one database
 round-trip test per source for rows and one for subtasks (output strings, step states,
 owner, worst-first order, keyset and total).
+
+## Feed is four activities, direction one card per session, counted once (maintainer instruction 2026-09-25)
+
+"No need per pen or per shed; direction, wastage, packing, transport, four cards only; for feed
+direction, morning and evening separately." What changed, and why each part is there:
+
+- **Feed direction is one card per session of the day's sheet**, titled by the sheet's own
+  session label ("Feed direction · Morning", "Feed direction · Evening"; "Session N" only if a
+  sheet carries no label). Each session's bag is filmed and verified on its own, so folding the
+  sessions into one pen made a pen "done" only when BOTH were approved: at 11:44 on 25/09 the
+  card read "0/59 done" while 13 morning bags were already approved. Packing, transport and
+  wastage stay one card each. The source id is `<park>:direction:<session_no>`; the old
+  `<park>:direction` is refused as a cursor.
+- **Feed videos are not Verification cards.** `verification/adapters/boardsource` leaves
+  `source_module = 'feed'` out of rows, counts and drills. Each feed video used to appear twice:
+  inside the feed card at pen grain AND as its own Verification card at bag grain (141 of 142
+  Verification cards at Coimbatore on 25/09), so the packing card said "27 pens in review" beside
+  54 packing videos in the same column. A verifier still reviews them on /verify; the board shows
+  their state on the feed cards only.
+- **Every feed card says where each pen is.** `WorkBoardCounts` gained two optional fields,
+  `in_review` and `not_started`, which split `pending`; the rest of pending less
+  `needs_attention` is "started". The card's count line ("36/59 done · 17 in review · 6 not
+  started"), the drawer's Pending tile and the phone card all render that split, and the drawer
+  lists the pens from the same pen roll-up, so card and drawer cannot disagree (the old card said
+  "59 started" over a drawer showing 11 pens not filmed). The subtitle is just the pen count, so a
+  narrow card never cuts the split off mid-word. A source that does not send the split renders
+  exactly as before.
+- **Feed cards are a crew pool**, not "no one assigned": they carry `owner_state = pool`.
+
+Pinned by `TestFeedCardAndItsDrawerTellTheSameStory` (every card's pen buckets equal its drawer's,
+and the evening drawer never shows the morning's rework), the session split in
+`TestFeedActivityCardsOnADatabaseRoundTrip`, and the feed item that must never reach
+`TestVerificationBoardRowsOnADatabaseRoundTrip`.
+
+## Every module is on the board, or says why not (maintainer instruction 2026-09-25)
+
+The maintainer found Procurement and Toxin testing missing from the board: "it should not be like
+that; in future also, if I have any task, any new module, it should automatically link to the work
+board; it should not be one more task." Both had a lane on the module list from day one and NO
+source feeding it, so the board hid them without a word. Nothing failed. The same hole covered
+every workflow of the shared tasks engine -- births, deaths, pen moves, pen returns, sales, the
+animal and feed purchase intakes and general SOP runs never reached the board either.
+
+Three pieces, each load-bearing:
+
+1. **One source for the whole tasks engine** (`tasks/adapters/boardsource`). Every
+   `workflow_instances` row rows on the board, titled with the phone card's own words
+   (`postgres.BoardCardColumns` / `BoardCardJoins` -- the one card read, exported, never copied),
+   drilling into its steps. WHICH lane is one table, `engineModuleLanes`: herd operations under
+   Counts, the purchase intakes under Procurement, the sale under a new **Sales** lane (appended
+   last: the order is the cursor contract), general SOP runs under Tasks. Because every new
+   operational feature runs on the engine (docs/decisions/sop-driven-herd-operations.md), a new
+   module is on the board the day it ships with no board code. An engine module the table does
+   not name still rows -- under Tasks, the catch-all -- rather than vanishing, and
+   `TestEveryEngineModuleHasABoardLane` (which reads the live `workflow_instances_module_check`
+   out of the migrations) fails the build until someone names its lane.
+   A workflow belongs to day D when it was raised on D, when it was raised earlier and is still
+   open (owed work carries forward, as a pen visit does), or when it was completed on D. Every
+   engine step is owned by a designation, not a person, so every workflow is a pool row.
+2. **A toxin source** (`toxin/adapters/boardsource`). Every live or signed-off aflatoxin round,
+   at the park its load's code names, from the day it was opened until the day it is signed off;
+   the drill is the procedure the round was opened on (its own `sop_version`). An accepted
+   Positive reads severity watch (it flags the load, it does not block feeding).
+3. **Two build checks that make the next gap impossible to ship quietly.**
+   `workboard/app.moduleLanes` / `notBoardWork`: every module in the access catalog
+   (`permissions.ModuleCapabilities`) either names the lane its work rows under or says, in
+   words, why it owns no board work; `TestEveryModuleDeclaresItsWorkBoardLane` fails for a
+   module with neither. `bootstrap.TestEveryWorkBoardLaneHasASource` fails for any lane -- on the
+   board's list or declared by a module -- with no registered source; it is the check that would
+   have caught Procurement and Toxin. Both were mutation-tested (drop the toxin source, drop the
+   toxin declaration: each goes red).
+
+Recorded as NOT board work, each with its reason in `notBoardWork`: leave approvals, leadership
+tasks (the board's flag raises them), the market survey, registers, lenses and settings screens.
+Moving one onto the board is moving its entry to `moduleLanes` with a source in the same change.
+
+Visibility: the Sales lane opens on `sales.read`; the Procurement lane now also opens for the
+desks that WORK a load (`procurement.animal_purchase.write` / `.decide`,
+`feed.purchase.write`), not only `procurement.review`. Migration `000434` adds the two
+tenant+park indexes the new reads need.
+
+## Feed & water removal sits in Weighing; milk preparation is its own card (maintainer, 2026-09-25)
+
+"Feed and water removal should come in weighing task only" and "milk preparation and feeding are
+completely different tasks". Both answer the same gap: once weighing and milk proofs stopped being
+Verification cards, two pieces of work had nowhere on the board to show.
+
+- **Weighing's removal** (the evening before the weigh) is one more entry in each pen's list on
+  the Weighing card: "Feed & water removal", record videos -> verify, owned by the removal
+  operator. A removal the verifier sent back turns an OPEN pen's card rejected; once the pen is
+  weighed and submitted the re-shoot never re-blocks the weigh, so the card stays in review and
+  only the entry says sent back. PC Care's own removal before deworming is a different task and is
+  unchanged.
+- **Milk preparation** is one card per park per preparation day ("Milk preparation · Coimbatore",
+  "For feeding on DD/MM/YYYY"), a crew pool until someone submits. Before a submit it is owed when
+  the park has a kid the Milk Preparation page prepares for -- the page's own
+  `MilkPreparationKidPredicate`, so page and card cannot disagree -- and a submitted preparation
+  keeps its card whatever the herd says now. The feeding card no longer carries a "Prepare" step:
+  its steps are feed -> submit -> verify.
+
+Pinned by `TestFeedAndWaterRemovalIsPartOfTheWeighingCard` and
+`TestMilkPreparationCard_OneToMany_ParkScope_StatusMatrix_Pagination` (each mutation-tested).
+
+## A day read never walks history (review of PR #429, 2026-09-25)
+
+Completed workflows and accepted toxin rounds grow forever, so a board source must bound every
+part of its day read by the DAY, never by tenant + park alone:
+
+- The engine-workflow source unions three disjoint arms: raised on D, open from before D,
+  completed on D. The last compares `updated_at` to D's IST bounds as a range, served by
+  `workflow_instances_board_completed_idx`. Its page is cut (state filter, keyset, limit) BEFORE the
+  shared card joins, which then run for the page's ids only.
+- The toxin source unions live rounds with rounds accepted on or after D (`reviewed_at` range,
+  `toxin_test_tasks_board_accepted_idx`).
+- Never write `(ts AT TIME ZONE 'Asia/Kolkata')::date = D` in a board read: no index serves it.
+
+Pinned by `TestEngineBoardDayReadNeverWalksCompletedHistory` and
+`TestToxinBoardDayReadNeverWalksAcceptedHistory`, which run EXPLAIN ANALYZE over two years of
+seeded history, cap the rows each read touches, and prove the pre-review predicate walks it all.

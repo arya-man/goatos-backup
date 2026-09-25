@@ -7,6 +7,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
@@ -26,15 +27,29 @@ func (s *Service) ShiftingDestinations(ctx context.Context, tenantID string) (do
 	return s.repo.ShiftingDestinationCatalog(ctx, tenantID)
 }
 
-// ActiveBreeds returns the breeds present on the tenant's live herd for the operator birth form's
-// breed picker. It is the same vocabulary the Counts Breakdown breed facet shows, but reachable on
-// the operator (CountsWrite) surface -- the read-only Counts Breakdown screen is CountsRead, which
-// a field operator does not hold, so the birth form must not source its breed options from there.
-func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.CountsBreakdownSeriesPoint, error) {
+// ActiveBreeds returns the breeds an operator may give a newborn: the Configuration breed register
+// plus any breed the live herd carries. It is reachable on the operator (CountsWrite) surface -- the
+// read-only Counts Breakdown screen is CountsRead, which a field operator does not hold.
+func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.BirthBreedOption, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, ErrMissingRequiredField
 	}
 	return s.repo.ActiveBreeds(ctx, tenantID)
+}
+
+// AnimalVocabulary returns the tenant's active species and genders (Configuration > Items &
+// settings) for the operator birth form's species and sex pickers (OPEN UP TO NEW SPECIES,
+// maintainer decision 2026-09-25). The birth write validates against the same lists in identity, so
+// the phone offers exactly what the write accepts. A repository that cannot answer reads as the
+// built-ins.
+func (s *Service) AnimalVocabulary(ctx context.Context, tenantID string) (animalvocab.Vocabulary, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return animalvocab.Vocabulary{}, ErrMissingRequiredField
+	}
+	if src, ok := s.repo.(ports.AnimalVocabularySource); ok {
+		return src.AnimalVocabulary(ctx, tenantID)
+	}
+	return animalvocab.Builtins(), nil
 }
 
 // ShiftingGoatFacts reads the named animals' narrow canonical facts (stage, sex, placement) for

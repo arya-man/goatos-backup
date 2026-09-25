@@ -1925,6 +1925,9 @@ class SyncEngine(
      *    retried ONCE under the FRESH row version and its own (task, row_version) key from
      *    PenVisitPayloads.kt — a genuinely new act, never the stored key with a different body.
      *    A second refusal propagates and is terminal.
+     *  - `409 visit_in_review` — a second visitor's queued clip reached the server after the first
+     *    visitor's clip went to the verifier. The pen is visited; the task is re-fetched and
+     *    returned as SUCCESS like `already_submitted`, so the row settles instead of dead-lettering.
      *  - `422 invalid_proof` / `proof_required` — terminal by [recordFailure]'s
      *    `isTerminalAppApiError` check, carrying the server's own sentence; the card reads
      *    "Record again" and the terminal hook re-reads the task.
@@ -1942,6 +1945,12 @@ class SyncEngine(
             if (error is CancellationException) throw error
             when {
                 error.appApiStatusCode() == 409 && error.serverErrorText()?.code == PEN_VISIT_ALREADY_SUBMITTED ->
+                    api.getPenVisit(payload.taskId)
+                // Another visitor already filmed this pen and their clip is with the verifier: the
+                // visit this row exists for is recorded. Settled, never a dead row in the queue —
+                // the re-fetched task (now "in review") is this row's result, so the card shows
+                // the verifier's gate instead of "Record again" beside a refusal.
+                error.appApiStatusCode() == 409 && error.serverErrorText()?.code == PEN_VISIT_IN_REVIEW ->
                     api.getPenVisit(payload.taskId)
                 error.appApiStatusCode() == 409 && error.serverErrorText()?.code == PEN_VISIT_STALE_TASK -> {
                     val fresh = api.getPenVisit(payload.taskId)
@@ -2545,6 +2554,7 @@ class SyncEngine(
         /** Pen-visit wire codes this engine reads (backend/internal/penvisits/app/errors.go). */
         private const val PEN_VISIT_ALREADY_SUBMITTED = "already_submitted"
         private const val PEN_VISIT_STALE_TASK = "stale_task"
+        private const val PEN_VISIT_IN_REVIEW = "visit_in_review"
         private const val PEN_VISIT_STATE_COMPLETED = "completed"
         /** Pen-routine wire codes this engine reads (backend/internal/penroutines, the Step contract). */
         // The backend's codes (penroutines/app/errors.go): a stale row version is stale_task; a

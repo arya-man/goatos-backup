@@ -51,6 +51,10 @@ type dispatchGate struct {
 	// pending lists the workflows still ahead of their clock, carrying the expected issue instant so
 	// the caller can tell the operator when the sheet arrives. These contribute NO rows.
 	pending []domain.WorkflowLifecycle
+	// unscheduled lists the workflows whose schedule was not yet in force at their dispatch instant
+	// (a park set up after the day's sheet was due): that sheet was never owed, so it is neither
+	// frozen nor pending, and the day reads not_issued. These contribute NO rows.
+	unscheduled []domain.WorkflowLifecycle
 }
 
 // dueWorkflow is one workflow that is past its dispatch instant and must be frozen.
@@ -74,6 +78,7 @@ func (s *Service) dispatchGateFor(ctx context.Context, tenantID, parkID, feedDay
 		return dispatchGate{}, err
 	}
 	now := s.now().In(biztime.DefaultLocation())
+	var issueClocks []domain.WorkflowClock
 
 	gate := dispatchGate{
 		due:     make([]dueWorkflow, 0, len(clocks)),
@@ -96,9 +101,39 @@ func (s *Service) dispatchGateFor(ctx context.Context, tenantID, parkID, feedDay
 			})
 			continue
 		}
+		// The issue reads the schedule as of its own dispatch instant (D-1), so a clock that only
+		// started today is not one the sheet was ever due under. Freezing it would fail
+		// ErrWorkflowNotConfigured and turn a new park's first day into an outage.
+		inForce, err := s.scheduledAt(ctx, tenantID, parkID, issueAt, clock.Workflow, &issueClocks)
+		if err != nil {
+			return dispatchGate{}, err
+		}
+		if !inForce {
+			gate.unscheduled = append(gate.unscheduled, domain.WorkflowLifecycle{
+				Workflow: clock.Workflow,
+				State:    domain.LifecycleStateNotIssued,
+			})
+			continue
+		}
 		gate.due = append(gate.due, dueWorkflow{workflow: clock.Workflow, issueAt: issueAt})
 	}
 	return gate, nil
+}
+
+// scheduledAt reports whether the workflow had a dispatch clock in force at issueAt. Every workflow
+// of a feed day dispatches on the same business day (D-1), so the clocks are read once and cached.
+func (s *Service) scheduledAt(ctx context.Context, tenantID, parkID string, issueAt time.Time, workflow string, cache *[]domain.WorkflowClock) (bool, error) {
+	if *cache == nil {
+		clocks, err := s.schedule.ListScheduleClocks(ctx, tenantID, parkID, issueAt)
+		if err != nil {
+			return false, err
+		}
+		if clocks == nil {
+			clocks = []domain.WorkflowClock{}
+		}
+		*cache = clocks
+	}
+	return hasWorkflow(*cache, workflow), nil
 }
 
 // freezeDueWorkflows issues (persists) every due workflow's sheet, so the caller can re-read it as
@@ -179,15 +214,30 @@ func (s *Service) gateOrFreeze(ctx context.Context, tenantID, parkID, feedDay, w
 		return gateOutcome{}, err
 	}
 	if len(gate.due) == 0 {
+		if len(gate.pending) == 0 && len(gate.unscheduled) > 0 {
+			return gateOutcome{emptyLifecycle: unscheduledLifecycle(feedDay, gate.unscheduled)}, nil
+		}
 		return gateOutcome{
-			pending:        gate.pending,
+			pending:        append(gate.pending, gate.unscheduled...),
 			emptyLifecycle: pendingLifecycle(feedDay, gate.pending),
 		}, nil
 	}
 	if err := s.freezeDueWorkflows(ctx, tenantID, parkID, gate); err != nil {
 		return gateOutcome{}, err
 	}
-	return gateOutcome{frozeAny: true, pending: gate.pending}, nil
+	return gateOutcome{frozeAny: true, pending: append(gate.pending, gate.unscheduled...)}, nil
+}
+
+// unscheduledLifecycle is the no-rows lifecycle for a feed day none of whose workflows had a
+// schedule when its sheet was due -- a park set up on Feed Config after that. Nothing was owed, so
+// the sentence says when the first sheet comes instead of reporting a failure.
+func unscheduledLifecycle(feedDay string, workflows []domain.WorkflowLifecycle) domain.Lifecycle {
+	return domain.Lifecycle{
+		State: domain.LifecycleStateNotIssued,
+		Message: fmt.Sprintf("no feed sheet for %s: this park's feed schedule was set up after that sheet was due; the first sheet is for the next day",
+			biztime.FarmDateFromBusinessDate(feedDay)),
+		Workflows: workflows,
+	}
 }
 
 // withPendingWorkflows appends the still-gated workflows to a served lifecycle, so a mixed day

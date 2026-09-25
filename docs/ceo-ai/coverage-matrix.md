@@ -59,6 +59,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | health_register_write_log | EXCLUDED:infra | Idempotency + audit ledger for authored register edits, written in the same transaction as its side effects. Authoring bookkeeping, not a leadership read source -- the same class as the protocol authoring ledger. |
 | health_diagnosis_types | EXCLUDED:config | Authored health diagnosis type vocabulary behind Health Config. It names rulebooks and labels, not herd outcomes; `/health/analytics` remains the covered read for actual diagnoses and treatment results. |
 | health_diagnosis_stage_routes | EXCLUDED:config | Authored mapping from animal age/stage to diagnosis type. This is rulebook routing, not an observed herd fact; CEO answers about health outcomes continue through `/health/analytics`. |
+| pen_types | EXCLUDED:config | The farm's authored Pen types vocabulary (migration `000437`, Configuration -> Items and settings -> Pen types): the kinds of pen a partition is given, such as elevated or non-elevated. It names categories and labels, not herd outcomes. The facts it groups -- daily gain by pen type and health problems by pen type -- are already answered by the covered `/weighing/weight-demographics` and `/health/analytics` reads, which carry each pen's type code; `shed_partitions.shed_type` stays the per-pen fact. |
 | health_session_step_proofs | EXCLUDED:detail | Runtime evidence rows for one treatment step proof clip inside an already-covered health session. The leadership grain stays the health session/case outcome, covered by `/health/analytics`; this table is verifier detail. |
 | health_session_step_proof_attempts | EXCLUDED:infra | Idempotency ledger for treatment step proof retries. It prevents stale transport retries from restoring old clips and is not a leadership read source. |
 | GET /health-config/diagnosis-types, GET /health-config/diagnosis-types/routing, POST /health-config/diagnosis-types, PATCH /health-config/diagnosis-types/{type_key}, DELETE /health-config/diagnosis-types/{type_key}, POST /health-config/diagnosis-types/routing, DELETE /health-config/diagnosis-types/routing, GET /health-config/register-sheets/template, POST /health-config/register-sheets/export, POST /health-config/register-sheets/import, POST /app/health/observation-form/{goat_id}, POST /app/health/treatment-step-proofs (table:health_diagnosis_types, table:health_diagnosis_stage_routes, table:health_session_step_proofs, table:health_session_step_proof_attempts, func:ObservationForm, func:NewDiagnosisTypeHandler, func:RegisterDiagnosisTypes, func:Routing, func:SaveType, func:SaveRoute, func:DeleteRoute, func:RecordStepProof, func:RegisterRegisterSheets, func:NewRegisterSheetHandler, func:Template, func:Export, func:Import, func:DiagnosisRouting, func:SaveDiagnosisType, func:SaveStageRoute, func:DeleteStageRoute, func:StepProofs, func:NewDiagnosisTypeService, func:WithTypes, func:PublishedRegisterDocument, func:Pages, func:EncodeSheet, func:DecodeSheet, func:SheetExampleRows, func:ResolveAnimal, func:BuiltinTypeKeys, func:IsBuiltinTypeKey, func:Validate, func:IsClinicalPlacementStage, func:NewStageRouting, func:Empty, func:Resolve, func:BuiltinStageRoutes, func:RouteRefusal, func:MissingStepProofs, func:DoseLabel, func:StepLabel, func:Error, func:Is, func:StepLabels, func:SessionLabel, func:DueLabel, func:CEOFloorApplies) | EXCLUDED:config | Health diagnosis type/routing authoring and treatment-step proof plumbing (maintainer decision 2026-09-23): the config routes let a health director name which diagnosis type each stage reaches, import/export authored register sheets, and require one proof clip per treatment step. These tables and helpers define or enforce the RULEBOOK and write/retry evidence rows; they are not a leadership reporting source. Herd health outcomes remain covered by `/health/analytics`, which reads the resulting diagnoses, sessions, medicines, deaths and proposals. No new read API, Cube metric, `ceo_ai.*` view, MCP Toolbox tool, SQL fallback or standalone leadership KPI. |
@@ -257,6 +258,7 @@ proof.
 | pen_routine_tasks | excluded | Explicit parser-visible exclusion row for the routine task table (one row per pen per occurrence); same reason. |
 | pen_routine_task_presence | excluded | Explicit parser-visible exclusion row for the pen check-in / check-out rows; same reason. |
 | GET /work-board/rows (module=tasks, source pen_routine_task) | excluded | A routine check rows under the Work Board's Tasks lane through ONE `penroutines/adapters/boardsource` source, beside the pen visits. No new leadership fact: the board row is the same `pen_routine_tasks` row already excluded above. |
+| GET /work-board/rows (engine workflows in every lane; module=toxin; module=sales) | excluded | Every module is on the Work Board (maintainer instruction 2026-09-25, `docs/decisions/work-board.md`). ONE `tasks/adapters/boardsource` source per lane rows every shared-engine workflow (births, deaths, pen moves, pen returns, sales, animal and feed purchase intakes, general SOP runs) and ONE `toxin/adapters/boardsource` source rows every aflatoxin round. No new leadership fact: the rows are the same `workflow_instances` / `workflow_actions` rows the covered `/app/workflows` read serves and the same `toxin_test_tasks` rounds the toxin module serves; an assistant asked about a purchase, a sale or a toxin test should route to that module's covered read. Helpers excluded so the guard sees the package change as intentional: `func:BoardLaneFor`, `func:EngineModules`, `func:Sources`, `func:WithClock`, `func:Module`, `func:SourceType`, `func:ListRows`, `func:ListStatement`, `func:CountByState`, `func:CountStatement`, `func:Title`, `func:Subtitle`, `func:ListSubtasks`, `func:ScanBoardCard`, `func:New`, `func:StepSubtasks`, `func:ModuleLanes`, `func:PageSubtasks`. |
 | goat_sale_allocations | api | Sale-allocation operational drilldown for the already-covered Sales page: records which real goats make up one recorded sale and snapshots their sale-time location/tag so leadership can reconcile a sale's stated animal count against the animals that physically left. Covered through the Mesha read API attached to `/sales`: `func:NewSaleAllocationHandler`, `func:RegisterSaleAllocation`, `func:ListSaleCandidates`, `func:PreviewSaleAllocation`, `func:ConfirmSaleAllocation`, `func:GetSaleAllocation`, `func:ListSaleLocations`, `func:ReadSaleCandidateRows`, `func:ListSaleAllocations`, `func:RecordSaleAllocations`, `func:New`, `func:ReadSaleDeal`, `func:NewSaleAllocationService`, `func:GetSaleLocations`, `func:IsClinicalSaleState`, `func:IsExitedLifecycle`, `func:IsMilkDrinkingStage`, `func:Sellable`, `func:ResolveSaleBlocker`, and `func:Remaining`. No new Cube metric or `ceo_ai.*` view is introduced in this slice: aggregate sales value/count questions stay on the sales/procurement coverage, while this table is per-deal evidence and picker/confirm plumbing. |
 | GET /admin/roster/positions | api + view:workforce_coverage_status | Who owns which shed |
 | GET /admin/roster/positions/{position_id} | EXCLUDED | Single-seat detail. Repo read `GetPositionByID` backs this single-seat drawer only; leadership capacity/coverage answers aggregate through `GET /admin/roster/positions` + `view:workforce_coverage_status`, never a named individual seat. |
@@ -700,6 +702,22 @@ coverage. Explicit documented exclusion — no coverage-matrix mapping required.
 
 | feed_direction_frozen_row_identity | func:RowKey | Explicit exclusion: internal feed-direction row reconstruction helper only; existing feed completion and verification reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: Approvals and Tasks review fixes (2026-09-25)
+
+The 25/09 Approvals + Tasks review (`fix/approvals-tasks-bugs`) adds behaviour fixes and plumbing
+behind reads that are ALREADY covered: the approvals queue (`GET /app/counts/approvals`, covered
+above through `counts_movement_daily`), Leadership Tasks and Pen Visits (both deliberately excluded
+above), and the Work Board (an operational lens over covered module reads). None of the names below
+introduces a new leadership KPI, table, Cube metric, `ceo_ai.*` view, MCP Toolbox tool or SQL
+fallback; each is a filter, a badge count equal to an existing list, a single-row read of an
+existing list's own item, an event consumer, or a pure display/validation helper. Explicit
+documented exclusion -- no coverage-matrix mapping required beyond these rows.
+
+| approvals_queue_filters_badge_single_read | GET /admin-web/counts/approvals/{request_id}, func:GetApproval, func:GetForCaller, func:ListFiltered, func:Key, func:CountPending, func:CountPendingApprovalRequests, func:NewApprovalsBadges, func:ModuleBadgeCounts, func:NavItemBadgeCounts | Explicit exclusion: the approvals queue's server-side type/farm/calendar filters, its phone badge (equal to the queue's own pending total) and the one-request read a link opens (the list's own item, under the list's authority). Every fact is the covered approvals queue / counts_movement_daily. |
+| approvals_summary_display | func:AnimalTag, func:ShiftTypeLabel, func:ShiftTypeMoveLabel | Explicit exclusion: display copy for the approver's summary line (the dead animal's tag, the human pen-move type); derives no fact. |
+| rejection_cleanup_consumers | func:NewBirthRejectedCaptureWithdrawHandler, func:NewCountsBirthRejectedHandler, func:HandleEvent, func:Register, func:WithdrawBirthCaptureVerification, func:WithdrawBirthStepVerification, func:RetireGoatRecordedInErrorInTx, func:CancelDeathWorkflowForGoat, func:CancelBirthWorkflowsForRejectedBirth, func:CancelRejectedBirthWorkflows, func:OpenReportedDeathWorkflow | Explicit exclusion: write-path consumers that clean up after a rejected birth/death report (cancel the operator workflows, withdraw pending verifier items, retire a rejected birth's kid through identity's normal exit) and reopen a death workflow for a new report. Herd counts they change are already covered by the herd/counts reads. |
+| tasks_and_visits_rules | func:ShowsCountdown, func:IsKnownFilterKey, func:OpensAfter, func:CanSubmitOn, func:CheckSubmit, func:Instruction, func:Error, func:Unwrap, func:Message | Explicit exclusion: pure Leadership Tasks / Pen Visits rules and typed errors (countdown visibility, filter-key validation, a pen visit opening on its planned day); both modules are already excluded above. |
+
 ## Explicit exclusion: feed follow-up day-window helpers (2026-09-23)
 
 `func:ResolveFeedFollowUpDay` and `func:AddBusinessDays`
@@ -718,6 +736,21 @@ remains the existing feed direction reporting coverage (Feed > Direction row,
 coverage-matrix mapping required.
 
 | feed_follow_up_day_window | func:ResolveFeedFollowUpDay, func:AddBusinessDays | Explicit exclusion: internal feed follow-up day-window helpers only; the existing feed direction reads remain the leadership assistant coverage source. |
+
+## Explicit exclusion: parks from Configuration everywhere (2026-09-25)
+
+Sales, feed purchases, animal purchase loads, buyer analytics and births used to validate a farm
+against a constant CBE/CPT pair; they now read the tenant's ACTIVE parks from the one park catalog
+(`platform/parkcatalog`, authored on Configuration > Items & settings > Parks). The functions below
+are those validators, the catalog read itself, and the Feed Config session-plan write that gives a
+new park its feeding sessions. None is a new leadership fact: sales, feed purchase, load and herd
+aggregates keep their existing coverage, and the assistant itself now matches park names against
+the same live list (`ports.ParkDirectory`) instead of a constant.
+
+| func:ListActive, func:Codes, func:Has, func:Resolve (platform/parkcatalog) | EXCLUDED:config | The park vocabulary read (active parks with a code) that every farm-keyed module validates against. Configuration, not a KPI; the parks themselves are already visible through every covered park-scoped read. |
+| func:ListFarms, func:IsFarm, func:NormalizeFarmFilter (sales), func:ListFeedFarms, func:IsFeedFarm, func:NormalizeFeedFarmFilter, func:NormalizeBuyerFarmFilter, func:ListParkCodes (procurement, animal purchase) | EXCLUDED:config | Farm-filter and farm-choice validators now reading the park catalog instead of a CBE/CPT constant. Sales, feed purchase, buyer and load leadership coverage is unchanged; these only widen which park a record may name. |
+| func:Validate, func:WithFarms, func:Farms (sales / feed purchase / animal purchase load writes) | EXCLUDED:write | Write-path validation of a deal, feed purchase or purchase load's farm against the live parks, and the load form's farm choices filled from them. Mutation helpers, not a read. |
+| func:SetSessionPlan, func:ValidateSessionPlan (feedconfig) | EXCLUDED:write | POST /feed-config/session-templates: sets a park's feeding sessions and their share of the day (must sum to 100%). An authoring write; feed direction/packing reporting coverage is unchanged. |
 
 ## Explicit exclusion: vaccination drive date protection and merged-batch progress (2026-09-23)
 
@@ -902,6 +935,18 @@ Cube metric, `ceo_ai.*` view, or MCP Toolbox tool; completed scans/proofs remain
 untouched. Explicit documented exclusion — no coverage-matrix mapping required.
 
 | vaccination_operator_assignment_config | func:ReassignPlannedDrives | Explicit exclusion: admin-only operator assignment config write/reassignment; existing vaccination execution/schedule reads remain the covered user-visible source. |
+
+2026-09-25 follow-up: `table:vaccination_operator_shift_config` gained its first
+production write path, `GET/PUT/DELETE /vaccination/operator-shifts`, so a park
+added on Configuration > Items & settings can have its vaccination operators'
+shifts set on the People / Vaccination operators screen (before this only the
+roster seed wrote the table, and the assignment config refuses an operator with
+no shift). Admin-only authoring config with the same shape as the assignment
+config above: the write enqueues `vaccination.roster.changed` so the existing
+replan consumer re-plans future drives. It adds NO leadership KPI, Cube metric,
+`ceo_ai.*` view, or MCP Toolbox tool. Explicit documented exclusion.
+
+| GET/PUT/DELETE /vaccination/operator-shifts (func:ListOperatorShifts, func:PutOperatorShift, func:DeleteOperatorShift, func:SetOperatorShift, func:ClearOperatorShift, func:WithOperatorShiftWriter, func:RegisterOperatorShiftRoutes, func:ValidateOperatorShiftInput, func:ParseShiftClock, func:FormatShiftClock) | EXCLUDED:config | Admin config read/write of one park's vaccination operator shifts (People / Vaccination operators screen). Leadership sees the RESULT through the vaccination schedule/operator status surfaces, never this authoring endpoint. |
 
 ## Goat passport operational location (2026-08-06)
 

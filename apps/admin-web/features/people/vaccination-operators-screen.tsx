@@ -3,6 +3,14 @@
 import { getAdminApi } from '@/lib/api/client';
 import { type ParkScopeOption } from '@/lib/api/park-scope';
 import { loadVaccinationOperatorsScreen } from './vaccination-operators-scope';
+import {
+  SHIFT_LABEL_OPTIONS,
+  WEEK_OFF_OPTIONS,
+  draftFromShift,
+  shiftRequestFromDraft,
+  shiftSummary,
+  type ShiftDraft,
+} from './vaccination-operator-shift-form';
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
@@ -13,6 +21,8 @@ type StaffLeave = AdminApiComponents['schemas']['StaffLeaveListResponse']['items
 interface VaccinationOperatorsScreenProps {
   initialParkId?: string;
   pageContract?: AdminUiPageContract;
+  /** The tenant's parks, from the backend bootstrap, so the screen can name the park it shows. */
+  parks?: ParkScopeOption[];
 }
 
 type VaccinationOperatorAssignmentConfig = import('@goatos/api-client').AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
@@ -43,12 +53,6 @@ function iso(d: Date): string {
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
-}
-
-function minutesToHHMM(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${pad(hours)}:${pad(mins)}`;
 }
 
 function nextDay(s: string): string {
@@ -117,13 +121,13 @@ function ownDates(opId: string, allLeaves: Record<string, { from: string; to: st
   return s;
 }
 
-export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperatorsScreenProps) {
+export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: VaccinationOperatorsScreenProps) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [commonCap, setCommonCap] = useState(200);
   const [operatorCount, setOperatorCount] = useState(1);
   const [defaultOperator, setDefaultOperator] = useState<string>('');
   const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
-  const [assignmentConfig, setAssignmentConfig] = useState<VaccinationOperatorAssignmentConfig | null>(null);
+  const [, setAssignmentConfig] = useState<VaccinationOperatorAssignmentConfig | null>(null);
   // Park scope as RESOLVED BY THE BACKEND (BUG-019) — never inferred from row data.
   const [parkId, setParkId] = useState<string | null>(null);
   // Backend-owned park vocabulary, present ONLY when the caller's scope covers several parks.
@@ -149,6 +153,16 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
   const [savingCapCfg, setSavingCapCfg] = useState(false);
 
   const [leaves, setLeaves] = useState<Record<string, { from: string; to: string }[]>>({});
+  // Every shift authored for this park, read on its own so a park with no drive-operator
+  // assignment yet (every newly added park) can still set up its operators' shifts.
+  const [shifts, setShifts] = useState<VaccinationOperatorShift[]>([]);
+  // Set / Edit shift form (one operator at a time, keyed by position id).
+  const [shiftTarget, setShiftTarget] = useState<string | null>(null);
+  const [shiftDraft, setShiftDraft] = useState<ShiftDraft>({ shiftLabel: '', shiftStart: '', shiftEnd: '', weekOffWeekday: '' });
+  const [shiftError, setShiftError] = useState('');
+  const [shiftSaving, setShiftSaving] = useState(false);
+  // Clearing asks once, in place: the Clear button turns into Keep / Clear shift.
+  const [clearArmed, setClearArmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -255,6 +269,7 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
           }
         }
         setLeaves(leavesMap);
+        setShifts((result.shifts as VaccinationOperatorShift[]) ?? []);
         setError(null);
       } catch (err) {
         if (alive) setError(err instanceof Error ? err.message : 'Failed to load');
@@ -295,12 +310,84 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
     setModalTarget(null);
   };
 
+  // Shift form
+  const openShiftForm = (op: Position) => {
+    if (!op.position_id) return;
+    const existing = getShiftForOperator(op.workforce_member_id ?? '');
+    setShiftTarget(op.position_id);
+    setShiftDraft(draftFromShift(existing, op.week_off_weekday ?? op.week_off ?? null));
+    setShiftError('');
+    setClearArmed(false);
+  };
+
+  const closeShiftForm = () => {
+    if (shiftSaving) return;
+    setShiftTarget(null);
+    setShiftError('');
+    setClearArmed(false);
+  };
+
+  const reloadShifts = async (forParkId: string) => {
+    const api = getAdminApi();
+    const refreshed = await api.listVaccinationOperatorShifts(forParkId);
+    setShifts((refreshed.data?.shifts as VaccinationOperatorShift[]) ?? []);
+  };
+
+  const saveShift = async () => {
+    const op = positions.find((p) => p.position_id === shiftTarget);
+    if (!parkId || !op?.workforce_member_id) {
+      setShiftError('This operator is not linked to a person yet, so a shift cannot be set.');
+      return;
+    }
+    setShiftSaving(true);
+    setShiftError('');
+    try {
+      const api = getAdminApi();
+      await api.putVaccinationOperatorShift(shiftRequestFromDraft(parkId, op.workforce_member_id, shiftDraft));
+      // serial-await: allow the reload must read the shift this write just saved
+      await reloadShifts(parkId);
+      setShiftTarget(null);
+      showToast(`<b style="color:var(--brand)">Shift saved</b> · ${op.person_display_name ?? 'Operator'} — future vaccination drives are being re-planned`);
+    } catch (err) {
+      setShiftError(err instanceof Error ? err.message : 'The shift could not be saved. Try again.');
+    } finally {
+      setShiftSaving(false);
+    }
+  };
+
+  const clearShift = async () => {
+    const op = positions.find((p) => p.position_id === shiftTarget);
+    if (!parkId || !op?.workforce_member_id) return;
+    setShiftSaving(true);
+    setShiftError('');
+    try {
+      const api = getAdminApi();
+      await api.deleteVaccinationOperatorShift(parkId, op.workforce_member_id);
+      // serial-await: allow the reload must read the shift this write just saved
+      await reloadShifts(parkId);
+      setShiftTarget(null);
+      setClearArmed(false);
+      showToast(`<b style="color:var(--brand)">Shift cleared</b> · ${op.person_display_name ?? 'Operator'}`);
+    } catch (err) {
+      setClearArmed(false);
+      setShiftError(err instanceof Error ? err.message : 'The shift could not be cleared. Try again.');
+    } finally {
+      setShiftSaving(false);
+    }
+  };
+
   // Escape closes the open overlay (modal takes priority over drawer). Client-local only.
   useEffect(() => {
-    if (!modalOpen && !drawerOpen) return;
+    if (!modalOpen && !drawerOpen && !shiftTarget) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (modalOpen) {
+      if (shiftTarget) {
+        if (!shiftSaving) {
+          setShiftTarget(null);
+          setShiftError('');
+          setClearArmed(false);
+        }
+      } else if (modalOpen) {
         closeModal();
       } else if (drawerOpen) {
         closeDrawer();
@@ -308,7 +395,7 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [modalOpen, drawerOpen]);
+  }, [modalOpen, drawerOpen, shiftTarget, shiftSaving]);
 
   // Persist operator count and default operator to backend
   const persistOperatorConfig = async () => {
@@ -456,7 +543,7 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
 
   // Get shift for an operator by workforce_member_id
   const getShiftForOperator = (workforceMemberId: string): VaccinationOperatorShift | undefined => {
-    return assignmentConfig?.shifts.find((s) => s.operatorId === workforceMemberId);
+    return shifts.find((s) => s.operatorId === workforceMemberId);
   };
 
   // Drive-operator ordering + weekly assignment preview — backend-config-driven
@@ -752,13 +839,19 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
   const drawerUpcoming = drawerLeaves.filter((r) => r.to >= today).sort((a, b) => (a.from < b.from ? -1 : 1));
   const drawerPast = drawerLeaves.filter((r) => r.to < today).sort((a, b) => (a.from < b.from ? 1 : -1));
 
+  // The park this screen is scoped to, named from the backend park list -- never a literal. Every
+  // park added on Configuration > Items & settings is named here the same way.
+  const scopedPark = parkId ? parks.find((p) => p.parkId === parkId) : undefined;
+  const scopedParkName = scopedPark?.name ?? '';
+  const scopedParkLabel = scopedPark ? [scopedPark.code, scopedPark.name].filter((part, i, all) => part && all.indexOf(part) === i).join(' · ') : '';
+
   return (
     <section className="screen on" data-screen="vaccination-operators">
       <div className="phead">
         <div>
           <div className="crumb">Team / <b>Vaccination operators</b></div>
           <h1>Vaccination operators</h1>
-          <div className="sub">CPT · Channapatna. Roster, weekly availability, and drive-operator assignment on one screen. Operator caps drive vaccination scheduling; week-off and leave remove an operator from that day.</div>
+          <div className="sub">{scopedParkLabel ? `${scopedParkLabel}. ` : ''}Roster, weekly availability, and drive-operator assignment on one screen. Operator caps drive vaccination scheduling; week-off and leave remove an operator from that day.</div>
         </div>
       </div>
 
@@ -887,15 +980,24 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
                         </div>
                       </div>
                     </td>
-                    <td>Channapatna</td>
+                    <td>{scopedParkName || '—'}</td>
                     <td>
                       {(() => {
                         const shift = getShiftForOperator(op.workforce_member_id ?? '');
-                        if (!shift) return '—';
-                        const startTime = minutesToHHMM(shift.shiftStartMinute);
-                        const endTime = minutesToHHMM(shift.shiftEndMinute);
-                        const label = shift.shiftLabel.charAt(0).toUpperCase() + shift.shiftLabel.slice(1);
-                        return `${label} · ${startTime}–${endTime}`;
+                        return (
+                          <div className="leavecell">
+                            {shift ? <span>{shiftSummary(shift)}</span> : <span className="muted small">Not set</span>}
+                            <button
+                              className="laddbtn"
+                              type="button"
+                              onClick={() => openShiftForm(op)}
+                              disabled={!op.workforce_member_id}
+                              title={op.workforce_member_id ? undefined : 'This seat has no person yet'}
+                            >
+                              {shift ? 'Edit shift' : 'Set shift'}
+                            </button>
+                          </div>
+                        );
                       })()}
                     </td>
                     <td>
@@ -1196,6 +1298,127 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
           </aside>
         </>
       )}
+
+      {/* Modal - Set / Edit shift */}
+      {shiftTarget && (() => {
+        const shiftOp = operatorsList.find((p) => p.position_id === shiftTarget);
+        const existing = getShiftForOperator(shiftOp?.workforce_member_id ?? '');
+        return (
+          <>
+            <div className="scrim on" onClick={closeShiftForm}></div>
+            <div className="modal on" role="dialog" aria-modal="true" aria-labelledby="shift-form-title">
+              <div className="mh">
+                <div className="av">{(shiftOp?.person_display_name ?? 'OP')[0]}</div>
+                <div>
+                  <h3 id="shift-form-title">{existing ? 'Edit shift' : 'Set shift'}</h3>
+                  <span>{shiftOp?.person_display_name || 'Operator'} · {scopedParkName || 'Vaccination operator'}</span>
+                </div>
+                <div style={{ flex: 1 }}></div>
+                <button className="cal-nav" onClick={closeShiftForm} title="Close" type="button">
+                  ✕
+                </button>
+              </div>
+              <div className="mb">
+                <div className="ctl" style={{ flexWrap: 'wrap' }}>
+                  <div className="fld">
+                    <label htmlFor="shift-label">Shift</label>
+                    <select
+                      id="shift-label"
+                      value={shiftDraft.shiftLabel}
+                      onChange={(e) => setShiftDraft((d) => ({ ...d, shiftLabel: e.target.value }))}
+                      disabled={shiftSaving}
+                    >
+                      <option value="">— choose a shift —</option>
+                      {SHIFT_LABEL_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="fld">
+                    <label htmlFor="shift-start">Starts</label>
+                    <input
+                      id="shift-start"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="08:00"
+                      maxLength={5}
+                      style={{ width: 92 }}
+                      value={shiftDraft.shiftStart}
+                      onChange={(e) => setShiftDraft((d) => ({ ...d, shiftStart: e.target.value }))}
+                      disabled={shiftSaving}
+                    />
+                  </div>
+                  <div className="fld">
+                    <label htmlFor="shift-end">Ends</label>
+                    <input
+                      id="shift-end"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="17:00"
+                      maxLength={5}
+                      style={{ width: 92 }}
+                      value={shiftDraft.shiftEnd}
+                      onChange={(e) => setShiftDraft((d) => ({ ...d, shiftEnd: e.target.value }))}
+                      disabled={shiftSaving}
+                    />
+                  </div>
+                  <div className="fld">
+                    <label htmlFor="shift-week-off">Week off</label>
+                    <select
+                      id="shift-week-off"
+                      value={shiftDraft.weekOffWeekday}
+                      onChange={(e) => setShiftDraft((d) => ({ ...d, weekOffWeekday: e.target.value }))}
+                      disabled={shiftSaving}
+                    >
+                      {WEEK_OFF_OPTIONS.map((o) => (
+                        <option key={o.value || 'none'} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="note" style={{ marginTop: '10px' }}>
+                  Times are 24-hour, like 08:00 or 17:30. The drive planner uses this shift and week off to
+                  decide who runs each day, so saving re-plans future vaccination drives for this park.
+                </div>
+                {shiftError && (
+                  <div className="err on" role="alert" style={{ marginTop: '12px' }}>
+                    {shiftError}
+                  </div>
+                )}
+              </div>
+              <div className="mf">
+                {existing ? (
+                  clearArmed ? (
+                    <>
+                      <span className="muted small" style={{ marginRight: 'auto' }}>Clear this shift?</span>
+                      <button className="btn sm ghost" type="button" onClick={() => setClearArmed(false)} disabled={shiftSaving}>
+                        Keep
+                      </button>
+                      <button className="btn sm" type="button" onClick={() => void clearShift()} disabled={shiftSaving} style={{ color: 'var(--danger)' }}>
+                        {shiftSaving ? 'Clearing' : 'Clear shift'}
+                      </button>
+                    </>
+                  ) : (
+                    <button className="btn sm ghost" type="button" onClick={() => setClearArmed(true)} disabled={shiftSaving} style={{ marginRight: 'auto' }}>
+                      Clear shift
+                    </button>
+                  )
+                ) : null}
+                {!clearArmed && (
+                  <>
+                    <button className="btn sm ghost" type="button" onClick={closeShiftForm} disabled={shiftSaving}>
+                      Cancel
+                    </button>
+                    <button className="btn b sm" type="button" onClick={() => void saveShift()} disabled={shiftSaving}>
+                      {shiftSaving ? 'Saving' : 'Save shift'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* Modal - Add Leave */}
       {modalOpen && (

@@ -19,15 +19,11 @@ import (
 // single existence read, because a purchase of a feed GoatOS cannot ration is a purchase whose
 // stock nobody would ever see.
 
-// Farms the business buys feed for. These are the storage forms the ledger's farm_label carries
-// and the importer resolves to park locations.
-const (
-	FeedFarmCBE = "CBE"
-	FeedFarmCPT = "CPT"
-)
-
-// FeedFarms is the closed farm vocabulary the entry form renders.
-var FeedFarms = []string{FeedFarmCBE, FeedFarmCPT}
+// The farms the business buys feed for are the CODES of the tenant's active parks, authored on
+// Configuration > Items & settings > Parks and read through platform/parkcatalog. farm_label
+// stores that code and the write resolves it to the park's location, so stock bought for a park
+// added yesterday lands on that park's stock cards. There is deliberately no constant farm list
+// here: a CBE/CPT pair refused every park after the first two.
 
 // Payment states, exactly the sheet's vocabulary (176 "Paid" and 29 "Pending" rows across the
 // imported history — there is no third value, and inventing one would put a state on screen that
@@ -126,18 +122,26 @@ func ClampFeedPurchasePageSize(limit int) int {
 	return limit
 }
 
-// IsFeedFarm reports whether raw is one of the two farms, exactly as stored.
-func IsFeedFarm(raw string) bool { return raw == FeedFarmCBE || raw == FeedFarmCPT }
+// IsFeedFarm reports whether raw is exactly one of farms, the tenant's active park codes.
+func IsFeedFarm(raw string, farms []string) bool {
+	for _, f := range farms {
+		if f == raw {
+			return true
+		}
+	}
+	return false
+}
 
-// NormalizeFeedFarmFilter resolves the ledger page's farm query parameter. "" and "all" mean both
-// farms; anything else must be an exact farm. ok is false otherwise, so the caller REJECTS rather
-// than silently widening the filter and showing company numbers under a farm label.
-func NormalizeFeedFarmFilter(raw string) (farm string, ok bool) {
+// NormalizeFeedFarmFilter resolves the ledger page's farm query parameter against farms, the
+// tenant's active park codes. "" and "all" mean every farm; anything else must be an exact farm.
+// ok is false otherwise, so the caller REJECTS rather than silently widening the filter and
+// showing company numbers under a farm label.
+func NormalizeFeedFarmFilter(raw string, farms []string) (farm string, ok bool) {
 	trimmed := strings.TrimSpace(raw)
 	switch {
 	case trimmed == "" || strings.EqualFold(trimmed, "all"):
 		return "", true
-	case trimmed == FeedFarmCBE || trimmed == FeedFarmCPT:
+	case IsFeedFarm(trimmed, farms):
 		return trimmed, true
 	default:
 		return "", false
@@ -574,7 +578,7 @@ func (w FeedPurchaseWrite) PerKgCost() *float64 {
 
 // Validate applies the field rules. today is the caller's IST business date: a purchase cannot be
 // dated in the future, because stock the farm does not have yet must not deplete a feed sheet.
-func (w FeedPurchaseWrite) Validate(today time.Time) error {
+func (w FeedPurchaseWrite) Validate(today time.Time, farms []string) error {
 	purchased, err := time.Parse("2006-01-02", w.PurchaseDate)
 	if err != nil {
 		return ErrFeedPurchaseValidation{Field: "purchase_date", Reason: "must be a date"}
@@ -582,8 +586,8 @@ func (w FeedPurchaseWrite) Validate(today time.Time) error {
 	if purchased.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)) {
 		return ErrFeedPurchaseValidation{Field: "purchase_date", Reason: "cannot be in the future"}
 	}
-	if !IsFeedFarm(w.FarmLabel) {
-		return ErrFeedPurchaseValidation{Field: "farm", Reason: "must be CBE or CPT"}
+	if !IsFeedFarm(w.FarmLabel, farms) {
+		return ErrFeedPurchaseValidation{Field: "farm", Reason: "must be one of your parks"}
 	}
 	if w.FeedItemLabel == "" {
 		return ErrFeedPurchaseValidation{Field: "feed_item", Reason: "is required"}

@@ -12,6 +12,7 @@ import type { RouteSearchParams } from "@/lib/search-params";
 import { TASK_PARAM, tasksHref } from "./params";
 import type { TaskRow } from "./task-row";
 import { taskRowPatch, useTaskRowsVersion } from "./task-row-store";
+import { patchApplies } from "./task-detail-pick";
 
 /**
  * The task list, with its column set taken from the compiled table contract.
@@ -47,9 +48,11 @@ export function LeadershipTasksTable({
   // the pill in the drawer, with no route render (maintainer, 2026-09-18: "coming back to the
   // list not showing updated state").
   useTaskRowsVersion();
+  // A patch OLDER than the server row is a leftover from before the last full render and must not
+  // repaint the row backwards -- the same fence the board applies (`task-board-dnd.tsx`).
   const liveRows = rows.map((row) => {
     const patch = taskRowPatch(row.id);
-    return patch ? { ...row, ...patch } : row;
+    return patchApplies(row.rowVersion, patch) ? { ...row, ...patch } : row;
   });
   const taskCell = (task: TaskRow) => (
     <>
@@ -106,7 +109,10 @@ export function LeadershipTasksTable({
           <span className="lt-avx">{initials(task.assignee)}</span>
           <span>
             {task.assignee}
-            <span className="lt-code muted">{task.assigneeRole}</span>
+            <span className="lt-code muted">
+              {task.assigneeRole ||
+                (task.isAssignee ? copy(pageContract, "label.assigned_to_me", "Assigned to me") : "")}
+            </span>
           </span>
         </div>
       ),

@@ -86,6 +86,7 @@ import sg.mesha.goatos.core.network.dto.PenRoutineSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.PenVisitDetailDto
 import sg.mesha.goatos.core.network.dto.PenVisitPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
+import sg.mesha.goatos.core.network.dto.WorkBoardSubtaskPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardSummaryDto
 import sg.mesha.goatos.core.network.dto.PenVisitSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.AnimalPurchaseAnimalCreateRequestDto
@@ -2010,6 +2011,19 @@ interface AppApi {
     ): WorkBoardSummaryDto
 
     /**
+     * GET /work-board/rows/{row_key}/subtasks — one keyset page of ONE row's units of work (its
+     * pens, animals, steps), worst first, for the detail screen. Scoped like the rows read: the
+     * backend 404s a row the caller's own board would not show.
+     */
+    suspend fun getWorkBoardSubtasks(
+        rowKey: String,
+        park: String? = null,
+        businessDate: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): WorkBoardSubtaskPageDto
+
+    /**
      * POST /app/pen-visits/{task_id}/submit — the visit's one video, fenced on row_version.
      * Idempotent on [idempotencyKey]; 409 `already_submitted` means the visit is already done.
      */
@@ -3739,6 +3753,14 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         state: String?,
         owner: String?,
     ): WorkBoardSummaryDto = WorkBoardSummaryDto(businessDate = businessDate.orEmpty(), parkId = park.orEmpty())
+
+    override suspend fun getWorkBoardSubtasks(
+        rowKey: String,
+        park: String?,
+        businessDate: String?,
+        limit: Int?,
+        cursor: String?,
+    ): WorkBoardSubtaskPageDto = WorkBoardSubtaskPageDto(rowKey = rowKey)
 
     override suspend fun submitPenVisit(
         idempotencyKey: String,

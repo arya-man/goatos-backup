@@ -85,7 +85,32 @@ func newBreakdownRepo(t *testing.T, ctx context.Context) (*Repository, *pgxpool.
 	t.Helper()
 	pool := setupCountsDB(t, ctx)
 	seedBreakdownFarm(t, ctx, pool)
+	// The migration baseline ships ~150 shed locations for this tenant. Since 2026-09-25 an EMPTY
+	// catalog pen is listed on the pen table and in the shed filter, so that baseline would appear
+	// in every assertion here. Park it: these tests reason about the sheds they seed themselves.
+	// Only status moves -- no goat, partition or label is touched, so every animal-grain read is
+	// unaffected.
+	if _, err := pool.Exec(ctx, `
+UPDATE locations SET status = 'inactive'
+WHERE tenant_id = $1::uuid AND location_type = 'shed'
+  AND location_id NOT IN ($2::uuid, $3::uuid, $4::uuid)`, countsTenant, countsShedA, countsShedB, countsShedC); err != nil {
+		t.Fatalf("park baseline sheds: %v", err)
+	}
 	return NewRepository(pool, 10*time.Second), pool
+}
+
+// retireEmptyScopeSheds takes the three default seeded sheds (CPT Shed 1/2/3) out of the active
+// catalog for a test that places no animal in them, so their empty pen lines and filter options do
+// not pad an assertion about the sheds the test is actually about.
+func retireEmptyScopeSheds(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+UPDATE locations SET status = 'inactive'
+WHERE tenant_id = $1::uuid AND location_id IN ($2::uuid, $3::uuid, $4::uuid)
+  AND NOT EXISTS (SELECT 1 FROM goats g WHERE g.tenant_id = locations.tenant_id AND g.shed_id = locations.location_id)`,
+		countsTenant, countsShedA, countsShedB, countsShedC); err != nil {
+		t.Fatalf("retire empty scope sheds: %v", err)
+	}
 }
 
 // The two locations joins (farm, shed) are on the locations primary key. If either were ever
@@ -931,6 +956,7 @@ func TestCountsBreakdownShedFacetMatchesPerShedCensusAndPartitionsTheHerd(t *tes
 		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
 			s.sex, s.breed, "alive", s.stage, strp(countsPark), strp(s.shed), nil)
 	}
+	retireEmptyScopeSheds(t, ctx, pool) // shed C is empty; an empty shed is its own zero option now
 
 	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
 	if err != nil {
@@ -1122,6 +1148,7 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET partition_label = EXCLUDED.partit
 	place(3, countsShedCastroOne, countsPark, "Part 1")
 	place(4, countsShedCastroTwo, countsParkTwo, "2")
 	place(5, countsShedCastroTwo, countsParkTwo, "2")
+	retireEmptyScopeSheds(t, ctx, pool)
 }
 
 func penChartByKey(points []domain.CountsBreakdownSeriesPoint) map[string]int64 {
@@ -1314,6 +1341,7 @@ func TestCountsBreakdownShedFacetParkScopeCascadeAgreesWithTheFilter(t *testing.
 		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
 			"male", "Malai", "alive", "K2", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
 	}
+	retireEmptyScopeSheds(t, ctx, pool)
 
 	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
 	if err != nil {
@@ -1386,16 +1414,39 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant, countsPark); err != nil {
 	if err != nil {
 		t.Fatalf("GetCountsBreakdown: %v", err)
 	}
-	if len(got.Facets.Sheds) != 1 {
-		t.Fatalf("facets.sheds=%d, want 1 — the two decoy sheds hold no animals and must not appear: %+v",
-			len(got.Facets.Sheds), got.Facets.Sheds)
+	// Since 2026-09-25 an EMPTY undivided shed is a zero-count option of its own, so the two decoys
+	// are listed -- each once, under its own uuid, at 0. What must not move is the occupied option.
+	occupied := occupiedShedFacets(got.Facets.Sheds)
+	if len(occupied) != 1 {
+		t.Fatalf("occupied facets.sheds=%d, want 1 — the two decoy sheds hold no animals: %+v",
+			len(occupied), got.Facets.Sheds)
 	}
-	if got.Facets.Sheds[0].Count != 3 {
-		t.Errorf("shed facet count=%d, want 3 — a fan-out on the label join would report 9", got.Facets.Sheds[0].Count)
+	if occupied[0].Count != 3 {
+		t.Errorf("shed facet count=%d, want 3 — a fan-out on the label join would report 9", occupied[0].Count)
 	}
-	if got.Facets.Sheds[0].Key != countsShedA {
-		t.Errorf("shed facet key=%q, want the shed UUID %s", got.Facets.Sheds[0].Key, countsShedA)
+	if occupied[0].Key != countsShedA {
+		t.Errorf("shed facet key=%q, want the shed UUID %s", occupied[0].Key, countsShedA)
 	}
+	decoys := map[string]int{}
+	for _, f := range got.Facets.Sheds {
+		if f.Count == 0 {
+			decoys[f.Key]++
+		}
+	}
+	if decoys["00000000-0000-4000-8000-000000004091"] != 1 || decoys["00000000-0000-4000-8000-000000004092"] != 1 {
+		t.Errorf("each empty decoy shed must be its own single zero option, got %v", decoys)
+	}
+}
+
+// occupiedShedFacets keeps the options that hold at least one animal in the requested bucket.
+func occupiedShedFacets(in []domain.CountsBreakdownShedFacet) []domain.CountsBreakdownShedFacet {
+	out := []domain.CountsBreakdownShedFacet{}
+	for _, f := range in {
+		if f.Count > 0 {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -1632,19 +1683,23 @@ func TestCountsBreakdownShedFacetStatusMatrixTracksTheRequestedLifecycleBucket(t
 	id++
 	insertBreakdownGoat(t, ctx, pool, goatUUID(id), goatDisplayID(81),
 		"female", "Beetal", "alive", "K1", strp(countsParkTwo), strp(countsShedCastroTwo), strp(survivor))
+	retireEmptyScopeSheds(t, ctx, pool)
 
 	// Default bucket is strictly 'alive': one swept animal plus the merge survivor, both in shed A.
+	// The other sheds hold no LIVE animal, so since 2026-09-25 they are offered as zero-count
+	// options (an empty pen must stay reachable); none of them may carry a count.
 	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
 	if err != nil {
 		t.Fatalf("GetCountsBreakdown: %v", err)
 	}
-	if len(got.Facets.Sheds) != 1 {
-		t.Fatalf("default facets.sheds=%d, want 1 — only shed A holds live unmerged animals: %+v",
-			len(got.Facets.Sheds), got.Facets.Sheds)
+	liveSheds := occupiedShedFacets(got.Facets.Sheds)
+	if len(liveSheds) != 1 {
+		t.Fatalf("default occupied facets.sheds=%d, want 1 — only shed A holds live unmerged animals: %+v",
+			len(liveSheds), got.Facets.Sheds)
 	}
-	if got.Facets.Sheds[0].Key != countsShedA || got.Facets.Sheds[0].Count != 2 {
+	if liveSheds[0].Key != countsShedA || liveSheds[0].Count != 2 {
 		t.Fatalf("default shed facet=%+v, want shed A with count 2 (swept 'alive' + survivor); the merged twin must not add a shed",
-			got.Facets.Sheds[0])
+			liveSheds[0])
 	}
 
 	// Every status must be individually reachable, and must select ONLY its own shed.
@@ -1659,13 +1714,20 @@ func TestCountsBreakdownShedFacetStatusMatrixTracksTheRequestedLifecycleBucket(t
 		if status == "alive" {
 			want = 2 // the swept row plus the merge survivor, both in shed A
 		}
-		if len(scoped.Facets.Sheds) != 1 {
-			t.Errorf("status %s: facets.sheds=%d, want 1 — another status bucket leaked in: %+v",
-				status, len(scoped.Facets.Sheds), scoped.Facets.Sheds)
+		// Zero-count options are the live view's empty pens (asserted above), never a leak: a
+		// leaked bucket would show up as a COUNTED option.
+		counted := occupiedShedFacets(scoped.Facets.Sheds)
+		if len(counted) != 1 {
+			t.Errorf("status %s: counted facets.sheds=%d, want 1 — another status bucket leaked in: %+v",
+				status, len(counted), scoped.Facets.Sheds)
 			continue
 		}
+		if status != "alive" && len(scoped.Facets.Sheds) != 1 {
+			t.Errorf("status %s: facets.sheds=%d, want 1 — empty pens are offered only in the live view: %+v",
+				status, len(scoped.Facets.Sheds), scoped.Facets.Sheds)
+		}
 		placement := shedForStatus[status]
-		entry := scoped.Facets.Sheds[0]
+		entry := counted[0]
 		if entry.Key != placement.shed || entry.ParkID != placement.park {
 			t.Errorf("status %s: shed facet=%+v, want shed %s in park %s",
 				status, entry, placement.shed, placement.park)
@@ -1704,6 +1766,7 @@ func TestCountsBreakdownShedFacetPaginationAndPageBoundaryDoNotMoveTheVocabulary
 			n++
 		}
 	}
+	retireEmptyScopeSheds(t, ctx, pool)
 
 	full, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 100})
 	if err != nil {
@@ -1750,6 +1813,7 @@ func TestCountsBreakdownShedFacetIsWholeResultRollupLikeParksBranch(t *testing.T
 		"female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedCastroOne), nil)
 	insertBreakdownGoat(t, ctx, pool, goatUUID(2), goatDisplayID(2),
 		"male", "Malai", "alive", "K2", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
+	retireEmptyScopeSheds(t, ctx, pool)
 
 	unfiltered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
 	if err != nil {
@@ -1985,9 +2049,17 @@ ON CONFLICT DO NOTHING`, countsTenant, emptyShed); err != nil {
 	}
 	var parent *domain.CountsBreakdownShedFacet
 	pens := 0
+	undivided := 0
 	for i, f := range got.Facets.Sheds {
 		if f.ShedID == emptyUndividedShed {
-			t.Fatalf("an empty UNDIVIDED shed must stay absent from the facet, got %+v", f)
+			// Since 2026-09-25 an empty UNDIVIDED shed is offered too, exactly once, as itself --
+			// a new pen must be reachable from the filter to be tagged (see
+			// counts_breakdown_empty_pens_integration_test.go).
+			if f.PartitionLabel != "" || f.Count != 0 || f.Key != emptyUndividedShed || f.Label != "Bare" {
+				t.Fatalf("empty undivided shed facet = %+v, want one bare zero-count option", f)
+			}
+			undivided++
+			continue
 		}
 		if f.ShedID != emptyShed {
 			continue
@@ -2009,6 +2081,9 @@ ON CONFLICT DO NOTHING`, countsTenant, emptyShed); err != nil {
 	}
 	if pens != 2 {
 		t.Fatalf("expected the 2 empty catalog pens beside the parent row, got %d", pens)
+	}
+	if undivided != 1 {
+		t.Fatalf("empty undivided shed offered %d times, want exactly once", undivided)
 	}
 }
 
@@ -2177,7 +2252,9 @@ func TestCountsBreakdownPenPagePaginationAndPageBoundaryHonourFilters(t *testing
 
 // Status matrix on the pen page: only the requested lifecycle bucket is counted. A dead and a sold
 // animal in an otherwise live pen must not appear on the pen's line, in its chips, or in its
-// nested rows — and a pen whose every animal has exited must vanish rather than show a zero line.
+// nested rows. A pen whose every animal has exited holds no live animal, so since 2026-09-25 it
+// shows as an EMPTY pen line -- zero count, no rows, nothing of the dead animal leaking onto it --
+// because an empty pen must stay reachable for its stage tag.
 func TestCountsBreakdownPenPageStatusMatrixCountsOnlyTheRequestedLifecycle(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newBreakdownRepo(t, ctx)
@@ -2197,13 +2274,23 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET partition_label = EXCLUDED.partit
 	}
 	insertBreakdownGoat(t, ctx, pool, goatUUID(85), goatDisplayID(85), "female", "Sirohi", "dead", "F2",
 		strp(countsPark), strp(countsShedB), nil)
+	// The fixture parked the empty scope sheds; shed B now holds a (dead) animal, so bring it back
+	// into the catalog -- it is exactly the pen-whose-every-animal-exited case.
+	if _, err := pool.Exec(ctx, `UPDATE locations SET status = 'active' WHERE tenant_id = $1::uuid AND location_id = $2::uuid`, countsTenant, countsShedB); err != nil {
+		t.Fatalf("reactivate shed B: %v", err)
+	}
 
 	live, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, Limit: 100})
 	if err != nil {
 		t.Fatalf("live pen page: %v", err)
 	}
-	if live.TotalRows != 3 || live.TotalCount != 6 {
-		t.Errorf("live pen page total_rows=%d total_count=%d, want 3 pens / 6 animals", live.TotalRows, live.TotalCount)
+	if live.TotalRows != 4 || live.TotalCount != 6 {
+		t.Errorf("live pen page total_rows=%d total_count=%d, want 3 occupied pens + shed B empty / 6 animals", live.TotalRows, live.TotalCount)
+	}
+	for _, pen := range live.Pens {
+		if ptrValue(pen.ShedID) == countsShedB && (pen.Count != 0 || len(pen.Rows) != 0 || len(pen.Stages) != 0) {
+			t.Errorf("shed B holds only a dead animal; its live line must be empty, got %+v", pen)
+		}
 	}
 	for _, pen := range live.Pens {
 		for _, b := range pen.Breeds {
@@ -3381,6 +3468,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'seed')`, countsTenant, goatUUID(n), s
 	place(countsPark, countsShedCastroOne, "Part 9", 1)
 	place(countsPark, countsShedCastroOne, "Part 2", 2)
 	place(countsParkTwo, countsShedCastroTwo, "Part 1", 1)
+	retireEmptyScopeSheds(t, ctx, pool)
 
 	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, Limit: 50})
 	if err != nil {

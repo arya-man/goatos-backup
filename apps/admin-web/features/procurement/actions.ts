@@ -50,8 +50,16 @@ const SELECTION_STATES: ProcurementSelectionState[] = [
 const HEALTH_FULL: ProcurementHealthState[] = ["pending", "passed", "failed", "deferred"];
 const OWNERSHIP_STATES: ProcurementOwnershipState[] = ["pending", "shared_pending", "mesha_owned", "blocked", "not_owned", "settled"];
 const PURPOSES: ProcurementPurpose[] = ["breeding", "fattening", "non_breeding", "unspecified"];
-const SEXES = ["female", "male"] as const;
-const SPECIES = ["goat", "sheep"] as const;
+// Species and sex are the tenant's Configuration lists (OPEN UP TO NEW SPECIES, 2026-09-25): the form
+// offers them from the page contract and the backend checks membership, so this only checks a code's shape.
+const ANIMAL_CODE_RE = /^[a-z][a-z0-9_]{0,39}$/;
+
+function animalCode(value: string | undefined, field: string): string {
+  if (!value || !ANIMAL_CODE_RE.test(value)) {
+    throw new Error(`${field} must be one of the farm's ${field === "sex" ? "genders" : "species"}`);
+  }
+  return value;
+}
 type HFReviewRequestStatus = ReviewProcurementHFVaccinationEvidenceRequest["review_status"];
 const HF_REVIEW_STATUSES: HFReviewRequestStatus[] = ["trusted", "rejected", "conflicting", "duplicate"];
 
@@ -162,8 +170,8 @@ export async function addSourceGoatAction(formData: FormData): Promise<void> {
     const body: AddProcurementLoadGoatRequest = {
       animal_identifier_1: optionalString(formData, "animal_identifier_1") ?? null,
       animal_identifier_2: optionalString(formData, "animal_identifier_2") ?? null,
-      species: inEnum(optionalString(formData, "species"), SPECIES, "species"),
-      sex: inEnum(optionalString(formData, "sex"), SEXES, "sex"),
+      species: animalCode(optionalString(formData, "species"), "species"),
+      sex: animalCode(optionalString(formData, "sex"), "sex"),
       selection_state: optionalString(formData, "selection_state")
         ? inEnum<ProcurementSelectionState>(optionalString(formData, "selection_state"), SELECTION_STATES, "selection_state")
         : undefined,

@@ -17,3 +17,14 @@ fun penVisitSubmitFailureHook(repository: PenVisitsRepository): PostTerminalFail
         val payload = syncJson.decodeFromString<PenVisitSubmitPayload>(payloadJson)
         repository.refreshVisit(payload.taskId)
     }
+
+/**
+ * Pen-visit submit SUCCESS: the Tasks module's "For me" badge counts the visits still to record
+ * and is composed into the backend bootstrap, so a visit that just reached the verifier must make
+ * the shell re-read it. Without this the badge kept counting a recorded visit until the next
+ * app start (only the leadership-task list asked for a re-read). [requestNavRefresh] is the
+ * app-scoped, coalescing nav re-read signal; it never blocks and cannot fail a drain pass. The
+ * visit's own card needs nothing here — the engine writes the returned task through Room.
+ */
+fun penVisitSubmitSuccessHook(requestNavRefresh: () -> Unit): PostSuccessRefreshHook =
+    PostSuccessRefreshHook { requestNavRefresh() }

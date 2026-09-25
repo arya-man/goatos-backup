@@ -49,6 +49,7 @@ const (
 	// CountsApproveAccess -- held by the four org tiers + admin + ceo_internal + counts_approver,
 	// not park_head.
 	adminWebApprovalsRoute       = "/admin-web/counts/approvals"
+	adminWebApprovalRoute        = "/admin-web/counts/approvals/{request_id}"
 	adminWebApprovalApproveRoute = "/admin-web/counts/approvals/{request_id}/approve"
 	adminWebApprovalRejectRoute  = "/admin-web/counts/approvals/{request_id}/reject"
 
@@ -62,6 +63,17 @@ type ApprovalWorkflow interface {
 	SubmitBirthRequest(ctx context.Context, in domain.ApprovalRequestSubmission, children []identityports.CreateAdminGoatCommand) (domain.BirthSubmissionResult, error)
 	ListPending(ctx context.Context, tenantID, status string, decidableTypes []string, callerParkIDs []string, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
 	Decide(ctx context.Context, in countsapp.DecisionInput) (domain.ApprovalRequest, bool, error)
+}
+
+// filteredApprovalLister is the optional filtered list (counts/app.ApprovalService implements it).
+type filteredApprovalLister interface {
+	ListFiltered(ctx context.Context, tenantID, status string, decidableTypes, callerParkIDs []string,
+		filter domain.ApprovalListFilter, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
+}
+
+// singleApprovalReader is the optional one-request read (counts/app.ApprovalService implements it).
+type singleApprovalReader interface {
+	GetForCaller(ctx context.Context, tenantID, approvalRequestID string, decidableTypes, callerParkIDs []string) (domain.ApprovalRequestSummary, error)
 }
 
 // RegisterApprovals wires the mobile/app approval decision surface.
@@ -92,6 +104,7 @@ func approvalPageSize(w http.ResponseWriter, r *http.Request, h *AppWriteHandler
 // session middleware; only the telemetry route/command labels differ.
 func RegisterAdminWebApprovals(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+adminWebApprovalsRoute, h.ListApprovals)
+	mux.HandleFunc("GET "+adminWebApprovalRoute, h.GetApproval)
 	mux.HandleFunc("POST "+adminWebApprovalApproveRoute, h.ApproveRequestAdminWeb)
 	mux.HandleFunc("POST "+adminWebApprovalRejectRoute, h.RejectRequestAdminWeb)
 }
@@ -170,20 +183,49 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	page, err := h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkIDs, pageSize, strings.TrimSpace(r.URL.Query().Get("cursor")))
+	// The client's optional type / farm filter (2026-09-25), applied SERVER-SIDE so a farm's
+	// requests past the first page are reachable. The service validates both (unknown -> 400,
+	// never widened) and binds the cursor to the filter.
+	filter := domain.ApprovalListFilter{
+		RequestType: strings.TrimSpace(r.URL.Query().Get("request_type")),
+		ParkID:      strings.TrimSpace(r.URL.Query().Get("park_id")),
+		RaisedFrom:  strings.TrimSpace(r.URL.Query().Get("raised_from")),
+		RaisedTo:    strings.TrimSpace(r.URL.Query().Get("raised_to")),
+	}
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	var (
+		page domain.ApprovalRequestPage
+		err  error
+	)
+	if lister, ok := h.approvals.(filteredApprovalLister); ok {
+		page, err = lister.ListFiltered(r.Context(), tenantID, status, decidable, callerParkIDs, filter, pageSize, cursor)
+	} else if filter.Key() != "" {
+		h.writeError(w, r, http.StatusNotImplemented, "approval_filters_unavailable", "approval list filters are not configured", nil)
+		return
+	} else {
+		page, err = h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkIDs, pageSize, cursor)
+	}
 	if err != nil {
 		h.writeApprovalError(w, r, err)
 		return
 	}
 
+	items := h.approvalItems(r.Context(), tenantID, page.Items)
+	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})
+}
+
+// approvalItems renders summaries as the queue's list items: names resolved in one batched call
+// per entity kind (never per row), the backend-composed summary line, the capture card. The list
+// and the single-request read share it so an item reads the same wherever it is opened.
+func (h *AppWriteHandler) approvalItems(ctx context.Context, tenantID string, rows []domain.ApprovalRequestSummary) []appApprovalListItem {
 	// Names for the WHOLE page in one batched call per entity kind, before the render loop.
 	// Resolving inside the loop would be the banned N+1 fan-out: this page is capped at 20 rows,
 	// each naming a raiser and up to two sheds, so per-row lookups would turn one phone screen
 	// into dozens of serial reads (docs/decisions/scale-anti-patterns.md).
-	names := h.approvalNames(r.Context(), tenantID, page.Items)
+	names := h.approvalNames(ctx, tenantID, rows)
 
-	items := make([]appApprovalListItem, 0, len(page.Items))
-	for _, item := range page.Items {
+	items := make([]appApprovalListItem, 0, len(rows))
+	for _, item := range rows {
 		row := appApprovalListItem{
 			ApprovalRequestID: item.ApprovalRequestID,
 			RequestType:       item.RequestType,
@@ -218,7 +260,30 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		row.CaptureReviewReason = item.CaptureReviewReason
 		items = append(items, row)
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})
+	return items
+}
+
+// GetApproval serves GET /admin-web/counts/approvals/{request_id}: ONE request in the list's own
+// item shape, whatever its status or page, so a link to an older request still opens its drawer
+// (maintainer 2026-09-25). Authority is the list's: outside it reads 404, never the request.
+func (h *AppWriteHandler) GetApproval(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if strings.TrimSpace(tenantID) == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "tenant context is required", nil)
+		return
+	}
+	reader, ok := h.approvals.(singleApprovalReader)
+	if !ok {
+		h.writeError(w, r, http.StatusNotImplemented, "approval_read_unavailable", "single approval read is not configured", nil)
+		return
+	}
+	decidable := permissions.DecidableApprovalRequestTypes(callerRoles(r))
+	item, err := reader.GetForCaller(r.Context(), tenantID, r.PathValue("request_id"), decidable, callerParkScope(r))
+	if err != nil {
+		h.writeApprovalError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, h.approvalItems(r.Context(), tenantID, []domain.ApprovalRequestSummary{item})[0])
 }
 
 // shiftingCaptureFromSummary lifts the raise snapshot a shifting request carries in its stored
@@ -262,6 +327,7 @@ func (h *AppWriteHandler) approvalNames(ctx context.Context, tenantID string, ro
 		Locations:       map[string]string{},
 		People:          map[string]string{},
 		AnimalLocations: map[string]string{},
+		AnimalTags:      map[string]string{},
 	}
 	if h.approvalNameResolver == nil || len(rows) == 0 {
 		return empty
@@ -289,6 +355,7 @@ func (h *AppWriteHandler) approvalNames(ctx context.Context, tenantID string, ro
 		Locations:       resolved.Locations,
 		People:          resolved.People,
 		AnimalLocations: resolved.AnimalLocations,
+		AnimalTags:      resolved.AnimalTags,
 	}
 }
 
@@ -423,8 +490,10 @@ func (h *AppWriteHandler) decide(w http.ResponseWriter, r *http.Request, approve
 }
 
 // callerRoles returns the roles the authenticated caller holds in the active tenant.
-func callerRoles(r *http.Request) []string {
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+func callerRoles(r *http.Request) []string { return callerRolesFromContext(r.Context()) }
+
+func callerRolesFromContext(ctx context.Context) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	roles := make([]string, 0, len(grants))
 	seen := map[string]struct{}{}
 	for _, grant := range grants {
@@ -444,8 +513,10 @@ func callerRoles(r *http.Request) []string {
 // tenant-wide (no restriction, e.g. CEO/internal). A person holding park_head in both parks
 // decides in both; the previous single-park answer (the FIRST grant) refused every request in
 // their other park (live E2E 2026-09-11).
-func callerParkScope(r *http.Request) []string {
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+func callerParkScope(r *http.Request) []string { return callerParkScopeFromContext(r.Context()) }
+
+func callerParkScopeFromContext(ctx context.Context) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	parks := []string{}
 	seen := map[string]struct{}{}
 	for _, grant := range grants {
@@ -503,6 +574,17 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		h.writeError(w, r, http.StatusConflict, "idempotency_conflict",
 			"Idempotency-Key was reused with a different payload", err)
+	case errors.Is(err, countsapp.ErrInvalidApprovalTypeFilter):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_request_type",
+			"request_type must be birth, death or shifting", err)
+	case errors.Is(err, countsapp.ErrInvalidApprovalParkFilter):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_park_id", "park_id must be a farm id", err)
+	case errors.Is(err, countsapp.ErrInvalidApprovalDateRange):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_date_range",
+			"raised_from and raised_to must be dates, and the start must not be after the end", err)
+	case errors.Is(err, countsapp.ErrApprovalCursorFilterMismatch):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_cursor",
+			"that page belongs to a different filter; reload the list", err)
 	case errors.Is(err, countsapp.ErrMissingRequiredField),
 		errors.Is(err, countsapp.ErrInvalidExceptionFilter),
 		errors.Is(err, countsapp.ErrInvalidJSON):

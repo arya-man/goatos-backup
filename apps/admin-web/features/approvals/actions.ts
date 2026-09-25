@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { decideAdminWebApproval, getProofDownloadUrl } from "@/lib/api/server";
+import { approvalReasonTooLong } from "./approval-display";
 
 const PATHNAME = "/approvals";
 
@@ -61,6 +62,11 @@ export async function rejectApprovalAction(formData: FormData): Promise<void> {
   const reason = String(formData.get("reason") ?? "").trim();
   if (!requestId || !reason) {
     redirect(withFeedback(url, "error", !requestId ? "missing_request_id" : "missing_reason"));
+  }
+  // The server caps the reason in BYTES; a long non-Latin reason can pass the textarea's character
+  // cap and still be refused, so it is caught here with its own sentence rather than a generic 400.
+  if (approvalReasonTooLong(reason)) {
+    redirect(withFeedback(url, "error", "reason_too_long"));
   }
 
   const result = await decideAdminWebApproval({

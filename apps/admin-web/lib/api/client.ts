@@ -135,6 +135,56 @@ export function getAdminApi() {
       return { data: body };
     },
 
+    // A park's authored vaccination operator shifts (listed even before the park has a
+    // drive-operator assignment, so a new park can set its operators up first).
+    async listVaccinationOperatorShifts(parkId: string) {
+      const response = await fetch(`/api/vaccination/operator-shifts?park_id=${encodeURIComponent(parkId)}`, { cache: 'no-store' });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Failed to load operator shifts: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorShiftList'];
+      return { data: body };
+    },
+
+    // Set (create or replace) one operator's shift for a park. The backend refuses a bad field
+    // with a farm-worded message, which is thrown as-is so the form can show it. A fresh
+    // Idempotency-Key is minted per attempt unless the caller passes one to make a retry safe.
+    async putVaccinationOperatorShift(
+      requestBody: AppApiComponents['schemas']['PutVaccinationOperatorShiftRequest'],
+      idempotencyKey: string = crypto.randomUUID()
+    ) {
+      const response = await fetch('/api/vaccination/operator-shifts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(requestBody),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Failed to save the shift: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorShiftWriteResult'];
+      return { data: body };
+    },
+
+    // Clear one operator's shift for a park. Refused while the park's drive-operator assignment
+    // still names that operator; the backend's reason is thrown as-is.
+    async deleteVaccinationOperatorShift(parkId: string, operatorId: string, idempotencyKey: string = crypto.randomUUID()) {
+      const query = new URLSearchParams({ park_id: parkId, operator_id: operatorId });
+      const response = await fetch(`/api/vaccination/operator-shifts?${query.toString()}`, {
+        method: 'DELETE',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Failed to clear the shift: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorShiftClearResult'];
+      return { data: body };
+    },
+
     // getStaffPositionProfile backs the People position row-click drawer: the
     // enriched seat plus its holder's currently-active coverage window.
     async getStaffPositionProfile(positionId: string) {

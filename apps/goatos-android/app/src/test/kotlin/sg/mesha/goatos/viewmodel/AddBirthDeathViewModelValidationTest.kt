@@ -41,6 +41,7 @@ import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsDestinationShedDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingDestinationsResponseDto
+import sg.mesha.goatos.core.network.dto.CountsVocabularyOptionDto
 import sg.mesha.goatos.core.network.dto.GoatLocationPathDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
@@ -657,6 +658,37 @@ class AddBirthDeathViewModelValidationTest {
         }
 
     @Test
+    fun `a species offers only its own breeds, including one nobody carries yet`() =
+        runTest(dispatcher) {
+            // A breed added in Configuration reaches the form with its species and a 0 head count;
+            // the form offers each species its own breeds, and a breed picked under another species
+            // is cleared rather than submitted as an alpaca Beetal.
+            countsRepository.birthBreeds = CountsBreedsResponseDto(
+                breeds = listOf(
+                    CountsBreakdownSeriesPointDto(key = "Beetal", label = "Beetal", count = 400, species = "goat"),
+                    CountsBreakdownSeriesPointDto(key = "Anantapur Sheep", label = "Anantapur Sheep", count = 875, species = "sheep"),
+                    CountsBreakdownSeriesPointDto(key = "Huacaya", label = "Huacaya", count = 0, species = "alpaca"),
+                ),
+                species = listOf(
+                    CountsVocabularyOptionDto("goat", "Goat"),
+                    CountsVocabularyOptionDto("sheep", "Sheep"),
+                    CountsVocabularyOptionDto("alpaca", "Alpaca"),
+                ),
+            )
+            val vm = newBirthViewModel()
+            advanceUntilIdle()
+
+            assertEquals("goat", vm.state.value.species)
+            assertEquals(listOf("Beetal"), vm.state.value.breedOptions.map { it.key })
+            vm.onEvent(AddBirthEvent.EditField(AddBirthField.BREED, "Beetal"))
+
+            vm.onEvent(AddBirthEvent.EditField(AddBirthField.SPECIES, "alpaca"))
+            advanceUntilIdle()
+            assertEquals(listOf("Huacaya"), vm.state.value.breedOptions.map { it.key })
+            assertEquals("", vm.state.value.breed)
+        }
+
+    @Test
     fun `the plain add-death form is untouched by the prefill path`() = runTest(dispatcher) {
         // The ＋ button opens the bare route, so neither argument is present. Nothing about the
         // form may change for it — this is the path every death has taken until now.
@@ -841,14 +873,13 @@ internal class FakeAddCountsRepository : CountsRepository {
     ): Flow<Resource<CountsBreakdownResponseDto>> =
         MutableStateFlow(Resource(data = CountsBreakdownResponseDto()))
 
+    /** Settable so a test can serve breeds registered under different species. */
+    var birthBreeds: CountsBreedsResponseDto = CountsBreedsResponseDto(
+        breeds = listOf(CountsBreakdownSeriesPointDto(key = "beetal", label = "Beetal", count = 12)),
+    )
+
     override fun observeBirthBreeds(): Flow<Resource<CountsBreedsResponseDto>> =
-        MutableStateFlow(
-            Resource(
-                data = CountsBreedsResponseDto(
-                    breeds = listOf(CountsBreakdownSeriesPointDto(key = "beetal", label = "Beetal", count = 12)),
-                ),
-            ),
-        )
+        MutableStateFlow(Resource(data = birthBreeds))
 
     override suspend fun refreshBirthBreeds(): Result<Unit> = Result.success(Unit)
 

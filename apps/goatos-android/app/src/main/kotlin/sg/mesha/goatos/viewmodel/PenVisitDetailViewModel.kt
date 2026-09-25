@@ -87,6 +87,8 @@ class PenVisitDetailViewModel @Inject constructor(
     /** This phone's own transient state: what is mid-capture, and the submit row it queued. */
     private data class Local(
         val isRefreshing: Boolean = false,
+        /** The last refresh never reached the server. Only matters while nothing is cached. */
+        val lastRefreshFailed: Boolean = false,
         val capturing: Boolean = false,
         /** The PEN_VISIT_SUBMIT outbox row id this screen queued; blank until it did. */
         val submitOutboxItemId: String = "",
@@ -147,11 +149,12 @@ class PenVisitDetailViewModel @Inject constructor(
         if (taskId.isBlank()) return
         viewModelScope.launch {
             local.update { it.copy(isRefreshing = true) }
+            var reached = false
             try {
-                repository.refreshVisit(taskId)
+                reached = repository.refreshVisit(taskId)
                 reconcileSubmitFromDurableProof(source = "refresh")
             } finally {
-                local.update { it.copy(isRefreshing = false) }
+                local.update { it.copy(isRefreshing = false, lastRefreshFailed = !reached) }
             }
         }
     }
@@ -225,7 +228,14 @@ class PenVisitDetailViewModel @Inject constructor(
         if (taskId.isBlank() || local.value.capturing) return
         viewModelScope.launch {
             val detail = repository.observeVisit(taskId).first()
-            if (detail == null || !detail.canSubmit || detail.workState == PEN_VISIT_WORK_STATE_COMPLETED) {
+            if (detail == null) {
+                // Nothing to record against (never loaded, server unreachable): say so rather than
+                // letting the tap silently do nothing, and try the server again.
+                local.update { it.copy(message = appContext.getString(R.string.pen_visits_msg_unavailable)) }
+                refresh()
+                return@launch
+            }
+            if (!detail.canSubmit || detail.workState == PEN_VISIT_WORK_STATE_COMPLETED) {
                 // The server has moved on. Pull its truth rather than guessing what changed.
                 refresh()
                 return@launch
@@ -481,7 +491,15 @@ class PenVisitDetailViewModel @Inject constructor(
         sendingAlive: Boolean,
     ): PenVisitDetailUiState {
         if (detail == null) {
-            return PenVisitDetailUiState(loading = true, isRefreshing = own.isRefreshing, message = own.message)
+            // Nothing cached (not even the list row) and the server did not answer: stop the
+            // spinner and offer Try again, instead of loading forever.
+            val unavailable = own.lastRefreshFailed && !own.isRefreshing
+            return PenVisitDetailUiState(
+                loading = !unavailable,
+                unavailable = unavailable,
+                isRefreshing = own.isRefreshing,
+                message = own.message,
+            )
         }
         val video = penVisitVideoState(detail, proof, item, sendingAlive)
         return PenVisitDetailUiState(

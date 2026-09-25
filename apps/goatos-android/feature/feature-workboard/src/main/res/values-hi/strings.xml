@@ -25,6 +25,7 @@
     <string name="work_board_module_procurement">खरीद</string>
     <string name="work_board_module_verification">सत्यापन</string>
     <string name="work_board_module_tasks">कार्य</string>
+    <string name="work_board_module_sales">बिक्री</string>
 
     <string name="work_board_state_scheduled">तय है</string>
     <string name="work_board_state_due">आज देय</string>
@@ -45,6 +46,9 @@
     <string name="work_board_tile_pending">बाकी</string>
     <string name="work_board_tile_attention">ध्यान दें</string>
     <string name="work_board_counts_fmt">%2$d में से %1$d पूरे</string>
+    <string name="work_board_split_in_review_fmt">%1$d समीक्षा में</string>
+    <string name="work_board_split_started_fmt">%1$d शुरू</string>
+    <string name="work_board_split_not_started_fmt">%1$d शुरू नहीं</string>
 
     <string name="work_board_detail_pen">बाड़ा</string>
     <string name="work_board_detail_park">फ़ार्म</string>
@@ -56,4 +60,16 @@
     <string name="work_board_empty_own">इस दिन आपकी सूची में कुछ नहीं है</string>
     <string name="work_board_empty_all">इस दिन बोर्ड पर कुछ नहीं है</string>
     <string name="work_board_error">आपका काम लोड नहीं हो सका। फिर से कोशिश के लिए ताज़ा करें।</string>
+    <string name="work_board_subtasks_title">क्या हुआ और क्या बाकी है</string>
+    <string name="work_board_subtasks_count_fmt">%2$d में से %1$d</string>
+    <string name="work_board_subtasks_loading">लोड हो रहा है…</string>
+    <string name="work_board_subtasks_empty">कुछ नहीं है</string>
+    <string name="work_board_subtasks_failed">यह सूची लोड नहीं हुई। वापस आने पर फिर कोशिश होगी।</string>
+    <string name="work_board_step_done">पूरा</string>
+    <string name="work_board_step_in_review">समीक्षा में</string>
+    <string name="work_board_step_in_progress">शुरू</string>
+    <string name="work_board_step_rework">वापस भेजा</string>
+    <string name="work_board_step_needs_attention">ध्यान दें</string>
+    <string name="work_board_step_locked">प्रतीक्षा में</string>
+    <string name="work_board_step_todo">बाकी</string>
 </resources>

@@ -28,6 +28,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.ProofMediaPreview
@@ -74,6 +76,24 @@ fun PenVisitDetailScreen(
                 )
             },
         )
+        if (state.unavailable) {
+            // Nothing cached and the server unreachable: say so and offer Try again — never an
+            // endless spinner with no way back.
+            EmptyState(
+                title = stringResource(R.string.pen_visits_detail_unavailable),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                icon = MeshaIcons.Warn,
+                tone = EmptyTone.Warn,
+                action = {
+                    PenVisitGhostButton(
+                        label = stringResource(R.string.pen_visits_action_try_again),
+                        enabled = !state.isRefreshing,
+                        onClick = { onEvent(PenVisitDetailEvent.Refresh) },
+                    )
+                },
+            )
+            return@Column
+        }
         if (state.loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MeshaColors.BrandD)

@@ -26,6 +26,8 @@ type fakeRepo struct {
 	payment        domain.DealPaymentWrite
 	paymentKey     string
 
+	farms []string
+
 	overviewFarm  string
 	listFarm      string
 	listLimit     int
@@ -34,6 +36,15 @@ type fakeRepo struct {
 	createdKey    string
 	createCalls   int
 	overviewCalls int
+}
+
+// ListFarms serves the tenant's active park codes. farms overrides the default pair so a test can
+// add a park the way Configuration > Items & settings does.
+func (f *fakeRepo) ListFarms(context.Context, string) ([]string, error) {
+	if f.farms != nil {
+		return f.farms, nil
+	}
+	return []string{"CBE", "CPT"}, nil
 }
 
 func (f *fakeRepo) GetOverview(_ context.Context, _ string, farm string) (domain.Overview, error) {
@@ -438,4 +449,37 @@ func strPtrOrNil(v string) *string {
 		return nil
 	}
 	return &v
+}
+
+// A park added on Configuration > Items & settings records sales, filters the ledger and offers
+// itself on the form, the moment it exists -- and a code no active park carries is still refused.
+func TestSalesFarmsAreTheTenantsParksNotAConstantPair(t *testing.T) {
+	repo := &fakeRepo{farms: []string{"CBE", "CPT", "HSR"}}
+	s := NewSalesService(repo)
+	write := domain.DealWrite{
+		SaleDate: "2026-08-17", Farm: "HSR", ProductType: "Goat", Breed: "Sojat",
+		BuyerName: "Irshad", SalesValue: 90000, BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+	}
+	if _, err := s.CreateDeal(context.Background(), tenant, write, "actor", "key-hsr"); err != nil {
+		t.Fatalf("a sale at a newly added park must be recorded: %v", err)
+	}
+	if _, err := s.GetOverview(context.Background(), tenant, "HSR"); err != nil {
+		t.Fatalf("the new park must be a valid farm filter: %v", err)
+	}
+	if _, err := s.ListDeals(context.Background(), tenant, DealListQuery{Farm: "HSR", Limit: 10}); err != nil {
+		t.Fatalf("the ledger must filter to the new park: %v", err)
+	}
+	unknown := write
+	unknown.Farm = "XYZ"
+	var ve domain.ErrDealValidation
+	if _, err := s.CreateDeal(context.Background(), tenant, unknown, "actor", "key-xyz"); !errors.As(err, &ve) || ve.Field != "farm" {
+		t.Fatalf("a code no park carries must be refused on farm, got %v", err)
+	}
+	if _, err := s.GetOverview(context.Background(), tenant, "XYZ"); !errors.Is(err, ErrSalesInvalidFarm) {
+		t.Fatalf("an unknown farm filter must be refused, got %v", err)
+	}
+	lead := domain.BuyerLeadWrite{BuyerName: "Ravi", Farm: "HSR"}
+	if _, err := s.CreateBuyerLead(context.Background(), tenant, lead, "actor", "lead-hsr"); err != nil {
+		t.Fatalf("a buyer lead at the new park must be recorded: %v", err)
+	}
 }

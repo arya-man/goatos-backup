@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 )
 
 const (
@@ -28,9 +30,6 @@ const (
 	DecisionPending  = "pending"
 	DecisionAccepted = "accepted"
 	DecisionRejected = "rejected"
-
-	FarmCBE = "CBE"
-	FarmCPT = "CPT"
 
 	LoadStatusOpen   = "open"
 	LoadStatusClosed = "closed"
@@ -52,8 +51,11 @@ type Option struct {
 	Label string `json:"label"`
 }
 
-// Species, Sexes, Conditions and Farms are the closed vocabularies the write path validates
-// against and the phone form renders. Labels are farm language; the values never reach a screen.
+// Species and Sexes are the BUILT-IN species and genders: the labels a stored goat/sheep,
+// female/male reads under, and the choices when a tenant's Configuration lists could not be read.
+// The live choices -- the write path validates against them and the phone form renders them -- are
+// the tenant's Configuration lists (AnimalOptions, OPEN UP TO NEW SPECIES 2026-09-25). Labels are
+// farm language; the values never reach a screen.
 func Species() []Option {
 	return []Option{{SpeciesGoat, "Goat"}, {SpeciesSheep, "Sheep"}}
 }
@@ -61,6 +63,17 @@ func Species() []Option {
 func Sexes() []Option {
 	return []Option{{SexFemale, "Female"}, {SexMale, "Male"}}
 }
+
+// AnimalOptions turns a Configuration list (code + name) into form choices, in the list's order.
+func AnimalOptions(entries []animalvocab.Entry) []Option {
+	out := make([]Option, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, Option{Value: e.Code, Label: e.Name})
+	}
+	return out
+}
+
+// Conditions, Farms are the other closed vocabularies of the form.
 
 func Conditions() []Option {
 	return []Option{
@@ -70,8 +83,16 @@ func Conditions() []Option {
 	}
 }
 
-func Farms() []Option {
-	return []Option{{FarmCBE, "CBE"}, {FarmCPT, "CPT"}}
+// Farms is the load's farm choice: one option per active park CODE, in park order. Parks are
+// authored on Configuration > Items & settings > Parks and read by the service through
+// platform/parkcatalog, so a park added there can receive a load at once. There is deliberately no
+// constant list: a CBE/CPT pair refused every park after the first two.
+func Farms(codes []string) []Option {
+	out := make([]Option, 0, len(codes))
+	for _, c := range codes {
+		out = append(out, Option{Value: c, Label: c})
+	}
+	return out
 }
 
 func labelOf(options []Option, value string) string {
@@ -207,6 +228,9 @@ type LoadWrite struct {
 	// SOP version the phone rendered (set by the service).
 	Answers Answers
 	Catalog Catalog
+	// Farms is the tenant's active park codes (set by the service): the only farms a load may be
+	// for.
+	Farms []string
 }
 
 // Normalize trims and upper-cases what the write compares on.
@@ -250,7 +274,7 @@ func (w LoadWrite) Validate() error {
 	if w.VendorID == "" {
 		return invalid("vendor_id", "Pick the vendor this load is bought from.")
 	}
-	if w.FarmLabel != FarmCBE && w.FarmLabel != FarmCPT {
+	if !hasOption(Farms(w.Farms), w.FarmLabel) {
 		return invalid("farm", "Pick the farm this load is for.")
 	}
 	if w.ExpectedCount < 0 || w.ExpectedCount > 10000 {

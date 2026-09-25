@@ -47,7 +47,11 @@ type FeedPurchaseListQuery struct {
 
 // ListFeedPurchases returns one ledger page plus the whole-filter totals.
 func (s *FeedPurchaseService) ListFeedPurchases(ctx context.Context, tenantID string, q FeedPurchaseListQuery) (ports.FeedPurchasePage, error) {
-	farm, ok := domain.NormalizeFeedFarmFilter(q.Farm)
+	farms, err := s.repo.ListFeedFarms(ctx, tenantID)
+	if err != nil {
+		return ports.FeedPurchasePage{}, err
+	}
+	farm, ok := domain.NormalizeFeedFarmFilter(q.Farm, farms)
 	if !ok {
 		return ports.FeedPurchasePage{}, ErrFeedPurchaseInvalidFarm
 	}
@@ -152,11 +156,15 @@ func (s *FeedPurchaseService) CreateFeedPurchase(ctx context.Context, tenantID s
 	if err != nil {
 		return domain.FeedPurchase{}, err
 	}
+	farms, err := s.repo.ListFeedFarms(ctx, tenantID)
+	if err != nil {
+		return domain.FeedPurchase{}, err
+	}
 	normalized := applied.Normalize()
 	// The purchase date is judged against the IST BUSINESS day, never a UTC instant: a load bought
 	// on the evening of the 24th in India is the 24th, and comparing in UTC would call it the 25th
 	// for five and a half hours every night.
-	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
+	if err := normalized.Validate(biztime.BusinessDayStart(s.now()), farms); err != nil {
 		return domain.FeedPurchase{}, err
 	}
 	p, err := s.repo.CreateFeedPurchase(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))

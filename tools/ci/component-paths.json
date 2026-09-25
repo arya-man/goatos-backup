@@ -93,6 +93,7 @@
         "backend/internal/platform/outbox/",
         "backend/internal/platform/pgtemplate/",
         "backend/internal/platform/pgtest/",
+        "backend/internal/platform/postgres/",
         "backend/internal/platform/readcache/",
         "backend/internal/platform/sqlbind/",
         "backend/internal/platform/tracecontext/",

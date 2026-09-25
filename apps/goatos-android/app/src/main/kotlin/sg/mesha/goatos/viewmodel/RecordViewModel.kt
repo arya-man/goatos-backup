@@ -196,7 +196,10 @@ class RecordViewModel @Inject constructor(
 
     // Honest non-live state: reuse the sample only for stable chrome, clear the fabricated
     // drive rows, and carry the real message in the subtitle.
+    // The TITLE is cleared too: the sample's "Gandhi 1 · shed record" is a real pen's name, and
+    // showing it while the record loads (or when there is none) names a pen the operator never opened.
     private fun recordPlaceholder(message: String): RecordUiState = sampleRecordState().copy(
+        title = "",
         subtitle = message,
         groups = emptyList(),
         countLabel = "",

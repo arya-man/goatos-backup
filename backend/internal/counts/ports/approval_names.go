@@ -19,6 +19,10 @@ type ApprovalDisplayNames struct {
 	// payload: a death is terminal and never moves goats.shed_id, so the animal's current row is
 	// still its location at time of death.
 	AnimalLocations map[string]string
+	// AnimalTags is goat_id -> the animal's active animal_identifier_1 (its RFID tag), so a
+	// death row names which animal it is about. Resolved in the SAME batched read as
+	// AnimalLocations.
+	AnimalTags map[string]string
 }
 
 // ApprovalNameResolver turns the ids stored on an approval request into the names an approver

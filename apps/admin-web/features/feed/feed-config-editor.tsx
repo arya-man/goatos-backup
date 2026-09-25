@@ -8,6 +8,7 @@ import type { FeedConfigActionResult } from "./feed-config-actions";
 import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState } from "@/lib/authoring-idempotency";
 import { clearSavedRate, publishSavedRate, rationRateKey } from "./feed-rate-optimistic";
 import { fmtClock, fmtInputNumber } from "./feed-config-format";
+import { fractionToPercent } from "./session-plan";
 
 // Inline editors for the three writable Feed Config surfaces.
 //
@@ -1050,6 +1051,7 @@ export function ScheduleEditor({
   directionTime,
   correctionTime,
   transportTime,
+  editLabelKey = "action.edit_schedule",
 }: {
   pageContract: AdminUiPageContract;
   action: SaveAction;
@@ -1059,12 +1061,14 @@ export function ScheduleEditor({
   correctionTime: string;
   /** Absent means the park declared NO cutoff — unknown, never "no deadline". */
   transportTime?: string;
+  /** Copy key for the open button: "Edit schedule" on an authored row, "Set schedule" on a missing one. */
+  editLabelKey?: string;
 }) {
   return (
     <FeedConfigFormShell
       pageContract={pageContract}
       action={action}
-      editLabel={copy(pageContract, "action.edit_schedule")}
+      editLabel={copy(pageContract, editLabelKey)}
       openLabel={copy(pageContract, "section.schedule.note")}
     >
       <input type="hidden" name="park_id" value={parkId} />
@@ -1098,6 +1102,69 @@ export function ScheduleEditor({
           defaultValue={fmtClock(transportTime)}
         />
       </div>
+    </FeedConfigFormShell>
+  );
+}
+
+/**
+ * Sets a park's feeding sessions: each one's name and share of the day. Existing active sessions
+ * keep their number (their feeds are declared against it), a spare blank row adds the next session,
+ * and clearing a name removes that session. A park added on Configuration > Items & settings starts
+ * with none, so this is where it is first given sessions.
+ */
+export function SessionPlanEditor({
+  pageContract,
+  action,
+  parkId,
+  sessions,
+}: {
+  pageContract: AdminUiPageContract;
+  action: SaveAction;
+  parkId: string;
+  sessions: { session_no: number; session_label: string; split_fraction: string }[];
+}) {
+  const nextNo = sessions.reduce((max, row) => Math.max(max, row.session_no), 0) + 1;
+  // Spare blank rows to add sessions: two for a park that has none yet (a farm feeds at least
+  // morning and evening, and a single row would force two saves), one otherwise.
+  const spare = sessions.length === 0 ? 2 : 1;
+  const rows = [
+    ...sessions.map((row) => ({ session_no: row.session_no, session_label: row.session_label, share: fractionToPercent(row.split_fraction) })),
+    ...Array.from({ length: spare }, (_, i) => ({ session_no: nextNo + i, session_label: "", share: "" })),
+  ];
+  return (
+    <FeedConfigFormShell
+      pageContract={pageContract}
+      action={action}
+      editLabel={copy(pageContract, sessions.length === 0 ? "action.add_sessions" : "action.edit_sessions")}
+      openLabel={copy(pageContract, "action.sessions_open")}
+    >
+      <input type="hidden" name="park_id" value={parkId} />
+      <input type="hidden" name="session_count" value={rows.length} />
+      {rows.map((row, index) => (
+        <div key={row.session_no} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input type="hidden" name={`session_no_${index}`} value={row.session_no} />
+          <div className="fld" style={{ marginBottom: 0, flex: "1 1 160px" }}>
+            <label htmlFor={`session-label-${parkId}-${row.session_no}`}>{copy(pageContract, "label.session_name")}</label>
+            <input
+              id={`session-label-${parkId}-${row.session_no}`}
+              name={`session_label_${index}`}
+              type="text"
+              maxLength={60}
+              defaultValue={row.session_label}
+            />
+          </div>
+          <div className="fld" style={{ marginBottom: 0, flex: "0 1 140px" }}>
+            <label htmlFor={`session-share-${parkId}-${row.session_no}`}>{copy(pageContract, "label.session_share")}</label>
+            <input
+              id={`session-share-${parkId}-${row.session_no}`}
+              name={`session_share_${index}`}
+              type="text"
+              inputMode="decimal"
+              defaultValue={row.share}
+            />
+          </div>
+        </div>
+      ))}
     </FeedConfigFormShell>
   );
 }

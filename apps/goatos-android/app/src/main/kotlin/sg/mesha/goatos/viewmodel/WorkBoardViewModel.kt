@@ -124,8 +124,8 @@ class WorkBoardViewModel @Inject constructor(
     ) { envelope, selection, isRefreshing, isOffline ->
         val summary = envelope.resource.data
         val hasSummary = summary != null
-        val done = summary?.laneCount(WorkBoardLanes.DONE) ?: 0
         val total = summary?.total ?: 0
+        val tiles = summary?.let { selectionTiles(it, selection.module, selection.lane) } ?: WorkBoardTiles(0, 0, 0)
         WorkBoardUiState(
             dateIso = selection.dateIso,
             dateLabel = dateLabel(selection.dateIso),
@@ -136,25 +136,10 @@ class WorkBoardViewModel @Inject constructor(
                     add(WorkBoardChipUi(key = lane, count = summary?.laneCount(lane) ?: 0, selected = selection.lane == lane))
                 }
             },
-            modules = if (envelope.modules.isEmpty()) {
-                emptyList()
-            } else {
-                buildList {
-                    add(WorkBoardChipUi(key = "", count = total, selected = selection.module.isBlank()))
-                    envelope.modules.forEach { module ->
-                        add(
-                            WorkBoardChipUi(
-                                key = module,
-                                count = summary?.byModule?.get(module) ?: 0,
-                                selected = selection.module == module,
-                            ),
-                        )
-                    }
-                }
-            },
-            doneCount = done,
-            pendingCount = (total - done).coerceAtLeast(0),
-            needsAttentionCount = summary?.needsAttention ?: 0,
+            modules = moduleChips(envelope.modules, summary?.byModule.orEmpty(), total, selection.module, summary?.degraded.orEmpty().toSet()),
+            doneCount = tiles.done,
+            pendingCount = tiles.pending,
+            needsAttentionCount = tiles.needsAttention,
             hasSummary = hasSummary,
             isRefreshing = isRefreshing,
             lastSyncedAt = envelope.resource.lastSyncedAt,
@@ -286,6 +271,38 @@ class WorkBoardViewModel @Inject constructor(
     }
 }
 
+/** The three tiles over the cards the chips currently show. */
+internal data class WorkBoardTiles(val done: Int, val pending: Int, val needsAttention: Int)
+
+/** The work states a card needs attention in -- the backend's own Summary.Add set. */
+private val ATTENTION_STATES = setOf("overdue", "missed", "rejected", "blocked")
+
+/**
+ * The tiles count the SELECTION, not the whole board (maintainer review 2026-09-25: the tiles read
+ * 1 / 22 / 0 whichever chip was on). A module chip narrows to that module's per-state counts, a
+ * lane chip to the states that lane holds, and done / pending / needs-attention are counted over
+ * what is left. The chip COUNTS stay whole-board, so a chip never reads 0 because another is on.
+ * An older server that sends no per-module states falls back to the whole board for a module chip.
+ */
+internal fun selectionTiles(summary: WorkBoardSummaryDto, module: String, lane: String): WorkBoardTiles {
+    if (module.isBlank() && lane.isBlank()) {
+        // No chip: the server's own whole-board numbers, exactly as served.
+        val done = summary.laneCount(WorkBoardLanes.DONE)
+        return WorkBoardTiles(done = done, pending = (summary.total - done).coerceAtLeast(0), needsAttention = summary.needsAttention)
+    }
+    val byState: Map<String, Int> = if (module.isNotBlank()) {
+        summary.byModuleState?.get(module) ?: if (summary.byModuleState != null) emptyMap() else summary.byState.orEmpty()
+    } else {
+        summary.byState.orEmpty()
+    }
+    val laneStates = WorkBoardLanes.statesFor(lane).toSet()
+    val selected = if (lane.isBlank()) byState else byState.filterKeys { it in laneStates }
+    val total = selected.values.sum()
+    val done = selected["completed"] ?: 0
+    val attention = selected.filterKeys { it in ATTENTION_STATES }.values.sum()
+    return WorkBoardTiles(done = done, pending = (total - done).coerceAtLeast(0), needsAttention = attention)
+}
+
 private const val INDIA_ZONE = "Asia/Kolkata"
 
 /** Today's business date in Asia/Kolkata (the board's time grain is the IST day, never an instant). */
@@ -318,5 +335,33 @@ internal fun WorkBoardRowDto.toRowUi(): WorkBoardRowUi = WorkBoardRowUi(
     done = counts.done,
     pending = counts.pending,
     needsAttention = counts.needsAttention,
+    inReview = counts.inReview,
+    notStarted = counts.notStarted,
     href = href,
 )
+
+/**
+ * The module chips: "All" and one per module that has work on this day (maintainer, 2026-09-25:
+ * a chip reading "Health 0" or "Vaccination 0" should not be there). A module with nothing behind
+ * it is left out, unless it is the one selected, so the reader can always see and clear the chip
+ * they chose, or its count timed out on the server (its cards may still load, so its work is
+ * unknown rather than absent). No modules at all (the summary has not arrived) means no chip row.
+ */
+internal fun moduleChips(
+    modules: List<String>,
+    byModule: Map<String, Int>,
+    total: Int,
+    selected: String,
+    degraded: Set<String> = emptySet(),
+): List<WorkBoardChipUi> {
+    if (modules.isEmpty()) return emptyList()
+    return buildList {
+        add(WorkBoardChipUi(key = "", count = total, selected = selected.isBlank()))
+        modules.forEach { module ->
+            val count = byModule[module] ?: 0
+            if (count > 0 || module == selected || module in degraded) {
+                add(WorkBoardChipUi(key = module, count = count, selected = module == selected))
+            }
+        }
+    }
+}
