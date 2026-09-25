@@ -34,6 +34,7 @@ runner (03:00 IST). Nothing was deleted; it moved.
 | Android unit | `:app` + changed library modules + their dependents (`tools/ci/android-gradle-scope.mjs`) | every module |
 | Android lint | `:app:lintStgRelease` when `app/**`, `core-designsystem`, any `res/` or build logic changed; else changed library modules' `lintRelease` | every module + `:app` |
 | Paparazzi | diff-mapped on an Android UI diff (`ci-local-screenshots`) | full `--rerun-tasks` (nightly: `GOATOS_RUN_ANDROID_SCREENSHOTS=1`) |
+| (library-only change) | the library's own `lintRelease`, not `:app` lint: no module has a lint config/baseline and `:app` lint never set `checkDependencies`, so this is the same rules on the changed code | |
 | config-cache guard, benchmark compile | Android build-logic diff only | always |
 | backend govulncheck | `backend/go.mod`/`go.sum` diff only | always |
 | gradle-worktree-lock mutation self-test (~24 min) | never (the real lock guard still runs on a lock diff) | always |
@@ -41,7 +42,7 @@ runner (03:00 IST). Nothing was deleted; it moved.
 `make land-main` prints per-job and total wall time; over 20 minutes it prints a
 loud WARNING with the top 5 steps and appends to `~/.goatos/land-main-budget.log`.
 It never fails a landing on budget. Knobs: `GOATOS_ANDROID_MAX_WORKERS` (default
-6), `GOATOS_CI_LOCAL_JOBS` (default 5, max 5), `GOATOS_LAND_BUDGET_SECONDS`.
+6; lower it, e.g. to 3, if Gradle exits 137 = OOM SIGKILL), `GOATOS_CI_LOCAL_JOBS` (default 5, max 5), `GOATOS_LAND_BUDGET_SECONDS`.
 
 Per machine (opt-in, set in the maintainer's `~/.zshenv`):
 `GOATOS_LAND_VIA_QUEUE=1` hands `make land-main` to `land.yml` on the self-hosted

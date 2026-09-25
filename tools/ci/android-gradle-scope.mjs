@@ -11,6 +11,12 @@
 //            (transitively), when that module has src/test
 //   lint     :app:lintStgRelease only when app/**, core-designsystem, any res/ dir, or
 //            build logic changed; otherwise :<m>:lintRelease for each changed library module
+//            Why not :app lint for a library-only change (review P2): the repo has NO lint
+//            config, lint.xml or baseline in any module (checked 2026-09-25), and :app
+//            lint does not set checkDependencies, so :app lint never analysed library
+//            sources anyway. The library's own lintRelease runs the same default rules on
+//            the code that changed -- strictly more coverage, not less. If an app
+//            baseline or checkDependencies is ever added, revisit this.
 //
 // Build-logic changes (root/any *.gradle.kts, gradle.properties, gradle/**, buildSrc/**,
 // settings) are build-wide: every module is "changed". `--full` (MODE=all / the nightly

@@ -366,7 +366,7 @@ android_build_logic_changed() {
   local changed
   changed="$(changed_since_base 2>/dev/null)" || return 0
   [ -n "$changed" ] || return 0
-  printf '%s\n' "$changed" | grep -Eq '^apps/goatos-android/(.*\.gradle\.kts|gradle\.properties|gradle/|buildSrc/|benchmark/)|^tools/ci/check-gradle-config-cache'
+  printf '%s\n' "$changed" | grep -Eq '^apps/goatos-android/(.*\.gradle\.kts|gradle\.properties|gradle/|buildSrc/|build-logic/|benchmark/)|^tools/ci/check-gradle-config-cache'
 }
 
 # Gradle workers for the landing Android lane. --max-workers=1 had no recorded
@@ -920,16 +920,19 @@ run_android() {
   # versus 12.7s paid once — ~17s saved per android leg. Gradle reports the UNION
   # of the task graphs (712 actionable tasks), not the sum-with-repeats.
   #
-  # Flags are deliberately NOT touched. `--no-daemon` mirrors GitHub's ephemeral
-  # runner (the receipt attests that fidelity); the in-process Kotlin strategy is
+  # Flags (20-min land-main cap, 2026-09-25): `--no-daemon` still mirrors an
+  # ephemeral runner, and the in-process Kotlin strategy stays -- it is
   # load-bearing on testStgReleaseUnitTest (Firebase Perf ASM instrumentation has
-  # corrupted unit-test Flow fakes here before — see f4a63345);
-  # `--no-configuration-cache` and `--max-workers=1` have no recorded reason in
-  # blame, so they stay until someone proves them removable.
+  # corrupted unit-test Flow fakes here before -- see f4a63345).
+  # `--max-workers=1` (never had a recorded reason) is now
+  # $(android_gradle_workers) = GOATOS_ANDROID_MAX_WORKERS, default 6, with the
+  # shared `--build-cache` and a 6g Gradle heap for the parallel in-process
+  # compiles. If Gradle exits 137 (OOM SIGKILL under memory pressure), lower
+  # GOATOS_ANDROID_MAX_WORKERS (e.g. 3) rather than restoring 1.
   #
-  # Failure semantics are unchanged: Gradle stops at the first failing task, just
-  # as the three sequential steps did. Adding --continue would report all three in
-  # one pass (a strictly stronger gate) but is a separate decision.
+  # The TASK list is scoped to the diff by tools/ci/android-gradle-scope.mjs
+  # (MODE=all / nightly: every module). Gradle stops at the first failing task;
+  # --continue would report all in one pass but is a separate decision.
   local android_tasks android_scope_args=""
   ci_full_suite && android_scope_args="--full"
   android_tasks="$(changed_since_base | node tools/ci/android-gradle-scope.mjs $android_scope_args)" \
