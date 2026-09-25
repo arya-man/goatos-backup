@@ -3633,7 +3633,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.full_schedule.empty_title":           "No schedule rows for this month",
 			"section.full_schedule.empty_body":            "Rows appear once due work is clubbed into vaccination drives for the selected month.",
 			"section.full_schedule.no_assignments_title":  "No operator drive rows",
-			"section.full_schedule.no_assignments_body":   "No persisted operator assignments exist for the selected month.",
+			"section.full_schedule.no_assignments_body":   "No vaccination drive has been given to an operator in this month yet.",
 			// Human labels for the operator-drive-schedule CAPACITY pill. The read
 			// model emits the internal machine state (within_cap / over_cap /
 			// over_cap_required / capacity_breach); never render that token raw.

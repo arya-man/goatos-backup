@@ -396,7 +396,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "section.full_schedule.loading_operator_note": "Loading planned operator assignments.",
     "section.full_schedule.assignment_unavailable_title": "Drive schedule unavailable",
     "section.full_schedule.no_assignments_title": "No operator drive rows",
-    "section.full_schedule.no_assignments_body": "No persisted operator assignments exist for",
+    "section.full_schedule.no_assignments_body": "No vaccination drive has been given to an operator in this month yet.",
     "section.full_schedule.empty_title": "No schedule rows for this month",
     "section.full_schedule.empty_body": "Rows appear once due work is clubbed into vaccination drives for the selected month.",
     "section.full_schedule.unavailable_title": "Full vaccine schedule is unavailable",
