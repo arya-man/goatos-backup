@@ -22,3 +22,13 @@ export function fmtClock(raw: string | null | undefined): string {
   const m = /^(\d{1,2}:\d{2})(?::\d{2})?$/.exec(raw.trim());
   return m ? m[1] : raw;
 }
+
+/**
+ * The value an EDITOR opens with: the stored number without its padding ("1500.000" -> "1500",
+ * "12.500" -> "12.5"), and never a thousands separator, because it goes back to the server as typed.
+ */
+export function fmtInputNumber(raw: string | null | undefined): string {
+  if (raw === null || raw === undefined || raw.trim() === "") return "";
+  const n = Number(raw);
+  return Number.isFinite(n) ? String(n) : raw;
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { createContext, useContext, useMemo } from "react";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { fmtDate } from "@/lib/format";
@@ -42,6 +42,57 @@ function EffectiveWindow({
   );
 }
 
+// The page copy and the save action the cells need, handed down by CONTEXT rather than captured in
+// the column definitions.
+//
+// THE DEFECT THIS CLOSES: TanStack's flexRender renders a column's `cell` function AS A COMPONENT, so
+// a new function is a new component type and React remounts the cell. Every server action re-renders
+// this route with fresh props (the write marker cookie alone does that), and a column model rebuilt
+// from them remounted every Edit rate cell -- an open editor lost the number being typed and the
+// "Rate rejected" message two seconds after it appeared. The column model is now keyed on what
+// actually shapes it (the table contract and the edit header), and the cells read the rest from here.
+const RationGridCellContext = createContext<{ pageContract: AdminUiPageContract; action: SaveAction } | null>(null);
+
+function useCellContext() {
+  const value = useContext(RationGridCellContext);
+  if (!value) throw new Error("ration grid cell rendered outside RationGridTable");
+  return value;
+}
+
+function RateValueCell({ row }: { row: FeedConfigRationRate }) {
+  const { pageContract } = useCellContext();
+  return (
+    <RationRateValue
+      pageContract={pageContract}
+      parkId={row.park_id}
+      rationGroup={row.ration_group}
+      shedTag={row.shed_tag}
+      feedItem={row.feed_item}
+      gramsPerHead={row.grams_per_head}
+    />
+  );
+}
+
+function EffectiveWindowCell({ row }: { row: FeedConfigRationRate }) {
+  const { pageContract } = useCellContext();
+  return <EffectiveWindow validFrom={row.valid_from} validTo={row.valid_to} pageContract={pageContract} />;
+}
+
+function EditRateCell({ row }: { row: FeedConfigRationRate }) {
+  const { pageContract, action } = useCellContext();
+  return (
+    <RationRateEditor
+      pageContract={pageContract}
+      action={action}
+      parkId={row.park_id}
+      rationGroup={row.ration_group}
+      shedTag={row.shed_tag}
+      feedItem={row.feed_item}
+      gramsPerHead={row.grams_per_head}
+    />
+  );
+}
+
 /**
  * The authored ration grid: g/head/day per (park, ration group, shed tag, feed item).
  *
@@ -73,8 +124,11 @@ export function RationGridTable({
   empty: React.ReactNode;
   action: SaveAction;
 }) {
+  const editHeader = copy(pageContract, "action.edit_rate");
+  // Keyed on CONTENT: every re-render hands this a new `contract` object with the same columns.
+  const contractKey = JSON.stringify(contract);
   const columns = useMemo(() => {
-    const dataColumns = columnsFromContract<FeedConfigRationRate>(contract, {
+    const dataColumns = columnsFromContract<FeedConfigRationRate>(JSON.parse(contractKey) as AdminUiTableContract, {
       ration_group: { cell: (row) => row.ration_group, sortValue: (row) => row.ration_group },
       shed_tag: {
         cell: (row) => row.shed_tag,
@@ -94,29 +148,15 @@ export function RationGridTable({
         sortValue: (row) => row.feed_item,
       },
       grams_per_head: {
-        // A client cell so a just-saved quantity appears at once: saving writes in ~0.3s but the
-        // number only lands when revalidatePath re-renders the route, and until then the cell
-        // showed the OLD figure beside a form that had closed on success — which reads as
-        // "nothing happened" on a screen whose numbers are feeding instructions.
-        cell: (row) => (
-          <RationRateValue
-            pageContract={pageContract}
-            parkId={row.park_id}
-            rationGroup={row.ration_group}
-            shedTag={row.shed_tag}
-            feedItem={row.feed_item}
-            gramsPerHead={row.grams_per_head}
-          />
-        ),
+        // A client cell so a just-saved quantity appears at once (see RationRateValue).
+        cell: (row) => <RateValueCell row={row} />,
         // Sorts on the AUTHORED number, not on the optimistic display: an unsaved local edit must
         // not silently reorder the grid under the author's cursor.
         // Numerically: as strings "12.5" sorted before "12.25".
         sortValue: (row) => (row.grams_per_head === undefined || row.grams_per_head === null ? -1 : Number(row.grams_per_head)),
       },
       valid_from: {
-        cell: (row) => (
-          <EffectiveWindow validFrom={row.valid_from} validTo={row.valid_to} pageContract={pageContract} />
-        ),
+        cell: (row) => <EffectiveWindowCell row={row} />,
         meta: { colSpan: 2 },
       },
       valid_to: { cell: () => null, meta: { spanned: true } },
@@ -126,31 +166,25 @@ export function RationGridTable({
       ...dataColumns,
       {
         id: "edit_rate",
-        header: copy(pageContract, "action.edit_rate"),
+        header: editHeader,
         enableSorting: false,
-        cell: ({ row }: { row: { original: FeedConfigRationRate } }) => (
-          <RationRateEditor
-            pageContract={pageContract}
-            action={action}
-            parkId={row.original.park_id}
-            rationGroup={row.original.ration_group}
-            shedTag={row.original.shed_tag}
-            feedItem={row.original.feed_item}
-            gramsPerHead={row.original.grams_per_head}
-          />
-        ),
+        cell: ({ row }: { row: { original: FeedConfigRationRate } }) => <EditRateCell row={row.original} />,
       },
     ];
-  }, [contract, pageContract, action]);
+  }, [contractKey, editHeader]);
+
+  const cellContext = useMemo(() => ({ pageContract, action }), [pageContract, action]);
 
   return (
-    <DataTable
-      className="feed-table"
-      ariaLabel={ariaLabel}
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.ration_rate_id}
-      empty={empty}
-    />
+    <RationGridCellContext.Provider value={cellContext}>
+      <DataTable
+        className="feed-table"
+        ariaLabel={ariaLabel}
+        columns={columns}
+        data={rows}
+        getRowId={(row) => row.ration_rate_id}
+        empty={empty}
+      />
+    </RationGridCellContext.Provider>
   );
 }

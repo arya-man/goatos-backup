@@ -19,3 +19,13 @@ test("clock times drop their seconds", () => {
   assert.equal(fmtClock("14:00:00"), "14:00");
   assert.equal(fmtClock("09:30"), "09:30");
 });
+
+test("an editor opens on the plain stored number, with no padding and no thousands separator", async () => {
+  const { fmtInputNumber } = await import("./feed-config-format.ts");
+  assert.equal(fmtInputNumber("1500.000"), "1500");
+  assert.equal(fmtInputNumber("12.500"), "12.5");
+  assert.equal(fmtInputNumber("0.000"), "0");
+  assert.equal(fmtInputNumber(""), "");
+  assert.equal(fmtInputNumber(undefined), "");
+  assert.equal(fmtInputNumber("abc"), "abc");
+});

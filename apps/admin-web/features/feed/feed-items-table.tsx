@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import {
@@ -168,6 +168,22 @@ function FeedItemStatusCell({
   );
 }
 
+const FeedItemCellContext = createContext<{ pageContract: AdminUiPageContract; statusAction: SaveAction } | null>(null);
+
+function StatusCellFromContext({ row }: { row: FeedConfigFeedItem }) {
+  const value = useContext(FeedItemCellContext);
+  if (!value) throw new Error("feed item status cell rendered outside FeedItemsTable");
+  return (
+    <FeedItemStatusCell
+      pageContract={value.pageContract}
+      action={value.statusAction}
+      feedItemId={row.feed_item_id}
+      feedItemLabel={row.feed_item}
+      status={row.status === "active" ? "active" : "retired"}
+    />
+  );
+}
+
 /**
  * The tenant-wide feed item catalog.
  *
@@ -195,10 +211,15 @@ export function FeedItemsTable({
   statusAction: SaveAction;
 }) {
   const placeholder = copy(pageContract, "label.placeholder");
+  // Keyed on CONTENT, not on the props' identity: every server action re-renders this route with a
+  // new `contract`/`pageContract`, and TanStack renders a cell function AS A COMPONENT, so a rebuilt
+  // column model remounted the status cell and threw away a half-done confirm. The status cell reads
+  // the live copy and action from context instead (see RationGridTable for the same fix).
+  const contractKey = JSON.stringify(contract);
 
   const columns = useMemo(
     () =>
-      columnsFromContract<FeedConfigFeedItem>(contract, {
+      columnsFromContract<FeedConfigFeedItem>(JSON.parse(contractKey) as AdminUiTableContract, {
         feed_item: { cell: (row) => row.feed_item, sortValue: (row) => row.feed_item },
         energy_kcal_per_kg: {
           cell: (row) => row.energy_kcal_per_kg ?? placeholder,
@@ -223,31 +244,26 @@ export function FeedItemsTable({
           meta: NUMERIC_CELL,
         },
         status: {
-          cell: (row) => (
-            <FeedItemStatusCell
-              pageContract={pageContract}
-              action={statusAction}
-              feedItemId={row.feed_item_id}
-              feedItemLabel={row.feed_item}
-              status={row.status === "active" ? "active" : "retired"}
-            />
-          ),
+          cell: (row) => <StatusCellFromContext row={row} />,
           // Sorts on the STORED value, so the two states group together predictably regardless of
           // what the contract labels them.
           sortValue: (row) => row.status,
         },
       }),
-    [contract, pageContract, statusAction, placeholder],
+    [contractKey, placeholder],
   );
+  const cellContext = useMemo(() => ({ pageContract, statusAction }), [pageContract, statusAction]);
 
   return (
-    <DataTable
-      className="feed-table"
-      ariaLabel={ariaLabel}
-      columns={columns}
-      data={rows}
-      getRowId={(row) => row.feed_item_id}
-      empty={empty}
-    />
+    <FeedItemCellContext.Provider value={cellContext}>
+      <DataTable
+        className="feed-table"
+        ariaLabel={ariaLabel}
+        columns={columns}
+        data={rows}
+        getRowId={(row) => row.feed_item_id}
+        empty={empty}
+      />
+    </FeedItemCellContext.Provider>
   );
 }

@@ -7,6 +7,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigActionResult } from "./feed-config-actions";
 import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState } from "@/lib/authoring-idempotency";
 import { clearSavedRate, publishSavedRate, rationRateKey } from "./feed-rate-optimistic";
+import { fmtClock, fmtInputNumber } from "./feed-config-format";
 
 // Inline editors for the three writable Feed Config surfaces.
 //
@@ -257,7 +258,7 @@ export function RationRateEditor({
           type="text"
           inputMode="decimal"
           // Uncontrolled: a cleared box stays cleared and is rejected server-side, never sent as 0.
-          defaultValue={gramsPerHead ?? ""}
+          defaultValue={fmtInputNumber(gramsPerHead)}
           aria-describedby={`grams-hint-${parkId}-${rationGroup}-${shedTag}-${feedItem}`}
         />
         <div
@@ -381,7 +382,7 @@ export function ExperimentCellEditor({
           type="text"
           inputMode="decimal"
           // Uncontrolled: a cleared box stays cleared and is rejected server-side, never sent as 0.
-          defaultValue={gramsPerHead ?? ""}
+          defaultValue={fmtInputNumber(gramsPerHead)}
           aria-describedby={`${fieldId}-kg-hint`}
         />
         <div id={`${fieldId}-kg-hint`} className="small muted" style={{ marginTop: 4 }}>
@@ -1042,7 +1043,7 @@ export function ScheduleEditor({
           id={`direction-${parkId}-${workflow}`}
           name="direction_time"
           type="text"
-          defaultValue={directionTime}
+          defaultValue={fmtClock(directionTime)}
         />
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
@@ -1051,7 +1052,7 @@ export function ScheduleEditor({
           id={`correction-${parkId}-${workflow}`}
           name="correction_time"
           type="text"
-          defaultValue={correctionTime}
+          defaultValue={fmtClock(correctionTime)}
         />
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
@@ -1062,7 +1063,7 @@ export function ScheduleEditor({
           id={`transport-${parkId}-${workflow}`}
           name="transport_time"
           type="text"
-          defaultValue={transportTime ?? ""}
+          defaultValue={fmtClock(transportTime)}
         />
       </div>
     </FeedConfigFormShell>
