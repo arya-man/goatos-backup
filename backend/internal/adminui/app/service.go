@@ -1116,7 +1116,7 @@ func pages() []domain.PageContract {
 		// SALES SOP (maintainer instruction 2026-09-19, docs/decisions/sales-sop.md): the steps a
 		// recorded sale owes -- tag the animals, load them, the money -- and the designation that
 		// does each, authored here and run by the tasks engine as one workflow per sale.
-		page("sales-sops", "/sales/sops", "/sales/sops", "Sales SOP", "What happens after a sale is recorded -- tagging, loading, the money -- and who does each step.", "module-surface",
+		page("sales-sops", "/sales/sops", "/sales/sops", "Sales SOP", "What happens after a sale is recorded (tagging, loading, the money) and who does each step.", "module-surface",
 			[]domain.TableContract{table("sop-library", "Sales SOPs", "/admin/sops", []string{"sop", "domain", "trigger", "steps", "gates", "status"}, "sop_id")}),
 		// PROCUREMENT SOP (maintainer decision 2026-09-14): the animal-purchase inspection --
 		// its pages, questions, proof and compulsory flags -- is authored here and served to the
