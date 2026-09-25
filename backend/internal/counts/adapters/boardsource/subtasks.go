@@ -230,24 +230,24 @@ func scanMilkSubtask(rows pgx.Rows) (domain.Subtask, error) {
 		return domain.Subtask{}, fmt.Errorf("milk boardsource subtask scan: %w", err)
 	}
 	due := dueAt.In(biztime.DefaultLocation())
-	prepare := domain.Step{Name: "Prepare", State: domain.StepTodo}
 	feed := domain.Step{Name: "Feed", State: domain.StepTodo}
 	submit := domain.Step{Name: "Submit", State: domain.StepTodo}
 	verify := domain.Step{Name: "Verify", State: domain.StepLocked}
 	state := domain.WorkStateDue
 	attention := false
-	// The task records ONE fact about the work -- the submit -- so prepare and feed follow it:
-	// they are done once the proof is in, and to do until then.
+	// The task records ONE fact about the work -- the submit -- so feed follows it: done once
+	// the proof is in, and to do until then. Preparation is NOT a step here: it is a different
+	// task, on the day before, with its own card (milk_preparation.go; maintainer, 2026-09-25).
 	switch status {
 	case "pending_verification":
-		prepare.State, feed.State, submit.State = domain.StepDone, domain.StepDone, domain.StepDone
+		feed.State, submit.State = domain.StepDone, domain.StepDone
 		verify.State = domain.StepInReview
 		state = domain.WorkStateVerificationPending
 	case "completed":
-		prepare.State, feed.State, submit.State, verify.State = domain.StepDone, domain.StepDone, domain.StepDone, domain.StepDone
+		feed.State, submit.State, verify.State = domain.StepDone, domain.StepDone, domain.StepDone
 		state = domain.WorkStateCompleted
 	case "rework":
-		prepare.State, feed.State = domain.StepDone, domain.StepDone
+		feed.State = domain.StepDone
 		submit.State = domain.StepRework
 		verify.State, verify.Detail = domain.StepRework, reason
 		state, attention = domain.WorkStateRejected, true
@@ -260,7 +260,7 @@ func scanMilkSubtask(rows pgx.Rows) (domain.Subtask, error) {
 		Key: domain.SubtaskKey(rank, taskID), Name: "Session " + strconv.Itoa(sessionNo),
 		Subtitle:  due.Format("15:04") + " · " + kidsText(headCount),
 		WorkState: state, NeedsAttention: attention, Owner: ownerState,
-		Steps: []domain.Step{prepare, feed, submit, verify},
+		Steps: []domain.Step{feed, submit, verify},
 	}.Finalize(), nil
 }
 

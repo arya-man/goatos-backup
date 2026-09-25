@@ -2000,6 +2000,8 @@ func newWorkBoardSources(pool *pgxpool.Pool, timeout time.Duration, processInteg
 		verificationboard.New(pool, timeout),
 		countsboard.NewApprovals(pool, timeout),
 		countsboard.NewMilkFeeding(pool, timeout),
+		// Milk preparation is its own task, the day before the feeding (maintainer, 2026-09-25).
+		countsboard.NewMilkPreparation(pool, timeout),
 		healthboard.New(pool, timeout),
 		pccareboard.New(pool, timeout),
 		// The next-day pen visit (maintainer decision 2026-09-14) rows on the day it is due

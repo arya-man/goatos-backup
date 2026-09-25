@@ -312,3 +312,25 @@ Visibility: the Sales lane opens on `sales.read`; the Procurement lane now also 
 desks that WORK a load (`procurement.animal_purchase.write` / `.decide`,
 `feed.purchase.write`), not only `procurement.review`. Migration `000428` adds the two
 tenant+park indexes the new reads need.
+
+## Feed & water removal sits in Weighing; milk preparation is its own card (maintainer, 2026-09-25)
+
+"Feed and water removal should come in weighing task only" and "milk preparation and feeding are
+completely different tasks". Both answer the same gap: once weighing and milk proofs stopped being
+Verification cards, two pieces of work had nowhere on the board to show.
+
+- **Weighing's removal** (the evening before the weigh) is one more entry in each pen's list on
+  the Weighing card: "Feed & water removal", record videos -> verify, owned by the removal
+  operator. A removal the verifier sent back turns an OPEN pen's card rejected; once the pen is
+  weighed and submitted the re-shoot never re-blocks the weigh, so the card stays in review and
+  only the entry says sent back. PC Care's own removal before deworming is a different task and is
+  unchanged.
+- **Milk preparation** is one card per park per preparation day ("Milk preparation · Coimbatore",
+  "For feeding on DD/MM/YYYY"), a crew pool until someone submits. Before a submit it is owed when
+  the park has a kid the Milk Preparation page prepares for -- the page's own
+  `MilkPreparationKidPredicate`, so page and card cannot disagree -- and a submitted preparation
+  keeps its card whatever the herd says now. The feeding card no longer carries a "Prepare" step:
+  its steps are feed -> submit -> verify.
+
+Pinned by `TestFeedAndWaterRemovalIsPartOfTheWeighingCard` and
+`TestMilkPreparationCard_OneToMany_ParkScope_StatusMatrix_Pagination` (each mutation-tested).

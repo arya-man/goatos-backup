@@ -149,28 +149,28 @@ func TestMilkFeedingSubtasksAreTheSessionOnADatabaseRoundTrip(t *testing.T) {
 	if s1.Name != "Session 1" || s1.Subtitle != "08:00 · 12 kids" || s1.WorkState != domain.WorkStateDue || s1.Owner.Name != "" {
 		t.Fatalf("owed session %+v", s1)
 	}
-	if states(s1.Steps) != "todo todo todo locked " || s1.Steps[0].Name != "Prepare" || s1.Steps[1].Name != "Feed" || s1.Steps[2].Name != "Submit" || s1.Steps[3].Name != "Verify" {
+	if states(s1.Steps) != "todo todo locked " || s1.Steps[0].Name != "Feed" || s1.Steps[1].Name != "Submit" || s1.Steps[2].Name != "Verify" {
 		t.Fatalf("owed chain %+v", s1.Steps)
 	}
 	page, err = src.ListSubtasks(ctx, q(ids[2]))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Subtasks) != 1 || page.Subtasks[0].Name != "Session 2" || page.Subtasks[0].WorkState != domain.WorkStateVerificationPending || states(page.Subtasks[0].Steps) != "done done done in_review " || page.Subtasks[0].Owner.Name != "Dinakar" {
+	if len(page.Subtasks) != 1 || page.Subtasks[0].Name != "Session 2" || page.Subtasks[0].WorkState != domain.WorkStateVerificationPending || states(page.Subtasks[0].Steps) != "done done in_review " || page.Subtasks[0].Owner.Name != "Dinakar" {
 		t.Fatalf("submitted session %+v", page)
 	}
 	page, err = src.ListSubtasks(ctx, q(ids[3]))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Subtasks) != 1 || page.Subtasks[0].WorkState != domain.WorkStateCompleted || states(page.Subtasks[0].Steps) != "done done done done " {
+	if len(page.Subtasks) != 1 || page.Subtasks[0].WorkState != domain.WorkStateCompleted || states(page.Subtasks[0].Steps) != "done done done " {
 		t.Fatalf("completed session %+v", page)
 	}
 	page, err = src.ListSubtasks(ctx, q(ids[4]))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Subtasks) != 1 || !page.Subtasks[0].NeedsAttention || page.Subtasks[0].WorkState != domain.WorkStateRejected || states(page.Subtasks[0].Steps) != "done done rework rework " {
+	if len(page.Subtasks) != 1 || !page.Subtasks[0].NeedsAttention || page.Subtasks[0].WorkState != domain.WorkStateRejected || states(page.Subtasks[0].Steps) != "done rework rework " {
 		t.Fatalf("rework session %+v", page)
 	}
 	// The retired legacy row and the other park's session drill into nothing.
