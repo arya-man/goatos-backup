@@ -82,9 +82,9 @@ The overall target was that backend+web goes from about 31 to about 17-19 min, a
   - If the holder pid has exited, the lock is stale and is reclaimed.
   - `tools/ci/land-main.test.sh` covers both cases: a refused run does not start CI and leaves the holder's lock in place; a stale lock is reclaimed and released.
   - Limit: separate clones do not share the lock. If that is needed, set `GOATOS_LAND_MAIN_LOCK_DIR` to one shared machine path.
-- g. Gradle `--build-cache` on the receipt path. `--no-daemon`, in-process Kotlin, `--max-workers=1` and full-paparazzi `--rerun-tasks` all stay.
+- g. **No change needed.** `apps/goatos-android/gradle.properties` already sets `org.gradle.caching=true`, so the receipt-path Gradle runs already use the local build cache. `--no-daemon`, in-process Kotlin and `--max-workers=1` stay. Full paparazzi keeps `--rerun-tasks`, which bypasses the cache on purpose. Raising the worker count is still an open decision that needs a recorded A/B test.
 - h. Query plans in parallel: to be assessed.
-- i. Adversarial fixtures for screenshot scope.
+- i. **DONE, and it found a real gap.** New adversarial fixtures in `check-android-screenshot-scope.test.sh` cover theme colors, type, dimens, core-ui strings (including a localized copy), app strings and the app theme. Each must be classified as UI and must force full Paparazzi. `MeshaColors.kt`, `MeshaType.kt`, `MeshaDimens.kt` and `MeshaIcons.kt` have no `@Composable`, so the detector treated design-token changes as **not UI** and skipped screenshot proof. Fix: `android-ui-diff.sh` now treats `core/core-designsystem/src/main/**/*.kt` as UI unconditionally. This makes the gate **stricter**. Remaining blind spot: non-Composable text formatters in core-ui, for example `PartitionLabel.kt`.
 - j. Persistent landing worktree: to be assessed.
 
 ## Guard preservation
@@ -120,6 +120,7 @@ Done:
 - `node --test tools/deploy/stg-*.test.mjs`: all pass (41 tests, including 1 new).
 - Fake-docker matrix for `stg-image-build.sh`: ok / builder-fail → plain / build-fail → rc.
 - The `android-mobile-build` body run with a failing apt: step rc=0 and a `failed` marker is written.
+- `check-android-screenshot-scope.test.sh`: failed before the fix (3 token fixtures) and passes after it. `check-android-ui-diff.test.sh` passes.
 - `bash tools/ci/land-main.test.sh`: passed, including the new lock and stale-lock cases.
 
 Pending:

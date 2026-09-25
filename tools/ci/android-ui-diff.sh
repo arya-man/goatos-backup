@@ -24,6 +24,11 @@
 #     cannot be resolved this silently yields "not UI". Deleting a whole screen
 #     normally also deletes its golden, which app/src/test/snapshots/* catches
 #     unconditionally.
+#   * core/core-designsystem/src/main is UI UNCONDITIONALLY: MeshaColors.kt,
+#     MeshaType.kt, MeshaDimens.kt and MeshaIcons.kt carry no @Composable yet
+#     change every screen (adversarial fixtures in
+#     check-android-screenshot-scope.test.sh). Non-Composable helpers in core-ui
+#     that format visible text (e.g. PartitionLabel.kt) remain a blind spot.
 #   * core/core-testing, device/ and benchmark/ are deliberately out of scope. If
 #     a Paparazzi fixture helper moves into core-testing, add it to the scope list.
 
@@ -68,6 +73,7 @@ android_ui_diff_detected() {
       apps/goatos-android/*/src/*/res/drawable*/*|\
       apps/goatos-android/*/src/*/res/font*/*|\
       apps/goatos-android/*/src/*/res/mipmap*/*) return 0 ;;         # Compose-visible resources
+      apps/goatos-android/core/core-designsystem/src/main/*.kt) return 0 ;; # theme/tokens/icons: no @Composable, but every screen renders them
       apps/goatos-android/app/src/main/kotlin/*.kt|\
       apps/goatos-android/app/src/debug/kotlin/*.kt|\
       apps/goatos-android/app/src/test/kotlin/*ScreenshotTest.kt|\

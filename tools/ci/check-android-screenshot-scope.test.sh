@@ -79,5 +79,25 @@ expect_full "shared drawable resource" "apps/goatos-android/app/src/main/res/dra
 expect_full "mixed scoped source" $'apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedDistributionCompleteScreen.kt\napps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingFastingCards.kt'
 expect_full "non-ui android code" "apps/goatos-android/core/core-analytics/src/main/kotlin/sg/mesha/goatos/core/analytics/BackendAnalyticsAdapter.kt"
 
+# Adversarial: shared theme / design tokens / core-ui / app-wide string
+# resources change EVERY screen. They must be detected as a UI diff and must
+# never be narrowed to a targeted subset -- only full Paparazzi proves them.
+expect_ui_full() {
+  local label="$1"
+  changed_fixture="$2"
+  if ! android_ui_diff_detected >/dev/null 2>&1; then
+    echo "!! android screenshot scope self-test: $label must be classified as an Android UI change" >&2
+    rc=1
+  fi
+  expect_full "$label" "$2"
+}
+expect_ui_full "theme colors" "apps/goatos-android/core/core-designsystem/src/main/kotlin/sg/mesha/goatos/core/designsystem/theme/MeshaColors.kt"
+expect_ui_full "theme typography tokens" "apps/goatos-android/core/core-designsystem/src/main/kotlin/sg/mesha/goatos/core/designsystem/theme/MeshaType.kt"
+expect_ui_full "theme dimension tokens" "apps/goatos-android/core/core-designsystem/src/main/kotlin/sg/mesha/goatos/core/designsystem/theme/MeshaDimens.kt"
+expect_ui_full "core-ui shared strings" "apps/goatos-android/core/core-ui/src/main/res/values/strings.xml"
+expect_ui_full "core-ui localized strings" "apps/goatos-android/core/core-ui/src/main/res/values-te/strings.xml"
+expect_ui_full "app strings" "apps/goatos-android/app/src/main/res/values/strings.xml"
+expect_ui_full "app theme resource" "apps/goatos-android/app/src/main/res/values/themes.xml"
+
 [ "$rc" = "0" ] && echo "android screenshot scope: self-test passed"
 exit "$rc"
