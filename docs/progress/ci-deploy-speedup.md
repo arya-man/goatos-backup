@@ -213,3 +213,32 @@ Dropped at the maintainer's request, so nothing custom was built. Landings queue
 | 8 | Multi-PR landing | `land.yml` input `prs` (space/comma list; `pr` still works): PRs merged in order onto a branch from origin/main (conflict fails naming the PR), one `make land-main`, each PR resolved per item 2. AGENTS.md: `gh workflow run land -f prs='x y z'`. | 74b054f3b |
 | 9 | Nits | m1-local-ci jobs use `[self-hosted, macOS, ARM64, goatos-local-ci]`. Rollout: the self-hosted runner image must be REBUILT because Alloy was removed from it. | 74b054f3b |
 | 10 | Run the two Postgres query-plan steps concurrently | FOLLOW-UP, not done: `validate-sqlc-plans`'s Docker fallback uses a fixed container/db name, so two concurrent plan runs can collide. Needs per-run scratch names first. | — |
+
+## land-main 20-min cap (PR #418, 2026-09-25)
+
+Critical path = max over parallel jobs + fetch/rebase/stamp/push overhead.
+
+| Step (critical path) | Before (PR #404 landing) | After (measured on the M1 Pro, this branch) |
+|---|---|---|
+| android `:app compile+unit+lint` | 1814 s (`--max-workers=1`, whole :app lint) | 882 s cold / 387 s warm (scoped tasks, 6 workers, shared build cache) |
+| android config-cache guard (+ self-test) | 346 s + 51 s | skipped unless Android build logic changed (220 s when it runs) |
+| android benchmark compile | 45 s | skipped unless build logic / benchmark changed |
+| gradle-worktree-lock mutation self-test | 1431 s (on any lock diff) | MODE=all + nightly only |
+| backend govulncheck | 114 s | go.mod/go.sum diff only (+ nightly) |
+| dispatch | width 3, android launched last | width 5, android launched first |
+| **ci-local wall** | ~43 min landing | **918 s cold (15.3 min, overlapped another session's ci-local) / 457 s warm (7.6 min)** |
+
+Method: throwaway local commit touching a feature module Kotlin file, a backend
+Go file and an admin-web TS file, `make ci-local` twice (cold worktree, then warm),
+commit dropped afterwards. A full-scope Android measurement (build-logic +
+design-system diff: all module unit tests + :app lint) was started and stopped
+at the maintainer's request before it finished; the build-wide scope first
+exposed that JVM modules (core-common, core-model) have `test`, not
+`testDebugUnitTest` -- fixed in 7772b7696. Worst-case (full Android set) wall
+time is therefore NOT yet measured.
+
+Moved to MODE=all + `.github/workflows/nightly-full-ci.yml` (03:00 IST,
+self-hosted, alerts via an issue on failure): every Android module's unit tests
+and lint, full Paparazzi, config-cache guard, benchmark compile, govulncheck,
+the lock mutation self-test. Budget: land-main prints per-job/total wall time and
+warns (never fails) over 20 min into `~/.goatos/land-main-budget.log`.
