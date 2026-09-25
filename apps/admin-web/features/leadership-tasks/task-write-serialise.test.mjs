@@ -186,3 +186,14 @@ test("Mentioned people can reply: the composer is shown from can_comment alone",
   assert.match(composer, /const composer = task\.canComment \?/);
   assert.doesNotMatch(composer, /isAssignee|is_assignee|is_raiser/);
 });
+
+test("New task: a blank deadline day/hour/minute is caught by the form with one clear sentence", () => {
+  // 25/09: the browser's bubble fired on the HOUR box ("Please select an item in the list") and
+  // nothing said the DAY was missing. The form now checks all three parts and says so once.
+  const modal = read("./new-task-modal.tsx");
+  assert.match(modal, /\["deadline_date", "deadline_hour", "deadline_minute"\]/);
+  assert.match(modal, /setDeadlineMissing\(true\)/);
+  const fields = read("./task-write-forms.tsx");
+  assert.match(fields, /feedback\.missing_deadline/);
+  assert.doesNotMatch(fields, /name="deadline_hour"\s*\n\s*required=/, "the Hour select must not carry native required (its bubble pre-empts the form's check)");
+});

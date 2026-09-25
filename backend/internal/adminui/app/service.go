@@ -2487,7 +2487,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"feedback.invalid_status_transition":        "That is not a move this task can make from where it is now.",
 			"feedback.missing_title":                    "A task needs a title.",
 			"feedback.missing_assignee":                 "Choose who the task is for.",
-			"feedback.missing_deadline":                 "A task needs a deadline.",
+			"feedback.missing_deadline":                 "Choose the deadline day and time.",
 			"feedback.missing_note":                     "Write the update before sending it.",
 			"feedback.invalid_deadline":                 "That deadline is not a date and time.",
 			"feedback.invalid_edit":                     "The task could not be saved. Reload the page and try again.",

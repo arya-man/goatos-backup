@@ -41,6 +41,7 @@ export function NewTaskModal({
   const [title, setTitle] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
   const [assigneeMissing, setAssigneeMissing] = useState(false);
+  const [deadlineMissing, setDeadlineMissing] = useState(false);
   const [deadlineMin, setDeadlineMin] = useState("");
   const [picked, setPicked] = useState<Record<string, number>>({});
   const chosen = assignees.find((a) => a.user_id === assigneeId);
@@ -148,7 +149,24 @@ export function NewTaskModal({
                   event.preventDefault();
                   setAssigneeMissing(true);
                   forRef.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
+                  return;
                 }
+                // The deadline is three parts (day, hour, minute) and the day picker is a hidden
+                // input the browser cannot check, so the form checks all three and says so in one
+                // sentence under the field, instead of the browser's bubble on the Hour box.
+                const data = new FormData(event.currentTarget);
+                const blank = ["deadline_date", "deadline_hour", "deadline_minute"].some(
+                  (key) => String(data.get(key) ?? "").trim() === "",
+                );
+                if (blank) {
+                  event.preventDefault();
+                  setDeadlineMissing(true);
+                  // Scrolled to, not focused: focusing the day field opens its calendar, which
+                  // adds a second red line under the field.
+                  event.currentTarget.querySelector<HTMLElement>(".lt-deadline")?.scrollIntoView({ block: "nearest" });
+                  return;
+                }
+                setDeadlineMissing(false);
               }}
             >
               <input type="hidden" name="idempotency_key" value={idempotencyKey} />
@@ -208,6 +226,7 @@ export function NewTaskModal({
                 defaultLocal=""
                 min={deadlineMin.slice(0, 10) || undefined}
                 required
+                missing={deadlineMissing}
                 label={text("new.deadline_field", "Deadline")}
                 hint={text("new.deadline_hint", "Date and time the task is due, farm clock (IST).")}
               />
