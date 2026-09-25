@@ -172,7 +172,7 @@ const problems = compare(actual, base);
 if (problems.length) {
   console.error("admin-web-heavy-client-imports guard failed:");
   for (const p of problems) console.error(`- ${p}`);
-  console.error("See docs/decisions/scale-anti-patterns.md -> Proven performance patterns (PP-14).");
+  console.error("See docs/decisions/scale-anti-patterns.md -> Proven performance patterns (PP-5).");
   process.exit(1);
 }
 console.log(`admin-web-heavy-client-imports guard: ok (${files.length} files, ${Object.keys(actual).length} baselined client module(s))`);
