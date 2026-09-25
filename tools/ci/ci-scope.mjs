@@ -283,7 +283,7 @@ function selfTest() {
   assert.deepEqual(pick(["tools/ci/run-local-ci.sh", "tools/ci/ci-scope.mjs", "tools/ci/component-paths.json"]).selectedJobs, ["common"]);
   // land.yml only drives the land queue (dispatched by land-route.sh); no ci-local job runs it.
   assert.deepEqual(pick([".github/workflows/land.yml", "tools/ci/crg-worktree-hook.sh"]).selectedJobs, ["common"]);
-  assert.equal(pick([".github/workflows/ci.yml"]).full, true);
+  assert.equal(pick([".github/workflows/ci.yml"]).full, false);
   // Build helpers sourced by other jobs (Gradle/Java/dispatch) are not common-only: they force the full suite.
   for (const helper of ["tools/ci/gradle-run.sh", "tools/ci/java21.sh", "tools/ci/parallel-dispatch.sh", "tools/ci/gradle-home.sh", "tools/ci/gradle-init/goatos-machine-lock.init.gradle"]) {
     assert.equal(pick([helper]).full, true, `${helper} must force the full suite`);
