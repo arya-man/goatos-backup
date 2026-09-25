@@ -361,7 +361,9 @@ func dropClonedDatabase(admin, pool *pgxpool.Pool, db string) error {
 // once the leaked connection is released — which the regression test uses to prove the abandoned
 // close goroutine actually terminates.
 func dropClonedDatabaseAsync(admin, pool *pgxpool.Pool, db string) (error, <-chan struct{}) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 3 min, not 30 s: on the shared OCI Postgres a DROP DATABASE waits on a checkpoint, and under
+	// load from other sessions' at-scale tests 30 s timed out and failed passing tests (land of #436).
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	closed := make(chan struct{})
