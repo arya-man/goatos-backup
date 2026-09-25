@@ -1,6 +1,6 @@
 # ADG Analytics (admin-web Weighing > ADG Analytics, /weighing/analytics)
 
-Index: 0 page scope · 1 General (KPI strip, gain cards, pens table) · 2 Breed-wise · 3 Birth-wise · 4 Pen-wise (elevated) · 5 Weight-wise (bands + feed by band) · 6 Time-wise (overall, breed, pen, load grids) · 7 Comparison (loads) · FCR tab -> fcr.md
+Index: 0 page scope · 1 General (KPI strip, gain cards, pens table) · 2 Breed-wise · 3 Birth-wise · 4 Pen-wise (by pen type) · 5 Weight-wise (bands + feed by band) · 6 Time-wise (overall, breed, pen, load grids) · 7 Comparison (loads) · FCR tab -> fcr.md
 
 All values: goatos-stg, verified 24/09/2026, params unless stated: all parks (CBE, CPT, PARIGI), 2026-08-03 .. 2026-09-22 IST, sex=male (page default), origin=all, weighing=all. Every SQL below is SELECT-only and returned exactly the app's own repository output for those params.
 
@@ -133,9 +133,9 @@ SELECT breed, origin, sum(n) animals, round(sum(gs)/sum(n)) g_per_day FROM (
 - Traps: stg purchased = only Anantapur Sheep (the farm buys sheep, breeds goats). Scanned origin match is on the canonical tag vs raw-tag lists (a double-tagged animal scanned on its secondary tag may fall out; rare).
 - CEO: "Do our own-born kids grow faster than bought ones?" / "Ghar ke paida bachhe kharide hue se zyada tez badhte hain kya?"
 
-## 4. Pen-wise (elevated vs non-elevated per breed)
+## 4. Pen-wise (daily gain per breed, one bar per pen type)
 - GET weight-demographics sections=shed_type -> gain_by_breed_shed_type (:1182, average_gain_g_per_day, Math.round) + shed_type_members (hover list of pens per bar, :1230).
-- Pen type = `shed_partitions.shed_type` (elevated | non_elevated): alias row (`alias_location_id` = weighing location) first, else physical shed (`shed_id` = resolved shed) + `normalized_label` = scrubbed partition (shed_type CTE :1002). Scanned animal takes the type of the pen of its LATEST weigh in window; pens must be single-breed (and single-sex if filtered). Pens with no active shed_partitions row are dropped. Weighing filter: individual counts only scanned, per_shed_partition only pens.
+- Pen type = `shed_partitions.shed_type`, a code from the farm's own Pen types register (`pen_types`, migration 000428, Configuration > Items and settings > Pen types; seeded elevated | non_elevated, the farm may add more). Names and order come from `pen_types` (the screen reads them from the page contract's `pen_types` option group; weighing itself never reads that table). Resolution: alias row (`alias_location_id` = weighing location) first, else physical shed (`shed_id` = resolved shed) + `normalized_label` = scrubbed partition (shed_type CTE :1002). Scanned animal takes the type of the pen of its LATEST weigh in window; pens must be single-breed (and single-sex if filtered). Pens with no active shed_partitions row are dropped. Weighing filter: individual counts only scanned, per_shed_partition only pens.
 - Value: Anantapur Sheep elevated **173 g (176)** / non-elevated **166 g (249)**; every goat breed elevated only (Beetal 127/38, Sojat 135/22 …).
 - SQL: same prefix as §3, then:
 ```sql

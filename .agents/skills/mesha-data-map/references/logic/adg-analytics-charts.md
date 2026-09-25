@@ -305,7 +305,7 @@ ORDER BY x.exited_at DESC, x.goat_id
 - CEO: "Show Castro 1 month by month" / "Castro 1 ka mahine-wise gain dikhao."
 
 ## C6 Pen-wise hover list (shed_type_members)
-- weight-demographics sections=shed_type -> shed_type_members[] (weight_demographics.go:1230): per breed × elevated/non-elevated bar, the pens contributing and their animals. SQL = adg-analytics.md §4 `stype` joined back to lump_span/resolved_gain grouped by location. Formula-only here (PARTIAL).
+- weight-demographics sections=shed_type -> shed_type_members[] (weight_demographics.go:1230): per breed × pen-type bar (types from `pen_types`), the pens contributing and their animals. SQL = adg-analytics.md §4 `stype` joined back to lump_span/resolved_gain grouped by location. Formula-only here (PARTIAL).
 
 ## C7 Pointers
 - Export drawer (header button) -> weighing.md W21. Assumptions drawer / sale-price captions -> weighing.md W22, fcr.md §6. Tab loading skeleton (weights-analytics-tab-loading.tsx) shows no figures. Comparison tab -> adg-analytics.md §7; FCR -> fcr.md.
