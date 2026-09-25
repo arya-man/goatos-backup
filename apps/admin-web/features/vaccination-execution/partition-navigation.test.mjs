@@ -15,3 +15,16 @@ test("vaccination execution drilldown preserves sibling partition identity", () 
   assert.match(drilldown, /tableLabels\(pageContract, "shed-drive-rows"\)/);
   assert.match(server, /partition_label:\s*params\.partitionLabel/);
 });
+
+test("an unavailable pen shows farm copy only: no raw id, no API error string", () => {
+  const unavailable = drilldown.slice(drilldown.indexOf("function PenUnavailable"), drilldown.indexOf("export async function ShedExecutionDetailPage"));
+  assert.ok(unavailable.length > 0, "PenUnavailable must exist");
+  assert.doesNotMatch(drilldown, /result\.error\.message/);
+  assert.doesNotMatch(unavailable, /shedId/);
+  assert.match(unavailable, /copy\(pageContract, "fallback\.title"\)/);
+  assert.match(unavailable, /copy\(pageContract, "fallback\.body"\)/);
+});
+
+test("a pen with no drive rows says so instead of an empty table", () => {
+  assert.match(drilldown, /shed\.rows\.length === 0 \? <p[^>]*>\{copy\(pageContract, "empty\.drive_rows"\)\}/);
+});
