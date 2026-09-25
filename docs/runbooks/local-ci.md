@@ -50,6 +50,59 @@ runner (FIFO, one landing CI on the Mac at a time; `GOATOS_LAND_LOCAL=1` is the
 runner/emergency override) and `GOATOS_WORKSPACE_ROOT=<dir>` refuses landings from
 a checkout outside `<dir>`. Unset, `make land-main` behaves as before.
 
+## Fast fail + fast retry
+
+A failed landing must cost minutes, and a re-land after a fix must re-run only what
+the fix could affect. Three pieces, none of which weakens a guard:
+
+**Input-keyed step cache.** Every `step` PASS is cached under a key built from
+`tools/ci/step-input-digest.mjs` (git tree ids of the step's input set at the commit),
+the job, the step name, the exact command, and CI-relevant env
+(`GOATOS_RUN_POSTGRES_TESTS`, `GOATOS_QUERY_PLAN_STEPS`, DSN presence, fast mode,
+screenshots). Input sets:
+
+| set | inputs | steps |
+|---|---|---|
+| `backend` | `backend/ contracts/ tools/ci/ tools/scale-guard/ Makefile` | go mod verify, go vet, govulncheck, sqlc vet, targeted race, `go test ./...`, scale-guard self-test |
+| `adminweb` | `apps/admin-web/ contracts/ mock/ packages/` root package/lock files, `tools/ci/ Makefile` | lint, typecheck, unit tests, mock-fidelity, request-plan, production build |
+| `android` | `apps/goatos-android/ contracts/ tools/ci/ Makefile` | `:app` compile+unit+lint, screenshots, benchmark compile |
+| `whole` | the entire tree **plus the CI base** (many guards are diff-scoped) | every other step (all make guards, query plans) |
+| `none` | never cached | `admin-web deps`, live CEO-AI eval |
+
+Only PASS is cached. The cache is off on a dirty tree, in trace mode, and with
+`GOATOS_CI_STEP_CACHE=0`. It lives in the git **common** dir
+(`goatos-ci-step-cache/`), shared by every worktree.
+
+**Receipt.** A receipt-writing run records a `steps` ledger: every PASS step with
+`status` `run` or `reused`, its input set and digest. `check-local-ci-evidence.mjs`
+recomputes each digest for the receipt SHA at record time AND at pre-push/verify; a
+reused (or run) pass whose digest differs from the pushed tree blocks the push. A
+receipt without `steps` (pre-cache, or `--reuse-after-rebase`) carries no reuse claim
+and is judged as before.
+
+**Fail fast.** In a dispatched run (auto/all, i.e. every landing), the first failing
+step writes a sentinel; the dispatcher stops ONLY the jobs it launched (leaves-first
+tree walk of its own pids; never `pkill` by name), prints the failing job's last 40
+log lines and the exact re-run line:
+
+```text
+GOATOS_CI_ONLY_STEP='<step>' tools/ci/run-local-ci.sh <job>
+```
+
+That runs just that step (other steps report SKIP), writes no receipt (it is refused
+on auto/all), and on a clean committed tree caches the PASS for the next landing.
+`GOATOS_CI_FAIL_FAST=0` restores run-everything semantics (e.g. to see every failure
+of a MODE=all sweep).
+
+**`make land-check`.** Runs the exact ci-local land-main would (temp worktree, rebased
+on fresh origin/main, same `ci-local` / `ci-local-screenshots` pick) without pushing,
+and leaves your worktree untouched. Loop: `make land-check` -> fix -> commit ->
+single-step re-run -> `make land-check` -> `make land-main` (reuses all unchanged
+passes).
+
+Self-tests: `make ci-fast-retry-guard` (`step-input-digest.mjs --self-test` +
+`tools/ci/check-ci-fast-retry.test.sh`) and `node tools/ci/check-local-ci-evidence.mjs --self-test`.
+
 ## Landing on main
 
 Codex and Claude must use this command when ordinary work or this documentation

@@ -242,3 +242,25 @@ self-hosted, alerts via an issue on failure): every Android module's unit tests
 and lint, full Paparazzi, config-cache guard, benchmark compile, govulncheck,
 the lock mutation self-test. Budget: land-main prints per-job/total wall time and
 warns (never fails) over 20 min into `~/.goatos/land-main-budget.log`.
+
+
+## 2026-09-26 — fast fail + fast retry (input-keyed step cache)
+
+Problem: `make land-main` failed at ~minute 19, the session fixed one thing and paid
+the full ~20 min again, per failure. Passes were cached by commit SHA (and not at all
+on auto/all), so any fix commit re-ran everything.
+
+Change: step PASS keyed by input digest (`tools/ci/step-input-digest.mjs`), receipt
+carries a verified step ledger, dispatch fails fast (stops only its own jobs, prints
+log tail + single-step re-run), and `make land-check` pre-warms the cache without
+pushing. Runbook: `docs/runbooks/local-ci.md` -> "Fast fail + fast retry".
+
+Expected (not yet measured on a real landing):
+
+| scenario | before | after |
+|---|---|---|
+| a step fails | RED after the longest job (~19 min) | RED within seconds of the failing step (fail-fast) |
+| re-land after a one-file backend fix | full ~20 min | backend narrow steps + whole-tree guards re-run; android/admin-web build+test reused (android is the long pole) |
+| re-land after a docs-only fix | full ~20 min | only whole-tree guards re-run (minutes) |
+| `make land-main` right after green `make land-check`, main unchanged | ~20 min | every step reused (cache lookups + receipt) |
+| main moved between check and land | ~20 min | whole-tree guards re-run (base is in their key); narrow build/test steps reused unless main touched their inputs |

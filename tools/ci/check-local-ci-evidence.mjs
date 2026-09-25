@@ -22,6 +22,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { inputDigest } from "./step-input-digest.mjs";
 
 const MAIN_REF = "refs/heads/main";
 const ZERO_SHA = "0000000000000000000000000000000000000000";
@@ -183,6 +184,46 @@ function computeScopedCoverage({ localSha, remoteSha, receipt }) {
 const SCREENSHOT_BLOCKING = "skipped-with-ui-diff";
 const SCREENSHOT_ALLOWED = new Set(["yes", "skipped", "not-applicable"]);
 
+// STEP LEDGER (input-keyed step cache). A receipt may list every PASS step with
+// the input digest it ran (or was REUSED) under. The push is accepted only when
+// each listed digest equals the digest recomputed NOW for the pushed tree
+// (tools/ci/step-input-digest.mjs — the same function run-local-ci.sh used). A
+// reused pass whose inputs differ from the final tree is therefore refused.
+// A receipt with no `steps` field carries no reuse claim (pre-cache receipts,
+// --reuse-after-rebase) and is judged exactly as before.
+export function computeStepLedger({ receipt, digestFn = (set) => inputDigest({ set, base: receipt.base, sha: receipt.sha }) }) {
+  if (!Array.isArray(receipt?.steps)) return { ok: true };
+  const memo = new Map();
+  const bad = [];
+  for (const s of receipt.steps) {
+    if (!s || typeof s.digest !== "string" || typeof s.set !== "string" || !["run", "reused"].includes(s.status)) {
+      bad.push(`malformed step entry ${JSON.stringify(s)}`);
+      continue;
+    }
+    let want;
+    try {
+      if (!memo.has(s.set)) memo.set(s.set, digestFn(s.set));
+      want = memo.get(s.set);
+    } catch (err) {
+      bad.push(`step "${s.step}": cannot recompute ${s.set} inputs (${err.message})`);
+      continue;
+    }
+    if (s.digest !== want) bad.push(`step "${s.step}" (${s.job}, ${s.status}) passed on ${s.set} inputs ${s.digest.slice(0, 12)} but the pushed tree hashes to ${String(want).slice(0, 12)}`);
+  }
+  if (bad.length) return { ok: false, reason: `step ledger does not match the pushed tree: ${bad.slice(0, 3).join("; ")}${bad.length > 3 ? ` (+${bad.length - 3} more)` : ""}; re-run \`make land-main\`` };
+  return { ok: true };
+}
+
+function readStepLedger(file) {
+  const steps = [];
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const [job, status, set, digest, ...rest] = line.split("\t");
+    steps.push({ job, status, set, digest, step: rest.join("\t") });
+  }
+  return steps;
+}
+
 function receiptCoversAndroid(receipt) {
   return receipt.mode === "all" || normalizedJobs(receipt.jobs).includes("android");
 }
@@ -195,6 +236,7 @@ export function evaluatePush({
   scopedCoverage = () => ({ ok: false, reason: "scoped coverage was not revalidated" }),
   baseAncestry = () => ({ ok: false, reason: "the receipt's diff base was not validated against remote main" }),
   mainFreshness = () => ({ ok: true }),
+  stepLedger = computeStepLedger,
 }) {
   const reasons = [];
   for (const raw of pushLines) {
@@ -221,6 +263,8 @@ export function evaluatePush({
     // branches so it applies to `all` and `scoped` receipts alike. A receipt
     // whose base is not behind remote main cannot authorize main, whatever its
     // mode: it proves nothing about the diff that is actually being pushed.
+    const ledger = stepLedger({ receipt });
+    if (!ledger.ok) reasons.push(ledger.reason);
     const ancestry = baseAncestry({ localSha, remoteSha, receipt });
     if (!ancestry.ok) reasons.push(ancestry.reason);
     // Screenshot evidence gate — checked BEFORE the mode branches so it applies
@@ -247,7 +291,7 @@ export function evaluatePush({
 
 const SCREENSHOT_STATES = ["yes", "skipped", "skipped-with-ui-diff", "not-applicable"];
 
-function record(sha, { mode, base, jobs, screenshots }) {
+function record(sha, { mode, base, jobs, screenshots, steps }) {
   // run-local-ci.sh's reachability trace mode executes nothing. It already exits
   // before the receipt block; this is the second lock on that door.
   if (["1", "true", "TRUE", "True"].includes(process.env.GOATOS_CI_TRACE_ONLY ?? "")) {
@@ -291,6 +335,14 @@ function record(sha, { mode, base, jobs, screenshots }) {
     timestamp: new Date().toISOString(),
     generatedBy: "tools/ci/run-local-ci.sh",
   };
+  if (steps) {
+    receipt.steps = readStepLedger(steps);
+    const ledger = computeStepLedger({ receipt });
+    if (!ledger.ok) {
+      console.error(`refusing to record: ${ledger.reason}`);
+      process.exit(1);
+    }
+  }
   if (mode === "scoped") {
     receipt.jobs = normalizedJobs(jobs);
     receipt.rulesHash = currentRulesHash();
@@ -630,6 +682,30 @@ function selfTest() {
     else { try { unlinkSync(tmpReceipt); } catch { /* nothing to clean up */ } }
   }
 
+  // Step ledger: a reused pass is accepted only with an identical input digest.
+  {
+    const fail = (m) => { throw new Error(`self-test: ${m}`); };
+    const r = { sha: "a".repeat(40), base: "b".repeat(40), steps: [
+      { job: "backend", status: "reused", set: "backend", digest: "d-backend", step: "backend go vet" },
+      { job: "android", status: "run", set: "android", digest: "d-android", step: "android :app compile+unit+lint" },
+    ] };
+    const same = (set) => `d-${set}`;
+    if (!computeStepLedger({ receipt: r, digestFn: same }).ok) fail("step ledger: identical input digests were refused");
+    const moved = (set) => (set === "backend" ? "d-backend-CHANGED" : `d-${set}`);
+    const res = computeStepLedger({ receipt: r, digestFn: moved });
+    if (res.ok || !/backend go vet/.test(res.reason)) fail("step ledger: a reused pass with a mismatched input hash was ACCEPTED");
+    if (!computeStepLedger({ receipt: { sha: r.sha, base: r.base }, digestFn: moved }).ok) fail("step ledger: a receipt without steps must be judged as before");
+    const bogus = { ...r, steps: [{ job: "x", status: "cached", set: "backend", digest: "d-backend", step: "s" }] };
+    if (computeStepLedger({ receipt: bogus, digestFn: same }).ok) fail("step ledger: an unknown step status was accepted");
+    const blocked = evaluatePush({
+      pushLines: [`refs/heads/x ${r.sha} refs/heads/main ${r.base}`],
+      receipt: { ...r, result: "green", mode: "all", screenshots: "yes" },
+      baseAncestry: () => ({ ok: true }),
+      stepLedger: (a) => computeStepLedger({ ...a, digestFn: moved }),
+    });
+    if (!blocked.blocked) fail("step ledger: evaluatePush let a mismatched reused pass through");
+  }
+
   console.log("local-ci-evidence guard: self-test passed");
 }
 
@@ -640,6 +716,7 @@ else if (args.includes("--record")) record(argValue(args, "--record"), {
   base: argValue(args, "--base"),
   jobs: argValue(args, "--jobs", ""),
   screenshots: argValue(args, "--screenshots", "unknown"),
+  steps: argValue(args, "--steps"),
 });
 else if (args.includes("--reuse-after-rebase")) reuseAfterRebase({
   oldSha: argValue(args, "--old-sha"),

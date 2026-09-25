@@ -27,6 +27,12 @@ set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo"
+# Per-run plumbing is owned by THIS process. A nested run (a self-test that
+# drives run-local-ci.sh inside a parent ci-local) must never inherit the
+# parent's fail-fast sentinel, step ledger or input digests: a nested failure
+# would otherwise stop the parent's jobs, and a nested digest would key the
+# wrong tree.
+unset GOATOS_CI_FAILFAST_FILE GOATOS_CI_STEP_LEDGER GOATOS_CI_DIGEST_whole GOATOS_CI_DIGEST_backend GOATOS_CI_DIGEST_adminweb GOATOS_CI_DIGEST_android
 
 sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 only="${1:-${MODE:-auto}}"
@@ -52,7 +58,6 @@ record_failure() { # name
   fail=1
 }
 declare -a FAILED_JOBS
-ci_step_cache_dir="$(git rev-parse --git-path goatos-ci-step-cache 2>/dev/null || echo .git/goatos-ci-step-cache)"
 
 fast_local_ci_enabled() {
   case "${GOATOS_FAST_LOCAL_CI:-0}" in
@@ -114,52 +119,80 @@ record_timing() { # name, status, seconds
     "$seconds" >>"$timings_jsonl_file" 2>/dev/null || true
 }
 
+# ── INPUT-KEYED STEP CACHE (fast retry) ─────────────────────────────────────
+# A step's PASS is keyed by a digest of the files that can affect it
+# (tools/ci/step-input-digest.mjs), NOT by commit SHA. A fix commit touching one
+# backend file therefore re-runs only steps whose input set moved; every other
+# step reuses its PASS. The cache lives in the git COMMON dir so land-check's
+# temp worktree and land-main share it. Guards are never weakened:
+#   * only PASS is cached, never FAIL/WARN/SKIP;
+#   * the key includes job + step name + the exact command + CI-relevant env;
+#   * the cache is OFF on a dirty tree (digests are of committed trees) and in
+#     trace mode; GOATOS_CI_STEP_CACHE=0 turns it off entirely;
+#   * every PASS (run or reused) is written to the step ledger, which the receipt
+#     carries and the pre-push gate re-verifies against the pushed tree.
+ci_step_cache_dir="$(cd "$(git rev-parse --git-common-dir 2>/dev/null || echo .git)" && pwd)/goatos-ci-step-cache"
+
 step_cache_enabled() {
   ci_trace_only && return 1
-  case "$only" in
-    auto|all) return 1 ;;
-  esac
-  [ -z "$(git status --porcelain --untracked-files=all 2>/dev/null)" ] || return 1
   case "${GOATOS_CI_STEP_CACHE:-1}" in
     0|false|FALSE|False) return 1 ;;
-    *) return 0 ;;
+  esac
+  [ -n "${GOATOS_CI_DIGEST_whole:-}" ] || return 1
+  [ -z "$(git status --porcelain --untracked-files=all 2>/dev/null)" ] || return 1
+  return 0
+}
+
+# Which input set a step sees. Narrow sets are ONLY for build/compile/test steps
+# whose inputs are exactly those directories; everything else (every make guard,
+# diff-scoped or not) is `whole`. Unknown -> whole. Widening this is a review item.
+step_input_set() { # job, step name
+  case "$1|$2" in
+    # Side-effecting setup and live external evals are NEVER reused.
+    "admin-web|admin-web deps"|*"|ceo-ai-eval live"*) echo none ;;
+    "backend|backend go mod verify"|"backend|backend go vet"|"backend|backend govulncheck"|"backend|backend sqlc vet + diff"|"backend|backend targeted race"|"backend|go test ./..."*|"backend|scale-guard self-test") echo backend ;;
+    "admin-web|admin-web lint"|"admin-web|admin-web typecheck"|"admin-web|admin-web unit tests"|"admin-web|admin-web mock-fidelity"|"admin-web|admin-web request-plan"|"admin-web|admin-web production build + token leak") echo adminweb ;;
+    "android|android :app compile+unit+lint"|"android|android screenshots"*|"android|android benchmark compile"|"android|android fast compile/unit/lint") echo android ;;
+    *) echo whole ;;
   esac
 }
 
-step_cache_key() { # name, command...
-  local name="$1"; shift
+step_input_digest_for() { # set
+  case "$1" in
+    backend)  printf '%s' "${GOATOS_CI_DIGEST_backend:-}" ;;
+    adminweb) printf '%s' "${GOATOS_CI_DIGEST_adminweb:-}" ;;
+    android)  printf '%s' "${GOATOS_CI_DIGEST_android:-}" ;;
+    *)        printf '%s' "${GOATOS_CI_DIGEST_whole:-}" ;;
+  esac
+}
+
+step_cache_key() { # digest, name, command...
+  local digest="$1" name="$2"; shift 2
   {
-    printf 'sha=%s\n' "$sha"
-    printf 'base=%s\n' "$ci_base_sha"
-    printf 'job=%s\n' "$current_job"
-    printf 'step=%s\n' "$name"
+    printf 'v=2\ndigest=%s\njob=%s\nstep=%s\n' "$digest" "$current_job" "$name"
     printf 'cmd=%q' "$@"
-    printf '\nstatus:\n'
-    git status --porcelain --untracked-files=all 2>/dev/null || true
+    printf '\nenv=pg:%s fast:%s qp:%s dsn:%s shots:%s\n' "${GOATOS_RUN_POSTGRES_TESTS:-0}" "${GOATOS_FAST_LOCAL_CI:-0}" \
+      "${GOATOS_QUERY_PLAN_STEPS-unset}" "${GOATOS_SQLC_PLAN_ADMIN_DSN:+set}" "${GOATOS_RUN_ANDROID_SCREENSHOTS:-0}"
   } | shasum -a 256 | awk '{print $1}'
 }
 
-step_cached() { # name, command...
-  local name="$1"; shift
-  if step_cache_enabled; then
-    local key marker before_failures
-    key="$(step_cache_key "$name" "$@")"
-    marker="${ci_step_cache_dir}/${key}.pass"
-    if [ -f "$marker" ]; then
-      echo "── ci-local: ${name} (cached pass for this SHA/worktree)"
-      RESULTS+=("PASS  ${name} (cached)")
-      record_timing "$name" PASS 0
-      return 0
-    fi
-    before_failures="${#FAILURES[@]}"
-    step "$name" "$@"
-    if [ "${#FAILURES[@]}" -eq "$before_failures" ]; then
-      mkdir -p "$ci_step_cache_dir" 2>/dev/null || true
-      printf '%s\t%s\t%s\n' "$sha" "$current_job" "$name" >"$marker" 2>/dev/null || true
-    fi
-    return 0
-  fi
-  step "$name" "$@"
+ledger_append() { # status(run|reused), set, digest, name
+  [ -n "${GOATOS_CI_STEP_LEDGER:-}" ] || return 0
+  printf '%s\t%s\t%s\t%s\t%s\n' "$current_job" "$1" "$2" "$3" "$4" >>"$GOATOS_CI_STEP_LEDGER" 2>/dev/null || true
+}
+
+# Retained name: callers that used the old SHA-keyed cache now get the same
+# input-keyed cache every step gets.
+step_cached() { step "$@"; }
+
+# FAIL FAST: on the first failing step, drop a sentinel the dispatcher polls.
+# The dispatcher kills ONLY the jobs it launched, prints this step's log tail and
+# the one-line single-step re-run command, and ends the run RED.
+fail_fast_signal() { # name
+  [ -n "${GOATOS_CI_FAILFAST_FILE:-}" ] || return 0
+  [ -f "$GOATOS_CI_FAILFAST_FILE" ] && return 0
+  printf '%s\t%s\n' "$current_job" "$1" >"${GOATOS_CI_FAILFAST_FILE}.tmp" 2>/dev/null && \
+    mv -f "${GOATOS_CI_FAILFAST_FILE}.tmp" "$GOATOS_CI_FAILFAST_FILE" 2>/dev/null || true
 }
 
 step() { # name, command...
@@ -169,12 +202,39 @@ step() { # name, command...
   # run cannot recurse into check-android-screenshot-proof.sh — that is
   # load-bearing, not incidental.
   if ci_trace_only; then echo "CI-TRACE ${name} :: $*"; return 0; fi
+  # Single-step re-run (printed on failure). Only in explicit JOB modes, which
+  # never write a receipt; other steps are reported SKIP, not PASS.
+  if [ -n "${GOATOS_CI_ONLY_STEP:-}" ] && [ "$name" != "$GOATOS_CI_ONLY_STEP" ]; then
+    RESULTS+=("SKIP  ${name} (GOATOS_CI_ONLY_STEP)")
+    return 0
+  fi
+  local set="" digest="" key="" marker=""
+  if step_cache_enabled; then
+    set="$(step_input_set "$current_job" "$name")"
+    [ "$set" = none ] || digest="$(step_input_digest_for "$set")"
+    if [ -n "$digest" ]; then
+      key="$(step_cache_key "$digest" "$name" "$@")"
+      marker="${ci_step_cache_dir}/${key}.pass"
+      if [ -f "$marker" ]; then
+        echo "── ci-local: ${name} (reused PASS: identical ${set} inputs)"
+        RESULTS+=("PASS  ${name} (reused, ${set} inputs unchanged)")
+        record_timing "$name" PASS 0
+        ledger_append reused "$set" "$digest" "$name"
+        return 0
+      fi
+    fi
+  fi
   echo "── ci-local: ${name}"
   local t0=$SECONDS
   if "$@"; then
     local dt=$(( SECONDS - t0 ))
     RESULTS+=("PASS  ${name} (${dt}s)")
     record_timing "$name" PASS "$dt"
+    if [ -n "$marker" ]; then
+      mkdir -p "$ci_step_cache_dir" 2>/dev/null || true
+      printf '%s\t%s\t%s\t%s\n' "$sha" "$current_job" "$set" "$name" >"$marker" 2>/dev/null || true
+      ledger_append run "$set" "$digest" "$name"
+    fi
   else
       local dt=$(( SECONDS - t0 ))
       RESULTS+=("FAIL  ${name} (${dt}s)")
@@ -182,6 +242,8 @@ step() { # name, command...
       case " ${FAILED_JOBS[*]:-} " in *" ${current_job} "*) ;; *) FAILED_JOBS+=("$current_job") ;; esac
       record_failure "${name}"
     echo "!! ci-local step FAILED: ${name}"
+    echo "!! re-run just this step: GOATOS_CI_ONLY_STEP='${name}' tools/ci/run-local-ci.sh ${current_job}"
+    fail_fast_signal "$name"
   fi
 }
 
@@ -240,6 +302,20 @@ resolve_ci_base() {
 resolve_ci_base
 receipt_base="$ci_base_sha"
 
+# Input digests, computed ONCE per run (children inherit them). Only on a clean
+# tree: they describe committed trees, so a dirty tree gets no cache at all.
+if ! ci_trace_only && [ -n "$ci_base_sha" ] && [ -z "$(git status --porcelain --untracked-files=all 2>/dev/null)" ]; then
+  for _set in whole backend adminweb android; do
+    _d="$(node tools/ci/step-input-digest.mjs --set "$_set" --base "$ci_base_sha" --sha "$sha" 2>/dev/null || true)"
+    export "GOATOS_CI_DIGEST_${_set}=${_d}"
+  done
+  unset _set _d
+fi
+GOATOS_CI_STEP_LEDGER="$(git rev-parse --git-path "goatos-ci-step-ledger-${run_id}.tsv" 2>/dev/null || echo /dev/null)"
+case "$GOATOS_CI_STEP_LEDGER" in /*) ;; *) GOATOS_CI_STEP_LEDGER="$repo/$GOATOS_CI_STEP_LEDGER" ;; esac
+: >"$GOATOS_CI_STEP_LEDGER" 2>/dev/null || true
+export GOATOS_CI_STEP_LEDGER
+
 # (c) The HEAD~1 fallback is fatal exactly where it CHANGES GATE MEANING — i.e.
 # on the receipt-writing modes. Non-certifying lanes are deliberately preserved:
 #   * GOATOS_FAST_LOCAL_CI=1 (developer inner loop) never writes a receipt;
@@ -250,6 +326,10 @@ receipt_base="$ci_base_sha"
 #     explicitly non-certifying lane printed below.
 case "$only" in
   auto|all)
+    if [ -n "${GOATOS_CI_ONLY_STEP:-}" ]; then
+      echo "!! ci-local: GOATOS_CI_ONLY_STEP is a single-step re-run for an explicit JOB; it can never run a receipt-writing '${only}' gate." >&2
+      exit 2
+    fi
     if [ "$ci_base_fallback" = "1" ] || [ -z "$ci_base_sha" ]; then
       if ! fast_local_ci_enabled; then
         echo "!! ci-local: REFUSING to run the receipt-writing gate on the HEAD~1 fallback." >&2
@@ -509,6 +589,7 @@ run_common() {
     step "parallel-dispatch cleanup self-test" bash tools/ci/check-parallel-dispatch-cleanup.test.sh
     step "android gradle scope self-test" node tools/ci/android-gradle-scope.mjs --self-test
     step "land-route self-test" bash tools/ci/land-route.test.sh
+    step "ci fast-retry (step cache + fail-fast) self-test" make ci-fast-retry-guard
   else
     RESULTS+=("SKIP  ci-tooling self-tests (no tools/ci/** diff)")
     echo "── ci-local: ci-tooling self-tests SKIPPED (no tools/ci/** diff vs base)"
@@ -1103,6 +1184,7 @@ if [ "$fail" -eq 0 ]; then
       exit 4
     fi
     receipt_args=(--record "$sha" --mode "$receipt_mode" --base "$receipt_base" --jobs "$receipt_jobs" --screenshots "$screenshots_ran")
+    if step_cache_enabled && [ -s "$GOATOS_CI_STEP_LEDGER" ]; then receipt_args+=(--steps "$GOATOS_CI_STEP_LEDGER"); fi
     node tools/ci/check-local-ci-evidence.mjs "${receipt_args[@]}" || \
       echo "!! warning: could not record local-CI evidence receipt for ${sha}" >&2
   else

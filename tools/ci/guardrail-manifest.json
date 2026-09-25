@@ -1117,6 +1117,16 @@
       "ciStep": "overlay-motion-guard"
     },
     {
+      "id": "ci-fast-retry",
+      "script": "tools/ci/step-input-digest.mjs",
+      "makeTarget": "ci-fast-retry-guard",
+      "realCheck": "node tools/ci/step-input-digest.mjs --self-test",
+      "selfTest": "bash tools/ci/check-ci-fast-retry.test.sh",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": true,
+      "ciStep": "ci-fast-retry-guard"
+    },
+    {
       "id": "parallel-dispatch-cleanup",
       "script": "tools/ci/check-parallel-dispatch-cleanup.sh",
       "makeTarget": "parallel-dispatch-cleanup-guard",

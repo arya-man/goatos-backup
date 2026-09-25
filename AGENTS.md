@@ -156,6 +156,10 @@ through ONE machine-wide queue:
   self-hosted runner queues landings FIFO. To club PRs: `gh workflow run land -R vgoats/goatos
   -f prs='x y z'` (merged in order onto fresh main, one `make land-main`, each PR's head moved
   to the landed SHA so GitHub marks it merged).
+- **Before landing (Claude AND Codex):** run `make land-check`; fix failures with the printed
+  single-step command (`GOATOS_CI_ONLY_STEP='<step>' tools/ci/run-local-ci.sh <job>`); then
+  `make land-main`, which reuses every step whose inputs are unchanged. See
+  `docs/runbooks/local-ci.md` -> "Fast fail + fast retry".
 
 ## Never Kill Another Agent's Build (Claude AND Codex)
 

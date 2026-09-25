@@ -149,6 +149,31 @@ _dispatch_clear_traps() {
   trap - INT TERM EXIT
 }
 
+# FAIL FAST (default ON; GOATOS_CI_FAIL_FAST=0 runs every job to completion).
+# A failing step() writes $GOATOS_CI_FAILFAST_FILE. The parent polls it and stops
+# ONLY the pids in live_pids — the children THIS dispatch launched — via the same
+# leaves-first tree walk the signal cleanup uses. Unrelated processes (another
+# session's Gradle, another ci-local) are never touched: we never pkill by name.
+# A stopped job leaves no status file and is scored FAILED, so fail-fast can only
+# make a run RED sooner, never green.
+ci_fail_fast_enabled() {
+  case "${GOATOS_CI_FAIL_FAST:-1}" in 0|false|FALSE|False) return 1 ;; *) return 0 ;; esac
+}
+
+_dispatch_stop_pids() { # pid...
+  local pid waited=0 alive
+  for pid in "$@"; do kill -0 "$pid" 2>/dev/null && _dispatch_kill_tree "$pid" TERM; done
+  while [ "$waited" -lt 25 ]; do
+    alive=0
+    for pid in "$@"; do kill -0 "$pid" 2>/dev/null && alive=1; done
+    [ "$alive" = 1 ] || break
+    sleep 0.2; waited=$((waited + 1))
+  done
+  for pid in "$@"; do kill -0 "$pid" 2>/dev/null && _dispatch_kill_tree "$pid" KILL; done
+  for pid in "$@"; do wait "$pid" 2>/dev/null; done
+  return 0
+}
+
 # dispatch_jobs <job>...
 # Mutates the caller's fail / RESULTS / TIMINGS / FAILED_JOBS / screenshots_ran
 # using ONLY values read back from disk.
@@ -160,6 +185,11 @@ dispatch_jobs() {
   _DISPATCH_RUNDIR="$rundir"
   _DISPATCH_ALL_PIDS=""
   _dispatch_install_traps
+  local failfast_file="" failfast_hit=""
+  if ci_fail_fast_enabled; then
+    failfast_file="$rundir/failfast"
+    export GOATOS_CI_FAILFAST_FILE="$failfast_file"
+  fi
 
   local pending=()
   local _j
@@ -235,8 +265,27 @@ dispatch_jobs() {
     [ "${#pending[@]}" -eq 0 ] && [ "${#live_pids[@]}" -eq 0 ] && break
     sleep 0.2
     _dispatch_reap
+    if [ -n "$failfast_file" ] && [ -f "$failfast_file" ]; then
+      failfast_hit="$(cat "$failfast_file" 2>/dev/null)"
+      local ff_job="${failfast_hit%%$'\t'*}" ff_step="${failfast_hit#*$'\t'}"
+      echo ""
+      echo "ci-local: FAIL FAST — step '${ff_step}' (job ${ff_job}) failed; stopping this run's other jobs"
+      echo "──────── last 40 lines of job '${ff_job}' ────────"
+      tail -n 40 "$rundir/${ff_job}.log" 2>/dev/null || true
+      echo "────────────────────────────────────────────────"
+      echo "ci-local: re-run just that step:  GOATOS_CI_ONLY_STEP='${ff_step}' tools/ci/run-local-ci.sh ${ff_job}"
+      [ "${#live_pids[@]}" -eq 0 ] || _dispatch_stop_pids "${live_pids[@]}"
+      live_pids=(); live_jobs=(); live_groups=()
+      for job in ${pending[@]+"${pending[@]}"}; do
+        RESULTS+=("FAIL  job ${job} not started (fail-fast after '${ff_step}')")
+      done
+      pending=()
+      [ -f "$rundir/${ff_job}.failures" ] || FAILURES+=("${ff_step}")
+      break
+    fi
   done
   wait  # belt and braces; every child is already terminal
+  unset GOATOS_CI_FAILFAST_FILE
 
   # ───────── accounting: the only source of truth is the filesystem ─────────
   local accounted=0 status line
@@ -283,7 +332,9 @@ dispatch_jobs() {
     printf '%s\t%s\n' "$job" "$line" >>"$wallf" 2>/dev/null || true
   done
 
-  if [ "$accounted" -ne "${#jobs[@]}" ] || [ "$accounted" -ne "$launched" ]; then
+  if [ -n "$failfast_hit" ]; then
+    fail=1
+  elif [ "$accounted" -ne "${#jobs[@]}" ] || [ "$accounted" -ne "$launched" ]; then
     fail=1
     RESULTS+=("FAIL  job accounting mismatch: selected=${#jobs[@]} launched=${launched} accounted=${accounted}")
   fi
