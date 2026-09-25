@@ -34,6 +34,8 @@ bash "$repo_root/tools/dev/ensure-android-cli.sh"
 # same in non-interactive shells.
 # shellcheck source=tools/dev/android-env.sh
 source "$repo_root/tools/dev/android-env.sh"
+# shellcheck source=tools/ci/gradle-run.sh
+source "$repo_root/tools/ci/gradle-run.sh"
 host_api_port="${GOATOS_PHONE_QA_PORT:-8080}"
 api_base="http://localhost:${host_api_port}"
 bootstrap_path="/app/bootstrap"
@@ -285,8 +287,8 @@ log "building :app:assembleDevDebug ..."
 # A command-line -P IS an input to buildConfigField, so changing it re-runs the task and the APK
 # actually carries the identity this run minted. Cheaper and more precise than --rerun-tasks,
 # which would force a full rebuild for every device.
-( cd "$android_dir" && ./gradlew :app:assembleDevDebug --console=plain -q \
-    -PgoatosDevBearerToken="$token" -PgoatosDevApiBaseUrl="http://localhost:8080/" )
+goatos_gradlew "android-dev-run assembleDevDebug" "$android_dir" :app:assembleDevDebug --console=plain -q \
+    -PgoatosDevBearerToken="$token" -PgoatosDevApiBaseUrl="http://localhost:8080/"
 apk="$android_dir/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
 [ -f "$apk" ] || die "APK not found at $apk"
 

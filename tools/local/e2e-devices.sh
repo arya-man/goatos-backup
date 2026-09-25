@@ -30,6 +30,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=tools/ci/java21.sh
 . "$REPO_ROOT/tools/ci/java21.sh"
 java21_export_or_die
+. "$REPO_ROOT/tools/ci/gradle-run.sh"
 ANDROID_DIR="$REPO_ROOT/apps/goatos-android"
 API_PORT="${GOATOS_E2E_API_PORT:-8090}"
 DEVICE_PORT=8080
@@ -75,7 +76,7 @@ for entry in "${FLEET[@]}"; do
   if [[ $VERIFY_ONLY -eq 0 ]]; then
     # One build PER ROLE: the bearer token is a compile-time BuildConfig field, so a single APK
     # across the fleet makes every phone the same person.
-    ( cd "$ANDROID_DIR" && ./gradlew :app:assembleDevDebug -PgoatosDevBearerToken="$token" --console=plain -q )
+    goatos_gradlew "e2e-devices $role" "$ANDROID_DIR" :app:assembleDevDebug -PgoatosDevBearerToken="$token" --console=plain -q
     apk="$ANDROID_DIR/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
 
     # Some handsets run the app under a secondary Android user; installing to user 0 there

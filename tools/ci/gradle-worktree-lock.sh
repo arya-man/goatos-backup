@@ -185,7 +185,9 @@ _gradle_lock_num() { # value default name
 }
 
 gradle_lock_dir() {
-  local override="${GOATOS_CI_GRADLE_LOCK_DIR:-${TMPDIR:-/tmp}}"
+  # Default /tmp, NOT $TMPDIR: an agent session can set its own TMPDIR, and a
+  # lock dir per session is no machine-wide lock at all.
+  local override="${GOATOS_CI_GRADLE_LOCK_DIR:-/tmp}"
   local home="${GRADLE_USER_HOME:-$HOME/.gradle}"
   local real key
   real="$(cd "$home" 2>/dev/null && pwd -P)" || real=""

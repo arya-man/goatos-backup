@@ -295,6 +295,8 @@ changed_since_base() {
 # trusted. See tools/ci/java21.sh.
 # shellcheck source=tools/ci/java21.sh
 . "$(dirname "${BASH_SOURCE[0]}")/java21.sh"
+# shellcheck source=tools/ci/gradle-home.sh
+. "$(dirname "${BASH_SOURCE[0]}")/gradle-home.sh"
 
 # ci_tooling_changed: true when this run should pay for the tools/ci/** self-tests.
 # FAIL-OPEN BY DESIGN: if the diff cannot be determined (no base ref, git failure,
@@ -469,6 +471,7 @@ run_common() {
     step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
     step "push-hook-freshness self-test" bash tools/ci/check-push-hook-freshness.test.sh
     step "java 21 resolver self-test" bash tools/ci/java21.test.sh
+    step "gradle home + machine queue self-test" bash tools/ci/gradle-home.test.sh
     step "parallel-dispatch cleanup self-test" bash tools/ci/check-parallel-dispatch-cleanup.test.sh
   else
     RESULTS+=("SKIP  ci-tooling self-tests (no tools/ci/** diff)")
@@ -791,6 +794,9 @@ run_android() {
   # would let two worktrees ping-pong and reproduce the contention this removes.
   # NOT skipped under GOATOS_FAST_LOCAL_CI: fast mode uses the Gradle DAEMON,
   # which is precisely the shared resource that contends.
+  # Shared Gradle home BEFORE the lock: the lock is keyed on the Gradle home,
+  # so a private temp home would both miss the cache and skip the queue.
+  ci_trace_only || gradle_home_normalize
   local lane_t0=$SECONDS
   gradle_lock_acquire "android gradle"
   gradle_lock_install_trap

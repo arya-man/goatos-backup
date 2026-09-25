@@ -34,6 +34,8 @@ bash "$repo_root/tools/dev/ensure-android-cli.sh"
 # same in non-interactive shells.
 # shellcheck source=tools/dev/android-env.sh
 source "$repo_root/tools/dev/android-env.sh"
+# shellcheck source=tools/ci/gradle-run.sh
+source "$repo_root/tools/ci/gradle-run.sh"
 api_base="http://localhost:8090"
 bootstrap_path="/app/bootstrap"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
@@ -261,7 +263,7 @@ log "device: $dev"
 log "JAVA_HOME=$JAVA_HOME"
 
 log "building :app:assembleDevDebug ..."
-( cd "$android_dir" && ./gradlew :app:assembleDevDebug --console=plain -q )
+goatos_gradlew "android-e2e-run assembleDevDebug" "$android_dir" :app:assembleDevDebug --console=plain -q
 apk="$android_dir/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
 [ -f "$apk" ] || die "APK not found at $apk"
 

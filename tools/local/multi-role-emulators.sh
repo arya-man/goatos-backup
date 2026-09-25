@@ -27,6 +27,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=tools/ci/java21.sh
 . "$REPO_ROOT/tools/ci/java21.sh"
 java21_export_or_die
+. "$REPO_ROOT/tools/ci/gradle-run.sh"
 EMU="${ANDROID_EMULATOR:-$HOME/Library/Android/sdk/emulator/emulator}"
 AVD="${GOATOS_QA_AVD:-Medium_Phone_API_36.1}"
 SHOTS="${GOATOS_QA_SHOTS:-$REPO_ROOT/.codex-goatos-render/multi-role}"
@@ -129,8 +130,8 @@ install_all() {
     fi
 
     log "building for $role (sequential -- never run two Gradle builds at once)"
-    ( cd "$android_dir" && ./gradlew :app:assembleDevDebug --console=plain -q \
-        -PgoatosDevBearerToken="$token" ) || die "build failed for $role"
+    goatos_gradlew "multi-role-emulators $role" "$android_dir" :app:assembleDevDebug --console=plain -q \
+        -PgoatosDevBearerToken="$token" || die "build failed for $role"
 
     log "installing on $role ($serial)"
     adb -s "$serial" install -r -g "$apk" >/dev/null
