@@ -54,6 +54,7 @@ func (s *Source) SourceType() string    { return SourceType }
 //
 //	closed (item OR bucket)      -> completed            (the close landed; the bucket is done)
 //	completed (item OR bucket)   -> verification_pending (submitted; the close gate waits on the verdict)
+//	this pen's feed & water removal sent back -> rejected (the removal re-shoot is owed)
 //	bucket started, a scan bounced -> rejected           (the verifier sent an animal back; re-shoot owed)
 //
 // The bucket's own status is read alongside the item's because CLOSE writes only the bucket
@@ -77,6 +78,7 @@ func (s *Source) SourceType() string    { return SourceType }
 const workStateSQL = `CASE
   WHEN w.work_state = 'closed' OR b.status = 'closed' THEN 'completed'
   WHEN w.work_state = 'completed' OR b.status = 'completed' THEN 'verification_pending'
+  WHEN ` + removalReworkExistsSQL + ` THEN 'rejected'
   WHEN b.status = 'in_progress' AND (` + reworkCountSQL + `) > 0 THEN 'rejected'
   WHEN w.work_state = 'delayed' AND (w.due_business_date - w.planned_business_date) > ` + "2" + ` THEN 'overdue'
   WHEN b.status = 'in_progress' THEN 'in_progress'
@@ -86,6 +88,7 @@ END`
 const countWorkStateSQL = `CASE
   WHEN w.work_state = 'closed' OR b.status = 'closed' THEN 'completed'
   WHEN w.work_state = 'completed' OR b.status = 'completed' THEN 'verification_pending'
+  WHEN ` + removalReworkExistsSQL + ` THEN 'rejected'
   WHEN b.status = 'in_progress' AND (` + reworkExistsSQL + `) THEN 'rejected'
   WHEN w.work_state = 'delayed' AND (w.due_business_date - w.planned_business_date) > ` + "2" + ` THEN 'overdue'
   WHEN b.status = 'in_progress' THEN 'in_progress'
@@ -113,6 +116,35 @@ const reworkExistsSQL = `
     WHERE wso.tenant_id = w.tenant_id AND wso.campaign_shed_id = w.campaign_shed_id
       AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')`
 
+// removalReworkExistsSQL is true when this PEN's feed & water removal (the evening before the
+// weigh, maintainer decision 2026-09-03) was sent back by the verifier. The removal belongs to
+// the weighing task (maintainer, 2026-09-25: "feed and water removal should come in weighing task
+// only"), and its verification items are weighing's own, which the Verification lane leaves to
+// this card -- so without this a bounced removal showed nowhere on the board.
+//
+// It is only read after the completed / in-review arms: once the pen is weighed and submitted the
+// removal re-shoot is post-hoc review that never re-blocks weighing (domain/fasting.go), and it
+// then shows in the pen list only. One fasting task per campaign (weighing_fasting_tasks_campaign_uq)
+// and one evidence row per pen of it (weighing_fasting_shed_proofs_shed_uq), so this is at most one
+// row and fans nothing out. Weighing tables only.
+const removalReworkExistsSQL = `
+  EXISTS (
+    SELECT 1 FROM weighing_fasting_tasks ft
+    JOIN weighing_fasting_shed_proofs fsp
+      ON fsp.tenant_id = ft.tenant_id AND fsp.fasting_task_id = ft.fasting_task_id
+     AND fsp.campaign_shed_id = w.campaign_shed_id
+    WHERE ft.tenant_id = w.tenant_id AND ft.campaign_id = w.campaign_id
+      AND fsp.status = 'rework')`
+
+// removalReworkCountSQL is the removal's share of the card's attention count: 1 while the pen's
+// removal is sent back and the pen is not yet submitted or closed, the same window in which
+// removalReworkExistsSQL makes the card rejected.
+const removalReworkCountSQL = `(CASE
+  WHEN w.work_state IN ('closed', 'completed') OR b.status IN ('closed', 'completed') THEN 0
+  WHEN ` + removalReworkExistsSQL + ` THEN 1
+  ELSE 0
+END)`
+
 // baseWhere binds every read to one tenant, one park and one business date, which is
 // what keeps the scan on weighing_work_items_sweep_due_idx / the park+date index rather
 // than the whole table. The business date is the CURRENT due date: a rolled-forward
@@ -132,7 +164,7 @@ WITH items AS (
          w.weighing_category, w.shed_label, w.shed_location_id,
          w.planned_business_date, w.due_business_date, w.work_state, w.rolled_forward_count,
          b.status AS bucket_status, COALESCE(b.partition_label, '') AS partition_label,
-         (` + reworkCountSQL + `) AS rework,
+         (` + reworkCountSQL + `) + ` + removalReworkCountSQL + ` AS rework,
          ` + workStateSQL + ` AS board_state
   FROM weighing_work_items w
   JOIN weighing_campaign_sheds b
@@ -360,7 +392,8 @@ func scanRow(rows ports.ResultRows) (domain.Row, error) {
 		counts.NeedsAttention = 1
 	}
 	if rework > 0 {
-		// The verifier sent scans back: those are the card's attention, and the card is amber.
+		// The verifier sent scans (or this pen's feed & water removal) back: those are the
+		// card's attention, and the card is amber.
 		counts.NeedsAttention = rework
 		if severity == domain.SeverityOK {
 			severity = domain.SeverityWatch

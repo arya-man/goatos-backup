@@ -23,27 +23,33 @@ import (
 // READ-ONLY and REPORTING-ONLY: nothing here gates a scan, a submit, a verdict or a close.
 // Reads weighing_work_items, weighing_campaign_sheds, weighing_observations and
 // weighing_shed_observations, plus workforce_members for the recorder's name.
+//
+// The pen's FEED & WATER REMOVAL (the evening before, weighing_fasting_tasks /
+// weighing_fasting_shed_proofs) is one more subtask of the same bucket whenever the campaign
+// carries a removal: it belongs to the weighing task and appears nowhere else on the board.
 
 // subtaskRankSQL is the SQL twin of domain.RankFor, stated once: needs attention (rework)
 // first, then to do, in progress, in review, done.
 //
-//	rework                                        -> 0 needs attention
+//	rework (a scan, the pen, or its removal)      -> 0 needs attention
 //	nothing weighed yet (the whole-pen to-do)     -> 1 to do
+//	removal videos not recorded yet               -> 1 to do
 //	pending, bucket still capturing               -> 2 in progress
 //	pending, submitted (bucket completed/closed)  -> 3 in review
 //	verified                                      -> 4 done
 const subtaskRankSQL = `CASE
   WHEN u.verification_status = 'rework' THEN 0
   WHEN u.kind = 'pen_todo' THEN 1
+  WHEN u.kind = 'removal' AND NOT u.submitted THEN 1
   WHEN u.verification_status = 'verified' THEN 4
   WHEN u.submitted OR u.bucket_status IN ('completed', 'closed') THEN 3
   ELSE 2
 END`
 
-// projection-review: membership=the ONE weighing_work_items row named by (tenant_id, park_id, due_business_date, work_item_id) with canceled excluded, then for an individual bucket every weighing_observations row of its campaign_shed_id and for a whole-pen bucket its single open weighing_shed_observations row (withdrawn_at IS NULL, unique per bucket by weighing_shed_observations_one_open_scope_uidx) or one synthetic to-do when there is none; group_key=(tenant_id, unit id) where the unit id is the observation id or the shed observation id or the campaign_shed_id for the synthetic to-do, so one unit is one subtask; join_cardinality=weighing_campaign_sheds on its primary key (1:1), the three UNION ALL arms are mutually exclusive on weighing_category and the NOT EXISTS so a bucket contributes exactly one arm, and workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), so nothing fans a unit out and the window total counts each unit once; pagination=keyset on (rank, unit id) ASC after ($5, $6) with LIMIT $7 and the whole count carried by count(*) OVER () computed before the keyset cut; scope=tenant_id, park_id, due_business_date and work_item_id, the same predicate the row read binds on weighing_work_items.
+// projection-review: membership=the ONE weighing_work_items row named by (tenant_id, park_id, due_business_date, work_item_id) with canceled excluded, then for an individual bucket every weighing_observations row of its campaign_shed_id and for a whole-pen bucket its single open weighing_shed_observations row (withdrawn_at IS NULL, unique per bucket by weighing_shed_observations_one_open_scope_uidx) or one synthetic to-do when there is none; group_key=(tenant_id, unit id) where the unit id is the observation id or the shed observation id or the campaign_shed_id for the synthetic to-do, so one unit is one subtask; join_cardinality=weighing_campaign_sheds on its primary key (1:1), the three weigh arms are mutually exclusive on weighing_category and the NOT EXISTS so a bucket contributes exactly one weigh arm, and the removal arm adds at most ONE unit per bucket (weighing_fasting_tasks is unique per campaign, weighing_fasting_shed_proofs unique per (fasting task, bucket), LEFT JOINed so a pen whose videos are not recorded yet is still one unit), and workforce_members filtered to status='active' whose (tenant_id,user_id) is unique by the partial active index (at most 1), so nothing fans a unit out and the window total counts each unit once; pagination=keyset on (rank, unit id) ASC after ($5, $6) with LIMIT $7 and the whole count carried by count(*) OVER () computed before the keyset cut; scope=tenant_id, park_id, due_business_date and work_item_id, the same predicate the row read binds on weighing_work_items.
 const subtasksSQL = `
 WITH item AS (
-  SELECT w.work_item_id, w.campaign_shed_id, w.weighing_category, b.status AS bucket_status
+  SELECT w.work_item_id, w.campaign_id, w.campaign_shed_id, w.weighing_category, b.status AS bucket_status
   FROM weighing_work_items w
   JOIN weighing_campaign_sheds b
     ON b.tenant_id = w.tenant_id AND b.campaign_shed_id = w.campaign_shed_id
@@ -75,6 +81,17 @@ units AS (
   WHERE i.weighing_category <> 'individual_animal'
     AND NOT EXISTS (SELECT 1 FROM weighing_shed_observations so
                      WHERE so.tenant_id = $1::uuid AND so.campaign_shed_id = i.campaign_shed_id AND so.withdrawn_at IS NULL)
+  UNION ALL
+  SELECT 'removal', 'removal:' || i.campaign_shed_id::text, '', 0, 0,
+         CASE fsp.status WHEN 'rework' THEN 'rework' WHEN 'completed' THEN 'verified' ELSE '' END,
+         COALESCE(fsp.rework_reason, ''),
+         COALESCE(fsp.status IN ('pending_verification', 'completed', 'rework'), false),
+         i.bucket_status, ft.operator_user_id
+  FROM item i
+  JOIN weighing_fasting_tasks ft ON ft.tenant_id = $1::uuid AND ft.campaign_id = i.campaign_id
+  LEFT JOIN weighing_fasting_shed_proofs fsp
+    ON fsp.tenant_id = $1::uuid AND fsp.fasting_task_id = ft.fasting_task_id
+   AND fsp.campaign_shed_id = i.campaign_shed_id
 ),
 ranked AS (
   SELECT u.*, ` + subtaskRankSQL + ` AS rank, count(*) OVER () AS total
@@ -138,6 +155,9 @@ func scanSubtask(rows pgx.Rows) (domain.Subtask, int, error) {
 		&submitted, &bucketStatus, &rank, &total, &ownerUserID, &ownerMemberID, &ownerName); err != nil {
 		return domain.Subtask{}, 0, fmt.Errorf("weighing boardsource subtask scan: %w", err)
 	}
+	if kind == "removal" {
+		return removalSubtask(unitID, status, reworkReason, submitted, rank, ownerUserID, ownerMemberID, ownerName), total, nil
+	}
 	submitted = submitted || bucketStatus == "completed" || bucketStatus == "closed"
 	closed := bucketStatus == "closed"
 
@@ -200,6 +220,39 @@ func scanSubtask(rows pgx.Rows) (domain.Subtask, int, error) {
 		Owner: domain.Owner{UserID: ownerUserID, WorkforceMemberID: ownerMemberID, Name: ownerName},
 		Steps: []domain.Step{first, submit, verify, closeStep},
 	}.Finalize(), total, nil
+}
+
+// removalSubtask is the pen's feed & water removal, the evening before the weigh (maintainer
+// decision 2026-09-03): a part of the weighing task, never a card of its own (maintainer,
+// 2026-09-25). Its chain is record the videos -> verify; it has no close of its own, and its
+// verdict never re-blocks the weigh (domain/fasting.go), so it is reported, not gated.
+func removalSubtask(unitID, status, reworkReason string, submitted bool, rank int, ownerUserID, ownerMemberID, ownerName string) domain.Subtask {
+	record := domain.Step{Name: "Record videos", State: domain.StepTodo, Detail: "Feed and water"}
+	verify := domain.Step{Name: "Verify", State: domain.StepLocked}
+	state := domain.WorkStateDue
+	attention := false
+	subtitle := "Evening before weighing"
+	switch {
+	case status == "rework":
+		record.State = domain.StepDone
+		verify.State, verify.Detail = domain.StepRework, reworkReason
+		state, attention = domain.WorkStateRejected, true
+		subtitle = "Sent back"
+	case status == "verified":
+		record.State, verify.State = domain.StepDone, domain.StepDone
+		state = domain.WorkStateCompleted
+		subtitle = "Done"
+	case submitted:
+		record.State, verify.State = domain.StepDone, domain.StepInReview
+		state = domain.WorkStateVerificationPending
+		subtitle = "In review"
+	}
+	return domain.Subtask{
+		Key: domain.SubtaskKey(rank, unitID), Name: "Feed & water removal", Subtitle: subtitle,
+		WorkState: state, NeedsAttention: attention,
+		Owner: domain.Owner{UserID: ownerUserID, WorkforceMemberID: ownerMemberID, Name: ownerName},
+		Steps: []domain.Step{record, verify},
+	}.Finalize()
 }
 
 func animalsText(n int) string {
