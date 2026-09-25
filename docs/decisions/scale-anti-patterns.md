@@ -1403,3 +1403,14 @@ A visible pen card may combine several assignments, including overdue work. Its 
 Room's identity-only task set for a selected pen must remain complete: a LIMIT on distinct task IDs silently hides saved scans and proofs. Keep roster payload windows and task-detail network reads paginated, while pruning small task identity/freshness sets when membership changes. Regression coverage includes 21 distinct tasks, 65 ready tasks, and opening a card before its second list page loads.
 
 A full membership list must also contain every source task within an assignment: a representative task cannot authorize single-task submission. Compute bounded per-pen/operator-day totals on the backend from the same dated membership used by the roster. Count an animal once across assignments and let any outstanding obligation win over completed siblings; keep vaccine doses a separate numeric count. A card becomes record-only only when all source tasks are submitted or every obligation is accepted. Do not use loaded-page task IDs or parse a human count label to reconstruct an aggregate. Regressions must include a single assignment containing multiple tasks, a completed page-one assignment with pending off-page work, future/closed-overdue exclusions, a shared animal with both completed and pending work, and a submitted task alongside an unfinished task.
+
+## Breeds are listed per farm (2026-09-26)
+
+Migration 000433 gives `breeds` a `tenant_id`, and every list or by-name lookup of breeds now
+filters on it: the Configuration register, the web and phone breed pickers, Sales' breeds per
+product and the census breed correction. Those reads are a single tenant's catalogue (tens of
+rows) behind `breeds_tenant_status_idx (tenant_id, status)`; no read gains a join or a scan of
+`goats`, and joins through `goats.breed_id` are unchanged. The phone birth list's herd side is
+the same one-table `GROUP BY` over the tenant's live goats it was before.
+
+<!-- Coupling review 2026-09-26: migrations 000432 (species and sex are configured codes) and 000433 (breeds are per farm). 000432 loosens goat/sheep and female/male CHECKs on animal_purchase_candidates, growth_sale_price_assumptions and protocol_rule_dimensions to not-blank guards; every seeded species, sex and rule selector still passes. 000433 adds breeds.tenant_id and breed_aliases.tenant_id; the oldest tenant keeps every existing row and breed_id, so seeded goats' breed_id stay valid, and seed-vaccination-real now writes its tenant on the breed insert (ON CONFLICT tenant_id, species, canonical_name). Raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity and seed closeout are unchanged. -->

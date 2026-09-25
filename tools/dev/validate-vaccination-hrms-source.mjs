@@ -831,6 +831,12 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // default 'anchored'); only generation's approved adult catch-up for a blank vaccine family with no
 // DOB/entry anchor sets 'anchor_missing_catch_up'. No source column, source date, or validation input
 // changes; HRMS seed/source imports never set it and seeded rows rely on the default.
+// Coupling review 2026-09-26: migrations 000432/000433 open species, gender and breeds to the farm's
+// Configuration lists. 000432 turns goat/sheep and female/male CHECKs on purchase candidates, sale-price
+// assumptions and protocol_rule_dimensions into not-blank guards (every seeded value still passes);
+// 000433 adds breeds.tenant_id / breed_aliases.tenant_id, the oldest tenant keeping every existing row
+// and breed_id, and seed-vaccination-real now names its tenant on the breed insert. No source column,
+// source date, fixture byte, hash, count or validation input changes.
 // Coupling review 2026-07-24: GOATOS_CPT_EXCLUDE_PPR_2026 is a CPT operator-drive
 // publication flag only. It does not rewrite source vaccination rows or remove
 // canonical PPR history validation.

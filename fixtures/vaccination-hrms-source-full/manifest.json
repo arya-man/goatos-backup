@@ -320,6 +320,11 @@
       "date": "2026-09-24",
       "change": "Migration 000421 adds obligation_instances.schedule_basis (NOT NULL, default 'anchored'; CHECK anchored|anchor_missing_catch_up). Vaccination generation stamps 'anchor_missing_catch_up' only for its approved adult catch-up of a blank vaccine family whose DOB/entry anchor is unknown; every other write path re-proves the basis under the row lock.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. HRMS seed/source imports never set schedule_basis and need no source column; seeded rows take the 'anchored' default."
+    },
+    {
+      "date": "2026-09-26",
+      "change": "Migrations 000432/000433: species, gender and breeds come from the farm's Configuration lists. 000432 turns the goat/sheep and female/male CHECKs on animal_purchase_candidates, growth_sale_price_assumptions and protocol_rule_dimensions into not-blank guards; 000433 adds breeds.tenant_id and breed_aliases.tenant_id, the oldest tenant keeping every existing row and breed_id, and seed-vaccination-real names its tenant on the breed insert.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. Every seeded species, sex and rule selector still passes the looser checks, and seeded goats keep their breed_id."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",
