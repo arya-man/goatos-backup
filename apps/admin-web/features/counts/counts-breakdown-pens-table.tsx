@@ -59,6 +59,7 @@ export function CountsBreakdownPensTable({
   noParkLabel,
   noStageLabel,
   noBreedLabel,
+  noSexLabel,
   noShedLabel,
   stages,
   stageLabels,
@@ -76,6 +77,8 @@ export function CountsBreakdownPensTable({
   noParkLabel: string;
   noStageLabel: string;
   noBreedLabel: string;
+  /** Gender column's empty label; it used to reuse the breed column's "No breed". */
+  noSexLabel?: string;
   noShedLabel: string;
   stages: StageOption[];
   /**
@@ -222,7 +225,7 @@ export function CountsBreakdownPensTable({
           sortValue: (pen) => dominantKey(pen.breeds) || noBreedLabel,
         },
         gender: {
-          cell: (pen) => composition(pen.sexes, noBreedLabel, (key) => (key === "female" ? "f" : key === "male" ? "m" : "")),
+          cell: (pen) => composition(pen.sexes, noSexLabel ?? noBreedLabel, (key) => (key === "female" ? "f" : key === "male" ? "m" : "")),
           sortValue: (pen) => dominantKey(pen.sexes),
         },
         // Female · Male for EVERY row, in the same shape as Kids · Adults beside it.

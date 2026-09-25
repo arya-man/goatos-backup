@@ -6619,6 +6619,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.unassigned_shed":       "No pen",
 			"label.unassigned_stage":      "No stage",
 			"label.unassigned_breed":      "No breed",
+			"label.unassigned_sex":        "No animals",
 			"empty.breakdown":             "No animals registered in this scope yet.",
 			"empty.breakdown_filtered":    "No animals match these filters.",
 			"state.breakdown_unavailable": "Breakdown unavailable",

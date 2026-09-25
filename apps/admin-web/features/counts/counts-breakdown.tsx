@@ -148,6 +148,7 @@ export async function CountsBreakdownPage({
   const noShedLabel = copy(pageContract, "label.unassigned_shed");
   const noStageLabel = copy(pageContract, "label.unassigned_stage");
   const noBreedLabel = copy(pageContract, "label.unassigned_breed");
+  const noSexLabel = copy(pageContract, "label.unassigned_sex");
   const emptyChartLabel = copy(pageContract, "chart.empty");
   const animalsNoun = copy(pageContract, "label.animals_noun");
 
@@ -531,6 +532,7 @@ export async function CountsBreakdownPage({
             noParkLabel={noParkLabel}
             noStageLabel={noStageLabel}
             noBreedLabel={noBreedLabel}
+            noSexLabel={noSexLabel}
             noShedLabel={noShedLabel}
             stageLabels={stageLabels}
             empty={
