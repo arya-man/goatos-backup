@@ -6,19 +6,26 @@
 # serialised FIFO by GitHub and only ONE landing CI runs on the Mac at a time.
 # Sessions kept calling `make land-main` directly (the workflow had zero runs),
 # which is exactly how two 40-minute landings ended up fighting over one Gradle
-# lock. So the handoff is the DEFAULT in code, not a line in a doc.
+# lock. So the handoff lives in code, not in a doc line -- but opt-in per machine:
 #
-#   inside the runner (GITHUB_ACTIONS=true)        -> local  (the runner IS the queue)
-#   test harness (GOATOS_LAND_TEST_MODE=1)          -> local
-#   checkout outside ~/mesha                        -> refuse (repo-location rule)
-#   GOATOS_LAND_LOCAL=1 (runner / emergency)        -> local
-#   otherwise                                       -> queue  (hand off to land.yml)
+# OPT-IN PER MACHINE: other developers' `make land-main` must never queue on
+# the maintainer's runner (it pushes with his token), so nothing changes unless
+# the machine opts in:
+#   GOATOS_WORKSPACE_ROOT=<dir>  landing from a checkout outside <dir> is refused
+#   GOATOS_LAND_VIA_QUEUE=1      laptop landings hand off to land.yml
+#
+#   inside the runner (GITHUB_ACTIONS=true)             -> local  (the runner IS the queue)
+#   test harness (GOATOS_LAND_TEST_MODE=1)               -> local
+#   GOATOS_WORKSPACE_ROOT set and checkout outside it    -> refuse
+#   GOATOS_LAND_LOCAL=1 (runner / emergency)             -> local
+#   GOATOS_LAND_VIA_QUEUE=1                              -> queue  (hand off to land.yml)
+#   otherwise                                            -> local  (today's behaviour)
 #
 # land_route_decide is PURE (reads only its arguments and the environment) so
 # tools/ci/land-route.test.sh can pin every branch without git or gh.
 
 land_route_required_root() {
-  printf '%s' "${GOATOS_LAND_REQUIRED_ROOT:-$HOME/mesha}"
+  printf '%s' "${GOATOS_WORKSPACE_ROOT:-}"
 }
 
 # land_route_decide <repo-toplevel> -> prints local | queue | refuse
@@ -27,20 +34,24 @@ land_route_decide() {
   case "${GITHUB_ACTIONS:-}" in true|TRUE|1) echo local; return 0 ;; esac
   [ "${GOATOS_LAND_TEST_MODE:-0}" = "1" ] && { echo local; return 0; }
   root="$(land_route_required_root)"
-  case "$repo/" in
-    "$root"/*) ;;
-    *) echo refuse; return 0 ;;
-  esac
+  root="${root%/}"
+  if [ -n "$root" ]; then
+    case "$repo/" in
+      "$root"/*) ;;
+      *) echo refuse; return 0 ;;
+    esac
+  fi
   case "${GOATOS_LAND_LOCAL:-0}" in 1|true|TRUE|yes) echo local; return 0 ;; esac
-  echo queue
+  case "${GOATOS_LAND_VIA_QUEUE:-0}" in 1|true|TRUE|yes) echo queue; return 0 ;; esac
+  echo local
 }
 
 land_route_refuse_message() { # repo
   cat >&2 <<EOF
 land-main: refusing to land from $1
-land-main: Goat OS work lives under $(land_route_required_root) only (see ~/.claude/CLAUDE.md).
+land-main: GOATOS_WORKSPACE_ROOT says Goat OS work on this machine lives under $(land_route_required_root) only.
 land-main: create a worktree there instead:
-land-main:   git -C ~/mesha/goatos worktree add ~/mesha/goatos-wt-<topic> origin/main
+land-main:   git -C $(land_route_required_root)/goatos worktree add $(land_route_required_root)/goatos-wt-<topic> origin/main
 EOF
 }
 

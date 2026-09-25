@@ -115,7 +115,7 @@ if [ "$test_mode" != "1" ]; then
   esac
 fi
 
-# Route first: on the laptop the default is to hand off to the land.yml queue on
+# Route first: machines that opt in (GOATOS_LAND_VIA_QUEUE=1) hand off to the land.yml queue on
 # the self-hosted runner (see tools/ci/land-route.sh for the rule and why).
 # shellcheck source=tools/ci/land-route.sh
 source "$script_dir/land-route.sh"
@@ -129,7 +129,7 @@ git rev-parse --verify HEAD >/dev/null 2>&1 || die "HEAD does not resolve to a c
 is_clean || die "worktree is dirty; commit the scoped change and run this from a clean isolated worktree"
 
 if [ "$land_route" = queue ]; then
-  echo "land-main: routing to the land queue (set GOATOS_LAND_LOCAL=1 only on the runner or in an emergency)"
+  echo "land-main: GOATOS_LAND_VIA_QUEUE=1 -> routing to the land queue (GOATOS_LAND_LOCAL=1 overrides for the runner or an emergency)"
   land_queue_handoff
   exit $?
 fi
