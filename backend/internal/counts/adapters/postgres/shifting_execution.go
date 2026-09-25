@@ -1381,7 +1381,13 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 		items = items[:pageSize]
 	}
 	page.Items = items
-	if q.RaisedFrom != nil && q.RaisedBefore != nil {
+	{
+		// ALWAYS computed, dated or not (2026-09-25): an undated read lists every date, and its
+		// tab counts were left zeroed because this block ran only when a business date was
+		// selected -- 20 rows under a Pending tab reading 0. The date bounds are the SAME nullable
+		// predicate the page query applies ($2/$3), so the counts cover exactly the rows the tabs
+		// list.
+		//
 		// Each FILTER mirrors ONE branch of the page predicate above, so a tab's count is exactly what
 		// that tab lists. 'all' excludes 'pending' because an unapproved movement is not in the
 		// operator's work list; it is reachable only through its own read-only Pending tab. 'rework'
@@ -1393,12 +1399,14 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
  count(*) FILTER (WHERE event_status='authorized' AND verification_state <> 'rejected'),
  count(*) FILTER (WHERE verification_state='rejected' AND event_status NOT IN ('canceled', 'rejected', 'pending')),
  count(*) FILTER (WHERE event_status='applied' AND verification_state <> 'rejected')
-FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_at < $3
+FROM shifting_events se WHERE tenant_id=$1::uuid
+  AND ($2::timestamptz IS NULL OR raised_at >= $2::timestamptz)
+  AND ($3::timestamptz IS NULL OR raised_at < $3::timestamptz)
   AND ($5::uuid IS NULL OR se.source_park_id = $5::uuid)
   AND ($6::uuid IS NULL OR se.source_shed_id = $6::uuid)
   AND `+shiftingExecutableSourceCurrentSQL("$1")+`
   AND `+shiftingActionsVisibleSQL("$4"),
-			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC(), now.UTC(), sourceParkID, sourceShedID)
+			q.TenantID, raisedFrom, raisedBefore, now.UTC(), sourceParkID, sourceShedID)
 		if err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: bind shifting actions summary: %w", err)
 		}
@@ -1407,7 +1415,10 @@ FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_
 			&page.StatusCounts.Rework, &page.StatusCounts.Completed); err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting actions summary: %w", err)
 		}
-		// Same visibility filter as the page and the counts: a previous date must not advertise work
+	}
+	if q.RaisedFrom != nil && q.RaisedBefore != nil {
+		// The previous-dates strip is relative to the SELECTED date, so it exists only for a dated
+		// read. Same visibility filter as the page and the counts: a previous date must not advertise work
 		// the operator cannot yet see when they navigate to it.
 		//
 		// And the same OUTSTANDING-WORK filter as primary_action_key, via the one shared predicate:

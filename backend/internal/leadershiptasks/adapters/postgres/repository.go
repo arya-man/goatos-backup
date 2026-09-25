@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"strings"
 	"time"
 
@@ -181,9 +182,17 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 	// reads they replaced were a third of the list's p90.
 	countArgs := []any{p.TenantID}
 	aggSQL := sqlListAggregates(&countArgs, p)
+	listQ, err := sqlbind.Bind(query, args...)
+	if err != nil {
+		return ports.Page{}, fmt.Errorf("leadership task: bind list: %w", err)
+	}
+	aggQ, err := sqlbind.Bind(aggSQL, countArgs...)
+	if err != nil {
+		return ports.Page{}, fmt.Errorf("leadership task: bind list aggregates: %w", err)
+	}
 	batch := &pgx.Batch{}
-	batch.Queue(query, args...)
-	batch.Queue(aggSQL, countArgs...)
+	batch.Queue(listQ.SQL(), listQ.Args()...)
+	batch.Queue(aggQ.SQL(), aggQ.Args()...)
 	results := r.pool.SendBatch(ctx, batch)
 
 	rows, err := results.Query()
@@ -555,9 +564,9 @@ func (r *Repository) enrichPage(ctx context.Context, tenantID string, tasks []do
 	ids, index := taskIndexOf(tasks)
 
 	batch := &pgx.Batch{}
-	batch.Queue(sqlRepository5, tenantID, ids)  // attachments
-	batch.Queue(sqlListNotes, tenantID, ids)    // notes
-	batch.Queue(sqlListMentions, tenantID, ids) // mentions of those notes
+	batch.Queue(sqlRepository5, tenantID, ids)        // attachments
+	batch.Queue(sqlListNotes, tenantID, ids)          // notes
+	queueBound(batch, sqlListMentions, tenantID, ids) // mentions of those notes
 	// No activity on a LIST row: the feed is the drawer's, and the drawer reads the detail
 	// endpoint (getRow, uncapped). Shipping every row's history on every board render was 61%
 	// of the list payload (Judge B). Android ignores the field.
@@ -787,8 +796,17 @@ type execer interface {
 type batchExec struct{ b *pgx.Batch }
 
 func (q batchExec) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	q.b.Queue(sql, args...)
+	queueBound(q.b, sql, args...)
 	return pgconn.CommandTag{}, nil
+}
+
+// queueBound queues one sqlbind-checked statement on the batch (the
+// sales/adapters/postgres precedent). The SQL and its arguments are validated together, so a
+// placeholder/argument mismatch is a programmer error caught at the queue, never a batch that
+// fails later on the wire.
+func queueBound(batch *pgx.Batch, query string, args ...any) *pgx.QueuedQuery {
+	bound := sqlbind.MustBind(query, args...)
+	return batch.Queue(bound.SQL(), bound.Args()...)
 }
 
 // drainBatch sends a write-only batch and surfaces the first statement that failed, named.
@@ -811,9 +829,9 @@ func drainBatch(ctx context.Context, q batchQuerier, b *pgx.Batch, what string) 
 func (r *Repository) lockedRowWithReservation(ctx context.Context, tx pgx.Tx, tenantID, taskID, scope, key, fingerprint string) (idemReservation, domain.Task, error) {
 	scoped := idemScopedKey(tenantID, scope, key)
 	b := &pgx.Batch{}
-	b.Queue(sqlIdempotency1, scoped, tenantID, scope, fingerprint)
-	b.Queue(fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2 FOR UPDATE OF t`, taskColumns, taskFrom), tenantID, taskID)
-	b.Queue(sqlListParticipants, tenantID, []string{taskID})
+	queueBound(b, sqlIdempotency1, scoped, tenantID, scope, fingerprint)
+	queueBound(b, fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2 FOR UPDATE OF t`, taskColumns, taskFrom), tenantID, taskID)
+	queueBound(b, sqlListParticipants, tenantID, []string{taskID})
 	results := tx.SendBatch(ctx, b)
 	defer results.Close()
 
@@ -854,7 +872,11 @@ func (r *Repository) lockedRowWithReservation(ctx context.Context, tx pgx.Tx, te
 		// same key. The second query of reserveIdempotency decides which; one more trip only
 		// on this rare path.
 		var existingHash, status, resultType, resultID string
-		if err := tx.QueryRow(ctx, sqlIdempotency2, scoped).Scan(&existingHash, &status, &resultType, &resultID); err != nil {
+		existingQ, err := sqlbind.Bind(sqlIdempotency2, scoped)
+		if err != nil {
+			return idemReservation{}, domain.Task{}, err
+		}
+		if err := tx.QueryRow(ctx, existingQ.SQL(), existingQ.Args()...).Scan(&existingHash, &status, &resultType, &resultID); err != nil {
 			return idemReservation{}, domain.Task{}, err
 		}
 		if existingHash != fingerprint {
@@ -871,12 +893,12 @@ func (r *Repository) lockedRowWithReservation(ctx context.Context, tx pgx.Tx, te
 func (r *Repository) fullRow(ctx context.Context, q batchQuerier, tenantID, taskID string) (domain.Task, error) {
 	ids := []string{taskID}
 	b := &pgx.Batch{}
-	b.Queue(fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2`, taskColumns, taskFrom), tenantID, taskID)
+	queueBound(b, fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2`, taskColumns, taskFrom), tenantID, taskID)
 	b.Queue(sqlRepository5, tenantID, ids)
 	b.Queue(sqlListNotes, tenantID, ids)
-	b.Queue(sqlListMentions, tenantID, ids)
-	b.Queue(sqlListParticipants, tenantID, ids)
-	b.Queue(sqlListEventsWindow, tenantID, ids, domain.ActivityWindow+1)
+	queueBound(b, sqlListMentions, tenantID, ids)
+	queueBound(b, sqlListParticipants, tenantID, ids)
+	queueBound(b, sqlListEventsWindow, tenantID, ids, domain.ActivityWindow+1)
 	results := q.SendBatch(ctx, b)
 	defer results.Close()
 	t, err := scanTask(results.QueryRow())
@@ -899,8 +921,8 @@ func (r *Repository) PeekTask(ctx context.Context, tenantID, taskID string) (dom
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	b := &pgx.Batch{}
-	b.Queue(fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2`, taskColumns, taskFrom), tenantID, taskID)
-	b.Queue(sqlListParticipants, tenantID, []string{taskID})
+	queueBound(b, fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2`, taskColumns, taskFrom), tenantID, taskID)
+	queueBound(b, sqlListParticipants, tenantID, []string{taskID})
 	results := r.pool.SendBatch(ctx, b)
 	defer results.Close()
 	t, err := scanTask(results.QueryRow())
@@ -945,7 +967,11 @@ func (r *Repository) getRow(ctx context.Context, q batchQuerier, tenantID, taskI
 		lock = " FOR UPDATE OF t"
 	}
 	query := fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2%s`, taskColumns, taskFrom, lock)
-	t, err := scanTask(q.QueryRow(ctx, query, tenantID, taskID))
+	getQ, err := sqlbind.Bind(query, tenantID, taskID)
+	if err != nil {
+		return domain.Task{}, fmt.Errorf("leadership task: bind get: %w", err)
+	}
+	t, err := scanTask(q.QueryRow(ctx, getQ.SQL(), getQ.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Task{}, ports.ErrTaskNotFound
 	}
@@ -973,11 +999,11 @@ func (r *Repository) enrichWith(ctx context.Context, q batchQuerier, tenantID st
 	}
 	ids, index := taskIndexOf(tasks)
 	batch := &pgx.Batch{}
-	batch.Queue(sqlRepository5, tenantID, ids)                               // attachments
-	batch.Queue(sqlListNotes, tenantID, ids)                                 // notes
-	batch.Queue(sqlListMentions, tenantID, ids)                              // mentions of those notes
-	batch.Queue(sqlListParticipants, tenantID, ids)                          // mention-granted readers
-	batch.Queue(sqlListEventsWindow, tenantID, ids, domain.ActivityWindow+1) // activity, newest window (+1 to learn has-more)
+	batch.Queue(sqlRepository5, tenantID, ids)                                     // attachments
+	batch.Queue(sqlListNotes, tenantID, ids)                                       // notes
+	queueBound(batch, sqlListMentions, tenantID, ids)                              // mentions of those notes
+	queueBound(batch, sqlListParticipants, tenantID, ids)                          // mention-granted readers
+	queueBound(batch, sqlListEventsWindow, tenantID, ids, domain.ActivityWindow+1) // activity, newest window (+1 to learn has-more)
 	results := q.SendBatch(ctx, batch)
 	defer results.Close()
 	if err := scanBatchInto(results, tasks, index); err != nil {
