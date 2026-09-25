@@ -3351,6 +3351,11 @@ select:disabled { opacity: .45; }
 .wgrouped-legend .wgl.s1{background:var(--muted)}
 /* A third series (the Comparison tab's gain bar) needs its own tone, or it borrows the first. */
 .wgrouped-legend .wgl.s2{background:var(--teal)}
+/* Pen types are the farm's own list (Configuration -> Pen types), so the Pen-wise chart can carry
+   more than three series; each further series takes its own existing theme tone. */
+.wgrouped-legend .wgl.s3{background:var(--info)}
+.wgrouped-legend .wgl.s4{background:var(--purple)}
+.wgrouped-legend .wgl.s5{background:var(--amber)}
 /* The "which sheds are behind this bar" note. It hangs off the bar's OWN label, not the legend
    (maintainer, 2026-09-02) — a pen holds one breed, so a per-series list would name mostly other
    breeds' pens. CSS-ONLY on :hover and :focus-within, so the card stays a server component.
@@ -3400,6 +3405,9 @@ select:disabled { opacity: .45; }
 .wgrouped .wbar .wbt i.s0{background:var(--brand)}
 .wgrouped .wbar .wbt i.s1{background:var(--muted)}
 .wgrouped .wbar .wbt i.s2{background:var(--teal)}
+.wgrouped .wbar .wbt i.s3{background:var(--info)}
+.wgrouped .wbar .wbt i.s4{background:var(--purple)}
+.wgrouped .wbar .wbt i.s5{background:var(--amber)}
 .wgrouped .wbar .wbt i.neg{background:var(--danger)}
 /* Phone width cannot hold label + count + bar + value in one row. Keep the value beside the
    label, then put the bar on its own line so grams/kg remain visible instead of clipping past

@@ -7,6 +7,13 @@ import (
 	"github.com/vgoats/goatos/backend/internal/health/domain"
 )
 
+// farmPenTypes is the Pen types register as migration 000428 seeds it. The tests below read it as
+// DATA, the way the read does, so none of them teaches that these two are the only kinds of pen.
+var farmPenTypes = []domain.HealthPenType{
+	{Key: "elevated", Name: "Elevated", Active: true},
+	{Key: "non_elevated", Name: "Non-elevated", Active: true},
+}
+
 // THE PROPERTY THE WHOLE SECTION RESTS ON: four charts that cut one total must each add back
 // up to it. They only can because every arm buckets its unknowns instead of dropping them --
 // a case whose animal has no breed, whose pen nobody has typed, or whose animal has no date of
@@ -20,7 +27,7 @@ func TestHealthProblemBreakdownsEachSumToTheTotal(t *testing.T) {
 	byPenType := map[string]int64{"elevated": 15, "non_elevated": 6, "unclassified": 2}
 	byAge := map[string]int64{"d31_90": 9, "over_1y": 10, "unknown": 4}
 
-	got := buildHealthProblems(byBreed, byPenType, byAge)
+	got := buildHealthProblems(byBreed, byPenType, byAge, farmPenTypes)
 
 	if got.Total != 23 {
 		t.Fatalf("total = %d, want 23 (the pen-type arm, which is complete by construction)", got.Total)
@@ -52,7 +59,7 @@ func TestHealthProblemsPenTypeUsesCaseSnapshotNotCurrentGoatPartition(t *testing
 // A pen type with no cases is a ZERO, never a missing bar. An empty side that vanishes makes the
 // chart read as though the farm only has one kind of pen.
 func TestPenTypeSpineKeepsEmptySidesAsZeros(t *testing.T) {
-	got := buildHealthProblems(map[string]int64{"Beetal": 5}, map[string]int64{"elevated": 5}, map[string]int64{"over_1y": 5})
+	got := buildHealthProblems(map[string]int64{"Beetal": 5}, map[string]int64{"elevated": 5}, map[string]int64{"over_1y": 5}, farmPenTypes)
 
 	if len(got.ByPenType) != 3 {
 		t.Fatalf("pen type has %d bars, want all 3 even when two are empty", len(got.ByPenType))
@@ -78,7 +85,7 @@ func TestBreedCapNeverMovesTheHeadline(t *testing.T) {
 		byBreed[string(rune('A'+i))+"-breed"] = int64(i + 1)
 		expected += int64(i + 1)
 	}
-	got := buildHealthProblems(byBreed, map[string]int64{"elevated": expected}, map[string]int64{"over_1y": expected})
+	got := buildHealthProblems(byBreed, map[string]int64{"elevated": expected}, map[string]int64{"over_1y": expected}, farmPenTypes)
 
 	if len(got.ByBreed) != domain.HealthAnalyticsBreedLimit {
 		t.Fatalf("breed bars = %d, want the cap of %d", len(got.ByBreed), domain.HealthAnalyticsBreedLimit)
@@ -108,11 +115,76 @@ func TestUnknownBreedIsNamedAndSortsOnItsSize(t *testing.T) {
 		map[string]int64{"Beetal": 3, domain.HealthProblemBreedUnknown: 30},
 		map[string]int64{"elevated": 33},
 		map[string]int64{"over_1y": 33},
+		farmPenTypes,
 	)
 	if got.ByBreed[0].Key != domain.HealthProblemBreedUnknown {
 		t.Fatalf("first bar = %+v, want the unknown bucket, which is the biggest here", got.ByBreed[0])
 	}
 	if got.ByBreed[0].Label != domain.HealthProblemBreedUnknownLabel {
 		t.Fatalf("unknown breed label = %q, want farm copy %q", got.ByBreed[0].Label, domain.HealthProblemBreedUnknownLabel)
+	}
+}
+
+// A pen type the FARM adds on Configuration -> Pen types appears on the chart with its own name,
+// in the register's order, with no code change -- the whole point of the register (maintainer
+// instruction 2026-09-25). "Not set" stays last.
+func TestAFarmAddedPenTypeIsItsOwnBarInRegisterOrder(t *testing.T) {
+	types := []domain.HealthPenType{
+		{Key: "slatted", Name: "Slatted floor", Active: true},
+		{Key: "elevated", Name: "Elevated", Active: true},
+		{Key: "non_elevated", Name: "Non-elevated", Active: true},
+	}
+	got := buildHealthProblems(
+		map[string]int64{"Beetal": 10},
+		map[string]int64{"slatted": 4, "elevated": 5, "unclassified": 1},
+		map[string]int64{"over_1y": 10},
+		types,
+	)
+	want := []domain.HealthAnalyticsProblemBucket{
+		{Key: "slatted", Label: "Slatted floor", Cases: 4},
+		{Key: "elevated", Label: "Elevated", Cases: 5},
+		{Key: "non_elevated", Label: "Non-elevated", Cases: 0},
+		{Key: domain.HealthPenTypeUnclassified, Label: domain.HealthPenTypeUnclassifiedLabel, Cases: 1},
+	}
+	if len(got.ByPenType) != len(want) {
+		t.Fatalf("pen type bars = %+v, want %+v", got.ByPenType, want)
+	}
+	for i := range want {
+		if got.ByPenType[i] != want[i] {
+			t.Fatalf("bar %d = %+v, want %+v", i, got.ByPenType[i], want[i])
+		}
+	}
+	if got.Total != 10 {
+		t.Fatalf("total = %d, want 10", got.Total)
+	}
+}
+
+// An ARCHIVED type is kept off the chart while no case sits in its pens, and shown -- under its
+// own name -- while some do, so the total never loses a case to a housekeeping click. A key the
+// register does not name at all still counts toward the total.
+func TestArchivedAndUnknownPenTypesNeverLoseACase(t *testing.T) {
+	types := []domain.HealthPenType{
+		{Key: "elevated", Name: "Elevated", Active: true},
+		{Key: "old_idle", Name: "Old idle", Active: false},
+		{Key: "old_used", Name: "Old used", Active: false},
+	}
+	got := buildHealthProblems(
+		map[string]int64{"Beetal": 9},
+		map[string]int64{"elevated": 3, "old_used": 2, "stray": 4},
+		map[string]int64{"over_1y": 9},
+		types,
+	)
+	keys := []string{}
+	for _, bucket := range got.ByPenType {
+		keys = append(keys, bucket.Key)
+		if bucket.Key == "old_used" && bucket.Label != "Old used" {
+			t.Fatalf("archived type lost its name: %+v", bucket)
+		}
+	}
+	if strings.Join(keys, ",") != "elevated,old_used,stray,unclassified" {
+		t.Fatalf("pen type keys = %v, want elevated,old_used,stray,unclassified", keys)
+	}
+	if got.Total != 9 {
+		t.Fatalf("total = %d, want 9: no case may be dropped", got.Total)
 	}
 }

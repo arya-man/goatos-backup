@@ -71,6 +71,9 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if out.Designations, out.RevisionInputs["designations"], err = r.listDesignations(ctx); err != nil {
 		return out, err
 	}
+	if out.PenTypes, out.RevisionInputs["pen-types"], err = r.listPenTypes(ctx, tenantID); err != nil {
+		return out, err
+	}
 	if out.UIConfig, out.RevisionInputs["admin-ui-config-values"], err = r.listUIConfigEntries(ctx, tenantID); err != nil {
 		return out, err
 	}
@@ -399,6 +402,42 @@ func (r *Repository) listSOPTaskTypes(ctx context.Context, tenantID string) ([]a
 		return nil, nil, "", err
 	}
 	return types, kinds, rev.String(), nil
+}
+
+// listPenTypesSQL reads the farm's Pen types register (migration 000428), archived rows included
+// (Title = "archived") so a pen still carrying one keeps its name on a chart. A handful of rows;
+// the LIMIT is a backstop.
+const listPenTypesSQL = `
+SELECT pen_type_key, name, status, updated_at::text
+FROM pen_types
+WHERE tenant_id = $1::uuid
+ORDER BY sort_order, lower(name), pen_type_key
+LIMIT 200`
+
+func (r *Repository) listPenTypes(ctx context.Context, tenantID string) ([]app.ReferenceOption, string, error) {
+	rows, err := r.pool.Query(ctx, listPenTypesSQL, tenantID)
+	if err != nil {
+		return nil, "", fmt.Errorf("adminui: list pen types: %w", err)
+	}
+	defer rows.Close()
+	var out []app.ReferenceOption
+	var rev strings.Builder
+	for rows.Next() {
+		var key, name, status, updated string
+		if err := rows.Scan(&key, &name, &status, &updated); err != nil {
+			return nil, "", err
+		}
+		title := ""
+		if status != "active" {
+			title = "archived"
+		}
+		out = append(out, app.ReferenceOption{Key: key, Label: name, Title: title})
+		rev.WriteString(key + "|" + name + "|" + status + "|" + updated + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	return out, rev.String(), nil
 }
 
 // listDesignationsSQL reads the designation catalog (a global, tens-of-rows table) for the

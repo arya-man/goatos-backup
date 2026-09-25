@@ -77,3 +77,42 @@ func TestPenTypeBackfillCarriesTheRetiredNameList(t *testing.T) {
 		t.Fatal("the backfill writes the retired 'ground' key; the key is 'non_elevated'")
 	}
 }
+
+// PEN TYPES ARE THE FARM'S OWN LIST (migration 000428, maintainer instruction 2026-09-25). The
+// decoders used to drop any bucket whose code was not elevated or non_elevated, so a third kind of
+// pen authored on Configuration -> Pen types would have been weighed, grouped by the SQL, and then
+// silently thrown away here -- a missing bar with no error anywhere. Any non-empty code is kept;
+// the chart takes each code's name from the page contract.
+func TestShedTypeDecodersKeepAPenTypeTheFarmAdded(t *testing.T) {
+	buckets, err := decodeWeightGainShedTypeBuckets([]byte(`[["Beetal","slatted_floor",4,151.5],["Beetal","elevated",6,140],["Beetal","",3,90]]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var types []string
+	for _, b := range buckets {
+		types = append(types, b.ShedType)
+	}
+	if strings.Join(types, ",") != "slatted_floor,elevated" {
+		t.Fatalf("decoded bucket types = %v, want the farm-added type kept and only the blank one dropped", types)
+	}
+	members, err := decodeShedTypeMembers([]byte(`[["Beetal","slatted_floor","aaaaaaaa-0000-4000-8000-000000000001",null,"Godel 3","p-cbe","Coimbatore"]]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 1 || members[0].ShedType != "slatted_floor" {
+		t.Fatalf("decoded members = %+v, want the farm-added type's pen listed", members)
+	}
+}
+
+// Weighing names no pen type of its own: the code is the bucket key and nothing more.
+func TestWeighingNamesNoPenTypeOfItsOwn(t *testing.T) {
+	for _, file := range []string{"weight_demographics.go", "../../domain/weight_demographics.go"} {
+		text, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if strings.Contains(string(text), `"elevated"`) || strings.Contains(string(text), `"non_elevated"`) {
+			t.Fatalf("%s names a pen type literally; pen types come from the Pen types register", file)
+		}
+	}
+}

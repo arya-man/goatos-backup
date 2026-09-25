@@ -112,6 +112,7 @@ type Register struct {
 // Register keys.
 const (
 	RegParks      = "parks"
+	RegPenTypes   = "pen_types"
 	RegPens       = "pens"
 	RegPartitions = "partitions"
 	RegSpecies    = "species"
@@ -262,6 +263,23 @@ var Registers = []Register{
 		},
 	},
 	{
+		// PEN TYPES ARE THE FARM'S OWN LIST (maintainer instruction 2026-09-25: "after park,
+		// before pens, we need pen type ... elevated, non-elevated, whatever we use in weighing or
+		// anywhere in future should not be hard coded, it should come from here"). Migration 000428
+		// replaced the elevated | non_elevated CHECK with this table and made the partition's
+		// shed_type a foreign key into it, so the Partitions dropdown, Weighing's Pen-wise chart and
+		// Health's pen-type cut all read one list. The code is the key those readers group by and
+		// is immutable; the name is only a label and may be renamed at any time.
+		Key: RegPenTypes, Label: "Pen types", One: "Pen type", Group: GroupFarmPlaces,
+		Hint: "The kinds of pen the farm builds, such as elevated or non-elevated. Each partition is given one; Weighing and Health Analytics compare them.",
+		Columns: []Column{
+			{Key: "name", Label: "Name", Type: TypeText, Required: true},
+			{Key: "code", Label: "Code", Type: TypeCode, Immutable: true, Hint: "Lowercase key such as elevated; cannot change once saved. Left blank, one is made from the name."},
+			{Key: "description", Label: "Description", Type: TypeNotes, ListHidden: true},
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true, Hint: "Charts show pen types in this order."},
+		},
+	},
+	{
 		// A PEN IS A BUILDING IN A PARK, AND NOTHING ELSE (maintainer instruction 2026-09-22: "no
 		// need stage and gender, ICU, all that -- what I keep is my wish; just pens and mapping to
 		// park"). Stage, Gender and ICU described what is KEPT in a pen, which is a daily herd
@@ -292,9 +310,9 @@ var Registers = []Register{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "pen_id", Label: "Pen", Type: TypeRef, Ref: RegPens, Required: true},
 			{Key: "label", Label: "Label", Type: TypeText, Required: true, Hint: "Part 3 and 3 are the same partition."},
-			{Key: "shed_type", Label: "Pen type", Type: TypeEnum,
-				Options: []Option{{Value: "elevated", Label: "Elevated"}, {Value: "non_elevated", Label: "Non-elevated"}},
-				Hint:    "Elevated pens keep the animals off the ground. Weighing and Health Analytics compare the two kinds. Left blank, this pen is reported as unclassified rather than counted into either side."},
+			// The choices are the Pen types register (migration 000428), never a list typed here.
+			{Key: "shed_type", Label: "Pen type", Type: TypeRef, Ref: RegPenTypes,
+				Hint: "Weighing and Health Analytics compare pens by type. Left blank, this pen is reported as unclassified rather than counted into any type."},
 			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
 		},
 	},

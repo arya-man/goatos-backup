@@ -19734,10 +19734,12 @@ components:
         by_pen_type:
           type: array
           description: >-
-            Always exactly three buckets in a FIXED order -- elevated, non-elevated, pen type
-            not set -- so the two sides never swap places between windows and an empty side
-            reads as a zero rather than vanishing. The class is configured per pen on
-            Configuration -> Items and settings -> Pens, never guessed from the pen's name.
+            One bucket per pen type in the farm's Pen types register (Configuration -> Items and
+            settings -> Pen types), in that register's order, then "pen type not set" last. Every
+            active type is present even at zero, so the bars never swap places between windows and
+            an empty type reads as a zero rather than vanishing; an archived type appears only while
+            cases sit in its pens. A pen's type is configured per partition, never guessed from the
+            pen's name. Keys are the register's codes; labels are its names.
           items:
             $ref: "#/components/schemas/HealthAnalyticsProblemBucket"
         by_age:
@@ -40297,15 +40299,14 @@ components:
       additionalProperties: false
       required: [label, shed_type, animals, average_gain_g_per_day]
       description: >-
-        One breed's daily gain for ONE physical pen type, for the Pen-wise comparison Manju asked
-        for. It compares elevated pens against non-elevated pens. The class is CONFIGURED per pen
-        on Configuration -> Items and settings -> Pens; a pen nobody has typed is omitted from
-        both sides rather than guessed from its name.
+        One breed's daily gain for ONE pen type, for the Pen-wise comparison. Pen types are the
+        farm's own register (Configuration -> Items and settings -> Pen types) and each partition
+        is given one; a pen nobody has typed is omitted rather than guessed from its name.
       properties:
         label: {type: string, description: The breed, as stored.}
         shed_type:
           type: string
-          enum: [elevated, non_elevated]
+          description: "A code from the farm's Pen types register. The page contract's pen_types option group carries each code's name and order."
         animals:
           type: integer
           description: Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed.
@@ -40329,7 +40330,7 @@ components:
           description: "The breed whose bar this pen sits behind; matches WeighingWeightGainShedTypeBucket.label."
         shed_type:
           type: string
-          enum: [elevated, non_elevated]
+          description: "A code from the farm's Pen types register; matches WeighingWeightGainShedTypeBucket.shed_type."
         location_id: {type: string, format: uuid}
         partition_label: {type: string, description: "Empty for an undivided shed."}
         park_id: {type: string, description: "Empty when the shed's parent does not resolve to a park."}
@@ -40541,7 +40542,7 @@ components:
           items: {$ref: "#/components/schemas/WeighingWeightGainOriginBucket"}
         gain_by_breed_shed_type:
           type: array
-          description: "Daily gain per breed split by elevated vs non-elevated pen type, as configured per pen. Unclassified pens are omitted rather than guessed."
+          description: "Daily gain per breed split by pen type, as configured per partition from the farm's Pen types register. Unclassified pens are omitted rather than guessed."
           items: {$ref: "#/components/schemas/WeighingWeightGainShedTypeBucket"}
         shed_type_members:
           type: array

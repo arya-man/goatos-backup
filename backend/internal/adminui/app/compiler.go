@@ -83,7 +83,13 @@ type ReferenceFamilies struct {
 	// Key = designation code, Label = job title. The SOP step editor's "Done by" select
 	// (SALES SOP, 2026-09-19) is compiled from it, never from a constant list.
 	Designations []ReferenceOption
-	UIConfig     []ConfigEntry
+	// PenTypes is the farm's Pen types register (pen_types, migration 000428): Key = the code
+	// stored on shed_partitions.shed_type, Label = its name, in the farm's order, archived types
+	// included so a pen still carrying one keeps its name on a chart. Weighing returns only the
+	// code (pen_types is not on weighing's table allowlist), so the Pen-wise chart takes names and
+	// order from this family -- never from a constant list.
+	PenTypes []ReferenceOption
+	UIConfig []ConfigEntry
 	// WeighingWeightsPages is the tenant's weighing_calendar_config row, compiled
 	// into both page contracts. SQL edits bump the admin-ui family revision.
 	// Nil (new tenant without an authored row) uses the documented initial defaults.
@@ -976,6 +982,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// the group empty; the parks themselves are tenant rows and must never be
 			// constants in contract code.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "weighing_parks", optionsFromReferences(families.Parks, "info"))
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "pen_types", optionsFromReferences(families.PenTypes, ""))
 			// Tenant DB calendar configuration (maintainer request 2026-09-16): the window the two
 			// pages open on and the earliest calendar day come from the database row, not
 			// a client constant. Served as copy keys the pages read verbatim.

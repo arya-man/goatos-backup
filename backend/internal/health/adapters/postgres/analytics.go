@@ -615,6 +615,7 @@ func (r *Repository) GetHealthAnalytics(ctx context.Context, req domain.HealthAn
 	batch.Queue(healthAnalyticsDeathsSQL, req.TenantID, from, to, parkID, domain.HealthAnalyticsDeathListLimit)
 	batch.Queue(healthAnalyticsNeverDiagnosedSQL, req.TenantID, from, to, parkID)
 	batch.Queue(healthAnalyticsProblemsSQL, req.TenantID, from, to, parkID)
+	batch.Queue(healthAnalyticsPenTypesSQL, req.TenantID)
 
 	results := r.pool.SendBatch(ctx, batch)
 
@@ -880,10 +881,41 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 	if err := problemRows.Err(); err != nil {
 		return nil, fmt.Errorf("health analytics: problems rows: %w", err)
 	}
-	out.Problems = buildHealthProblems(byBreed, byPenType, byAge)
+
+	// The pen-type spine is the farm's own register, never a list in code.
+	penTypeRows, err := results.Query()
+	if err != nil {
+		return nil, fmt.Errorf("health analytics: pen types query: %w", err)
+	}
+	var penTypes []domain.HealthPenType
+	for penTypeRows.Next() {
+		var pt domain.HealthPenType
+		var status string
+		if err := penTypeRows.Scan(&pt.Key, &pt.Name, &status); err != nil {
+			penTypeRows.Close()
+			return nil, fmt.Errorf("health analytics: pen types scan: %w", err)
+		}
+		pt.Active = status == "active"
+		penTypes = append(penTypes, pt)
+	}
+	penTypeRows.Close()
+	if err := penTypeRows.Err(); err != nil {
+		return nil, fmt.Errorf("health analytics: pen types rows: %w", err)
+	}
+	out.Problems = buildHealthProblems(byBreed, byPenType, byAge, penTypes)
 
 	return shedIDs, nil
 }
+
+// healthAnalyticsPenTypesSQL is the farm's Pen types register (migration 000428), every row
+// active or archived, in the order the farm set -- the spine of the pen-type cut. Bounded: a farm
+// has a handful of pen types; the LIMIT is a backstop, not a page.
+const healthAnalyticsPenTypesSQL = `
+SELECT pen_type_key, name, status
+FROM pen_types
+WHERE tenant_id = $1::uuid
+ORDER BY sort_order, lower(name), pen_type_key
+LIMIT 200`
 
 // buildHealthProblems orders the three breakdowns and takes the section's total from the
 // PEN-TYPE arm, which is complete by construction: every case has exactly one pen-type
@@ -893,23 +925,43 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 // The BREED arm is the only one capped, and it is capped AFTER the total is taken. A farm
 // with more breeds than the cap sees the busiest ones; the page's own copy says so, and the
 // headline stays the whole window's count rather than the sum of the bars under it.
-func buildHealthProblems(byBreed, byPenType, byAge map[string]int64) domain.HealthAnalyticsProblems {
+func buildHealthProblems(byBreed, byPenType, byAge map[string]int64, penTypes []domain.HealthPenType) domain.HealthAnalyticsProblems {
 	out := domain.HealthAnalyticsProblems{
 		ByBreed:   []domain.HealthAnalyticsProblemBucket{},
 		ByPenType: []domain.HealthAnalyticsProblemBucket{},
 		ByAge:     []domain.HealthAnalyticsProblemBucket{},
 	}
 
-	// Pen type: the fixed three-bar spine, always all three, so a side with no cases
-	// reads as a zero rather than disappearing and making the chart look like one kind
-	// of pen is all the farm has.
-	for _, key := range domain.HealthPenTypeOrder {
-		count := byPenType[key]
+	// Pen type: the farm's register in its own order, then "not set" last. Every
+	// ACTIVE type is kept at zero so a side with no cases reads as a zero rather than
+	// disappearing; an archived type is shown only while cases sit in its pens. A key
+	// with cases that the register does not name (impossible behind the foreign key,
+	// but the total must never lose a case) is still bucketed, under its own key.
+	seen := map[string]bool{domain.HealthPenTypeUnclassified: true}
+	for _, pt := range penTypes {
+		seen[pt.Key] = true
+		count := byPenType[pt.Key]
+		if !pt.Active && count == 0 {
+			continue
+		}
 		out.Total += count
-		out.ByPenType = append(out.ByPenType, domain.HealthAnalyticsProblemBucket{
-			Key: key, Label: domain.HealthPenTypeLabel(key), Cases: count,
-		})
+		out.ByPenType = append(out.ByPenType, domain.HealthAnalyticsProblemBucket{Key: pt.Key, Label: pt.Name, Cases: count})
 	}
+	var strays []string
+	for key := range byPenType {
+		if !seen[key] {
+			strays = append(strays, key)
+		}
+	}
+	sort.Strings(strays)
+	for _, key := range strays {
+		out.Total += byPenType[key]
+		out.ByPenType = append(out.ByPenType, domain.HealthAnalyticsProblemBucket{Key: key, Label: key, Cases: byPenType[key]})
+	}
+	out.Total += byPenType[domain.HealthPenTypeUnclassified]
+	out.ByPenType = append(out.ByPenType, domain.HealthAnalyticsProblemBucket{
+		Key: domain.HealthPenTypeUnclassified, Label: domain.HealthPenTypeUnclassifiedLabel, Cases: byPenType[domain.HealthPenTypeUnclassified],
+	})
 
 	// Age: the fixed band spine, youngest first, unknown last. A band with no cases is
 	// kept for the same reason -- the gap between bands is the shape being read.

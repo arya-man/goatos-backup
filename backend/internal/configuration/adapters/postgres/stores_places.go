@@ -269,7 +269,8 @@ SELECT concat_ws(':', x.shed_id::text, x.normalized_label) AS id,
        0 AS row_version,
        false AS is_builtin,
        jsonb_build_object('park_id', s.parent_location_id::text, 'pen_id', x.shed_id::text, 'label', x.partition_label, 'sort_order', x.display_order, 'shed_name', s.name, 'shed_type', x.shed_type) AS fields,
-       jsonb_strip_nulls(jsonb_build_object('park_id', p.name, 'pen_id', s.name)) AS labels,
+       -- The pen type's NAME from the Pen types register (000428), so a rename shows at once.
+       jsonb_strip_nulls(jsonb_build_object('park_id', p.name, 'pen_id', s.name, 'shed_type', pt.name)) AS labels,
        jsonb_build_object(
          'animals', (SELECT count(*) FROM goat_shed_partitions gp JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id
                      WHERE gp.tenant_id = x.tenant_id AND gp.shed_id = x.shed_id AND g.lifecycle_status = 'alive'
@@ -279,6 +280,8 @@ SELECT concat_ws(':', x.shed_id::text, x.normalized_label) AS id,
 FROM shed_partitions x
 JOIN locations s ON s.tenant_id = x.tenant_id AND s.location_id = x.shed_id
 JOIN locations p ON p.tenant_id = s.tenant_id AND p.location_id = s.parent_location_id
+-- 1:{0,1}: pen_types is keyed (tenant_id, pen_type_key), so this can never multiply a partition.
+LEFT JOIN pen_types pt ON pt.tenant_id = x.tenant_id AND pt.pen_type_key = x.shed_type
 WHERE x.tenant_id = $1`}
 
 // decoratePartition composes the display through oploc so it reads "Godel 1 - Part 3" here
@@ -335,6 +338,9 @@ func (partitionStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[str
 	if normalized == oploc.WholeSentinel {
 		return "", &ports.DuplicateError{Field: "label", Message: "Give the partition a label such as Part 3 or 2."}
 	}
+	if err := requirePenType(ctx, tx, t, domain.FieldString(f, "shed_type"), ""); err != nil {
+		return "", err
+	}
 	if _, err := tx.Exec(ctx, sqlPlaces9, t, penID, label, normalized, nullInt(f, "sort_order"), nullText(f, "shed_type")); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -390,6 +396,13 @@ func (partitionStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map
 		}
 	}
 	if sent(f, "shed_type") {
+		var current string
+		if err := tx.QueryRow(ctx, sqlPlacesPenTypeOf, t, shedID, normalized).Scan(&current); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+		if err := requirePenType(ctx, tx, t, domain.FieldString(f, "shed_type"), current); err != nil {
+			return "", err
+		}
 		if _, err := tx.Exec(ctx, sqlPlaces11, t, shedID, normalized, nullText(f, "shed_type")); err != nil {
 			return "", err
 		}
@@ -573,6 +586,13 @@ WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'aliv
 	sqlPlaces9 = `
 INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, display_order, source, shed_type)
 VALUES ($1, $2::uuid, $3, $4, 'active', $5, 'manual', $6)`
+	// The pen type a partition carries now, so an edit that leaves it alone is not refused
+	// merely because that type has since been archived.
+	sqlPlacesPenTypeOf = `
+SELECT COALESCE(shed_type, '') FROM shed_partitions
+WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`
+	sqlPlacesPenTypeActive = `
+SELECT status FROM pen_types WHERE tenant_id = $1 AND pen_type_key = $2`
 	sqlPlaces11 = `
 UPDATE shed_partitions SET shed_type = $4, updated_at = now()
 WHERE tenant_id = $1 AND shed_id = $2::uuid AND normalized_label = $3`
@@ -581,3 +601,32 @@ SELECT count(*) FROM goat_shed_partitions gp JOIN goats g ON g.tenant_id = gp.te
 WHERE gp.tenant_id = $1 AND gp.shed_id = $2::uuid AND g.lifecycle_status = 'alive'
   AND regexp_replace(lower(btrim(gp.partition_label)), '^part[[:space:]]+', '') = $3`
 )
+
+// requirePenType refuses a pen type the farm has not authored on the Pen types register, or one it
+// has archived (migration 000428). Empty clears the type and is always allowed; a partition that
+// already carries an archived type may keep it, because refusing an unrelated edit to that row
+// would force the farm to reclassify a pen just to rename it. The foreign key is the backstop; this
+// is what turns the refusal into a sentence on the Pen type field.
+func requirePenType(ctx context.Context, tx pgx.Tx, tenantID, code, current string) error {
+	if code == "" || code == current {
+		return nil
+	}
+	var status string
+	err := tx.QueryRow(ctx, sqlPlacesPenTypeActive, tenantID, code).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return &ports.RefError{Field: "shed_type", Label: "pen type"}
+	}
+	if err != nil {
+		return err
+	}
+	if status != "active" {
+		return &ports.RefError{Field: "shed_type", Label: "active pen type"}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pen types (pen_types, migration 000428): the kinds of pen a partition is given, authored by the
+// farm. The same keyed shape as the SOP vocabularies; a type still given to a partition cannot be
+// removed -- archive it instead -- and the usage count says how many pens carry it.
+var penTypeStore = keyedStore{table: "pen_types", keyCol: "pen_type_key", checks: []usageCheck{{"partitions", `SELECT count(*) FROM shed_partitions WHERE tenant_id = $1 AND shed_type = $2`}}}

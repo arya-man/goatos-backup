@@ -1035,7 +1035,13 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
 }
 
 /**
- * PEN-WISE — elevated pen against non-elevated pen, per breed.
+ * PEN-WISE — daily gain per breed, one bar per PEN TYPE.
+ *
+ * The pen types, their names and their order are the farm's own register (Configuration -> Items
+ * and settings -> Pen types, migration 000428), served on the page contract as the `pen_types`
+ * option group. Weighing returns only each bucket's type CODE, so nothing here names a pen type:
+ * a type the farm adds tomorrow becomes a new series with no code change (maintainer instruction
+ * 2026-09-25).
  */
 function ShedTab({
   pageContract,
@@ -1045,16 +1051,28 @@ function ShedTab({
   demo: WeightDemographicsResponse | null;
 }) {
   const buckets = demo?.gain_by_breed_shed_type ?? [];
-  const elevated = new Map(buckets.filter((b) => b.shed_type === "elevated").map((b) => [b.label, b]));
-  const nonElevated = new Map(buckets.filter((b) => b.shed_type === "non_elevated").map((b) => [b.label, b]));
-  const breeds = [...new Set([...elevated.keys(), ...nonElevated.keys()])].sort((a, b) =>
+  const penTypes = pageContract.option_groups.find((group) => group.id === "pen_types")?.options ?? [];
+  const withData = new Set(buckets.map((b) => b.shed_type));
+  // Legend order is the register's. An ACTIVE type is listed even with no bar, so a missing side
+  // reads as absent rather than unmentioned; an archived type only while its pens still count.
+  const series = penTypes
+    .filter((type) => type.title !== "archived" || withData.has(type.key))
+    .map((type) => ({ key: type.key, scaleKey: "gain", label: type.label, unit: "g", fractionDigits: 0 }));
+  const known = new Set(series.map((entry) => entry.key));
+  const byType = new Map<string, Map<string, (typeof buckets)[number]>>();
+  for (const bucket of buckets) {
+    if (!known.has(bucket.shed_type)) continue;
+    const perBreed = byType.get(bucket.shed_type) ?? new Map();
+    perBreed.set(bucket.label, bucket);
+    byType.set(bucket.shed_type, perBreed);
+  }
+  const breeds = [...new Set(buckets.filter((b) => known.has(b.shed_type)).map((b) => b.label))].sort((a, b) =>
     a.localeCompare(b, undefined, { numeric: true }),
   );
-  // WHICH PENS ARE BEHIND THIS BAR. The elevated/non-elevated split is configured per pen on
-  // Configuration -> Items and settings -> Pens -- a setting the chart cannot show, so the
-  // reader was being asked to accept two bars on trust. The backend sends the pens each bar
-  // actually counted, already composed and already in natural order, and each bar carries them
-  // behind a small `i`.
+  // WHICH PENS ARE BEHIND THIS BAR. A pen's type is configured per partition in Configuration --
+  // a setting the chart cannot show, so the reader was being asked to accept each bar on trust.
+  // The backend sends the pens each bar actually counted, already composed and already in natural
+  // order, and each bar carries them behind a small `i`.
   //
   // PER BAR, not per series (maintainer, 2026-09-02): a pen holds one breed, so a list on the
   // legend would name mostly pens behind some OTHER breed's bar. These are also the CONTRIBUTING
@@ -1066,7 +1084,7 @@ function ShedTab({
   // tell the two pens apart. With a park selected there is one group and no heading, so the
   // ordinary case stays a plain list. Park names, like the shed names, arrive from the backend.
   const members = demo?.shed_type_members ?? [];
-  const hintFor = (breed: string, shedType: "elevated" | "non_elevated") => {
+  const hintFor = (breed: string, shedType: string) => {
     const mine = members.filter((m) => m.label === breed && m.shed_type === shedType);
     const parks: string[] = [];
     for (const member of mine) {
@@ -1091,26 +1109,16 @@ function ShedTab({
 
   const groups: BarGroup[] = breeds.map((breed) => {
     const bars: GroupedBar[] = [];
-    const elevatedBucket = elevated.get(breed);
-    const nonElevatedBucket = nonElevated.get(breed);
-    if (elevatedBucket) {
+    for (const type of series) {
+      const bucket = byType.get(type.key)?.get(breed);
+      if (!bucket) continue;
       bars.push({
-        key: `${breed}-elevated`,
-        label: copy(pageContract, "view.shed_type.elevated"),
-        value: Math.round(elevatedBucket.average_gain_g_per_day),
-        seriesKey: "elevated",
-        noteLabel: `${elevatedBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
-        hint: hintFor(breed, "elevated"),
-      });
-    }
-    if (nonElevatedBucket) {
-      bars.push({
-        key: `${breed}-non-elevated`,
-        label: copy(pageContract, "view.shed_type.non_elevated"),
-        value: Math.round(nonElevatedBucket.average_gain_g_per_day),
-        seriesKey: "non_elevated",
-        noteLabel: `${nonElevatedBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
-        hint: hintFor(breed, "non_elevated"),
+        key: `${breed}-${type.key}`,
+        label: type.label,
+        value: Math.round(bucket.average_gain_g_per_day),
+        seriesKey: type.key,
+        noteLabel: `${bucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        hint: hintFor(breed, type.key),
       });
     }
     return { key: breed, heading: breed, bars };
@@ -1124,10 +1132,7 @@ function ShedTab({
       <p className="muted small">{copy(pageContract, "section.shed.caption")}</p>
       <GroupedBars
         groups={groups}
-        series={[
-          { key: "elevated", scaleKey: "gain", label: copy(pageContract, "view.shed_type.elevated"), unit: "g", fractionDigits: 0 },
-          { key: "non_elevated", scaleKey: "gain", label: copy(pageContract, "view.shed_type.non_elevated"), unit: "g", fractionDigits: 0 },
-        ]}
+        series={series}
         emptyLabel={copy(pageContract, "empty.shed.body")}
         chartLabel={copy(pageContract, "section.shed.aria")}
       />

@@ -5669,14 +5669,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.birth.aria":    "Daily gain by breed and origin",
 			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
 
-			// Pen-wise. Exactly the comparison requested in the voice note: elevated pens
-			// against ground pens within every breed.
-			"section.shed.title":          "Elevated vs ground pens",
-			"section.shed.caption":        "Daily gain for each breed, split by physical pen type: elevated pen against ground pen. A pen without that profile is left out rather than guessed.",
-			"section.shed.aria":           "Daily gain by breed and pen type",
-			"empty.shed.body":             "No pen-type profile has daily gain in this period. Add elevated or ground pen profiles, then weigh twice.",
-			"view.shed_type.elevated":     "Elevated pen",
-			"view.shed_type.non_elevated": "Non-elevated pen",
+			// Pen-wise: daily gain per breed, one bar per PEN TYPE. The types and their names are
+			// the farm's Pen types register (migration 000428), served as the pen_types option group;
+			// no pen type is named in this copy (maintainer instruction 2026-09-25).
+			"section.shed.title":   "Daily gain by pen type",
+			"section.shed.caption": "Daily gain for each breed, split by pen type. Pen types are set in Configuration, Items and settings, Pen types, and each partition is given one. A pen with no type is left out rather than guessed.",
+			"section.shed.aria":    "Daily gain by breed and pen type",
+			"empty.shed.body":      "No typed pen has daily gain in this period. Give partitions a pen type in Configuration, then weigh twice.",
 			// The two bars come out of a classification the reader cannot see on the chart, so each
 			// legend entry carries an info affordance naming the pens behind it. Backend-owned
 			// copy, rendered verbatim -- the client composes no part of this sentence.
@@ -6379,9 +6378,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"problems.chart.breed.hint": "Which breeds the farm is treating most. Read it against how many of each breed " +
 				"the farm keeps: a breed with twice the animals will show more problems without being less healthy.",
 			"problems.chart.pen_type.title": "Health problems by pen type",
-			"problems.chart.pen_type.hint": "Elevated pens against non-elevated ones. A pen's type is set on its own row " +
-				"in Configuration, Items and settings, Pens; problems in a pen nobody has typed are shown separately " +
-				"rather than counted into either side.",
+			"problems.chart.pen_type.hint": "One bar per pen type. Pen types are set in Configuration, Items and settings, " +
+				"Pen types, and each partition is given one; problems in a pen nobody has typed are shown separately " +
+				"rather than counted into any type.",
 			"problems.chart.age.title": "Health problems by age",
 			"problems.chart.age.hint": "How old each animal was when the case was opened, not how old it is today. " +
 				"Animals with no date of birth on record are shown in their own band.",

@@ -7971,7 +7971,7 @@ export interface components {
             total: number;
             /** @description Most problems first, then by label. Capped at the busiest 15 breeds, AFTER `total` is taken, so the cap never moves the headline. */
             by_breed: components["schemas"]["HealthAnalyticsProblemBucket"][];
-            /** @description Always exactly three buckets in a FIXED order -- elevated, non-elevated, pen type not set -- so the two sides never swap places between windows and an empty side reads as a zero rather than vanishing. The class is configured per pen on Configuration -> Items and settings -> Pens, never guessed from the pen's name. */
+            /** @description One bucket per pen type in the farm's Pen types register (Configuration -> Items and settings -> Pen types), in that register's order, then "pen type not set" last. Every active type is present even at zero, so the bars never swap places between windows and an empty type reads as a zero rather than vanishing; an archived type appears only while cases sit in its pens. A pen's type is configured per partition, never guessed from the pen's name. Keys are the register's codes; labels are its names. */
             by_pen_type: components["schemas"]["HealthAnalyticsProblemBucket"][];
             /** @description The animal's age WHEN THE CASE WAS OPENED, in the same bands the mortality board uses, youngest first and "Age not recorded" last. Always the full spine, including empty bands, because the gap between bands is the shape being read. */
             by_age: components["schemas"]["HealthAnalyticsProblemBucket"][];
@@ -17602,12 +17602,12 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
-        /** @description One breed's daily gain for ONE physical pen type, for the Pen-wise comparison Manju asked for. It compares elevated pens against non-elevated pens. The class is CONFIGURED per pen on Configuration -> Items and settings -> Pens; a pen nobody has typed is omitted from both sides rather than guessed from its name. */
+        /** @description One breed's daily gain for ONE pen type, for the Pen-wise comparison. Pen types are the farm's own register (Configuration -> Items and settings -> Pen types) and each partition is given one; a pen nobody has typed is omitted rather than guessed from its name. */
         WeighingWeightGainShedTypeBucket: {
             /** @description The breed */
             label: string;
-            /** @enum {string} */
-            shed_type: "elevated" | "non_elevated";
+            /** @description A code from the farm's Pen types register. The page contract's pen_types option group carries each code's name and order. */
+            shed_type: string;
             /** @description Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed. */
             animals: number;
             /** Format: double */
@@ -17617,8 +17617,8 @@ export interface components {
         WeighingShedTypeMember: {
             /** @description The breed whose bar this pen sits behind; matches WeighingWeightGainShedTypeBucket.label. */
             label: string;
-            /** @enum {string} */
-            shed_type: "elevated" | "non_elevated";
+            /** @description A code from the farm's Pen types register; matches WeighingWeightGainShedTypeBucket.shed_type. */
+            shed_type: string;
             /** Format: uuid */
             location_id: string;
             /** @description Empty for an undivided shed. */
@@ -17743,7 +17743,7 @@ export interface components {
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
             /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
-            /** @description Daily gain per breed split by elevated vs non-elevated pen type, as configured per pen. Unclassified pens are omitted rather than guessed. */
+            /** @description Daily gain per breed split by pen type, as configured per partition from the farm's Pen types register. Unclassified pens are omitted rather than guessed. */
             gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];
             /** @description Which sheds each BAR counted, so the classification behind it is inspectable. Ordered by breed, then class, then park, then shed name in natural order. */
             shed_type_members: components["schemas"]["WeighingShedTypeMember"][];

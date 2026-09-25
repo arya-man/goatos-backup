@@ -2104,7 +2104,7 @@ func decodeWeightGainShedTypeBuckets(raw []byte) ([]domain.WeightGainShedTypeBuc
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
-		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "non_elevated") {
+		if json.Unmarshal(row[1], &shedType) != nil || strings.TrimSpace(shedType) == "" {
 			continue
 		}
 		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {
@@ -2153,7 +2153,7 @@ func decodeShedTypeMembers(raw []byte) ([]domain.ShedTypeMember, error) {
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
-		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "non_elevated") {
+		if json.Unmarshal(row[1], &shedType) != nil || strings.TrimSpace(shedType) == "" {
 			continue
 		}
 		if json.Unmarshal(row[2], &locationID) != nil || locationID == "" {

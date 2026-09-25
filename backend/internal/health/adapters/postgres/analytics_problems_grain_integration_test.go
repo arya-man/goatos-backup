@@ -47,8 +47,21 @@ func assertProblemsAddUp(t *testing.T, problems domain.HealthAnalyticsProblems) 
 	}
 }
 
+// The pen types these tests type pens with. They are ROWS of the tenant's Pen types register
+// (migration 000428), created here the way the farm creates them on Configuration.
+const (
+	testPenElevated    = "elevated"
+	testPenNonElevated = "non_elevated"
+)
+
 func setPenType(t *testing.T, ctx context.Context, pool *pgxpool.Pool, shedID, penType string) {
 	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO pen_types (tenant_id, pen_type_key, name, sort_order)
+VALUES ($1::uuid, 'elevated', 'Elevated', 10), ($1::uuid, 'non_elevated', 'Non-elevated', 20)
+ON CONFLICT (tenant_id, pen_type_key) DO NOTHING`, healthTenant); err != nil {
+		t.Fatalf("seed pen types: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, shed_type)
 VALUES ($2::uuid, $1::uuid, 'Part 1', '1', 'active', 'manual', $3)
@@ -73,7 +86,7 @@ func TestHealthProblemsOneToManyCountsEachEpisodeOnceAcrossEveryBreakdown(t *tes
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
-	setPenType(t, ctx, pool, healthShed, domain.HealthPenTypeElevated)
+	setPenType(t, ctx, pool, healthShed, testPenElevated)
 	if _, err := pool.Exec(ctx, `UPDATE goats SET breed = 'Beetal' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		healthTenant, analyticsDeadGoat); err != nil {
 		t.Fatalf("set breed: %v", err)
@@ -110,7 +123,7 @@ LIMIT 1`, healthTenant, analyticsDeadGoat); err != nil {
 	if n := problemBucket(t, got.Problems.ByBreed, "Beetal"); n != 2 {
 		t.Fatalf("Beetal = %d, want 2", n)
 	}
-	if n := problemBucket(t, got.Problems.ByPenType, domain.HealthPenTypeElevated); n != 2 {
+	if n := problemBucket(t, got.Problems.ByPenType, testPenElevated); n != 2 {
 		t.Fatalf("elevated = %d, want 2; a second shed_profiles row must never multiply a case", n)
 	}
 	assertProblemsAddUp(t, got.Problems)
@@ -127,7 +140,7 @@ func TestHealthProblemsBreedPaginationCapNeverMovesTheTotal(t *testing.T) {
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
-	setPenType(t, ctx, pool, healthShed, domain.HealthPenTypeNonElevated)
+	setPenType(t, ctx, pool, healthShed, testPenNonElevated)
 
 	repo := NewRepository(pool, 30*time.Second)
 	diagnoseFever(t, ctx, pool, analyticsDeadGoat, "problems-cap-seed")
@@ -192,7 +205,7 @@ func TestHealthProblemsParkScopeNarrowsEveryBreakdownTogether(t *testing.T) {
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
-	setPenType(t, ctx, pool, healthShed, domain.HealthPenTypeElevated)
+	setPenType(t, ctx, pool, healthShed, testPenElevated)
 
 	repo := NewRepository(pool, 30*time.Second)
 	diagnoseFever(t, ctx, pool, analyticsDeadGoat, "problems-scope-in")
@@ -211,7 +224,7 @@ VALUES ($3::uuid,$1::uuid,'shed','CBE-H1','Other Pen',$2::uuid,'active') ON CONF
 		healthTenant, otherPark, otherShed); err != nil {
 		t.Fatalf("seed other pen: %v", err)
 	}
-	setPenType(t, ctx, pool, otherShed, domain.HealthPenTypeNonElevated)
+	setPenType(t, ctx, pool, otherShed, testPenNonElevated)
 	if _, err := pool.Exec(ctx, `
 WITH new_goat AS (
   INSERT INTO goats (tenant_id, display_id, species, breed, sex, lifecycle_status, age_band,
@@ -249,7 +262,7 @@ LIMIT 1`, healthTenant, healthParty, otherPark, otherShed); err != nil {
 	if narrow.Problems.Total != 1 {
 		t.Fatalf("one park total = %d, want 1", narrow.Problems.Total)
 	}
-	if n := problemBucket(t, narrow.Problems.ByPenType, domain.HealthPenTypeNonElevated); n != 0 {
+	if n := problemBucket(t, narrow.Problems.ByPenType, testPenNonElevated); n != 0 {
 		t.Fatalf("the other park's non-elevated pen leaked into the scoped read: %d", n)
 	}
 	assertProblemsAddUp(t, narrow.Problems)

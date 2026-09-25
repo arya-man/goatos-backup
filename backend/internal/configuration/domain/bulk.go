@@ -292,7 +292,7 @@ func (b ImportBundle) Totals() (total, valid, invalid, applied, failed int) {
 // static registers, each independent of the others.
 var WorkbookOrder = []string{
 	RegSpecies, RegSexes, RegStages, // a pen names the stage it is kept for
-	RegParks, RegPens, RegPartitions,
+	RegParks, RegPenTypes, RegPens, RegPartitions,
 	RegCategories, RegItems,
 	RegSOPCategories, RegTaskTypes,
 	RegAnimals,
