@@ -55,6 +55,16 @@ import java.util.UUID
 private const val CLOCK_PUNCH_MAX_ATTEMPTS = 1000
 
 /**
+ * The Sales writes' budget (sale, receipt, status, lead): the same long-outage budget as a clock
+ * punch. On the phone (2026-09-26) a sale and a receipt recorded while the API was unreachable
+ * burned the default eight attempts in about four minutes and went terminal -- never retried
+ * after reconnect, while the screen said "It reaches the ledger when the phone is online" -- and
+ * a second receipt on the same sale then sat behind the dead one. A server REFUSAL still ends a
+ * write at once (isTerminalAppApiError); only an unreachable server is ridden out.
+ */
+internal const val SALES_WRITE_MAX_ATTEMPTS = CLOCK_PUNCH_MAX_ATTEMPTS
+
+/**
  * ## Sync engine — public integration point
  *
  * [observeStatus] is the ONE thing a UI needs: a hot [StateFlow] of [SyncStatus]
@@ -2049,6 +2059,7 @@ class DefaultSyncRepository(
         groupKey = salesDealCreateGroupKey(clientId.trim()),
         idempotencyKey = salesDealCreateIdempotencyKey(clientId.trim()),
         payloadJson = syncJson.encodeToString(SalesDealCreatePayload(clientId = clientId.trim(), request = request)),
+        maxAttempts = SALES_WRITE_MAX_ATTEMPTS,
     )
 
     override suspend fun enqueueSalesDealPaymentWrite(
@@ -2069,6 +2080,7 @@ class DefaultSyncRepository(
                 paymentId = paymentId.trim(), request = request,
             ),
         ),
+        maxAttempts = SALES_WRITE_MAX_ATTEMPTS,
     )
 
     override suspend fun enqueueSalesDealStatusSet(
@@ -2089,6 +2101,7 @@ class DefaultSyncRepository(
                 ),
             ),
         ),
+        maxAttempts = SALES_WRITE_MAX_ATTEMPTS,
     )
 
     override suspend fun enqueueSalesPipelineWrite(
@@ -2105,6 +2118,7 @@ class DefaultSyncRepository(
         },
         idempotencyKey = salesPipelineIdempotencyKey(payload.clientId.trim()),
         payloadJson = syncJson.encodeToString(payload),
+        maxAttempts = SALES_WRITE_MAX_ATTEMPTS,
     )
 
     override suspend fun enqueueFeedPurchaseEdit(
