@@ -136,7 +136,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["leave-approved", "/leave?scope_mode=company&status=approved"],
     ["leave-rejected", "/leave?scope_mode=company&status=rejected"],
     ["leave-withdrawn", "/leave?scope_mode=company&status=withdrawn"],
-    ["routines", "/routines?scope_mode=company"],
+    ["routines-create-drawer", "/routines?scope_mode=company&edit=new"],
     ["tasks", "/tasks?scope_mode=company"],
   ]);
 

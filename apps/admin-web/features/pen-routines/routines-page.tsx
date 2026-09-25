@@ -18,7 +18,7 @@ import type {
 import type { ApiResult } from "@/lib/api/server";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { RoutineDrawerForm } from "./routine-drawer";
+import { RoutineDrawerForm, RoutineSaveFooter } from "./routine-drawer";
 import { RoutineFilter } from "./routine-filter";
 
 /**
@@ -170,7 +170,8 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       eyebrow: c("drawer.routine.title"),
       title: c("drawer.routine.create_title"),
       icon: <ListChecks className="ic" aria-hidden="true" />,
-      body: <RoutineDrawerForm pageContract={pageContract} parks={parks} catalog={data.catalog} catalogParkId={catalogParkId} parkHrefs={createParkHrefs} canEdit={canCreate} canSetStatus={false} listHref={listHref} />,
+      body: <RoutineDrawerForm pageContract={pageContract} parks={parks} catalog={data.catalog} catalogParkId={catalogParkId} parkHrefs={createParkHrefs} canEdit={canCreate} canSetStatus={false} listHref={listHref} formId="prt-form-new" />,
+      footer: <RoutineSaveFooter key="save" formId="prt-form-new" saveLabel={c("action.save")} canSave={canCreate} />,
     });
   }
   for (const routine of routines) {
@@ -180,7 +181,21 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       eyebrow: c("drawer.routine.title"),
       title: canEdit ? c("drawer.routine.edit_title") : routine.name,
       icon: <ListChecks className="ic" aria-hidden="true" />,
-      body: <RoutineDrawerForm pageContract={pageContract} routine={routine} parks={parks} catalog={data.catalog} catalogParkId={catalogParkId} parkHrefs={createParkHrefs} canEdit={canEdit} canSetStatus={canSetStatus} listHref={listHref} />,
+      body: (
+        <RoutineDrawerForm
+          pageContract={pageContract}
+          routine={routine}
+          parks={parks}
+          catalog={data.catalog}
+          catalogParkId={catalogParkId}
+          parkHrefs={createParkHrefs}
+          canEdit={canEdit}
+          canSetStatus={canSetStatus}
+          listHref={listHref}
+          formId={`prt-form-${routine.routine_id}`}
+        />
+      ),
+      footer: <RoutineSaveFooter key="save" formId={`prt-form-${routine.routine_id}`} saveLabel={c("action.save")} canSave={canEdit} />,
     });
   }
   // A routine of the page's park opens locally; one of the other park selects that park first.
@@ -278,8 +293,8 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       </div>
 
       {!data.list.ok ? (
-        <div className="alert">
-          <b>{data.list.error.code ?? data.list.error.kind}</b>&nbsp;{data.list.error.message}
+        <div className="alert" role="alert">
+          {data.list.error.message}
         </div>
       ) : null}
 
@@ -357,12 +372,12 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         </div>
         <div className="bd">
           {data.tasks && !data.tasks.ok ? (
-            <div className="alert">
-              <b>{data.tasks.error.code ?? data.tasks.error.kind}</b>&nbsp;{data.tasks.error.message}
+            <div className="alert" role="alert">
+              {data.tasks.error.message}
             </div>
           ) : null}
           {tasks ? (
-            <div className="grid g5 kpi-row" style={{ margin: "10px 0" }}>
+            <div className="grid g5 kpi-row prt-kpis" style={{ margin: "10px 0" }}>
               {summaryTiles.map((tile) => (
                 <div className="kpi" key={tile.key}>
                   <div className="lab">{c(tile.copyKey)}</div>
