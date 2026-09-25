@@ -7075,3 +7075,28 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 aside.drawer.approvals-drawer .dc{padding-bottom:32px;scroll-padding-bottom:24px}
 aside.drawer.approvals-drawer .dh,aside.drawer.approvals-drawer .df{flex-shrink:0}
 aside.drawer.approvals-drawer .df{flex-wrap:wrap}
+/* /routines on a phone: routine cards instead of the wide table (see routines-page.tsx). */
+.prt-cards{display:none;list-style:none;margin:0;padding:0}
+.prt-people{display:flex;flex-direction:column;max-width:260px}
+.prt-name-link{color:var(--brand);font-weight:650;text-decoration:none}
+.prt-name-link:hover,.prt-name-link:focus-visible{text-decoration:underline}
+.prt-people-names{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The laptop table fits its card at 1440: the two long text columns wrap instead of pushing the
+   Edit button past the right edge. */
+.prt-table td.prt-col-evidence{white-space:normal;min-width:150px;max-width:220px}
+.prt-table td.prt-col-people .prt-people{max-width:220px}
+.prt-table td.prt-col-cadence{white-space:normal;min-width:110px}
+@media (max-width:640px){
+  .prt-cards{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+  .prt-table{display:none}
+  .prt-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
+  .prt-card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px}
+  .prt-card-name{font-weight:700;font-size:15px;min-width:0;overflow-wrap:anywhere}
+  .prt-card-name a{color:var(--ink)}
+  .prt-card dl{margin:0;display:grid;gap:6px}
+  .prt-card dl > div{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;font-size:13px}
+  .prt-card dt{color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+  .prt-card dd{margin:0;min-width:0;overflow-wrap:anywhere}
+  .prt-card .prt-people{max-width:none}
+  .prt-card .prt-people-names{white-space:normal}
+}

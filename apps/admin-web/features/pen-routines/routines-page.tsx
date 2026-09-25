@@ -213,7 +213,9 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   const routineCell = (routine: PenRoutineRow, key: string) => {
     switch (key) {
       case "name":
-        return openRoutine(routine, undefined, routine.name);
+        // The name IS the way in (it opens the routine's drawer); a separate Edit column pushed the
+        // table past its card at 1440.
+        return openRoutine(routine, "prt-name-link", routine.name);
       case "park":
         return routine.park_name;
       case "cadence":
@@ -225,9 +227,9 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         if (!routine.assignee_roles.length) return c("label.placeholder");
         const names = routine.people.map((person) => person.display_name).join(", ");
         return (
-          <span style={{ display: "flex", flexDirection: "column", maxWidth: 260 }}>
+          <span className="prt-people">
             <span>{routine.assignee_roles.map((option) => option.label).join(", ")}</span>
-            <span className="muted small" title={names} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span className="muted small prt-people-names" title={names}>
               {names ? `${c("table.people.preview")} ${names}` : c("empty.role_people")}
             </span>
           </span>
@@ -314,30 +316,52 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
           {routines.length === 0 ? (
             <div className="empty">{c("empty.routines")}</div>
           ) : (
-            <div className="tablewrap" tabIndex={0} role="group" aria-label={routinesTable.title}>
+            <>
+            {/* Phone: one card per routine, so status, who and today's count are on screen rather
+                than past the right edge of a table a thumb has to pan. Same cells, same contract. */}
+            <ul className="prt-cards" aria-label={routinesTable.title}>
+              {routines.map((routine) => (
+                <li key={routine.routine_id} className="prt-card">
+                  <div className="prt-card-hd">
+                    <span className="prt-card-name">{routineCell(routine, "name")}</span>
+                    {routineCell(routine, "status")}
+                  </div>
+                  <dl>
+                    {routineColumns
+                      .filter((column) => column.key !== "name" && column.key !== "status")
+                      .map((column) => (
+                        <div key={column.key}>
+                          <dt>{column.label}</dt>
+                          <dd>{routineCell(routine, column.key)}</dd>
+                        </div>
+                      ))}
+                  </dl>
+                </li>
+              ))}
+            </ul>
+            <div className="tablewrap prt-table" tabIndex={0} role="group" aria-label={routinesTable.title}>
               <table className="tbl">
                 <thead>
                   <tr>
                     {routineColumns.map((column) => (
                       <th key={column.key}>{column.label}</th>
                     ))}
-                    {canEdit ? <th aria-label={c("action.edit_routine.label")} /> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {routines.map((routine) => (
                     <tr key={routine.routine_id}>
                       {routineColumns.map((column) => (
-                        <td key={column.key}>{routineCell(routine, column.key)}</td>
+                        <td key={column.key} className={`prt-col-${column.key}`}>
+                          {routineCell(routine, column.key)}
+                        </td>
                       ))}
-                      {canEdit ? (
-                        <td style={{ textAlign: "right" }}>{openRoutine(routine, "btn sm", c("action.edit_routine.label"))}</td>
-                      ) : null}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </section>
