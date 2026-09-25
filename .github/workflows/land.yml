@@ -23,6 +23,8 @@ name: land
 # concurrency group and cancels older pending ones, which would drop landings.
 # The single runner already serialises them.
 
+run-name: land PR ${{ inputs.prs || inputs.pr }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -103,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           git config alias.mesha-push '!f() { token="$(gh auth token)" || exit 1; url="https://x-access-token:${token}@github.com/vgoats/goatos.git"; git push "$url" "${1:-HEAD:main}"; }; f'
-          make land-main
+          GOATOS_LAND_LOCAL=1 make land-main
       - name: Verify main and resolve each PR
         if: success()
         run: |

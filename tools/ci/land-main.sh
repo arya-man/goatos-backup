@@ -115,8 +115,24 @@ if [ "$test_mode" != "1" ]; then
   esac
 fi
 
+# Route first: on the laptop the default is to hand off to the land.yml queue on
+# the self-hosted runner (see tools/ci/land-route.sh for the rule and why).
+# shellcheck source=tools/ci/land-route.sh
+source "$script_dir/land-route.sh"
+land_route="$(land_route_decide "$(cd "$repo" && pwd -P)")"
+if [ "$land_route" = refuse ]; then
+  land_route_refuse_message "$repo"
+  exit 1
+fi
+
 git rev-parse --verify HEAD >/dev/null 2>&1 || die "HEAD does not resolve to a commit"
 is_clean || die "worktree is dirty; commit the scoped change and run this from a clean isolated worktree"
+
+if [ "$land_route" = queue ]; then
+  echo "land-main: routing to the land queue (set GOATOS_LAND_LOCAL=1 only on the runner or in an emergency)"
+  land_queue_handoff
+  exit $?
+fi
 
 for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do
   if [ -e "$(git rev-parse --git-path "$state")" ]; then
@@ -131,7 +147,19 @@ done
 # names the holder and exits non-zero so the caller can decide. A lock whose
 # holder PID is gone (or was reused) is stale and is reclaimed by atomic rename;
 # see tools/ci/land-lock.sh.
-land_lock_dir="${GOATOS_LAND_MAIN_LOCK_DIR:-$(git rev-parse --git-common-dir)/goatos-land-main.lock}"
+# Machine-wide by default ($HOME/.goatos/locks), so a separate clone or the
+# runner's own checkout shares the same queue slot as every worktree.
+if [ -z "${GOATOS_LAND_MAIN_LOCK_DIR:-}" ]; then
+  mkdir -p "$HOME/.goatos/locks" 2>/dev/null || true
+fi
+land_lock_dir="${GOATOS_LAND_MAIN_LOCK_DIR:-$HOME/.goatos/locks/goatos-land-main.lock}"
+# A value that does not name a *.lock directory is a PARENT (e.g. a shell profile
+# exporting GOATOS_LAND_MAIN_LOCK_DIR=$HOME/.goatos/locks). Using the existing
+# parent itself as the mkdir lock would read as "busy" forever.
+case "$land_lock_dir" in
+  *.lock) ;;
+  *) mkdir -p "$land_lock_dir" 2>/dev/null || true; land_lock_dir="${land_lock_dir%/}/goatos-land-main.lock" ;;
+esac
 case "$land_lock_dir" in /*) ;; *) land_lock_dir="$repo/$land_lock_dir" ;; esac
 # shellcheck source=tools/ci/land-lock.sh
 source "$script_dir/land-lock.sh"

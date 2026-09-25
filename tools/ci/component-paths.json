@@ -34,6 +34,8 @@
       "tools/ci/component-paths.json",
       "tools/ci/land-main.sh",
       "tools/ci/land-main.test.sh",
+      "tools/ci/land-route.sh",
+      "tools/ci/land-route.test.sh",
       "tools/ci/run-local-ci.sh",
       "tools/agent-hooks/install-stg-push-guard.sh"
     ]
