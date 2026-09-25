@@ -8,6 +8,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -54,6 +60,19 @@ fun SyncStatusIndicator(
     // second "syncing"/"offline" line here would be redundant chrome, not information.
     if (!hasData) return
 
+    // The relative label ("just now", "3m ago") is a statement about the CLOCK, not about the
+    // inputs: without a tick it froze at whatever it read on the last recomposition, so a screen
+    // left open said "just now" minutes after its last sync. Re-read the clock at the next minute
+    // boundary of the label for as long as it is on screen.
+    var now by remember { mutableLongStateOf(nowMillis()) }
+    LaunchedEffect(lastSyncedAt) {
+        while (true) {
+            now = nowMillis()
+            val synced = lastSyncedAt ?: break
+            delay(nextSyncLabelChangeInMillis(synced, now))
+        }
+    }
+
     val tint: Color
     val label: String
     when {
@@ -67,11 +86,11 @@ fun SyncStatusIndicator(
         }
         isOffline -> {
             tint = MeshaColors.Warn
-            label = lastSyncedAt?.let { "Offline · updated ${relativeSyncLabel(it, nowMillis())}" } ?: "Offline"
+            label = lastSyncedAt?.let { "Offline · updated ${relativeSyncLabel(it, now)}" } ?: "Offline"
         }
         else -> {
             tint = MeshaColors.Faint
-            label = lastSyncedAt?.let { "Updated ${relativeSyncLabel(it, nowMillis())}" } ?: "Up to date"
+            label = lastSyncedAt?.let { "Updated ${relativeSyncLabel(it, now)}" } ?: "Up to date"
         }
     }
 
@@ -97,7 +116,7 @@ fun SyncStatusIndicator(
 
 /** "just now" / "Xm ago" / "Xh ago" / "Xd ago" — small, dependency-free relative clock so
  *  every offline-first screen renders the same wording for "how stale is this cache". */
-private fun relativeSyncLabel(epochMillis: Long, nowMillis: Long): String {
+internal fun relativeSyncLabel(epochMillis: Long, nowMillis: Long): String {
     val deltaSeconds = ((nowMillis - epochMillis) / 1000).coerceAtLeast(0)
     return when {
         deltaSeconds < 60 -> "just now"
@@ -105,4 +124,19 @@ private fun relativeSyncLabel(epochMillis: Long, nowMillis: Long): String {
         deltaSeconds < 86_400 -> "${deltaSeconds / 3_600}h ago"
         else -> "${deltaSeconds / 86_400}d ago"
     }
+}
+
+/**
+ * Milliseconds until [relativeSyncLabel] would read differently: the next whole minute while under
+ * an hour, the next whole hour under a day, else the next day. Never less than a second, so a
+ * clock that jumps backwards cannot spin the ticker.
+ */
+internal fun nextSyncLabelChangeInMillis(epochMillis: Long, nowMillis: Long): Long {
+    val delta = (nowMillis - epochMillis).coerceAtLeast(0)
+    val unit = when {
+        delta < 3_600_000L -> 60_000L
+        delta < 86_400_000L -> 3_600_000L
+        else -> 86_400_000L
+    }
+    return (unit - delta % unit).coerceAtLeast(1_000L)
 }
