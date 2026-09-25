@@ -804,8 +804,15 @@ async function timedBackendFetch(
     // so a read racing the write cannot repopulate the cache with the pre-write answer.
     clearBackendReadCaches();
   }
+  // The backend's answer, 0 until one arrives. A write the backend REFUSED (4xx) changed nothing,
+  // so it does not stamp the read-your-writes marker below: stamping sets a cookie, and a cookie
+  // set inside a Server Action makes Next refresh the page -- which reset the URL of an open
+  // same-page drawer and closed it, so a refused save (a duplicate code, a field the backend
+  // rejects) vanished with its message instead of showing it beside the form.
+  let responseStatus = 0;
   try {
     const response = await fetch(input, fetchInit);
+    responseStatus = response.status;
     const durationMs = Math.round(performance.now() - startedAt);
     console.info(
       JSON.stringify({
@@ -848,9 +855,17 @@ async function timedBackendFetch(
   } finally {
     if (timeout) clearTimeout(timeout);
     // After the write lands OR throws: clear again so a read racing it cannot keep the
-    // pre-write answer, then stamp the cross-instance marker from the completed write.
-    if (method.toUpperCase() !== "GET") await noteBackendWrite();
+    // pre-write answer, then stamp the cross-instance marker from the completed write. A 4xx
+    // refusal wrote nothing, so it is not stamped (see responseStatus); a 5xx or a network error
+    // still is, because the write may have landed before the failure.
+    if (method.toUpperCase() !== "GET" && writeMayHaveLanded(responseStatus)) await noteBackendWrite();
+    else if (method.toUpperCase() !== "GET") clearBackendReadCaches();
   }
+}
+
+/** A write may have changed something unless the backend answered with a 4xx refusal. */
+export function writeMayHaveLanded(status: number): boolean {
+  return !(status >= 400 && status < 500);
 }
 
 /**

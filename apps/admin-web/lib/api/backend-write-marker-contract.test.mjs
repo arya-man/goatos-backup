@@ -116,3 +116,12 @@ test("timedBackendFetch stamps the marker after the write, in finally", () => {
   assert.ok(body.indexOf("markCallerWrite") === -1 || body.indexOf("markCallerWrite") > tryAt);
   assert.match(body, /\} finally \{[\s\S]*?await noteBackendWrite\(\);/);
 });
+
+// A write the backend REFUSED (4xx) changed nothing, so it must not stamp the marker: the stamp is
+// a cookie, a cookie set in a Server Action refreshes the page, and that refresh closed the open
+// same-page drawer holding the refusal message (Configuration > Items & settings, 2026-09-25).
+test("a refused write does not stamp the read-your-writes marker", () => {
+  const src = readFileSync(join(root, "lib/api/server.ts"), "utf8");
+  assert.match(src, /writeMayHaveLanded\(responseStatus\)\) await noteBackendWrite\(\)/);
+  assert.match(src, /return !\(status >= 400 && status < 500\);/);
+});
