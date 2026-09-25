@@ -2,7 +2,7 @@
 
 import { Banknote, Save, Trash2, X } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
-import { useActionState, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { startTransition, useActionState, useCallback, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -703,7 +703,16 @@ function usePaymentFormAction(action: PaymentAction, outcome: string) {
     // Reset during render, never in an effect: an effect would let one render submit the old key.
     setMinted(next);
   }
-  return { formAction, pending, error: state.error, key: next.key };
+  // Submitted through onSubmit, NOT `<form action>`: React resets a form after an action-prop
+  // submit settles, so a refused receipt ("Received on cannot be in the future.") came back with
+  // the amount and note the desk had typed wiped -- and the next click posted an empty form. The
+  // FormData is read at the click, so a double click still carries the one key.
+  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    startTransition(() => formAction(data));
+  };
+  return { onSubmit, pending, error: state.error, key: next.key };
 }
 
 /** The backend's field sentence when it named one, else this form's contract copy. */
@@ -723,9 +732,9 @@ function RecordPaymentForm({
 }) {
   const field = (key: string) => copy(pageContract, `field.${key}`);
   const outcome = deal.payments.map((payment) => payment.payment_id).join(",");
-  const { formAction, pending, error, key } = usePaymentFormAction(recordSalesDealPaymentAction, outcome);
+  const { onSubmit, pending, error, key } = usePaymentFormAction(recordSalesDealPaymentAction, outcome);
   return (
-    <form action={formAction} aria-busy={pending}>
+    <form onSubmit={onSubmit} aria-busy={pending}>
       <input type="hidden" name="return_to" value={dealHref} />
       <input type="hidden" name="deal_id" value={deal.deal_id} />
       <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={key} />
@@ -841,7 +850,7 @@ function PaymentRow({
         {showActions ? (
           <td style={{ whiteSpace: "nowrap" }}>
             {canUpdate ? (
-              <form id={editFormId} action={edit.formAction} hidden>
+              <form id={editFormId} onSubmit={edit.onSubmit} hidden>
                 <input type="hidden" name="return_to" value={dealHref} />
                 <input type="hidden" name="deal_id" value={dealId} />
                 <input type="hidden" name="payment_id" value={payment.payment_id} />
@@ -849,7 +858,7 @@ function PaymentRow({
               </form>
             ) : null}
             {canDelete ? (
-              <form id={deleteFormId} action={remove.formAction} hidden>
+              <form id={deleteFormId} onSubmit={remove.onSubmit} hidden>
                 <input type="hidden" name="return_to" value={dealHref} />
                 <input type="hidden" name="deal_id" value={dealId} />
                 <input type="hidden" name="payment_id" value={payment.payment_id} />

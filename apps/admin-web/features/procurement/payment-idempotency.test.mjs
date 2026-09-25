@@ -118,6 +118,11 @@ test("every payment form is rendered with its key and cannot be submitted while 
   assert.match(drawerSource, /usePaymentFormAction\(deleteSalesDealPaymentAction/);
   assert.match(drawerSource, /className="btn p" disabled=\{pending\}/);
   assert.equal((drawerSource.match(/\sdisabled=\{busy\}/g) ?? []).length, 2);
+  // Submitted through onSubmit, never an action prop: React resets an action-prop form once the
+  // action settles, which wiped a refused receipt's typed amount and note (seen on the live proof).
+  assert.match(drawerSource, /<form onSubmit=\{onSubmit\} aria-busy=\{pending\}>/);
+  assert.match(drawerSource, /<form id=\{editFormId\} onSubmit=\{edit\.onSubmit\} hidden>/);
+  assert.match(drawerSource, /<form id=\{deleteFormId\} onSubmit=\{remove\.onSubmit\} hidden>/);
   // The key is never minted inside the Server Actions.
   const paymentActions = actionsSource.slice(actionsSource.indexOf("export async function recordSalesDealPaymentAction"));
   assert.doesNotMatch(paymentActions.slice(0, paymentActions.indexOf("/** Sets a deal's lifecycle status")), /randomUUID/);
