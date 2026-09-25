@@ -4969,6 +4969,10 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 		if id == "sales-sold" {
 			out["error.load"] = "Could not load the sold figures. Refresh to try again."
+			// Sold is read-only by contract and carries no record control, so its empty ledger
+			// says where sales ARE recorded rather than asking the reader to do something this
+			// page cannot. Sales Config keeps the "record the first sale" prompt.
+			out["empty.deals.unset"] = "No sales recorded yet. Sales are recorded on Sales Config."
 		} else {
 			out["error.load"] = "Could not load the farm value figures. Refresh to try again."
 		}
