@@ -99,6 +99,12 @@ data class CountsBreakdownSeriesPointDto(
     @SerialName("key") val key: String = "",
     @SerialName("label") val label: String = "",
     @SerialName("count") val count: Int = 0,
+    /**
+     * The breed's species code, sent only by `GET /app/counts/breeds` (the Configuration breed
+     * register) so the birth form offers only the chosen species' breeds. Blank everywhere else and
+     * from an older backend, where the breed is offered under every species.
+     */
+    @SerialName("species") val species: String = "",
 )
 
 /**

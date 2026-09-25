@@ -19,7 +19,17 @@ data class CountsFilterOptionUi(
     val key: String,
     val label: String,
     val count: Int,
+    /** A breed's species code; blank when the option is not a breed or the species is unknown. */
+    val species: String = "",
 )
+
+/**
+ * The breeds the birth form offers for [species]: those registered under it, plus any breed whose
+ * species is unknown (an older backend, or a herd breed missing from the register), so a species
+ * choice can narrow the list but never strand a breed the herd already carries.
+ */
+fun breedsForSpecies(all: List<CountsFilterOptionUi>, species: String): List<CountsFilterOptionUi> =
+    all.filter { it.species.isBlank() || species.isBlank() || it.species == species }
 
 /**
  * Most species / gender choices the birth form places on one line before wrapping. Two and three
