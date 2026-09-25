@@ -451,7 +451,7 @@ func (w DealWrite) Validate(cat ProductCatalog, farms []string) error {
 	// procurement register (the 000173 lock), so that the id names a real vendor is the caller's
 	// guarantee, exactly as 000177 validates its sales_deal_id against the deal read.
 	if w.BuyerVendorID == "" {
-		return ErrDealValidation{Field: "buyer_vendor_id", Reason: "required -- pick the buyer from the vendor register"}
+		return ErrDealValidation{Field: "buyer_vendor_id", Reason: "required; pick the buyer from the vendor register"}
 	}
 	if _, err := uuid.Parse(w.BuyerVendorID); err != nil {
 		return ErrDealValidation{Field: "buyer_vendor_id", Reason: "must be a vendor from the register"}

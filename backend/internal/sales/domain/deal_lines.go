@@ -226,7 +226,7 @@ func (l DealLineWrite) validate(lineNo int, cat ProductCatalog) error {
 		// longer knows it.
 		return ErrDealValidation{
 			Field:  field("product_type"),
-			Reason: "is not something this farm sells -- add it under Configuration, Items and settings",
+			Reason: "is not something this farm sells; add it under Configuration, Items and settings",
 		}
 	}
 	if l.Breed == "" {
@@ -247,7 +247,7 @@ func (l DealLineWrite) validate(lineNo int, cat ProductCatalog) error {
 		// spending the wrong unit, and the message names the setting that fixes it.
 		return ErrDealValidation{
 			Field:  field("product_type"),
-			Reason: "is feed from the store but is not sold by the kilogram -- set its unit to kilograms under Configuration, Items and settings",
+			Reason: "is feed from the store but is not sold by the kilogram; set its unit to kilograms under Configuration, Items and settings",
 		}
 	}
 	if product.PricedPerUnit() {
@@ -274,7 +274,7 @@ func (l DealLineWrite) validate(lineNo int, cat ProductCatalog) error {
 				return ErrDealValidation{Field: field("quantity"), Reason: "must be more than zero"}
 			}
 			if l.RatePerUnit == nil {
-				return ErrDealValidation{Field: field("rate_per_unit"), Reason: "required -- " + strings.ToLower(product.Name) + " is sold at a rate per " + product.UnitWord()}
+				return ErrDealValidation{Field: field("rate_per_unit"), Reason: "required; " + strings.ToLower(product.Name) + " is sold at a rate per " + product.UnitWord()}
 			}
 		}
 		// Refused rather than ignored. A body carrying both a quantity and an animal count is two

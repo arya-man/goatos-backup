@@ -173,7 +173,7 @@ func checkSaleDateWindow(w domain.DealWrite, now time.Time) error {
 	today := biztime.BusinessDayStart(now)
 	closed := w.Status == "" || w.Status == domain.StatusDealClosed
 	if closed && day.After(today) {
-		return domain.ErrDealValidation{Field: "sale_date", Reason: "cannot be in the future for a closed sale -- record it as In Discussion or Advance Paid until it closes"}
+		return domain.ErrDealValidation{Field: "sale_date", Reason: "cannot be in the future for a closed sale; record it as In Discussion or Advance Paid until it closes"}
 	}
 	if day.After(today.AddDate(0, 0, domain.MaxSaleDateDaysAhead)) {
 		return domain.ErrDealValidation{Field: "sale_date", Reason: fmt.Sprintf("cannot be more than %d days ahead", domain.MaxSaleDateDaysAhead)}
