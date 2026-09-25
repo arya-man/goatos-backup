@@ -153,3 +153,14 @@ Monthly estimate (list prices from memory, verify in billing; times are estimate
 | E2_HIGHCPU_32 (current PR) | 32 / 32 GB | ~18-22 min | ~10 min | ~₹9,000-12,500 |
 
 Most of the speed-up comes from parallel steps and the layer cache, not core count; ~13 min of a fast deploy is the rollout. BUT E2_HIGHCPU_8 has only 8 GB RAM, and this PR runs Gradle (4 GB heap + Kotlin daemon) alongside four Docker builds (Go + Next.js). That risks OOM on 8 GB, so 8-core would need Gradle heap/workers reduced (slower Android) or the image builds to finish before Gradle starts. Decision pending the first measured run: stay on E2_HIGHCPU_32 until a real run shows peak memory; drop to 8-core only if it fits.
+
+## Step log (2026-09-25, single-PR consolidation)
+
+Machine RAM snapshot that motivated steps 2-4: 32 GB total, 20.2 of 21.5 GB swap in use, 4 idle Gradle daemons holding about 6.4 GB (one of them on Android Studio's jbr-17.0.11), and fseventsd at 13 GB from dozens of worktrees.
+
+### Step 1: PR #405 folded in
+- Merged `chore/grafana-out-of-stg-deploy` (0b91ef20a, bf614efe1, a422af1e5). #405 is closed and its branch deleted.
+- Grafana/Alloy is no longer applied or smoke-tested by the STG deploy. Mesha-ops owns it: `docs/decisions/grafana-owned-by-mesha-ops.md`.
+- The only conflict was `docs/runbooks/stg-deploy.md`. Both sections were kept (parallel build shape and Grafana out of deploy).
+- **Before the first deploy from this PR, rebuild the deploy runner image** with `tools/deploy/stg-clouddeploy-runner-build.sh`, then refresh `deploy/clouddeploy/stg/runner-receipt.json`. The runner Dockerfile changed, so the old image does not match.
+- Checks: `bash -n` on tools/deploy/*.sh, YAML parse, `node --test tools/deploy/*.test.mjs`, `make stg-deploy-scripts-test`, `make guardrail-registration-guard`. All green.
