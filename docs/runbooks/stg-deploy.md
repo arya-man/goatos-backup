@@ -142,6 +142,23 @@ are injected by the existing `goatos-stg` Cloud Run/Secret Manager configuration
 Normal DB schema changes are applied by the Cloud Deploy migration job; do not
 run manual SQL for a normal release.
 
+## Build Shape (parallel, 2026-09-25)
+
+`cloudbuild.stg.yaml` is a DAG, not a serial list:
+
+- **Images run at the same time.** `build-backend-image`, `build-migration-image`, `build-admin-web-image` and `build-ask-mesha-agent-image` wait only for `configure-docker-auth`.
+  - Each image is still rebuilt at the exact commit tag, through `tools/deploy/stg-image-build.sh`.
+  - The script uses a BuildKit registry layer cache at `<image>:buildcache`. That tag is never deployed.
+  - If the buildx builder cannot start, the script falls back to a plain `docker build`.
+- **The release waits for every image.** `stg-cloud-deploy-release` starts only after all four image builds finish.
+- **Android is split into two steps.**
+  - `android-mobile-build` starts at build start and runs alongside the images and the rollout. It **never fails its step**, because a failed step would cancel the rollout. Instead it writes `.local/android-mobile-build/status` as `ok <sha>` or `failed <sha>`.
+  - `android-mobile-distribution` runs after the rollout and release bookkeeping. It refuses to publish unless the status is `ok <same sha>`. It then publishes the same APK/AAB bytes to Firebase, the GCS mirror, Play Internal and the Remote Config floor. So a mobile-only failure still shows as "Backend/web rollout succeeded. Android mobile distribution failed."
+- **Builder machine:** `E2_HIGHCPU_32`.
+- **Rollout lanes run in parallel.** Inside the rollout, analytics-events, the kernel-worker restore, MCP and the MQTT bridge roll out in parallel lanes after the API traffic switch. A failure in any lane fails the deploy. The kernel-worker drain, then migration, then API order is unchanged.
+
+Details and measurements: `docs/progress/ci-deploy-speedup.md`.
+
 ## GitHub Release Tag
 
 Every successful STG release must create an annotated GitHub tag with Backend,

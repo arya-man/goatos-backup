@@ -69,6 +69,13 @@ requires fresh `origin/main` to equal that head and the PR to report merged.
 Until the helper and adversarial tests land, implementation batches remain
 closure-pending and the program PR cannot land.
 
+### Landing queue
+
+Only one `make land-main` runs at a time per clone. The lock is a directory at `$(git rev-parse --git-common-dir)/goatos-land-main.lock`, shared by all worktrees. `GOATOS_LAND_MAIN_LOCK_DIR` overrides the location.
+
+- **Lock held by a live process:** land-main prints the holder's pid, worktree, SHA and start time, then exits 1. It never waits and never kills anything. Rerun after that landing finishes.
+- **Lock left by a process that has exited:** the lock is stale and is reclaimed automatically.
+
 ## Local-only enforcement when hosted Actions is unavailable
 
 When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
