@@ -252,7 +252,7 @@ internal fun SalesDealDto.toCardUi(options: SalesOptionsDto? = null): SaleCardUi
     productLine = dotJoin(soldSummary(), farm),
     valueLine = dotJoin(animalsLine(animalCount), kilograms(totalWeightKg), rupees(salesValue)),
     // Sheet-imported deals carry paise dust (₹0.18 on a fully paid sale); under a rupee reads as paid.
-    metaLine = dotJoin("Sold ${farmDate(saleDate)}", if (paymentBalance >= 1.0) "Balance ${rupees(paymentBalance)}" else "Fully paid"),
+    metaLine = dotJoin("${saleDateWord(status, options).card} ${farmDate(saleDate)}", if (paymentBalance >= 1.0) "Balance ${rupees(paymentBalance)}" else "Fully paid"),
     statusLabel = status,
     statusTone = saleStatusTone(status, options),
 )
@@ -263,7 +263,7 @@ internal fun SalesDealDto.toCardUi(options: SalesOptionsDto? = null): SaleCardUi
  * so cards and subtitles say what was actually sold instead.
  */
 internal fun SalesDealDto.soldSummary(): String {
-    if (lines.size <= 1) return dotJoin(productType, breed)
+    if (lines.size <= 1) return productAndBreed(productType, breed)
     val products = lines.map { it.productType }.distinct().joinToString(" + ")
     return dotJoin(products, "${lines.size} lines")
 }
@@ -272,6 +272,32 @@ internal fun SalesDealDto.soldSummary(): String {
  * The planned day of a sale that closed on a DIFFERENT day, else null: a sale recorded already
  * closed has none, and one closed on its planned day would only repeat "Sold on".
  */
+/** The word a sale's date carries, on the card and on the detail. */
+internal data class SaleDateWord(val card: String, val detail: String)
+
+/**
+ * A sale's date says what it is: an OPEN sale (In Discussion / Advance Paid) has not happened, so
+ * its date is the day it is planned for, never "Sold"; a failed sale was never sold either. On the
+ * phone (2026-09-26) an Advance Paid sale for 30/09 read "Sold 30/09/2026" four days before it.
+ * Read through the same status grouping that colours the chip.
+ */
+internal fun saleDateWord(status: String, options: SalesOptionsDto? = null): SaleDateWord = when (saleStatusTone(status, options)) {
+    VendorsTone.INFO, VendorsTone.WARN -> SaleDateWord("Planned", "Planned for")
+    VendorsTone.DANGER -> SaleDateWord("Sale date", "Sale date")
+    else -> SaleDateWord("Sold", "Sold on")
+}
+
+/** "Goat · Beetal"; a product whose "breed" is only its own name again ("Manure · Manure") says it once. */
+internal fun productAndBreed(product: String, breed: String): String =
+    if (breed.trim().equals(product.trim(), ignoreCase = true)) product else dotJoin(product, breed)
+
+/** "20 kg at ₹40/kg" for a line sold by the unit; blank for a line sold by the head. */
+internal fun quantityAtRate(quantity: Double?, unit: String, rate: Double?): String {
+    if (quantity == null) return ""
+    val amount = dotJoin(indianNumber(quantity, 1), unit).replace(" · ", " ")
+    return if (rate == null) amount else "$amount at ${rupees(rate)}${unit.takeIf { it.isNotBlank() }?.let { "/$it" }.orEmpty()}"
+}
+
 internal fun SalesDealDto.plannedSaleDateIfDifferent(): String? =
     plannedSaleDate?.trim()?.takeIf { it.isNotEmpty() && it != saleDate }
 
@@ -281,19 +307,19 @@ internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
     // so the deal-level pair is shown only when there is one line for it to describe.
     val single = lines.size <= 1
     val sale = rows(
-        "Sold on" to farmDate(saleDate),
+        saleDateWord(status).detail to farmDate(saleDate),
         "Planned for" to plannedSaleDateIfDifferent()?.let(::farmDate),
         "Farm" to farm,
         "Product" to productType.takeIf { single },
-        "Breed" to breed.takeIf { single },
+        "Breed" to breed.takeIf { single && !it.equals(productType, ignoreCase = true) },
         "Animals" to animalCount?.let { indianNumber(it, 0) },
         "Total weight" to totalWeightKg?.let(::kilograms),
     )
     // One row per line: "Sheep · Anantapur" -> "10 animals · 300 kg · ₹1,20,000".
     val sold = if (single) emptyList() else lines.map { line ->
         VendorsDetailRowUi(
-            dotJoin(line.productType, line.breed),
-            dotJoin(animalsLine(line.animalCount), line.totalWeightKg?.let(::kilograms), rupees(line.salesValue)),
+            productAndBreed(line.productType, line.breed),
+            dotJoin(animalsLine(line.animalCount), line.totalWeightKg?.let(::kilograms), quantityAtRate(line.quantity, line.unit, line.ratePerUnit), rupees(line.salesValue)),
         )
     }
     val buyer = rows("Buyer" to buyerName, "Place" to buyerPlace)
