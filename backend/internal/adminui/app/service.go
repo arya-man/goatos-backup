@@ -3370,6 +3370,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.first_page":               "First page",
 			"legend.done":                     "Done",
 			"legend.not_done":                 "Not done yet",
+			"filter.park":                     "Park",
+			"filter.pen":                      "Pen",
+			"filter.all_parks":                "All parks",
+			"filter.all_pens":                 "All pens",
+			"filter.remove_one":               "Remove filter",
+			"filter.clear_all":                "Clear filters",
+			"filter.unlisted_selection":       "Pen not in this park",
+			"filter.truncated_note":           "Some pens are not listed in the filter.",
+			"filter.apply_note":               "Park and pen narrow the table.",
 		}
 	case "vaccination-live-tracker":
 		// Every visible string on /vaccination/live-tracker originates here. The page renders no

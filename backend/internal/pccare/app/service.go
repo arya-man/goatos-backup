@@ -653,7 +653,8 @@ var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCar
 // PenCareCoverage is the Care Coverage board: every pen in the caller's parks against the five
 // hands-on-the-animal categories, with the latest verified-done date per cell. Same read
 // authority and park clamp as the monitor task list.
-func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkID, cursor string, limit int) (ports.PenCareCoveragePage, error) {
+// pen is the Pen filter's value, "<shed_id>|<partition_key>"; blank means every pen.
+func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkID, pen, cursor string, limit int) (ports.PenCareCoveragePage, error) {
 	if !actorHoldsAny(actor, monitorReadCapabilities) {
 		return ports.PenCareCoveragePage{}, ports.ErrForbidden
 	}
@@ -669,6 +670,15 @@ func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkI
 			return ports.PenCareCoveragePage{}, err
 		}
 	}
+	shedID, partitionKey := "", ""
+	if pen = strings.TrimSpace(pen); pen != "" {
+		var ok bool
+		shedID, partitionKey, ok = strings.Cut(pen, "|")
+		shedID, partitionKey = strings.TrimSpace(shedID), strings.TrimSpace(partitionKey)
+		if !ok || !uuidutil.IsUUIDString(shedID) || partitionKey == "" {
+			return ports.PenCareCoveragePage{}, ports.ErrInvalidArgument
+		}
+	}
 	if limit <= 0 {
 		limit = 50
 	}
@@ -676,6 +686,8 @@ func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkI
 		limit = 100
 	}
 	return s.coverage.PenCareCoverage(ctx, ports.PenCareCoverageQuery{
+		ShedID:            shedID,
+		PartitionKey:      partitionKey,
 		TenantID:          actor.TenantID,
 		AuthorizedParkIDs: authorizedParkSlice(parks),
 		TenantWide:        tenantWide,

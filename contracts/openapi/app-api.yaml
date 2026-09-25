@@ -7244,6 +7244,13 @@ paths:
           required: false
           description: Narrow to one park inside the caller's scope.
           schema: { type: string, format: uuid }
+        - name: pen
+          in: query
+          required: false
+          description: >-
+            Narrow to one pen. The value is a pen_options[].value from a previous response,
+            "<shed_id>|<partition_key>".
+          schema: { type: string }
         - name: cursor
           in: query
           required: false
@@ -27853,7 +27860,23 @@ components:
           type: integer
           description: Every pen in scope (whole-filter aggregate, never the page length).
         next_cursor: { type: string }
-      required: [categories, rows, total]
+        park_options:
+          type: array
+          description: Park filter choices — every park in the caller's scope that holds pens, whatever is selected.
+          items: { $ref: "#/components/schemas/PCCarePenCoverageOption" }
+        pen_options:
+          type: array
+          description: >-
+            Pen filter choices — the pens of the selected park (every scoped park when none is
+            selected, each label then naming its park). Ignores the pen filter itself.
+          items: { $ref: "#/components/schemas/PCCarePenCoverageOption" }
+      required: [categories, rows, total, park_options, pen_options]
+    PCCarePenCoverageOption:
+      type: object
+      properties:
+        value: { type: string, description: The value to send back as the filter. }
+        label: { type: string, description: Backend-composed display copy, rendered verbatim. }
+      required: [value, label]
     PCCareCloseRequest:
       type: object
       properties:

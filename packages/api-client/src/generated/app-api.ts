@@ -12548,6 +12548,16 @@ export interface components {
             /** @description Every pen in scope (whole-filter aggregate, never the page length). */
             total: number;
             next_cursor?: string;
+            /** @description Park filter choices — every park in the caller's scope that holds pens, whatever is selected. */
+            park_options: components["schemas"]["PCCarePenCoverageOption"][];
+            /** @description Pen filter choices — the pens of the selected park (every scoped park when none is selected, each label then naming its park). Ignores the pen filter itself. */
+            pen_options: components["schemas"]["PCCarePenCoverageOption"][];
+        };
+        PCCarePenCoverageOption: {
+            /** @description The value to send back as the filter. */
+            value: string;
+            /** @description Backend-composed display copy */
+            label: string;
         };
         PCCareCloseRequest: {
             /** @description The closer's own words, shown verbatim to whoever later asks why this pen's work never happened. Required — a close with no reason leaves that unanswerable. */
@@ -26264,6 +26274,8 @@ export interface operations {
             query?: {
                 /** @description Narrow to one park inside the caller's scope. */
                 park_id?: string;
+                /** @description Narrow to one pen. The value is a pen_options[].value from a previous response, "<shed_id>|<partition_key>". */
+                pen?: string;
                 cursor?: string;
                 limit?: number;
             };

@@ -45,7 +45,7 @@ type Service interface {
 	ReopenTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error
 	CloseRound(ctx context.Context, actor domain.Actor, roundID, reason, traceID string) error
 	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error)
-	PenCareCoverage(ctx context.Context, actor domain.Actor, parkID, cursor string, limit int) (ports.PenCareCoveragePage, error)
+	PenCareCoverage(ctx context.Context, actor domain.Actor, parkID, pen, cursor string, limit int) (ports.PenCareCoveragePage, error)
 	Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
 	GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error)
 	ListTaskAnimals(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) ([]ports.AnimalRow, string, error)
@@ -692,6 +692,14 @@ type penCareCoverageResponse struct {
 	Rows       []penCareCoverageRowDTO `json:"rows"`
 	Total      int                     `json:"total"`
 	NextCursor string                  `json:"next_cursor,omitempty"`
+	// ParkOptions / PenOptions are the Park and Pen filter vocabularies (value + backend label).
+	ParkOptions []penCareCoverageOptionDTO `json:"park_options"`
+	PenOptions  []penCareCoverageOptionDTO `json:"pen_options"`
+}
+
+type penCareCoverageOptionDTO struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
 }
 
 // GetPenCareCoverage serves the Care Coverage board: pens down the left, the five care
@@ -704,6 +712,7 @@ func (h *Handler) GetPenCareCoverage(w http.ResponseWriter, r *http.Request) {
 	page, err := h.service.PenCareCoverage(
 		r.Context(), a,
 		strings.TrimSpace(r.URL.Query().Get("park_id")),
+		strings.TrimSpace(r.URL.Query().Get("pen")),
 		strings.TrimSpace(r.URL.Query().Get("cursor")),
 		intQuery(r, "limit", 50),
 	)
@@ -712,10 +721,18 @@ func (h *Handler) GetPenCareCoverage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := penCareCoverageResponse{
-		Categories: make([]categoryDTO, 0, len(domain.PlannerCategories)),
-		Rows:       make([]penCareCoverageRowDTO, 0, len(page.Rows)),
-		Total:      page.Total,
-		NextCursor: page.NextCursor,
+		Categories:  make([]categoryDTO, 0, len(domain.PlannerCategories)),
+		Rows:        make([]penCareCoverageRowDTO, 0, len(page.Rows)),
+		Total:       page.Total,
+		NextCursor:  page.NextCursor,
+		ParkOptions: make([]penCareCoverageOptionDTO, 0, len(page.ParkOptions)),
+		PenOptions:  make([]penCareCoverageOptionDTO, 0, len(page.PenOptions)),
+	}
+	for _, o := range page.ParkOptions {
+		resp.ParkOptions = append(resp.ParkOptions, penCareCoverageOptionDTO{Value: o.Value, Label: o.Label})
+	}
+	for _, o := range page.PenOptions {
+		resp.PenOptions = append(resp.PenOptions, penCareCoverageOptionDTO{Value: o.Value, Label: o.Label})
 	}
 	for _, category := range domain.PlannerCategories {
 		resp.Categories = append(resp.Categories, categoryDTO{Key: category, Label: domain.CategoryLabel(category)})

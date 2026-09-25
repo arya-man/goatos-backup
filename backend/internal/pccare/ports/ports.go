@@ -527,8 +527,20 @@ type PenCareCoverageQuery struct {
 	TenantWide        bool
 	// ParkID optionally narrows to one park (must be inside the authorized set).
 	ParkID string
-	Limit  int
-	Cursor string
+	// ShedID + PartitionKey optionally narrow to ONE pen (the page's Pen filter). PartitionKey
+	// is the pc_care_tasks.partition_key matching key ('whole' for an undivided shed); a ShedID
+	// with no PartitionKey keeps every pen of that shed.
+	ShedID       string
+	PartitionKey string
+	Limit        int
+	Cursor       string
+}
+
+// PenCareCoverageOption is one choice in the board's Park or Pen filter. Value is the matching
+// key the next request sends back; Label is backend-composed copy.
+type PenCareCoverageOption struct {
+	Value string
+	Label string
 }
 
 // PenCareCoverageCell is one category's answer for one pen. LastDoneBusinessDate is the IST
@@ -555,6 +567,11 @@ type PenCareCoveragePage struct {
 	Rows       []PenCareCoverageRow
 	Total      int
 	NextCursor string
+	// ParkOptions are the parks in the caller's scope that hold pens; PenOptions are the pens of
+	// the selected park (every scoped park when none is selected). Both ignore the Pen filter
+	// itself, so choosing a pen never empties the list it was chosen from.
+	ParkOptions []PenCareCoverageOption
+	PenOptions  []PenCareCoverageOption
 }
 
 // PenCareCoverageReader serves the Care Coverage board. It is its own seam rather than a

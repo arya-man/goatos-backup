@@ -4265,6 +4265,8 @@ export type PCCarePenCoverage = AppApiComponents["schemas"]["PCCarePenCoverage"]
 
 export async function getPCCarePenCoverage(params: {
   parkId?: string;
+  // A pen_options[].value from a previous response ("<shed_id>|<partition_key>").
+  pen?: string;
   cursor?: string;
   limit?: number;
 }): Promise<ApiResult<PCCarePenCoverage>> {
@@ -4278,6 +4280,7 @@ export async function getPCCarePenCoverage(params: {
         signal,
         query: compactQuery({
           park_id: params.parkId,
+          pen: params.pen,
           cursor: params.cursor,
           limit: params.limit,
         }),

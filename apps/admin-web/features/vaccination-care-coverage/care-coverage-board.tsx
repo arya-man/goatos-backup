@@ -5,6 +5,7 @@ import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/l
 import { fmtDate } from "@/lib/format";
 import { parseScope, scopeHref, type Scope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { LiveTrackerFilters, type LiveFilterSpec } from "@/features/vaccination-live-tracker/live-tracker-filters";
 
 const ROUTE = "/vaccination/care-coverage";
 
@@ -101,8 +102,9 @@ export async function CareCoverageBoard({
   const pageSizes = tablePageSizes(pageContract, "care-coverage");
   const pageSize = pageSizeFrom(sp, pageSizes);
   const cursor = one(sp, "cc_cursor");
+  const pen = one(sp, "cc_pen") ?? "";
   const from = Math.max(0, Number(one(sp, "cc_from")) || 0);
-  const result = await getPCCarePenCoverage({ parkId: scope.parkId, cursor, limit: pageSize });
+  const result = await getPCCarePenCoverage({ parkId: scope.parkId, pen: pen || undefined, cursor, limit: pageSize });
   const data: PCCarePenCoverage | null = result.ok ? result.data : null;
   const labels = tableLabels(pageContract, "care-coverage");
   const categories = data?.categories ?? [];
@@ -110,12 +112,45 @@ export async function CareCoverageBoard({
   const total = data?.total ?? 0;
 
   function href(extra: Record<string, string>): string {
-    return scopeHref(ROUTE, scope, {}, { cc_limit: String(pageSize), ...extra });
+    return scopeHref(ROUTE, scope, {}, { cc_limit: String(pageSize), cc_pen: pen || undefined, ...extra });
   }
 
+  // Park writes the SAME `park` URL key as the top-bar picker, so the two controls always agree.
+  // Changing park drops the pen (it belonged to the old park) and the page cursor.
+  const allParksHref = scopeHref(ROUTE, scope, { park: null, mode: "company" }, { cc_limit: String(pageSize) });
+  const filters: LiveFilterSpec[] = [
+    {
+      id: "park",
+      label: copy(pageContract, "filter.park"),
+      allLabel: copy(pageContract, "filter.all_parks"),
+      icon: "layers",
+      selected: scope.parkId ?? "",
+      choices: (data?.park_options ?? []).map((option) => ({
+        value: option.value,
+        label: option.label,
+        href: scopeHref(ROUTE, scope, { park: option.value, mode: "park" }, { cc_limit: String(pageSize) }),
+      })),
+      clearHref: allParksHref,
+    },
+    {
+      id: "pen",
+      label: copy(pageContract, "filter.pen"),
+      allLabel: copy(pageContract, "filter.all_pens"),
+      selected: pen,
+      choices: (data?.pen_options ?? []).map((option) => ({
+        value: option.value,
+        label: option.label,
+        href: scopeHref(ROUTE, scope, {}, { cc_limit: String(pageSize), cc_pen: option.value }),
+      })),
+      clearHref: scopeHref(ROUTE, scope, {}, { cc_limit: String(pageSize) }),
+    },
+  ];
+  const clearAllHref = scope.parkId || pen ? allParksHref : null;
+
   return (
-    <div className="screen on">
+    <div className="screen on lt-page">
       <PageHead pageContract={pageContract} />
+      <LiveTrackerFilters filters={filters} clearAllHref={clearAllHref} optionsTruncated={false} pageContract={pageContract} />
       <section className="card" style={{ marginBottom: 16 }}>
         <CardHeader pageContract={pageContract} />
         {rows.length === 0 ? (
@@ -168,7 +203,7 @@ export async function CareCoverageBoard({
             </div>
             <div className="pager2">
               <span className="muted small">
-                {from + 1}-{from + rows.length} {copy(pageContract, "pager.of")} {total} {copy(pageContract, "label.pens")}
+                {from + 1}-{from + rows.length} {copy(pageContract, "pager.of")} {total} {total === 1 ? copy(pageContract, "label.pen").toLowerCase() : copy(pageContract, "label.pens")}
               </span>
               <span className="sp" style={{ flex: 1 }} />
               <span className="muted small">{copy(pageContract, "pager.rows")}</span>

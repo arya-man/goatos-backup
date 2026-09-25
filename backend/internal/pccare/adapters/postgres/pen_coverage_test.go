@@ -247,3 +247,61 @@ func TestPenCoverageStatusMatrixOnlyApprovedWorkTicks(t *testing.T) {
 		}
 	}
 }
+
+// PEN FILTER + FILTER VOCABULARY (park scope): choosing a pen narrows the board and its total to
+// that pen alone, while neither dropdown shrinks — the park list still offers every scoped park
+// and the pen list still offers every pen of the selected park. With no park selected, same-named
+// pens in two parks stay distinguishable because each label names its park.
+func TestPenCoveragePenFilterAndOptionsKeepParkScope(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON CONFLICT (location_id) DO NOTHING`,
+		pcTenant, covShedOther, pcOtherPark); err != nil {
+		t.Fatalf("seed other-park shed: %v", err)
+	}
+	coverageTask(t, ctx, repo, pcPark, covShedGodel, "Part 2", domain.CategoryDeworming, 3, "completed", "completed", 3)
+
+	all := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	if all.Total != 4 || len(all.ParkOptions) != 2 || len(all.PenOptions) != 4 {
+		t.Fatalf("unfiltered total=%d parks=%d pens=%d, want 4/2/4", all.Total, len(all.ParkOptions), len(all.PenOptions))
+	}
+	castroLabels := map[string]bool{}
+	for _, o := range all.PenOptions {
+		if o.Value == pcShedA+"|whole" || o.Value == covShedOther+"|whole" {
+			castroLabels[o.Label] = true
+		}
+	}
+	if len(castroLabels) != 2 || !castroLabels["Castro · CPT"] || !castroLabels["Castro · CBE"] {
+		t.Fatalf("same-named pens across parks = %v, want \"Castro · CPT\" and \"Castro · CBE\"", castroLabels)
+	}
+
+	pen := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, ParkID: pcPark, ShedID: covShedGodel, PartitionKey: "part 2", Limit: 50})
+	if pen.Total != 1 || len(pen.Rows) != 1 || pen.Rows[0].PartitionLabel != "Part 2" {
+		t.Fatalf("pen filter rows = %+v total %d, want only Godel 1 Part 2", pen.Rows, pen.Total)
+	}
+	if got, _ := cellOf(t, pen, covShedGodel, "Part 2", domain.CategoryDeworming); got != "2026-09-03" {
+		t.Fatalf("filtered pen deworming = %q, want 2026-09-03", got)
+	}
+	if len(pen.ParkOptions) != 2 {
+		t.Fatalf("park options under a park filter = %d, want both parks still offered", len(pen.ParkOptions))
+	}
+	if len(pen.PenOptions) != 3 {
+		t.Fatalf("pen options under a pen filter = %d, want CPT's 3 pens (the filter must not empty its own list)", len(pen.PenOptions))
+	}
+	for _, o := range pen.PenOptions {
+		if o.Value == covShedOther+"|whole" {
+			t.Fatal("pen options leaked the other park's pen while a park is selected")
+		}
+		if o.Label == "Godel 1 - Part 2 · CPT" {
+			t.Fatalf("pen label %q names the park although one park is selected", o.Label)
+		}
+	}
+
+	scoped := coverage(t, ctx, repo, ports.PenCareCoverageQuery{AuthorizedParkIDs: []string{pcPark}, ShedID: covShedOther, PartitionKey: "whole", Limit: 50})
+	if scoped.Total != 0 || len(scoped.ParkOptions) != 1 {
+		t.Fatalf("pen filter aimed outside the caller's parks = total %d, park options %d; want 0 rows and only CPT offered", scoped.Total, len(scoped.ParkOptions))
+	}
+}
