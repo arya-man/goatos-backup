@@ -855,12 +855,14 @@ func initializeResult() map[string]any {
 		"capabilities": map[string]any{
 			"tools": map[string]any{},
 		},
+		// Clients read this once per session: keep ordinary questions off the (slower) analyst tool.
+		"instructions": "Goat OS tools answer questions about Mesha's own farm operations data only. Call them only when the user asks about Mesha's animals, pens, weighing, feed, vaccination, health, sales, procurement, workforce or other Goat OS records. For every other request, answer normally without calling these tools.",
 	}
 }
 
 func askGoatOSDescription(agent bool) string {
 	if agent {
-		return "Ask Mesha, the Goat OS leadership analyst, a natural-language, read-only business question. It investigates like an analyst: it reads the Goat OS code and every read-only table (farm operations, herd, health, feed, sales, workforce, audit history) and answers with the numbers and how they were worked out. It can take up to a few minutes for deep questions; wait for it. For follow-ups, pass the conversation_id returned in the previous answer so it keeps the context. For fast exact dashboard figures, the typed get_* tools are still available and unchanged."
+		return "Use ONLY for questions about Mesha's own farm records in Goat OS: its animals, pens and parks, weighing and growth, feed, vaccination and health, sales and procurement, workforce, tasks, and why a Goat OS number looks the way it does. Do NOT call it for anything else (general knowledge, coding, writing, web search, other companies, or chat that does not need Mesha's farm data): answer those yourself without this tool. It is a read-only analyst that reads the Goat OS code and database; it can take up to a few minutes for deep questions, so wait for it. For follow-ups, pass the conversation_id returned in the previous answer."
 	}
 	return "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits. For dashboards or exact operational answers, prefer composing typed tools first: vaccination schedule/progress, action center, verification, feed, procurement, sales, counts, health, workforce, and weighing."
 }
