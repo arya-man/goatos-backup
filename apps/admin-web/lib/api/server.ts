@@ -6326,7 +6326,9 @@ function normalizeApiError(error: unknown): ApiUiError {
     return {
       kind: "backend_down",
       message:
-        "The backend took too long to return vaccination data. Try again after the local API finishes warming up.",
+        // Shared by every page, so it names no module (it used to say "vaccination data" on Tasks,
+        // Approvals and everything else) and uses no internal words.
+        "The server took too long to answer. Try again in a moment.",
       retryable: true,
     };
   }
