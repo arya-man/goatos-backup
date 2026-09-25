@@ -136,6 +136,20 @@ Pending:
 - Confirming that `appDistributionUploadProdRelease` in the publish step reuses the built outputs (the same `/workspace` and Gradle home) and does not rebuild.
 
 ## Cost (Cloud Build, goatos-stg)
-- Measured 2026-08-25 to 2026-09-24: 170 builds, 4,102 build-minutes, all on the default machine. At ~$0.006/min minus the default-machine free tier: roughly $10/month.
-- With `E2_HIGHCPU_32`: builds finish ~2-3x faster, ~1,500-2,000 build-minutes/month at ~$0.064/min (no free tier): roughly $100-130/month (~₹8.5-11k).
-- Delta ~₹8-10k/month against an August GCP bill of ~₹34k. Per-minute prices are list prices from memory; verify in the billing report. Decision: keep `E2_HIGHCPU_32` (speed is the goal).
+Today every STG deploy build runs on Cloud Build's default machine: e2-standard-2 (2 vCPU, 8 GB), because `cloudbuild.stg.yaml` on main sets no `machineType`. The machine is billed per build-minute only while a build runs; only builds using `cloudbuild.stg.yaml` change machine. Local CI / land-main are unaffected; the Cloud Deploy rollout/migration jobs run in their own environment.
+
+Measured history 2026-08-25 to 2026-09-24:
+| Type | Builds | Build-minutes | Average |
+|---|---|---|---|
+| Deploys with Android (`_DEPLOY_MOBILE=true`) | 73 | 2,929 | ~40 min |
+| Backend+web only (incl. failed/skipped) | 70 | 1,101 | ~16 min |
+| Other small builds (not affected) | 27 | 72 | ~3 min |
+
+Monthly estimate (list prices from memory, verify in billing; times are estimates until a measured run):
+| Machine | vCPU / RAM | Android deploy | Backend+web | Month cost |
+|---|---|---|---|---|
+| default e2-standard-2 (today) | 2 / 8 GB | ~40 min | ~16 min | ~₹750 (free tier covers ~2,500 min) |
+| E2_HIGHCPU_8 | 8 / 8 GB | ~22-26 min | ~11-13 min | ~₹3,000-4,000 |
+| E2_HIGHCPU_32 (current PR) | 32 / 32 GB | ~18-22 min | ~10 min | ~₹9,000-12,500 |
+
+Most of the speed-up comes from parallel steps and the layer cache, not core count; ~13 min of a fast deploy is the rollout. BUT E2_HIGHCPU_8 has only 8 GB RAM, and this PR runs Gradle (4 GB heap + Kotlin daemon) alongside four Docker builds (Go + Next.js). That risks OOM on 8 GB, so 8-core would need Gradle heap/workers reduced (slower Android) or the image builds to finish before Gradle starts. Decision pending the first measured run: stay on E2_HIGHCPU_32 until a real run shows peak memory; drop to 8-core only if it fits.
