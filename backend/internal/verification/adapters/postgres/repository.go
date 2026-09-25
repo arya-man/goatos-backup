@@ -167,13 +167,47 @@ const itemColumns = `item_id::text, tenant_id::text, vertical, module, category,
   verified_at, closed_by::text, closed_at, applier_ack_expected, applied_at, applied_by_module,
   row_version, created_at, updated_at, idempotency_key`
 
-const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
-  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs, vi.context_rows, vi.measurement_fields, vi.media_meta,
-  vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.partition_label, vi.park_id::text, vi.captured_at, vi.verified_by::text,
-  vi.verified_at, vi.closed_by::text, vi.closed_at, vi.applier_ack_expected, vi.applied_at, vi.applied_by_module,
-  vi.row_version, vi.created_at, vi.updated_at, vi.idempotency_key,
+var itemColumnsWithLabels = qualifyProjection("vi", itemColumns) + `,
   operator.display_name::text, verifier.display_name::text,
   shed_loc.name::text, park_loc.name::text`
+
+func qualifyProjection(alias, columns string) string {
+	parts := splitProjection(columns)
+	for i, part := range parts {
+		trimmed := strings.TrimLeft(part, " \n\t")
+		indent := part[:len(part)-len(trimmed)]
+		if trimmed == "" || strings.Contains(trimmed, ".") {
+			continue
+		}
+		parts[i] = indent + alias + "." + trimmed
+	}
+	return strings.Join(parts, ",")
+}
+
+func splitProjection(columns string) []string {
+	var (
+		parts []string
+		depth int
+		start int
+	)
+	for i, r := range columns {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, columns[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, columns[start:])
+	return parts
+}
 
 func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)

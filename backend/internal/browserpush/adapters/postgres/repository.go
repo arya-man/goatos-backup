@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/browserpush"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -71,18 +73,66 @@ const registrationColumns = `
 
 // registrationColumnsQualified is the same projection for queries that JOIN target_member, which
 // also exposes a workforce_member_id and would otherwise make the reference ambiguous.
-const registrationColumnsQualified = `
-  reg.browser_registration_id::text,
-  reg.workforce_member_id::text,
-  reg.provider,
-  reg.browser_install_id,
-  reg.browser_label,
-  reg.status,
-  reg.created_at,
-  reg.last_seen_at,
-  reg.stale_at,
-  COALESCE(reg.stale_reason, ''),
-  reg.row_version`
+var registrationColumnsQualified = qualifyProjection("reg", registrationColumns)
+
+func qualifyProjection(alias, columns string) string {
+	parts := splitProjection(columns)
+	for i, part := range parts {
+		trimmed := strings.TrimLeft(part, " \n\t")
+		indent := part[:len(part)-len(trimmed)]
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(strings.ToUpper(trimmed), "COALESCE(") {
+			parts[i] = indent + qualifyCoalesceFirstArg(alias, trimmed)
+			continue
+		}
+		if strings.Contains(trimmed, ".") {
+			continue
+		}
+		parts[i] = indent + alias + "." + trimmed
+	}
+	return strings.Join(parts, ",")
+}
+
+func splitProjection(columns string) []string {
+	var (
+		parts []string
+		depth int
+		start int
+	)
+	for i, r := range columns {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, columns[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, columns[start:])
+	return parts
+}
+
+func qualifyCoalesceFirstArg(alias, expr string) string {
+	const prefix = "COALESCE("
+	inner := expr[len(prefix):]
+	firstComma := strings.IndexByte(inner, ',')
+	if firstComma < 0 {
+		return expr
+	}
+	firstArg := strings.TrimSpace(inner[:firstComma])
+	if firstArg == "" || strings.Contains(firstArg, ".") {
+		return expr
+	}
+	return prefix + alias + "." + firstArg + inner[firstComma:]
+}
 
 // upsertRegistrationSQL stores or refreshes one browser profile's push address. Hoisted to a
 // package-level const, like every other statement here, so a query-plan gate and the scale guard
@@ -172,7 +222,7 @@ UPDATE workforce_member_browser_push_registrations reg
 
 // listRegistrationsSQL returns the caller's registrations, whatever their status.
 // Params: $1 tenant, $2 member-or-user id.
-const listRegistrationsSQL = targetMemberCTE + `
+var listRegistrationsSQL = targetMemberCTE + `
 SELECT` + registrationColumnsQualified + `
   FROM workforce_member_browser_push_registrations reg
   JOIN target_member tm ON tm.workforce_member_id = reg.workforce_member_id
@@ -556,7 +606,8 @@ func (r *Repository) MarkUnsubscribed(ctx context.Context, tenantID, memberOrUse
 func (r *Repository) ListForMember(ctx context.Context, tenantID, memberOrUserID string) ([]browserpush.Registration, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, listRegistrationsSQL, tenantID, memberOrUserID)
+	bound := sqlbind.MustBind(listRegistrationsSQL, tenantID, memberOrUserID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("browser push: list registrations: %w", err)
 	}

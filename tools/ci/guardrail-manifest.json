@@ -463,6 +463,17 @@
       "notes": "Derives positional placeholder contracts, blocks provable mismatches, rejects newly changed unverified dynamic bind calls, and keeps legacy dynamic debt on a per-file shrink-only baseline."
     },
     {
+      "id": "postgres-scan-projection",
+      "script": "tools/agent-hooks/check-postgres-scan-projection.mjs",
+      "makeTarget": "postgres-scan-projection-guard",
+      "realCheck": "node tools/agent-hooks/check-postgres-scan-projection.mjs",
+      "selfTest": "node tools/agent-hooks/check-postgres-scan-projection.mjs --self-test",
+      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "requiredInCI": true,
+      "ciStep": "postgres-scan-projection-guard",
+      "notes": "Blocks reusable backend SQL constants from hand-copying a private SELECT list for a table that already has a shared *Columns scanner projection, preventing scanner arity drift like the Sales overview 13-column vs 18-column regression."
+    },
+    {
       "id": "calendar-endpoint-grain",
       "script": "tools/agent-hooks/check-calendar-endpoint-grain.mjs",
       "makeTarget": "calendar-endpoint-grain-guard",
