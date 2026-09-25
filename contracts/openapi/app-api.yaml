@@ -22079,7 +22079,7 @@ components:
     WorkBoardModule:
       type: string
       description: The operational module a board row belongs to, in board (keyset) order.
-      enum: [feed, health, vaccination, weighing, counts, milk, pc_care, toxin, procurement, verification, tasks]
+      enum: [feed, health, vaccination, weighing, counts, milk, pc_care, toxin, procurement, verification, tasks, sales]
     WorkBoardWorkState:
       type: string
       description: REUSED VERBATIM from process integrity; the board adds no state of its own.

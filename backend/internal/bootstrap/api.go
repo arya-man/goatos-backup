@@ -137,6 +137,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	piboard "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/boardsource"
+	tasksboard "github.com/vgoats/goatos/backend/internal/tasks/adapters/boardsource"
+	toxinboard "github.com/vgoats/goatos/backend/internal/toxin/adapters/boardsource"
 	toxinhttp "github.com/vgoats/goatos/backend/internal/toxin/adapters/http"
 	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
 	toxinproof "github.com/vgoats/goatos/backend/internal/toxin/adapters/proof"
@@ -1992,7 +1994,7 @@ func newWorkBoardService(pool *pgxpool.Pool, timeout time.Duration, processInteg
 
 // newWorkBoardSources is every module's board source, in registration order.
 func newWorkBoardSources(pool *pgxpool.Pool, timeout time.Duration, processIntegrityRepo *processintegritypg.Repository) []workboardports.Source {
-	return []workboardports.Source{
+	sources := []workboardports.Source{
 		weighingboard.New(pool, timeout),
 		feedboard.New(pool, timeout),
 		verificationboard.New(pool, timeout),
@@ -2013,5 +2015,15 @@ func newWorkBoardSources(pool *pgxpool.Pool, timeout time.Duration, processInteg
 			WithMemberResolver(piboard.NewPoolMemberResolver(pool, timeout)).
 			// The per-animal subtask drill is the source's own SQL and needs the pool.
 			WithPool(pool, timeout),
+		// Toxin (2026-09-25): every aflatoxin round a feed load owes, until it is signed off.
+		toxinboard.New(pool, timeout),
 	}
+	// EVERY workflow the shared tasks engine runs -- herd operations, the procurement intakes,
+	// the sale, general SOP runs, and any module that plugs into the engine later -- rows on the
+	// board through these, one per lane (tasks/adapters/boardsource.engineModuleLanes). A new
+	// SOP-driven module is on the board without a line here.
+	for _, src := range tasksboard.Sources(pool, timeout) {
+		sources = append(sources, src)
+	}
+	return sources
 }

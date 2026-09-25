@@ -47,8 +47,9 @@ weighing free-flow guard still scans it.
 
 Sources in v1: weighing work items, feed transport tasks, verification items, counts
 approval requests, milk feeding tasks, health treatment sessions, PC care tasks, and
-vaccination (wrapping the existing process-integrity read). Procurement and toxin have
-no source yet and the board hides them until they do.
+vaccination (wrapping the existing process-integrity read). Procurement and toxin had no
+source and the board hid them silently for two weeks -- fixed 2026-09-25, see "Every module is on
+the board" below.
 
 Added 2026-09-12, RESHAPED 2026-09-14 -- **the pen visit, as a task of its own under Tasks.**
 The 2026-09-12 shape (the PC Care row deriving its state from the visit, a "Pen visit" unit
@@ -152,6 +153,8 @@ finer grain returns itself as one subtask -- a live row never drills into an emp
 | PC care | scanned animal (tag verbatim) | scan -> proof -> submit -> verify |
 | vaccination | animal in the pen for that drive (its obligation) | vaccinate -> verify |
 | pen visit (Tasks) | the visit itself | visit -> verify |
+| any engine workflow (births, deaths, pen moves, pen returns, sales, animal and feed purchases, general SOP runs) | step of the workflow, in the SOP's words | do -> verify (verify only when the step records proof) |
+| toxin | step of the procedure the round was opened on | do; the reading step adds review |
 
 Rules that are the contract:
 
@@ -262,3 +265,50 @@ Pinned by `TestFeedCardAndItsDrawerTellTheSameStory` (every card's pen buckets e
 and the evening drawer never shows the morning's rework), the session split in
 `TestFeedActivityCardsOnADatabaseRoundTrip`, and the feed item that must never reach
 `TestVerificationBoardRowsOnADatabaseRoundTrip`.
+
+## Every module is on the board, or says why not (maintainer instruction 2026-09-25)
+
+The maintainer found Procurement and Toxin testing missing from the board: "it should not be like
+that; in future also, if I have any task, any new module, it should automatically link to the work
+board; it should not be one more task." Both had a lane on the module list from day one and NO
+source feeding it, so the board hid them without a word. Nothing failed. The same hole covered
+every workflow of the shared tasks engine -- births, deaths, pen moves, pen returns, sales, the
+animal and feed purchase intakes and general SOP runs never reached the board either.
+
+Three pieces, each load-bearing:
+
+1. **One source for the whole tasks engine** (`tasks/adapters/boardsource`). Every
+   `workflow_instances` row rows on the board, titled with the phone card's own words
+   (`postgres.BoardCardColumns` / `BoardCardJoins` -- the one card read, exported, never copied),
+   drilling into its steps. WHICH lane is one table, `engineModuleLanes`: herd operations under
+   Counts, the purchase intakes under Procurement, the sale under a new **Sales** lane (appended
+   last: the order is the cursor contract), general SOP runs under Tasks. Because every new
+   operational feature runs on the engine (docs/decisions/sop-driven-herd-operations.md), a new
+   module is on the board the day it ships with no board code. An engine module the table does
+   not name still rows -- under Tasks, the catch-all -- rather than vanishing, and
+   `TestEveryEngineModuleHasABoardLane` (which reads the live `workflow_instances_module_check`
+   out of the migrations) fails the build until someone names its lane.
+   A workflow belongs to day D when it was raised on D, when it was raised earlier and is still
+   open (owed work carries forward, as a pen visit does), or when it was completed on D. Every
+   engine step is owned by a designation, not a person, so every workflow is a pool row.
+2. **A toxin source** (`toxin/adapters/boardsource`). Every live or signed-off aflatoxin round,
+   at the park its load's code names, from the day it was opened until the day it is signed off;
+   the drill is the procedure the round was opened on (its own `sop_version`). An accepted
+   Positive reads severity watch (it flags the load, it does not block feeding).
+3. **Two build checks that make the next gap impossible to ship quietly.**
+   `workboard/app.moduleLanes` / `notBoardWork`: every module in the access catalog
+   (`permissions.ModuleCapabilities`) either names the lane its work rows under or says, in
+   words, why it owns no board work; `TestEveryModuleDeclaresItsWorkBoardLane` fails for a
+   module with neither. `bootstrap.TestEveryWorkBoardLaneHasASource` fails for any lane -- on the
+   board's list or declared by a module -- with no registered source; it is the check that would
+   have caught Procurement and Toxin. Both were mutation-tested (drop the toxin source, drop the
+   toxin declaration: each goes red).
+
+Recorded as NOT board work, each with its reason in `notBoardWork`: leave approvals, leadership
+tasks (the board's flag raises them), the market survey, registers, lenses and settings screens.
+Moving one onto the board is moving its entry to `moduleLanes` with a source in the same change.
+
+Visibility: the Sales lane opens on `sales.read`; the Procurement lane now also opens for the
+desks that WORK a load (`procurement.animal_purchase.write` / `.decide`,
+`feed.purchase.write`), not only `procurement.review`. Migration `000428` adds the two
+tenant+park indexes the new reads need.

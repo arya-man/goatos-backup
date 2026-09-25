@@ -25,6 +25,7 @@
     <string name="work_board_module_procurement">ಖರೀದಿ</string>
     <string name="work_board_module_verification">ಪರಿಶೀಲನೆ</string>
     <string name="work_board_module_tasks">ಕಾರ್ಯಗಳು</string>
+    <string name="work_board_module_sales">ಮಾರಾಟ</string>
 
     <string name="work_board_state_scheduled">ನಿಗದಿಯಾಗಿದೆ</string>
     <string name="work_board_state_due">ಇಂದು ಮಾಡಬೇಕು</string>

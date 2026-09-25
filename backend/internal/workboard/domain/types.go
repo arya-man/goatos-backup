@@ -31,6 +31,9 @@ const (
 	// work the system owes a person -- today the next-day pen visits -- rows here, never under
 	// the module whose work raised it. Appended last: the order is the cursor contract.
 	ModuleTasks Module = "tasks"
+	// ModuleSales is the sale's own workflow (the published sales.deal SOP: tag, load, settle),
+	// run by the shared tasks engine. Appended after tasks: the order is the cursor contract.
+	ModuleSales Module = "sales"
 )
 
 // Modules returns every module in board order. New modules append; the order is part of
@@ -39,7 +42,7 @@ func Modules() []Module {
 	return []Module{
 		ModuleFeed, ModuleHealth, ModuleVaccination, ModuleWeighing, ModuleCounts,
 		ModuleMilk, ModulePCCare, ModuleToxin, ModuleProcurement, ModuleVerification,
-		ModuleTasks,
+		ModuleTasks, ModuleSales,
 	}
 }
 

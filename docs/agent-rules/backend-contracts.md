@@ -260,3 +260,25 @@ Canonical catalog: `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency c
   tiebreaker, totals from a stored counter or separate cheap count. "Show
   all"/export is an async export job. Bad: `ListLive` walking 50k tags for
   `limit=1`; vaccination command reading all 86k obligations.
+
+## Every Module Is On The Work Board, Or Says Why Not (maintainer instruction 2026-09-25, Claude AND Codex)
+
+Procurement and Toxin testing sat on the Work Board's module list for two weeks with NO source
+feeding them, and the board hid them silently. The maintainer's rule: **any task, any new module
+links to the Work Board automatically; it is never one more task.** Read
+`docs/decisions/work-board.md` -> "Every module is on the board".
+
+- A module that runs on the shared tasks engine (the rule for every new operational feature) is
+  on the board with NO board code: `tasks/adapters/boardsource` rows every `workflow_instances`
+  row. Name its lane in `engineModuleLanes` in the same change that adds its engine module --
+  `TestEveryEngineModuleHasABoardLane` fails until you do (it still rows under Tasks meanwhile).
+- A module with its OWN work table ships its own `adapters/boardsource` Source in the same
+  change, registered in `bootstrap.newWorkBoardSources`.
+- Every module added to `permissions.ModuleCapabilities` declares its lane in
+  `workboard/app.moduleLanes`, or its reason in `notBoardWork`.
+  `TestEveryModuleDeclaresItsWorkBoardLane` and `TestEveryWorkBoardLaneHasASource` fail
+  otherwise. Do not satisfy them by moving work into `notBoardWork` -- that list is for modules
+  that own no work a person owes on a park-day.
+- A new board lane is appended to `workboard/domain.Modules()` (the order is the cursor
+  contract), with visibility, the OpenAPI enum, the admin-web `work_board_modules` option and
+  the Android `moduleLabel` / `moduleIcon` + strings in the same change.

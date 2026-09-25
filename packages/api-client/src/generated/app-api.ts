@@ -9294,7 +9294,7 @@ export interface components {
          * @description The operational module a board row belongs to, in board (keyset) order.
          * @enum {string}
          */
-        WorkBoardModule: "feed" | "health" | "vaccination" | "weighing" | "counts" | "milk" | "pc_care" | "toxin" | "procurement" | "verification" | "tasks";
+        WorkBoardModule: "feed" | "health" | "vaccination" | "weighing" | "counts" | "milk" | "pc_care" | "toxin" | "procurement" | "verification" | "tasks" | "sales";
         /**
          * @description REUSED VERBATIM from process integrity; the board adds no state of its own.
          * @enum {string}

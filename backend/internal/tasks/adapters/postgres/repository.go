@@ -573,7 +573,22 @@ type cardScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
+// BoardCardColumns and BoardCardJoins are the ONE workflow card read (the columns scanCard reads
+// and the 1:0..1 display joins behind them), exported so the Work Board's engine source
+// (tasks/adapters/boardsource) titles a workflow with the very words the phone's card uses
+// instead of composing its own. A caller appends its own columns AFTER BoardCardColumns and
+// passes their destinations to ScanBoardCard as extra.
+const (
+	BoardCardColumns = cardSelectColumns
+	BoardCardJoins   = cardJoins
+)
+
+// ScanBoardCard scans one BoardCardColumns row plus the caller's trailing columns.
+func ScanBoardCard(row interface{ Scan(dest ...any) error }, now time.Time, extra ...any) (domain.WorkflowCard, error) {
+	return scanCard(row, now, extra...)
+}
+
+func scanCard(row cardScanner, now time.Time, extra ...any) (domain.WorkflowCard, error) {
 	var (
 		partitionLabel                 string
 		card                           domain.WorkflowCard
@@ -587,7 +602,7 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		saleAnimals                    int
 		saleFarm                       string
 	)
-	if err := row.Scan(
+	dests := []any{
 		&card.WorkflowID, &card.Module, &card.TemplateKey, &card.Subject.GoatID,
 		&card.EventAt, &card.EventDate, &card.State,
 		&card.ActionsTotal, &card.ActionsDone,
@@ -597,7 +612,8 @@ func scanCard(row cardScanner, now time.Time) (domain.WorkflowCard, error) {
 		&card.ParkLabel, &card.ShedLabel, &partitionLabel, &card.SOPName,
 		&card.SubjectRefID, &saleBuyer, &saleAnimals, &saleFarm,
 		&loadRef, &loadVendor, &loadFarm, &feedItem, &feedVendor, &feedFarm, &feedBatch,
-	); err != nil {
+	}
+	if err := row.Scan(append(dests, extra...)...); err != nil {
 		return domain.WorkflowCard{}, err
 	}
 	card.SubjectLabel = saleSubjectLabel(card.TemplateKey, saleBuyer, saleAnimals, saleFarm)
