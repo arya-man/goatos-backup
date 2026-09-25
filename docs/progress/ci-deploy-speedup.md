@@ -73,6 +73,13 @@ The overall target was that backend+web goes from about 31 to about 17-19 min, a
 4. **LOW, 9fa5b0799.** The task's EXIT trap joins any still-running rollout lanes and prints their logs before writing FAILED. There is a test for this.
 5. **LOW (follow-up).** The publish step installs the JDK with apt again and reuses the `/workspace` SDK, which costs about 1-2 min. A prebaked Android builder image would remove this and the build step's install too. Recorded under open decisions.
 
+## Judge rounds
+
+- **Round 1 (PR comment 5824290893):** five findings (1 HIGH Android step can fail the build, 2 MED buildx fallback + `.gcloudignore`, 2 LOW trap joins lanes + JDK reinstall). Items 1-4 fixed, one commit each (listed above); item 5 deferred to open decisions.
+- **Round 2 (PR comment 5824385913):** land-main lock stale-reclaim race — two runs seeing the same dead holder could both acquire, and PID reuse could make a stale lock look live. **Fixed:** lock logic moved to `tools/ci/land-lock.sh`; the holder records pid + process start time (`ps -o lstart=`, mismatch = stale); reclaim atomically renames the stale dir to `<lock>.stale.<pid>.<rand>` only while holding a `<lock>.reclaim` mutex and after re-reading the holder, then retries `mkdir`. `tools/ci/land-main.test.sh` adds PID-reuse, live-holder-kept and a 3-way concurrent reclaim (10 rounds, exactly one winner) case; passes 3/3 runs.
+
+**What this PR does and does not buy for land-main:** a single uncontended landing already takes 5-9 min. The land-main speed-up in this PR comes **only from removing contention** (the landing queue stops two landings fighting over CPU/Gradle/OCI, which is what produced 30-50 min runs). The remaining gain — warm Gradle/Go/npm caches for the landing worktree — is deferred and not in this PR.
+
 ## Changes (local CI) — pending in this PR
 
 - f. **DONE.** Landing queue in `tools/ci/land-main.sh`, placed after the clean-tree and git-operation checks:
