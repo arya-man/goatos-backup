@@ -140,7 +140,11 @@ func (r *Repository) ListTasks(ctx context.Context, p ports.ListParams) (ports.P
 		args = append(args, p.UserID)
 		where += " AND t.raised_by = $2::uuid"
 	case domain.ScopeTeamProgress:
-		where += " AND t.status <> 'cancelled'"
+		// No scope-level status predicate: WHICH statuses a tab lists is the filter chip's call
+		// (p.Statuses, never empty -- All is open/in_progress/done), so Team progress hides
+		// cancelled tasks under All exactly as the other tabs do, and still lists them under the
+		// Cancelled chip. A scope-level `status <> 'cancelled'` here made that chip read 0 rows
+		// beside a count of every cancelled task (2026-09-25).
 	default:
 		args = append(args, p.UserID)
 		where += " AND t.assignee_user_id = $2::uuid"
@@ -382,12 +386,10 @@ func keysetPredicate(args *[]any, sortKey, cursor string) (string, error) {
 //
 // projection-review: membership=leadership_tasks for tenant plus the active scope's party predicate and the request filters; group_key=status; join_cardinality=no joins; pagination=whole-result summary independent of the task page, no OFFSET; scope=tenant plus actor party (tenant-wide for the monitor scope)
 func statusCountsWhere(args *[]any, p ports.ListParams) string {
-	// DELIBERATE FOR NOW, and out of scope for the worklist change: this query drops the status
-	// predicate entirely, including the team_progress row query's own `status <> 'cancelled'`,
-	// so the monitor scope still reports a `cancelled` bucket for rows that tab never lists.
-	// That is the behaviour this list shipped with; the filters are honest about q, the people
-	// and the date ranges, and only that one bucket overstates. Do not read these counts as
-	// fully scope-exact until that is fixed on its own.
+	// The status predicate is dropped because the chips vary it. Every scope's row query now
+	// applies ONLY the chip's statuses (Team progress no longer adds its own
+	// `status <> 'cancelled'`), so every bucket here -- the cancelled one included -- counts
+	// exactly what its chip lists (2026-09-25).
 	where := "tenant_id = $1"
 	switch p.Scope {
 	case domain.ScopeAssignedByMe:
@@ -1381,7 +1383,7 @@ func (r *Repository) SetComment(ctx context.Context, p ports.CommentParams) (dom
 		if before.Status == domain.StatusCancelled {
 			return domain.Task{}, domain.ErrTaskClosed
 		}
-		return domain.Task{}, domain.ErrNotAssignee
+		return domain.Task{}, domain.ErrNotOnTask
 	}
 	// The mention targets are re-validated HERE, under the row lock taken above, against the
 	// same list the `@` autocomplete reads. An id from a stale or hostile client can therefore

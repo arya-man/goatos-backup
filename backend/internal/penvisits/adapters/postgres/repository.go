@@ -394,7 +394,7 @@ func (r *Repository) Submit(ctx context.Context, p ports.SubmitParams) (domain.T
 	if err != nil {
 		return domain.Task{}, err
 	}
-	if err := domain.CheckSubmit(before, p.Actor, p.ProofRef, p.RowVersion); err != nil {
+	if err := domain.CheckSubmit(before, p.Actor, p.ProofRef, p.RowVersion, biztime.BusinessDate(r.now())); err != nil {
 		return domain.Task{}, err
 	}
 	now := r.now().UTC()

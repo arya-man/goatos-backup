@@ -176,6 +176,9 @@ type Repository interface {
 	// ListApprovalRequests returns one keyset page of requests, restricted to the types the caller
 	// may decide.
 	ListApprovalRequests(ctx context.Context, q domain.ApprovalRequestQuery) (domain.ApprovalRequestPage, error)
+	// CountPendingApprovalRequests counts the whole-queue rows ListApprovalRequests would page
+	// through for the same tenant, types and caller park scope (status pending, no cursor).
+	CountPendingApprovalRequests(ctx context.Context, q domain.ApprovalRequestQuery) (int, error)
 
 	// ShiftingDestinationCatalog returns the active park -> shed option tree an operator picks a
 	// shifting destination from, ordered for a stable dropdown. Bounded config catalog, not a feed.

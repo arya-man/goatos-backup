@@ -64,6 +64,12 @@ type ApprovalWorkflow interface {
 	Decide(ctx context.Context, in countsapp.DecisionInput) (domain.ApprovalRequest, bool, error)
 }
 
+// filteredApprovalLister is the optional filtered list (counts/app.ApprovalService implements it).
+type filteredApprovalLister interface {
+	ListFiltered(ctx context.Context, tenantID, status string, decidableTypes, callerParkIDs []string,
+		filter domain.ApprovalListFilter, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
+}
+
 // RegisterApprovals wires the mobile/app approval decision surface.
 func RegisterApprovals(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+appApprovalsRoute, h.ListApprovals)
@@ -170,7 +176,26 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	page, err := h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkIDs, pageSize, strings.TrimSpace(r.URL.Query().Get("cursor")))
+	// The client's optional type / farm filter (2026-09-25), applied SERVER-SIDE so a farm's
+	// requests past the first page are reachable. The service validates both (unknown -> 400,
+	// never widened) and binds the cursor to the filter.
+	filter := domain.ApprovalListFilter{
+		RequestType: strings.TrimSpace(r.URL.Query().Get("request_type")),
+		ParkID:      strings.TrimSpace(r.URL.Query().Get("park_id")),
+	}
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	var (
+		page domain.ApprovalRequestPage
+		err  error
+	)
+	if lister, ok := h.approvals.(filteredApprovalLister); ok {
+		page, err = lister.ListFiltered(r.Context(), tenantID, status, decidable, callerParkIDs, filter, pageSize, cursor)
+	} else if filter.Key() != "" {
+		h.writeError(w, r, http.StatusNotImplemented, "approval_filters_unavailable", "approval list filters are not configured", nil)
+		return
+	} else {
+		page, err = h.approvals.ListPending(r.Context(), tenantID, status, decidable, callerParkIDs, pageSize, cursor)
+	}
 	if err != nil {
 		h.writeApprovalError(w, r, err)
 		return
@@ -262,6 +287,7 @@ func (h *AppWriteHandler) approvalNames(ctx context.Context, tenantID string, ro
 		Locations:       map[string]string{},
 		People:          map[string]string{},
 		AnimalLocations: map[string]string{},
+		AnimalTags:      map[string]string{},
 	}
 	if h.approvalNameResolver == nil || len(rows) == 0 {
 		return empty
@@ -289,6 +315,7 @@ func (h *AppWriteHandler) approvalNames(ctx context.Context, tenantID string, ro
 		Locations:       resolved.Locations,
 		People:          resolved.People,
 		AnimalLocations: resolved.AnimalLocations,
+		AnimalTags:      resolved.AnimalTags,
 	}
 }
 
@@ -423,8 +450,10 @@ func (h *AppWriteHandler) decide(w http.ResponseWriter, r *http.Request, approve
 }
 
 // callerRoles returns the roles the authenticated caller holds in the active tenant.
-func callerRoles(r *http.Request) []string {
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+func callerRoles(r *http.Request) []string { return callerRolesFromContext(r.Context()) }
+
+func callerRolesFromContext(ctx context.Context) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	roles := make([]string, 0, len(grants))
 	seen := map[string]struct{}{}
 	for _, grant := range grants {
@@ -444,8 +473,10 @@ func callerRoles(r *http.Request) []string {
 // tenant-wide (no restriction, e.g. CEO/internal). A person holding park_head in both parks
 // decides in both; the previous single-park answer (the FIRST grant) refused every request in
 // their other park (live E2E 2026-09-11).
-func callerParkScope(r *http.Request) []string {
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+func callerParkScope(r *http.Request) []string { return callerParkScopeFromContext(r.Context()) }
+
+func callerParkScopeFromContext(ctx context.Context) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	parks := []string{}
 	seen := map[string]struct{}{}
 	for _, grant := range grants {
@@ -503,6 +534,14 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		h.writeError(w, r, http.StatusConflict, "idempotency_conflict",
 			"Idempotency-Key was reused with a different payload", err)
+	case errors.Is(err, countsapp.ErrInvalidApprovalTypeFilter):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_request_type",
+			"request_type must be birth, death or shifting", err)
+	case errors.Is(err, countsapp.ErrInvalidApprovalParkFilter):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_park_id", "park_id must be a farm id", err)
+	case errors.Is(err, countsapp.ErrApprovalCursorFilterMismatch):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_cursor",
+			"that page belongs to a different filter; reload the list", err)
 	case errors.Is(err, countsapp.ErrMissingRequiredField),
 		errors.Is(err, countsapp.ErrInvalidExceptionFilter),
 		errors.Is(err, countsapp.ErrInvalidJSON):

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
@@ -224,14 +225,43 @@ type ApprovalRequestQuery struct {
 	// caller holds a park grant in. Empty means no scope (a tenant-scoped caller).
 	CallerParkIDs []string
 
+	// FilterParkID is the CLIENT's optional farm filter (2026-09-25), applied in SQL on top of
+	// CallerParkIDs -- never instead of it, so a park outside the caller's scope reads empty rather
+	// than widening. A death matches through its subject animal's park.
+	FilterParkID string
+	// FilterKey is ApprovalListFilter.Key() for the page; it is stamped on the next cursor so a
+	// cursor minted under one filter cannot walk the keyset of another.
+	FilterKey string
+
 	PageSize int
 	Cursor   *ApprovalRequestCursor
+}
+
+// ApprovalListFilter is the client's optional narrowing of the approvals list (2026-09-25): the
+// web filtered type and farm client-side over one 20-row page, so a farm's requests past that
+// page were invisible. Both are applied server-side, validated, and never widen what the caller
+// may decide.
+type ApprovalListFilter struct {
+	RequestType string
+	ParkID      string
+}
+
+// Key is the stable identity of the filter, bound into the keyset cursor. Blank for no filter,
+// so a cursor minted before filters existed still pages the unfiltered list.
+func (f ApprovalListFilter) Key() string {
+	t, p := strings.TrimSpace(f.RequestType), strings.ToLower(strings.TrimSpace(f.ParkID))
+	if t == "" && p == "" {
+		return ""
+	}
+	return "t=" + t + ";p=" + p
 }
 
 // ApprovalRequestCursor is the keyset position: (raised_at, approval_request_id) descending.
 type ApprovalRequestCursor struct {
 	RaisedAt          time.Time
 	ApprovalRequestID string
+	// Filter is the ApprovalListFilter.Key() the cursor was minted under ("" = unfiltered).
+	Filter string
 }
 
 // ApprovalRequestPage is one page of the approvals list.
@@ -272,6 +302,7 @@ type approvalCursorPayload struct {
 	Kind     string `json:"k"`
 	RaisedAt string `json:"r"`
 	ID       string `json:"i"`
+	Filter   string `json:"f,omitempty"`
 }
 
 // EncodeApprovalRequestCursor encodes a keyset position for the next page.
@@ -280,6 +311,7 @@ func EncodeApprovalRequestCursor(c ApprovalRequestCursor) (string, error) {
 		Kind:     approvalCursorKind,
 		RaisedAt: c.RaisedAt.UTC().Format(time.RFC3339Nano),
 		ID:       c.ApprovalRequestID,
+		Filter:   c.Filter,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode approval request cursor: %w", err)
@@ -323,5 +355,5 @@ func DecodeApprovalRequestCursor(value string) (*ApprovalRequestCursor, error) {
 	if payload.ID == "" {
 		return nil, fmt.Errorf("decode approval request cursor: missing id")
 	}
-	return &ApprovalRequestCursor{RaisedAt: raisedAt, ApprovalRequestID: payload.ID}, nil
+	return &ApprovalRequestCursor{RaisedAt: raisedAt, ApprovalRequestID: payload.ID, Filter: payload.Filter}, nil
 }

@@ -10074,7 +10074,10 @@ paths:
       description: >-
         The proof must be a FINISHED upload in this tenant, declared `video`, stored as video/*, and
         captured by the in-app camera (a gallery pick is refused). Only the assignee may submit, only
-        while the visit is still owed, and only on the row_version the screen loaded with (0 skips
+        while the visit is still owed, only from the visit's planned India business day onward
+        (earlier is 409 `visit_not_open_yet` with the farm sentence "This visit opens on
+        DD/MM/YYYY."; the card then carries can_submit=false and a reason_line ending
+        "Opens on DD/MM/YYYY"), and only on the row_version the screen loaded with (0 skips
         the fence). Submit IS completion: there is no verifier. Idempotent on the Idempotency-Key
         header: an exact replay returns the same completed visit.
       parameters:
@@ -10139,9 +10142,10 @@ paths:
         - name: filter
           in: query
           required: false
-          schema: { type: string, enum: [all, open, in_progress, done, overdue], default: all }
+          schema: { type: string, enum: [all, open, in_progress, done, cancelled, overdue], default: all }
           description: >-
-            The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks).
+            The chip KEY. Absent resolves to `all` (which hides cancelled tasks); `cancelled` lists
+            only the cancelled tasks. An UNKNOWN key is 400 `invalid_filter`, never widened to all.
             `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at
             is before the server's farm clock at request time. Its chip count in `filters[]` is
             that same late subset, whole-list, under the request's other filters.
@@ -10504,8 +10508,10 @@ paths:
       operationId: setLeadershipTaskComment
       summary: Add a two-way note to a task.
       description: >-
-        Appends a chronological task note while the task is not cancelled. The assignee, the raiser
-        and a leadership monitor can all write; the compatibility `comment` field is also refreshed
+        Appends a chronological task note while the task is not cancelled. The assignee, the raiser,
+        a leadership monitor and anyone a note on the task mentioned (a participant; maintainer
+        decision 2026-09-25 -- a mention may reply, and may not move status, edit or cancel) can all
+        write; anyone else is 403 `not_on_task`. The compatibility `comment` field is also refreshed
         for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
       parameters:
         - name: task_id
@@ -17479,10 +17485,34 @@ paths:
         - name: cursor
           in: query
           required: false
-          description: Opaque keyset cursor from a previous page's next_cursor.
+          description: >-
+            Opaque keyset cursor from a previous page's next_cursor. A cursor is bound to the
+            request_type / park_id filter it was minted under; replaying it under a different
+            filter is 400 invalid_cursor.
           schema:
             type: string
             maxLength: 512
+        - name: request_type
+          in: query
+          required: false
+          description: >-
+            Optional server-side filter to one request type. It only NARROWS what the caller may
+            decide: a type outside the caller's authority returns an empty page. Any other value is
+            400 invalid_request_type.
+          schema:
+            type: string
+            enum: [birth, death, shifting]
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Optional server-side farm filter, applied on top of the caller's park scope (a farm the
+            caller does not hold returns an empty page). A shifting request matches on its
+            destination farm, a birth on its farm, a death on the subject animal's farm. A
+            malformed id is 400 invalid_park_id.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: One page of approval requests.

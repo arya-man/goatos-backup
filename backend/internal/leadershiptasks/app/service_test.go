@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"strings"
 	"testing"
 	"time"
@@ -322,10 +323,98 @@ func TestListParamsValidatesTheWorklistFiltersAndIgnoresPinnedPeople(t *testing.
 		t.Fatalf("query params = %+v, want the trimmed text and task_no 15", numeric)
 	}
 	if numeric.DeadlineFrom == nil || numeric.DeadlineTo == nil || !numeric.DeadlineTo.After(numeric.DeadlineFrom.Add(23*time.Hour)) {
-		t.Fatalf("one-day range = %v..%v, want the whole UTC day", numeric.DeadlineFrom, numeric.DeadlineTo)
+		t.Fatalf("one-day range = %v..%v, want the whole IST day", numeric.DeadlineFrom, numeric.DeadlineTo)
 	}
 	text, err := service.listParams(with(func(r *ListRequest) { r.Query = "vendor 15" }))
 	if err != nil || text.QueryTaskNo != nil || text.Sort != ports.SortRaisedAtDesc {
 		t.Fatalf("text query = %+v err %v, want no task_no arm and the default sort", text, err)
+	}
+}
+
+// TestBareDateRangesAreIndiaBusinessDays pins the 2026-09-25 finding with the live instants: tasks
+// raised 02:55-03:01 IST on 16/09 (21:25-21:31 UTC on 15/09) were EXCLUDED from
+// raised_from=raised_to=2026-09-16 and INCLUDED under 15/09, because a bare date was read as a UTC
+// day. A Goat OS business day is an Asia/Kolkata day; UTC must never define it.
+func TestBareDateRangesAreIndiaBusinessDays(t *testing.T) {
+	service := NewService(&fakeRepo{}, &fakeResolver{})
+	actor := domain.Actor{UserID: raiser, CanRaise: true, CanMonitor: true}
+	ist := biztime.DefaultLocation()
+	raisedEarly := time.Date(2026, 9, 16, 2, 55, 0, 0, ist)
+	raisedLate := time.Date(2026, 9, 16, 3, 1, 0, 0, ist)
+	lateNight := time.Date(2026, 9, 16, 23, 59, 59, 0, ist)
+	nextMidnight := time.Date(2026, 9, 17, 0, 0, 0, 0, ist)
+
+	inRange := func(p ports.ListParams, from, to *time.Time, at time.Time) bool {
+		return !at.Before(*from) && !at.After(*to)
+	}
+	for _, field := range []string{"raised", "deadline"} {
+		req := ListRequest{TenantID: tenant, UserID: raiser, Actor: actor, ScopeKey: domain.ScopeTeamProgress}
+		if field == "raised" {
+			req.RaisedFrom, req.RaisedTo = "2026-09-16", "2026-09-16"
+		} else {
+			req.DeadlineFrom, req.DeadlineTo = "2026-09-16", "2026-09-16"
+		}
+		p, err := service.listParams(req)
+		if err != nil {
+			t.Fatalf("%s: %v", field, err)
+		}
+		from, to := p.RaisedFrom, p.RaisedTo
+		if field == "deadline" {
+			from, to = p.DeadlineFrom, p.DeadlineTo
+		}
+		for _, at := range []time.Time{raisedEarly, raisedLate, lateNight} {
+			if !inRange(p, from, to, at) {
+				t.Fatalf("%s 16/09: %s IST is outside %s..%s -- the IST day must include it", field,
+					at.Format(time.RFC3339), from.In(ist).Format(time.RFC3339Nano), to.In(ist).Format(time.RFC3339Nano))
+			}
+		}
+		if inRange(p, from, to, nextMidnight) {
+			t.Fatalf("%s 16/09 includes 17/09 00:00 IST (%s..%s)", field, from, to)
+		}
+		if !from.Equal(time.Date(2026, 9, 16, 0, 0, 0, 0, ist)) {
+			t.Fatalf("%s lower bound = %s, want the start of 16/09 IST", field, from.In(ist))
+		}
+		// The previous IST day must NOT contain them.
+		prev := ListRequest{TenantID: tenant, UserID: raiser, Actor: actor, ScopeKey: domain.ScopeTeamProgress,
+			RaisedFrom: "2026-09-15", RaisedTo: "2026-09-15"}
+		pp, err := service.listParams(prev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inRange(pp, pp.RaisedFrom, pp.RaisedTo, raisedEarly) {
+			t.Fatalf("raised 15/09 includes %s IST, which is 16/09 in India", raisedEarly)
+		}
+	}
+}
+
+// A refused NOTE must say it is about writing a note -- not "Only the person this task is for can
+// update its status", which is what a non-party got for a comment (2026-09-25).
+func TestCommentRefusalSpeaksAboutNotesNotStatus(t *testing.T) {
+	var appErr *Error
+	if !errors.As(HTTPError(domain.ErrNotOnTask), &appErr) {
+		t.Fatalf("ErrNotOnTask did not map to an app error")
+	}
+	if appErr.Code != "not_on_task" || strings.Contains(strings.ToLower(appErr.Message), "status") ||
+		!strings.Contains(strings.ToLower(appErr.Message), "note") {
+		t.Fatalf("comment refusal = %s %q, want not_on_task and a sentence about notes", appErr.Code, appErr.Message)
+	}
+}
+
+// An unknown filter key is REFUSED rather than silently widened to All (2026-09-25:
+// filter=cancelled used to return every working task). Blank still means the default.
+func TestUnknownFilterKeyIsRefused(t *testing.T) {
+	service := NewService(&fakeRepo{}, &fakeResolver{})
+	actor := domain.Actor{UserID: raiser, CanRaise: true, CanMonitor: true}
+	_, err := service.listParams(ListRequest{TenantID: tenant, UserID: raiser, Actor: actor, FilterKey: "canceled"})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_filter" {
+		t.Fatalf("unknown filter key: err = %v, want invalid_filter", err)
+	}
+	p, err := service.listParams(ListRequest{TenantID: tenant, UserID: raiser, Actor: actor, FilterKey: "cancelled"})
+	if err != nil || len(p.Statuses) != 1 || p.Statuses[0] != domain.StatusCancelled {
+		t.Fatalf("filter=cancelled params = %+v err %v, want statuses [cancelled]", p.Statuses, err)
+	}
+	if p, err := service.listParams(ListRequest{TenantID: tenant, UserID: raiser, Actor: actor}); err != nil || len(p.Statuses) != 3 {
+		t.Fatalf("blank filter = %+v err %v, want the All statuses", p.Statuses, err)
 	}
 }

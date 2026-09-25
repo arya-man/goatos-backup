@@ -3840,7 +3840,7 @@ export interface paths {
         put?: never;
         /**
          * Submit the visit's live-camera video and complete the task.
-         * @description The proof must be a FINISHED upload in this tenant, declared `video`, stored as video/*, and captured by the in-app camera (a gallery pick is refused). Only the assignee may submit, only while the visit is still owed, and only on the row_version the screen loaded with (0 skips the fence). Submit IS completion: there is no verifier. Idempotent on the Idempotency-Key header: an exact replay returns the same completed visit.
+         * @description The proof must be a FINISHED upload in this tenant, declared `video`, stored as video/*, and captured by the in-app camera (a gallery pick is refused). Only the assignee may submit, only while the visit is still owed, only from the visit's planned India business day onward (earlier is 409 `visit_not_open_yet` with the farm sentence "This visit opens on DD/MM/YYYY."; the card then carries can_submit=false and a reason_line ending "Opens on DD/MM/YYYY"), and only on the row_version the screen loaded with (0 skips the fence). Submit IS completion: there is no verifier. Idempotent on the Idempotency-Key header: an exact replay returns the same completed visit.
          */
         post: operations["submitPenVisit"];
         delete?: never;
@@ -4004,7 +4004,7 @@ export interface paths {
         put?: never;
         /**
          * Add a two-way note to a task.
-         * @description Appends a chronological task note while the task is not cancelled. The assignee, the raiser and a leadership monitor can all write; the compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
+         * @description Appends a chronological task note while the task is not cancelled. The assignee, the raiser, a leadership monitor and anyone a note on the task mentioned (a participant; maintainer decision 2026-09-25 -- a mention may reply, and may not move status, edit or cancel) can all write; anyone else is 403 `not_on_task`. The compatibility `comment` field is also refreshed for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
          */
         post: operations["setLeadershipTaskComment"];
         delete?: never;
@@ -28371,8 +28371,8 @@ export interface operations {
             query?: {
                 /** @description Monitoring scope key. Callers without `leadership_tasks.raise` are confined to `assigned_to_me`; `assigned_by_me` requires raise authority, and `team_progress` requires CEO/COO-style monitor authority. Unknown or unavailable scopes resolve to the caller's default scope. */
                 scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
-                /** @description The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks). `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at is before the server's farm clock at request time. Its chip count in `filters[]` is that same late subset, whole-list, under the request's other filters. */
-                filter?: "all" | "open" | "in_progress" | "done" | "overdue";
+                /** @description The chip KEY. Absent resolves to `all` (which hides cancelled tasks); `cancelled` lists only the cancelled tasks. An UNKNOWN key is 400 `invalid_filter`, never widened to all. `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at is before the server's farm clock at request time. Its chip count in `filters[]` is that same late subset, whole-list, under the request's other filters. */
+                filter?: "all" | "open" | "in_progress" | "done" | "cancelled" | "overdue";
                 limit?: number;
                 /** @description Keyset cursor from a previous page's next_cursor. The cursor is SORT-AWARE: it carries the name of the sort it was minted under, and a cursor presented under a different `sort` is refused 400 `invalid_cursor` rather than served as a wrong page. Drop the cursor whenever the sort changes. */
                 cursor?: string;
@@ -33470,8 +33470,12 @@ export interface operations {
                 status?: "pending" | "approved" | "rejected";
                 /** @description Server-capped at 20. */
                 page_size?: number;
-                /** @description Opaque keyset cursor from a previous page's next_cursor. */
+                /** @description Opaque keyset cursor from a previous page's next_cursor. A cursor is bound to the request_type / park_id filter it was minted under; replaying it under a different filter is 400 invalid_cursor. */
                 cursor?: string;
+                /** @description Optional server-side filter to one request type. It only NARROWS what the caller may decide: a type outside the caller's authority returns an empty page. Any other value is 400 invalid_request_type. */
+                request_type?: "birth" | "death" | "shifting";
+                /** @description Optional server-side farm filter, applied on top of the caller's park scope (a farm the caller does not hold returns an empty page). A shifting request matches on its destination farm, a birth on its farm, a death on the subject animal's farm. A malformed id is 400 invalid_park_id. */
+                park_id?: string;
             };
             header?: never;
             path?: never;

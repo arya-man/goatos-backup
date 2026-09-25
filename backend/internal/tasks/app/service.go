@@ -565,6 +565,10 @@ type OpenDeathWorkflowInput struct {
 	// CaptureEvidence is the Add death form's snapshot from counts.death.reported; it is stamped
 	// on the instance at open and leads the verifier bundle.
 	CaptureEvidence authored.Evidence
+	// ReportID is the counts approval request (the death REPORT) this open answers. It is stamped
+	// as the workflow's subject_ref_id so a NEW report can reopen a workflow a rejected report
+	// canceled, while a redelivery of the rejected report's own event cannot (2026-09-25).
+	ReportID string
 }
 
 // OpenDeathWorkflow opens the death workflow. Idempotent on the natural key.
@@ -580,6 +584,7 @@ func (s *Service) OpenDeathWorkflow(ctx context.Context, in OpenDeathWorkflowInp
 		EventAt:         occurred,
 		ParkID:          optionalUUID(in.ParkID),
 		ShedID:          optionalUUID(in.ShedID),
+		SubjectRefID:    optionalUUID(in.ReportID),
 		CaptureEvidence: in.CaptureEvidence,
 	})
 	return err
@@ -588,7 +593,7 @@ func (s *Service) OpenDeathWorkflow(ctx context.Context, in OpenDeathWorkflowInp
 // OpenReportedDeathWorkflow reads the still-live goat's canonical placement and opens the
 // SOP's death steps as soon as the death report is submitted, before any admin decision. The
 // report's capture snapshot is stamped on the instance so the verifier bundle leads with it.
-func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatID string, reportedAt time.Time, capture authored.Evidence) error {
+func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatID, reportID string, reportedAt time.Time, capture authored.Evidence) error {
 	facts, err := s.repo.GoatWorkflowFacts(ctx, tenantID, goatID)
 	if err != nil {
 		return err
@@ -596,7 +601,7 @@ func (s *Service) OpenReportedDeathWorkflow(ctx context.Context, tenantID, goatI
 	return s.OpenDeathWorkflow(ctx, OpenDeathWorkflowInput{
 		TenantID: tenantID, GoatID: goatID,
 		ParkID: derefOr(facts.ParkID), ShedID: derefOr(facts.ShedID), OccurredAt: reportedAt,
-		CaptureEvidence: capture,
+		CaptureEvidence: capture, ReportID: reportID,
 	})
 }
 

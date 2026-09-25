@@ -46,6 +46,15 @@ type ApprovalNameLookup struct {
 	// SQL backfill could still violate it. If a third writer of goats.shed_id ever appears, it must
 	// either exclude dead animals or this resolution must move to a raise-time snapshot.
 	AnimalLocations map[string]string
+	// AnimalTags is subject_goat_id -> the animal's active animal_identifier_1 (its RFID tag), so a
+	// death row names WHICH animal the approver is deciding on (AGENTS.md: report the actual
+	// RFID/tag value, never an internal id). A missing tag drops the clause.
+	AnimalTags map[string]string
+}
+
+// AnimalTag returns the RFID tag for a goat id, or "" when none resolved.
+func (l ApprovalNameLookup) AnimalTag(id string) string {
+	return strings.TrimSpace(l.AnimalTags[strings.TrimSpace(id)])
 }
 
 func (l ApprovalNameLookup) location(id string) string { return strings.TrimSpace(l.Locations[id]) }
@@ -102,6 +111,9 @@ func ApprovalSummaryLine(requestType string, summary json.RawMessage, subjectGoa
 		// without a location too: "Death ke kuda current sheds sariga levu" (shed/park is missing
 		// for death rows just like it used to be missing everywhere else). Give it the same
 		// treatment shifting already gets, resolved from the animal's current location.
+		if tag := names.AnimalTag(subjectGoatID); tag != "" {
+			add("Tag " + tag)
+		}
 		add(fields.str("reason"))
 		add(fields.str("cause"))
 		add(names.AnimalLocation(subjectGoatID))
@@ -109,6 +121,14 @@ func ApprovalSummaryLine(requestType string, summary json.RawMessage, subjectGoa
 		if n := fields.count("goat_ids"); n > 0 {
 			add(strconv.Itoa(n) + " " + pluralAnimals(n))
 		}
+		// The FARM leads the pens: pen names repeat across parks (both have a "Castro 1"), so a
+		// line naming only the pens does not say where to walk. A move never crosses parks
+		// (maintainer decision 2026-07-19), so the destination park is the move's park.
+		park := names.location(fields.str("destination_park_id"))
+		if park == "" {
+			park = names.location(fields.str("source_park_id"))
+		}
+		add(park)
 		from := operationalApprovalLocation(names.location(fields.str("source_shed_id")), fields.str("source_partition_label"))
 		to := operationalApprovalLocation(names.location(fields.str("destination_shed_id")), fields.str("destination_partition_label"))
 		switch {
@@ -119,7 +139,7 @@ func ApprovalSummaryLine(requestType string, summary json.RawMessage, subjectGoa
 		case from != "":
 			add("from " + from)
 		}
-		add(fields.str("category"))
+		add(ShiftTypeMoveLabel(fields.str("category")))
 	default:
 		return ""
 	}
@@ -196,7 +216,8 @@ func ApprovalSummaryLocationIDs(requestType string, summary json.RawMessage) []s
 	if fields == nil {
 		return nil
 	}
-	return []string{fields.str("source_shed_id"), fields.str("destination_shed_id")}
+	return []string{fields.str("source_shed_id"), fields.str("destination_shed_id"),
+		fields.str("destination_park_id"), fields.str("source_park_id")}
 }
 
 // ApprovalSummaryGoatIDs returns the goat id a row's location clause needs, so the handler can

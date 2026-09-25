@@ -10,7 +10,7 @@ import (
 
 // ResolveApprovalNames implements ports.ApprovalNameResolver.
 //
-// THREE queries for the whole page, never one per row. The queue page is capped at 20 rows and
+// THREE queries for the whole page (the animal's tag rides the third), never one per row. The queue page is capped at 20 rows and
 // each row can name a raiser, a destination shed, and (for a death) the subject animal's location,
 // so a per-row lookup would turn one phone screen into dozens of serial reads -- the N+1 fan-out
 // banned by docs/decisions/scale-anti-patterns.go. Every predicate keeps the indexed uuid column
@@ -23,6 +23,7 @@ func (r *Repository) ResolveApprovalNames(ctx context.Context, tenantID string, 
 		Locations:       map[string]string{},
 		People:          map[string]string{},
 		AnimalLocations: map[string]string{},
+		AnimalTags:      map[string]string{},
 	}
 	if r == nil || r.pool == nil || strings.TrimSpace(tenantID) == "" {
 		return out, nil
@@ -91,19 +92,31 @@ WHERE tenant_id = $1::uuid AND user_id = ANY($2::uuid[])`, tenantID, users)
 SELECT g.goat_id::text,
        COALESCE(NULLIF(park.name, ''), park.location_code, '') AS park_name,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
-       gsp.partition_label
+       gsp.partition_label,
+       COALESCE(tag.identifier_value, '') AS tag
 FROM goats g
 LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = g.shed_id
 LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = $1::uuid AND gsp.goat_id = g.goat_id
+-- The animal's RFID tag (animal_identifier_1, active), so the approver knows WHICH animal a death
+-- row is about. A LATERAL LIMIT 1 keeps it 1:{0,1} per goat -- no fan-out even if the register
+-- ever holds two active rows of the type.
+LEFT JOIN LATERAL (
+    SELECT gi.identifier_value
+    FROM goat_identifiers gi
+    WHERE gi.tenant_id = $1::uuid AND gi.goat_id = g.goat_id
+      AND gi.identifier_type = 'animal_identifier_1' AND gi.status = 'active'
+    ORDER BY gi.valid_from DESC
+    LIMIT 1
+) tag ON true
 WHERE g.tenant_id = $1::uuid AND g.goat_id = ANY($2::uuid[])`, tenantID, goats)
 		if err != nil {
 			return out, err
 		}
 		for rows.Next() {
-			var goatID, parkName, shedName string
+			var goatID, parkName, shedName, tag string
 			var partitionLabel *string
-			if err := rows.Scan(&goatID, &parkName, &shedName, &partitionLabel); err != nil {
+			if err := rows.Scan(&goatID, &parkName, &shedName, &partitionLabel, &tag); err != nil {
 				rows.Close()
 				return out, err
 			}
@@ -113,6 +126,9 @@ WHERE g.tenant_id = $1::uuid AND g.goat_id = ANY($2::uuid[])`, tenantID, goats)
 			}
 			shedDisplay := oploc.OperationalLocation{ShedName: shedName, PartitionLabel: label}.Display()
 			out.AnimalLocations[goatID] = joinNonBlank(parkName, shedDisplay)
+			if tag = strings.TrimSpace(tag); tag != "" {
+				out.AnimalTags[goatID] = tag
+			}
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {

@@ -545,7 +545,7 @@ func TestReportedDeathOpensUploadWorkflowBeforeApproval(t *testing.T) {
 	repo := newFakeRepo()
 	repo.goats[testGoat] = ports.GoatWorkflowFacts{GoatID: testGoat, LifecycleStatus: "alive"}
 	svc := NewService(repo, nil)
-	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat,
+	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat, "",
 		time.Date(2026, 7, 28, 9, 0, 0, 0, biztime.DefaultLocation()), authored.Evidence{}); err != nil {
 		t.Fatalf("open reported death: %v", err)
 	}

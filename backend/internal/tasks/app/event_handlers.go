@@ -70,7 +70,7 @@ func (h *CountsDeathReportedHandler) HandleEvent(ctx context.Context, e eventbus
 	if err != nil || p.GoatID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return err
 	}
-	return h.svc.OpenReportedDeathWorkflow(ctx, e.TenantID, p.GoatID, e.OccurredAt, p.CaptureEvidence)
+	return h.svc.OpenReportedDeathWorkflow(ctx, e.TenantID, p.GoatID, strings.TrimSpace(p.ApprovalRequestID), e.OccurredAt, p.CaptureEvidence)
 }
 
 func (h *CountsDeathRejectedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {

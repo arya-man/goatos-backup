@@ -624,6 +624,10 @@ func (f *fakeRepo) ListApprovalRequests(context.Context, domain.ApprovalRequestQ
 	return domain.ApprovalRequestPage{}, errors.New("not implemented")
 }
 
+func (f *fakeRepo) CountPendingApprovalRequests(context.Context, domain.ApprovalRequestQuery) (int, error) {
+	return 0, errors.New("not implemented")
+}
+
 func (f *fakeRepo) DecideApprovalRequest(context.Context, domain.ApprovalDecision) (domain.ApprovalRequest, bool, error) {
 	return domain.ApprovalRequest{}, false, errors.New("not implemented")
 }

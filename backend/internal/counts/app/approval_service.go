@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"strings"
 	"time"
 
@@ -23,6 +24,12 @@ var (
 	ErrApprovalForbiddenScope = errors.New("counts: caller scope does not include this request")
 	// ErrApprovalReasonRequired is returned when a reject arrives without a reason.
 	ErrApprovalReasonRequired = errors.New("counts: a reason is required to reject a request")
+	// ErrInvalidApprovalTypeFilter / ErrInvalidApprovalParkFilter refuse an unknown list filter
+	// value; a filter is never silently widened to "everything" (2026-09-25).
+	ErrInvalidApprovalTypeFilter = errors.New("counts: request_type filter must be birth, death or shifting")
+	ErrInvalidApprovalParkFilter = errors.New("counts: park_id filter must be a park id")
+	// ErrApprovalCursorFilterMismatch refuses a cursor minted under a different filter.
+	ErrApprovalCursorFilterMismatch = errors.New("counts: cursor does not belong to this filter")
 	// ErrApprovalInvalidStoredPayload is returned when a stored request payload can no longer be
 	// replayed through its owning module (for example the animal it names has since been merged).
 	ErrApprovalInvalidStoredPayload = errors.New("counts: stored approval payload is no longer applicable")
@@ -126,6 +133,17 @@ func (s *ApprovalService) SubmitBirthRequest(
 func (s *ApprovalService) ListPending(
 	ctx context.Context, tenantID, status string, decidableTypes []string, callerParkIDs []string, pageSize int, cursor string,
 ) (domain.ApprovalRequestPage, error) {
+	return s.ListFiltered(ctx, tenantID, status, decidableTypes, callerParkIDs, domain.ApprovalListFilter{}, pageSize, cursor)
+}
+
+// ListFiltered is ListPending with the client's optional type/farm filter applied SERVER-SIDE
+// (2026-09-25). The filter only ever NARROWS: a type the caller may not decide reads empty (never
+// widened), a farm outside the caller's park scope reads empty (both predicates apply), and an
+// unknown value is refused. The cursor is bound to the filter it was minted under.
+func (s *ApprovalService) ListFiltered(
+	ctx context.Context, tenantID, status string, decidableTypes []string, callerParkIDs []string,
+	filter domain.ApprovalListFilter, pageSize int, cursor string,
+) (domain.ApprovalRequestPage, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.ApprovalRequestPage{}, ErrMissingRequiredField
 	}
@@ -135,17 +153,53 @@ func (s *ApprovalService) ListPending(
 	if !domain.ValidApprovalStatus(status) {
 		return domain.ApprovalRequestPage{}, ErrInvalidExceptionFilter
 	}
+	filter.RequestType = strings.TrimSpace(filter.RequestType)
+	filter.ParkID = strings.ToLower(strings.TrimSpace(filter.ParkID))
+	if filter.RequestType != "" && !domain.ValidApprovalRequestType(filter.RequestType) {
+		return domain.ApprovalRequestPage{}, ErrInvalidApprovalTypeFilter
+	}
+	if filter.ParkID != "" && !uuidutil.IsUUIDString(filter.ParkID) {
+		return domain.ApprovalRequestPage{}, ErrInvalidApprovalParkFilter
+	}
 	decoded, err := domain.DecodeApprovalRequestCursor(cursor)
 	if err != nil {
 		return domain.ApprovalRequestPage{}, ErrInvalidExceptionFilter
 	}
+	if decoded != nil && decoded.Filter != filter.Key() {
+		return domain.ApprovalRequestPage{}, ErrApprovalCursorFilterMismatch
+	}
+	types := decidableTypes
+	if filter.RequestType != "" {
+		types = nil
+		for _, t := range decidableTypes {
+			if t == filter.RequestType {
+				types = []string{t}
+				break
+			}
+		}
+	}
 	return s.repo.ListApprovalRequests(ctx, domain.ApprovalRequestQuery{
 		TenantID:      tenantID,
 		Status:        status,
-		RequestTypes:  decidableTypes,
+		RequestTypes:  types,
 		CallerParkIDs: callerParkIDs,
+		FilterParkID:  filter.ParkID,
+		FilterKey:     filter.Key(),
 		PageSize:      pageSize,
 		Cursor:        decoded,
+	})
+}
+
+// CountPending is the number of PENDING requests this caller may decide -- the same decidable
+// types and park scope the list applies, over the whole queue (never a page). It answers the
+// phone's Approvals badge, so the badge equals what the queue lists.
+func (s *ApprovalService) CountPending(ctx context.Context, tenantID string, decidableTypes, callerParkIDs []string) (int, error) {
+	if strings.TrimSpace(tenantID) == "" || len(decidableTypes) == 0 {
+		return 0, nil
+	}
+	return s.repo.CountPendingApprovalRequests(ctx, domain.ApprovalRequestQuery{
+		TenantID: tenantID, Status: domain.ApprovalStatusPending,
+		RequestTypes: decidableTypes, CallerParkIDs: callerParkIDs,
 	})
 }
 

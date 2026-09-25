@@ -981,7 +981,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	configurationImporter := configurationapp.NewImporter(configurationService, configurationRepo, identityService, "", log)
 	configurationHandler := configurationhttp.NewHandler(configurationService, log).
 		WithBulk(configurationService, configurationImporter, configurationRepo)
-	workforceService.WithModuleBadges(penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService))
+	// The Approvals module badge (2026-09-25) chains outermost: pending requests THIS caller may
+	// decide, from the same decidable types and park scope the queue applies.
+	workforceService.WithModuleBadges(countshttp.NewApprovalsBadges(
+		penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService),
+		countsApprovalService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	// The feed store is wired in so a sale taking more feed than it holds asks the desk to confirm
