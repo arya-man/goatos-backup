@@ -117,7 +117,7 @@ if [[ -n "$admin_dsn" ]]; then
   set +e
   GOATOS_RUN_POSTGRES_TESTS=1 \
   GOATOS_PGTEST_ADMIN_DSN="$admin_dsn" \
-    go test ./internal/vaccinationexecution/adapters/postgres/ -run "$TESTS" -count=1 -v 2>&1 | tee "$LOG"
+    go test ./internal/vaccinationexecution/adapters/postgres/ -run "$TESTS" -count=1 -timeout "${GOATOS_PGTEST_TIMEOUT:-30m}" -v 2>&1 | tee "$LOG"
   status=${PIPESTATUS[0]}
   set -e
   [[ $status -eq 0 ]] || exit "$status"
@@ -130,7 +130,7 @@ if command -v docker >/dev/null 2>&1; then
   cd backend
   set +e
   GOATOS_RUN_POSTGRES_TESTS=1 GOATOS_REQUIRE_DOCKER=1 \
-    go test ./internal/vaccinationexecution/adapters/postgres/ -run "$TESTS" -count=1 -v 2>&1 | tee "$LOG"
+    go test ./internal/vaccinationexecution/adapters/postgres/ -run "$TESTS" -count=1 -timeout "${GOATOS_PGTEST_TIMEOUT:-30m}" -v 2>&1 | tee "$LOG"
   status=${PIPESTATUS[0]}
   set -e
   [[ $status -eq 0 ]] || exit "$status"
