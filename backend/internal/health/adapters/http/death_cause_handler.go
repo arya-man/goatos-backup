@@ -12,11 +12,11 @@ import (
 
 // The searchable disease list the death form's "due to disease" dropdown reads.
 //
-// ONE READ, NO PAGING, and that is deliberate: the whole vocabulary is 33 diseases, the
-// operator is searching it with their thumb while standing over a dead animal, and a paged
-// dropdown that has to round-trip per keystroke is the wrong shape for that moment. It is
-// also STATIC for the life of the process — the registers are embedded YAML validated at
-// start-up — so the client may cache it for as long as it likes.
+// ONE READ, NO PAGING, and that is deliberate: the whole vocabulary is a few dozen diseases,
+// the operator is searching it with their thumb while standing over a dead animal, and a
+// paged dropdown that has to round-trip per keystroke is the wrong shape for that moment.
+// It is PER TENANT since 2026-09-25: the built-in register plus the diseases the farm has
+// authored in Health Config, so the client caches it offline and refreshes it on open.
 //
 // There is deliberately NO second route for raising a death from the Health screen. That
 // screen sends the SAME `POST /app/counts/death-events` every death goes through, with the
@@ -27,7 +27,7 @@ const healthDeathCausesRoute = "/app/health/death-causes"
 
 // DeathCauseCatalogReader is the app-layer read this handler serves.
 type DeathCauseCatalogReader interface {
-	Catalog(context.Context) (domain.DeathCauseCatalog, error)
+	Catalog(ctx context.Context, tenantID string) (domain.DeathCauseCatalog, error)
 }
 
 type DeathCauseHandler struct {
@@ -48,11 +48,12 @@ func RegisterDeathCauses(mux *http.ServeMux, h *DeathCauseHandler) {
 
 // ListDeathCauses serves every disease an operator may record a death as.
 func (h *DeathCauseHandler) ListDeathCauses(w http.ResponseWriter, r *http.Request) {
-	if httpmiddleware.TenantIDFromContext(r.Context()) == "" {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if tenantID == "" {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
 		return
 	}
-	catalog, err := h.svc.Catalog(r.Context())
+	catalog, err := h.svc.Catalog(r.Context(), tenantID)
 	if err != nil {
 		// A register that will not load is a deployment fault, and the honest answer is an
 		// error rather than an empty list: an empty dropdown reads to the operator as "this

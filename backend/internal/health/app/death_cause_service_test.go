@@ -11,7 +11,7 @@ import (
 // The catalog is built from the REAL embedded registers, so this is the test that would
 // notice a register losing its labels or a class dropping out of the binding.
 func TestDeathCauseCatalogIsBuiltFromEveryShippedRegister(t *testing.T) {
-	catalog, err := NewDeathCauseCatalogService().Catalog(context.Background())
+	catalog, err := NewDeathCauseCatalogService().Catalog(context.Background(), "")
 	if err != nil {
 		t.Fatalf("catalog: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestDeathCauseCatalogIsBuiltFromEveryShippedRegister(t *testing.T) {
 // different diseases under one identical label, and the mortality board would have no way
 // to tell them apart. Every disease must therefore read distinctly.
 func TestEveryDeathCauseReadsDistinctlyOnScreen(t *testing.T) {
-	catalog, err := NewDeathCauseCatalogService().Catalog(context.Background())
+	catalog, err := NewDeathCauseCatalogService().Catalog(context.Background(), "")
 	if err != nil {
 		t.Fatalf("catalog: %v", err)
 	}
@@ -122,11 +122,11 @@ func TestValidateCauseAcceptsTheRegisterAndRefusesAnythingElse(t *testing.T) {
 	svc := NewDeathCauseCatalogService()
 	ctx := context.Background()
 
-	if err := svc.ValidateCause(ctx, "MASTITIS", domain.DeathCauseKindRegisterRule); err != nil {
+	if err := svc.ValidateCause(ctx, "", "MASTITIS", domain.DeathCauseKindRegisterRule); err != nil {
 		t.Errorf("a real register rule was refused: %v", err)
 	}
 	// A normal death names no disease, and that is a complete answer.
-	if err := svc.ValidateCause(ctx, "", ""); err != nil {
+	if err := svc.ValidateCause(ctx, "", "", ""); err != nil {
 		t.Errorf("a normal death was refused: %v", err)
 	}
 	for _, cause := range []domain.DeathCause{
@@ -136,7 +136,7 @@ func TestValidateCauseAcceptsTheRegisterAndRefusesAnythingElse(t *testing.T) {
 		{Key: "supportive", Kind: domain.DeathCauseKindDiseaseKey},
 		{Key: "MASTITIS"},
 	} {
-		if err := svc.ValidateCause(ctx, cause.Key, cause.Kind); err == nil {
+		if err := svc.ValidateCause(ctx, "", cause.Key, cause.Kind); err == nil {
 			t.Errorf("%+v was accepted as a cause of death", cause)
 		}
 	}

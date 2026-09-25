@@ -188,7 +188,7 @@ type AppWriteHandler struct {
 
 // DeathCauseValidator refuses a cause of death the diagnosis register does not name.
 type DeathCauseValidator interface {
-	ValidateCause(ctx context.Context, key, kind string) error
+	ValidateCause(ctx context.Context, tenantID, key, kind string) error
 }
 
 func NewAppWriteHandler(shifting ShiftingEventRecorder, log *slog.Logger) *AppWriteHandler {
@@ -1428,7 +1428,7 @@ func (h *AppWriteHandler) RecordDeathEvent(w http.ResponseWriter, r *http.Reques
 	// structural rules (both-or-neither, never on a sale or a cull) are enforced again by
 	// identity and once more by the goats CHECK constraints; this is the clinical
 	// vocabulary, which only Health can answer.
-	if err := h.validateDeathCause(r.Context(), fields); err != nil {
+	if err := h.validateDeathCause(r.Context(), tenantID, fields); err != nil {
 		h.writeAppError(w, r, err)
 		return
 	}
@@ -1651,7 +1651,7 @@ func trimOptionalPtr(v *string) *string {
 // wired still records deaths exactly as it did before causes existed. A cause that IS
 // present with no validator wired is REFUSED: storing a key nothing checked would defeat
 // the one property that makes a coded cause worth having, which is that it groups.
-func (h *AppWriteHandler) validateDeathCause(ctx context.Context, fields map[string]json.RawMessage) error {
+func (h *AppWriteHandler) validateDeathCause(ctx context.Context, tenantID string, fields map[string]json.RawMessage) error {
 	key, err := optionalStringField(fields, "death_cause_key")
 	if err != nil {
 		return err
@@ -1667,7 +1667,7 @@ func (h *AppWriteHandler) validateDeathCause(ctx context.Context, fields map[str
 		return identityapp.BadRequest("death_cause_unavailable",
 			"a cause of death cannot be recorded here yet")
 	}
-	if err := h.deathCauses.ValidateCause(ctx, strings.TrimSpace(key), strings.TrimSpace(kind)); err != nil {
+	if err := h.deathCauses.ValidateCause(ctx, tenantID, strings.TrimSpace(key), strings.TrimSpace(kind)); err != nil {
 		return identityapp.BadRequest("invalid_death_cause", err.Error())
 	}
 	return nil

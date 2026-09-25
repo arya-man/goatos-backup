@@ -693,7 +693,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithFacetCache(countsReadCache)
 	countsService := countsapp.NewService(countsRepo)
 	countsProofValidator := countsproof.NewValidator(proofRepo)
-	// The cause-of-death vocabulary: the diagnosis register, folded once into a searchable
+	// The cause-of-death vocabulary: the diagnosis register plus the tenant's Health Config
+	// diseases (wired below, once the Health repository exists), folded into a searchable
 	// list. It is the death form's dropdown AND the check that refuses a cause the register
 	// does not name — one source, so the list an operator picks from and the list the
 	// server accepts cannot drift apart. Built here, ahead of Health's own wiring below,
@@ -734,7 +735,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// the same module, not a different module.
 	// The medicine picker's registry: a treatment step names an item from
 	// /configuration/items, never free text (maintainer instruction 2026-09-21).
-	healthConfigService := healthapp.NewConfigService(healthRepo).WithMedicineCatalog(healthRepo)
+	// The cause-of-death list is the built-in register PLUS what this tenant authored in
+	// Health Config (maintainer decision 2026-09-25), so it reads the same repository and
+	// drops a tenant's cached list the moment this process publishes a change to it.
+	healthDeathCauseService.WithTenantSource(healthRepo)
+	healthConfigService := healthapp.NewConfigService(healthRepo).WithMedicineCatalog(healthRepo).
+		WithRulebookChanged(healthDeathCauseService.Invalidate)
 	healthConfigHandler := healthhttp.NewConfigHandler(healthConfigService, log)
 	// The diagnosis register is the second tab of the same screen and shares its
 	// repository: one Health Config, one rulebook.
@@ -743,7 +749,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// authored -- otherwise the screen would mint types nobody could ever write for.
 	healthDiagnosisTypeService := healthapp.NewDiagnosisTypeService(healthRepo)
 	healthDiagnosisTypeHandler := healthhttp.NewDiagnosisTypeHandler(healthDiagnosisTypeService, log)
-	healthRegisterConfigService := healthapp.NewRegisterConfigService(healthRepo).WithTypes(healthRepo)
+	healthRegisterConfigService := healthapp.NewRegisterConfigService(healthRepo).WithTypes(healthRepo).
+		WithRulebookChanged(healthDeathCauseService.Invalidate)
 	healthRegisterConfigHandler := healthhttp.NewRegisterConfigHandler(healthRegisterConfigService, log)
 	// Download a type's rulebook, edit it, upload it back. The same service, because an upload
 	// lands in the ordinary draft and publishes through the ordinary gate.

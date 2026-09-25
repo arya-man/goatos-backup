@@ -22,7 +22,9 @@ var _ ports.MortalityRepository = (*mortalityFakeRepo)(nil)
 
 type fakeCauseLabeler struct{ labels map[string]string }
 
-func (f fakeCauseLabeler) LabelDeathCause(_ context.Context, key string) string { return f.labels[key] }
+func (f fakeCauseLabeler) LabelDeathCause(_ context.Context, _ string, key string) string {
+	return f.labels[key]
+}
 
 // A repo with no mortality capability must fail CLOSED: an empty payload would render as a
 // farm where nothing dies, which is a different claim from "this read is not wired here".
