@@ -156,6 +156,14 @@ export function SalesRecordDrawer({
   const [buyerName, setBuyerName] = useState("");
   const [buyerPlace, setBuyerPlace] = useState("");
   const [recordError, setRecordError] = useState<{ code: string; message: string } | null>(null);
+  // Save sits at the drawer's FOOT and the refusal renders at the form's HEAD (or beside the lines,
+  // for the stock question): without this the desk pressed Save, the drawer stayed scrolled to the
+  // bottom, and nothing on screen changed -- "Advance amount cannot be more than the sale value"
+  // was on the page, just not where anyone was looking.
+  const recordAlertRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (recordError) recordAlertRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [recordError]);
   const [recordPending, setRecordPending] = useState(false);
   // A REF as well as the state: two clicks in one frame both see the render's `recordPending`
   // (false), so only a ref read at the click can refuse the second one.
@@ -333,7 +341,7 @@ export function SalesRecordDrawer({
               <input type="hidden" name="return_to" value={listHref} />
               <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={saleKey} />
 
-              {recordError && recordError.code !== "feed_stock_confirmation_required" ? <div role="alert" className="note warn">{recordError.message}</div> : null}
+              {recordError && recordError.code !== "feed_stock_confirmation_required" ? <div ref={recordAlertRef} role="alert" className="note warn">{recordError.message}</div> : null}
               <div className="note">{copy(pageContract, "required.hint")}</div>
 
               <div className="fld">
@@ -379,7 +387,7 @@ export function SalesRecordDrawer({
                 // The short-feed-sale confirmation (maintainer decision 2026-09-23). It appears
                 // only after the backend has asked for it, and it is NOT checked by default: a
                 // tick the form carries on its own is not a confirmation of anything.
-                <div className="fld sales-stock-ack">
+                <div className="fld sales-stock-ack" ref={recordError?.code === "feed_stock_confirmation_required" ? recordAlertRef : undefined}>
                   {recordError?.message || stockConfirmDetail ? <div role="alert" className="note warn">{recordError?.message || stockConfirmDetail}</div> : null}
                   <label htmlFor="s-stock_ack">
                     <input

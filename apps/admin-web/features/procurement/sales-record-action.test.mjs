@@ -70,3 +70,11 @@ test("the record-sale drawer guards a same-frame double click and clears a stale
   assert.match(drawer, /const changeLines = \(next: SaleLineDraft\[\]\) => \{\s*setLines\(next\);\s*setStockAck\(false\);/);
   assert.match(drawer, /id="s-farm"[^>]*onChange=\{\(\) => setStockAck\(false\)\}/);
 });
+
+test("a refused record-sale brings its reason into view", () => {
+  // Save is at the drawer's foot and the refusal at the form's head: the drawer must scroll to it,
+  // or the desk presses Save and sees nothing change.
+  const drawer = readFileSync(new URL("./sales-record-drawer.tsx", import.meta.url), "utf8");
+  assert.match(drawer, /ref=\{recordAlertRef\} role="alert"/);
+  assert.match(drawer, /if \(recordError\) recordAlertRef\.current\?\.scrollIntoView\(/);
+});
