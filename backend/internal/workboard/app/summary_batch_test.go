@@ -164,3 +164,25 @@ func TestSummaryBatchFallbackGivesEachSourceItsOwnBudget(t *testing.T) {
 		}
 	}
 }
+
+// The phone's GET /work-board/summary has NO request memo, so no source is primed while two
+// batchable sources still share one count batch. The summary then closed phaseOne itself (nothing
+// primed) AND the batch goroutine closed it again: "close of closed channel", a panic in a spawned
+// goroutine that killed the whole API process (goatos-stg crashed twice on 2026-09-25, 10:51 IST).
+// Pinned with a priming source present too, since without a memo it must not be primed.
+func TestSummaryWithoutAMemoBatchesCountsWithoutClosingPhaseOneTwice(t *testing.T) {
+	a := &batchCountSource{fakeSource: mk(domain.ModuleHealth, "a", 0, domain.WorkStateDue, ""), counts: map[domain.WorkState]int{domain.WorkStateDue: 2}}
+	b := &batchCountSource{fakeSource: mk(domain.ModulePCCare, "b", 0, domain.WorkStateDue, ""), counts: map[domain.WorkState]int{domain.WorkStateInProgress: 1}}
+	p := &primingSource{fakeSource: mk(domain.ModuleVaccination, "v", 0, domain.WorkStateDue, "")}
+	for _, fail := range []bool{false, true} {
+		batch := &recordingBatch{fail: fail}
+		svc := NewService(a, b, p).WithStatementBatch(batch)
+		sum, err := svc.Summary(context.Background(), baseQuery())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sum.ByModule[domain.ModuleHealth] != 2 || sum.ByModule[domain.ModulePCCare] != 1 || sum.ByModule[domain.ModuleVaccination] != 1 || len(sum.Degraded) != 0 {
+			t.Fatalf("batch fail=%v: summary = %+v", fail, sum)
+		}
+	}
+}
