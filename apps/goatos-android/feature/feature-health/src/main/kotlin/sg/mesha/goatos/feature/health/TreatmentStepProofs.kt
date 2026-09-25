@@ -39,6 +39,27 @@ data class TreatmentStepProof(
     val registerOutboxItemId: String = "",
     /** Backend or sync wording for a failure, shown verbatim. */
     val message: String = "",
+    /**
+     * WHERE THIS STEP'S CLIP CAN BE PLAYED FROM -- the local file while it is this phone's own
+     * work, the server's authenticated download once the register has landed or when a COLLEAGUE
+     * filmed the step. Blank means there is nothing to show yet.
+     *
+     * A video is the whole evidence of a treatment step, so an operator must be able to watch
+     * back what they just recorded before they submit it, and see the step a teammate already
+     * covered. Every other proof surface in the app does this; Health was the one that did not.
+     */
+    val previewPath: String = "",
+    /**
+     * The STABLE identity the shared preview caches and keys its player on: the server proof id
+     * where there is one, else the upload row that carries the bytes.
+     *
+     * Never the download URL. That URL is signed and rotates, so keying on it would re-fetch the
+     * same clip under a new identity every time it is refreshed -- the paid-egress defect the
+     * proof-media rule exists to stop.
+     */
+    val previewIdentity: String = "",
+    /** Filmed by someone else on this session. Different people do different steps. */
+    val capturedByTeammate: Boolean = false,
 ) {
     val recorded: Boolean get() = state == StepProofState.RECORDED
     val readyForSubmit: Boolean get() = state == StepProofState.RECORDED || state == StepProofState.SENDING

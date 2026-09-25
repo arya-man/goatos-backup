@@ -1977,6 +1977,7 @@ fun AppNavHost(
                     onRecordStepVideo = { stepId ->
                         vm.recordStepVideo(stepId, replacing = state.stepProofs.of(stepId).recorded)
                     },
+                    onPreviewAction = vm::trackStepPreviewAction,
                     onCloseCase = vm::closeCase,
                     // An animal can die MID-COURSE, and this is where the person treating it is
                     // standing when that happens. It opens the ordinary death form with the tag

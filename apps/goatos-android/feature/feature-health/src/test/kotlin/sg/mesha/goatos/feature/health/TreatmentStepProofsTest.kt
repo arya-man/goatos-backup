@@ -106,3 +106,127 @@ class TreatmentStepProofsTest {
         assertEquals(listOf("s1", "s3"), proofs.missing(steps))
     }
 }
+
+/**
+ * A TREATMENT STEP'S VIDEO IS WATCHABLE, and keyed on something that does not rotate.
+ *
+ * Health was the one proof surface that showed a clip only as the words "Video recorded": the
+ * operator could not play back what they had just filmed, could not see the step a colleague had
+ * already covered, and could not share one on. A step's video IS the evidence the treatment
+ * happened, so a record nobody can look at is a record nobody can check.
+ *
+ * The identity is what keeps the fix from costing money. The shared preview caches and keys its
+ * player on `mediaIdentity`; a signed download URL rotates, so keying on one would re-fetch the
+ * same video under a new identity on every refresh -- the paid-egress defect the proof-media rule
+ * exists to prevent.
+ */
+class TreatmentStepProofPreviewTest {
+
+    @Test
+    fun `a clip filmed on this phone plays from the local file before it has uploaded`() {
+        val proof = TreatmentStepProof(
+            stepId = "s1",
+            state = StepProofState.SENDING,
+            uploadOutboxItemId = "upload-1",
+            previewPath = "file:///data/proofs/step-1.mp4",
+            previewIdentity = "upload-1",
+        )
+        assertTrue("an operator checks their own clip before submitting", proof.previewPath.isNotBlank())
+        assertFalse("a local file is not a teammate's", proof.capturedByTeammate)
+        // Not yet recorded: the register has not landed, and the preview must not imply it has.
+        assertFalse(proof.recorded)
+    }
+
+    @Test
+    fun `a teammate's clip plays from the server and is marked as theirs`() {
+        val proof = TreatmentStepProof(
+            stepId = "s2",
+            state = StepProofState.RECORDED,
+            previewPath = "https://api.example/app/proofs/proof-9/download",
+            previewIdentity = "proof-9",
+            capturedByTeammate = true,
+        )
+        assertTrue(proof.recorded)
+        assertTrue("a step someone else filmed must still be viewable", proof.previewPath.isNotBlank())
+        assertTrue(proof.capturedByTeammate)
+    }
+
+    @Test
+    fun `the preview identity is never the download url`() {
+        val url = "https://api.example/app/proofs/proof-9/download?sig=rotates"
+        val proof = TreatmentStepProof(
+            stepId = "s3",
+            state = StepProofState.RECORDED,
+            previewPath = url,
+            previewIdentity = "proof-9",
+        )
+        assertEquals("proof-9", proof.previewIdentity)
+        assertFalse(
+            "keying on the signed URL re-fetches the same clip whenever the URL rotates",
+            proof.previewIdentity.contains("http"),
+        )
+    }
+
+    @Test
+    fun `a step with nothing filmed offers no player`() {
+        val proof = TreatmentStepProof(stepId = "s4")
+        assertTrue("a blank path is what tells the screen there is nothing to show", proof.previewPath.isBlank())
+    }
+}
+
+/**
+ * THE PREVIEW SURVIVES EVERY LATER STATE CHANGE.
+ *
+ * Found on the phone, not in review: the clip was recorded, the row read "Video saving…", and
+ * there was no player on it at all. The view model rebuilt `TreatmentStepProof` from scratch on
+ * each outbox emission -- upload queued, register queued, register landed -- so the fields that
+ * observer does not own, the local file the video plays from and its identity, were dropped the
+ * instant the upload began.
+ *
+ * A treatment video that stops being watchable the moment it starts uploading is the whole
+ * feature failing quietly, so the rule is COPY, never rebuild.
+ */
+class TreatmentStepProofPreviewSurvivesStateChangesTest {
+
+    @Test
+    fun `a state change keeps the local file and identity`() {
+        val recorded = TreatmentStepProof(
+            stepId = "s1",
+            state = StepProofState.NONE,
+            previewPath = "file:///data/proofs/step-1.mp4",
+            previewIdentity = "upload-1",
+        )
+        var proofs = TreatmentStepProofs().with(recorded)
+
+        // Upload queued, then register queued, then the register lands. The clip must stay
+        // playable through all three.
+        listOf(StepProofState.SENDING, StepProofState.SENDING, StepProofState.RECORDED)
+            .forEach { next ->
+                proofs = proofs.with(proofs.of("s1").copy(state = next))
+                assertEquals(
+                    "the local file must survive the $next transition",
+                    "file:///data/proofs/step-1.mp4",
+                    proofs.of("s1").previewPath,
+                )
+                assertEquals("upload-1", proofs.of("s1").previewIdentity)
+            }
+        assertTrue(proofs.of("s1").recorded)
+    }
+
+    @Test
+    fun `a failure keeps the clip watchable so the operator can see what went out`() {
+        val proofs = TreatmentStepProofs()
+            .with(
+                TreatmentStepProof(
+                    stepId = "s1",
+                    previewPath = "file:///data/proofs/step-1.mp4",
+                    previewIdentity = "upload-1",
+                ),
+            )
+        val failed = proofs.with(
+            proofs.of("s1").copy(state = StepProofState.FAILED, message = "Could not reach the server."),
+        )
+        assertEquals("file:///data/proofs/step-1.mp4", failed.of("s1").previewPath)
+        assertEquals(StepProofState.FAILED, failed.of("s1").state)
+    }
+}

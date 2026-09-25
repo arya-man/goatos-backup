@@ -71,6 +71,9 @@ import androidx.compose.material3.rememberDatePickerState
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -649,6 +652,14 @@ fun HealthDetailScreen(
     onReRecordVideo: () -> Unit,
     /** Film ONE step. The step id is what the clip is filed against. */
     onRecordStepVideo: (String) -> Unit = {},
+    /**
+     * The operator played, expanded, shared or retried one step's clip.
+     *
+     * Feature-owned rather than swallowed by the shared surface: a Health video is fetched on the
+     * same paid backend path as every other proof, so which STEP a download served has to be
+     * traceable, and the preview must be attributable to the person who opened it.
+     */
+    onPreviewAction: (String, String) -> Unit = { _, _ -> },
     onCloseCase: (String, String) -> Unit,
     /** Open the death form for this animal, with this case's disease as the cause. */
     onMarkDead: () -> Unit,
@@ -734,6 +745,7 @@ fun HealthDetailScreen(
                                 enabled = state.canRecordVideo && !state.isCapturingVideo && !state.submitting,
                                 capturing = state.capturingStepId == step.id,
                                 onRecord = { onRecordStepVideo(step.id) },
+                                onPreviewAction = { action -> onPreviewAction(step.id, action) },
                             )
                         }
                     }
@@ -863,6 +875,7 @@ private fun HealthStepVideoRow(
     enabled: Boolean,
     capturing: Boolean,
     onRecord: () -> Unit,
+    onPreviewAction: (String) -> Unit,
 ) {
     Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -925,5 +938,34 @@ private fun HealthStepVideoRow(
     // terminal-failure-must-be-visible half of the same contract.
     if (proof.state == StepProofState.FAILED && proof.message.isNotBlank()) {
         Text(proof.message, color = MeshaColors.Danger, fontSize = 11.sp)
+    }
+
+    // THE CLIP ITSELF, on the same shared surface every other proof screen uses -- play/pause,
+    // fullscreen and share, with the bytes moving only when the operator asks for them.
+    //
+    // Health showed a bare "Video recorded" line and nothing else: an operator could not watch
+    // back what they had just filmed, could not see the step a colleague had already covered,
+    // and could not send a clip on to anyone. A treatment step's video IS the evidence of the
+    // treatment, so being unable to look at it made the record unverifiable on the phone that
+    // holds it.
+    if (proof.previewPath.isNotBlank()) {
+        ProofMediaPreview(
+            path = proof.previewPath,
+            kind = ProofMediaPreviewKind.Video,
+            // Stable identity: the proof, never the rotating signed URL the bytes arrive on.
+            mediaIdentity = proof.previewIdentity.ifBlank { proof.stepId },
+            modifier = Modifier.padding(top = 6.dp),
+            expandable = true,
+            onPreviewAction = onPreviewAction,
+        )
+        if (proof.capturedByTeammate) {
+            // WHO filmed it matters on a card several people work. The name is not on the wire,
+            // so this says the true thing it can rather than rendering an internal id.
+            Text(
+                "Captured by a teammate",
+                color = MeshaColors.Muted,
+                style = MeshaType.caption,
+            )
+        }
     }
 }
