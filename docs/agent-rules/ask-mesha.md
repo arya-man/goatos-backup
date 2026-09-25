@@ -358,6 +358,10 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
   via this agent when `MESHA_MCP_AGENT_URL` is set (`MESHA_MCP_AGENT_AUDIENCE` defaults to the URL,
   `MESHA_MCP_AGENT_TIMEOUT` defaults to 240s). Unset => the legacy API `/ceo-ai/ask` path, unchanged.
   Typed `get_*` tools never go through the agent.
+- Scoping: leaders add this connector to their everyday Claude, so the agent-mode `ask_goatos`
+  description says to call it ONLY for Mesha farm-data questions, and `initialize` returns server
+  `instructions` telling clients to answer everything else without Goat OS tools
+  (`askGoatOSDescription` / `initializeResult` in `backend/cmd/mcp/main.go`, guarded by `ask_scope_test.go`).
 - Call shape: `POST ${MESHA_MCP_AGENT_URL}/ceo-ai/ask` with `{question, conversation_id, stream:false}`;
   Google ID token from the metadata server in `X-Serverless-Authorization`; the CEO's own bearer in
   `Authorization` (the agent validates it against the STG API like admin-web); `X-Mesha-Client: mcp`.
