@@ -334,6 +334,9 @@ function selfTest() {
     selectedJobs: ["common"],
   });
   assert.equal(pick([".github/workflows/ci.yml"]).full, true);
+  // Other workflows are not run by ci-local: a land.yml/nightly edit must not force the full suite.
+  assert.equal(pick([".github/workflows/land.yml"]).full, false);
+  assert.equal(pick([".github/workflows/land.yml"]).android, false);
   assert.equal(pick(["unknown-runtime/file.xyz"]).full, true);
   assert.equal(verifyRequiredResults(
     { common: true, backend: true, "admin-web": false, android: false, "live-api-latency": true },
