@@ -54,9 +54,13 @@ export function scope(changedFiles, graph, { full = false } = {}) {
   const { modules, deps, hasTests } = graph;
   const libs = modules.filter((m) => !NOT_LIBRARIES.has(m));
   const rels = changedFiles.filter((f) => f.startsWith(PREFIX)).map((f) => f.slice(PREFIX.length));
-  const buildWide = full || rels.some(isBuildLogic);
   // Longest module dir wins (core/core-ui/ vs core/).
   const byDir = [...modules].sort((a, b) => moduleDir(b).length - moduleDir(a).length);
+  // FAIL-SAFE: an Android path in no module and not documentation (a root lint /
+  // detekt config, a new top-level dir) is treated as build-wide -> FULL set.
+  const unknown = (r) => !byDir.some((x) => r.startsWith(moduleDir(x))) &&
+    !r.endsWith(".md") && !r.startsWith("docs/");
+  const buildWide = full || rels.some(isBuildLogic) || rels.some(unknown);
   const changed = new Set();
   if (buildWide) modules.forEach((m) => changed.add(m));
   for (const r of rels) {
@@ -116,6 +120,9 @@ function selfTest() {
       [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-a:testDebugUnitTest", ":app:lintStgRelease"]],
     ["build logic -> every test + app lint", [P("gradle/libs.versions.toml")], {},
       [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease"]],
+    ["unknown android path -> FULL set", [P("lint.xml")], {},
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease"]],
+    ["android docs/markdown -> not build-wide", [P("README.md"), P("docs/x.txt")], {}, [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest"]],
     ["full -> every test + every lint", [], { full: true },
       [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease",
         ":core:core-model:lintRelease", ":core:core-ui:lintRelease", ":core:core-designsystem:lintRelease", ":feature:feature-a:lintRelease", ":feature:feature-b:lintRelease"]],
