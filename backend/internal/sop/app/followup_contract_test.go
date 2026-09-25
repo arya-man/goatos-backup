@@ -180,8 +180,22 @@ func TestSalesSOPContract(t *testing.T) {
 		svc.validateFollowUpContract(context.Background(), &r, "tenant", tasksdomain.SOPCodeSalesDeal, formDSL)
 		return r
 	}
-	if r := report(seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)); !r.Valid {
+	// The seeded tag step carries `when: sale_has_animals` (2026-09-25): a CONDITIONAL engine step
+	// is still present, so the document publishes and the engine-step rule still holds.
+	seeded := seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
+	if got := steps(t, seeded, 0)[0].(map[string]any)["when"]; got != tasksdomain.StepWhenSaleHasAnimals {
+		t.Fatalf("seeded tag step condition = %v, want %q", got, tasksdomain.StepWhenSaleHasAnimals)
+	}
+	if r := report(seeded); !r.Valid {
 		t.Fatalf("seeded sale document refused: %+v", r.Errors)
+	}
+	// A sale track whose EVERY step needs animals would open a manure sale with nothing to do.
+	allConditioned := seededFollowUpDSL(t, tasksdomain.SOPCodeSalesDeal)
+	for _, st := range steps(t, allConditioned, 0) {
+		st.(map[string]any)["when"] = tasksdomain.StepWhenSaleHasAnimals
+	}
+	if r := report(allConditioned); r.Valid {
+		t.Fatal("a sale track whose every step needs animals must be refused")
 	}
 	if !FollowUpRequired(tasksdomain.SOPCodeSalesDeal) {
 		t.Fatal("sales.deal must require a follow_up section")

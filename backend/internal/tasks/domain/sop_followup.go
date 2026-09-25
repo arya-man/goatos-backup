@@ -107,6 +107,13 @@ func EngineCompletedStepRefusal(a WorkflowAction) error {
 const (
 	StepWhenAlways           = ""
 	StepWhenKidPenUnresolved = "kid_pen_unresolved"
+	// StepWhenSaleHasAnimals (maintainer decision 2026-09-25): the step runs only when the sale
+	// has a live-animal line with a head count above zero. A manure / feed / other-item sale, or an
+	// animal sale recorded with no count, can never be tagged (the tagging confirm refuses a deal
+	// with no animal count), so its tag, loading-video and gate-pass steps are left out rather than
+	// stamped as work nobody can finish. Only a SALE track may carry it: no other opener knows
+	// whether a sale has animals.
+	StepWhenSaleHasAnimals = "sale_has_animals"
 )
 
 // Sentinel errors for a follow_up section that cannot be compiled. Publishing validates the same
@@ -286,6 +293,21 @@ type CompileOptions struct {
 	EventAt time.Time
 	// NeedsShedPlacement includes steps conditioned on `kid_pen_unresolved`.
 	NeedsShedPlacement bool
+	// SaleHasAnimals includes steps conditioned on `sale_has_animals`. The sale opener sets it from
+	// the deal's lines; every other opener leaves it true (the condition is refused outside a
+	// sale track, so it never decides anything there).
+	SaleHasAnimals bool
+}
+
+// includesStep reports whether the opening context keeps a step with this condition.
+func (o CompileOptions) includesStep(when string) bool {
+	switch when {
+	case StepWhenKidPenUnresolved:
+		return o.NeedsShedPlacement
+	case StepWhenSaleHasAnimals:
+		return o.SaleHasAnimals
+	}
+	return true
 }
 
 // ParseFollowUp extracts and type-checks the follow_up section of a form_dsl document.
@@ -342,6 +364,20 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 		}
 		if len(t.Steps) == 0 {
 			add("%s.steps: at least one step is required", p)
+		}
+		if t.Module == ModuleSales && len(t.Steps) > 0 {
+			// A sale with no animals must still open with SOMETHING to do (the money); a track whose
+			// every step needs animals would compile to nothing for a manure sale.
+			unconditioned := false
+			for _, s := range t.Steps {
+				if s.When != StepWhenSaleHasAnimals {
+					unconditioned = true
+					break
+				}
+			}
+			if !unconditioned {
+				add("%s.steps: at least one step must run whether or not the sale has animals", p)
+			}
 		}
 		seenSteps := map[string]struct{}{}
 		answerKinds := map[string]stepAnswer{}
@@ -457,6 +493,10 @@ func ValidateFollowUp(d FollowUpDSL, taskTypes map[string]FollowUpTaskTy) []stri
 			}
 			switch s.When {
 			case StepWhenAlways, StepWhenKidPenUnresolved:
+			case StepWhenSaleHasAnimals:
+				if t.Module != ModuleSales {
+					add("%s.when: %q only applies to a sale's steps", sp, s.When)
+				}
 			default:
 				add("%s.when: %q is not a step condition", sp, s.When)
 			}
@@ -562,9 +602,30 @@ func CompileTrack(track FollowUpTrack, taskTypes map[string]FollowUpTaskTy, opts
 	}
 	out := Template{Key: track.Key, Module: track.Module}
 	seq := 0
+	// Steps the opening context leaves out. A kept step that waits on one of them must not wait
+	// forever: its prerequisite is released and an after-step schedule falls back to "right
+	// away", and a branch off a question that was never asked is off the path too.
+	dropped := map[string]bool{}
 	for _, s := range track.Steps {
-		if s.When == StepWhenKidPenUnresolved && !opts.NeedsShedPlacement {
+		if !opts.includesStep(s.When) || (s.WhenAnswer != nil && dropped[s.WhenAnswer.Step]) {
+			dropped[s.Key] = true
+		}
+	}
+	for _, s := range track.Steps {
+		if dropped[s.Key] {
 			continue
+		}
+		if len(dropped) > 0 {
+			kept := make([]string, 0, len(s.Requires))
+			for _, req := range s.Requires {
+				if !dropped[req] {
+					kept = append(kept, req)
+				}
+			}
+			s.Requires = kept
+			if s.Schedule.Kind == ScheduleKindAfterStep && dropped[s.Schedule.Step] {
+				s.Schedule = FollowUpSchedule{Kind: ScheduleKindImmediately}
+			}
 		}
 		tt, ok := taskTypes[s.TaskType]
 		if !ok {

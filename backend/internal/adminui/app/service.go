@@ -10766,6 +10766,9 @@ func sopOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("", "Always", "", ""),
 				option("kid_pen_unresolved", "Only when the kid pen could not be resolved", "", ""),
+				// Sale steps only (maintainer decision 2026-09-25): a manure, feed or other-item sale,
+				// or one recorded with no head count, has no animals to tag, load or pass out.
+				option("sale_has_animals", "Only when the sale has animals", "Left out of a sale of manure, feed or other items, or one recorded with no head count.", ""),
 			},
 		},
 		{
