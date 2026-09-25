@@ -6319,6 +6319,10 @@ input[type="checkbox"]:not(.lt-people-row input):disabled{opacity:.5;cursor:not-
 .sales-line-total .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
 .sales-line-total strong{font-size:16px;letter-spacing:-.01em}
 .sales-lines-table{width:100%;border-collapse:collapse;font-size:12.5px}
+/* A card's bare empty line ("No sales match this view.", "No buyers on the board yet.") had no
+   rule at all, so it sat flush against the card's left border in body ink while the chart
+   empties beside it were padded and muted. Zero specificity: every page-scoped .empty wins. */
+:where(.card)>:where(.empty){padding:14px 16px;color:var(--muted);font-size:12.5px;line-height:1.5}
 .sales-lines-table th,.sales-lines-table td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 .sales-lines-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600}
 .sales-lines-table .num{text-align:right;font-variant-numeric:tabular-nums}

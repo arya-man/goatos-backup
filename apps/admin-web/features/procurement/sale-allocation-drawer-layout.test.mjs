@@ -21,3 +21,7 @@ test("the tagging filters fill their own column", () => {
 test("the close control sits at the drawer's edge", () => {
   assert.match(drawer, /<span className="sp" style=\{\{ flex: 1 \}\} \/>\s*<button ref=\{closeButtonRef\}/);
 });
+
+test("a card's bare empty line is padded and muted, at zero specificity", () => {
+  assert.match(css, /:where\(\.card\)>:where\(\.empty\)\{padding:14px 16px;color:var\(--muted\)/);
+});
