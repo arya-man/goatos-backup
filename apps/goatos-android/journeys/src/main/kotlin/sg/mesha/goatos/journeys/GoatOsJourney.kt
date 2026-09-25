@@ -56,9 +56,37 @@ internal object GoatOsJourney {
     fun launchApp() {
         // `monkey -p <pkg> 1` is the launcher-intent equivalent that needs no
         // knowledge of the activity name, and it survives the activity being renamed.
-        shell("monkey -p $TARGET_PACKAGE -c android.intent.category.LAUNCHER 1")
+        //
+        // --pct-syskeys 0 is what makes this work at all on a device with no hardware
+        // keys. monkey validates its event mix before it launches anything and the
+        // system-keys factor is non-zero by default; on a device that reports no
+        // physical keys (every emulator and Firebase Test Lab virtual device) monkey
+        // prints "SYS_KEYS has no physical keys but with factor 2.0%" and exits WITHOUT
+        // STARTING THE APP. Without the flag every journey read the launcher's home
+        // screen and reported findings about an app that never started.
+        val monkeyOutput = shell("monkey -p $TARGET_PACKAGE -c android.intent.category.LAUNCHER --pct-syskeys 0 1")
         device.wait(Until.hasObject(By.pkg(TARGET_PACKAGE).depth(0)), UI_TIMEOUT_MS)
         device.waitForIdle()
+        requireAppInForeground(monkeyOutput)
+    }
+
+    /**
+     * Proof that the launch reached the app: the foreground package must be ours.
+     * Anything else (home screen, a system dialog, nothing) fails the journey loudly
+     * instead of letting it read and judge a screen that is not the app.
+     */
+    fun requireAppInForeground(launchOutput: String = "") {
+        val failure = launchFailure(device.currentPackageName, launchOutput) ?: return
+        runCatching { captureEvidence("launch-not-in-foreground") }
+        throw AssertionError(failure)
+    }
+
+    /** Pure decision for [requireAppInForeground]; null means the app is in front. */
+    fun launchFailure(foregroundPackage: String?, launchOutput: String): String? {
+        if (foregroundPackage == TARGET_PACKAGE) return null
+        return "The GoatOS app ($TARGET_PACKAGE) is not in the foreground after launching it " +
+            "(foreground package: ${foregroundPackage ?: "none"}), so this journey would be judging a " +
+            "screen that is not the app. Launcher output: ${launchOutput.ifBlank { "(empty)" }.take(500)}"
     }
 
     fun forceStopApp() {
