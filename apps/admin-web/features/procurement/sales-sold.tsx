@@ -122,6 +122,19 @@ function SoldSections({
                 {inr(summary.manure_revenue)} · {copy(pageContract, "kpi.manure.detail")}
               </div>
             </div>
+            {/* Feed sold off the store is in the revenue above; without its own tile the headline
+                could not be read back into what was sold. Shown only when some was sold. */}
+            {summary.feed_kg > 0 || summary.feed_revenue > 0 ? (
+              <div className="kpi">
+                <div className="lab">{copy(pageContract, "kpi.feed")}</div>
+                <div className="val">
+                  {num(summary.feed_kg)} {kgSuffix}
+                </div>
+                <div className="dl">
+                  {inr(summary.feed_revenue)} · {copy(pageContract, "kpi.feed.detail")}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           {/* Sold animals by weight (maintainer decisions 2026-09-08 and 2026-09-21; placed ABOVE the

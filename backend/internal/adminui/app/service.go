@@ -5053,9 +5053,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.realized_price.hint": "Closed live-animal revenue over live weight sold.",
 			"kpi.manure":              "Manure sold",
 			"kpi.manure.detail":       "kg and revenue from manure deals",
-			"kpi.period":              "Covering",
-			"kpi.deals":               "Closed deals",
-			"kpi.live_weight":         "Live weight sold",
+			// Feed sold off the store (000422): its own tile beside manure, so the revenue tile's
+			// total can be read back into animals, manure and feed rather than hiding feed in it.
+			"kpi.feed":        "Feed sold",
+			"kpi.feed.detail": "kg and revenue from feed sold off the store",
+			"kpi.period":      "Covering",
+			"kpi.deals":       "Closed deals",
+			"kpi.live_weight": "Live weight sold",
 			// Over 35 kg (maintainer request 2026-09-03): the sale-weight count from the Weights
 			// pages. Same basis as the Weights cards: every kid weighed in the sale-ready window
 			// at its latest weight, a whole pen counted at its average.

@@ -616,7 +616,7 @@ func TestSalesSoldAndFarmValuePageContracts(t *testing.T) {
 	for _, key := range []string{
 		"section.sold.title", "section.sold.aria", "section.sold_weight.title", "section.monthly.title", "section.ledger.title",
 		"section.price_bands.title", "section.buyers.title",
-		"kpi.revenue", "kpi.animals", "kpi.realized_price", "kpi.manure",
+		"kpi.revenue", "kpi.animals", "kpi.realized_price", "kpi.manure", "kpi.feed", "kpi.feed.detail",
 		"chart.monthly_revenue.title", "chart.monthly_animals.title", "chart.monthly_manure.title",
 		"chart.price_bands.title", "column.buyer_name",
 		"filter.farm", "value.none", "error.load", "crumb",
