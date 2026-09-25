@@ -80,8 +80,12 @@ WITH member AS (
     ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC
 ),
 deal_share AS (
+    -- A SALE IS A CLOSED DEAL (maintainer decision 2026-09-25), exactly as Summary and Farm born
+    -- count one. An animal tagged to an Advance Paid / In Discussion / Deal Failed deal carries no
+    -- share and is not 'sold' below until its deal closes; closed says which case this is.
     SELECT a.goat_id,
-           CASE WHEN d.sales_value > 0 THEN d.sales_value / cnt.tagged END AS share
+           (d.status = 'Deal Closed') AS closed,
+           CASE WHEN d.status = 'Deal Closed' AND d.sales_value > 0 THEN d.sales_value / cnt.tagged END AS share
     FROM public.goat_sale_allocations a
     JOIN public.sales_deals d
       ON d.tenant_id = a.tenant_id AND d.id = a.sales_deal_id
@@ -170,7 +174,12 @@ outcomes AS (
            COALESCE(g.management_stage, '') AS stage,
            COALESCE(lower(g.sex), '') AS sex,
            CASE
-               WHEN g.lifecycle_status = 'sold' OR g.exit_reason = 'sold' THEN 'sold'
+               -- Sold only when the sale is real: no tagged allocation (a pre-tagging or
+               -- register-only exit), or one on a CLOSED deal. An animal exited against a deal
+               -- still open falls through to 'unaccounted' -- the register says sold, the ledger
+               -- says not yet, and that disagreement is shown rather than counted as a sale.
+               WHEN (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')
+                    AND (ds.goat_id IS NULL OR ds.closed) THEN 'sold'
                WHEN g.lifecycle_status = 'dead' OR g.exit_reason = 'died' THEN 'mortality'
                WHEN g.lifecycle_status IN ('culled', 'transferred', 'lost')
                     OR g.exit_reason IN ('culled', 'transferred', 'lost') THEN 'other'
@@ -451,7 +460,8 @@ SELECT $1, $2, k, a, 'app', nullif($5, '')::uuid
 FROM unnest($3::text[], $4::numeric[]) AS t(k, a)`
 
 // loadwiseOverallAvgSQL prices the remaining-stock fallback: the average per-animal share across
-// EVERY tagged allocation on a positive-value deal (farm-born sales included — a realized animal
+// EVERY tagged allocation on a positive-value CLOSED deal (only a closed deal is a sale, the same
+// rule deal_share and Summary use) (farm-born sales included — a realized animal
 // price is a price whatever the animal's origin). The per-deal tagged count pre-aggregates the
 // many side exactly as in loadwiseSalesSQL, and the partial live-uniqueness index keeps one share
 // per animal.
@@ -459,7 +469,7 @@ const loadwiseOverallAvgSQL = `
 SELECT COALESCE(avg(d.sales_value / cnt.tagged), 0)::float8, count(*)::int
 FROM public.goat_sale_allocations a
 JOIN public.sales_deals d
-  ON d.tenant_id = a.tenant_id AND d.id = a.sales_deal_id AND d.sales_value > 0
+  ON d.tenant_id = a.tenant_id AND d.id = a.sales_deal_id AND d.sales_value > 0 AND d.status = 'Deal Closed'
 JOIN (
     SELECT tenant_id, sales_deal_id, count(*)::numeric AS tagged
     FROM public.goat_sale_allocations
