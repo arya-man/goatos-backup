@@ -64,6 +64,9 @@ const BLANK_IS_NOT_ZERO: FeedConfigActionResult = {
 };
 const REJECTED = "action.rate_rejected";
 const SAVED = "action.rate_saved";
+// The feeding clock has its own words: "Rate saved" under an Edit schedule button named the wrong thing.
+const SCHEDULE_SAVED = "action.schedule_saved";
+const SCHEDULE_REJECTED = "action.schedule_rejected";
 
 /**
  * The blank-is-not-zero rejection, worded for the experiment section.
@@ -627,11 +630,11 @@ export async function saveSchedule(formData: FormData): Promise<FeedConfigAction
   const transportTime = typeof transportRaw === "string" ? transportRaw.trim() : "";
 
   if (!parkId || (workflow !== "normal" && workflow !== "experiment")) {
-    return { ok: false, messageKey: REJECTED };
+    return { ok: false, messageKey: SCHEDULE_REJECTED };
   }
   // direction_time and correction_time are required by the contract; a cleared one is a blank, not a
   // midnight default.
-  if (!directionTime || !correctionTime) return BLANK_IS_NOT_ZERO;
+  if (!directionTime || !correctionTime) return { ok: false, messageKey: "reason.schedule_time_required" };
 
   const result = await upsertFeedConfigSchedule(
     {
@@ -649,13 +652,13 @@ export async function saveSchedule(formData: FormData): Promise<FeedConfigAction
     readIdempotencyKey(formData),
   );
   if (!result.ok) {
-    return { ok: false, messageKey: REJECTED, detail: result.error.message };
+    return { ok: false, messageKey: SCHEDULE_REJECTED, detail: result.error.message };
   }
 
   revalidatePath("/feed/config");
   revalidatePath("/feed/direction");
   revalidatePath("/feed/packing");
-  return { ok: true, messageKey: SAVED };
+  return { ok: true, messageKey: SCHEDULE_SAVED };
 }
 
 // A short, stable fingerprint of a request body for an idempotency key suffix (FNV-1a, 32-bit).

@@ -24,3 +24,15 @@ for (const [file, want] of Object.entries(tables)) {
     for (const cell of want.stateful) assert.match(memo, new RegExp(`<${cell} row=\\{`));
   });
 }
+
+// A refused save left Apply on "Loading" and both buttons disabled forever: the form keyed its
+// disabled state on useTransition's isPending, which waits for the route re-render every write now
+// triggers. The form must wait only for the action's own answer.
+test("feed-config-editor.tsx: the form's saving state ends when the action answers, not with the page redraw", () => {
+  const source = readFileSync(new URL("./feed-config-editor.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /import \{[^}]*useTransition[^}]*\} from "react"/);
+  assert.doesNotMatch(source, /startTransition\(/);
+  assert.match(source, /const \[pending, setPending\] = useState\(false\);/);
+  assert.match(source, /\} finally \{\s*inFlight\.current = false;\s*setPending\(false\);/);
+  assert.match(source, /outcome = \{ ok: false, messageKey: "action\.save_unreachable" \};/);
+});

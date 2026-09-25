@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Pencil } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -76,7 +76,14 @@ function FeedConfigFormShell({
   /** Called when the write was REFUSED, so an optimistic display can be rolled back. */
   onRejected?: (formData: FormData) => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  // The form's OWN "saving" flag, not useTransition's isPending. A transition stays pending until
+  // the route re-render the server action triggers has fully applied, and every write now re-renders
+  // the whole route (the read-your-writes cookie), refused ones included. After a REFUSED value that
+  // re-render never settled, so Apply read "Loading" and both buttons stayed disabled indefinitely:
+  // the operator could neither fix the number nor cancel (found on a throwaway database, 2026-09-25).
+  // The form only needs the action's own answer, so it waits for exactly that.
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
   const [result, setResult] = useState<FeedConfigActionResult | null>(null);
   // The idempotency-key lifecycle (mint on open, reuse across retries, rotate only after a
   // confirmed success) is a pure state machine in lib/authoring-idempotency.ts, tested there
@@ -99,12 +106,27 @@ function FeedConfigFormShell({
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // One write per press: a second submit before the first answered is dropped here, before the
+    // disabled state can render.
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setPending(true);
     const formData = new FormData(event.currentTarget);
     // BEFORE the await: the action's response carries the revalidated page, so a caller that waits
     // for it cannot show anything sooner than the re-render itself.
     onOptimistic?.(formData);
-    startTransition(async () => {
-      const outcome = await action(formData);
+    void (async () => {
+      let outcome: FeedConfigActionResult;
+      try {
+        outcome = await action(formData);
+      } catch {
+        // The request never came back (network, server restart). Nothing is known to be written, so
+        // it reads as a refusal the operator can retry with the same key -- never as a silent no-op.
+        outcome = { ok: false, messageKey: "action.save_unreachable" };
+      } finally {
+        inFlight.current = false;
+        setPending(false);
+      }
       setResult(outcome);
       if (outcome.ok) onSaved?.(formData);
       else onRejected?.(formData);
@@ -126,7 +148,7 @@ function FeedConfigFormShell({
       // A rejection deliberately does NOT close: nothing was written, the values are still the
       // operator's to fix, and the same key must be reused for that retry.
       if (outcome.ok) setIdem(CLOSED_STATE);
-    });
+    })();
   }
 
   if (!idem.open) {
