@@ -309,7 +309,7 @@ export async function SalesConfigPage({
           <div className="empty">{copy(pageContract, "empty.loads")}</div>
         ) : (
           <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.load_entry.title")}>
-            <table aria-label={copy(pageContract, "section.load_entry.title")}>
+            <table className="sales-load-entry-table" aria-label={copy(pageContract, "section.load_entry.title")}>
               <thead>
                 <tr>
                   <th>{copy(pageContract, "column.load")}</th>

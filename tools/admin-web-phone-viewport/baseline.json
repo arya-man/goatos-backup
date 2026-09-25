@@ -6,7 +6,6 @@
     "apps/admin-web/app/(admin)/operations/audit/loading.tsx|fixed-px-width": 1,
     "apps/admin-web/app/(admin)/people/loading.tsx|fixed-px-width": 1,
     "apps/admin-web/app/(admin)/procurement/source-entry/loading.tsx|fixed-px-width": 1,
-    "apps/admin-web/app/(admin)/sales/loading.tsx|fixed-px-width": 1,
     "apps/admin-web/app/(admin)/vaccination/loading.tsx|fixed-px-width": 1,
     "apps/admin-web/app/(admin)/vaccination/plan/loading.tsx|fixed-px-width": 1,
     "apps/admin-web/app/(admin)/verify/loading.tsx|fixed-px-width": 1,

@@ -127,15 +127,22 @@ export function MarketTrendSection({
           </button>
         ))}
       </div>
-      <ChartHover>
-        <SeriesLines
-          series={lines}
-          dayLabels={dayLabels}
-          valueNoun={unit || questionLabel}
-          chartLabel={`${labels.title} · ${questionLabel}`}
-          emptyLabel={labels.empty}
-        />
-      </ChartHover>
+      {/* The chart's axis text is drawn at 7-9 units in a 560-wide viewBox, so squeezed into a
+          phone card it rendered at ~5px. It keeps a 640px floor inside its own pan wrapper
+          instead: the page never scrolls sideways, the chart does. */}
+      <div className="sales-market-trend-scroll" tabIndex={0} role="region" aria-label={labels.aria}>
+        <div className="sales-market-trend-inner">
+          <ChartHover>
+            <SeriesLines
+              series={lines}
+              dayLabels={dayLabels}
+              valueNoun={unit || questionLabel}
+              chartLabel={`${labels.title} · ${questionLabel}`}
+              emptyLabel={labels.empty}
+            />
+          </ChartHover>
+        </div>
+      </div>
       <SeriesLegend entries={lines.map((l) => ({ label: l.label, colorVar: l.colorVar }))} />
     </section>
   );
