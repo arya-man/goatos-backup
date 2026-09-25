@@ -1078,7 +1078,7 @@ type fakeFamilies struct{}
 
 func (fakeFamilies) LoadContractFamilies(context.Context, string) (ReferenceFamilies, error) {
 	return ReferenceFamilies{
-		Parks:              []ReferenceOption{{Key: "park-1", Label: "P1", Title: "Park One", Tone: "info"}},
+		Parks:              []ReferenceOption{{Key: "park-1", Label: "P1", Title: "Park One", Tone: "info", Code: "P1"}},
 		RuleCategories:     []ReferenceOption{{Key: "vaccination", Label: "vaccination"}},
 		Breeds:             []ReferenceOption{{Key: "DB Breed", Label: "DB Breed"}},
 		HealthStatuses:     []ReferenceOption{{Key: "healthy", Label: "healthy"}, {Key: "sick", Label: "sick"}, {Key: "recovering", Label: "recovering"}},

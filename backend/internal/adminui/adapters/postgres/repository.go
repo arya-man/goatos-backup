@@ -145,7 +145,7 @@ LIMIT 500`, tenantID, localVaccinationScope)
 		if err := rows.Scan(&id, &label, &name, &code, &updated); err != nil {
 			return nil, "", err
 		}
-		out = append(out, app.ReferenceOption{Key: id, Label: label, Title: name, Tone: "info"})
+		out = append(out, app.ReferenceOption{Key: id, Label: label, Title: name, Tone: "info", Code: strings.TrimSpace(code)})
 		rev.WriteString(id + "|" + label + "|" + name + "|" + code + "|" + updated + "\n")
 	}
 	if err := rows.Err(); err != nil {

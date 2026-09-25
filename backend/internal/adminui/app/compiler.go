@@ -102,6 +102,9 @@ type ReferenceOption struct {
 	Label string
 	Title string
 	Tone  string
+	// Code is a park's short code (CBE, CPT, ...) where the family is Parks; empty elsewhere.
+	// Modules that store a park BY CODE (sales farms, feed purchase farms) are keyed on it.
+	Code string
 }
 
 type ConfigEntry struct {
@@ -925,6 +928,14 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 	out := make([]domain.PageContract, len(pages))
 	copy(out, pages)
 	for i := range out {
+		// Farms stored BY CODE (sales, feed purchases) are the tenant's parks, on every page
+		// that declares the group -- so a park added on Configuration > Items & settings shows up
+		// in each of their pickers and filters at once.
+		for _, groupID := range []string{"sales_farms", "feed_purchase_farms"} {
+			if hasOptionGroup(out[i].OptionGroups, groupID) {
+				out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, groupID, farmOptionsFromParks(families.Parks, "All farms"))
+			}
+		}
 		switch out[i].RouteID {
 		case "action-center", "vaccination", "shed-execution":
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "park_display_chips", optionsFromReferences(families.Parks, "info"))
@@ -2116,6 +2127,15 @@ func defaultedDeferableStates(options []ReferenceOption) []ReferenceOption {
 	return merged
 }
 
+func hasOptionGroup(groups []domain.OptionGroup, id string) bool {
+	for _, g := range groups {
+		if g.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func replaceOptionGroup(groups []domain.OptionGroup, id string, options []domain.Option) []domain.OptionGroup {
 	if options == nil {
 		options = []domain.Option{}
@@ -2174,6 +2194,21 @@ func mergeOptionGroupReferences(groups []domain.OptionGroup, id string, refs []R
 		return out
 	}
 	return append(out, domain.OptionGroup{ID: id, Options: optionsFromReferences(refs, defaultTone)})
+}
+
+// farmOptionsFromParks is a code-keyed farm picker: "All farms" first, then one option per active
+// park that carries a code, in park order. Sales and feed purchases store a farm BY CODE, so their
+// pickers are compiled from the tenant's parks (Configuration > Items & settings > Parks) here,
+// never a CBE/CPT list in contract code -- that list hid every park after the first two.
+func farmOptionsFromParks(parks []ReferenceOption, allLabel string) []domain.Option {
+	out := []domain.Option{option("all", allLabel, "", "")}
+	for _, p := range parks {
+		if p.Code == "" {
+			continue
+		}
+		out = append(out, option(p.Code, p.Code, p.Title, ""))
+	}
+	return out
 }
 
 func optionsFromReferences(options []ReferenceOption, defaultTone string) []domain.Option {

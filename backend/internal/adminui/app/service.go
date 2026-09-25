@@ -9330,11 +9330,11 @@ func salesOptionGroups() []domain.OptionGroup {
 			},
 		},
 		{
+			// The farms are the tenant's parks, compiled in by compilePages from the park
+			// catalog; only the "All farms" choice is declared here.
 			ID: "sales_farms",
 			Options: []domain.Option{
 				option("all", "All farms", "", ""),
-				option("CBE", "CBE", "", ""),
-				option("CPT", "CPT", "", ""),
 			},
 		},
 		{
@@ -9576,15 +9576,15 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		// The FEED list is deliberately NOT here: it is live tenant rows (feed_item_catalog), and
 		// a constant list of feed labels in contract code is the banned pattern. The form reads it
 		// from GET /procurement/feed-purchase-options, which serves exactly the set the write path
-		// accepts. Farms and payment states ARE closed contract vocabulary -- the same sets the
-		// domain validates against -- so they belong here.
+		// accepts. Farms are the tenant's parks, compiled in from the park catalog; payment states
+		// ARE closed contract vocabulary -- the set the domain validates against.
 		return withGenericOptionGroups([]domain.OptionGroup{
 			{
+				// The farms are the tenant's parks, compiled in by compilePages from the park
+				// catalog; only the "All farms" choice is declared here.
 				ID: "feed_purchase_farms",
 				Options: []domain.Option{
 					option("all", "All farms", "", ""),
-					option("CBE", "CBE", "", ""),
-					option("CPT", "CPT", "", ""),
 				},
 			},
 			{
