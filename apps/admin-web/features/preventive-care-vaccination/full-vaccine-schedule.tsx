@@ -18,7 +18,7 @@ import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-sche
 import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
 import { HashSectionScroller } from "./hash-section-scroller";
 import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
-import { hasOperationalPartition } from "@/lib/operational-location";
+import { addSchedulePen, schedulePenKey, type SchedulePen } from "./full-vaccine-schedule-pens.ts";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -45,12 +45,7 @@ type OperatorDayScheduleRow = {
   vaccineCodes: string[];
   vaccineOriginalDates: Record<string, string>;
   capacity: string;
-  sheds: Array<{
-    id?: string;
-    name: string;
-    animals: number;
-    partitions: Array<{ label: string; animals: number }>;
-  }>;
+  pens: SchedulePen[];
 };
 
 function selectedScheduleYear(searchParams: RouteSearchParams | undefined): number {
@@ -82,15 +77,8 @@ function dateEyebrow(date: string): string {
   return new Intl.DateTimeFormat("en", { weekday: "short", timeZone: "Asia/Kolkata" }).format(new Date(`${date}T00:00:00+05:30`));
 }
 
-function partitionLabel(pageContract: AdminUiPageContract, label: string): string {
-  const trimmed = label.trim();
-  if (!hasOperationalPartition(trimmed)) return copy(pageContract, "schedule.partition.whole_shed");
-  return /^part\b/i.test(trimmed) ? trimmed : `${copy(pageContract, "schedule.partition.prefix")} ${trimmed}`;
-}
-
-function shedPartitionTitle(pageContract: AdminUiPageContract, shed: OperatorDayScheduleRow["sheds"][number]): string {
-  const partitions = shed.partitions.map((partition) => `${partitionLabel(pageContract, partition.label)} ${partition.animals}`);
-  return partitions.length > 0 ? `${shed.name}: ${partitions.join(", ")}` : shed.name;
+function penTitle(pen: SchedulePen): string {
+  return `${pen.display} ${pen.animals}`;
 }
 
 function capacityRank(status: string): number {
@@ -139,33 +127,27 @@ function scheduleMoveRedirect(returnTo: string, params: Record<string, string>):
   return `${url.pathname}${url.search}${hash ? `#${hash}` : ""}`;
 }
 
-function executionPartitionLabel(shed: OperatorDayScheduleRow["sheds"][number]): string | undefined {
-  const realPartitions = Array.from(new Set(shed.partitions.map((partition) => partition.label.trim()).filter(hasOperationalPartition)));
-  return realPartitions.length === 1 ? realPartitions[0] : undefined;
-}
-
-function drawerRows(rows: OperatorDayScheduleRow[], pageContract: AdminUiPageContract, scope: Scope, closeHref: string): ScheduleDrawerRow[] {
+function drawerRows(rows: OperatorDayScheduleRow[], scope: Scope, closeHref: string): ScheduleDrawerRow[] {
   return rows.map((row) => ({
     eventId: row.key,
     date: row.plannedDate,
     parkName: row.parkName,
-    totalSheds: row.sheds.length,
+    totalSheds: row.pens.length,
     totalAnimals: row.animals,
     vaccines: row.vaccineNames,
-    sheds: row.sheds.map((shed) => {
+    sheds: row.pens.map((pen) => {
       const ret = scheduleDrawerHref(closeHref, row);
-      const partition = executionPartitionLabel(shed);
-      const href = shed.id
+      const href = pen.shedId
         ? scopeHref(
-            `/vaccination/execution/sheds/${encodeURIComponent(shed.id)}`,
+            `/vaccination/execution/sheds/${encodeURIComponent(pen.shedId)}`,
             scope,
             { mode: "park", park: row.parkId },
-            { partition_label: partition, ret },
+            { partition_label: pen.partitionLabel, ret },
           )
         : undefined;
       return {
-        label: shedPartitionTitle(pageContract, shed),
-        count: shed.animals,
+        label: pen.display,
+        count: pen.animals,
         href,
       };
     }),
@@ -253,7 +235,7 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
         vaccineCodes: [],
         vaccineOriginalDates: {},
         capacity: row.capacity,
-        sheds: [],
+        pens: [],
       };
       groups.set(key, group);
     }
@@ -279,13 +261,7 @@ function groupOperatorDayRows(rows: DriveAssignmentRow[]): OperatorDayScheduleRo
     }
     group.capacity = strongerCapacity(group.capacity, row.capacity);
 
-    let shed: OperatorDayScheduleRow["sheds"][number] | undefined = group.sheds.find((item) => item.name === row.physicalShed);
-    if (!shed) {
-      shed = { id: row.shedId ?? undefined, name: row.physicalShed, animals: 0, partitions: [] };
-      group.sheds.push(shed);
-    }
-    shed.animals += row.animals;
-    shed.partitions.push({ label: row.partitionLabel, animals: row.animals });
+    addSchedulePen(group.pens, row, row.animals);
   }
 
   return Array.from(groups.values()).sort((a, b) => {
@@ -431,7 +407,7 @@ export async function VaccinationFullSchedule({
   const rows = result.ok ? result.data.rows : [];
   const operatorDayRows = groupOperatorDayRows(rows);
   const parks = new Set(rows.map((row) => row.parkId).filter(Boolean));
-  const sheds = new Set(rows.map((row) => `${row.parkId}|${row.physicalShed}`).filter(Boolean));
+  const sheds = new Set(rows.map((row) => schedulePenKey(row)));
   const animals = rows.reduce((sum, row) => sum + row.animals, 0);
   const closeHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month) });
   const selectedScheduleEvent = one(searchParams ?? {}, "schedule_event");
@@ -443,7 +419,7 @@ export async function VaccinationFullSchedule({
   const scheduleMoveShifted = one(searchParams ?? {}, "schedule_move_shifted") === "1";
   const scheduleMoveConflictVaccine = one(searchParams ?? {}, "schedule_move_conflict_vaccine");
   const scheduleMoveConflictDate = one(searchParams ?? {}, "schedule_move_conflict_date");
-  const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope, closeHref);
+  const scheduleDrawerRows = drawerRows(operatorDayRows, scope, closeHref);
   const scheduleMoveRows = moveDrawerRows(operatorDayRows, closeHref);
 
   function monthHref(nextYear: number, nextMonth: number) {
@@ -580,12 +556,12 @@ export async function VaccinationFullSchedule({
                   <td><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><b>{row.operatorName}</b></LocalOverlayLink></td>
                   <td><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><ClipText title={row.parkName}>{row.parkName}</ClipText></LocalOverlayLink></td>
                   <td className="schedule-shed-cell">
-                    <LocalOverlayLink href={drawerHref} className="celllink schedule-wrap-link" scroll={false} title={row.sheds.map((shed) => shedPartitionTitle(pageContract, shed)).join(", ")}>
+                    <LocalOverlayLink href={drawerHref} className="celllink schedule-wrap-link" scroll={false} title={row.pens.map(penTitle).join(", ")}>
                       <span className="operator-day-sheds">
-                        {row.sheds.map((shed) => (
-                          <span key={shed.name} className="operator-day-shed" title={shedPartitionTitle(pageContract, shed)}>
-                            <b>{shed.name}</b>
-                            <span className="muted">{shed.animals}</span>
+                        {row.pens.map((pen) => (
+                          <span key={pen.key} className="operator-day-shed" title={penTitle(pen)}>
+                            <b>{pen.display}</b>
+                            <span className="muted">{pen.animals}</span>
                           </span>
                         ))}
                       </span>

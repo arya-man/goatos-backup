@@ -16,13 +16,13 @@ const adminUiContractSource = readFileSync(new URL("../../../../backend/internal
 test("vaccination schedule is driven by persisted operator assignments", () => {
   assert.match(source, /getVaccinationDriveAssignments/);
   assert.match(source, /section\.full_schedule\.operator_title/);
-  assert.match(source, /physicalShed/);
+  assert.match(source, /schedulePenKey\(row\)/);
   assert.match(source, /partitionLabel/);
   assert.match(source, /originalPlannedDate/);
   assert.match(source, /vaccineOriginalDates/);
   assert.match(source, /operatorName/);
   assert.match(source, /groupOperatorDayRows/);
-  assert.match(source, /shed\.partitions\.push/);
+  assert.match(source, /addSchedulePen\(group\.pens, row, row\.animals\)/);
   assert.equal(
     source.includes("getVaccinationSchedule"),
     false,
@@ -86,17 +86,16 @@ test("vaccination schedule and operator labels are backend-contract owned", () =
 test("vaccination schedule opens the local drawer from operator-day rows", () => {
   assert.match(source, /LocalOverlayLink/);
   assert.match(source, /ScheduleLocalDrawer/);
-  assert.match(source, /drawerRows\(operatorDayRows, pageContract, scope, closeHref\)/);
+  assert.match(source, /drawerRows\(operatorDayRows, scope, closeHref\)/);
   assert.match(source, /#schedule_event=/);
   assert.equal(source.includes("VaccineChipOverflow"), false);
 });
 
 test("vaccination schedule drawer shed rows deep-link to the execution goat list", () => {
-  assert.match(source, /id:\s*row\.shedId/);
-  assert.match(source, /const href = shed\.id/);
-  assert.match(source, /scopeHref\(\s*`\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(shed\.id\)\}`/);
+  assert.match(source, /const href = pen\.shedId/);
+  assert.match(source, /scopeHref\(\s*`\/vaccination\/execution\/sheds\/\$\{encodeURIComponent\(pen\.shedId\)\}`/);
   assert.match(source, /park:\s*row\.parkId/);
-  assert.match(source, /partition_label:\s*partition/);
+  assert.match(source, /partition_label:\s*pen\.partitionLabel/);
   assert.match(source, /ret/);
 });
 
@@ -107,7 +106,7 @@ test("vaccination schedule renders one visible row per operator day", () => {
 });
 
 test("vaccination schedule keeps shed totals visible and partition detail out of the overview columns", () => {
-  assert.match(source, /shedPartitionTitle\(pageContract, shed\)/);
+  assert.match(source, /title=\{penTitle\(pen\)\}/);
   assert.match(source, /operator-day-shed/);
   assert.doesNotMatch(source, /<th>\{copy\(pageContract, "schedule\.column\.partition"\)\}<\/th>/);
   assert.doesNotMatch(source, /className="operator-day-partitions"/);
