@@ -1,0 +1,50 @@
+name: land
+
+# Landing queue for many parallel Claude/Codex sessions, on the free self-hosted
+# runner on Ravi's laptop (ravis-m1-pro-goatos). The runner executes one job at a
+# time, so GitHub itself queues landings FIFO; no custom queue code.
+#
+# A session lands a PR with:   gh workflow run land -R vgoats/goatos -f pr=<number>
+# To land 3-4 PRs together: merge them into one branch/PR, then land that PR once.
+#
+# The job runs the normal `make land-main` (fresh-main rebase, full ci-local,
+# exact-SHA receipt, push). Nothing about the landing gate changes.
+#
+# No `concurrency:` block on purpose: GitHub keeps only ONE pending run per
+# concurrency group and cancels older pending ones, which would drop landings.
+# The single runner already serialises them.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to land on main"
+        required: true
+        type: string
+
+jobs:
+  land:
+    name: land PR ${{ inputs.pr }}
+    runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check out the PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          state="$(gh pr view "$PR" --json state,baseRefName --jq '.state + " " + .baseRefName')"
+          [ "$state" = "OPEN main" ] || { echo "PR $PR is not an open PR against main ($state)"; exit 1; }
+          gh pr checkout "$PR" --force
+          git log --oneline -1
+      - name: Land (make land-main)
+        run: |
+          set -euo pipefail
+          git config user.name "Raviteja"
+          git config user.email "ravi@mesha.sg"
+          git config alias.mesha-push '!f() { token="$(gh auth token)" || exit 1; url="https://x-access-token:${token}@github.com/vgoats/goatos.git"; git push "$url" "${1:-HEAD:main}"; }; f'
+          make land-main
