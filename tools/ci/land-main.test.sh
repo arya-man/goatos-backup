@@ -5,6 +5,11 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo/tools/ci/land-main.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/goatos-land-main-test.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
+# Isolate from the caller: this self-test runs INSIDE `make land-main` (via
+# local-ci-evidence-guard), whose own landing lock is held and may be exported
+# through GOATOS_LAND_MAIN_LOCK_DIR. Inheriting it made every case "busy".
+unset GOATOS_LAND_VIA_QUEUE GOATOS_WORKSPACE_ROOT GOATOS_LAND_LOCAL
+export GOATOS_LAND_MAIN_LOCK_DIR="$tmp/default.lock"
 
 git init --bare --initial-branch=main "$tmp/origin.git" >/dev/null
 git init --initial-branch=main "$tmp/seed" >/dev/null
