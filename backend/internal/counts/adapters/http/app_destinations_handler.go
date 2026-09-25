@@ -246,11 +246,14 @@ func birthVocabularyOptions(entries []animalvocab.Entry) []appBirthVocabularyOpt
 type appBirthBreedOption struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
-	Count int64  `json:"count"`
+	// Species is the breed's species code from the breed register, so the phone offers only the
+	// chosen species' breeds. Blank for a herd breed the register does not know.
+	Species string `json:"species"`
+	Count   int64  `json:"count"`
 }
 
-// ListBirthBreeds returns the breeds present on the tenant's live herd, most-common first, for the
-// operator birth form's breed picker.
+// ListBirthBreeds returns every breed an operator may give a newborn -- the Configuration breed
+// register plus any breed the live herd carries -- most-carried first, for the birth form's picker.
 func (h *AppWriteHandler) ListBirthBreeds(w http.ResponseWriter, r *http.Request) {
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {
@@ -267,7 +270,7 @@ func (h *AppWriteHandler) ListBirthBreeds(w http.ResponseWriter, r *http.Request
 	// Non-nil slice so an empty herd serializes as {"breeds":[]}, never JSON null.
 	breeds := make([]appBirthBreedOption, 0, len(points))
 	for _, point := range points {
-		breeds = append(breeds, appBirthBreedOption{Key: point.Key, Label: point.Label, Count: point.Count})
+		breeds = append(breeds, appBirthBreedOption{Key: point.Key, Label: point.Label, Species: point.Species, Count: point.Count})
 	}
 
 	vocab := animalvocab.Builtins()

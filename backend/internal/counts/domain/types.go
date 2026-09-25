@@ -488,6 +488,16 @@ type CountsBreakdownSeriesPoint struct {
 	Count int64  `json:"count"`
 }
 
+// BirthBreedOption is one choice on the operator birth form's breed picker: a breed from the
+// Configuration breed register, its species (the phone offers only the chosen species' breeds) and
+// how many live animals carry it today (0 for a breed nobody carries yet).
+type BirthBreedOption struct {
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Species string `json:"species"`
+	Count   int64  `json:"count"`
+}
+
 // CountsBreakdownStageSexPoint is one management-stage bar, split by sex.
 //
 // A CROSS-TAB, not two series read side by side: a reader asking "how many of the kids on K1 are

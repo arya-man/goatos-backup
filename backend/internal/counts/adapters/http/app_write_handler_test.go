@@ -65,7 +65,7 @@ type fakeShiftingRepo struct {
 	// does in Postgres. That is what lets a test prove the handler fails closed instead of
 	// substituting a placeholder impact.
 	destinations   domain.ShiftingDestinationCatalog
-	breeds         []domain.CountsBreakdownSeriesPoint
+	breeds         []domain.BirthBreedOption
 	goatFacts      map[string]domain.GoatShiftingFact
 	goatFactsCalls int
 }
@@ -104,7 +104,7 @@ func (f *fakeShiftingRepo) ShiftingDestinationCatalog(_ context.Context, _ strin
 	return f.destinations, nil
 }
 
-func (f *fakeShiftingRepo) ActiveBreeds(_ context.Context, _ string) ([]domain.CountsBreakdownSeriesPoint, error) {
+func (f *fakeShiftingRepo) ActiveBreeds(_ context.Context, _ string) ([]domain.BirthBreedOption, error) {
 	return f.breeds, nil
 }
 
@@ -2219,9 +2219,11 @@ func TestListShiftingDestinationsGroupsShedsUnderTheirPark(t *testing.T) {
 // breeds with key/label/count intact, and that an empty herd serializes as [] rather than null.
 func TestListBirthBreedsServesTheHerdVocabularyOnTheOperatorSurface(t *testing.T) {
 	repo := newFakeShiftingRepo()
-	repo.breeds = []domain.CountsBreakdownSeriesPoint{
-		{Key: "Beetal", Label: "Beetal", Count: 420},
-		{Key: "Sirohi", Label: "Sirohi", Count: 51},
+	repo.breeds = []domain.BirthBreedOption{
+		{Key: "Beetal", Label: "Beetal", Species: "goat", Count: 420},
+		{Key: "Sirohi", Label: "Sirohi", Species: "goat", Count: 51},
+		// A breed added in Configuration that no animal carries yet still reaches the picker.
+		{Key: "Huacaya", Label: "Huacaya", Species: "alpaca", Count: 0},
 	}
 	mux := newTestServer(t, countsapp.NewService(repo), newFakeApprovalWorkflow(), newFakeGoatValidator())
 
@@ -2231,11 +2233,14 @@ func TestListBirthBreedsServesTheHerdVocabularyOnTheOperatorSurface(t *testing.T
 	}
 	var got appBirthBreedsResponse
 	decodeBody(t, rec, &got)
-	if len(got.Breeds) != 2 {
-		t.Fatalf("len(breeds)=%d, want 2", len(got.Breeds))
+	if len(got.Breeds) != 3 {
+		t.Fatalf("len(breeds)=%d, want 3", len(got.Breeds))
 	}
-	if got.Breeds[0].Key != "Beetal" || got.Breeds[0].Label != "Beetal" || got.Breeds[0].Count != 420 {
-		t.Fatalf("first breed = %+v, want {Beetal Beetal 420}", got.Breeds[0])
+	if got.Breeds[0].Key != "Beetal" || got.Breeds[0].Label != "Beetal" || got.Breeds[0].Species != "goat" || got.Breeds[0].Count != 420 {
+		t.Fatalf("first breed = %+v, want {Beetal Beetal goat 420}", got.Breeds[0])
+	}
+	if got.Breeds[2].Key != "Huacaya" || got.Breeds[2].Species != "alpaca" || got.Breeds[2].Count != 0 {
+		t.Fatalf("configured breed = %+v, want {Huacaya alpaca 0}", got.Breeds[2])
 	}
 
 	empty := newFakeShiftingRepo()

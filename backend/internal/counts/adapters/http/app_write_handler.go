@@ -114,7 +114,7 @@ type ShiftingEventRecorder interface {
 	ShiftingDestinations(ctx context.Context, tenantID string) (domain.ShiftingDestinationCatalog, error)
 
 	// ActiveBreeds serves the operator birth form's breed picker: the breeds present on the live herd.
-	ActiveBreeds(ctx context.Context, tenantID string) ([]domain.CountsBreakdownSeriesPoint, error)
+	ActiveBreeds(ctx context.Context, tenantID string) ([]domain.BirthBreedOption, error)
 
 	// DeriveShiftingImpacts builds the impact rows for a single-animal movement that supplied none.
 	DeriveShiftingImpacts(ctx context.Context, tenantID, destinationShedID string, goatIDs []string) ([]domain.ShiftingEventImpact, error)

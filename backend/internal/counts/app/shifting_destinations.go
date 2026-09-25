@@ -27,11 +27,10 @@ func (s *Service) ShiftingDestinations(ctx context.Context, tenantID string) (do
 	return s.repo.ShiftingDestinationCatalog(ctx, tenantID)
 }
 
-// ActiveBreeds returns the breeds present on the tenant's live herd for the operator birth form's
-// breed picker. It is the same vocabulary the Counts Breakdown breed facet shows, but reachable on
-// the operator (CountsWrite) surface -- the read-only Counts Breakdown screen is CountsRead, which
-// a field operator does not hold, so the birth form must not source its breed options from there.
-func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.CountsBreakdownSeriesPoint, error) {
+// ActiveBreeds returns the breeds an operator may give a newborn: the Configuration breed register
+// plus any breed the live herd carries. It is reachable on the operator (CountsWrite) surface -- the
+// read-only Counts Breakdown screen is CountsRead, which a field operator does not hold.
+func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.BirthBreedOption, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, ErrMissingRequiredField
 	}
