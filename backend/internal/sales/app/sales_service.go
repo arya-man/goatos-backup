@@ -204,6 +204,13 @@ func (s *SalesService) confirmFeedStock(ctx context.Context, tenantID string, wr
 	if write.StockShortfallAcknowledged {
 		return nil
 	}
+	// STOCK CHECK ONLY AT CLOSE (maintainer decision 2026-09-25): an OPEN sale (In Discussion,
+	// Advance Paid) takes nothing off the store until it closes, and the status change to Deal
+	// Closed asks then. Only a sale recorded AS closed -- a blank status records the sheet's
+	// default, Deal Closed -- is weighed here.
+	if st := strings.TrimSpace(write.Status); st != "" && st != domain.StatusDealClosed {
+		return nil
+	}
 	return s.weighAgainstTheStore(ctx, tenantID, write.Farm, domain.AggregateFeedDemand(write.Lines))
 }
 
