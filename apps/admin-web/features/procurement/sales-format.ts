@@ -177,3 +177,18 @@ export function marketLossPerKg(landingCostPerKg: number | null | undefined, mar
 
 /** Mirrors the backend's MaxDealLines; the record drawer stops offering "Add another" at this count. */
 export const MAX_SALE_LINES = 20;
+
+/**
+ * The day an open sale was PLANNED for, but only when it differs from the sale date shown beside
+ * it (2026-09-25: closing a sale stamps the close date and keeps the planned one). A deal recorded
+ * already closed has no planned date, and one that closed on its planned day would only repeat the
+ * sale date, so both return null and nothing extra is rendered. Wire values are ISO business dates.
+ */
+export function plannedSaleDateIfDifferent(deal: {
+  sale_date: string;
+  planned_sale_date?: string | null;
+}): string | null {
+  const planned = deal.planned_sale_date?.trim() ?? "";
+  if (planned === "" || planned === deal.sale_date) return null;
+  return planned;
+}

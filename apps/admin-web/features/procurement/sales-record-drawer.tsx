@@ -15,7 +15,7 @@ import type { SalesDeal, SalesOptions } from "@/lib/api/procurement";
 import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
-import { dealStatusTone, inr, num } from "./sales-format";
+import { dealStatusTone, inr, num, plannedSaleDateIfDifferent } from "./sales-format";
 import { newSaleLine, type SaleLineDraft } from "./sale-lines";
 import { SaleLinesEditor } from "./sale-lines-editor";
 import {
@@ -263,6 +263,8 @@ export function SalesRecordDrawer({
     setBuyerName(vendor.business_name);
     setBuyerPlace([vendor.city, vendor.state].filter((part) => part.trim() !== "").join(", "));
   };
+
+  const plannedSaleDate = deal ? plannedSaleDateIfDifferent(deal) : null;
 
   // One read-only cell pair of the record body.
   const cell = (label: string, value: string | number | null | undefined) => (
@@ -545,6 +547,7 @@ export function SalesRecordDrawer({
             {/* RECORD drawer body: the mock's .metagrid of uppercase-key cells, never a flat stack. */}
             <div className="metagrid">
               {cell(field("sale_date"), fmtDate(deal.sale_date))}
+              {plannedSaleDate ? cell(field("planned_sale_date"), fmtDate(plannedSaleDate)) : null}
               {cell(field("farm"), deal.farm)}
               {cell(field("product_type"), deal.product_type)}
               {cell(field("breed"), deal.breed)}

@@ -237,3 +237,12 @@ test("monthly charts include feed, counted goods and custom animals through back
  const {revenue,live_revenue,animals,...legacy}=month;
  assert.equal(monthlyRevenueTotal(legacy),2000);
 });
+
+test("the planned sale date shows only when it differs from the sale date", async () => {
+  const { plannedSaleDateIfDifferent } = await import("./sales-format.ts");
+  assert.equal(plannedSaleDateIfDifferent({ sale_date: "2026-09-25", planned_sale_date: "2026-09-20" }), "2026-09-20");
+  assert.equal(plannedSaleDateIfDifferent({ sale_date: "2026-09-25", planned_sale_date: "2026-09-25" }), null);
+  assert.equal(plannedSaleDateIfDifferent({ sale_date: "2026-09-25", planned_sale_date: null }), null);
+  assert.equal(plannedSaleDateIfDifferent({ sale_date: "2026-09-25" }), null);
+  assert.equal(plannedSaleDateIfDifferent({ sale_date: "2026-09-25", planned_sale_date: "  " }), null);
+});

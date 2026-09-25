@@ -5263,6 +5263,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.record_sale.title":         "Record a sale",
 			"drawer.detail.title":              "Sale details",
 			"field.sale_date":                  "Sale date",
+			"field.planned_sale_date":          "Planned for",
 			"field.farm":                       "Farm",
 			"field.product_type":               "Product",
 			"field.breed":                      "Breed",
