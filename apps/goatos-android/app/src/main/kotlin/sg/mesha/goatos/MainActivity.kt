@@ -190,19 +190,9 @@ class MainActivity : ComponentActivity() {
                 // bearer instead of trusting any pre-auth/cached bootstrap. That is what keeps a
                 // dev APK reinstalled with an operator token from rendering a stale leadership
                 // shell that was loaded before the new session became active.
-                var previousAuthed by remember { mutableStateOf<Boolean?>(null) }
-                LaunchedEffect(authed) {
-                    val wasAuthed = previousAuthed
-                    previousAuthed = authed
-                    when {
-                        authed == null -> Unit // session not read yet; decide nothing
-                        authed == false -> bootstrapViewModel.reset()
-                        wasAuthed != true -> {
-                            bootstrapViewModel.reset()
-                            bootstrapViewModel.load()
-                        }
-                    }
-                }
+                // "Seen this signed-in state already" lives on the retained ViewModel, so a
+                // configuration change does not replay a sign-in (see onAuthState).
+                LaunchedEffect(authed) { bootstrapViewModel.onAuthState(authed) }
                 if (authed == null) {
                     // Session not read yet: show neither the app nor the login gate.
                     BootstrapLoading()

@@ -387,4 +387,35 @@ class BootstrapViewModelAnalyticsTest {
         assertTrue("Retry re-sent the sign-in session event", sessionEventsSent >= 1)
         assertEquals("the parked flag is cleared", false, sender.accessDenied.value)
     }
+
+    /**
+     * A configuration change (dark mode, font size) keeps this Activity-scoped ViewModel and re-runs
+     * the auth observer with the SAME signed-in state. It must not reload: reloading dropped the
+     * shell out of composition and reset navigation to the first screen (phone E2E 2026-09-26).
+     */
+    @Test
+    fun `the same signed-in state seen again does not reload the bootstrap`() = runTest {
+        var loads = 0
+        val repo = object : BootstrapRepository {
+            override suspend fun loadNavState(): NavState { loads++; return NavState(NavChrome.EXPANDED, emptyList()) }
+            override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+        }
+        val vm = BootstrapViewModel(repo, RecordingAnalytics(), AnalyticsContext(flavor = "dev"), FakeDeviceStore(), FakeAuthRepository("ravi@mesha.sg"), FakeCrashReporter(), PushTokenSync { }, FakeConnectivityGate(), NavStateRefreshSignal())
+        vm.onAuthState(null)
+        vm.onAuthState(true)
+        advanceUntilIdle()
+        assertEquals(1, loads)
+        assertTrue(vm.state.value is BootstrapUiState.Ready)
+
+        vm.onAuthState(true) // the recreated Activity observing the same session
+        advanceUntilIdle()
+        assertEquals("a configuration change must not reload", 1, loads)
+        assertTrue(vm.state.value is BootstrapUiState.Ready)
+
+        vm.onAuthState(false) // logout clean-slate still applies
+        assertTrue(vm.state.value is BootstrapUiState.Loading)
+        vm.onAuthState(true) // the next sign-in reloads
+        advanceUntilIdle()
+        assertEquals(2, loads)
+    }
 }

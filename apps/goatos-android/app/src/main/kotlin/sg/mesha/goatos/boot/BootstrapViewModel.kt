@@ -156,6 +156,34 @@ class BootstrapViewModel @Inject constructor(
         _state.value = BootstrapUiState.Loading
     }
 
+    /** The last session state [onAuthState] acted on. Lives here, not in composition: see there. */
+    private var lastAuthed: Boolean? = null
+
+    /**
+     * What a session-state observation means for the bootstrap (logout clean-slate, C35-001):
+     * signed out -> [reset]; first signed-in state this ViewModel sees -> [reset] + [load]; the
+     * same signed-in state again -> nothing.
+     *
+     * "Seen before" is kept on this Activity-scoped ViewModel, which a configuration change keeps
+     * and a new process does not. It used to live in a plain `remember` in MainActivity, which a
+     * dark-mode or font-size change reset to null: the still signed-in session then read as a
+     * fresh sign-in, reset() dropped the shell out of composition, and the rebuilt NavController
+     * started at the first screen -- the person lost whatever they had open, a half-typed sale
+     * included (phone E2E 2026-09-26). A new process still reloads, exactly as before.
+     */
+    fun onAuthState(authed: Boolean?) {
+        val wasAuthed = lastAuthed
+        lastAuthed = authed
+        when {
+            authed == null -> Unit // session not read yet; decide nothing
+            authed == false -> reset()
+            wasAuthed != true -> {
+                reset()
+                load()
+            }
+        }
+    }
+
     fun load() {
         viewModelScope.launch {
             _state.value = BootstrapUiState.Loading
