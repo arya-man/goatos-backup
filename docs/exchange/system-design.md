@@ -99,7 +99,7 @@ portfolio             = Σ over pools
 gain                  = portfolio value + Σ payouts − Σ invested
 ```
 
-**Subscription:** `base_cash = paid_amount × fx_rate(receipt date)`; `units = base_cash / nav_per_unit(effective_date)`, using the last **approved** NAV on or before that date. Before the pool's first NAV: the pool's `unit_price_initial` (1.00).
+**Subscription (forward pricing):** `base_cash` = INR actually credited (reference `fx_rate` on the receipt date kept for display). The entry is recorded as **awaiting units** and excluded from NAV per unit. When the **first approved valuation dated on or after the receipt date** is published, `units = base_cash / nav_per_unit(that valuation)`. A pool with no units yet opens at `unit_price_initial` (1.00); existing assets get sponsor units first. Never price new money off an earlier (stale) NAV.
 
 **Display:** `value_in_display = investor_value(base) × fx(base→display, today)`, always shown with base amount, units, rate, rate date and source. Foreign LPs carry INR/FX risk; the screen makes it visible.
 
