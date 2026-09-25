@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain/sopseed"
@@ -243,6 +244,16 @@ VALUES ($1::uuid, $2::uuid, 1, $3, 'Any', $4, 1000, lower($3), $5)`, wfTenant, d
 			t.Fatalf("open %s: %v", d.id, err)
 		}
 	}
+	// Adversarial date shift: the no-animal sale's payment step carries its OWN scheduled date,
+	// three days after the tag step it replaces as "next", so a card that copied the skipped
+	// step's due date (or no date) is caught below.
+	if _, err := pool.Exec(ctx, `
+UPDATE workflow_actions a SET due_at = a.due_at + interval '3 days'
+FROM workflow_instances wi
+WHERE wi.tenant_id = a.tenant_id AND wi.workflow_id = a.workflow_id
+  AND wi.subject_ref_id = $2::uuid AND a.tenant_id = $1::uuid AND a.action_key = 'full_payment'`, wfTenant, deals[0].id); err != nil {
+		t.Fatalf("shift payment due date: %v", err)
+	}
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "migrations", "postgres", "000433_sales_workflow_repair_stuck_steps.sql"))
 	if err != nil {
 		t.Fatal(err)
@@ -277,6 +288,16 @@ WHERE wi.tenant_id = $1::uuid AND wi.template_key = 'sales_deal' AND wi.subject_
 		if c.state != "open" || c.statuses != noAnimals || c.total != 2 || c.done != 0 || c.next == nil || *c.next != "full_payment" {
 			t.Fatalf("deal %s (%s) after repair = %+v (next %v), want the payment steps only", d.id, d.product, c, c.next)
 		}
+	}
+	var nextDue, paymentScheduledDate *time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT wi.next_due_at, a.due_at FROM workflow_instances wi
+JOIN workflow_actions a ON a.tenant_id = wi.tenant_id AND a.workflow_id = wi.workflow_id AND a.action_key = 'full_payment'
+WHERE wi.tenant_id = $1::uuid AND wi.subject_ref_id = $2::uuid`, wfTenant, deals[0].id).Scan(&nextDue, &paymentScheduledDate); err != nil {
+		t.Fatal(err)
+	}
+	if (nextDue == nil) != (paymentScheduledDate == nil) || (nextDue != nil && !nextDue.Equal(*paymentScheduledDate)) {
+		t.Fatalf("repaired card next_due_at = %v, want the payment step's own ScheduledDate %v", nextDue, paymentScheduledDate)
 	}
 	if c := read(deals[2].id); c.state != "canceled" || c.next != nil || strings.Contains(c.statuses, "pending") {
 		t.Fatalf("failed deal after repair = %+v, want cancelled with no step owed", c)

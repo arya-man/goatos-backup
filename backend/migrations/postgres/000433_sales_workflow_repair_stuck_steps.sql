@@ -61,6 +61,7 @@ WHERE d.tenant_id = wi.tenant_id AND d.id = wi.subject_ref_id
   AND d.status = 'Deal Failed';
 
 -- 3. Recompute the card of every still-open sale workflow from its steps (RecomputeCard).
+-- projection-review: membership=workflow_actions of open sales_deal workflow_instances; group_key=(tenant_id, workflow_id); join_cardinality=workflow_instances 1:N workflow_actions, counted per workflow and next step picked by DISTINCT ON the same key; pagination=none, one bounded repair over open sale workflows; scope=tenant + workflow, no park/shed grain
 WITH counts AS (
   SELECT wi.tenant_id, wi.workflow_id,
          count(*) FILTER (WHERE a.status <> 'skipped' AND a.action_type <> 'approval') AS operator_total,
