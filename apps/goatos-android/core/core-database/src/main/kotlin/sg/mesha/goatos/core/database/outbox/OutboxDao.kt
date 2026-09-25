@@ -98,6 +98,14 @@ interface OutboxDao {
             // waiting out its retry backoff may yet land, so a newer report must not overtake it.
             "AND NOT (candidate.opType = older.opType AND candidate.opType IN ('COUNTS_BIRTH', 'COUNTS_DEATH') " +
             "  AND (older.conflict = 1 OR older.attemptCount >= older.maxAttempts)) " +
+            // A sale's receipt and status edits share the sale's lane so they land in order, but a
+            // TERMINAL one (refused, or out of budget) must not hold the next: the phone has no
+            // screen to clear a dead receipt, so a corrected receipt entered afresh -- or the
+            // status change after it -- sat queued forever (phone E2E 2026-09-26). A receipt
+            // still waiting out its backoff keeps holding, so live edits never overtake.
+            "AND NOT (candidate.opType IN ('SALES_DEAL_PAYMENT_WRITE', 'SALES_DEAL_STATUS_SET') " +
+            "  AND older.opType IN ('SALES_DEAL_PAYMENT_WRITE', 'SALES_DEAL_STATUS_SET') " +
+            "  AND (older.conflict = 1 OR older.attemptCount >= older.maxAttempts)) " +
             "AND NOT (candidate.opType = 'PROOF_UPLOAD' AND older.opType = 'PROOF_UPLOAD') " +
             "AND NOT (candidate.opType = older.opType AND candidate.opType IN ('WEIGHING_ANIMAL_OBSERVATION', 'WEIGHING_SHED_OBSERVATION')) " +
             "AND NOT (older.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER', 'HEALTH_STEP_PROOF_REGISTER') " +

@@ -402,6 +402,8 @@ class FakeOutboxStore : OutboxStore {
         }
         if (candidate.opType == "COUNTS_SHIFTING" && opType == "COUNTS_SHIFTING") return false
         if (candidate.opType == "PROOF_UPLOAD" && opType == "PROOF_UPLOAD") return false
+        val saleEdits = setOf("SALES_DEAL_PAYMENT_WRITE", "SALES_DEAL_STATUS_SET")
+        if (candidate.opType in saleEdits && opType in saleEdits && (conflict || attemptCount >= maxAttempts)) return false
         if (candidate.opType == opType && candidate.opType in setOf("WEIGHING_ANIMAL_OBSERVATION", "WEIGHING_SHED_OBSERVATION")) return false
         if (opType in proofRegisterOps &&
             candidate.opType in proofRegisterOps

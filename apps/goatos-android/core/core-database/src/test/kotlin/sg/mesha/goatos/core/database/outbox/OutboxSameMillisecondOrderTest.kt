@@ -521,4 +521,33 @@ class OutboxSameMillisecondOrderTest {
         )
         database.close()
     }
+
+    /** Phone E2E 2026-09-26: a sale's second receipt sat queued forever behind a dead first one. */
+    @Test
+    fun `a dead receipt on a sale does not hold the next receipt or status change on that sale`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(row("dead-receipt", "SALES_DEAL_PAYMENT_WRITE", "sale-1", createdAt = 5L, status = "FAILED", nextAttemptAt = Long.MAX_VALUE, attempts = 8))
+        dao.insert(row("refused-receipt", "SALES_DEAL_PAYMENT_WRITE", "sale-1", createdAt = 6L, status = "FAILED", nextAttemptAt = Long.MAX_VALUE, attempts = 1, conflict = true))
+        dao.insert(row("next-receipt", "SALES_DEAL_PAYMENT_WRITE", "sale-1", createdAt = 7L))
+        dao.insert(row("close-sale", "SALES_DEAL_STATUS_SET", "sale-1", createdAt = 8L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(listOf("next-receipt", "close-sale"), eligible)
+        database.close()
+    }
+
+    @Test
+    fun `a receipt still waiting out its backoff keeps holding the next edit on that sale`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(row("flaky-receipt", "SALES_DEAL_PAYMENT_WRITE", "sale-1", createdAt = 5L, status = "FAILED", nextAttemptAt = 5_000L, attempts = 2))
+        dao.insert(row("close-sale", "SALES_DEAL_STATUS_SET", "sale-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(emptyList<String>(), eligible)
+        database.close()
+    }
 }
