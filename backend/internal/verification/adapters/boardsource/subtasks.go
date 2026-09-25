@@ -35,7 +35,7 @@ const verificationSubtaskRankSQL = `CASE
 END`
 
 // projection-review: membership=the ONE verification_items row named by (tenant_id, park_id, item_id) whose captured_at falls in the requested IST business day with withdrawn excluded, then one unit per element of its media_refs array (WITH ORDINALITY) or one synthetic unit when the array is empty; group_key=(tenant_id, item_id, ordinal) so one proof reference is one subtask; join_cardinality=jsonb_array_elements_text over ONE row's array is a bounded unnest that cannot repeat a proof, proof_artifacts is joined on its primary key only when the reference parses as a uuid (at most 1), and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so nothing fans a proof out and the window total counts each proof once; pagination=keyset on (rank, ordinal key) ASC after ($6, $7) with LIMIT $8 and the whole count carried by count(*) OVER () computed before the keyset cut; scope=tenant_id, park_id, the captured_at day range and item_id, the same predicate the row read binds on verification_items.
-const verificationSubtasksSQL = `
+var verificationSubtasksSQL = `
 WITH item AS (
   SELECT v.item_id, v.status, COALESCE(v.verdict_reason, '') AS verdict_reason,
          COALESCE(v.subject_label, '') AS subject_label, v.operator_id,

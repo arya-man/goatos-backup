@@ -82,6 +82,8 @@ VALUES ($1::uuid, $2::uuid, 'local', 'board-test/' || $1, $3, 'completed', 'shed
 		"next day":   subtaskQuery(itemNextDay),
 		"other park": subtaskQuery(itemOtherPark),
 		"feed video": subtaskQuery(itemFeed),
+		"milk video": subtaskQuery(itemMilk),
+		"weighing":   subtaskQuery(itemWeighing),
 	} {
 		page, err := src.ListSubtasks(ctx, q)
 		if err != nil {

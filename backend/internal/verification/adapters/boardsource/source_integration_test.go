@@ -24,8 +24,8 @@ const (
 	bsMember   = "00000000-0000-4000-8000-000000000401"
 	bsDate     = "2026-09-10"
 
-	itemPending   = "00000000-0000-4000-8000-000000009101" // deworming, pen display title
-	itemApproved  = "00000000-0000-4000-8000-000000009102" // weighing, subject label title
+	itemPending   = "00000000-0000-4000-8000-000000009101" // vaccination proof, pen display title
+	itemApproved  = "00000000-0000-4000-8000-000000009102" // health, subject label title
 	itemRejected  = "00000000-0000-4000-8000-000000009103" // health adults, module-prefixed label
 	itemSampled   = "00000000-0000-4000-8000-000000009104" // approved by the closeout, no verifier
 	itemNoOwner   = "00000000-0000-4000-8000-000000009105" // shifting, no operator named
@@ -38,6 +38,11 @@ const (
 	itemReshot    = "00000000-0000-4000-8000-000000009112" // rejected, then re-shot: history
 	itemReshoot   = "00000000-0000-4000-8000-000000009113" // the re-shoot on the same source ref
 	itemFeed      = "00000000-0000-4000-8000-000000009114" // a feed video: on the feed cards, never here
+	itemMilk      = "00000000-0000-4000-8000-000000009115" // milk: verify is the milk card's last step
+	itemPCCare    = "00000000-0000-4000-8000-000000009116" // preventive care: the same
+	itemWeighing  = "00000000-0000-4000-8000-000000009117" // weighing: the same
+	itemPenVisit  = "00000000-0000-4000-8000-000000009118" // pen visit: the same
+	itemMilkPrep  = "00000000-0000-4000-8000-000000009119" // milk preparation: part of the milk card
 	reshotRef     = "00000000-0000-4000-8000-000000009901"
 )
 
@@ -72,20 +77,25 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, b
 		id, vertical, module, category, park, shed, partition, subject, status, reason, operator, verifier, auto, captured string
 	}
 	items := []item{
-		{itemPending, "pc_care", "pc_care", "pc_deworming", bsPark, bsShed, "Part 3", "", "pending", "", bsOperator, "", "", "2026-09-10 09:15:00+05:30"},
-		{itemApproved, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2 · 41.5 kg", "approved", "", bsOperator, bsVerifier, "", "2026-09-10 10:00:00+05:30"},
+		{itemPending, "vaccination", "vaccination", "vaccination_proof", bsPark, bsShed, "Part 3", "", "pending", "", bsOperator, "", "", "2026-09-10 09:15:00+05:30"},
+		{itemApproved, "health", "health", "health_adults", bsPark, bsShedB, "2", "Castro 2 · 41.5 kg", "approved", "", bsOperator, bsVerifier, "", "2026-09-10 10:00:00+05:30"},
 		{itemRejected, "health", "health", "health_adults", bsPark, bsShed, "", "", "rejected", "Wrong animal in frame", bsOperator, bsVerifier, "", "2026-09-10 11:00:00+05:30"},
-		{itemSampled, "pc_care", "pc_care", "pc_hoof_trimming", bsPark, bsShedB, "1", "", "approved", "", bsOtherOp, "", "not_sampled", "2026-09-10 12:00:00+05:30"},
+		{itemSampled, "vaccination", "vaccination", "vaccination_proof", bsPark, bsShedB, "1", "", "approved", "", bsOtherOp, "", "not_sampled", "2026-09-10 12:00:00+05:30"},
 		{itemNoOwner, "counts", "counts", "shifting_move", bsPark, bsShed, "", "", "pending", "", "", "", "", "2026-09-10 13:00:00+05:30"},
-		{itemLateNight, "pc_care", "pc_care", "pc_deworming", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 23:30:00+05:30"},
-		{itemNextDay, "pc_care", "pc_care", "pc_deworming", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-11 00:10:00+05:30"},
-		{itemOtherPark, "pc_care", "pc_care", "pc_deworming", bsOtherPk, "", "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 09:00:00+05:30"},
-		{itemWithdrawn, "pc_care", "pc_care", "pc_hoof_trimming", bsPark, bsShedB, "1", "Session 1", "withdrawn", "", bsOperator, "", "", "2026-09-10 14:00:00+05:30"},
-		{itemSession, "milk_feeding", "milk_feeding", "milk_feeding", bsPark, bsShedB, "1", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 15:00:00+05:30"},
+		{itemLateNight, "vaccination", "vaccination", "vaccination_proof", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 23:30:00+05:30"},
+		{itemNextDay, "vaccination", "vaccination", "vaccination_proof", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-11 00:10:00+05:30"},
+		{itemOtherPark, "vaccination", "vaccination", "vaccination_proof", bsOtherPk, "", "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 09:00:00+05:30"},
+		{itemWithdrawn, "vaccination", "vaccination", "vaccination_proof", bsPark, bsShedB, "1", "Session 1", "withdrawn", "", bsOperator, "", "", "2026-09-10 14:00:00+05:30"},
+		{itemSession, "counts", "counts", "pen_reconciliation", bsPark, bsShedB, "1", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 15:00:00+05:30"},
 		{itemEcho, "health", "health", "health_adults", bsPark, bsShed, "Part 3", "Adults · Godel 1 - Part 3", "pending", "", bsOperator, "", "", "2026-09-10 16:00:00+05:30"},
-		{itemReshot, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2 · 40.0 kg", "rejected", "Scale not visible", bsOperator, bsVerifier, "", "2026-09-10 17:00:00+05:30"},
-		{itemReshoot, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2 · 40.5 kg", "pending", "", bsOperator, "", "", "2026-09-10 17:30:00+05:30"},
+		{itemReshot, "health", "health", "health_adults", bsPark, bsShedB, "2", "Castro 2 · 40.0 kg", "rejected", "Scale not visible", bsOperator, bsVerifier, "", "2026-09-10 17:00:00+05:30"},
+		{itemReshoot, "health", "health", "health_adults", bsPark, bsShedB, "2", "Castro 2 · 40.5 kg", "pending", "", bsOperator, "", "", "2026-09-10 17:30:00+05:30"},
 		{itemFeed, "feed", "feed", "feed_packing", bsPark, bsShedB, "1", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 18:00:00+05:30"},
+		{itemMilk, "milk_feeding", "milk_feeding", "milk_feeding", bsPark, "", "", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 18:05:00+05:30"},
+		{itemPCCare, "pc_care", "pc_care", "pc_deworming", bsPark, bsShed, "Part 3", "", "approved", "", bsOperator, bsVerifier, "", "2026-09-10 18:10:00+05:30"},
+		{itemWeighing, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2", "rejected", "Scale not visible", bsOperator, bsVerifier, "", "2026-09-10 18:15:00+05:30"},
+		{itemPenVisit, "pen_visits", "pen_visits", "pen_visit", bsPark, bsShed, "Part 3", "", "pending", "", bsOperator, "", "", "2026-09-10 18:20:00+05:30"},
+		{itemMilkPrep, "milk_preparation", "milk_preparation", "milk_preparation", bsPark, "", "", "", "pending", "", bsOperator, "", "", "2026-09-10 18:25:00+05:30"},
 	}
 	for _, x := range items {
 		exec(t, ctx, pool, `
@@ -145,13 +155,15 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if _, ok := byID(rows)[itemReshoot]; !ok {
 		t.Fatal("the re-shoot carries the work and must be on the board")
 	}
-	if _, leaked := byID(rows)[itemFeed]; leaked {
-		t.Fatal("a feed video is on the feed cards; it must not be a verification card too (maintainer instruction 2026-09-25)")
+	for _, own := range []string{itemFeed, itemMilk, itemMilkPrep, itemPCCare, itemWeighing, itemPenVisit} {
+		if _, leaked := byID(rows)[own]; leaked {
+			t.Fatalf("proof %s belongs to a module whose own card ends in verify; it must not be a verification card too (maintainer instruction 2026-09-25)", own)
+		}
 	}
 	if _, leaked := byID(rows)[itemWithdrawn]; leaked {
 		t.Fatal("a withdrawn item is not work and must not sit in In review")
 	}
-	if title := byID(rows)[itemSession].Title; title != "Milk Feeding · Session 1 · Castro 1" {
+	if title := byID(rows)[itemSession].Title; title != "Counts Reconcile · Session 1 · Castro 1" {
 		t.Errorf("a subject naming no pen must carry the pen, got %q", title)
 	}
 	if title := byID(rows)[itemEcho].Title; title != "Health Adults · Godel 1 - Part 3" {
@@ -197,7 +209,7 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	}
 	// No subject label: the title falls back to the pen composed through oploc.
 	pending := got[itemPending]
-	if pending.Pen.Display != "Godel 1 - Part 3" || pending.Title != "Preventive Care Deworming · Godel 1 - Part 3" {
+	if pending.Pen.Display != "Godel 1 - Part 3" || pending.Title != "Vaccination · Godel 1 - Part 3" {
 		t.Errorf("pending pen %q title %q", pending.Pen.Display, pending.Title)
 	}
 	if pending.Owner.Name != "Dinakar" || pending.Owner.WorkforceMemberID != bsMember || pending.Owner.UserID != bsOperator || pending.OwnerState != domain.OwnerStateAssigned {
@@ -208,7 +220,7 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	}
 	// A subject label wins over the pen in the title; a bare numeric partition renders with a space.
 	approved := got[itemApproved]
-	if approved.Title != "Weighing · Castro 2 · 41.5 kg" || approved.Pen.Display != "Castro 2" {
+	if approved.Title != "Health Adults · Castro 2 · 41.5 kg" || approved.Pen.Display != "Castro 2" {
 		t.Errorf("approved title %q pen %q", approved.Title, approved.Pen.Display)
 	}
 	if approved.Counts != (domain.Counts{Done: 1}) {
