@@ -1422,7 +1422,7 @@ async function readSheetRows(
   // scale-guard:ignore: bounded drain of ONE park's preview (a few hundred rows; the endpoint's page
   // cap is 100, so <=20 pages), continued only when the whole-park summary reports a blocked cell.
   for (let page = 0, offset = 0; page < 20; page += 1) {
-    // serial-await: each page's offset follows the previous page's has_more.
+    // serial-await: allow each page's offset follows the previous page's has_more.
     const result = await getFeedDirectionPreview({ park_id: parkId, target_date: targetDate, workflow, limit: 100, offset });
     if (!result.ok) return [];
     const data = result.data;
