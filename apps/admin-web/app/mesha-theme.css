@@ -2959,6 +2959,8 @@
   .valuation-form .tbl th.small{font-weight:500}
   .valuation-unvalued{display:flex;flex-direction:column;gap:8px;margin-top:10px}
   .valuation-unvalued .btn{min-width:0}
+  /* Touch target on a phone: the cover chip remove button (26px) and the add-stage select (30px) were under 40px at 390. */
+  @media(max-width:600px){.valuation-cover-chip .btn{min-width:40px;min-height:40px;justify-content:center}.valuation-covers select{min-height:40px}}
 /* On a phone the seven columns cannot fit, so the table keeps its natural width and pans inside its
    own scroller -- the page itself never moves sideways. What must not happen is the SQUEEZE:
    without these floors the stage column collapsed to the width of two letters and read 'Ad'. */
