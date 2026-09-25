@@ -129,29 +129,17 @@ done
 # same CPU, Gradle and OCI resources, which is what turned 5-9 min ci-local runs
 # into 30-50 min ones. This NEVER waits and NEVER kills: if the lock is held it
 # names the holder and exits non-zero so the caller can decide. A lock whose
-# holder PID is gone is stale and is reclaimed.
+# holder PID is gone (or was reused) is stale and is reclaimed by atomic rename;
+# see tools/ci/land-lock.sh.
 land_lock_dir="${GOATOS_LAND_MAIN_LOCK_DIR:-$(git rev-parse --git-common-dir)/goatos-land-main.lock}"
 case "$land_lock_dir" in /*) ;; *) land_lock_dir="$repo/$land_lock_dir" ;; esac
-acquire_land_lock() {
-  if mkdir "$land_lock_dir" 2>/dev/null; then
-    printf 'pid=%s\nworktree=%s\nsha=%s\nstarted=%s\n' "$$" "$repo" "$(git rev-parse HEAD)" \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$land_lock_dir/holder"
-    trap 'rm -rf "$land_lock_dir"' EXIT
-    return 0
-  fi
-  local holder_pid
-  holder_pid="$(sed -n 's/^pid=//p' "$land_lock_dir/holder" 2>/dev/null || true)"
-  if [ -n "$holder_pid" ] && ! kill -0 "$holder_pid" 2>/dev/null; then
-    echo "land-main: reclaiming stale landing lock from exited pid ${holder_pid}" >&2
-    rm -rf "$land_lock_dir"
-    acquire_land_lock
-    return
-  fi
-  echo "land-main: another land-main holds the landing lock ($land_lock_dir):" >&2
-  sed 's/^/land-main:   /' "$land_lock_dir/holder" >&2 2>/dev/null || echo "land-main:   (holder details not written yet)" >&2
+# shellcheck source=tools/ci/land-lock.sh
+source "$script_dir/land-lock.sh"
+if land_lock_acquire "$land_lock_dir" "$(printf 'worktree=%s\nsha=%s\nstarted=%s\n' "$repo" "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"; then
+  trap 'rm -rf "$land_lock_dir"' EXIT
+else
   die "landing queue busy; rerun after that landing finishes (this command never waits or kills)"
-}
-acquire_land_lock
+fi
 
 max_attempts="${GOATOS_LAND_MAX_ATTEMPTS:-3}"
 case "$max_attempts" in

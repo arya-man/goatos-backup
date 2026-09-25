@@ -187,4 +187,33 @@ printf 'pid=%s\n' "$dead_pid" >"$tmp/land.lock/holder"
 grep -q "reclaiming stale landing lock" "$tmp/stale.out"
 [ ! -e "$tmp/land.lock" ] || { echo "land-main self-test: lock must be released on exit" >&2; exit 1; }
 
+# Lock library race cases (tools/ci/land-lock.sh), exercised directly.
+lock_lib="$(dirname "$script")/land-lock.sh"
+# PID reuse: holder names a LIVE pid but a different start time -> stale.
+rm -rf "$tmp/reuse.lock"; mkdir "$tmp/reuse.lock"
+printf 'pid=%s\npidstart=Thu Jan  1 00:00:00 1970\nworktree=/old\n' "$$" >"$tmp/reuse.lock/holder"
+( source "$lock_lib"; land_lock_acquire "$tmp/reuse.lock" "worktree=/new" ) 2>"$tmp/reuse.out" \
+  || { cat "$tmp/reuse.out" >&2; echo "land-main self-test: reused pid should read as stale" >&2; exit 1; }
+grep -q "reclaiming stale landing lock" "$tmp/reuse.out"
+grep -q "worktree=/new" "$tmp/reuse.lock/holder"
+# Same live pid with its REAL start time stays held.
+( source "$lock_lib"; printf 'pid=%s\npidstart=%s\n' "$$" "$(land_lock_proc_start "$$")" >"$tmp/reuse.lock/holder"
+  ! land_lock_acquire "$tmp/reuse.lock" "worktree=/intruder" ) 2>/dev/null \
+  || { echo "land-main self-test: live holder with matching start must stay held" >&2; exit 1; }
+# Concurrent reclaim: several runs see the same dead holder; exactly one wins.
+sh -c 'exit 0' & dead_pid=$!
+wait "$dead_pid"
+for round in 1 2 3 4 5 6 7 8 9 10; do
+  rm -rf "$tmp/race.lock" "$tmp"/race.lock.stale.* "$tmp/race.wins"; mkdir "$tmp/race.lock"
+  printf 'pid=%s\npidstart=x\n' "$dead_pid" >"$tmp/race.lock/holder"
+  for r in 1 2 3; do
+    ( source "$lock_lib"; land_lock_acquire "$tmp/race.lock" "racer=$r" 2>/dev/null && echo "$r" >>"$tmp/race.wins"; sleep 1 ) &
+  done
+  wait
+  wins="$(wc -l <"$tmp/race.wins" 2>/dev/null | tr -d ' ')"
+  [ "$wins" = "1" ] || { echo "land-main self-test: concurrent reclaim round $round had ${wins:-0} winners" >&2; exit 1; }
+  grep -q "racer=$(cat "$tmp/race.wins")" "$tmp/race.lock/holder" \
+    || { echo "land-main self-test: winner's holder must own the lock" >&2; exit 1; }
+done
+
 echo "land-main self-test: passed"
