@@ -898,6 +898,9 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, domain.ErrActionAlreadyCompleted):
 		h.writeError(w, r, http.StatusConflict, "action_already_completed",
 			"this action is already completed", err)
+	case errors.Is(err, domain.ErrActionCanceled):
+		h.writeError(w, r, http.StatusConflict, "action_canceled",
+			"this step was cancelled and can no longer be done", err)
 	case errors.Is(err, domain.ErrActionInReview):
 		h.writeError(w, r, http.StatusConflict, "action_in_review",
 			"this action is awaiting verification and cannot be changed", err)

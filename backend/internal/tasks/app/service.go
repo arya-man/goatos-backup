@@ -675,6 +675,14 @@ func (s *Service) CompleteSaleTagStep(ctx context.Context, tenantID, dealID stri
 	return s.repo.CompleteSaleTagStep(ctx, tenantID, dealID, at)
 }
 
+// CancelSaleWorkflow cancels a failed deal's sale workflow (maintainer decision 2026-09-25).
+func (s *Service) CancelSaleWorkflow(ctx context.Context, tenantID, dealID string) error {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(dealID) == "" {
+		return domain.ErrMissingRequiredField
+	}
+	return s.repo.CancelSaleWorkflow(ctx, tenantID, dealID)
+}
+
 // ReconcileAnimalPurchaseDecisionStep follows the newest source load snapshot.
 func (s *Service) ReconcileAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, pending, decided int, at time.Time) error {
 	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(loadID) == "" {

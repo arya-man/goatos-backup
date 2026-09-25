@@ -54,6 +54,7 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 //	RFID promotion stays identity-owned; Tag the kid completes only with its task video
 //	verification.verdict.approved/.rework  -> apply birth/death evidence verdicts
 //	sales.deal.recorded / goat.sale_allocated              -> the sale's workflow
+//	sales.deal.status_changed (Deal Failed)                -> cancel the sale's workflow
 //	procurement.animal_purchase.load_recorded / .decided   -> the purchase load's intake workflow
 //	procurement.feed_purchase.recorded / .reached          -> the feed load's purchase workflow
 //	procurement.toxin_test.accepted                        -> that workflow's aflatoxin step
@@ -77,6 +78,8 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	// the sale_tag_animals step (docs/decisions/sales-sop.md).
 	tasksapp.NewSaleRecordedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewSaleAllocatedWorkflowHandler(svc).Register(bus)
+	// A deal marked Deal Failed cancels its workflow (2026-09-25).
+	tasksapp.NewSaleStatusChangedWorkflowHandler(svc).Register(bus)
 	// PROCUREMENT SOP (2026-09-20): opening a purchase load opens its intake workflow; the
 	// office's last decision on the load completes the decision step
 	// (docs/decisions/procurement-sop-driven.md).

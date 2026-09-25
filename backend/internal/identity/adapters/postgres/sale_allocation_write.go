@@ -166,6 +166,23 @@ func (r *Repository) lockAndCheckSaleAllocationCapacity(ctx context.Context, tx 
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, cmd.TenantID+":"+cmd.SalesDealID); err != nil {
 		return fmt.Errorf("identity: record sale allocations: lock sale: %w", err)
 	}
+	// A FAILED SALE TAKES NO ANIMALS (maintainer decision 2026-09-25). The deal row is locked
+	// here -- this transaction already writes it (syncSaleDealSexCounts) -- so a concurrent
+	// "mark failed" either commits first and is seen as failed here, or waits behind this lock
+	// and then counts the animals this confirm tagged and refuses (sales SetDealStatus).
+	var dealStatus string
+	if err := tx.QueryRow(ctx, `
+SELECT status FROM sales_deals
+WHERE tenant_id = $1::uuid AND id = $2::uuid
+FOR UPDATE`, cmd.TenantID, cmd.SalesDealID).Scan(&dealStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.ErrSaleDealNotFound
+		}
+		return fmt.Errorf("identity: record sale allocations: lock deal: %w", err)
+	}
+	if dealStatus == "Deal Failed" {
+		return ports.ErrSaleDealFailed
+	}
 	var alreadyTagged int
 	if err := tx.QueryRow(ctx, `
 SELECT count(*)::int

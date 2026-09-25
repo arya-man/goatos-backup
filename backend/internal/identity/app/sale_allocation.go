@@ -526,6 +526,8 @@ func mapSaleDealErr(err error) error {
 	case errors.Is(err, ports.ErrSaleDealNoAnimalCount):
 		return Unprocessable("sale_has_no_animal_count",
 			"This sale does not say how many animals it is for, so animals cannot be tagged to it.")
+	case errors.Is(err, ports.ErrSaleDealFailed):
+		return saleDealFailedConflict()
 	default:
 		return mapRepoErr(err)
 	}
@@ -538,4 +540,10 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// saleDealFailedConflict refuses tagging onto a sale marked failed (maintainer decision
+// 2026-09-25): tagging exits the animals as sold, and a failed sale sold nothing.
+func saleDealFailedConflict() *Error {
+	return Conflict("sale_deal_failed", "This sale is marked failed, so animals cannot be tagged to it.")
 }

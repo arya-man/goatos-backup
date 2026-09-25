@@ -16,6 +16,15 @@ const defaultQueryTimeout = 3 * time.Second
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
+	// tagged answers "how many animals are tagged to this deal" before it may be marked failed.
+	// Wired in production (bootstrap/api.go, asserted by a test); nil skips the check.
+	tagged ports.SaleTaggingReader
+}
+
+// WithTaggedAnimals wires the herd-side reader the failed-deal refusal asks.
+func (r *Repository) WithTaggedAnimals(reader ports.SaleTaggingReader) *Repository {
+	r.tagged = reader
+	return r
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {

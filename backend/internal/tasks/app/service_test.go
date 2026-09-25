@@ -28,7 +28,9 @@ type fakeRepo struct {
 	// pendingAppends are steps a mutation appended; mutate folds them into the workflow.
 	pendingAppends []domain.WorkflowAction
 	// saleTagCompletions records the deals whose tag step the engine was asked to complete.
-	saleTagCompletions          []string
+	saleTagCompletions []string
+	// saleCancellations records the deals whose workflow a failed-deal event asked to cancel.
+	saleCancellations           []string
 	purchaseDecisionCompletions []string
 	feedReachedCompletions      []string
 	toxinStepCompletions        []string
@@ -227,6 +229,11 @@ func (f *fakeRepo) CompleteAction(_ context.Context, cmd domain.CompleteActionCo
 
 func (f *fakeRepo) CompleteSaleTagStep(_ context.Context, tenantID, dealID string, completedAt time.Time) error {
 	f.saleTagCompletions = append(f.saleTagCompletions, dealID)
+	return nil
+}
+
+func (f *fakeRepo) CancelSaleWorkflow(_ context.Context, tenantID, dealID string) error {
+	f.saleCancellations = append(f.saleCancellations, dealID)
 	return nil
 }
 

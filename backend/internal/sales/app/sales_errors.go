@@ -119,6 +119,18 @@ func SalesHTTPError(err error) *Error {
 		// store's ledger disagrees with, and the desk may well be right. The client keys on the
 		// CODE and re-sends the same sale with stock_shortfall_acknowledged, never on this
 		// sentence, which is farm copy and may be reworded.
+		// A FAILED SALE WITH TAGGED ANIMALS (maintainer decision 2026-09-25): the tagged animals
+		// have left the herd as sold and nothing puts them back yet, so the change is refused.
+		var tagged ports.ErrDealHasTaggedAnimals
+		if errors.As(err, &tagged) {
+			noun := "animals are"
+			if tagged.Count == 1 {
+				noun = "animal is"
+			}
+			return Conflict("sale_has_tagged_animals", fmt.Sprintf(
+				"%d %s already tagged to this sale and marked sold. A sale cannot be marked failed while animals are tagged to it.",
+				tagged.Count, noun))
+		}
 		var short domain.ErrFeedStockShort
 		if errors.As(err, &short) {
 			return &Error{

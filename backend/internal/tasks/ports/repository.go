@@ -135,6 +135,10 @@ type Repository interface {
 	// CompleteSaleTagStep completes the sale workflow's sale_tag_animals step for the deal when
 	// its allocation confirm lands. No-op when there is no such open step.
 	CompleteSaleTagStep(ctx context.Context, tenantID, dealID string, completedAt time.Time) error
+	// CancelSaleWorkflow cancels the sale workflow of a deal marked failed: every UNFINISHED step
+	// is cancelled and the card closes; finished steps keep their record. No-op when the deal has
+	// no workflow or it is no longer open.
+	CancelSaleWorkflow(ctx context.Context, tenantID, dealID string) error
 	// ReconcileAnimalPurchaseDecisionStep follows the newest load counts, reopening
 	// a completed decision when later candidates sync. Zero counts reconcile a
 	// newly opened workflow with an earlier event receipt without overwriting it.

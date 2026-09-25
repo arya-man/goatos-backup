@@ -180,32 +180,38 @@ func applyMigrations(t *testing.T, container string) {
 
 func seedRepositoryData(t *testing.T, container string) {
 	t.Helper()
-	psql(t, container, `
+	psql(t, container, repositorySeedSQL())
+}
+
+// repositorySeedSQL is the shared synthetic fixture, also applied to a pgtest database by
+// startSaleWriteDBOnPgtest (no Docker needed there).
+func repositorySeedSQL() string {
+	return `
 INSERT INTO tenants (tenant_id, name, status)
-VALUES ('`+secondTenant+`', 'Synthetic second tenant', 'active');
+VALUES ('` + secondTenant + `', 'Synthetic second tenant', 'active');
 
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
-VALUES ('`+t2Location+`', '`+secondTenant+`', 'park', 'CBE', 'Synthetic tenant 2 CBE', 'active');
+VALUES ('` + t2Location + `', '` + secondTenant + `', 'park', 'CBE', 'Synthetic tenant 2 CBE', 'active');
 
 INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, breed, sex)
 VALUES
-  ('10000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+cbeLocation+`', '`+cbeLocation+`', 'Synthetic Boer', 'female'),
-  ('10000000-0000-4000-8000-000000000002', '`+meshaTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+cptLocation+`', '`+cptLocation+`', 'Synthetic Boer', 'male'),
-  ('10000000-0000-4000-8000-000000000101', '`+secondTenant+`', 'alive', 'goat', '`+meshaParty+`', '`+t2Location+`', '`+t2Location+`', 'Synthetic Boer', 'female');
+  ('10000000-0000-4000-8000-000000000001', '` + meshaTenant + `', 'alive', 'goat', '` + meshaParty + `', '` + cbeLocation + `', '` + cbeLocation + `', 'Synthetic Boer', 'female'),
+  ('10000000-0000-4000-8000-000000000002', '` + meshaTenant + `', 'alive', 'goat', '` + meshaParty + `', '` + cptLocation + `', '` + cptLocation + `', 'Synthetic Boer', 'male'),
+  ('10000000-0000-4000-8000-000000000101', '` + secondTenant + `', 'alive', 'goat', '` + meshaParty + `', '` + t2Location + `', '` + t2Location + `', 'Synthetic Boer', 'female');
 
 	INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
 	VALUES
-	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'animal_identifier_1', 'A1-1900-CBE', 'A1-1900-CBE', 'global', true, 'active', now(), 'test_v1'),
-	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'animal_identifier_2', 'A2-1900-CBE', 'A2-1900-CBE', 'global', false, 'active', now(), 'test_v1'),
-	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'animal_identifier_1', 'A1-1900-CPT', 'A1-1900-CPT', 'global', true, 'active', now(), 'test_v1'),
-	  ('`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'animal_identifier_2', 'A2-1900-CPT', 'A2-1900-CPT', 'global', false, 'active', now(), 'test_v1'),
-	  ('`+secondTenant+`', '10000000-0000-4000-8000-000000000101', 'animal_identifier_1', 'A1-1900-T2', 'A1-1900-T2', 'global', true, 'active', now(), 'test_v1'),
-	  ('`+secondTenant+`', '10000000-0000-4000-8000-000000000101', 'animal_identifier_2', 'A2-1900-T2', 'A2-1900-T2', 'global', false, 'active', now(), 'test_v1');
+	  ('` + meshaTenant + `', '10000000-0000-4000-8000-000000000001', 'animal_identifier_1', 'A1-1900-CBE', 'A1-1900-CBE', 'global', true, 'active', now(), 'test_v1'),
+	  ('` + meshaTenant + `', '10000000-0000-4000-8000-000000000001', 'animal_identifier_2', 'A2-1900-CBE', 'A2-1900-CBE', 'global', false, 'active', now(), 'test_v1'),
+	  ('` + meshaTenant + `', '10000000-0000-4000-8000-000000000002', 'animal_identifier_1', 'A1-1900-CPT', 'A1-1900-CPT', 'global', true, 'active', now(), 'test_v1'),
+	  ('` + meshaTenant + `', '10000000-0000-4000-8000-000000000002', 'animal_identifier_2', 'A2-1900-CPT', 'A2-1900-CPT', 'global', false, 'active', now(), 'test_v1'),
+	  ('` + secondTenant + `', '10000000-0000-4000-8000-000000000101', 'animal_identifier_1', 'A1-1900-T2', 'A1-1900-T2', 'global', true, 'active', now(), 'test_v1'),
+	  ('` + secondTenant + `', '10000000-0000-4000-8000-000000000101', 'animal_identifier_2', 'A2-1900-T2', 'A2-1900-T2', 'global', false, 'active', now(), 'test_v1');
 
 INSERT INTO identity_conflicts (conflict_id, tenant_id, conflict_type, severity, state, identifier_type, identifier_value, goat_ids, source_record_ids, evidence)
 VALUES (
   '20000000-0000-4000-8000-000000000001',
-  '`+meshaTenant+`',
+  '` + meshaTenant + `',
 	  'status_mismatch',
   'medium',
   'open',
@@ -236,16 +242,16 @@ VALUES (
 
 INSERT INTO identity_conflict_goats (conflict_id, tenant_id, goat_id, role)
 VALUES
-  ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', '10000000-0000-4000-8000-000000000001', 'affected'),
-  ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', '10000000-0000-4000-8000-000000000002', 'affected');
+  ('20000000-0000-4000-8000-000000000001', '` + meshaTenant + `', '10000000-0000-4000-8000-000000000001', 'affected'),
+  ('20000000-0000-4000-8000-000000000001', '` + meshaTenant + `', '10000000-0000-4000-8000-000000000002', 'affected');
 
 INSERT INTO identity_conflict_source_records (conflict_id, tenant_id, source_system, source_record_id)
-VALUES ('20000000-0000-4000-8000-000000000001', '`+meshaTenant+`', 'synthetic_import', 'synthetic-source-record-1');
+VALUES ('20000000-0000-4000-8000-000000000001', '` + meshaTenant + `', 'synthetic_import', 'synthetic-source-record-1');
 
 INSERT INTO identity_conflicts (conflict_id, tenant_id, conflict_type, severity, state, identifier_type, identifier_value, goat_ids, source_record_ids, evidence)
 VALUES (
   '20000000-0000-4000-8000-000000000002',
-  '`+meshaTenant+`',
+  '` + meshaTenant + `',
   'status_mismatch',
   'low',
   'open',
@@ -280,7 +286,7 @@ INSERT INTO goat_identity_events (
 VALUES
   (
     '60000000-0000-4000-8000-000000000001',
-    '`+meshaTenant+`',
+    '` + meshaTenant + `',
     '10000000-0000-4000-8000-000000000001',
     'goat.created',
     1,
@@ -294,7 +300,7 @@ VALUES
   ),
   (
     '60000000-0000-4000-8000-000000000002',
-    '`+meshaTenant+`',
+    '` + meshaTenant + `',
     '10000000-0000-4000-8000-000000000001',
     'goat.identifier.added',
     1,
@@ -308,7 +314,7 @@ VALUES
   ),
   (
     '60000000-0000-4000-8000-000000000101',
-    '`+secondTenant+`',
+    '` + secondTenant + `',
     '10000000-0000-4000-8000-000000000101',
     'goat.created',
     1,
@@ -321,7 +327,7 @@ VALUES
     'idem-timeline-tenant-2'
   );
 
-	`)
+	`
 }
 
 func openPool(t *testing.T, ctx context.Context, container string) *pgxpool.Pool {

@@ -1463,6 +1463,53 @@ func (r *Repository) CompleteSaleTagStep(ctx context.Context, tenantID, dealID s
 	return r.completeHookStep(ctx, tenantID, domain.TemplateKeySalesDeal, dealID, domain.EngineHookSaleTagAnimals, completedAt)
 }
 
+// CancelSaleWorkflow cancels the sale workflow of a deal marked Deal Failed (maintainer decision
+// 2026-09-25): the tag, loading, gate-pass and money steps it still owed will never be done. Every
+// UNFINISHED step (pending, in review, sent back) is cancelled and the card closes; a step already
+// completed or skipped keeps its record. Idempotent: a workflow already cancelled or completed is
+// left alone, and a deal with no workflow is a no-op.
+func (r *Repository) CancelSaleWorkflow(ctx context.Context, tenantID, dealID string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var workflowID, state string
+	err = tx.QueryRow(ctx, `
+SELECT workflow_id::text, state
+FROM workflow_instances
+WHERE tenant_id = $1::uuid AND template_key = $2 AND subject_ref_id = $3::uuid
+FOR UPDATE`, tenantID, domain.TemplateKeySalesDeal, dealID).Scan(&workflowID, &state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return tx.Commit(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	if state != domain.WorkflowStateOpen {
+		return tx.Commit(ctx)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE workflow_actions
+SET status = 'canceled', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
+  AND status IN ('pending', 'in_review', 'rework')`, tenantID, workflowID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE workflow_instances
+SET state = 'canceled', next_action_key = NULL, next_action_title = NULL,
+    next_due_at = NULL, awaiting_verification = false,
+    row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid AND state = 'open'`, tenantID, workflowID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // ReconcileAnimalPurchaseDecisionStep saves a monotonic source-state receipt and
 // updates the shared workflow engine's action and card rollup. This projection
 // owns no workflow state and writes no animal-purchase source tables.

@@ -279,6 +279,9 @@ var (
 	// all -- a manure sale, or a row imported without one. There is no target to map
 	// against, so animals cannot be tagged to it.
 	ErrSaleDealNoAnimalCount = errors.New("identity: sales deal declares no animal count")
+	// ErrSaleDealFailed is returned when the deal is marked Deal Failed (maintainer decision
+	// 2026-09-25): animals are never tagged to -- and exited onto -- a sale that fell through.
+	ErrSaleDealFailed = errors.New("identity: sales deal is marked failed")
 )
 
 // SaleDeal is the little the allocation gate needs to know about a sale.

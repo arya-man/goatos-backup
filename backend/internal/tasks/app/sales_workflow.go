@@ -23,8 +23,9 @@ import (
 //	sales.deal.recorded   -> open the sale's workflow (idempotent on the deal)
 //	goat.sale_allocated   -> complete its sale_tag_animals step (the confirm IS the proof)
 const (
-	EventSalesDealRecorded = "sales.deal.recorded"
-	EventGoatSaleAllocated = "goat.sale_allocated"
+	EventSalesDealRecorded      = "sales.deal.recorded"
+	EventGoatSaleAllocated      = "goat.sale_allocated"
+	EventSalesDealStatusChanged = "sales.deal.status_changed"
 )
 
 // salesDealRecordedPayload is the subset of the sales producer's payload the opener reads.
@@ -145,4 +146,47 @@ func (h *SaleAllocatedWorkflowHandler) HandleEvent(ctx context.Context, e eventb
 		at = time.Now()
 	}
 	return h.svc.CompleteSaleTagStep(ctx, e.TenantID, dealID, at.UTC())
+}
+
+// salesDealStatusChangedPayload is the subset of the sales producer's status-change payload the
+// cancel consumer reads.
+type salesDealStatusChangedPayload struct {
+	SalesDealID string `json:"sales_deal_id"`
+	Status      string `json:"status"`
+}
+
+// SaleStatusChangedWorkflowHandler cancels a sale's workflow when the deal is marked Deal Failed
+// (maintainer decision 2026-09-25): the work a failed sale owed -- tag, load, gate pass, collect
+// the balance -- will never be done, and an open card for it would read overdue forever. Any other
+// status change leaves the workflow alone.
+type SaleStatusChangedWorkflowHandler struct{ svc *Service }
+
+// NewSaleStatusChangedWorkflowHandler constructs the canceller.
+func NewSaleStatusChangedWorkflowHandler(svc *Service) *SaleStatusChangedWorkflowHandler {
+	return &SaleStatusChangedWorkflowHandler{svc: svc}
+}
+
+var _ eventbus.Handler = (*SaleStatusChangedWorkflowHandler)(nil)
+
+// Register subscribes the status-change event.
+func (h *SaleStatusChangedWorkflowHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventSalesDealStatusChanged, h)
+}
+
+// HandleEvent cancels the failed deal's workflow; idempotent (a cancelled workflow stays so).
+func (h *SaleStatusChangedWorkflowHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	var p salesDealStatusChangedPayload
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return eventbus.PermanentError(err)
+		}
+	}
+	if !strings.EqualFold(strings.TrimSpace(p.Status), dealStatusFailed) {
+		return nil
+	}
+	dealID := strings.TrimSpace(p.SalesDealID)
+	if dealID == "" || strings.TrimSpace(e.TenantID) == "" {
+		return nil
+	}
+	return h.svc.CancelSaleWorkflow(ctx, e.TenantID, dealID)
 }

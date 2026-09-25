@@ -36,8 +36,10 @@ var _ ports.SaleDealReader = (*Bridge)(nil)
 func (b *Bridge) ReadSaleDeal(ctx context.Context, tenantID, salesDealID string) (*ports.SaleDeal, error) {
 	var declared *int
 	var tagged int
+	var status string
 	err := b.pool.QueryRow(ctx, `
 SELECT
+  d.status,
   -- animal_count is numeric in the ledger because the source sheet stores it as a decimal
   -- (23.0). A fractional count is not a real animal count, so it is truncated rather than
   -- rounded up: mapping must never be asked to hit a target the farm cannot physically meet.
@@ -45,12 +47,17 @@ SELECT
   (SELECT count(*)::int FROM goat_sale_allocations a
     WHERE a.tenant_id = d.tenant_id AND a.sales_deal_id = d.id AND a.status = 'tagged')
 FROM sales_deals d
-WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid`, tenantID, salesDealID).Scan(&declared, &tagged)
+WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid`, tenantID, salesDealID).Scan(&status, &declared, &tagged)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ports.ErrSaleDealNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("salesbridge: read sale deal: %w", err)
+	}
+	if status == "Deal Failed" {
+		// The sales ledger's failed-deal word (sales/domain.StatusDealFailed); a failed sale
+		// takes no animals (maintainer decision 2026-09-25). The confirm re-checks under lock.
+		return nil, ports.ErrSaleDealFailed
 	}
 	if declared == nil || *declared <= 0 {
 		return nil, ports.ErrSaleDealNoAnimalCount

@@ -70,6 +70,24 @@ func emitSaleRecorded(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempot
 		// count; the workflow then opens with its payment steps only.
 		"has_live_animals": write.HasLiveAnimals(),
 	}
+	return insertSalesDealEvent(ctx, tx, salesDealEvent{
+		tenantID: tenantID, actorID: actorID, dealID: dealID, parkID: parkID, farm: write.Farm,
+		eventType: saleRecordedEventType, eventID: eventID, idempotencyKey: idempotencyKey,
+		outboxKey: saleRecordedEventType + ":" + idempotencyKey, payload: payload, at: now,
+	})
+}
+
+// salesDealEvent is one sales_deal-aggregate envelope to write into the outbox.
+type salesDealEvent struct {
+	tenantID, actorID, dealID, parkID, farm       string
+	eventType, eventID, idempotencyKey, outboxKey string
+	payload                                       map[string]any
+	at                                            time.Time
+}
+
+// insertSalesDealEvent writes a sales_deal-aggregate envelope into outbox_messages inside tx.
+func insertSalesDealEvent(ctx context.Context, tx pgx.Tx, ev salesDealEvent) error {
+	tenantID, actorID, dealID, parkID, now := ev.tenantID, ev.actorID, ev.dealID, ev.parkID, ev.at
 	visibility := map[string]any{"tenant_id": tenantID}
 	if parkID != "" {
 		visibility["park_id"] = parkID
@@ -79,8 +97,8 @@ func emitSaleRecorded(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempot
 		actor = a
 	}
 	envelope, err := json.Marshal(map[string]any{
-		"event_id":       eventID,
-		"event_type":     saleRecordedEventType,
+		"event_id":       ev.eventID,
+		"event_type":     ev.eventType,
 		"schema_version": saleRecordedSchemaVersion,
 		"schema_ref":     saleRecordedSchemaRef,
 		"aggregate_type": saleRecordedAggregate,
@@ -92,7 +110,7 @@ func emitSaleRecorded(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempot
 			"module":  "sales",
 			"version": nil,
 		},
-		"idempotency_key": idempotencyKey,
+		"idempotency_key": ev.idempotencyKey,
 		"actor": map[string]any{
 			"actor_type": "human",
 			"actor_id":   actor,
@@ -105,7 +123,7 @@ func emitSaleRecorded(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempot
 			"evidence_type": "source_record",
 			"evidence_id":   "sales_deal:" + dealID,
 		}},
-		"payload":  payload,
+		"payload":  ev.payload,
 		"trace_id": "sales-deal:" + dealID,
 	})
 	if err != nil {
@@ -113,7 +131,7 @@ func emitSaleRecorded(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempot
 	}
 	headers, err := json.Marshal(map[string]any{
 		"actor_id":      actorID,
-		"farm":          write.Farm,
+		"farm":          ev.farm,
 		"business_date": biztime.BusinessDate(now),
 	})
 	if err != nil {
@@ -127,10 +145,44 @@ INSERT INTO outbox_messages (
   $1::uuid, $2::uuid, $3, $4, $5, $6::uuid,
   $7, $8::jsonb, $9::jsonb, $10, 'pending'
 )`,
-		tenantID, eventID, saleRecordedEventType, saleRecordedSchemaVersion, saleRecordedAggregate, dealID,
-		saleRecordedTopic, envelope, headers, saleRecordedEventType+":"+idempotencyKey,
+		tenantID, ev.eventID, ev.eventType, saleRecordedSchemaVersion, saleRecordedAggregate, dealID,
+		saleRecordedTopic, envelope, headers, ev.outboxKey,
 	); err != nil {
-		return fmt.Errorf("sales: outbox deal recorded: %w", err)
+		return fmt.Errorf("sales: outbox %s: %w", ev.eventType, err)
 	}
 	return nil
+}
+
+// sales.deal.status_changed (maintainer decision 2026-09-25, docs/decisions/sales-sop.md -> "A
+// failed sale"): a deal's lifecycle status moved. Emitted INSIDE SetDealStatus's transaction, only
+// when the status actually changes, so a retried no-op change emits nothing. The consumer is
+// tasks/app.SaleStatusChangedWorkflowHandler, which CANCELS the sale's workflow when the deal is
+// marked Deal Failed -- the work a failed sale was owed (tag, load, gate pass, collect the balance)
+// will never be done. Registered in context/architecture/domain-event-registry.json.
+const saleStatusChangedEventType = "sales.deal.status_changed"
+
+// emitDealStatusChanged writes the status-change envelope. changedAt is the row's own updated_at
+// from the same UPDATE, so the event id is deterministic per change and unique across changes (a
+// deal failed, reopened and failed again emits three distinct events).
+func emitDealStatusChanged(ctx context.Context, tx pgx.Tx, tenantID, actorID, dealID, farm, previous, status string, changedAt time.Time) error {
+	var parkID string
+	if err := tx.QueryRow(ctx, parkIDForFarmSQL, tenantID, farm).Scan(&parkID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("sales: resolve park for farm %q: %w", farm, err)
+	}
+	stamp := changedAt.UTC().Format(time.RFC3339Nano)
+	key := dealID + ":" + stamp
+	return insertSalesDealEvent(ctx, tx, salesDealEvent{
+		tenantID: tenantID, actorID: actorID, dealID: dealID, parkID: parkID, farm: farm,
+		eventType:      saleStatusChangedEventType,
+		eventID:        platformoutbox.DeterministicUUID(saleStatusChangedEventType + ":" + tenantID + ":" + key),
+		idempotencyKey: key,
+		outboxKey:      saleStatusChangedEventType + ":" + key,
+		payload: map[string]any{
+			"tenant_id":       tenantID,
+			"sales_deal_id":   dealID,
+			"previous_status": previous,
+			"status":          status,
+		},
+		at: changedAt.UTC(),
+	})
 }

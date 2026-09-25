@@ -398,6 +398,7 @@ func TestErrorMapping(t *testing.T) {
 		{"already completed", domain.ErrActionAlreadyCompleted, http.StatusConflict, "action_already_completed"},
 		{"in review", domain.ErrActionInReview, http.StatusConflict, "action_in_review"},
 		{"out of sequence", domain.ErrActionOutOfSequence, http.StatusConflict, "action_out_of_sequence"},
+		{"canceled", domain.ErrActionCanceled, http.StatusConflict, "action_canceled"},
 		{"not yet due", domain.ErrActionNotYetDue, http.StatusConflict, "action_not_yet_due"},
 		{"not completable", domain.ErrActionNotCompletable, http.StatusBadRequest, "action_not_completable"},
 		{"not found", domain.ErrNotFound, http.StatusNotFound, "workflow_not_found"},

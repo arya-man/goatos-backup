@@ -419,6 +419,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrInvalidCursor) {
 		return BadRequest("invalid_cursor", "cursor is not valid for this list endpoint")
 	}
+	if errors.Is(err, ports.ErrSaleDealFailed) {
+		return saleDealFailedConflict()
+	}
 	if errors.Is(err, ports.ErrSaleAllocationCountChanged) {
 		return Conflict("sale_allocation_changed", "this sale's animal list changed while you were confirming; refresh and review the sale again")
 	}

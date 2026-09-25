@@ -178,6 +178,7 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 	saleshttp "github.com/vgoats/goatos/backend/internal/sales/adapters/http"
+	salesidentitybridge "github.com/vgoats/goatos/backend/internal/sales/adapters/identitybridge"
 	salespg "github.com/vgoats/goatos/backend/internal/sales/adapters/postgres"
 	salesapp "github.com/vgoats/goatos/backend/internal/sales/app"
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
@@ -1007,7 +1008,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The feed store is wired in so a sale taking more feed than it holds asks the desk to confirm
 	// it once (migration 000422). Without this the confirmation silently never fires, so the
 	// wiring is asserted by a test rather than left to this line being noticed.
-	salesService := salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+	// A sale is refused "Deal Failed" while animals are tagged to it (2026-09-25): the herd-side
+	// count comes through the bridge, keeping the sales repository off the herd schema.
+	salesService := salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout).
+		WithTaggedAnimals(salesidentitybridge.New(pool))).
 		WithFeedStock(feedDirectionRepo)
 	salesHandler := saleshttp.NewSalesHandler(
 		salesService, log)

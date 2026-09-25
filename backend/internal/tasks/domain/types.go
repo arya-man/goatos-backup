@@ -22,6 +22,10 @@ var (
 	ErrActionAlreadyCompleted = errors.New("tasks: action is already completed")
 	// ErrActionInReview is a write to an action whose verification is pending (HTTP 409).
 	ErrActionInReview = errors.New("tasks: action is awaiting verification")
+	// ErrActionCanceled is a NEW write to a cancelled step -- a failed sale's workflow, a rejected
+	// death report (HTTP 409). The card is closed; a phone holding the old screen must not bring a
+	// step of it back to life.
+	ErrActionCanceled = errors.New("tasks: this step was cancelled")
 	// ErrActionOutOfSequence is a write to a later operator step before every earlier step in the
 	// same workflow section has completed (HTTP 409).
 	ErrActionOutOfSequence = errors.New("tasks: complete the previous action first")
@@ -365,6 +369,8 @@ func evaluateIdempotentWrite(a WorkflowAction, key, fingerprint string) (replay 
 		return false, ErrActionAlreadyCompleted
 	case ActionStatusInReview:
 		return false, ErrActionInReview
+	case ActionStatusCanceled:
+		return false, ErrActionCanceled
 	}
 	return false, nil
 }

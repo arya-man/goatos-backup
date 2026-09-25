@@ -103,3 +103,26 @@ func TestSaleRecordedCarriesWhetherTheSaleHasAnimals(t *testing.T) {
 		t.Fatalf("a sale recorded already failed must open nothing, got %+v", failed)
 	}
 }
+
+// TestDealFailedCancelsTheSaleWorkflow (maintainer decision 2026-09-25): a deal marked Deal Failed
+// cancels its workflow; every other status change leaves it alone.
+func TestDealFailedCancelsTheSaleWorkflow(t *testing.T) {
+	repo := newFakeRepo()
+	h := NewSaleStatusChangedWorkflowHandler(NewService(repo, nil))
+	send := func(status string) {
+		t.Helper()
+		raw, _ := json.Marshal(map[string]any{"sales_deal_id": "deal-9", "previous_status": "Deal Closed", "status": status})
+		if err := h.HandleEvent(context.Background(), eventbus.Event{Type: EventSalesDealStatusChanged, TenantID: "tenant", Key: "deal-9", Payload: raw}); err != nil {
+			t.Fatalf("%s: %v", status, err)
+		}
+	}
+	send("In Discussion")
+	send("Advance Paid")
+	if len(repo.saleCancellations) != 0 {
+		t.Fatalf("a non-failed status must not cancel, got %v", repo.saleCancellations)
+	}
+	send("Deal Failed")
+	if len(repo.saleCancellations) != 1 || repo.saleCancellations[0] != "deal-9" {
+		t.Fatalf("Deal Failed must cancel the deal's workflow, got %v", repo.saleCancellations)
+	}
+}

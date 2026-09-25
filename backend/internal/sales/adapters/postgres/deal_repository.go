@@ -369,12 +369,12 @@ func (r *Repository) SetDealStatus(ctx context.Context, tenantID, dealID, status
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var previous string
+	var previous, farm string
 	err = tx.QueryRow(ctx, `
-SELECT status
+SELECT status, farm
 FROM public.sales_deals
 WHERE tenant_id = $1 AND id = $2
-FOR UPDATE`, tenantID, dealID).Scan(&previous)
+FOR UPDATE`, tenantID, dealID).Scan(&previous, &farm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealNotFound
 	}
@@ -383,11 +383,32 @@ FOR UPDATE`, tenantID, dealID).Scan(&previous)
 	}
 
 	if previous != status {
-		if _, err := tx.Exec(ctx, `
+		// A FAILED SALE WITH TAGGED ANIMALS (maintainer decision 2026-09-25). The tagging confirm
+		// exited those animals from the herd as sold; nothing can put them back yet, so the sale
+		// is refused rather than failed with its animals gone. Asked UNDER this row lock: a
+		// confirm locks the same deal row before it writes, so a confirm that committed first is
+		// counted here, and one that waits behind this lock finds the deal failed and refuses.
+		if status == domain.StatusDealFailed && r.tagged != nil {
+			n, err := r.tagged.TaggedAnimalCount(ctx, tenantID, dealID)
+			if err != nil {
+				return domain.Deal{}, err
+			}
+			if n > 0 {
+				return domain.Deal{}, ports.ErrDealHasTaggedAnimals{Count: n}
+			}
+		}
+		var changedAt time.Time
+		if err := tx.QueryRow(ctx, `
 UPDATE public.sales_deals
 SET status = $3, updated_at = now()
-WHERE tenant_id = $1 AND id = $2`, tenantID, dealID, status); err != nil {
+WHERE tenant_id = $1 AND id = $2
+RETURNING updated_at`, tenantID, dealID, status).Scan(&changedAt); err != nil {
 			return domain.Deal{}, fmt.Errorf("sales: update deal status: %w", err)
+		}
+		// The sale's workflow follows its status: a failed deal's work is cancelled by the
+		// tasks consumer of this event, in the same transaction's outbox.
+		if err := emitDealStatusChanged(ctx, tx, tenantID, actorID, dealID, farm, previous, status, changedAt); err != nil {
+			return domain.Deal{}, err
 		}
 		// Closing a sale takes its feed off the store; failing or reopening one gives it back.
 		if err := syncFeedSaleDepletions(ctx, tx, tenantID, dealID); err != nil {
