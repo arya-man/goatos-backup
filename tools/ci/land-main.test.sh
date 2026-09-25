@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Hermetic: a developer machine may export these (e.g. a machine-wide lock dir or
+# queue routing in ~/.zshenv); the self-test must never see them.
+unset GOATOS_LAND_MAIN_LOCK_DIR GOATOS_LAND_VIA_QUEUE GOATOS_WORKSPACE_ROOT GOATOS_LAND_LOCAL
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo/tools/ci/land-main.sh"
