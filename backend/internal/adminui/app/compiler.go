@@ -71,6 +71,8 @@ type ReferenceFamilies struct {
 	Breeds             []ReferenceOption
 	HealthStatuses     []ReferenceOption
 	ReproductiveStates []ReferenceOption
+	// LifecycleStates labels the Herd Register lifecycle chip (status_definitions axis lifecycle).
+	LifecycleStates []ReferenceOption
 	DeferStates        []ReferenceOption
 	SOPLabels          []ReferenceOption
 	FeedItems          []ReferenceOption
@@ -929,6 +931,10 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// Source-backed reproductive vocabulary for the Herd Register reproductive edit drawer.
 			// Same status_definitions family the Config rule editor uses, minus the "any" sentinel.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_reproductive", optionsFromReferences(families.ReproductiveStates, ""))
+			// The register table's Health and Breeding chips render these labels, never the raw
+			// status key (`non_pregnant`, `under_treatment`).
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_health", optionsFromReferences(families.HealthStatuses, ""))
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_lifecycle", optionsFromReferences(families.LifecycleStates, ""))
 		case "feed-direction", "feed-packing", "feed-config", "feed-analytics":
 			// Live feed vocabulary. feedOptionGroups() declares only fixed schema constraints;
 			// the actual feed items are tenant data from feed_item_catalog and arrive here as

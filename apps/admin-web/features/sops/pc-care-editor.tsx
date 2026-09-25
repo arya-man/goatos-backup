@@ -46,7 +46,7 @@ type Props = {
   initialView?: "list" | "flow";
 };
 
-export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial, initialView = "list" }: Props) {
+export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versionLabel, initial, initialView = "list" }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<PcCareRows>(initial);
   // Keys the loaded version already carries never move; a new capture / question follows its title.
@@ -249,7 +249,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, sopCo
           <h1>{copy(pc, "pcsop.title")}</h1>
           <div className="sub">{copy(pc, "pcsop.subtitle")}</div>
           <div className="muted small" style={{ marginTop: 4 }}>
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, "pcsop.notice.pinned")}
+            {versionLabel} · {copy(pc, "pcsop.notice.pinned")}
           </div>
         </div>
         <div className="acts">

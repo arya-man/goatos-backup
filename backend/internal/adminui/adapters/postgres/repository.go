@@ -53,6 +53,9 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if out.ReproductiveStates, out.RevisionInputs["reproductive-statuses"], err = r.listStatuses(ctx, "reproductive", ""); err != nil {
 		return out, err
 	}
+	if out.LifecycleStates, out.RevisionInputs["lifecycle-statuses"], err = r.listStatuses(ctx, "lifecycle", ""); err != nil {
+		return out, err
+	}
 	if out.DeferStates, out.RevisionInputs["defer-states"], err = r.listStatuses(ctx, "health", "warn"); err != nil {
 		return out, err
 	}

@@ -8786,7 +8786,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.field.name":                "SOP name",
 			"modal.builder.placeholder.name":          "Vaccination session",
 			"modal.builder.domain_locked":             "domain locked",
-			"modal.builder.code_prefix":               "sop_code",
 			"modal.builder.policy_label":              "vaccination drive/session policy",
 			"modal.builder.field.trigger":             "Trigger — what starts it?",
 			"modal.builder.field.steps":               "Steps & questions — add/remove, pick a type, set conditional rules",
@@ -11091,6 +11090,16 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 		// hardcodes a reproductive vocabulary. Empty here means "unavailable" until seeded.
 		{
 			ID:      "herd_reproductive",
+			Options: []domain.Option{},
+		},
+		// herd_health is the same source-backed shape for the register's Health chip: the table
+		// renders the tenant's status_definitions label ("Under treatment"), never the stored key.
+		{
+			ID:      "herd_health",
+			Options: []domain.Option{},
+		},
+		{
+			ID:      "herd_lifecycle",
 			Options: []domain.Option{},
 		},
 	}

@@ -444,7 +444,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 	cards := []domain.InsightCard{
 		{
 			Key: "tags_live_now", Label: "Tags Live Now", Value: fmt.Sprintf("%d", d.TagsLiveNow), Unit: "tags",
-			SignalType: "derived", Formula: "distinct tags with last_seen_at within 5 min",
+			SignalType: "derived", Formula: "distinct tags heard in the last 5 min",
 			Caveat: "Counts tags that have sent a packet recently; a tag with no packet in 30+ minutes is excluded, not shown as zero.",
 		},
 		{
@@ -489,7 +489,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "feed_activity", Label: "Feed × Activity", Value: fmt.Sprintf("%d", d.FeedActivityShedsCount), Unit: "sheds",
-			SignalType: "correlated", Formula: "pen activity 2h before vs 2h after fed_at",
+			SignalType: "correlated", Formula: "pen activity 2h before vs 2h after feeding",
 			Caveat: "Pen-grain only: this cannot attribute a single tag's motion to feeding.",
 		},
 		{

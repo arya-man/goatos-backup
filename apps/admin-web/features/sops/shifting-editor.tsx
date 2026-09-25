@@ -30,7 +30,7 @@ type Props = {
   initial: ShiftingRows;
 };
 
-export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial }: Props) {
+export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, versionLabel, initial }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<ShiftingRows>(initial);
   // Keys the loaded version already carries never move; a new capture / question follows its title.
@@ -73,7 +73,7 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, sop
           <h1>{copy(pc, "ssop.title")}</h1>
           <div className="sub">{copy(pc, "ssop.subtitle")}</div>
           <div className="muted small" style={{ marginTop: 4 }}>
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, "ssop.notice.pinned")}
+            {versionLabel} · {copy(pc, "ssop.notice.pinned")}
           </div>
         </div>
         <div className="acts">

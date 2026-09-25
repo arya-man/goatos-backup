@@ -56,7 +56,7 @@ type Props = {
   profile?: InspectionProfile;
 };
 
-export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial, profile = "inspection" }: Props) {
+export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, versionLabel, initial, profile = "inspection" }: Props) {
   const router = useRouter();
   // Both FORM profiles render the same way -- pages of questions, no load form, no media. Only
   // the section they save into differs.
@@ -205,7 +205,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, s
           <h1>{copy(pc, `${copyPrefix}.title`)}</h1>
           <div className="sub">{copy(pc, `${copyPrefix}.subtitle`)}</div>
           <div className="muted small" style={{ marginTop: 4 }}>
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, `${copyPrefix}.notice.capture_kept`)}
+            {versionLabel} · {copy(pc, `${copyPrefix}.notice.capture_kept`)}
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />

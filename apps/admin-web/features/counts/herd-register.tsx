@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Tag } from "@/components/ui-primitives";
 import { dash } from "@/lib/format";
-import { actionFeedbackCopy, copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { actionFeedbackCopy, copy, optionalOption, readableOptionKey, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getHerdRegisterSummary,
@@ -30,6 +30,12 @@ import { HerdActions, type HerdAnimalStageOption, type HerdOperationalLocationOp
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
 import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "./herd-passport-local-drawer";
 import { operationalLocationLabel } from "@/lib/operational-location";
+
+/** A status chip's words: the tenant's own label from the page's option group, never the stored key. */
+function statusLabel(pageContract: AdminUiPageContract, groupId: string, value: string | null | undefined): string {
+  if (!value) return dash(value);
+  return optionalOption(pageContract, groupId, value)?.label ?? readableOptionKey(value);
+}
 
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
 // emit goat.created, generate vaccination obligations. This screen is the OPERATIONAL Counts module surface.
@@ -349,17 +355,17 @@ export async function HerdRegisterPage({
                       </td>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Tag tone={statusTone(g.lifecycle_status, "lifecycle")}>{dash(g.lifecycle_status)}</Tag>
+                          <Tag tone={statusTone(g.lifecycle_status, "lifecycle")}>{statusLabel(pageContract, "herd_lifecycle", g.lifecycle_status)}</Tag>
                         </LocalOverlayLink>
                       </td>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Tag tone={statusTone(g.health_status, "health")}>{dash(g.health_status)}</Tag>
+                          <Tag tone={statusTone(g.health_status, "health")}>{statusLabel(pageContract, "herd_health", g.health_status)}</Tag>
                         </LocalOverlayLink>
                       </td>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Tag tone={statusTone(g.reproductive_status, "breeding")}>{dash(g.reproductive_status)}</Tag>
+                          <Tag tone={statusTone(g.reproductive_status, "breeding")}>{statusLabel(pageContract, "herd_reproductive", g.reproductive_status)}</Tag>
                         </LocalOverlayLink>
                       </td>
                     </tr>
