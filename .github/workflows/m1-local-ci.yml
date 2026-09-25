@@ -1,7 +1,9 @@
 name: m1-local-ci
 
+# Not on every pull_request any more: it shares the single laptop runner with
+# the land queue and could hold a landing for up to 75 min. Sessions run
+# ci-local themselves; land runs the full ci-local. Dispatch this when needed.
 on:
-  pull_request:
   workflow_dispatch:
     inputs:
       mode:

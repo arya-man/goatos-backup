@@ -25,6 +25,8 @@ on:
 jobs:
   land:
     name: land PR ${{ inputs.pr }}
+    # Only maintainers may run arbitrary PR code on the laptop with Ravi's token.
+    if: contains(fromJSON('["ravimesha","arya-man","manju-mesha"]'), github.actor)
     runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
     timeout-minutes: 90
     steps:
@@ -41,6 +43,12 @@ jobs:
           [ "$state" = "OPEN main" ] || { echo "PR $PR is not an open PR against main ($state)"; exit 1; }
           gh pr checkout "$PR" --force
           git log --oneline -1
+      - name: Preflight (gh login, ai-setup, Java 21)
+        run: |
+          set -euo pipefail
+          gh auth status >/dev/null 2>&1 || { echo "runner user has no gh login; cannot push"; exit 1; }
+          make ai-setup >/dev/null
+          java -version 2>&1 | grep -q '"21' || { echo "runner java is not 21"; exit 1; }
       - name: Land (make land-main)
         run: |
           set -euo pipefail
@@ -48,3 +56,15 @@ jobs:
           git config user.email "ravi@mesha.sg"
           git config alias.mesha-push '!f() { token="$(gh auth token)" || exit 1; url="https://x-access-token:${token}@github.com/vgoats/goatos.git"; git push "$url" "${1:-HEAD:main}"; }; f'
           make land-main
+      - name: Close the PR as landed
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          gh pr comment "$PR" --body "Landed on main at $sha via the land workflow."
+          if [ "$(gh pr view "$PR" --json state --jq .state)" = "OPEN" ]; then
+            gh pr close "$PR" --comment "Content is on main at $sha."
+          fi
