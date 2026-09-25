@@ -75,3 +75,22 @@ class SaleStepsProgressTest {
         org.junit.Assert.assertFalse(isStoppedWorkflow("completed"))
     }
 }
+
+class PendingSaleCardsTest {
+    private fun payload(id: String, farm: String, vararg lines: sg.mesha.goatos.core.network.dto.SalesDealLineWriteDto) =
+        sg.mesha.goatos.core.data.sync.SalesDealCreatePayload(
+            clientId = id,
+            request = sg.mesha.goatos.core.network.dto.SalesDealWriteDto(saleDate = "2026-09-26", farm = farm, lines = lines.toList(), buyerName = "Mahendran", buyerVendorId = "v"),
+        )
+
+    @Test
+    fun `a sale still on the phone is listed for its farm with its value`() {
+        val sheep = sg.mesha.goatos.core.network.dto.SalesDealLineWriteDto(productType = "Sheep", breed = "Anantapur Sheep", animalCount = 1.0, salesValue = 11000.0)
+        val manure = sg.mesha.goatos.core.network.dto.SalesDealLineWriteDto(productType = "Manure", breed = "Manure", quantity = 100.0, ratePerUnit = 3.0, salesValue = 0.0)
+        val cards = pendingSaleCards(listOf(payload("a", "CPT", sheep), payload("b", "CBE", sheep, manure)), farm = "")
+        assertEquals(listOf("b", "a"), cards.map { it.key })
+        assertEquals("Sheep · Anantapur Sheep · CPT · ₹11,000", cards[1].line)
+        assertEquals("2 lines · CBE · ₹11,300", cards[0].line)
+        assertEquals(listOf("a"), pendingSaleCards(listOf(payload("a", "CPT", sheep), payload("b", "CBE", sheep)), farm = "CPT").map { it.key })
+    }
+}

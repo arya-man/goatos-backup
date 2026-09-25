@@ -148,6 +148,9 @@ interface SyncRepository {
      */
     fun observePendingSalesPayments(): Flow<List<SalesDealPaymentPayload>> = flowOf(emptyList())
 
+    /** Sales recorded on this phone and not on the ledger yet -- the list shows them, for the same reason. */
+    fun observePendingSalesDeals(): Flow<List<SalesDealCreatePayload>> = flowOf(emptyList())
+
     /** Observes a specific outbox item by id (R50-006: leadership close needs to observe items
      *  that may be older than the recent-terminal window). Returns a Flow that emits whenever
      *  the item's status changes, never emitting null (item not found = no emission). */
@@ -1173,6 +1176,16 @@ class DefaultSyncRepository(
         // see observePendingHealthCaseOpens above).
         store.observeActive()
             .map { rows -> projectSubmittedGrains(rows, syncJson) }
+            .distinctUntilChanged()
+
+    override fun observePendingSalesDeals(): Flow<List<SalesDealCreatePayload>> =
+        store.observeActiveByOpType(OutboxOpType.SALES_DEAL_CREATE.name)
+            .map { rows ->
+                rows.mapNotNull { row ->
+                    // exception:exempt a corrupt sale row is skipped in the UI overlay only; sync processing still owns its failure/reporting.
+                    runCatching { syncJson.decodeFromString<SalesDealCreatePayload>(row.payloadJson) }.getOrNull()
+                }
+            }
             .distinctUntilChanged()
 
     override fun observePendingSalesPayments(): Flow<List<SalesDealPaymentPayload>> =

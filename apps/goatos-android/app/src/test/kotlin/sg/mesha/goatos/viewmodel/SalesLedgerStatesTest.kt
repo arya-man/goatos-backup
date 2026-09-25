@@ -45,7 +45,7 @@ class SalesLedgerStatesTest {
     @Test
     fun `switching farm never shows the other filter's count`() = runTest(dispatcher) {
         val repo = LedgerRepo(scopes = mapOf("" to SalesDealScopeMeta(total = 128, syncedAt = 1_000L)))
-        val vm = SalesListViewModel(repo, Quiet, Silent)
+        val vm = SalesListViewModel(repo, Quiet, Silent, RecordingToxinSyncRepository())
         backgroundScope.launch { vm.state.collect {} }
         assertEquals("128 sales", vm.state.value.countLine)
         assertEquals(1_000L, vm.state.value.lastSyncedAt)

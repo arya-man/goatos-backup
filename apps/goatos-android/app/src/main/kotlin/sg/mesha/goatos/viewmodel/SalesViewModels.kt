@@ -48,6 +48,7 @@ import sg.mesha.goatos.feature.vendors.SaleCreateEvent
 import sg.mesha.goatos.feature.vendors.SaleCreateUiState
 import sg.mesha.goatos.feature.vendors.SaleDetailEvent
 import sg.mesha.goatos.feature.vendors.SaleDetailUiState
+import sg.mesha.goatos.feature.vendors.SalePendingUi
 import sg.mesha.goatos.feature.vendors.SaleField
 import sg.mesha.goatos.feature.vendors.SaleLineDraftUi
 import sg.mesha.goatos.feature.vendors.SaleLineField
@@ -137,6 +138,7 @@ class SalesListViewModel @Inject constructor(
     private val repository: SalesRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val syncRepository: SyncRepository,
 ) : ViewModel() {
 
     private data class Scope(val farm: String = "", val title: String = "", val refreshNonce: Int = 0)
@@ -158,7 +160,7 @@ class SalesListViewModel @Inject constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     private val scopeMeta = scope.map { it.farm }.distinctUntilChanged().flatMapLatest { repository.observeDealScope(it) }
 
-    val state: StateFlow<SalesListUiState> = combine(_isRefreshing, scope, repository.observeOptions(), scopeMeta) { refreshing, current, options, meta ->
+    val state: StateFlow<SalesListUiState> = combine(_isRefreshing, scope, repository.observeOptions(), scopeMeta, syncRepository.observePendingSalesDeals()) { refreshing, current, options, meta, pending ->
         val total = meta?.total ?: 0
         SalesListUiState(
             title = current.title,
@@ -169,6 +171,7 @@ class SalesListViewModel @Inject constructor(
             countLine = if (total > 0) "$total ${if (total == 1) COUNT_ONE else COUNT_MANY}" else "",
             emptyMessage = if (current.farm.isNotBlank()) EMPTY_FILTERED else EMPTY_MESSAGE,
             canAdd = true,
+            pendingSales = pendingSaleCards(pending, current.farm),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SalesListUiState())
 
@@ -321,6 +324,14 @@ internal fun isFinalSaleStatus(status: String, options: SalesOptionsDto? = null)
 internal fun pendingReceiptLines(payloads: List<sg.mesha.goatos.core.data.sync.SalesDealPaymentPayload>, dealId: String): List<String> =
     payloads.filter { it.dealId == dealId && it.op == sg.mesha.goatos.core.data.sync.SalesPaymentOp.CREATE }
         .mapNotNull { p -> p.request?.let { r -> dotJoin(rupees(r.amountRupees), farmDate(r.receivedOn)) } }
+
+/** Sales still on this phone for [farm] (blank = every farm), newest first as the ledger reads. */
+internal fun pendingSaleCards(payloads: List<sg.mesha.goatos.core.data.sync.SalesDealCreatePayload>, farm: String): List<SalePendingUi> =
+    payloads.filter { farm.isBlank() || it.request.farm == farm }.reversed().map { p ->
+        val r = p.request
+        val sold = if (r.lines.size > 1) "${r.lines.size} lines" else r.lines.firstOrNull()?.let { productAndBreed(it.productType, it.breed) }.orEmpty()
+        SalePendingUi(key = p.clientId, buyer = r.buyerName, line = dotJoin(sold, r.farm, rupees(if (r.lines.isEmpty()) r.salesValue else r.lines.sumOf { l -> l.quantity?.let { q -> l.ratePerUnit?.let { q * it } } ?: l.salesValue })))
+    }
 
 internal fun SalesDealDto.plannedSaleDateIfDifferent(): String? =
     plannedSaleDate?.trim()?.takeIf { it.isNotEmpty() && it != saleDate }

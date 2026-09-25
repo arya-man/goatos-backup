@@ -97,6 +97,18 @@ fun SalesListScreen(
                         }
                     }
                 }
+                // Recorded on this phone and not on the ledger yet: shown first, so a sale saved
+                // offline is never recorded a second time.
+                items(count = state.pendingSales.size, key = { "pending_${state.pendingSales[it].key}" }) { index ->
+                    val pending = state.pendingSales[index]
+                    VendorsCard(onClick = null, modifier = Modifier.padding(horizontal = MeshaDimens.gutter)) {
+                        Column {
+                            Text(text = pending.buyer, color = MeshaColors.Ink, style = MeshaType.listTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(text = pending.line, color = MeshaColors.Muted, style = MeshaType.cardSubtitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(text = PENDING_SALE, color = MeshaColors.Warn, style = MeshaType.caption)
+                        }
+                    }
+                }
                 when (body) {
                     SalesListBody.Loading -> item(key = "loading") {
                         Column(
@@ -175,3 +187,5 @@ private fun SaleCard(card: SaleCardUi, onClick: () -> Unit) {
 private const val ADD_LABEL = "Record sale"
 private const val PIPELINE_TITLE = "Pipeline and evidence"
 private const val PIPELINE_SUBTITLE = "Buyer leads, farmer groups, market quotes, sold tags and weight checks"
+
+private const val PENDING_SALE = "Saved on this phone · waiting to send"

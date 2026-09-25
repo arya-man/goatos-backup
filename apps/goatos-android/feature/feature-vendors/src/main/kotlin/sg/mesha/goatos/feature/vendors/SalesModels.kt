@@ -47,7 +47,13 @@ data class SalesListUiState(
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
     val canAdd: Boolean = false,
+    /** Sales recorded on this phone that have not reached the ledger yet, for the selected farm. */
+    val pendingSales: List<SalePendingUi> = emptyList(),
 )
+
+/** A sale still on this phone: "Mahendran" / "Sheep · Anantapur Sheep · CPT · ₹11,000". */
+@Immutable
+data class SalePendingUi(val key: String, val buyer: String, val line: String)
 
 sealed interface SalesListEvent {
     data object Refresh : SalesListEvent
