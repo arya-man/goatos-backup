@@ -247,15 +247,20 @@ export async function recordLoadCostAction(formData: FormData): Promise<void> {
 
 /**
  * What a refused payment write hands back to its form. `message` is the backend's own sentence and
- * is carried only for a named FIELD refusal ("Received on cannot be in the future.") -- anything
- * else (network, a 5xx) carries none, and the form shows its contract copy instead, because a
- * transport error's text is not farm copy.
+ * is carried for every BUSINESS refusal the backend worded itself -- a named field ("Received on
+ * cannot be in the future.") and a rule it refused on ("This takes the money received past the
+ * sale value..."). A receipt above the sale value used to reach the desk as "Check the fields and
+ * try again" because only `sales_invalid_*` codes were carried, which names no field and no rule.
+ * Anything else (network, a 5xx, a sign-in or permission refusal whose text is the admin server's,
+ * not the farm's) carries none, and the form shows its contract copy instead.
  */
 export type SalesPaymentActionError = { code: string; message: string };
 
-function paymentRefusal(error: { code?: string; message: string }): SalesPaymentActionError {
+function paymentRefusal(error: { code?: string; message: string; status?: number }): SalesPaymentActionError {
   const code = error.code ?? "";
-  return { code, message: code.startsWith("sales_invalid_") ? error.message : "" };
+  const businessRefusal =
+    code !== "" && (code.startsWith("sales_invalid_") || error.status === 400 || error.status === 404 || error.status === 409 || error.status === 422);
+  return { code, message: businessRefusal ? error.message : "" };
 }
 
 /**

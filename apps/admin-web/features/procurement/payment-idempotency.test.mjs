@@ -90,6 +90,16 @@ test("recordSalesDealPaymentAction returns the backend's field sentence in place
     { ...context.paymentRefusal({ code: "sales_invalid_received_on", message: "Received on cannot be in the future." }) },
     { code: "sales_invalid_received_on", message: "Received on cannot be in the future." },
   );
+  // A business rule the backend refused on, in its own words: carried, never "check the fields".
+  assert.deepEqual(
+    { ...context.paymentRefusal({ code: "payment_exceeds_sale_value", status: 409, message: "This takes the money received past the sale value." }) },
+    { code: "payment_exceeds_sale_value", message: "This takes the money received past the sale value." },
+  );
+  // A sign-in / permission refusal's text is the admin server's, not the farm's.
+  assert.deepEqual(
+    { ...context.paymentRefusal({ code: "permission_denied", status: 403, message: "Signed in, but the active DB grants do not allow this view." }) },
+    { code: "permission_denied", message: "" },
+  );
   // Not a field refusal: the transport's text is not farm copy, so the form shows its own.
   assert.deepEqual(
     { ...context.paymentRefusal({ message: "Backend service returned 500." }) },

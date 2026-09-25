@@ -96,7 +96,7 @@ func SalesHTTPError(err error) *Error {
 
 	case errors.Is(err, ports.ErrPaymentExceedsSaleValue):
 		return Conflict("payment_exceeds_sale_value",
-			"This takes the money received past the sale value. Check the receipts already listed -- the advance taken at the sale is already one of them.")
+			"This takes the money received past the sale value. Check the receipts already listed: the advance taken at the sale is already one of them.")
 
 	case errors.Is(err, ports.ErrProductNameTaken):
 		return Conflict("product_name_taken",
