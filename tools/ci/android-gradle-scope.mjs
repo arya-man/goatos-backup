@@ -39,14 +39,16 @@ export function readGraph(root) {
   const modules = [...settings.matchAll(/include\("([^"]+)"\)/g)].map((m) => m[1]);
   const deps = new Map();
   const hasTests = new Map();
+  const jvm = new Map(); // pure Kotlin/JVM modules: `test`, no Android lint task
   for (const m of modules) {
     const dir = path.join(root, ...m.split(":").filter(Boolean));
     let text = "";
     try { text = fs.readFileSync(path.join(dir, "build.gradle.kts"), "utf8"); } catch { /* no build file */ }
     deps.set(m, new Set([...text.matchAll(/project\("([^"]+)"\)/g)].map((x) => x[1])));
     hasTests.set(m, fs.existsSync(path.join(dir, "src", "test")));
+    jvm.set(m, /plugins\.kotlin\.jvm/.test(text) && !/plugins\.android\./.test(text));
   }
-  return { modules, deps, hasTests };
+  return { modules, deps, hasTests, jvm };
 }
 
 function moduleDir(m) { return m.split(":").filter(Boolean).join("/") + "/"; }
@@ -58,6 +60,8 @@ export function isBuildLogic(rel) {
 
 export function scope(changedFiles, graph, { full = false } = {}) {
   const { modules, deps, hasTests } = graph;
+  const jvm = graph.jvm || new Map();
+  const testTask = (m) => (jvm.get(m) ? `${m}:test` : `${m}:testDebugUnitTest`);
   const libs = modules.filter((m) => !NOT_LIBRARIES.has(m));
   const rels = changedFiles.filter((f) => f.startsWith(PREFIX)).map((f) => f.slice(PREFIX.length));
   // Longest module dir wins (core/core-ui/ vs core/).
@@ -84,11 +88,11 @@ export function scope(changedFiles, graph, { full = false } = {}) {
     }
   }
   const tasks = [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest"];
-  for (const m of libs) if (affected.has(m) && hasTests.get(m)) tasks.push(`${m}:testDebugUnitTest`);
+  for (const m of libs) if (affected.has(m) && hasTests.get(m)) tasks.push(testTask(m));
   const appLint = buildWide || changed.has(":app") || changed.has(":core:core-designsystem") ||
     rels.some((r) => /(^|\/)src\/[^/]+\/res\//.test(r));
   if (appLint) tasks.push(":app:lintStgRelease");
-  const lintLibs = full ? libs : libs.filter((m) => changed.has(m));
+  const lintLibs = (full ? libs : libs.filter((m) => changed.has(m))).filter((m) => !jvm.get(m));
   if (full || !appLint) for (const m of lintLibs) tasks.push(`${m}:lintRelease`);
   return {
     tasks,
@@ -109,6 +113,7 @@ function selfTest() {
       [":feature:feature-a", new Set([":core:core-ui"])],
       [":feature:feature-b", new Set([":core:core-model"])],
     ]),
+    jvm: new Map([[":core:core-model", true]]),
     hasTests: new Map([[":core:core-model", true], [":core:core-ui", false], [":feature:feature-a", true], [":feature:feature-b", true], [":core:core-designsystem", false]]),
   };
   const P = (s) => PREFIX + s;
@@ -116,8 +121,8 @@ function selfTest() {
     ["no android diff -> app compile+unit only", ["backend/x.go"], {}, [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest"]],
     ["feature code -> its tests + its lint, no app lint", [P("feature/feature-a/src/main/kotlin/A.kt")], {},
       [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-a:lintRelease"]],
-    ["core-model -> dependents' tests (transitive), lint core-model only", [P("core/core-model/src/main/kotlin/M.kt")], {},
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":core:core-model:lintRelease"]],
+    ["core-model (JVM) -> dependents' tests (transitive), no Android lint task", [P("core/core-model/src/main/kotlin/M.kt")], {},
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:test", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest"]],
     ["app code -> app lint", [P("app/src/main/kotlin/X.kt")], {},
       [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":app:lintStgRelease"]],
     ["resources -> app lint", [P("feature/feature-b/src/main/res/values/strings.xml")], {},
@@ -125,13 +130,13 @@ function selfTest() {
     ["design system -> app lint + dependents' tests", [P("core/core-designsystem/src/main/kotlin/T.kt")], {},
       [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-a:testDebugUnitTest", ":app:lintStgRelease"]],
     ["build logic -> every test + app lint", [P("gradle/libs.versions.toml")], {},
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease"]],
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:test", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease"]],
     ["unknown android path -> FULL set", [P("lint.xml")], {},
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease"]],
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:test", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease"]],
     ["android docs/markdown -> not build-wide", [P("README.md"), P("docs/x.txt")], {}, [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest"]],
     ["full -> every test + every lint", [], { full: true },
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease",
-        ":core:core-model:lintRelease", ":core:core-ui:lintRelease", ":core:core-designsystem:lintRelease", ":feature:feature-a:lintRelease", ":feature:feature-b:lintRelease"]],
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:test", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease",
+        ":core:core-ui:lintRelease", ":core:core-designsystem:lintRelease", ":feature:feature-a:lintRelease", ":feature:feature-b:lintRelease"]],
   ];
   let bad = 0;
   for (const [name, files, opts, want] of cases) {
@@ -143,6 +148,7 @@ function selfTest() {
   // The real graph must parse and include :app plus library modules.
   const real = readGraph(defaultRoot);
   if (!real.modules.includes(":app") || real.modules.length < 10) { bad++; console.error("FAIL real settings.gradle.kts did not parse"); }
+  if (!real.jvm.get(":core:core-common")) { bad++; console.error("FAIL :core:core-common must be detected as a JVM module"); }
   if (bad) { console.error(`android-gradle-scope self-test: ${bad} failure(s)`); process.exit(1); }
   console.log("android-gradle-scope self-test: passed");
 }
