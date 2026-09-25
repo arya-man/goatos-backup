@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,85 @@ func TestTheAdvanceAtSaleIsTheFirstReceipt(t *testing.T) {
 	none, err := service.CreateDeal(ctx, salesTestTenant, advanceDeal(50000, 0, "2026-09-02"), "", "adv-0")
 	if err != nil || len(none.Payments) != 0 {
 		t.Fatalf("zero advance: %+v %v", none.Payments, err)
+	}
+}
+
+// "Advance received" on the sale follows the advance's RECEIPT (maintainer decision 2026-09-25).
+// Once the advance became the sale's first receipt, the desk corrects or removes it there -- and
+// the sale drawer's "Advance received" must say the same thing, not the figure typed when the
+// sale was recorded. The receipt is identified by the is_advance marker the record-sale write
+// stamps, never by its note, so re-wording the note keeps the link and a hand-written receipt
+// that happens to say "Advance at sale" does not become the advance.
+func TestTheSaleAdvanceFollowsItsReceipt(t *testing.T) {
+	ctx := context.Background()
+	repo := feedSaleRepo(t, ctx)
+	service := salesapp.NewSalesService(repo)
+
+	deal, err := service.CreateDeal(ctx, salesTestTenant, advanceDeal(197415, 20000, "2026-09-02"), "", "adv-follow-1")
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	advanceID := deal.Payments[0].PaymentID
+	on := deal.Payments[0].ReceivedOn
+
+	// A second, ordinary receipt that even carries the advance's words.
+	withOther, err := service.RecordDealPayment(ctx, salesTestTenant, deal.DealID,
+		domain.DealPaymentWrite{ReceivedOn: on, AmountRupees: 5000, Note: "Advance at sale"}, "", "adv-follow-other")
+	if err != nil {
+		t.Fatalf("second receipt: %v", err)
+	}
+	var otherID string
+	for _, p := range withOther.Payments {
+		if p.PaymentID != advanceID {
+			otherID = p.PaymentID
+		}
+	}
+	if withOther.AdvanceAmount == nil || *withOther.AdvanceAmount != 20000 {
+		t.Fatalf("an ordinary receipt moved the advance: %v", withOther.AdvanceAmount)
+	}
+
+	// Editing the ordinary receipt leaves the advance alone.
+	editedOther, err := service.UpdateDealPayment(ctx, salesTestTenant, deal.DealID, otherID,
+		domain.DealPaymentWrite{ReceivedOn: on, AmountRupees: 6000, Note: "Balance"}, "", "adv-follow-edit-other")
+	if err != nil || editedOther.AdvanceAmount == nil || *editedOther.AdvanceAmount != 20000 {
+		t.Fatalf("editing another receipt moved the advance: %v %v", editedOther.AdvanceAmount, err)
+	}
+
+	// Editing the advance receipt -- even re-wording its note -- moves the advance with it.
+	edited, err := service.UpdateDealPayment(ctx, salesTestTenant, deal.DealID, advanceID,
+		domain.DealPaymentWrite{ReceivedOn: on, AmountRupees: 25000, Note: "Advance, corrected"}, "", "adv-follow-edit")
+	if err != nil {
+		t.Fatalf("edit advance: %v", err)
+	}
+	if edited.AdvanceAmount == nil || *edited.AdvanceAmount != 25000 {
+		t.Fatalf("advance after editing its receipt = %v, want 25000", edited.AdvanceAmount)
+	}
+	if edited.PaymentReceived == nil || *edited.PaymentReceived != 31000 {
+		t.Fatalf("payment_received = %v, want 31000 (sum of receipts)", edited.PaymentReceived)
+	}
+
+	// Removing the ordinary receipt leaves the advance alone.
+	afterOther, err := service.DeleteDealPayment(ctx, salesTestTenant, deal.DealID, otherID, "", "adv-follow-del-other")
+	if err != nil || afterOther.AdvanceAmount == nil || *afterOther.AdvanceAmount != 25000 {
+		t.Fatalf("removing another receipt moved the advance: %v %v", afterOther.AdvanceAmount, err)
+	}
+
+	// Removing the advance receipt leaves the sale with no advance -- stored exactly as a sale
+	// recorded with the advance left blank (NULL), so the drawer shows the same empty cell.
+	removed, err := service.DeleteDealPayment(ctx, salesTestTenant, deal.DealID, advanceID, "", "adv-follow-del")
+	if err != nil {
+		t.Fatalf("remove advance: %v", err)
+	}
+	if removed.AdvanceAmount != nil {
+		t.Fatalf("advance after removing its receipt = %v, want none", *removed.AdvanceAmount)
+	}
+	if removed.PaymentReceived == nil || *removed.PaymentReceived != 0 {
+		t.Fatalf("payment_received = %v, want 0", removed.PaymentReceived)
+	}
+	// The read path agrees with the write's answer.
+	reread, err := service.GetDeal(ctx, salesTestTenant, deal.DealID)
+	if err != nil || reread.AdvanceAmount != nil {
+		t.Fatalf("re-read advance = %v %v", reread.AdvanceAmount, err)
 	}
 }
 
@@ -298,5 +378,76 @@ func TestGetDealRoundTripMatchesTheLedgerRow(t *testing.T) {
 	}
 	if _, err := service.GetDeal(ctx, "00000000-0000-4000-8000-000000000002", created.DealID); !errors.Is(err, ports.ErrDealNotFound) {
 		t.Fatalf("another tenant read the deal: %v", err)
+	}
+}
+
+// Migration 000441 marks the advance receipts 000440 inserted, matched exactly as 000440 wrote
+// them: its note and the deal's advance as the amount, one per deal (the earliest). A receipt the
+// desk typed later with the same words, or a receipt whose amount is not the advance, is not
+// the advance. Run on a real DB by executing the migration's own UPDATE, so the test cannot pass
+// against a paraphrase of it.
+func TestAdvanceReceiptMarkerBackfillMatchesThe000440Rows(t *testing.T) {
+	ctx := context.Background()
+	repo := feedSaleRepo(t, ctx)
+
+	matches, err := filepath.Glob("../../../../migrations/postgres/000441_*.sql")
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("migration 000441: %v %v", matches, err)
+	}
+	raw, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	start := strings.Index(body, "UPDATE public.sales_deal_payments p")
+	end := strings.Index(body[start:], ";")
+	if start < 0 || end < 0 {
+		t.Fatal("000441 backfill UPDATE not found")
+	}
+	backfill := body[start : start+end]
+
+	var dealID string
+	if err := repo.pool.QueryRow(ctx, `
+INSERT INTO public.sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, advance_amount, sales_value, payment_received, status)
+VALUES ($1, '2026-09-02', 'CBE', 'Mahendran', 'Goat', 'Malai', 17, 20000, 197415, 25000, 'Advance Paid')
+RETURNING id::text`, salesTestTenant).Scan(&dealID); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(amount float64, note, createdAt string) string {
+		t.Helper()
+		var id string
+		if err := repo.pool.QueryRow(ctx, `
+INSERT INTO public.sales_deal_payments (tenant_id, deal_id, received_on, amount_rupees, note, created_at)
+VALUES ($1, $2::uuid, '2026-09-02', $3, $4, $5::timestamptz) RETURNING payment_id::text`,
+			salesTestTenant, dealID, amount, note, createdAt).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	from440 := insert(20000, "Advance at sale", "2026-09-25T01:00:00Z")
+	typedLater := insert(20000, "Advance at sale", "2026-09-25T05:00:00Z")
+	otherAmount := insert(5000, "Advance at sale", "2026-09-25T00:30:00Z")
+
+	for i := 0; i < 2; i++ { // re-running is a no-op
+		if _, err := repo.pool.Exec(ctx, backfill); err != nil {
+			t.Fatalf("backfill run %d: %v", i, err)
+		}
+	}
+	marked := map[string]bool{}
+	rows, err := repo.pool.Query(ctx, `SELECT payment_id::text, is_advance FROM public.sales_deal_payments WHERE deal_id = $1::uuid`, dealID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		var adv bool
+		if err := rows.Scan(&id, &adv); err != nil {
+			t.Fatal(err)
+		}
+		marked[id] = adv
+	}
+	rows.Close()
+	if !marked[from440] || marked[typedLater] || marked[otherAmount] {
+		t.Fatalf("marked = %v; want only the 000440 row %s", marked, from440)
 	}
 }

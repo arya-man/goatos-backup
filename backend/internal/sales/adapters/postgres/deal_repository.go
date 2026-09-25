@@ -614,13 +614,14 @@ func (r *Repository) UpdateDealPayment(ctx context.Context, tenantID, dealID, pa
 	var oldAmount float64
 	var oldReceivedOn time.Time
 	var oldNote string
+	var isAdvance bool
 	err = tx.QueryRow(ctx, `
-SELECT d.payment_received, d.sales_value, p.amount_rupees, p.received_on, p.note
+SELECT d.payment_received, d.sales_value, p.amount_rupees, p.received_on, p.note, p.is_advance
 FROM public.sales_deals d
 JOIN public.sales_deal_payments p
   ON p.tenant_id = d.tenant_id AND p.deal_id = d.id
 WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid AND p.payment_id = $3::uuid
-FOR UPDATE OF d, p`, tenantID, dealID, paymentID).Scan(&received, &saleValue, &oldAmount, &oldReceivedOn, &oldNote)
+FOR UPDATE OF d, p`, tenantID, dealID, paymentID).Scan(&received, &saleValue, &oldAmount, &oldReceivedOn, &oldNote, &isAdvance)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealPaymentNotFound
 	}
@@ -647,10 +648,15 @@ WHERE tenant_id = $1::uuid AND deal_id = $2::uuid AND payment_id = $3::uuid`,
 	if received != nil {
 		total += *received
 	}
+	// The advance receipt IS the sale's advance: editing it moves "Advance received" with it, in
+	// this same transaction, so the drawer and the receipts list can never disagree
+	// (migration 000441). An ordinary receipt leaves advance_amount untouched.
 	if _, err := tx.Exec(ctx, `
 UPDATE public.sales_deals
-SET payment_received = $3, updated_at = now()
-WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, dealID, total); err != nil {
+SET payment_received = $3,
+    advance_amount = CASE WHEN $4::boolean THEN $5::numeric ELSE advance_amount END,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, dealID, total, isAdvance, write.AmountRupees); err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: update deal payment total after edit: %w", err)
 	}
 
@@ -669,6 +675,7 @@ WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, dealID, total); err != 
 			"previous_received_on":   oldReceivedOn.Format("2006-01-02"),
 			"previous_amount_rupees": oldAmount,
 			"previous_note":          oldNote,
+			"is_advance":             isAdvance,
 			"received_on":            write.ReceivedOn,
 			"amount_rupees":          write.AmountRupees,
 			"note":                   write.Note,
@@ -717,13 +724,14 @@ func (r *Repository) DeleteDealPayment(ctx context.Context, tenantID, dealID, pa
 	var oldAmount float64
 	var oldReceivedOn time.Time
 	var oldNote string
+	var isAdvance bool
 	err = tx.QueryRow(ctx, `
-SELECT d.payment_received, p.amount_rupees, p.received_on, p.note
+SELECT d.payment_received, p.amount_rupees, p.received_on, p.note, p.is_advance
 FROM public.sales_deals d
 JOIN public.sales_deal_payments p
   ON p.tenant_id = d.tenant_id AND p.deal_id = d.id
 WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid AND p.payment_id = $3::uuid
-FOR UPDATE OF d, p`, tenantID, dealID, paymentID).Scan(&received, &oldAmount, &oldReceivedOn, &oldNote)
+FOR UPDATE OF d, p`, tenantID, dealID, paymentID).Scan(&received, &oldAmount, &oldReceivedOn, &oldNote, &isAdvance)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealPaymentNotFound
 	}
@@ -745,10 +753,15 @@ WHERE tenant_id = $1::uuid AND deal_id = $2::uuid AND payment_id = $3::uuid`,
 	if total < 0 {
 		total = 0
 	}
+	// Removing the advance receipt leaves the sale with NO advance, stored exactly as a sale
+	// recorded with the advance left blank (NULL), so "Advance received" reads the same empty
+	// cell. An ordinary receipt leaves advance_amount untouched (migration 000441).
 	if _, err := tx.Exec(ctx, `
 UPDATE public.sales_deals
-SET payment_received = $3, updated_at = now()
-WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, dealID, total); err != nil {
+SET payment_received = $3,
+    advance_amount = CASE WHEN $4::boolean THEN NULL ELSE advance_amount END,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, dealID, total, isAdvance); err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: update deal payment total after delete: %w", err)
 	}
 
@@ -767,6 +780,7 @@ WHERE tenant_id = $1::uuid AND id = $2::uuid`, tenantID, dealID, total); err != 
 			"removed_received_on":   oldReceivedOn.Format("2006-01-02"),
 			"removed_amount_rupees": oldAmount,
 			"removed_note":          oldNote,
+			"is_advance":            isAdvance,
 			"payment_received":      total,
 			"idempotency_key":       idempotencyKey,
 			"operation_id":          idempotencyKey,
@@ -934,8 +948,8 @@ func insertAdvanceReceipt(ctx context.Context, tx pgx.Tx, tenantID, dealID strin
 		receivedOn = today
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO public.sales_deal_payments (tenant_id, deal_id, received_on, amount_rupees, note, recorded_by)
-VALUES ($1::uuid, $2::uuid, $3::date, $4, $5, nullif($6, '')::uuid)`,
+INSERT INTO public.sales_deal_payments (tenant_id, deal_id, received_on, amount_rupees, note, recorded_by, is_advance)
+VALUES ($1::uuid, $2::uuid, $3::date, $4, $5, nullif($6, '')::uuid, true)`,
 		tenantID, dealID, receivedOn, *write.AdvanceAmount, AdvanceReceiptNote, actorID); err != nil {
 		return fmt.Errorf("sales: insert advance receipt: %w", err)
 	}
