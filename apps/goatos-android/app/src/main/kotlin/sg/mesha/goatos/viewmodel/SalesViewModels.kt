@@ -310,6 +310,10 @@ internal fun isStoppedWorkflow(state: String): Boolean = state.trim().lowercase(
 internal fun saleStepsProgressLine(steps: WorkflowDetailResponseDto): String =
     if (isStoppedWorkflow(steps.state)) "Stopped · ${steps.actionsDone} done" else "${steps.actionsDone} of ${steps.actionsTotal} done"
 
+/** A status a sale can never leave (Deal Failed), read through the same grouping as its chip. */
+internal fun isFinalSaleStatus(status: String, options: SalesOptionsDto? = null): Boolean =
+    saleStatusTone(status, options) == VendorsTone.DANGER
+
 internal fun SalesDealDto.plannedSaleDateIfDifferent(): String? =
     plannedSaleDate?.trim()?.takeIf { it.isNotEmpty() && it != saleDate }
 
@@ -398,6 +402,7 @@ class SaleDetailViewModel @Inject constructor(
         // when its feed actually leaves the store, so the store may refuse a close it never saw
         // when the sale was recorded.
         val stockConfirmMessage: String = "",
+        val finalStatusPending: String = "",
         val stockPendingStatus: String = "",
         val stockPendingItemId: String = "",
     )
@@ -444,6 +449,7 @@ class SaleDetailViewModel @Inject constructor(
                 editInFlight = l.editInFlight,
                 editMessage = l.editMessage,
                 stockConfirmMessage = l.stockConfirmMessage,
+                finalStatusPending = l.finalStatusPending,
                 canTagAnimals = live,
                 tagDisabledReason = when {
                     !hasAnimals -> TAG_NON_ANIMAL
@@ -483,7 +489,20 @@ class SaleDetailViewModel @Inject constructor(
             }
             SaleDetailEvent.SavePayment -> savePayment()
             SaleDetailEvent.DeletePayment -> deletePayment()
-            is SaleDetailEvent.ChangeStatus -> changeStatus(event.status)
+            // A final status (Deal Failed) cannot be taken back and releases the sale's animals, so
+            // picking it asks first; every other status is written as it is picked.
+            is SaleDetailEvent.ChangeStatus ->
+                if (isFinalSaleStatus(event.status)) {
+                    local.update { it.copy(finalStatusPending = event.status) }
+                } else {
+                    changeStatus(event.status)
+                }
+            SaleDetailEvent.ConfirmFinalStatus -> {
+                val pending = local.value.finalStatusPending
+                local.update { it.copy(finalStatusPending = "") }
+                if (pending.isNotBlank()) changeStatus(pending)
+            }
+            SaleDetailEvent.DismissFinalStatus -> local.update { it.copy(finalStatusPending = "") }
             SaleDetailEvent.ConfirmStatusStock -> {
                 val pending = local.value.stockPendingStatus
                 val itemId = local.value.stockPendingItemId

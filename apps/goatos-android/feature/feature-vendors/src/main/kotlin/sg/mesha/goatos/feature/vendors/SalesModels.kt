@@ -118,6 +118,12 @@ data class SaleDetailUiState(
      * been asked. The desk answers it with [SaleDetailEvent.ConfirmStatusStock].
      */
     val stockConfirmMessage: String = "",
+    /**
+     * The status the person picked that cannot be undone (Deal Failed: final, and its tagged
+     * animals go back to their pens), waiting on [SaleDetailEvent.ConfirmFinalStatus]. Blank when
+     * nothing is waiting. Picking it from a dropdown used to write it on the spot.
+     */
+    val finalStatusPending: String = "",
     val isRefreshing: Boolean = false,
     val isLoading: Boolean = true,
     /** Loaded, and this phone holds no copy of the sale (not synced yet, or not in a loaded page). */
@@ -149,6 +155,10 @@ sealed interface SaleDetailEvent {
     data object ConfirmStatusStock : SaleDetailEvent
     /** Leave the sale as it is; the store's figure stands. */
     data object DismissStatusStock : SaleDetailEvent
+    /** Make the final status picked a moment ago ([SaleDetailUiState.finalStatusPending]). */
+    data object ConfirmFinalStatus : SaleDetailEvent
+    /** Keep the sale as it is. */
+    data object DismissFinalStatus : SaleDetailEvent
 }
 
 /** The three fields of a buyer receipt. */

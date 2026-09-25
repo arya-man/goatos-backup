@@ -183,6 +183,27 @@ class SalesWriteSafetyTest {
         assertTrue(!message.contains("online"))
     }
 
+    @Test
+    fun `a final status asks first and is written only when confirmed`() = runTest(dispatcher) {
+        // Seen on the phone (2026-09-26): picking Deal Failed from the dropdown wrote it at once --
+        // final, and it sends the sale's tagged animals back to their pens.
+        val sync = SalesSync()
+        val vm = detailVm(sync)
+        backgroundScope.launch { vm.state.collect {} }
+        vm.onEvent(SaleDetailEvent.ChangeStatus("Deal Failed"))
+        assertEquals("nothing is written on the pick", 0, sync.statuses.size)
+        assertEquals("Deal Failed", vm.state.value.finalStatusPending)
+        vm.onEvent(SaleDetailEvent.DismissFinalStatus)
+        assertEquals("", vm.state.value.finalStatusPending)
+        assertEquals(0, sync.statuses.size)
+        vm.onEvent(SaleDetailEvent.ChangeStatus("Deal Failed"))
+        vm.onEvent(SaleDetailEvent.ConfirmFinalStatus)
+        assertEquals(listOf("Deal Failed"), sync.statuses)
+        // An ordinary status is still written as it is picked.
+        vm.onEvent(SaleDetailEvent.ChangeStatus("Advance Paid"))
+        assertEquals(listOf("Deal Failed"), sync.statuses.take(1))
+    }
+
     // ---------------------------------------------------------------- lead boards
 
     private fun leadVm(sync: SalesSync) = SalesLeadBoardViewModel(

@@ -261,6 +261,18 @@ private fun StatusCard(state: SaleDetailUiState, onEvent: (SaleDetailEvent) -> U
             options = state.statuses,
             onSelect = { if (it != state.statusLabel) onEvent(SaleDetailEvent.ChangeStatus(it)) },
         )
+        if (state.finalStatusPending.isNotBlank()) {
+            VendorsResultBanner(status = VendorsWriteStatus.FAILED, message = "$FINAL_STATUS_ASK_PREFIX${state.finalStatusPending}$FINAL_STATUS_ASK_SUFFIX")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                VendorsGhostButton(label = FINAL_STATUS_KEEP, onClick = { onEvent(SaleDetailEvent.DismissFinalStatus) })
+                VendorsPrimaryButton(
+                    label = FINAL_STATUS_CONFIRM,
+                    enabled = !state.editInFlight,
+                    onClick = { onEvent(SaleDetailEvent.ConfirmFinalStatus) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 }
 
@@ -346,6 +358,10 @@ private const val TAGGED_NONE = "No animals tagged yet"
 private const val STOCK_CONFIRM_HINT = "Close it anyway only if the feed really did leave. If a load reached the farm and is not recorded yet, record that purchase instead."
 private const val STOCK_CONFIRM_CLOSE = "I checked the store — close it"
 private const val STOCK_CONFIRM_CANCEL = "Leave it"
+private const val FINAL_STATUS_ASK_PREFIX = "Mark this sale as "
+private const val FINAL_STATUS_ASK_SUFFIX = "? This cannot be undone, and any animals tagged to it go back to their pens."
+private const val FINAL_STATUS_KEEP = "Keep the sale"
+private const val FINAL_STATUS_CONFIRM = "Yes, mark it"
 
 private const val SALE_NOT_FOUND = "This sale is not on this phone yet"
 private const val SALE_NOT_FOUND_HINT = "Open the sales list while online so it can load, then try again."
