@@ -83,7 +83,7 @@ func ValidateSessionPlan(entries []SessionPlanEntry) ([]SessionPlanEntry, error)
 		}
 		units, err := decimalUnits(split, sessionSplitScale)
 		if err != nil {
-			return nil, fieldErr(prefix+".split_fraction", ErrInvalidDecimal, split)
+			return nil, fmt.Errorf("%w: %v", fieldErr(prefix+".split_fraction", ErrInvalidDecimal, split), err)
 		}
 		if units > 10000 {
 			return nil, fieldErr(prefix+".split_fraction", ErrValueOutOfRange, "a session cannot carry more than the whole day")
