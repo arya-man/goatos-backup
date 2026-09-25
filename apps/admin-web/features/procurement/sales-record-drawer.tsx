@@ -590,6 +590,10 @@ export function SalesRecordDrawer({
             {deal.lines.length === 0 ? (
               <div className="note">{copy(pageContract, "detail.lines.empty")}</div>
             ) : (
+              // Its own pan region: the cells never wrap, so a feed line ("Dry Masoor Bhusa",
+              // "Not recorded" twice, a lakh value) is wider than the drawer and painted past its
+              // edge on a laptop and clean off a phone.
+              <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.lines.title")}>
               <table className="sales-lines-table" data-testid="sale-detail-lines">
                 <thead>
                   <tr>
@@ -612,6 +616,7 @@ export function SalesRecordDrawer({
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
 
             {/* PAYMENTS: what the buyer has handed over, what is still owed, the receipt history,

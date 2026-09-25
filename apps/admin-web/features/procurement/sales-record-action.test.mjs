@@ -78,3 +78,8 @@ test("a refused record-sale brings its reason into view", () => {
   assert.match(drawer, /ref=\{recordAlertRef\} role="alert"/);
   assert.match(drawer, /if \(recordError\) recordAlertRef\.current\?\.scrollIntoView\(/);
 });
+
+test("the sale's lines table pans inside the drawer instead of painting past it", () => {
+  const drawer = readFileSync(new URL("./sales-record-drawer.tsx", import.meta.url), "utf8");
+  assert.match(drawer, /<div className="twrap"[^>]*>\s*<table className="sales-lines-table"/);
+});
