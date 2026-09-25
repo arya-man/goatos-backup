@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 )
@@ -36,5 +37,36 @@ func TestRecordingAnOpenFeedSaleNeverAsksTheStore(t *testing.T) {
 		if _, err := s.CreateDeal(context.Background(), tenant, w, "actor", "closed-"+status); !errors.As(err, &short) {
 			t.Fatalf("recording a sale as closed (%q) must still ask the store, got %v", status, err)
 		}
+	}
+}
+
+// A sale recorded AS closed happened on the day it names, so that day cannot be in the future;
+// an OPEN sale may be planned ahead, up to MaxSaleDateDaysAhead (the web drawer's window), and
+// no further for any status.
+func TestSaleDateWindowAtRecord(t *testing.T) {
+	record := func(status string, daysAhead int) error {
+		repo := &feedRepo{}
+		s := NewSalesService(repo)
+		s.now = func() time.Time { return time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC) }
+		w := feedSaleWrite(10)
+		w.Status = status
+		w.SaleDate = time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC).AddDate(0, 0, daysAhead).Format("2006-01-02")
+		_, err := s.CreateDeal(context.Background(), tenant, w, "actor", "window-"+status)
+		return err
+	}
+	var v domain.ErrDealValidation
+	for _, st := range []string{"", domain.StatusDealClosed} {
+		if err := record(st, 0); err != nil {
+			t.Fatalf("a sale closed today must record, got %v", err)
+		}
+		if err := record(st, 1); !errors.As(err, &v) || v.Field != "sale_date" {
+			t.Fatalf("a sale recorded closed (%q) for tomorrow must be refused on sale_date, got %v", st, err)
+		}
+	}
+	if err := record(domain.StatusAdvancePaid, domain.MaxSaleDateDaysAhead); err != nil {
+		t.Fatalf("an open sale planned inside the window must record, got %v", err)
+	}
+	if err := record(domain.StatusInDiscussion, domain.MaxSaleDateDaysAhead+1); !errors.As(err, &v) || v.Field != "sale_date" {
+		t.Fatalf("a sale past the window must be refused, got %v", err)
 	}
 }

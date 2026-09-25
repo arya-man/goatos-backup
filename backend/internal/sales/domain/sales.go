@@ -120,7 +120,10 @@ type Deal struct {
 	TenantID string
 
 	SaleDate string // YYYY-MM-DD business date
-	Farm     string
+	// PlannedSaleDate is the day an OPEN deal was recorded for, kept when it closed and SaleDate
+	// became the close date (2026-09-25). Nil for a deal recorded already closed.
+	PlannedSaleDate *string
+	Farm            string
 
 	SourceSalesID    *int
 	SourcePurchaseID *int

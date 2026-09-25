@@ -10675,9 +10675,14 @@ export interface components {
             deal_id: string;
             /**
              * Format: date
-             * @description The business date the sale happened, never a timestamp.
+             * @description The business date the sale happened, never a timestamp. A deal recorded open and then closed carries its CLOSE date here (maintainer decision 2026-09-25).
              */
             sale_date: string;
+            /**
+             * Format: date
+             * @description The day an open deal was recorded for, kept when it closed and sale_date became the close date. null for a deal recorded already closed.
+             */
+            planned_sale_date?: string | null;
             /** @enum {string} */
             farm: "CBE" | "CPT";
             /** @description The source sheet's own sale reference. It repeats and is never a key. */

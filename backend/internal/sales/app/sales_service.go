@@ -4,10 +4,11 @@ package app
 import (
 	"context"
 	"errors"
-	"github.com/google/uuid"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
@@ -141,6 +142,9 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 	if err := normalized.Validate(catalog, farms); err != nil {
 		return domain.Deal{}, err
 	}
+	if err := checkSaleDateWindow(normalized, s.now()); err != nil {
+		return domain.Deal{}, err
+	}
 	if len(domain.AggregateFeedDemand(normalized.Lines)) > 0 {
 		items, err := s.repo.ListFeedItems(ctx, tenantID)
 		if err != nil {
@@ -154,6 +158,27 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 		return domain.Deal{}, err
 	}
 	return s.repo.CreateDeal(ctx, tenantID, normalized, actorID, key)
+}
+
+// checkSaleDateWindow is the record-time date rule. A sale recorded AS closed (a blank status
+// records the default, Deal Closed) happened on the day it names, so that day cannot be after
+// today's business date (Asia/Kolkata, the server's clock). An OPEN sale may be planned ahead, but
+// no sale of any status beyond domain.MaxSaleDateDaysAhead -- the window the web drawer already
+// offered, now held on the server too.
+func checkSaleDateWindow(w domain.DealWrite, now time.Time) error {
+	day, err := time.ParseInLocation("2006-01-02", w.SaleDate, biztime.DefaultLocation())
+	if err != nil {
+		return nil // Validate already refused a malformed date.
+	}
+	today := biztime.BusinessDayStart(now)
+	closed := w.Status == "" || w.Status == domain.StatusDealClosed
+	if closed && day.After(today) {
+		return domain.ErrDealValidation{Field: "sale_date", Reason: "cannot be in the future for a closed sale -- record it as In Discussion or Advance Paid until it closes"}
+	}
+	if day.After(today.AddDate(0, 0, domain.MaxSaleDateDaysAhead)) {
+		return domain.ErrDealValidation{Field: "sale_date", Reason: fmt.Sprintf("cannot be more than %d days ahead", domain.MaxSaleDateDaysAhead)}
+	}
+	return nil
 }
 
 // ErrNothingSellable is returned when a tenant's registry carries no active product. A sale is

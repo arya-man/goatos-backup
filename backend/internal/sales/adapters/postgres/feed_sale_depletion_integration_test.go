@@ -118,9 +118,10 @@ func TestFeedDepletionFollowsTheDealStatusThroughEveryStatusBucket(t *testing.T)
 		why    string
 	}{
 		{domain.StatusDealClosed, 2000, "closing the sale takes its feed off the store"},
-		{domain.StatusDealFailed, 0, "a sale that fell through gives its feed back"},
-		{domain.StatusDealClosed, 2000, "closing it again takes it once, never twice"},
 		{domain.StatusAdvancePaid, 0, "an advance is not a delivery"},
+		{domain.StatusDealClosed, 2000, "closing it again takes it once, never twice"},
+		// Deal Failed is final (2026-09-25), so it is the last step of the walk.
+		{domain.StatusDealFailed, 0, "a sale that fell through gives its feed back"},
 	} {
 		if _, err := repo.SetDealStatus(ctx, salesTestTenant, deal.DealID, step.status, ""); err != nil {
 			t.Fatalf("set %s: %v", step.status, err)

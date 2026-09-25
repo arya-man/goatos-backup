@@ -42,7 +42,7 @@ const dealColumns = `
 		d.buyer_name, d.buyer_place, d.buyer_vendor_id, d.product_type, d.breed,
 		d.animal_count, d.male_count, d.female_count, d.total_weight_kg,
 		d.advance_amount, d.sales_value, d.payment_received, d.status, d.feedback, d.comments,
-		d.created_at, d.updated_at`
+		d.created_at, d.updated_at, d.planned_sale_date`
 
 const dealPaymentsForPageSQL = `
 	SELECT payment_id::text, deal_id::text, received_on, amount_rupees, note, created_at
@@ -81,6 +81,7 @@ func scanDeal(row pgx.Row) (domain.Deal, error) {
 		createdAt  time.Time
 		updatedAt  time.Time
 		salesValue float64
+		planned    *time.Time
 	)
 	err := row.Scan(
 		&d.DealID, &d.TenantID, &saleDate, &d.Farm,
@@ -88,7 +89,7 @@ func scanDeal(row pgx.Row) (domain.Deal, error) {
 		&d.BuyerName, &d.BuyerPlace, &d.BuyerVendorID, &d.ProductType, &d.Breed,
 		&d.AnimalCount, &d.MaleCount, &d.FemaleCount, &d.TotalWeightKg,
 		&d.AdvanceAmount, &salesValue, &d.PaymentReceived, &d.Status, &d.Feedback, &d.Comments,
-		&createdAt, &updatedAt,
+		&createdAt, &updatedAt, &planned,
 	)
 	if err != nil {
 		return domain.Deal{}, err
@@ -96,6 +97,10 @@ func scanDeal(row pgx.Row) (domain.Deal, error) {
 	// The sale date is a business DATE: formatted as its calendar day, never shifted through a
 	// timezone conversion.
 	d.SaleDate = saleDate.Format("2006-01-02")
+	if planned != nil {
+		p := planned.Format("2006-01-02")
+		d.PlannedSaleDate = &p
+	}
 	d.SalesValue = salesValue
 	d.SourceSalesID = int32Ptr(srcSales)
 	d.SourcePurchaseID = int32Ptr(srcPur)
@@ -354,6 +359,22 @@ func (r *Repository) FeedDemandForDeal(ctx context.Context, tenantID, dealID str
 	return farm, status, demand, nil
 }
 
+// setDealStatusSQL writes a status change on the locked deal row (primary key). When $4 (closing)
+// is true the sale_date becomes $5, the close business date, and the recorded date is kept in
+// planned_sale_date the first time only. Returns the change instant and both dates for the audit.
+const setDealStatusSQL = `
+WITH before AS (
+  SELECT sale_date FROM public.sales_deals WHERE tenant_id = $1 AND id = $2
+)
+UPDATE public.sales_deals d
+SET status = $3,
+    planned_sale_date = CASE WHEN $4::boolean THEN COALESCE(d.planned_sale_date, d.sale_date) ELSE d.planned_sale_date END,
+    sale_date = CASE WHEN $4::boolean THEN $5::date ELSE d.sale_date END,
+    updated_at = now()
+FROM before
+WHERE d.tenant_id = $1 AND d.id = $2
+RETURNING d.updated_at, before.sale_date, d.sale_date`
+
 // SetDealStatus sets a deal's lifecycle status directly -- the edit that closes an expected sale
 // on the day the animals actually leave, or marks one failed.
 //
@@ -390,12 +411,16 @@ FOR UPDATE`, tenantID, dealID).Scan(&previous, &farm)
 		return domain.Deal{}, domain.ErrDealFailedIsFinal
 	}
 	if previous != status {
+		// A CLOSED SALE USES THE CLOSE DATE (maintainer decision 2026-09-25): closing an open
+		// deal stamps TODAY's business date (Asia/Kolkata, the server's clock -- never the
+		// client's) as its sale_date, so its revenue and the feed store's depletion land on the day
+		// the sale actually happened; the day it was recorded for is kept, on the first close only.
+		// Any other change leaves the dates alone.
+		closing := status == domain.StatusDealClosed
 		var changedAt time.Time
-		if err := tx.QueryRow(ctx, `
-UPDATE public.sales_deals
-SET status = $3, updated_at = now()
-WHERE tenant_id = $1 AND id = $2
-RETURNING updated_at`, tenantID, dealID, status).Scan(&changedAt); err != nil {
+		var previousSaleDate, saleDate time.Time
+		if err := tx.QueryRow(ctx, setDealStatusSQL, tenantID, dealID, status, closing,
+			biztime.BusinessDate(time.Now())).Scan(&changedAt, &previousSaleDate, &saleDate); err != nil {
 			return domain.Deal{}, fmt.Errorf("sales: update deal status: %w", err)
 		}
 		// The sale follows its status through this event, written in the same transaction: on
@@ -416,11 +441,13 @@ RETURNING updated_at`, tenantID, dealID, status).Scan(&changedAt); err != nil {
 			ResourceType: "sales_deal",
 			ResourceID:   dealID,
 			Metadata: map[string]any{
-				"domain":          "sales",
-				"module":          "sales_deals",
-				"category":        "deal",
-				"previous_status": previous,
-				"status":          status,
+				"domain":             "sales",
+				"module":             "sales_deals",
+				"category":           "deal",
+				"previous_status":    previous,
+				"status":             status,
+				"previous_sale_date": previousSaleDate.Format("2006-01-02"),
+				"sale_date":          saleDate.Format("2006-01-02"),
 			},
 		}); err != nil {
 			return domain.Deal{}, fmt.Errorf("sales: audit deal status: %w", err)

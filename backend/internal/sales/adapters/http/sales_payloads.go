@@ -36,7 +36,10 @@ type salesStatusOptionPayload struct {
 type dealPayload struct {
 	DealID   string `json:"deal_id"`
 	SaleDate string `json:"sale_date"`
-	Farm     string `json:"farm"`
+	// PlannedSaleDate is the day an open deal was recorded for, kept when it closed and SaleDate
+	// became the close date (2026-09-25). null for a deal recorded already closed.
+	PlannedSaleDate *string `json:"planned_sale_date"`
+	Farm            string  `json:"farm"`
 
 	SourceSalesID    *int `json:"source_sales_id"`
 	SourcePurchaseID *int `json:"source_purchase_id"`
@@ -343,7 +346,8 @@ func toDealPayload(d domain.Deal) dealPayload {
 		PaymentReceived: d.PaymentReceived, PaymentBalance: d.PaymentBalance(), Payments: payments,
 		Status: d.Status, Feedback: d.Feedback, Comments: d.Comments,
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
-		StatusOptions: domain.NextStatuses(d.Status),
+		StatusOptions:   domain.NextStatuses(d.Status),
+		PlannedSaleDate: d.PlannedSaleDate,
 	}
 }
 
