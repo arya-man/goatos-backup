@@ -2498,9 +2498,7 @@ CREATE TABLE public.goats (
     CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
     CONSTRAINT goats_merge_redirect_shape_check CHECK (((merged_into_goat_id IS NULL) OR (merged_into_goat_id <> goat_id))),
     CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text])))),
-    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
-    CONSTRAINT goats_species_check CHECK ((species = ANY (ARRAY['goat'::text, 'sheep'::text])))
+    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1))
 );
 
 
@@ -7333,7 +7331,7 @@ CREATE TABLE public.protocol_rule_dimensions (
     CONSTRAINT protocol_rule_dimensions_animal_stage_check CHECK ((animal_stage <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_breed_check CHECK ((breed <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_procurement_purpose_check CHECK ((procurement_purpose <> ''::text)),
-    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text, 'all'::text]))),
+    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((btrim(sex) <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_species_check CHECK ((species <> ''::text))
 );
 

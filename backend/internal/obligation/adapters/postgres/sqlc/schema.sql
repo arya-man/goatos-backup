@@ -2549,9 +2549,7 @@ CREATE TABLE public.goats (
     CONSTRAINT goats_merge_redirect_shape_check CHECK (((merged_into_goat_id IS NULL) OR (merged_into_goat_id <> goat_id))),
     CONSTRAINT goats_milk_cohort_check CHECK (((milk_cohort IS NULL) OR (milk_cohort = ANY (ARRAY['K1'::text, 'K2'::text, 'K3'::text])))),
     CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text])))),
-    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
-    CONSTRAINT goats_species_check CHECK ((species = ANY (ARRAY['goat'::text, 'sheep'::text])))
+    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1))
 );
 
 
@@ -7582,7 +7580,7 @@ CREATE TABLE public.protocol_rule_dimensions (
     CONSTRAINT protocol_rule_dimensions_animal_stage_check CHECK ((animal_stage <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_breed_check CHECK ((breed <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_procurement_purpose_check CHECK ((procurement_purpose <> ''::text)),
-    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text, 'all'::text]))),
+    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((btrim(sex) <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_species_check CHECK ((species <> ''::text))
 );
 
