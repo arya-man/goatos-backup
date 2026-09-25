@@ -62,7 +62,13 @@ const SourceType = "feed_activity"
 // its farm-worded title and clock, whether it splits into one card per sheet session, and the SQL
 // that lists its units for the bound tenant/date/park. Every units SQL selects exactly
 // (shed_id, partition_key, partition_label, session_no, session_label, st, owner_id) and binds
-// $1 tenant, $2 board date, $3 park, $4 owner-or-null.
+// $1 tenant, $2 board date, $3 park.
+//
+// NO OWNER SCOPE (maintainer review 2026-09-25). A feed card is the park crew's work for the day,
+// not one person's: filtered to a person, it used to keep only the pens that person filmed plus
+// the unfilmed ones, so a card the crew had half done dropped back to To do under "Naveen". The
+// card now reads the same under every lens -- an operator's own board and a director's person
+// filter alike -- and the owner filter keeps it because it is a pool card.
 type activity struct {
 	key        string
 	rank       int
@@ -141,9 +147,7 @@ const transportUnits = `
   LEFT JOIN feed_transport_attempts att
     ON att.tenant_id = t.tenant_id AND att.attempt_id = t.current_attempt_id
   WHERE t.tenant_id = $1::uuid AND t.business_date = $2::date AND t.park_id = $3::uuid
-    AND t.status <> 'retired'
-    AND ($4::uuid IS NULL OR COALESCE(t.operator_id, att.operator_id) = $4::uuid
-         OR COALESCE(t.operator_id, att.operator_id) IS NULL)`
+    AND t.status <> 'retired'`
 
 // sheetSessionUnits lists one unit per issued sheet pen/session/workflow and overlays the
 // completion row when it exists. A missing completion row is real owed work: the pen appears as
@@ -177,8 +181,7 @@ func sheetSessionUnits(table, dateExpr string) string {
   LEFT JOIN ` + table + ` c
     ON c.tenant_id = $1::uuid AND c.park_id = $3::uuid AND c.target_date = ` + dateExpr + `
    AND c.shed_id = i.shed_id AND c.partition_key = i.partition_key
-   AND c.session_no = i.session_no AND c.workflow = i.workflow
-  WHERE ($4::uuid IS NULL OR c.completed_by = $4::uuid OR c.completed_by IS NULL)`
+   AND c.session_no = i.session_no AND c.workflow = i.workflow`
 }
 
 // wastageUnits lists one unit per issued experiment pen and overlays the wastage completion when
@@ -210,8 +213,7 @@ const wastageUnits = `
   LEFT JOIN feed_wastage_completions c
     ON c.tenant_id = $1::uuid AND c.park_id = $3::uuid AND c.target_date = $2::date
    AND c.shed_id = i.shed_id AND c.partition_key = i.partition_key
-   AND c.workflow = 'experiment'
-  WHERE ($4::uuid IS NULL OR c.completed_by = $4::uuid OR c.completed_by IS NULL)`
+   AND c.workflow = 'experiment'`
 
 // activities are the four kinds of feed card, in display and keyset order.
 //
@@ -227,7 +229,7 @@ const wastageUnits = `
 // the park name a scalar subquery on locations' primary key (1:1), so the card counts each pen
 // once; pagination=at most one card per activity per session per park, ordered by (activity rank,
 // session) and keyset after that pair, never row-paged; scope=tenant_id($1), business_date($2),
-// park_id($3) and the optional owner predicate ($4), repeated verbatim in the count and subtask reads.
+// park_id($3), repeated verbatim in the count and subtask reads; no owner predicate (a pool card).
 var activities = []activity{
 	{key: "packing", rank: 0, title: "Feed packing", clock: "Packed today for tomorrow", units: sheetSessionUnits("feed_packing_completions", "($2::date + 1)")},
 	{key: "direction", rank: 1, title: "Feed direction", clock: "Served today", perSession: true, units: sheetSessionUnits("feed_distribution_completions", "$2::date")},
@@ -308,8 +310,7 @@ func parseSourceID(id string) (cardID, bool) {
 // lane 2, sent back any_rej, started lane 1 without a rejection, not filmed lane 0) so they add up
 // to the pen count; join_cardinality=no join in the roll-up (park name is a scalar subquery on
 // locations' primary key, 1:1), so each pen is counted once; pagination=one aggregate row per card,
-// never row-paged; scope=tenant_id($1), business_date($2), park_id($3) and the optional owner
-// predicate ($4).
+// never row-paged; scope=tenant_id($1), business_date($2), park_id($3); no owner predicate.
 func metricsSQL(a activity) string {
 	return `
 WITH ` + cardUnitsCTE(a) + `,
@@ -357,8 +358,8 @@ type cardMetrics struct {
 }
 
 type cardReadKey struct {
-	source                    *Source
-	tenant, park, date, owner string
+	source             *Source
+	tenant, park, date string
 }
 
 // readCards reads every feed card of a park-day as ONE pgx batch (one statement per activity):
@@ -366,7 +367,7 @@ type cardReadKey struct {
 // filters are applied after metrics; every lane in the request shares the same
 // tenant/park/day/owner facts, so the batch is memoized per request.
 func (s *Source) readCards(ctx context.Context, q ports.SourceQuery) ([]cardMetrics, error) {
-	key := cardReadKey{s, q.TenantID, q.ParkID, q.BusinessDate, q.OwnerUserID}
+	key := cardReadKey{s, q.TenantID, q.ParkID, q.BusinessDate}
 	return ports.RequestRead(ctx, key, func(ctx context.Context) ([]cardMetrics, error) {
 		return s.readCardsFresh(ctx, q)
 	})
@@ -379,7 +380,7 @@ func (s *Source) PrimeStatements(ctx context.Context, q ports.SourceQuery) ([]po
 	if !ports.HasRequestReadMemo(ctx) {
 		return nil, nil
 	}
-	key := cardReadKey{s, q.TenantID, q.ParkID, q.BusinessDate, q.OwnerUserID}
+	key := cardReadKey{s, q.TenantID, q.ParkID, q.BusinessDate}
 	perActivity := make([][]cardMetrics, len(activities))
 	stmts := make([]ports.Statement, 0, len(activities))
 	unseedable := false
@@ -387,7 +388,7 @@ func (s *Source) PrimeStatements(ctx context.Context, q ports.SourceQuery) ([]po
 		idx, a := n, a
 		last := n == len(activities)-1
 		stmts = append(stmts, ports.Statement{
-			Query: sqlbind.MustBind(metricsSQL(a), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID)),
+			Query: sqlbind.MustBind(metricsSQL(a), q.TenantID, q.BusinessDate, q.ParkID),
 			Read: func(rows ports.ResultRows) error {
 				cards, seedable, err := scanCards(rows, a)
 				if err != nil {
@@ -445,7 +446,7 @@ var errMissingParkName = errors.New("park name missing")
 func (s *Source) readCardsFresh(ctx context.Context, q ports.SourceQuery) ([]cardMetrics, error) {
 	batch := &pgx.Batch{}
 	for _, a := range activities {
-		bound := sqlbind.MustBind(metricsSQL(a), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID))
+		bound := sqlbind.MustBind(metricsSQL(a), q.TenantID, q.BusinessDate, q.ParkID)
 		batch.Queue(bound.SQL(), bound.Args()...)
 	}
 	br := s.pool.SendBatch(ctx, batch)

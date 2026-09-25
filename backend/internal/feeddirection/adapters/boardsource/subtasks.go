@@ -38,9 +38,9 @@ const shedSubtaskRankExpr = `CASE
 // projection-review: membership=the activity's rows for ONE tenant, park and work-day (the SAME
 // predicate metricsSQL binds); group_key=(shed_id, partition_key) the PEN, pre-aggregated by rollupRankExpr/BOOL_OR before
 // ranking so a pen with several sessions is one line; join_cardinality=locations on its primary
-// key (1:1), no fan-out; pagination=keyset on (rank, pen_key) ASC after ($5,$6) with LIMIT $7,
+// key (1:1), no fan-out; pagination=keyset on (rank, pen_key) ASC after ($4,$5) with LIMIT $6,
 // total by count(*) OVER () computed before the cut; scope=tenant_id($1), business_date($2),
-// park_id($3), owner NULL($4), the card's session ($8; 0 for a one-card activity).
+// park_id($3), the card's session ($7; 0 for a one-card activity); no owner predicate.
 func subtasksSQL(a activity) string {
 	return `
 WITH ` + cardUnitsCTE(a) + `,
@@ -50,14 +50,14 @@ ranked AS (
          s.shed_id::text || '|' || s.partition_key AS pen_key,
          count(*) OVER () AS total
   FROM pen s
-  WHERE s.card_no = $8::int
+  WHERE s.card_no = $7::int
 )
 SELECT r.shed_id::text, r.partition_label, r.lane_rank, r.any_rej, r.rank, r.pen_key, r.total, COALESCE(loc.name, '')
 FROM ranked r
 LEFT JOIN locations loc ON loc.tenant_id = $1::uuid AND loc.location_id = r.shed_id
-WHERE (r.rank, r.pen_key) > ($5::int, $6::text)
+WHERE (r.rank, r.pen_key) > ($4::int, $5::text)
 ORDER BY r.rank, r.pen_key
-LIMIT $7`
+LIMIT $6`
 }
 
 // ListSubtasks implements ports.SubtaskSource. The row is named by its source id (the activity
@@ -79,7 +79,7 @@ func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	bound := sqlbind.MustBind(subtasksSQL(a),
-		q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID), afterRank, afterID, limit+1, card.cardNo)
+		q.TenantID, q.BusinessDate, q.ParkID, afterRank, afterID, limit+1, card.cardNo)
 	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SubtaskPage{}, fmt.Errorf("feed boardsource subtasks %s: %w", a.key, err)

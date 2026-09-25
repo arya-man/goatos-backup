@@ -279,12 +279,18 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 		t.Fatalf("done-lane filter %v", done)
 	}
 
-	// Owner lens: the transport card drops the shed owned by someone else (C completed) and the
-	// pool shed A stays; done falls to 0 and the shed count to 3.
+	// Owner lens: a feed card is the crew's, so a person filter shows the SAME card -- every pen,
+	// including shed C that someone else filmed -- never a card shrunk to one person's pens
+	// (maintainer review 2026-09-25: a half-done card fell back to To do under a person filter).
 	mine := byID(mustRows(t, ctx, src, query(bsOperator)))
-	tr := mine[feedActivityID("transport")]
-	if tr.Counts.Done != 0 || tr.Subtitle != "3 pens" {
-		t.Errorf("owner-lens transport counts %+v subtitle %q", tr.Counts, tr.Subtitle)
+	everyone := byID(mustRows(t, ctx, src, query("")))
+	for id, card := range everyone {
+		if got := mine[id]; got.Counts != card.Counts || got.WorkState != card.WorkState || got.Subtitle != card.Subtitle {
+			t.Errorf("%s under a person filter = %+v %s %q, want the crew's card %+v %s %q", id, got.Counts, got.WorkState, got.Subtitle, card.Counts, card.WorkState, card.Subtitle)
+		}
+	}
+	if len(mine) != len(everyone) {
+		t.Errorf("person filter shows %d feed cards, the crew has %d", len(mine), len(everyone))
 	}
 
 	// CountByState over the whole filter agrees with the rows: three mixed cards In progress
