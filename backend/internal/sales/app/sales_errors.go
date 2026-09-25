@@ -173,11 +173,40 @@ func feedShortfallMessage(short domain.ErrFeedStockShort) string {
 	return strings.Join(parts, "; ") + ". If a load has reached the farm and is not recorded yet, confirm and record the sale anyway."
 }
 
-// trimKg renders kilograms without trailing zeros, so 2000 reads as "2000" and 12.5 as "12.5".
+// trimKg renders kilograms the way the farm reads numbers: Indian digit grouping and no trailing
+// zeros, so 2000 reads as "2,000", 10973.6 as "10,973.6" and 99999 as "99,999" (the phone showed
+// the ungrouped "10973.6 kg" beside a sale total grouped as "₹9,99,990", 2026-09-26).
 func trimKg(v float64) string {
 	out := strconv.FormatFloat(v, 'f', 3, 64)
 	out = strings.TrimRight(out, "0")
-	return strings.TrimSuffix(out, ".")
+	out = strings.TrimSuffix(out, ".")
+	sign := ""
+	if strings.HasPrefix(out, "-") {
+		sign, out = "-", out[1:]
+	}
+	whole, frac, hasFrac := strings.Cut(out, ".")
+	grouped := indianGroupDigits(whole)
+	if hasFrac {
+		return sign + grouped + "." + frac
+	}
+	return sign + grouped
+}
+
+// indianGroupDigits groups a run of digits the Indian way: the last three, then pairs (12,34,567).
+func indianGroupDigits(digits string) string {
+	if len(digits) <= 3 {
+		return digits
+	}
+	head, tail := digits[:len(digits)-3], digits[len(digits)-3:]
+	var parts []string
+	for len(head) > 2 {
+		parts = append([]string{head[len(head)-2:]}, parts...)
+		head = head[:len(head)-2]
+	}
+	if head != "" {
+		parts = append([]string{head}, parts...)
+	}
+	return strings.Join(parts, ",") + "," + tail
 }
 
 // productFieldLabel renders an item-editor field name as the label on screen.
