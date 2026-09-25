@@ -99,6 +99,13 @@ OCI/staging-like data. If a stale `goatos-local-current` container or Colima VM 
 running while the active dev stack uses OCI, stop it instead of treating it as
 canonical.
 
+**OCI Postgres disk hygiene (query-plan / pgtest template reuse).** The pgtest harness and
+`validate-sqlc-plans` reuse a migrated template on the OCI server, `goatos_pgtest_template_<hash of
+the migration files>`, and clone it per run as `goatos_pgtest_clone_<unix>_*`. On OCI, the stg clone
+DB `goatos` and the CURRENT `goatos_pgtest_template_*` must NEVER be dropped to free disk; stale
+`goatos_pgtest_clone_*`, `goatos_pgtest_build_*` and older templates are safe to delete (the harness
+reaps them itself by age). See `docs/runbooks/local-ci.md` -> "Reused pgtest template on OCI".
+
 **HARD RULE - OCI/STG E2E data repair is delta-only.** Ravi's OCI database is a
 maintained staging-like clone, not a disposable target. For any OCI/STG E2E,
 parity, or validation task, first identify exactly which tables/rows differ from

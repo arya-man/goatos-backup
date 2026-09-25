@@ -15,8 +15,9 @@
 #   4. Docker, via the ordinary pgtest container harness.
 # If none resolve, this FAILS. A plan gate that cannot reach a database has not passed.
 #
-# The harness creates its own template and per-test clone databases (goatos_tmpl_* / goatos_test_*)
-# and drops them on teardown. It never touches an existing application database.
+# The harness clones a REUSED template keyed by the migrations hash (goatos_pgtest_template_*, see
+# backend/internal/platform/pgtemplate) into per-test goatos_pgtest_clone_* databases
+# and drops the clones on teardown. It never touches an existing application database.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

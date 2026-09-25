@@ -25,11 +25,11 @@ func AdminDSNForTemplate(t *testing.T) string {
 func CloneForTest(t *testing.T, ctx context.Context) (*pgxpool.Pool, string) {
 	t.Helper()
 	pkg.ensure(t, ctx)
-	clone := fmt.Sprintf("goatos_test_%s_leak_%d", processTag, pkg.cloneSeq.Add(1))
+	clone := pkg.cloneName("leak")
 	if _, err := pkg.admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s`, quoteIdent(clone), quoteIdent(pkg.template))); err != nil {
 		t.Fatalf("CloneForTest: %v", err)
 	}
-	return openPool(t, ctx, pkg.port, clone), clone
+	return openPool(t, ctx, pkg.dsnFor(clone), clone), clone
 }
 
 // DropClonedDatabaseForTest exposes the bounded teardown plus its close-completion channel for the

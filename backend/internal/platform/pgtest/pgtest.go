@@ -28,7 +28,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +35,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vgoats/goatos/backend/internal/platform/pgtemplate"
 )
 
 const defaultPostgresImage = "postgres:16.9-alpine"
@@ -49,8 +50,12 @@ const defaultPostgresImage = "postgres:16.9-alpine"
 //
 // When set, the harness creates its migrated template and per-test clones on that server instead
 // of starting a container, and SkipIfNoDocker no longer skips. It must point at a THROWAWAY server
-// or one the operator is content to have databases created and dropped on: every clone is named
-// goatos_test_* and dropped on test cleanup, and the template is dropped at package teardown.
+// or one the operator is content to have databases created and dropped on. In this mode the
+// migrated template is REUSED across runs (see package pgtemplate): it is named
+// goatos_pgtest_template_<migrations hash>, built once per migration set under an advisory lock, and
+// never dropped at teardown. Every clone is named goatos_pgtest_clone_<unix>_* and dropped on test
+// cleanup; clones and templates left by killed runs are reaped by age. Nothing outside those name
+// patterns is ever dropped.
 func ExternalAdminDSN() string {
 	return strings.TrimSpace(os.Getenv("GOATOS_PGTEST_ADMIN_DSN"))
 }
@@ -152,7 +157,7 @@ func StartPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	}
 	pkg.ensure(t, ctx)
 
-	clone := fmt.Sprintf("goatos_test_%s_%d", processTag, pkg.cloneSeq.Add(1))
+	clone := pkg.cloneName("")
 	pkg.cloneMu.Lock()
 	_, err := pkg.admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s`, quoteIdent(clone), quoteIdent(pkg.template)))
 	pkg.cloneMu.Unlock()
@@ -191,7 +196,21 @@ func (h *pkgHarness) start(ctx context.Context) error {
 			return fmt.Errorf("ping admin pool on GOATOS_PGTEST_ADMIN_DSN: %w", err)
 		}
 		h.admin = admin
-		return h.buildTemplate(ctx)
+		root, err := repoRootFromWD()
+		if err != nil {
+			return err
+		}
+		migrations, err := pgtemplate.LoadMigrations(root)
+		if err != nil {
+			return err
+		}
+		name, err := pgtemplate.Ensure(ctx, admin, base, migrations, os.Stderr)
+		if err != nil {
+			return err
+		}
+		h.template = name
+		pgtemplate.Cleanup(ctx, admin, pgtemplate.Hash(migrations), os.Stderr)
+		return nil
 	}
 
 	image := os.Getenv("GOATOS_POSTGRES_IMAGE")
@@ -263,15 +282,8 @@ func (h *pkgHarness) buildTemplate(ctx context.Context) error {
 // teardown closes the admin pool and force-removes the package container and its volume. Safe to
 // call multiple times and safe when the harness never started.
 func (h *pkgHarness) teardown() {
-	// In the external model nothing is thrown away with a container, so the template must be
-	// dropped explicitly or it accumulates one abandoned database per test process on a server the
-	// operator did not volunteer for that.
-	if h.external && h.admin != nil && h.template != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		_, _ = h.admin.Exec(ctx, fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS true`, quoteIdent(h.template)))
-		_, _ = h.admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, quoteIdent(h.template)))
-		cancel()
-	}
+	// In the external model the template is deliberately KEPT: it is keyed by the migrations hash
+	// and reused by the next run (package pgtemplate), and old ones are reaped by age there.
 	if h.admin != nil {
 		h.admin.Close()
 		h.admin = nil
@@ -292,25 +304,11 @@ func (h *pkgHarness) applyMigrations(db string) error {
 	if err != nil {
 		return err
 	}
-	migrations, err := filepath.Glob(filepath.Join(root, "backend", "migrations", "postgres", "*.sql"))
+	migrations, err := pgtemplate.LoadMigrations(root)
 	if err != nil {
 		return err
 	}
-	sort.Strings(migrations)
-	var script strings.Builder
-	for _, migration := range migrations {
-		sqlBytes, err := os.ReadFile(migration)
-		if err != nil {
-			return err
-		}
-		upSQL := strings.TrimSpace(extractGooseUp(string(sqlBytes)))
-		if upSQL == "" {
-			continue
-		}
-		fmt.Fprintf(&script, "\\echo applying %s\n", filepath.Base(migration))
-		script.WriteString(upSQL)
-		script.WriteByte('\n')
-	}
+	script := pgtemplate.MigrationScript(migrations)
 	var cmd *exec.Cmd
 	if h.external {
 		if _, err := exec.LookPath("psql"); err != nil {
@@ -320,7 +318,7 @@ func (h *pkgHarness) applyMigrations(db string) error {
 	} else {
 		cmd = exec.Command("docker", "exec", "-i", h.container, "psql", "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-U", "postgres", "-d", db)
 	}
-	cmd.Stdin = strings.NewReader(script.String())
+	cmd.Stdin = strings.NewReader(script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("psql migrate %s failed: %v\n%s", db, err, out)
 	}
@@ -461,24 +459,6 @@ func quoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
-func extractGooseUp(sqlText string) string {
-	var out []string
-	inUp := false
-	for _, line := range strings.Split(sqlText, "\n") {
-		switch {
-		case strings.HasPrefix(line, "-- +goose Up"):
-			inUp = true
-			continue
-		case strings.HasPrefix(line, "-- +goose Down"):
-			inUp = false
-		}
-		if inUp {
-			out = append(out, line)
-		}
-	}
-	return strings.Join(out, "\n")
-}
-
 func repoRootFromWD() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -494,4 +474,10 @@ func repoRootFromWD() (string, error) {
 		}
 		dir = next
 	}
+}
+
+// cloneName returns a clone database name recognisable (and age-reapable) by package pgtemplate.
+func (h *pkgHarness) cloneName(kind string) string {
+	tag := fmt.Sprintf("%s_%s%d", processTag, kind, h.cloneSeq.Add(1))
+	return pgtemplate.CloneName(time.Now(), tag)
 }

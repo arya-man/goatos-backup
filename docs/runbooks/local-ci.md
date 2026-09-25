@@ -300,3 +300,27 @@ Allowlist rule: an exemption is an allowlist JSON entry
 line. The reason is specific (>= 20 chars), the evidence links EXPLAIN or latency
 output, expired entries fail, and baselines only ratchet down. Never disable a
 guard or raise a budget to get green.
+
+## Reused pgtest template on OCI
+
+When the Postgres gates run against a supplied server (`GOATOS_PGTEST_ADMIN_DSN` /
+`GOATOS_SQLC_PLAN_ADMIN_DSN`, normally the OCI Postgres through the `127.0.0.1:15432` tunnel), they
+no longer replay all migrations per run. `backend/internal/platform/pgtemplate` keys a migrated
+template by a hash of `backend/migrations/postgres/*.sql` (names + contents + a harness version):
+
+| Database | Meaning | Lifetime |
+|---|---|---|
+| `goatos_pgtest_template_<16 hex>` | completed template, connection-locked, commented with hash + build time | kept; the current and the most recent previous are always kept, others dropped after 3 days |
+| `goatos_pgtest_build_<16 hex>_<unix>` | template being built; renamed to the template name only when complete | dropped by the next builder of that hash, or after 6 hours |
+| `goatos_pgtest_clone_<unix>_*` | per-test (pgtest) or per-run (`validate-sqlc-plans`) clone | dropped by its owner; leftovers of killed runs dropped after 6 hours |
+
+Concurrent runs needing the same missing template serialize on a Postgres advisory lock: one builds,
+the others wait and reuse it. The first run after a migration change pays the full build (tens of
+minutes over the tunnel); later runs only clone. `go run ./internal/platform/pgtemplate/cmd/pgtest-template "$DSN"`
+(from `backend/`) builds/reaps on demand and prints the template name.
+
+**Disk rule:** on OCI, the stg clone DB `goatos` and the current `goatos_pgtest_template_*` must
+NEVER be dropped to free disk; stale `goatos_pgtest_clone_*`, `goatos_pgtest_build_*` and older
+templates are safe to delete. Cleanup code only ever matches those three exact name patterns
+(`TestCleanupNeverMatchesForeignDatabases`); legacy `goatos_tmpl_*` / `goatos_test_*` /
+`goatos_sqlc_plans_*` leftovers from the old per-run scheme are not reaped automatically.

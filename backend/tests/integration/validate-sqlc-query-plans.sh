@@ -35,8 +35,13 @@ EOF
 }
 
 if [[ -n "$plan_admin_dsn" ]]; then
-  scratch_db="goatos_sqlc_plans_$$"
-  psql "$plan_admin_dsn" -v ON_ERROR_STOP=1 -qtAc "CREATE DATABASE $scratch_db" >/dev/null
+  # Clone the REUSABLE migrated template (keyed by a hash of the migration files; built once per
+  # migration set and shared with the pgtest harness) instead of replaying every migration over the
+  # tunnel. See backend/internal/platform/pgtemplate. The clone name carries its creation time so a
+  # killed run's leftover is reaped by age; nothing outside goatos_pgtest_* is ever touched.
+  template_db="$(cd "$repo_root/backend" && go run ./internal/platform/pgtemplate/cmd/pgtest-template "$plan_admin_dsn")"
+  scratch_db="goatos_pgtest_clone_$(date +%s)_sqlc_$$"
+  psql "$plan_admin_dsn" -v ON_ERROR_STOP=1 -qtAc "CREATE DATABASE $scratch_db TEMPLATE $template_db" >/dev/null
   scratch_dsn="${plan_admin_dsn%/*}/$scratch_db"
   case "$plan_admin_dsn" in *\?*) scratch_dsn="${scratch_dsn}?${plan_admin_dsn#*\?}";; esac
 elif ! command -v docker >/dev/null 2>&1; then
@@ -1644,9 +1649,13 @@ if [[ -z "$scratch_db" ]]; then
   fi
 fi
 
-while IFS= read -r migration; do
-  apply_goose_up "$migration"
-done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
+if [[ -z "$scratch_db" ]]; then
+  # Docker model: a fresh container, so migrations are applied here. The admin-DSN model cloned an
+  # already-migrated template above.
+  while IFS= read -r migration; do
+    apply_goose_up "$migration"
+  done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
+fi
 
 validate_identity_lookup_plans
 validate_outbox_claim_plan
