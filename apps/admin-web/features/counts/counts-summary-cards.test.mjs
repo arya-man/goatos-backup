@@ -84,3 +84,17 @@ test("sex detail includes other only when it contributes to the count", () => {
     "12 female · 8 male",
   );
 });
+
+test("a stage no card names gets its own Other stages card, so the cards add up to the herd", () => {
+  const points = [
+    { key: "K1", label: "K1", count: 4, female: 2, male: 2, other: 0 },
+    { key: "Weaner", label: "Weaner", count: 7, female: 3, male: 4, other: 0 },
+  ];
+  const cards = buildCountsSummaryCards(points, labels, { ...summaryLabels, other: "Other stages" });
+  const other = cards.find((card) => card.key === "other_stages");
+  assert.equal(other?.count, 7);
+  assert.equal(other?.detail, "3 female · 4 male");
+  assert.equal(cards.reduce((sum, card) => sum + card.count, 0), 11);
+  const none = buildCountsSummaryCards(points.slice(0, 1), labels, { ...summaryLabels, other: "Other stages" });
+  assert.equal(none.find((card) => card.key === "other_stages"), undefined);
+});

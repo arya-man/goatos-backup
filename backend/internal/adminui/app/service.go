@@ -6536,6 +6536,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"summary_card.k2.label":             "K2",
 			"summary_card.k3.label":             "K3",
 			"summary_card.k4.label":             "K4",
+			"summary_card.other_stages.label":   "Other stages",
 			"summary_card.group.aria":           "Stage summary cards",
 			"table.breakdown.aria":              "Detail breakdown rows",
 			// Says WHAT it totals (maintainer report, 2026-08-12). The value is the whole-filter sum —

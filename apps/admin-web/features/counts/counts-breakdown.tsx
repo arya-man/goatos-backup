@@ -380,6 +380,7 @@ export async function CountsBreakdownPage({
     k2: copy(pageContract, "summary_card.k2.label"),
     k3: copy(pageContract, "summary_card.k3.label"),
     k4: copy(pageContract, "summary_card.k4.label"),
+    other: copy(pageContract, "summary_card.other_stages.label"),
   });
   const summaryCards = [
     {
