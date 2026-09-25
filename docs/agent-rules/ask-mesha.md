@@ -357,7 +357,7 @@ rules say which truth numbers must appear in the answer (exact or `tol` / `tol_p
 - The hosted MCP (`backend/cmd/mcp`, `goatos-mcp-stg`, https://mcp.mesha.sg/mcp) answers `ask_goatos`
   via this agent when `MESHA_MCP_AGENT_URL` is set (`MESHA_MCP_AGENT_AUDIENCE` defaults to the URL,
   `MESHA_MCP_AGENT_TIMEOUT` defaults to 240s). Unset => the legacy API `/ceo-ai/ask` path, unchanged.
-  Typed `get_*` tools never go through the agent.
+  Typed `get_*` tools never go through the agent, and in agent mode `toolList()` does not offer them (only `ask_goatos` plus the docs tools).
 - Scoping: leaders add this connector to their everyday Claude, so the agent-mode `ask_goatos`
   description says to call it ONLY for Mesha farm-data questions, and `initialize` returns server
   `instructions` telling clients to answer everything else without Goat OS tools
