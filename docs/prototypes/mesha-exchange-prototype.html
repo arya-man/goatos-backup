@@ -1,0 +1,1059 @@
+<title>Mesha Exchange</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@600;700;800&family=Public+Sans:wght@400;500;600;700;800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/3.54.1/apexcharts.min.js"></script>
+<style>
+/* ===== Mesha brand tokens (locked, from admin-web mesha-theme.css) ===== */
+:root{color-scheme:light;
+  --brand:#54A02C;--brand-d:#44831F;--brand-l:#7CCB45;--brand-soft:#ECF7E0;--on-brand:#FFFFFF;
+  --bg:#F4F7F2;--panel:#FFFFFF;--panel-2:#F1F5EF;--ink:#16201B;--muted:#5E6E64;--faint:#8A998F;
+  --line:#E2E8E1;--line2:#EEF2ED;--sidebar:#FFFFFF;
+  --info:#2B66B8;--info-s:#E5EFFB;--warn:#B5791A;--warn-s:#FBF1DE;--err:#CC3D3D;--err-s:#FBE6E6;
+  --ok:#3F9A28;--ok-s:#ECF7E0;--violet:#7A5BD1;--violet-s:#EDE7FB;--teal:#13816F;--teal-s:#DEF3EF;
+  --shadow:0 0 2px 0 rgba(22,32,27,.14),0 12px 24px -4px rgba(22,32,27,.08);
+  --shadow-lg:0 0 2px 0 rgba(22,32,27,.2),0 24px 48px -8px rgba(22,32,27,.18);
+  --hero:linear-gradient(135deg,#44831F,#2E5E16);
+  --f:"Public Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --fd:"Barlow","Public Sans",-apple-system,BlinkMacSystemFont,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;
+  --brand:#7CCB45;--brand-d:#69BA37;--brand-l:#A6E07A;--brand-soft:rgba(124,203,69,.15);--on-brand:#08130B;
+  --bg:#0E1512;--panel:#161F1A;--panel-2:#1D2820;--ink:#E9F1EA;--muted:#94A89A;--faint:#6E8377;
+  --line:#26332B;--line2:#1C261F;--sidebar:#111A15;
+  --info:#5B9BE8;--info-s:rgba(91,155,232,.16);--warn:#E0A53A;--warn-s:rgba(224,165,58,.16);--err:#F0635F;--err-s:rgba(240,99,95,.16);
+  --ok:#7CCB45;--ok-s:rgba(124,203,69,.16);--violet:#A78BF5;--violet-s:rgba(167,139,245,.16);--teal:#34C2A6;--teal-s:rgba(52,194,166,.16);
+  --shadow:0 0 2px 0 rgba(0,0,0,.3),0 12px 24px -4px rgba(0,0,0,.34);--shadow-lg:0 0 2px 0 rgba(0,0,0,.4),0 24px 48px -8px rgba(0,0,0,.5);
+  --hero:linear-gradient(135deg,#3E7A1E,#1F3F10)}}
+:root[data-theme="dark"]{color-scheme:dark;
+  --brand:#7CCB45;--brand-d:#69BA37;--brand-l:#A6E07A;--brand-soft:rgba(124,203,69,.15);--on-brand:#08130B;
+  --bg:#0E1512;--panel:#161F1A;--panel-2:#1D2820;--ink:#E9F1EA;--muted:#94A89A;--faint:#6E8377;
+  --line:#26332B;--line2:#1C261F;--sidebar:#111A15;
+  --info:#5B9BE8;--info-s:rgba(91,155,232,.16);--warn:#E0A53A;--warn-s:rgba(224,165,58,.16);--err:#F0635F;--err-s:rgba(240,99,95,.16);
+  --ok:#7CCB45;--ok-s:rgba(124,203,69,.16);--violet:#A78BF5;--violet-s:rgba(167,139,245,.16);--teal:#34C2A6;--teal-s:rgba(52,194,166,.16);
+  --shadow:0 0 2px 0 rgba(0,0,0,.3),0 12px 24px -4px rgba(0,0,0,.34);--shadow-lg:0 0 2px 0 rgba(0,0,0,.4),0 24px 48px -8px rgba(0,0,0,.5);
+  --hero:linear-gradient(135deg,#3E7A1E,#1F3F10)}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.57 var(--f);padding-inline:16px;padding-block:0 40px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-size:12.5px}
+svg.i{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ===== Top bar of the prototype page ===== */
+.top{max-width:1480px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-block:16px 12px}
+.top .lg{width:36px;height:36px;border-radius:10px;background:var(--brand);color:var(--on-brand);display:grid;place-items:center;font:800 16px var(--fd)}
+.top h1{margin:0;font:700 19px var(--fd);letter-spacing:.2px}
+.top small{display:block;color:var(--muted);font-size:12.5px}
+.ttabs{display:flex;gap:4px;background:var(--panel);box-shadow:var(--shadow);border-radius:12px;padding:4px;margin-left:auto;overflow-x:auto;scrollbar-width:none}
+.ttabs::-webkit-scrollbar{display:none}
+@media (max-width:720px){.ttabs{mask-image:linear-gradient(90deg,#000 85%,transparent)}.ttabs button{padding:8px 10px}}
+.ttabs button{border:0;background:none;border-radius:8px;padding:8px 14px;font-weight:600;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:8px}
+.ttabs button svg{width:18px;height:18px}
+.ttabs button.on{background:var(--brand-soft);color:var(--brand-d)}
+.tact{display:flex;gap:6px}
+.stage{max-width:1480px;margin:0 auto}
+@media (max-width:720px){.top{gap:10px}.ttabs{order:3;width:100%;margin-left:0}.top small{display:none}}
+
+/* ===== App instance (container queries => same code desktop & phone) ===== */
+.app{container:app/inline-size;position:relative;background:var(--bg);border-radius:20px;box-shadow:var(--shadow);overflow:clip;min-height:760px}
+.lay{display:flex;min-height:760px}
+.snav{width:300px;flex:none;background:var(--sidebar);border-right:1px dashed var(--line);display:flex;flex-direction:column;padding:20px 16px;gap:2px}
+.snav .brand{display:flex;align-items:center;gap:10px;padding:0 8px 18px;font:800 17px var(--fd)}
+.snav .brand i{width:34px;height:34px;border-radius:10px;background:var(--brand);color:var(--on-brand);display:grid;place-items:center;font-style:normal}
+.snav .who{display:flex;gap:12px;align-items:center;background:var(--panel-2);border-radius:12px;padding:12px 14px;margin:0 4px 10px}
+.snav .who b{display:block;font-size:14px;line-height:1.3}.snav .who small{color:var(--muted);font-size:12px}
+.nsub{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--faint);padding:16px 12px 6px}
+.nav{display:flex;align-items:center;gap:14px;min-height:44px;padding:4px 12px;border-radius:8px;border:0;background:none;width:100%;text-align:left;color:var(--muted);font-weight:500}
+.nav:hover{background:var(--panel-2);color:var(--ink)}
+.nav.on{background:var(--brand-soft);color:var(--brand-d);font-weight:700}
+.nav .cnt{margin-left:auto;background:var(--err);color:#fff;font-size:11px;font-weight:700;border-radius:6px;padding:0 6px;line-height:20px}
+.mw{flex:1;min-width:0;display:flex;flex-direction:column}
+.hdr{height:72px;display:flex;align-items:center;gap:10px;padding:0 28px;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(6px);position:sticky;top:0;z-index:5}
+.hdr .sp{flex:1}
+.ib{width:40px;height:40px;border-radius:50%;border:0;background:none;display:grid;place-items:center;color:var(--muted);position:relative;flex:none}
+.ib:hover{background:var(--panel-2);color:var(--ink)}
+.ib .bdg{position:absolute;top:4px;right:3px;background:var(--err);color:#fff;font-size:10px;font-weight:700;border-radius:10px;min-width:17px;line-height:17px;padding:0 4px}
+.ham{display:none}
+.ws{display:flex;align-items:center;gap:8px;border:0;background:var(--panel);box-shadow:var(--shadow);border-radius:10px;padding:6px 10px 6px 6px;font-weight:600;font-size:13px;max-width:100%}
+.ws select{border:0;background:none;font-weight:600;max-width:220px;padding:2px 0;cursor:pointer}
+.ws .tagx{font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap}
+.srch{display:flex;align-items:center;gap:8px;background:var(--panel);box-shadow:var(--shadow);border-radius:10px;padding:8px 12px;color:var(--faint);font-size:13px;min-width:200px}
+.srch kbd{margin-left:auto;font:600 11px var(--f);background:var(--panel-2);border-radius:6px;padding:1px 6px;color:var(--muted)}
+.av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:14px;flex:none;background:var(--brand-soft);color:var(--brand-d)}
+.av.sm{width:36px;height:36px;font-size:13px}
+.ring{padding:2px;border-radius:50%;background:conic-gradient(var(--brand),var(--teal),var(--brand-l),var(--brand))}
+.ring .av{border:2px solid var(--panel);background:var(--panel)}
+.pg{padding:8px 40px 64px;min-width:0}
+.ph{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin:0 0 28px}
+.ph h2{margin:0 0 6px;font:700 24px var(--fd);letter-spacing:.2px;text-wrap:balance}
+.crumbs{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px;color:var(--ink)}
+.crumbs button{border:0;background:none;padding:0;color:var(--ink)}
+.crumbs button:hover{text-decoration:underline}
+.crumbs i{width:4px;height:4px;border-radius:50%;background:var(--faint)}
+.crumbs span{color:var(--faint)}
+.ph .act{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+
+/* ===== Components ===== */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:8px;font-weight:700;font-size:14px;min-height:36px;padding:6px 14px;background:var(--brand);color:var(--on-brand);white-space:nowrap}
+.btn:hover{background:var(--brand-d);box-shadow:0 8px 16px -4px color-mix(in srgb,var(--brand) 40%,transparent)}
+.btn.o{background:none;color:var(--ink);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--faint) 45%,transparent)}
+.btn.o:hover{background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--ink)}
+.btn.s{background:var(--brand-soft);color:var(--brand-d)}.btn.s:hover{background:color-mix(in srgb,var(--brand) 22%,transparent);box-shadow:none}
+.btn.t{background:none;color:var(--muted);padding:6px 8px}.btn.t:hover{background:var(--panel-2);box-shadow:none;color:var(--ink)}
+.btn.d{background:var(--err);color:#fff}.btn.do{background:none;color:var(--err);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--err) 45%,transparent)}
+.btn.lg{min-height:48px;font-size:15px;padding:8px 22px}
+.btn.sm{min-height:30px;font-size:13px;padding:4px 10px}
+.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn svg.i{width:18px;height:18px}
+.card{background:var(--panel);border-radius:16px;box-shadow:var(--shadow);min-width:0;position:relative}
+.card+.card,.card+.grid,.grid+.card,.grid+.grid{margin-top:24px}
+.grid>.card,.grid>.hero{margin-top:0!important}
+.grid{align-items:start}
+.ch{display:flex;align-items:flex-start;gap:10px;padding:24px 24px 0;flex-wrap:wrap}
+.ch h3{margin:0;font-size:18px;font-weight:700;line-height:1.4}
+.ch p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.ch .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.cb{padding:24px}
+.grid{display:grid;gap:24px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g83{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}.g38{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}
+.lbl{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:6px;font-size:12px;font-weight:700;white-space:nowrap}
+.l-ok{background:var(--ok-s);color:var(--ok)}.l-warn{background:var(--warn-s);color:var(--warn)}.l-err{background:var(--err-s);color:var(--err)}
+.l-info{background:var(--info-s);color:var(--info)}.l-vio{background:var(--violet-s);color:var(--violet)}.l-teal{background:var(--teal-s);color:var(--teal)}
+.l-def{background:var(--panel-2);color:var(--muted)}.l-brand{background:var(--brand);color:var(--on-brand)}
+/* widget summary */
+.ws1{padding:24px;display:grid;grid-template-columns:1fr auto;gap:0 12px;align-items:end}
+.ws1 .t{font-size:14px;font-weight:600;grid-column:1/-1}
+.ws1 .v{font:700 30px/1.3 var(--fd);margin-top:10px;letter-spacing:.2px}
+.ws1 .d{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.trend{display:inline-flex;align-items:center;gap:2px;font-weight:700}
+.trend.up{color:var(--ok)}.trend.dn{color:var(--err)}
+.ws1 .sp1{width:84px;height:56px}
+/* hero balance card */
+.hero{background:var(--hero);color:#fff;border-radius:16px;padding:28px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+.hero::after{content:"";position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.07)}
+.hero::before{content:"";position:absolute;right:40px;bottom:-90px;width:200px;height:200px;border-radius:50%;background:rgba(255,255,255,.05)}
+.hero .t{font-size:14px;opacity:.82;font-weight:600}
+.hero .v{font:700 40px/1.2 var(--fd);margin:8px 0 4px;letter-spacing:.3px}
+.hero .s{opacity:.8;font-size:13px}
+.hero .row{display:flex;gap:28px;margin-top:22px;flex-wrap:wrap;position:relative;z-index:1}
+.hero .row b{display:block;font:700 18px var(--fd)}.hero .row span{opacity:.75;font-size:12.5px}
+.hero .chip{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.16);border-radius:6px;padding:2px 8px;font-weight:700;font-size:12.5px}
+/* tables */
+.tabs{display:flex;gap:28px;padding:0 20px;box-shadow:inset 0 -2px 0 var(--line2);overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{border:0;background:none;display:flex;align-items:center;gap:8px;min-height:48px;padding:0;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.tabs button.on{color:var(--ink);border-color:var(--ink)}
+.tbar{display:flex;gap:12px;padding:20px;flex-wrap:wrap;align-items:center}
+.tbar .grow{flex:1;min-width:200px}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{background:var(--panel-2);color:var(--muted);font-weight:600;text-align:left;padding:16px;white-space:nowrap;font-size:13.5px}
+td{padding:16px;border-bottom:1px dashed var(--line);white-space:nowrap;text-align:left;vertical-align:middle}
+th.r,td.r{text-align:right}
+tr.cl{cursor:pointer}tr.cl:hover td{background:color-mix(in srgb,var(--panel-2) 60%,transparent)}
+.dense td{padding:10px 16px}
+.nm{display:flex;align-items:center;gap:14px;min-width:0}
+.nm b{display:block;font-weight:600}.nm small{display:block;color:var(--faint);font-size:13px}
+.tfoot{display:flex;align-items:center;justify-content:flex-end;gap:18px;padding:10px 16px;font-size:13.5px;color:var(--ink);flex-wrap:wrap}
+.tfoot select{border:0;background:none;font-weight:600}
+.tfoot .dz{margin-right:auto;display:flex;align-items:center;gap:8px}
+.tfoot>span:last-child{display:inline-flex;gap:4px;white-space:nowrap}
+.empty{padding:40px 20px;text-align:center;color:var(--faint)}
+.empty b{display:block;color:var(--muted);font-size:16px;margin-bottom:4px}
+/* text fields */
+.tf{position:relative;display:block;min-width:0}
+.tf>span{position:absolute;top:-9px;left:10px;padding:0 5px;background:var(--panel);font-size:12px;font-weight:600;color:var(--muted);line-height:18px;pointer-events:none;max-width:calc(100% - 20px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;z-index:1}
+.tf input,.tf select,.tf textarea{width:100%;background:none;border:1px solid color-mix(in srgb,var(--faint) 45%,transparent);border-radius:8px;padding:15px 14px 13px;min-height:54px;outline:0;transition:border-color .15s}
+.tf select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 20px) 24px,calc(100% - 14px) 24px;background-size:6px 6px;background-repeat:no-repeat;padding-right:36px}
+.tf input:hover,.tf select:hover{border-color:var(--ink)}
+.tf input:focus,.tf select:focus,.tf textarea:focus{border:2px solid var(--ink);padding:14px 13px 12px}
+.tf input[disabled],.tf select[disabled]{opacity:.6;cursor:not-allowed}
+.tf em{display:block;font-style:normal;font-size:12px;color:var(--faint);margin:6px 14px 0}
+.tf.err input,.tf.err select{border-color:var(--err)}.tf.err em{color:var(--err)}
+.tf.sm input,.tf.sm select{min-height:40px;padding:8px 12px}.tf.sm input:focus{padding:7px 11px}
+.tf.sm select{background-position:calc(100% - 20px) 17px,calc(100% - 14px) 17px}
+.srchf{display:flex;align-items:center;gap:8px;border:1px solid color-mix(in srgb,var(--faint) 45%,transparent);border-radius:8px;padding:0 12px;min-height:54px;color:var(--faint)}
+.srchf input{border:0;outline:0;background:none;flex:1;min-width:0;color:var(--ink);height:52px}
+.srchf:focus-within{border:2px solid var(--ink);padding:0 11px}
+.fgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 16px}
+.fgrid .full{grid-column:1/-1}
+.fsec{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:24px;margin-bottom:32px}
+.fsec>.dsc h4{margin:0 0 6px;font-size:17px}.fsec>.dsc p{margin:0;color:var(--muted);font-size:14px}
+/* switch */
+.sw{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-weight:500;user-select:none}
+.sw input{appearance:none;width:34px;height:20px;border-radius:10px;background:color-mix(in srgb,var(--faint) 50%,transparent);position:relative;cursor:pointer;transition:background .2s;flex:none;margin:0}
+.sw input::after{content:"";position:absolute;top:4px;left:4px;width:12px;height:12px;border-radius:50%;background:#fff;transition:transform .2s}
+.sw input:checked{background:var(--brand)}.sw input:checked::after{transform:translateX(14px)}
+.sw input[disabled]{opacity:.5;cursor:not-allowed}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:8px;padding:4px 10px;font-size:13px;font-weight:600;border:0;background:var(--panel-2);color:var(--muted);min-height:32px}
+.chip.on{background:var(--brand-soft);color:var(--brand-d)}
+.chip[disabled]{opacity:.5;cursor:not-allowed}
+/* misc */
+.dl{display:grid;grid-template-columns:auto 1fr;gap:10px 20px;font-size:14px}
+.dl dt{color:var(--muted)}.dl dd{margin:0;font-weight:600;min-width:0;overflow-wrap:anywhere}
+.al{display:flex;gap:12px;align-items:flex-start;border-radius:8px;padding:12px 16px;font-size:14px}
+.al svg.i{margin-top:1px}
+.al.info{background:var(--info-s);color:var(--info)}.al.warn{background:var(--warn-s);color:var(--warn)}.al.err{background:var(--err-s);color:var(--err)}.al.ok{background:var(--ok-s);color:var(--ok)}
+.al b{font-weight:700}.al .x{margin-left:auto}
+.calc{font-family:var(--mono);font-size:12.5px;background:var(--panel-2);border-radius:10px;padding:12px 14px;line-height:1.8;overflow-x:auto}
+.bar{height:8px;border-radius:99px;background:var(--panel-2);overflow:hidden}.bar>i{display:block;height:100%;border-radius:99px}
+.stack{display:flex;height:10px;border-radius:99px;overflow:hidden;gap:2px}
+.li{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px dashed var(--line)}
+.li:last-child{border-bottom:0}
+.li .tx{flex:1;min-width:0}.li .tx b{display:block;font-weight:600}.li .tx small{color:var(--faint);font-size:13px}
+.li .v{font-weight:700;text-align:right;white-space:nowrap}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.muted{color:var(--muted)}.faint{color:var(--faint)}.up{color:var(--ok)}.dn{color:var(--err)}
+.x403{text-align:center;padding:80px 20px}.x403 h2{font:700 28px var(--fd);margin:0 0 8px}.x403 p{color:var(--muted);max-width:44ch;margin:0 auto 20px}
+.x403 .big{font:800 96px/1 var(--fd);color:var(--brand-soft);-webkit-text-stroke:2px var(--brand)}
+.pcard{padding:20px;display:flex;flex-direction:column;gap:12px;border:0;text-align:left;width:100%;background:var(--panel)}
+button.card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px)}
+.inv{padding:40px}.inv .hd{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:32px}
+.inv .tot{display:grid;grid-template-columns:auto auto;justify-content:end;gap:8px 32px;margin-top:20px;font-size:14px}
+.inv .tot b{text-align:right}
+.drill{border-radius:12px;background:var(--panel-2);padding:12px 16px;margin-top:10px}
+.drill summary{cursor:pointer;font-weight:600;display:flex;gap:10px;align-items:center;list-style:none}
+.drill summary::-webkit-details-marker{display:none}
+/* dialog + drawer + toast */
+.dlg-bg{position:fixed;inset:0;background:rgba(10,16,12,.55);z-index:80;display:grid;place-items:center;padding:16px;animation:fi .2s both}
+.dlg{background:var(--panel);border-radius:16px;box-shadow:var(--shadow-lg);width:100%;max-width:640px;max-height:calc(100% - 32px);overflow:auto;animation:pop .25s cubic-bezier(.2,.8,.2,1) both}
+.dlg.lgw{max-width:860px}
+.dlg .dh{padding:24px 24px 8px;font:700 18px var(--f);display:flex;align-items:center;gap:10px}
+.dlg .db{padding:12px 24px}
+.dlg .df{padding:16px 24px 24px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.toasts{position:fixed;top:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.toast{pointer-events:auto;display:flex;gap:12px;align-items:center;background:var(--panel);color:var(--ink);border-radius:12px;padding:8px 16px 8px 8px;box-shadow:var(--shadow-lg);font-weight:600;font-size:14px;animation:tin .3s cubic-bezier(.2,.8,.2,1) both;max-width:380px}
+.toast .ic{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;flex:none}
+.toast.ok .ic{background:var(--ok-s);color:var(--ok)}.toast.err .ic{background:var(--err-s);color:var(--err)}
+.scrim{display:none}
+@keyframes fi{from{opacity:0}}
+@keyframes pop{from{opacity:0;transform:scale(.96) translateY(8px)}}
+@keyframes tin{from{opacity:0;transform:translateX(24px)}}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}}
+.pg>*{animation:rise .4s cubic-bezier(.2,.8,.2,1) both}
+.pg>*:nth-child(2){animation-delay:.04s}.pg>*:nth-child(3){animation-delay:.08s}.pg>*:nth-child(4){animation-delay:.12s}.pg>*:nth-child(n+5){animation-delay:.16s}
+.card,.btn,.nav,.chip,.ib,tr td{transition:background .2s,box-shadow .25s,transform .2s,color .2s}
+.btn:active,.chip:active,.nav:active{transform:scale(.97)}
+
+/* ===== Container-query responsive (desktop app ↔ phone app, same code) ===== */
+@container app (max-width:1180px){.ws .tagx{display:none}.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(2,minmax(0,1fr))}.pg{padding:8px 24px 48px}.hdr{padding:0 24px}}
+@container app (max-width:1199px){
+  .ham{display:grid}
+  .snav{position:fixed;top:0;left:0;bottom:0;z-index:70;width:min(290px,84%);transform:translateX(-105%);transition:transform .3s cubic-bezier(.2,.8,.2,1);overflow-y:auto;box-shadow:var(--shadow-lg);border-right:0}
+  .lay.dopen .snav{transform:none}
+  .scrim{display:block;position:fixed;inset:0;background:rgba(10,16,12,.5);z-index:65;opacity:0;pointer-events:none;transition:opacity .25s}
+  .lay.dopen .scrim{opacity:1;pointer-events:auto}
+  .srch{display:none}
+}
+@container app (max-width:900px){
+  .g2,.g83,.g38,.g3{grid-template-columns:minmax(0,1fr)}
+  .fsec{grid-template-columns:minmax(0,1fr);gap:12px}
+  .srch{display:none}
+  .grid{gap:16px}.card+.card,.card+.grid,.grid+.card,.grid+.grid{margin-top:16px}
+}
+@container app (max-width:600px){
+  .hdr{height:60px;padding:0 12px;gap:6px}
+  .pg{padding:4px 12px 32px}
+  .ph{margin-bottom:18px}.ph h2{font-size:21px}.ph .act{margin-left:0;width:100%}.ph .act .btn{flex:1}
+  .g4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ws1{padding:16px;grid-template-columns:1fr}.ws1 .v{font-size:22px;margin-top:4px}.ws1 .sp1{display:none}.ws1 .d{font-size:12px}
+  .ch{padding:18px 16px 0}.ch h3{font-size:16px}.cb{padding:16px}
+  .hero{padding:22px}.hero .v{font-size:30px}.hero .row{gap:18px}
+  .fgrid{grid-template-columns:minmax(0,1fr)!important;gap:20px}
+  .fgrid>.ib{justify-self:end;margin-top:-8px!important}
+  .tabs{padding:0 12px;gap:20px}.tbar{padding:14px 12px}
+  .ws select{max-width:150px}.ws .tagx{display:none}
+  /* tables become stacked cards */
+  .rt thead{display:none}.rt,.rt tbody{display:block}
+  .rt tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;padding:14px 16px;border-bottom:1px dashed var(--line)}
+  .rt td{padding:0;border:0;white-space:normal;text-align:left!important;min-width:0}
+  .rt td:first-child{grid-column:1/-1}
+  .rt td[data-l]:not(:first-child)::before{content:attr(data-l);display:block;font-size:11.5px;color:var(--faint);font-weight:500}
+  .rt td:empty{display:none}
+  .tfoot{justify-content:space-between;gap:10px}.tfoot .dz{display:none}
+  .inv{padding:20px}
+  .dl{grid-template-columns:minmax(0,1fr);gap:2px}.dl dt{margin-top:10px;font-size:12.5px}
+  .dlg .dh,.dlg .db,.dlg .df{padding-left:16px;padding-right:16px}
+}
+@container app (max-width:330px){.g4{grid-template-columns:minmax(0,1fr)}}
+
+/* ===== Mobile tab: phone frames ===== */
+.phones{display:flex;gap:40px;justify-content:center;flex-wrap:wrap;padding:8px 0 24px}
+.phw{display:flex;flex-direction:column;align-items:center;gap:12px}
+.phw h3{margin:0;font-size:15px}.phw p{margin:0;color:var(--muted);font-size:13px}
+.phone{width:390px;max-width:100%;height:820px;border-radius:52px;padding:12px;background:#0B0F0D;box-shadow:var(--shadow-lg)}
+.pscr{width:100%;height:100%;border-radius:40px;overflow:hidden;background:var(--bg);transform:translateZ(0);display:flex;flex-direction:column;position:relative}
+.psb{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-size:14px;font-weight:700;background:var(--bg)}
+.pscr .app{flex:1;min-height:0;overflow-y:auto;border-radius:0;box-shadow:none;scrollbar-width:none}
+.pscr .app::-webkit-scrollbar{display:none}
+.pscr .lay{min-height:100%}
+@media (max-width:440px){.phone{height:760px;padding:8px;border-radius:44px}.pscr{border-radius:36px}}
+
+/* ===== Design doc tab ===== */
+.doc{max-width:1060px;margin:0 auto}
+.doc h2{font:700 26px var(--fd);margin:8px 0 6px}
+.doc h3{font-size:18px;margin:32px 0 10px}
+.doc p,.doc li{max-width:78ch}
+.doc .lede{color:var(--muted);font-size:15.5px}
+.doc code{font-family:var(--mono);font-size:12.5px;background:var(--panel-2);padding:1px 6px;border-radius:5px}
+.doc table td{white-space:normal;vertical-align:top}
+.doc .tw{border-radius:16px;box-shadow:var(--shadow);background:var(--panel)}
+pre.mermaid{background:var(--panel);border-radius:16px;box-shadow:var(--shadow);padding:16px;overflow-x:auto}
+.layers{display:grid;gap:10px}
+.layer{display:grid;grid-template-columns:200px minmax(0,1fr);gap:16px;background:var(--panel);border-radius:14px;box-shadow:var(--shadow);padding:14px 18px}
+.layer b{font-weight:700}.layer div{color:var(--muted);font-size:14px}
+@media (max-width:700px){.layer{grid-template-columns:minmax(0,1fr);gap:4px}.doc h2{font-size:22px}}
+
+/* apex tooltip theme */
+.apexcharts-tooltip{background:var(--panel)!important;color:var(--ink)!important;border:0!important;box-shadow:var(--shadow-lg)!important;border-radius:10px!important}
+.apexcharts-tooltip-title{background:var(--panel-2)!important;border:0!important;font-weight:700!important}
+.apexcharts-xaxistooltip{display:none}
+@media (prefers-reduced-motion:reduce){.pg>*{animation-duration:.01s}}
+</style>
+
+<header class="top">
+  <div class="lg">M</div>
+  <div><h1>Mesha Exchange</h1><small>Working prototype · everything you change is saved in this browser</small></div>
+  <nav class="ttabs" id="ttabs" aria-label="Views">
+    <button data-v="ceo" class="on"><svg class="i" viewBox="0 0 24 24"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg>CEO view</button>
+    <button data-v="lp"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>LP view</button>
+    <button data-v="mob"><svg class="i" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg>Mobile</button>
+    <button data-v="sys"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="8.5" y="14" width="7" height="7" rx="1.5"/><path d="M6.5 10v2h11v-2M12 12v2"/></svg>System design</button>
+  </nav>
+  <div class="tact">
+    <button class="ib" id="themeBtn" aria-label="Switch light or dark theme" title="Theme"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+    <button class="btn o sm" id="resetBtn" title="Restore the sample data">Reset data</button>
+  </div>
+</header>
+<div class="stage">
+  <section id="v-ceo"><div class="app" id="app-ceo"></div></section>
+  <section id="v-lp" hidden><div class="app" id="app-lp"></div></section>
+  <section id="v-mob" hidden>
+    <div class="phones">
+      <div class="phw"><div class="phone"><div class="pscr"><div class="psb"><span>9:41</span><span>5G ▮▮▮ 82%</span></div><div class="app" id="app-mceo"></div></div></div><h3>Manju · CEO app</h3><p>Same code as the CEO view, at phone width</p></div>
+      <div class="phw"><div class="phone"><div class="pscr"><div class="psb"><span>9:41</span><span>5G ▮▮▮ 82%</span></div><div class="app" id="app-mlp"></div></div></div><h3>LP app</h3><p>Same code as the LP view · changes on the left show here</p></div>
+    </div>
+  </section>
+  <section id="v-sys" hidden><article class="doc" id="doc"></article></section>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+/* ============================ ICONS ============================ */
+const IC={
+dash:'<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>',
+pool:'<path d="M12 2 2 7l10 5 10-5z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+val:'<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/>',
+users:'<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 3.1a4 4 0 0 1 0 7.8M22 21a7 7 0 0 0-5-6.7"/>',
+ledger:'<path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
+pay:'<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20M6 15h4"/>',
+req:'<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>',
+lock:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+audit:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+home:'<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
+doc:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
+user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>',
+search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+menu:'<path d="M4 7h16M4 12h10M4 17h16"/>',
+plus:'<path d="M12 5v14M5 12h14"/>',
+edit:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+x:'<path d="M18 6 6 18M6 6l12 12"/>',
+check:'<path d="M20 6 9 17l-5-5"/>',
+alert:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+undo:'<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
+chev:'<path d="m9 18 6-6-6-6"/>',
+up:'<path d="m7 17 10-10M9 7h8v8"/>',dn:'<path d="m7 7 10 10M17 9v8H9"/>',
+goat:'<circle cx="12" cy="13" r="6"/><path d="M8 8 5 3M16 8l3-5M10 14h.01M14 14h.01M11 17h2"/>',
+flag:'<path d="M4 22V4s1-1 4-1 5 2 8 2 4-1 4-1v11s-1 1-4 1-5-2-8-2-4 1-4 1"/>',
+cash:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+trash:'<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+out:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'};
+const ic=(n,cls='')=>`<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${IC[n]||''}</svg>`;
+
+/* ============================ UTIL ============================ */
+const TODAY='2026-09-25';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dd=s=>new Date(s+'T00:00:00');
+const fdate=s=>s?dd(s).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'—';
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];const fmon=s=>{const d=dd(s);return MON[d.getMonth()]+' '+String(d.getFullYear()).slice(2)};
+const sum=(a,f=x=>x)=>a.reduce((s,x)=>s+f(x),0);
+const r2=n=>Math.round(n*100)/100, r4=n=>Math.round(n*1e6)/1e6;
+let SEQ=Date.now()%100000;
+const nid=p=>p+'-'+(++SEQ).toString(36).toUpperCase();
+const CSYM={INR:'₹',USD:'$',SGD:'S$',AED:'AED ',GBP:'£',EUR:'€'};
+function fm(v,ccy='INR',o={}){const neg=v<0,a=Math.abs(v||0);let s;const dec=o.dec??0;
+  if(ccy==='INR'){if(o.c&&a>=1e7)s='₹'+(a/1e7).toFixed(2)+' Cr';else if(o.c&&a>=1e5)s='₹'+(a/1e5).toFixed(2)+' L';else s='₹'+a.toLocaleString('en-IN',{minimumFractionDigits:dec,maximumFractionDigits:dec})}
+  else{const sym=CSYM[ccy]||ccy+' ';if(o.c&&a>=1e6)s=sym+(a/1e6).toFixed(2)+' M';else if(o.c&&a>=1e4)s=sym+(a/1e3).toFixed(1)+' K';else s=sym+a.toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec})}
+  return (neg?'−':'')+s}
+const fu=u=>(+u).toLocaleString('en-IN',{maximumFractionDigits:2});
+const fnpu=(n,ccy='INR')=>(CSYM[ccy]||'')+(+n).toFixed(4);
+const pct=(x,d=1)=>(x*100).toFixed(d)+'%';
+const initials=n=>n.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
+const mask=(s,keep=4)=>s?('•'.repeat(Math.max(0,Math.min(8,s.length-keep)))+s.slice(-keep)):'—';
+const maskEmail=e=>{if(!e)return'—';const [u,d]=e.split('@');return u[0]+'•••@'+(d||'')};
+
+/* ============================ STORE ============================ */
+const KEY='mesha-exchange-proto-v1';
+const LEVELS=['none','view','do','oversee','configure'];
+const LVL_LABEL={none:'No access',view:'View',do:'Do',oversee:'Oversee',configure:'Configure'};
+const CLASS=[['livestock','Livestock','--brand'],['land','Land','--teal'],['infra','Infrastructure','--info'],['industry','Vetted industries','--violet'],['wc','Working capital','--warn']];
+const CLS_LABEL=Object.fromEntries(CLASS.map(c=>[c[0],c[1]]));
+let S;
+
+function mkParks(){
+  const mk=(id,name,region,farms)=>({id,name,region,farms:farms.map((f,fi)=>({id:id+'-f'+(fi+1),name:f[0],sheds:f[1].map((h,si)=>({id:id+'-f'+(fi+1)+'-s'+(si+1),name:'Shed S'+(si+1),head:h[0],avg:h[1]}))}))});
+  return [mk('tmk','Tumakuru Park','Karnataka',[['Tumakuru Farm A',[[312,30.1],[298,29.2],[276,28.8]]],['Tumakuru Farm B',[[410,29.6],[378,29.0]]]]),
+          mk('atp','Anantapur Park','Andhra Pradesh',[['Anantapur Farm A',[[302,28.4],[288,27.9]]],['Anantapur Farm B',[[276,28.3],[250,27.6]]]]),
+          mk('hsr','Hosur Park','Tamil Nadu',[['Hosur Farm A',[[228,26.9],[214,26.1]]],['Hosur Farm B',[[196,26.8],[182,26.0]]]])]}
+
+function seed(){
+  const s={v:1,fx:{asOf:'2026-09-25',source:'RBI reference rate · 12:00 IST',rates:{INR:1,USD:88.2,SGD:68.9,AED:24.0,GBP:117.4,EUR:103.1}},
+    settings:{currencies:['INR','USD','SGD','AED','GBP'],displayDefault:'INR',unitDecimals:4,makerChecker:false,npuDecimals:4},
+    flags:{multi_currency:{on:true,who:'all',lps:[],label:'Show values in the LP\'s own currency'},lp_access_log:{on:true,who:'all',lps:[],label:'LPs can see who viewed their data'},exit_requests:{on:true,who:'some',lps:['inv-anita','inv-james'],label:'LPs can request to sell units back'},mobile_app:{on:true,who:'all',lps:[],label:'Investor mobile app'}},
+    parks:mkParks(),pools:[],runs:[],ledger:[],investors:[],requests:[],audit:[],
+    people:[{id:'manju',name:'Manju Nath',title:'CEO',dept:'Leadership'},{id:'deepa',name:'Deepa Menon',title:'CFO',dept:'Finance'},{id:'priya',name:'Priya Sharma',title:'Finance Manager',dept:'Finance'},{id:'kavya',name:'Kavya Iyer',title:'Auditor · KR & Co (external)',dept:'External'},{id:'ravi',name:'Ravi Teja',title:'CTO · goatos admin',dept:'Engineering'},{id:'arjun',name:'Arjun Rao',title:'Farm Director',dept:'Operations'}],
+    grants:{manju:{level:'configure',pools:'all',pii:true,expires:''},deepa:{level:'configure',pools:'all',pii:true,expires:''},priya:{level:'do',pools:['p1'],pii:false,expires:'2026-12-31'},kavya:{level:'view',pools:'all',pii:false,expires:'2026-10-15'},ravi:{level:'none',pools:'all',pii:false,expires:''},arjun:{level:'none',pools:'all',pii:false,expires:''}}};
+  s.pools=[
+   {id:'p1',name:'Growth Pool I',base:'INR',unitStart:1,status:'open',accepted:['INR','USD','SGD','AED'],scope:[{park:'tmk',pct:100},{park:'hsr',pct:50}],rule:{price:420,cts:6,maxAge:14},approval:'manual',autoLimit:3,liab:1200000,created:'2025-12-15',
+    assets:[{id:'a1',cls:'land',name:'Tumakuru 18 ac · freehold',val:24000000,basis:'Independent appraisal · Mar 2026'},{id:'a2',cls:'infra',name:'Tumakuru sheds S1–S5 · raised slatted',val:10400000,basis:'Cost less depreciation'},{id:'a3',cls:'industry',name:'Feed mill JV, Hosur · 22%',val:6200000,basis:'Recent funding round'},{id:'a4',cls:'wc',name:'Cash, feed stock, receivables',val:9000000,basis:'Book value · month end'}]},
+   {id:'p2',name:'Deccan Pool II',base:'INR',unitStart:1,status:'open',accepted:['INR','USD','AED'],scope:[{park:'atp',pct:100},{park:'hsr',pct:50}],rule:{price:420,cts:6,maxAge:14},approval:'auto',autoLimit:3,liab:500000,created:'2026-02-20',
+    assets:[{id:'a5',cls:'land',name:'Anantapur 12 ac · 15-yr lease',val:14000000,basis:'Lease right-of-use'},{id:'a6',cls:'infra',name:'Anantapur sheds S1–S4',val:5700000,basis:'Cost less depreciation'},{id:'a7',cls:'wc',name:'Cash, feed stock, receivables',val:4000000,basis:'Book value · month end'}]}];
+  s.investors=[
+   {id:'inv-anita',name:'Anita Rao',type:'Individual',country:'India',ccy:'INR',email:'anita.rao@gmail.com',phone:'+91 98450 12345',tax:'ABCPR1234K',bank:'HDFC 50100234567890',status:'active',since:'2026-01-05',logins:[{name:'Anita Rao',mfa:'Passkey',last:'Today 08:12'}]},
+   {id:'inv-james',name:'James Tan',type:'Individual',country:'Singapore',ccy:'SGD',email:'james.tan@outlook.sg',phone:'+65 9123 4567',tax:'S1234567D',bank:'DBS 0123456789',status:'active',since:'2026-01-05',logins:[{name:'James Tan',mfa:'Authenticator app',last:'Yesterday 21:40'}]},
+   {id:'inv-sarah',name:'Sarah Miller',type:'Individual',country:'United States',ccy:'USD',email:'sarah.m@millercap.com',phone:'+1 415 555 0192',tax:'***-**-4410',bank:'Chase 000123456789',status:'active',since:'2026-03-10',logins:[{name:'Sarah Miller',mfa:'Passkey',last:'22 Sep 16:05'}]},
+   {id:'inv-alnoor',name:'Al Noor Family Office',type:'Entity',country:'UAE',ccy:'AED',email:'office@alnoor.ae',phone:'+971 4 555 0101',tax:'TRN 100234567800003',bank:'Emirates NBD 1015432198701',status:'active',since:'2026-04-15',logins:[{name:'Omar Al Noor',mfa:'Authenticator app',last:'20 Sep 10:30'},{name:'Finance desk',mfa:'Authenticator app',last:'19 Sep 09:02'}]},
+   {id:'inv-rohit',name:'Rohit Kulkarni',type:'Individual',country:'India',ccy:'INR',email:'rohit.k@yahoo.in',phone:'+91 99000 44556',tax:'AKPPK7788Q',bank:'ICICI 002101556677',status:'invited',since:'',logins:[]}];
+  S=s;
+  const hist={p1:[['2025-12-31',1],['2026-01-31',1.004],['2026-02-28',1.012],['2026-03-31',1.019],['2026-04-30',1.017],['2026-05-31',1.031],['2026-06-30',1.042],['2026-07-31',1.049],['2026-08-31',1.058]],
+              p2:[['2026-02-28',1],['2026-03-31',1.006],['2026-04-30',1.011],['2026-05-31',1.02],['2026-06-30',1.027],['2026-07-31',1.035],['2026-08-31',1.041]]};
+  const target={p1:1.0712,p2:1.0518};
+  const subs={p1:[['inv-anita','2026-01-05',.30],['inv-james','2026-01-05',.25],['inv-sarah','2026-03-10',.20],['inv-alnoor','2026-05-02',.25]],p2:[['inv-anita','2026-03-02',.40],['inv-alnoor','2026-04-15',.60]]};
+  s.pools.forEach(p=>{
+    const nav=poolLiveNav(p),U=nav/target[p.id];
+    hist[p.id].forEach(([d,n])=>s.runs.push({id:nid('NAV'),pool:p.id,date:d,npu:n,status:'approved',by:'system',approvedBy:'manju',classes:null}));
+    subs[p.id].forEach(([inv,d,w])=>{const units=r4(U*w),npu=npuAt(p.id,d),base=r2(units*npu),iv=s.investors.find(x=>x.id===inv),rate=s.fx.rates[iv.ccy];
+      s.ledger.push({id:nid('L'),pool:p.id,inv,kind:'subscription',units,base,paidCcy:iv.ccy,paidAmt:r2(base/rate),fx:rate,npu,date:d,note:'Initial subscription',by:'manju'})});
+    s.runs.filter(r=>r.pool===p.id).forEach(r=>{const u=totalUnits(p.id,r.date),cls=liveClasses(p),g=sum(Object.values(cls)),navr=u*r.npu,f=g?navr/(g-p.liab):0;
+      r.units=u;r.nav=navr;r.classes=Object.fromEntries(Object.entries(cls).map(([k,v])=>[k,v*f]));r.liab=p.liab*f;r.gross=navr+r.liab});
+  });
+  // Q2 distribution for Pool I
+  payoutEntries('p1',650000,'2026-06-30','Q2 2026 distribution','manju',true);
+  // nightly job left a draft for Pool I
+  const dr=computeRun(S.pools[0],'nightly job');s.runs.push(dr);
+  s.requests=[{id:'REQ-1001',inv:'inv-james',pool:'p1',units:20000,date:'2026-09-21',status:'pending',note:'Partial exit'}];
+  s.audit=[];
+  logA('system','nav.compute','Growth Pool I','Nightly valuation computed · waiting for approval');
+  logA('priya','ledger.view','inv-sarah','Viewed Sarah Miller\'s holdings',{inv:'inv-sarah'});
+  logA('kavya','ledger.view','inv-anita','Viewed Anita Rao\'s holdings (audit sample)',{inv:'inv-anita'});
+  logA('manju','config.flag','exit_requests','Turned on for Anita Rao, James Tan');
+  return s}
+
+function load(){try{const r=localStorage.getItem(KEY);if(r){S=JSON.parse(r);if(S&&S.v===1)return}}catch(e){}seed()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+
+/* ============================ DOMAIN MATHS ============================ */
+const pool=id=>S.pools.find(p=>p.id===id);
+const inv=id=>S.investors.find(x=>x.id===id);
+const park=id=>S.parks.find(p=>p.id===id);
+function parkFacts(pid){const p=park(pid);let head=0,kg=0;p.farms.forEach(f=>f.sheds.forEach(s=>{head+=s.head;kg+=s.head*s.avg}));return{head,kg,avg:head?kg/head:0}}
+function liveClasses(p){const c={livestock:0,land:0,infra:0,industry:0,wc:0};
+  p.scope.forEach(sc=>{const f=parkFacts(sc.park);c.livestock+=f.kg*p.rule.price*(1-p.rule.cts/100)*sc.pct/100});
+  p.assets.forEach(a=>c[a.cls]+=a.val);return c}
+function poolLiveNav(p){return sum(Object.values(liveClasses(p)))-p.liab}
+function runsOf(pid){return S.runs.filter(r=>r.pool===pid).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0)}
+function approvedRun(pid,asOf=TODAY){const a=runsOf(pid).filter(r=>r.status==='approved'&&r.date<=asOf);return a[a.length-1]||null}
+function draftRun(pid){return S.runs.find(r=>r.pool===pid&&r.status==='draft')||null}
+function npuAt(pid,d=TODAY){const r=approvedRun(pid,d);return r?r.npu:pool(pid).unitStart}
+function unitsOf(iv,pid,asOf=TODAY){return r4(sum(S.ledger.filter(l=>l.inv===iv&&l.pool===pid&&l.date<=asOf),l=>l.units))}
+function totalUnits(pid,asOf=TODAY){return r4(sum(S.ledger.filter(l=>l.pool===pid&&l.date<=asOf),l=>l.units))}
+function poolNav(pid){return totalUnits(pid)*npuAt(pid)+pendingCash(pid)}
+function pendingCash(pid,iv){return sum(S.ledger.filter(l=>l.pending&&l.pool===pid&&(!iv||l.inv===iv)),l=>l.base)}
+function pricingRun(pid,d){return runsOf(pid).find(r=>r.status==='approved'&&r.date>=d)||null}
+function computeRun(p,by){const c=liveClasses(p),g=sum(Object.values(c)),nav=g-p.liab,u=totalUnits(p.id),pc=pendingCash(p.id),npu=u>0?(nav-pc)/u:p.unitStart;
+  const facts=p.scope.map(sc=>({park:sc.park,pct:sc.pct,...parkFacts(sc.park)}));
+  return{id:nid('NAV'),pool:p.id,date:TODAY,classes:c,gross:g,liab:p.liab,nav,pending:pc,units:u,npu:r4(npu),status:'draft',by,inputs:{price:p.rule.price,cts:p.rule.cts,facts}}}
+function allocatePending(run){const got=[];S.ledger.filter(l=>l.pending&&l.pool===run.pool&&l.date<=run.date).forEach(l=>{l.units=r4(l.base/run.npu);l.npu=run.npu;l.pending=false;l.pricedOn=run.date;got.push(l)});return got}
+function invested(iv,pid){return sum(S.ledger.filter(l=>l.inv===iv&&(!pid||l.pool===pid)&&(l.kind==='subscription'||(l.kind==='correction'&&l.revKind==='subscription'))),l=>l.base)}
+function received(iv,pid){return -sum(S.ledger.filter(l=>l.inv===iv&&(!pid||l.pool===pid)&&['payout','redemption'].includes(l.kind)||(l.inv===iv&&(!pid||l.pool===pid)&&l.kind==='correction'&&['payout','redemption'].includes(l.revKind))),l=>l.base)}
+function holdingsOf(iv){return S.pools.map(p=>{const u=unitsOf(iv,p.id);if(u<=0&&!S.ledger.some(l=>l.inv===iv&&l.pool===p.id))return null;const npu=npuAt(p.id),tu=totalUnits(p.id),pend=pendingCash(p.id,iv);return{pool:p,units:u,npu,pending:pend,value:u*npu+pend,share:tu?u/tu:0,inv:invested(iv,p.id),rec:received(iv,p.id)}}).filter(Boolean)}
+function portfolio(iv,pids){const h=holdingsOf(iv).filter(x=>!pids||pids.includes(x.pool.id));const value=sum(h,x=>x.value),inv_=sum(h,x=>x.inv),rec=sum(h,x=>x.rec);
+  const split={};CLASS.forEach(c=>split[c[0]]=0);h.forEach(x=>{const r=approvedRun(x.pool.id);if(!r||!r.classes)return;const g=sum(Object.values(r.classes));if(!g)return;Object.entries(r.classes).forEach(([k,v])=>split[k]+=x.value*(v/g))});
+  return{h,value,invested:inv_,received:rec,gain:value+rec-inv_,moic:inv_?(value+rec)/inv_:0,split}}
+function valueHistory(iv){const dates=[...new Set(S.runs.filter(r=>r.status==='approved').map(r=>r.date))].sort();
+  return dates.map(d=>({d,v:sum(S.pools,p=>unitsOf(iv,p.id,d)*npuAt(p.id,d))})).filter(x=>x.v>0)}
+function aumHistory(){const dates=[...new Set(S.runs.filter(r=>r.status==='approved').map(r=>r.date))].sort();
+  return dates.map(d=>({d,by:Object.fromEntries(S.pools.map(p=>[p.id,totalUnits(p.id,d)*npuAt(p.id,d)]))}))}
+function parkShareUsed(pk,exceptPool){return sum(S.pools.filter(p=>p.id!==exceptPool),p=>sum(p.scope.filter(s=>s.park===pk),s=>+s.pct))}
+function fxTo(inr,ccy){return inr/(S.fx.rates[ccy]||1)}
+function flagOn(k,ivId){const f=S.flags[k];if(!f||!f.on)return false;return f.who==='all'||(ivId&&f.lps.includes(ivId))}
+
+/* ============================ PERMISSIONS ============================ */
+function grant(pid){const g=S.grants[pid];if(!g)return null;if(g.expires&&g.expires<TODAY)return{...g,level:'none',expired:true};return g}
+const rank=l=>LEVELS.indexOf(l);
+const LEVEL_ACTS={none:[],view:['view'],do:['view','do'],oversee:['view','oversee'],configure:['view','do','oversee','configure']};
+function can(actor,need,poolId){const g=grant(actor);if(!g||!LEVEL_ACTS[g.level].includes(need))return false;if(!poolId||g.pools==='all')return true;return g.pools.includes(poolId)}
+function poolsFor(actor){const g=grant(actor);if(!g||g.level==='none')return[];return S.pools.filter(p=>g.pools==='all'||g.pools.includes(p.id))}
+function investorsFor(actor){const ps=poolsFor(actor).map(p=>p.id),g=grant(actor);if(g&&g.pools==='all')return S.investors;return S.investors.filter(i=>S.ledger.some(l=>l.inv===i.id&&ps.includes(l.pool))||!S.ledger.some(l=>l.inv===i.id))}
+function canPII(actor){const g=grant(actor);return !!(g&&g.level!=='none'&&g.pii)}
+function configureHolders(){return S.people.filter(p=>{const g=S.grants[p.id];return g&&g.level==='configure'&&!g.expires}).length}
+const who=id=>id==='system'?'System':(S.people.find(p=>p.id===id)?.name||inv(id)?.name||id);
+
+/* ============================ AUDIT ============================ */
+function logA(actor,action,target,detail,extra={}){S.audit.unshift({t:new Date().toISOString(),day:TODAY,actor,action,target,detail,...extra});if(S.audit.length>400)S.audit.length=400}
+
+/* ============================ MUTATIONS ============================ */
+function addWC(p,delta){let a=p.assets.find(x=>x.cls==='wc');if(!a){a={id:nid('A'),cls:'wc',name:'Cash, feed stock, receivables',val:0,basis:'Book value'};p.assets.push(a)}a.val=r2(a.val+delta)}
+function payoutEntries(pid,amount,date,note,by,seedMode){const tu=totalUnits(pid,date);if(tu<=0)return[];const holders=S.investors.map(i=>({i,u:unitsOf(i.id,pid,date)})).filter(x=>x.u>0);
+  let paid=0;const rows=holders.map(x=>{const amt=Math.floor(amount*x.u/tu*100)/100;paid+=amt;return{inv:x.i.id,units:x.u,amt}});
+  if(!seedMode)return rows;
+  rows.forEach(r=>S.ledger.push({id:nid('L'),pool:pid,inv:r.inv,kind:'payout',units:0,base:-r.amt,paidCcy:'INR',paidAmt:r.amt,fx:1,npu:npuAt(pid,date),date,note,by}));
+  return rows}
+
+/* ============================ APP INSTANCES ============================ */
+const INST={};
+function mkInst(key,mode,elId){INST[key]={key,mode,el:document.getElementById(elId),route:mode==='ceo'?'dashboard':'portfolio',arg:null,actor:'manju',lp:'inv-anita',drawer:false,t:{},dlg:null,charts:[],draft:null}}
+function go(inst,route,arg=null){inst.route=route;inst.arg=arg;inst.drawer=false;inst.draft=null;inst.reveal=null;inst.errs=null;
+  if(inst.mode==='ceo'&&route==='investor'&&arg&&can(inst.actor,'view')){logA(inst.actor,'ledger.view',arg,'Viewed '+(inv(arg)?.name||'')+'\'s holdings',{inv:arg});save()}
+  render(inst);const sc=inst.el.closest('.pscr')?inst.el:null;if(sc)sc.scrollTop=0;else if(inst.el.getBoundingClientRect().top<0)inst.el.scrollIntoView({block:'start'})}
+function rerenderAll(except){Object.values(INST).forEach(i=>{if(i!==except&&i.el.offsetParent!==null)render(i)});}
+function commit(inst){save();render(inst);rerenderAll(inst)}
+function toast(msg,kind='ok'){const t=document.createElement('div');t.className='toast '+kind;t.innerHTML=`<span class="ic">${ic(kind==='ok'?'check':'alert')}</span><span>${esc(msg)}</span>`;document.getElementById('toasts').appendChild(t);setTimeout(()=>{t.style.transition='opacity .3s';t.style.opacity='0';setTimeout(()=>t.remove(),300)},3000)}
+
+/* ============================ RENDER CORE ============================ */
+function render(inst){
+  const act=document.activeElement,fid=act&&inst.el.contains(act)?act.id:null,sel=fid&&act.selectionStart!=null?[act.selectionStart,act.selectionEnd]:null;
+  const sy=inst.el.querySelector('.dlg')?.scrollTop;
+  inst.charts.forEach(c=>{try{c.destroy()}catch(e){}});inst.charts=[];inst.pend=[];
+  const body=inst.mode==='ceo'?ceoPage(inst):lpPage(inst);
+  inst.el.innerHTML=shell(inst,body)+(inst.dlg?dialogHtml(inst):'');
+  if(fid){const n=document.getElementById(fid);if(n){n.focus({preventScroll:true});if(sel&&n.setSelectionRange)try{n.setSelectionRange(sel[0],sel[1])}catch(e){}}}
+  if(sy){const d=inst.el.querySelector('.dlg');if(d)d.scrollTop=sy}
+  mountCharts(inst);
+  if(inst.dlg&&DLG_AFTER[inst.dlg.type])DLG_AFTER[inst.dlg.type](inst)}
+const uid=(inst,k)=>inst.key+'-'+k;
+
+function shell(inst,page){
+  const ceo=inst.mode==='ceo';
+  const nav=ceo?ceoNav(inst):lpNav(inst);
+  const who_=ceo?S.people.find(p=>p.id===inst.actor):inv(inst.lp);
+  const g=ceo?grant(inst.actor):null;
+  const sub=ceo?(who_.title+' · '+(g&&g.level!=='none'?LVL_LABEL[g.level]:'No access')):(who_.type+' · '+who_.country);
+  const myp=ceo?poolsFor(inst.actor).map(p=>p.id):[];const pend=ceo?(S.runs.filter(r=>r.status==='draft'&&myp.includes(r.pool)).length+(flagAny('exit_requests')?S.requests.filter(r=>r.status==='pending'&&myp.includes(r.pool)).length:0)):0;
+  const ctxSel=ceo?`<label class="ws" title="Prototype only: sign in as another staff member to test their access"><span class="av sm" style="width:28px;height:28px;font-size:11px">${initials(who_.name)}</span><span class="tagx">Prototype · signed in as</span><select id="${uid(inst,'actor')}" data-c="actor" aria-label="Signed in as staff member">${S.people.map(p=>`<option value="${p.id}" ${p.id===inst.actor?'selected':''}>${esc(p.name)} · ${esc(p.title.split(' ·')[0])}</option>`).join('')}</select></label>`
+    :`<label class="ws" title="Prototype only: sign in as another LP"><span class="av sm" style="width:28px;height:28px;font-size:11px">${initials(who_.name)}</span><span class="tagx">Signed in as</span><select id="${uid(inst,'lpsel')}" data-c="lp" aria-label="Signed in as LP">${S.investors.filter(i=>i.status!=='invited').map(i=>`<option value="${i.id}" ${i.id===inst.lp?'selected':''}>${esc(i.name)}</option>`).join('')}</select></label>`;
+  return `<div class="lay ${inst.drawer?'dopen':''}">
+   <div class="scrim" data-a="drawer" data-v="0"></div>
+   <aside class="snav" aria-label="Navigation">
+     <div class="brand"><i>M</i>${ceo?'Mesha Exchange':'Mesha Investor'}</div>
+     <div class="who"><span class="ring"><span class="av sm">${initials(who_.name)}</span></span><div style="min-width:0"><b>${esc(who_.name)}</b><small>${esc(sub)}</small></div></div>
+     ${nav}
+   </aside>
+   <div class="mw">
+     <header class="hdr"><button class="ib ham" data-a="drawer" data-v="1" aria-label="Open menu">${ic('menu')}</button>${ctxSel}<span class="sp"></span>
+       <div class="srch">${ic('search')}Search<kbd>⌘K</kbd></div>
+       <button class="ib" aria-label="Notifications" data-a="nav" data-r="${ceo?'dashboard':'portfolio'}">${ic('bell')}${pend?`<span class="bdg">${pend}</span>`:''}</button>
+       <span class="ring"><span class="av sm">${initials(who_.name)}</span></span></header>
+     <main class="pg">${page}</main>
+   </div></div>`}
+function navItems(inst,groups){return groups.map(([h,items])=>`<div class="nsub">${h}</div>`+items.filter(Boolean).map(([r,i,l,c])=>`<button class="nav ${inst.route===r||(inst.route.startsWith(r+'-'))?'on':''}" data-a="nav" data-r="${r}">${ic(i)}${l}${c?`<span class="cnt">${c}</span>`:''}</button>`).join('')).join('')}
+function ceoNav(inst){const g=grant(inst.actor);if(!g||g.level==='none')return navItems(inst,[['Overview',[['dashboard','dash','Dashboard']]]]);
+  const ps=poolsFor(inst.actor).map(p=>p.id);
+  const drafts=S.runs.filter(r=>r.status==='draft'&&ps.includes(r.pool)).length,reqs=flagAny('exit_requests')?S.requests.filter(r=>r.status==='pending'&&ps.includes(r.pool)).length:0;
+  return navItems(inst,[['Overview',[['dashboard','dash','Dashboard']]],['Management',[['pools','pool','Pools'],['valuations','val','Valuations',drafts],['investors','users','Investors (LPs)'],['ledger','ledger','Ledger'],['payouts','pay','Payouts'],flagAny('exit_requests')?['requests','req','Exit requests',reqs]:null]],['Admin',[['access','lock','Access'],['settings','gear','Settings'],can(inst.actor,'configure')?['audit','audit','Audit log']:null]]])}
+function flagAny(k){const f=S.flags[k];return !!(f&&f.on)}
+function lpNav(inst){return navItems(inst,[['My portfolio',[['portfolio','home','Overview'],['holdings','pool','Pools'],['transactions','ledger','Transactions'],['statement','doc','Statement'],flagOn('exit_requests',inst.lp)?['sell','req','Sell units']:null]],['Account',[['profile','user','Profile & security']]]])}
+
+function head(inst,title,crumbs,actions=''){return `<div class="ph"><div><h2>${esc(title)}</h2><div class="crumbs">${crumbs.map((c,i)=>i<crumbs.length-1?`<button data-a="nav" data-r="${c[1]}" ${c[2]?`data-g="${c[2]}"`:''}>${esc(c[0])}</button><i></i>`:`<span>${esc(c[0])}</span>`).join('')}</div></div>${actions?`<div class="act">${actions}</div>`:''}</div>`}
+function btn(inst,label,act,o={}){const ok=o.need?can(inst.actor,o.need,o.pool):true;return `<button class="btn ${o.cls||''}" data-a="${act}" ${o.data||''} ${ok?'':`disabled title="Needs ${LVL_LABEL[o.need]} access on Investments"`}>${o.icon?ic(o.icon):''}${label}</button>`}
+function lbl(t,c){return `<span class="lbl l-${c}">${esc(t)}</span>`}
+function widget(title,value,delta,sub,spark,color='--brand'){const up=delta==null?null:delta>=0;
+  const sp=spark&&spark.length>1?(()=>{const mn=Math.min(...spark),mx=Math.max(...spark),w=84,h=56,px=i=>i/(spark.length-1)*w,py=v=>h-4-(mx===mn?.5:(v-mn)/(mx-mn))*(h-10);return `<svg class="sp1" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${spark.map((v,i)=>(i?'L':'M')+px(i).toFixed(1)+' '+py(v).toFixed(1)).join(' ')}" fill="none" stroke="var(${color})" stroke-width="2.5" stroke-linecap="round"/></svg>`})():'';
+  return `<div class="card ws1"><div class="t">${esc(title)}</div><div><div class="v num">${value}</div><div class="d">${up==null?'':`<span class="trend ${up?'up':'dn'}">${ic(up?'up':'dn')}${up?'+':''}${(delta*100).toFixed(1)}%</span>`}${sub?`<span>${sub}</span>`:''}</div></div>${sp}</div>`}
+
+/* ---------- table builder (Minimal list pattern) ---------- */
+function tstate(inst,k,def={}){return inst.t[k]||(inst.t[k]={page:0,rpp:def.rpp||5,q:'',tab:def.tab||'all',dense:false})}
+function tableCard(inst,k,{title,sub,tabs,search,filters='',cols,rows,rpp=5,empty='Nothing here yet',right='',noPage}){
+  const st=tstate(inst,k,{rpp});
+  const pages=Math.max(1,Math.ceil(rows.length/st.rpp));if(st.page>=pages)st.page=pages-1;
+  const vis=noPage?rows:rows.slice(st.page*st.rpp,st.page*st.rpp+st.rpp);
+  const tabsH=tabs?`<div class="tabs" role="tablist">${tabs.map(t=>`<button role="tab" class="${st.tab===t.v?'on':''}" data-a="ttab" data-k="${k}" data-v="${t.v}">${esc(t.l)} ${lbl(t.n,st.tab===t.v?(t.c||'brand'):(t.c||'def'))}</button>`).join('')}</div>`:'';
+  const bar=search||filters?`<div class="tbar">${filters}${search?`<label class="srchf grow">${ic('search')}<input id="${uid(inst,k+'-q')}" data-c="tq" data-k="${k}" value="${esc(st.q)}" placeholder="${esc(search)}" aria-label="${esc(search)}"></label>`:''}</div>`:'';
+  const thead=`<thead><tr>${cols.map(c=>`<th class="${c.r?'r':''}">${esc(c.l)}</th>`).join('')}</tr></thead>`;
+  const tb=vis.length?vis.map(r=>`<tr class="${r._click?'cl':''}" ${r._click||''}>${cols.map(c=>`<td class="${c.r?'r num':''}" data-l="${esc(c.l)}">${c.f(r)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}"><div class="empty"><b>${esc(empty)}</b>Try another filter or add one.</div></td></tr>`;
+  const foot=noPage?'':`<div class="tfoot"><label class="sw dz"><input type="checkbox" data-c="tdense" data-k="${k}" ${st.dense?'checked':''}>Dense</label><span>Rows per page <select data-c="trpp" data-k="${k}" aria-label="Rows per page">${[5,10,25].map(n=>`<option ${n===st.rpp?'selected':''}>${n}</option>`).join('')}</select></span><span class="num">${rows.length?st.page*st.rpp+1:0}–${Math.min(rows.length,(st.page+1)*st.rpp)} of ${rows.length}</span><span><button class="ib" style="width:32px;height:32px" data-a="tpg" data-k="${k}" data-v="-1" ${st.page<=0?'disabled':''} aria-label="Previous page">${ic('chev').replace('<path','<path transform="rotate(180 12 12)"')}</button><button class="ib" style="width:32px;height:32px" data-a="tpg" data-k="${k}" data-v="1" ${st.page>=pages-1?'disabled':''} aria-label="Next page">${ic('chev')}</button></span></div>`;
+  return `<div class="card">${title?`<div class="ch"><div><h3>${esc(title)}</h3>${sub?`<p>${sub}</p>`:''}</div>${right?`<div class="r">${right}</div>`:''}</div>${title&&!tabs&&!bar?'<div style="height:16px"></div>':''}`:''}${tabsH}${bar}<div class="tw"><table class="rt ${st.dense?'dense':''}">${thead}<tbody>${tb}</tbody></table></div>${foot}</div>`}
+function filt(rows,q,fn){q=(q||'').trim().toLowerCase();return q?rows.filter(r=>fn(r).toLowerCase().includes(q)):rows}
+
+/* ---------- charts ---------- */
+function cv(inst,n){return getComputedStyle(inst.el).getPropertyValue(n).trim()}
+function chart(inst,spec){const id=uid(inst,'ch'+inst.pend.length);inst.pend.push({id,spec});return `<div id="${id}" style="min-height:${spec.h||300}px"></div>`}
+function mountCharts(inst){if(typeof ApexCharts==='undefined'){inst.pend.forEach(p=>{const n=document.getElementById(p.id);if(n)n.innerHTML='<div class="empty">Chart library could not load.</div>'});return}
+  const ink=cv(inst,'--muted'),line=cv(inst,'--line2'),font=cv(inst,'--f');
+  inst.pend.forEach(({id,spec})=>{const el=document.getElementById(id);if(!el)return;
+    const colors=(spec.colors||['--brand']).map(c=>c.startsWith('--')?cv(inst,c):c);
+    const base={chart:{type:spec.type,height:spec.h||300,toolbar:{show:false},zoom:{enabled:false},fontFamily:font,foreColor:ink,background:'transparent',animations:{enabled:true,speed:700},parentHeightOffset:0},
+      colors,theme:{mode:getComputedStyle(document.documentElement).colorScheme.includes('dark')?'dark':'light'},dataLabels:{enabled:false},grid:{borderColor:line,strokeDashArray:3,padding:{left:4,right:4}},
+      stroke:{curve:'smooth',width:spec.type==='donut'?0:3},legend:{show:!!spec.legend,position:'bottom',horizontalAlign:'center',markers:{shape:'circle'},itemMargin:{horizontal:8,vertical:4}},
+      tooltip:{theme:false,y:{formatter:spec.yfmt||(v=>v)}}};
+    let opt;
+    if(spec.type==='donut')opt={...base,series:spec.series,labels:spec.labels,plotOptions:{pie:{donut:{size:'76%',labels:{show:true,value:{fontSize:'22px',fontWeight:700,formatter:v=>spec.yfmt?spec.yfmt(+v):v},total:{show:true,label:spec.total||'Total',color:ink,fontSize:'13px',formatter:w=>spec.yfmt(w.globals.seriesTotals.reduce((a,b)=>a+b,0))}}}}},states:{hover:{filter:{type:'darken',value:.85}}}};
+    else opt={...base,series:spec.series,xaxis:{categories:spec.cats,axisBorder:{show:false},axisTicks:{show:false},tickAmount:Math.min(6,Math.max(1,(spec.cats||[]).length-1)),labels:{rotate:0,hideOverlappingLabels:true,trim:false,style:{colors:ink}}},yaxis:{labels:{formatter:spec.yax||(v=>v),style:{colors:ink}}},
+      fill:spec.type==='area'?{type:'gradient',gradient:{shadeIntensity:0,opacityFrom:.35,opacityTo:0,stops:[0,100]}}:{opacity:1},plotOptions:{bar:{columnWidth:'38%',borderRadius:4}},markers:{size:0,hover:{size:5}}};
+    try{const c=new ApexCharts(el,opt);c.render();inst.charts.push(c)}catch(e){el.innerHTML='<div class="empty">Chart failed to draw.</div>'}})}
+
+/* ============================ CEO PAGES ============================ */
+function ceoPage(inst){const g=grant(inst.actor);
+  if(!g||g.level==='none')return `<div class="card x403"><div class="big">403</div><h2>No access to Investments</h2><p>${esc(who(inst.actor))} has no Investments access in HRMS${g&&g.expired?' — their grant expired on '+fdate(S.grants[inst.actor].expires):''}. Goatos roles, including admin and CEO, grant nothing here. Only a Configure holder can grant access.</p><button class="btn" data-a="actor" data-v="manju">Prototype: sign back in as Manju</button></div>`;
+  const R=CEO[inst.route.split('-')[0]]||CEO.dashboard;return R(inst)}
+const CEO={
+dashboard(inst){const ps=poolsFor(inst.actor),aum=sum(ps,p=>poolNav(p.id)),hist=aumHistory();
+  const act=S.investors.filter(i=>i.status==='active'&&investorsFor(inst.actor).includes(i)).length;
+  const ytdIn=sum(S.ledger.filter(l=>l.kind==='subscription'&&l.date>='2026-01-01'&&ps.some(p=>p.id===l.pool)),l=>l.base),ytdOut=-sum(S.ledger.filter(l=>['payout','redemption'].includes(l.kind)&&l.date>='2026-01-01'&&ps.some(p=>p.id===l.pool)),l=>l.base);
+  const aumSeries=hist.map(h=>sum(ps,p=>h.by[p.id]||0));const prev=aumSeries.at(-2)||aumSeries[0]||1;
+  const drafts=S.runs.filter(r=>r.status==='draft'&&ps.some(p=>p.id===r.pool)),reqs=S.requests.filter(r=>r.status==='pending'&&ps.some(p=>p.id===r.pool));
+  const expiring=S.people.filter(p=>{const x=S.grants[p.id];return x&&x.level!=='none'&&x.expires&&x.expires>=TODAY&&x.expires<='2026-10-31'});
+  const attention=[...drafts.map(r=>[`Valuation waiting · ${pool(r.pool).name}`,`NAV/unit ${fnpu(r.npu)} vs live ${fnpu(npuAt(r.pool))}`,'warn','valuations']),...(flagAny('exit_requests')?reqs.map(r=>[`Exit request · ${inv(r.inv).name}`,`${fu(r.units)} units · ${pool(r.pool).name}`,'info','requests']):[]),...expiring.map(p=>[`Access expiring · ${p.name}`,`${LVL_LABEL[S.grants[p.id].level]} until ${fdate(S.grants[p.id].expires)}`,'vio','access']),...investorsFor(inst.actor).filter(i=>i.status==='invited').map(i=>[`Invite pending · ${i.name}`,'Has not signed in yet','def','investors'])];
+  return head(inst,`Hi, ${who(inst.actor).split(' ')[0]} 👋`.replace(' 👋',''),[['Dashboard']],btn(inst,'Record investment','dlg',{icon:'plus',need:'do',data:'data-v="invest"'}))+
+  `<div class="grid g4">${widget('Assets under management',fm(aum,'INR',{c:1}),(aumSeries.at(-1)-prev)/prev,'vs last month',aumSeries)}${widget('Active LPs',act,null,`${S.investors.filter(i=>i.status==='invited').length} invite pending`,null)}${widget('Money in · 2026',fm(ytdIn,'INR',{c:1}),null,'subscriptions',null,'--info')}${widget('Paid out · 2026',fm(ytdOut,'INR',{c:1}),null,'payouts & buy-backs',null,'--teal')}</div>
+  <div class="grid g83"><div class="card"><div class="ch"><div><h3>Assets under management</h3><p>Approved NAV by pool, month end</p></div></div><div class="cb" style="padding-top:8px">${chart(inst,{type:'area',h:320,legend:1,colors:['--brand','--info','--violet'],cats:hist.map(h=>fmon(h.d)),series:ps.map(p=>({name:p.name,data:hist.map(h=>h.by[p.id]>0?Math.round(h.by[p.id]):null)})),yax:v=>fm(v,'INR',{c:1}),yfmt:v=>fm(v,'INR',{c:1})})}</div></div>
+   <div class="card"><div class="ch"><div><h3>AUM by pool</h3><p>Live, approved</p></div></div><div class="cb">${chart(inst,{type:'donut',h:300,legend:1,colors:['--brand','--info','--violet','--teal'],labels:ps.map(p=>p.name),series:ps.map(p=>Math.round(poolNav(p.id))),yfmt:v=>fm(v,'INR',{c:1}),total:'AUM'})}</div></div></div>
+  <div class="grid g83">${tableCard(inst,'dash-led',{title:'Recent ledger entries',cols:[{l:'Entry',f:r=>`<div class="nm"><span class="av sm">${initials(inv(r.inv).name)}</span><div><b>${esc(inv(r.inv).name)}</b><small>${esc(pool(r.pool).name)}</small></div></div>`},{l:'Type',f:r=>kindLbl(r.kind)},{l:'Units',r:1,f:r=>(r.units>0?'+':'')+fu(r.units)},{l:'Amount',r:1,f:r=>fm(Math.abs(r.base),'INR')},{l:'Date',f:r=>fdate(r.date)}],rows:S.ledger.filter(l=>ps.some(p=>p.id===l.pool)).slice().sort((a,b)=>b.date.localeCompare(a.date)).map(r=>({...r,_click:`data-a="nav" data-r="investor" data-g="${r.inv}"`})),rpp:5})}
+   <div class="card"><div class="ch"><div><h3>Needs attention</h3><p>${attention.length} item${attention.length===1?'':'s'}</p></div></div><div class="cb" style="padding-top:8px">${attention.length?attention.map(a=>`<button class="li" style="width:100%;border-left:0;border-right:0;border-top:0;background:none;text-align:left;cursor:pointer" data-a="nav" data-r="${a[3]}"><span class="dot" style="background:var(--${a[2]==='def'?'faint':a[2]==='vio'?'violet':a[2]})"></span><span class="tx"><b>${esc(a[0])}</b><small>${esc(a[1])}</small></span>${ic('chev')}</button>`).join(''):'<div class="empty"><b>All clear</b>Nothing waiting on you.</div>'}</div></div></div>`},
+
+pools(inst){const ps=poolsFor(inst.actor);
+  return head(inst,'Pools',[['Dashboard','dashboard'],['Pools']],btn(inst,'New pool','nav',{icon:'plus',need:'configure',data:'data-r="pooledit" data-g="new"'}))+
+  `<div class="grid g2">${ps.map(p=>{const nav=poolNav(p.id),tu=totalUnits(p.id),lps=new Set(S.ledger.filter(l=>l.pool===p.id&&unitsOf(l.inv,p.id)>0).map(l=>l.inv)).size,c=liveClasses(p),g=sum(Object.values(c));
+    return `<div class="card"><div class="ch"><div><h3>${esc(p.name)}</h3><p>${p.scope.map(s=>esc(park(s.park).name)+(s.pct<100?` (${s.pct}%)`:'')).join(' · ')}</p></div><div class="r">${lbl(p.status==='open'?'Open':p.status==='closed'?'Closed':'Draft',p.status==='open'?'ok':p.status==='closed'?'def':'warn')}</div></div>
+    <div class="cb"><div class="grid g3" style="gap:16px"><div><div class="muted" style="font-size:13px">NAV</div><div class="num" style="font:700 20px var(--fd)">${fm(nav,p.base,{c:1})}</div></div><div><div class="muted" style="font-size:13px">NAV / unit</div><div class="num" style="font:700 20px var(--fd)">${fnpu(npuAt(p.id),p.base)}</div></div><div><div class="muted" style="font-size:13px">LPs · units</div><div class="num" style="font:700 20px var(--fd)">${lps} · ${fu(tu)}</div></div></div>
+    <div class="stack" style="margin:18px 0 8px">${CLASS.map(([k,,col])=>c[k]>0?`<span title="${CLS_LABEL[k]}" style="flex:${c[k]};background:var(${col})"></span>`:'').join('')}</div>
+    <div class="chips" style="gap:14px">${CLASS.map(([k,l,col])=>c[k]>0?`<span class="muted" style="font-size:12.5px;display:flex;align-items:center;gap:6px"><i class="dot" style="background:var(${col})"></i>${l} ${pct(c[k]/g,0)}</span>`:'').join('')}</div>
+    <div style="display:flex;gap:8px;margin-top:20px;flex-wrap:wrap">${btn(inst,'Edit pool','nav',{icon:'edit',cls:'o',need:'configure',pool:p.id,data:`data-r="pooledit" data-g="${p.id}"`})}${btn(inst,'Valuation','nav',{cls:'s',data:'data-r="valuations"'})}${btn(inst,'Record investment','dlg',{cls:'t',need:'do',pool:p.id,data:`data-v="invest" data-g="${p.id}"`})}</div>${tu===0&&poolLiveNav(p)>0?`<div class="al warn" style="margin-top:16px">${ic('alert')}<span>This pool already holds ${fm(poolLiveNav(p),'INR',{c:1})} of assets and has no units. Issue sponsor units to Mesha for them first, so the first LP doesn't get them for free.</span>${btn(inst,'Issue sponsor units','sponsor',{cls:'sm',need:'configure',pool:p.id,data:`data-v="${p.id}"`})}</div>`:''}</div></div>`}).join('')||'<div class="card empty"><b>No pools in your scope</b></div>'}</div>`},
+
+pooledit(inst){const isNew=inst.arg==='new';if(!can(inst.actor,'configure',isNew?null:inst.arg))return head(inst,'Edit pool',[['Pools','pools'],['Edit']])+'<div class="al warn">'+ic('lock')+'<span>You need <b>Configure</b> on this pool to edit it.</span></div>';
+  if(!inst.draft){const src=isNew?{id:'new',name:'',base:'INR',unitStart:1,status:'draft',accepted:['INR'],scope:[],rule:{price:420,cts:6,maxAge:14},approval:'manual',autoLimit:3,liab:0,assets:[]}:pool(inst.arg);inst.draft=JSON.parse(JSON.stringify(src));inst.errs={}}
+  const p=inst.draft,E=inst.errs||{},locked=!isNew&&totalUnits(p.id)>0;
+  const tf=(label,name,val,o={})=>`<label class="tf ${E[name]?'err':''} ${o.full?'full':''}"><span>${label}</span>${o.sel?`<select id="${uid(inst,'pe-'+name)}" name="${name}" ${o.dis?'disabled':''}>${o.sel.map(x=>`<option value="${x[0]}" ${String(x[0])===String(val)?'selected':''}>${esc(x[1])}</option>`).join('')}</select>`:`<input id="${uid(inst,'pe-'+name)}" name="${name}" value="${esc(val)}" ${o.type?`type="${o.type}" step="any"`:''} ${o.dis?'disabled':''}>`}${E[name]||o.help?`<em>${esc(E[name]||o.help)}</em>`:''}</label>`;
+  return head(inst,isNew?'Create a pool':'Edit '+p.name,[['Dashboard','dashboard'],['Pools','pools'],[isNew?'New':'Edit']])+
+  `<form data-f="pool" novalidate>
+  <div class="fsec"><div class="dsc"><h4>Details</h4><p>Name, currency and how units start. The base currency is fixed once the first unit is issued.</p></div><div class="card cb"><div class="fgrid">
+   ${tf('Pool name','name',p.name,{full:1})}
+   ${tf('Base currency','base',p.base,{sel:[['INR','INR']],dis:1,help:'INR only in v1: the herd, land and costs are all in rupees. LPs still pay and view in their own currency.'})}
+   ${tf('Unit start price','unitStart',p.unitStart,{type:'number',dis:locked,help:'First investment buys at this price per unit'})}
+   ${tf('Status','status',p.status,{sel:[['draft','Draft · not visible to LPs'],['open','Open · accepting money'],['closed','Closed · no new money']]})}
+   ${tf('Liabilities (fees, payables) · '+p.base,'liab',p.liab,{type:'number'})}
+   <div class="full"><div class="muted" style="font-size:13px;font-weight:600;margin-bottom:8px">Accepted currencies for new money</div><div class="chips">${S.settings.currencies.map(c=>`<button type="button" class="chip ${p.accepted.includes(c)?'on':''}" data-a="pe-ccy" data-v="${c}">${p.accepted.includes(c)?ic('check'):''}${c}</button>`).join('')}</div>${E.accepted?`<div class="tf err"><em>${esc(E.accepted)}</em></div>`:''}</div>
+  </div></div></div>
+  <div class="fsec"><div class="dsc"><h4>What the pool owns</h4><p>Parks from goatos, and what % of each belongs to this pool. The same park can be split across pools, up to 100% in total.</p></div><div class="card cb">
+   ${p.scope.map((s,i)=>{const used=parkShareUsed(s.park,p.id);return `<div class="fgrid" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;align-items:start;margin-bottom:20px">${tf('Park','sc_park_'+i,s.park,{sel:S.parks.map(k=>[k.id,k.name+' · '+k.region])})}${tf('Share %','sc_pct_'+i,s.pct,{type:'number',help:`Other pools use ${used}% · free ${Math.max(0,100-used)}%`})}<button type="button" class="ib" style="margin-top:7px" data-a="pe-rm" data-k="scope" data-v="${i}" aria-label="Remove park">${ic('trash')}</button></div>`}).join('')}
+   ${E.scope?`<div class="al err" style="margin-bottom:16px">${ic('alert')}<span>${esc(E.scope)}</span></div>`:''}
+   <button type="button" class="btn s" data-a="pe-add" data-k="scope">${ic('plus')}Add park</button>
+  </div></div>
+  <div class="fsec"><div class="dsc"><h4>Livestock valuation rule</h4><p>Livestock is never typed in. It is calculated from goatos weighings × price per kg, less selling costs.</p></div><div class="card cb"><div class="fgrid">
+   ${tf('Price per kg · live weight','price',p.rule.price,{type:'number',help:'From Mesha realised sales, 30-day average'})}
+   ${tf('Costs to sell %','cts',p.rule.cts,{type:'number'})}
+   ${tf('Ignore weighings older than (days)','maxAge',p.rule.maxAge,{type:'number'})}
+   ${tf('Valuation approval','approval',p.approval,{sel:[['manual','Manual · an Oversee holder approves every run'],['auto','Auto · approve if change is within limit']]})}
+   ${tf('Auto-approve limit (% change)','autoLimit',p.autoLimit,{type:'number',help:'Bigger moves always wait for a person'})}
+  </div></div></div>
+  <div class="fsec"><div class="dsc"><h4>Other assets</h4><p>Land, sheds, stakes and cash. Values here feed the next valuation run.</p></div><div class="card cb">
+   ${p.assets.map((a,i)=>`<div class="fgrid" style="grid-template-columns:minmax(0,1.1fr) minmax(0,2fr) minmax(0,1.1fr) auto;align-items:start;margin-bottom:20px">${tf('Class','as_cls_'+i,a.cls,{sel:CLASS.filter(c=>c[0]!=='livestock').map(c=>[c[0],c[1]])})}${tf('Name','as_name_'+i,a.name)}${tf('Value · '+p.base,'as_val_'+i,a.val,{type:'number'})}<button type="button" class="ib" style="margin-top:7px" data-a="pe-rm" data-k="assets" data-v="${i}" aria-label="Remove asset">${ic('trash')}</button></div>`).join('')}
+   ${E.assets?`<div class="al err" style="margin-bottom:16px">${ic('alert')}<span>${esc(E.assets)}</span></div>`:''}
+   <button type="button" class="btn s" data-a="pe-add" data-k="assets">${ic('plus')}Add asset</button>
+  </div></div>
+  <div style="display:flex;justify-content:flex-end;gap:10px"><button type="button" class="btn o lg" data-a="nav" data-r="pools">Cancel</button><button class="btn lg">${isNew?'Create pool':'Save changes'}</button></div></form>`},
+
+valuations(inst){const ps=poolsFor(inst.actor);
+  return head(inst,'Valuations',[['Dashboard','dashboard'],['Valuations']])+
+  `<div class="al info" style="margin-bottom:24px">${ic('info')}<span>LPs only ever see <b>approved</b> valuations. Running a valuation reads live herd weights from goatos and the pool's asset values; nothing changes for LPs until it is approved.</span></div>`+
+  ps.map(p=>{const d=draftRun(p.id),live=approvedRun(p.id),hist=runsOf(p.id).filter(r=>r.status==='approved');const diff=d&&live?(d.npu-live.npu)/live.npu:null;
+    const mc=S.settings.makerChecker&&d&&d.by===inst.actor;
+    return `<div class="card" style="margin-bottom:24px"><div class="ch"><div><h3>${esc(p.name)}</h3><p>Live NAV/unit <b class="num">${fnpu(npuAt(p.id),p.base)}</b> · approved ${live?fdate(live.date):'—'} · approval ${p.approval==='auto'?'auto within '+p.autoLimit+'%':'manual'}</p></div><div class="r">${btn(inst,'Run valuation','runval',{icon:'val',cls:'o',need:'do',pool:p.id,data:`data-v="${p.id}"`})}</div></div>
+    <div class="cb"><div class="grid g2">
+     <div>${d?`<div class="al ${Math.abs(diff)>p.autoLimit/100?'warn':'ok'}" style="margin-bottom:16px">${ic('alert')}<span><b>Draft ${fdate(d.date)}</b> · NAV/unit <b class="num">${fnpu(d.npu,p.base)}</b> (${diff>=0?'+':''}${pct(diff,2)} vs live) · prepared by ${esc(who(d.by))}</span></div>
+      <div class="calc">${d.inputs.facts.map(f=>`${esc(park(f.park).name)} × ${f.pct}%: ${f.head.toLocaleString('en-IN')} head · ${Math.round(f.kg).toLocaleString('en-IN')} kg`).join('<br>')}<br>× ₹${d.inputs.price}/kg × (1 − ${d.inputs.cts}%)  = livestock ${fm(d.classes.livestock,'INR',{c:1})}<br>+ land ${fm(d.classes.land,'INR',{c:1})} + infra ${fm(d.classes.infra,'INR',{c:1})} + stakes ${fm(d.classes.industry,'INR',{c:1})} + cash ${fm(d.classes.wc,'INR',{c:1})}<br>− liabilities ${fm(d.liab,'INR',{c:1})} = NAV <b>${fm(d.nav,'INR',{c:1})}</b>${d.pending?`<br>− money awaiting units ${fm(d.pending,'INR',{c:1})}`:''}<br>÷ ${fu(d.units)} units = <b>${fnpu(d.npu)}</b> per unit${d.pending?'<br>On approval, waiting money gets units at this price':''}</div>
+      <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">${mc?`<button class="btn" disabled title="Maker-checker is on: someone else must approve">Approve</button>`:btn(inst,'Approve and publish','approve',{icon:'check',need:'oversee',pool:p.id,data:`data-v="${d.id}"`})}${btn(inst,'Discard draft','discard',{cls:'o',need:'do',pool:p.id,data:`data-v="${d.id}"`})}</div>${mc?'<p class="muted" style="font-size:13px">Maker-checker is on, so the person who ran it can\'t approve it.</p>':''}`
+      :`<div class="empty"><b>No draft waiting</b>Run a valuation to price today's herd and assets.</div>`}</div>
+     <div>${chart(inst,{type:'line',h:240,colors:['--brand'],cats:hist.map(h=>fmon(h.date)),series:[{name:'NAV / unit',data:hist.map(h=>+h.npu.toFixed(4))}],yax:v=>v.toFixed(3),yfmt:v=>fnpu(v,p.base)})}</div></div></div>
+    ${tableCard(inst,'runs-'+p.id,{cols:[{l:'Date',f:r=>fdate(r.date)},{l:'NAV / unit',r:1,f:r=>fnpu(r.npu,p.base)},{l:'NAV',r:1,f:r=>r.nav!=null?fm(r.nav,'INR',{c:1}):'—'},{l:'Status',f:r=>lbl(r.status==='approved'?'Approved':r.status==='draft'?'Draft':'Discarded',r.status==='approved'?'ok':r.status==='draft'?'warn':'def')},{l:'Prepared · approved',f:r=>esc(who(r.by))+(r.approvedBy?' · '+esc(who(r.approvedBy)):'')}],rows:runsOf(p.id).slice().reverse(),rpp:5})}</div>`}).join('')},
+
+investors(inst){const list=investorsFor(inst.actor),st=tstate(inst,'inv'),vis=poolsFor(inst.actor).map(p=>p.id);const pii=canPII(inst.actor);
+  const tabs=[{v:'all',l:'All',n:list.length},{v:'active',l:'Active',n:list.filter(i=>i.status==='active').length,c:'ok'},{v:'invited',l:'Invited',n:list.filter(i=>i.status==='invited').length,c:'warn'},{v:'exited',l:'Exited',n:list.filter(i=>i.status==='exited').length,c:'def'}];
+  let rows=list.filter(i=>st.tab==='all'||i.status===st.tab);rows=filt(rows,st.q,i=>i.name+' '+i.country+' '+i.email);
+  return head(inst,'Investors',[['Dashboard','dashboard'],['Investors']],btn(inst,'New investor','nav',{icon:'plus',need:'do',data:'data-r="invedit" data-g="new"'}))+
+  tableCard(inst,'inv',{tabs,search:'Search name, country or email',cols:[
+   {l:'Investor',f:i=>`<div class="nm"><span class="av">${initials(i.name)}</span><div><b>${esc(i.name)}</b><small>${pii?esc(i.email):maskEmail(i.email)}</small></div></div>`},
+   {l:'Type',f:i=>esc(i.type)},{l:'Country · currency',f:i=>esc(i.country)+' · '+i.ccy},
+   {l:'Invested',r:1,f:i=>fm(portfolio(i.id,vis).invested,'INR',{c:1})},{l:'Value today',r:1,f:i=>fm(portfolio(i.id,vis).value,'INR',{c:1})},
+   {l:'Status',f:i=>lbl(i.status[0].toUpperCase()+i.status.slice(1),i.status==='active'?'ok':i.status==='invited'?'warn':'def')}],rows:rows.map(i=>({...i,_click:`data-a="nav" data-r="investor" data-g="${i.id}"`})),rpp:5})},
+
+investor(inst){const i=inv(inst.arg);if(!i||!investorsFor(inst.actor).includes(i))return head(inst,'Investor',[['Investors','investors'],['Not found']])+'<div class="card empty"><b>Not in your scope</b></div>';
+  const vis=poolsFor(inst.actor).map(p=>p.id);const pf=portfolio(i.id,vis),pii=canPII(inst.actor),rv=pii&&inst.reveal===i.id;
+  return head(inst,i.name,[['Dashboard','dashboard'],['Investors','investors'],[i.name]],`${btn(inst,'Edit','nav',{icon:'edit',cls:'o',need:'do',data:`data-r="invedit" data-g="${i.id}"`})}${btn(inst,'Record investment','dlg',{icon:'plus',need:'do',data:`data-v="invest" data-i="${i.id}"`})}`)+
+  `<div class="grid g4">${widget('Invested',fm(pf.invested,'INR',{c:1}),null,'all pools',null)}${widget('Value today',fm(pf.value,'INR',{c:1}),pf.invested?(pf.value+pf.received-pf.invested)/pf.invested:null,'total return',null)}${widget('Paid out',fm(pf.received,'INR',{c:1}),null,'distributions & buy-backs',null)}${widget('MOIC',pf.moic.toFixed(2)+'×',null,fm(pf.gain,'INR',{c:1})+' gain',null)}</div>
+  <div class="grid g83">${tableCard(inst,'hold-'+i.id,{title:'Holdings',sub:'Units × approved NAV per unit',noPage:1,cols:[{l:'Pool',f:h=>`<b>${esc(h.pool.name)}</b>`},{l:'Units',r:1,f:h=>fu(h.units)},{l:'NAV / unit',r:1,f:h=>fnpu(h.npu)},{l:'% of pool',r:1,f:h=>pct(h.share,2)},{l:'Value',r:1,f:h=>'<b>'+fm(h.value,'INR',{c:1})+'</b>'}],rows:pf.h,empty:'No holdings yet'})}
+   <div class="card"><div class="ch"><div><h3>Contact & KYC</h3><p>${pii?(rv?'Showing full details · logged':'Masked · reveal is logged'):'Masked · your grant has no PII access'}</p></div>${pii?`<div class="r"><button class="btn ${rv?'o':'s'} sm" data-a="reveal" data-v="${rv?'':i.id}">${ic('eye')}${rv?'Hide':'Reveal'}</button></div>`:''}</div><div class="cb"><dl class="dl">
+    <dt>Email</dt><dd>${rv?esc(i.email):maskEmail(i.email)}</dd><dt>Phone</dt><dd>${rv?esc(i.phone):mask(i.phone)}</dd><dt>Tax ID</dt><dd>${rv?esc(i.tax):mask(i.tax)}</dd><dt>Bank</dt><dd>${rv?esc(i.bank):mask(i.bank)}</dd><dt>Display currency</dt><dd>${i.ccy}</dd><dt>Status</dt><dd>${esc(i.status)}${i.status==='invited'?' · '+btn(inst,'Mark signed in (demo)','activate',{cls:'t sm',need:'do',data:`data-v="${i.id}"`}):''}</dd><dt>Logins</dt><dd>${i.logins.length?i.logins.map(l=>esc(l.name)+' · '+esc(l.mfa)).join('<br>'):'None yet'}</dd></dl></div></div></div>
+  ${ledgerTable(inst,'led-'+i.id,S.ledger.filter(l=>l.inv===i.id&&vis.includes(l.pool)),'Ledger · '+i.name,false)}`},
+
+invedit(inst){const isNew=inst.arg==='new';if(!can(inst.actor,'do'))return '<div class="al warn">'+ic('lock')+'<span>You need <b>Do</b> access.</span></div>';
+  const i=isNew?{name:'',type:'Individual',country:'India',ccy:'INR',email:'',phone:'',tax:'',bank:'',status:'invited'}:inv(inst.arg);const E=inst.errs||{};const pii=canPII(inst.actor)||isNew;
+  const tf=(l,n,v,o={})=>`<label class="tf ${E[n]?'err':''} ${o.full?'full':''}"><span>${l}</span>${o.sel?`<select id="${uid(inst,'ie-'+n)}" name="${n}">${o.sel.map(x=>`<option ${x===v?'selected':''}>${esc(x)}</option>`).join('')}</select>`:`<input id="${uid(inst,'ie-'+n)}" name="${n}" value="${esc(o.mask?'':v)}" placeholder="${o.mask?esc(o.mask):''}" ${o.t?`type="${o.t}"`:''}>`}${E[n]||o.help?`<em>${esc(E[n]||o.help)}</em>`:''}</label>`;
+  return head(inst,isNew?'New investor':'Edit '+i.name,[['Investors','investors'],[isNew?'New':'Edit']])+
+  `<form data-f="inv" novalidate><div class="grid g38"><div class="card cb" style="text-align:center"><div class="av" style="width:112px;height:112px;margin:12px auto 16px;font-size:34px">${initials(i.name||'LP')}</div><p class="muted" style="font-size:13px">An invite link is emailed when saved. It works once, expires in 48 h, and asks the LP to set up two-step login.</p>${lbl(i.status,'warn')}</div>
+  <div class="card cb"><div class="fgrid">${tf('Full name or entity name','name',i.name,{full:1})}${tf('Type','type',i.type,{sel:['Individual','Entity']})}${tf('Country','country',i.country)}${tf('Display currency','ccy',i.ccy,{sel:S.settings.currencies})}${tf('Email','email',i.email,{t:'email',mask:!pii?maskEmail(i.email)+' · leave blank to keep':''})}${tf('Phone','phone',i.phone,{mask:!pii?mask(i.phone)+' · leave blank to keep':''})}${tf('Tax ID (PAN / SSN / TRN)','tax',i.tax,{mask:!pii?mask(i.tax)+' · leave blank to keep':'',help:'Encrypted · only shown masked'})}${tf('Payout bank account','bank',i.bank,{full:1,mask:!pii?mask(i.bank)+' · leave blank to keep':'',help:'Encrypted · only shown masked'})}
+  </div><div style="display:flex;justify-content:flex-end;gap:10px;margin-top:24px"><button type="button" class="btn o" data-a="nav" data-r="${isNew?'investors':'investor'}" ${isNew?'':`data-g="${i.id}"`}>Cancel</button><button class="btn">${isNew?'Create & send invite':'Save changes'}</button></div></div></div></form>`},
+
+ledger(inst){const vis=poolsFor(inst.actor).map(p=>p.id);return head(inst,'Ledger',[['Dashboard','dashboard'],['Ledger']],btn(inst,'Record investment','dlg',{icon:'plus',need:'do',data:'data-v="invest"'}))+
+  `<div class="al info" style="margin-bottom:24px">${ic('lock')}<span>The ledger is append-only. Mistakes are fixed with a reversing entry — nothing is edited or deleted, and every row is chained to the one before it.</span></div>`+ledgerTable(inst,'ledger',S.ledger.filter(l=>vis.includes(l.pool)),null,true)},
+
+payouts(inst){const ps=poolsFor(inst.actor);const rows=[];const seen={};S.ledger.filter(l=>l.kind==='payout'&&ps.some(p=>p.id===l.pool)).forEach(l=>{const k=l.pool+l.date+l.note;if(!seen[k]){seen[k]={pool:l.pool,date:l.date,note:l.note,total:0,n:0,by:l.by,reversed:true};rows.push(seen[k])}seen[k].total+=-l.base;seen[k].n++;if(!l.reversedBy)seen[k].reversed=false});
+  return head(inst,'Payouts',[['Dashboard','dashboard'],['Payouts']],btn(inst,'New payout','dlg',{icon:'plus',need:'do',data:'data-v="payout"'}))+
+  tableCard(inst,'payouts',{cols:[{l:'Payout',f:r=>`<b>${esc(r.note)}</b>`},{l:'Pool',f:r=>esc(pool(r.pool).name)},{l:'Record date',f:r=>fdate(r.date)},{l:'LPs paid',r:1,f:r=>r.n},{l:'Total',r:1,f:r=>'<b>'+fm(r.total,'INR')+'</b>'},{l:'By',f:r=>esc(who(r.by))},{l:'',r:1,f:r=>r.reversed?lbl('Reversed','def'):btn(inst,'Reverse batch','paybatchrev',{cls:'t sm',icon:'undo',need:'do',pool:r.pool,data:`data-p="${r.pool}" data-d="${r.date}" data-n="${esc(r.note)}"`})}],rows:rows.sort((a,b)=>b.date.localeCompare(a.date)),empty:'No payouts yet'})},
+
+requests(inst){const ps=poolsFor(inst.actor).map(p=>p.id);const st=tstate(inst,'req',{tab:'pending'});const all=S.requests.filter(r=>ps.includes(r.pool));
+  const tabs=[{v:'pending',l:'Pending',n:all.filter(r=>r.status==='pending').length,c:'warn'},{v:'settled',l:'Settled',n:all.filter(r=>r.status==='settled').length,c:'ok'},{v:'rejected',l:'Rejected',n:all.filter(r=>r.status!=='pending'&&r.status!=='settled').length,c:'def'},{v:'all',l:'All',n:all.length}];
+  const rows=all.filter(r=>st.tab==='all'||(st.tab==='rejected'?!['pending','settled'].includes(r.status):r.status===st.tab));
+  return head(inst,'Exit requests',[['Dashboard','dashboard'],['Exit requests']])+
+  `<div class="al info" style="margin-bottom:24px">${ic('info')}<span>LPs ask to sell units back. Approving settles at the live NAV per unit, writes a redemption to the ledger and takes the cash out of the pool.</span></div>`+
+  tableCard(inst,'req',{tabs,cols:[{l:'Investor',f:r=>`<div class="nm"><span class="av sm">${initials(inv(r.inv).name)}</span><div><b>${esc(inv(r.inv).name)}</b><small>${esc(r.id)}</small></div></div>`},{l:'Pool',f:r=>esc(pool(r.pool).name)},{l:'Units',r:1,f:r=>fu(r.units)},{l:'Value at NAV',r:1,f:r=>fm(r.units*npuAt(r.pool),'INR')},{l:'Asked',f:r=>fdate(r.date)},{l:'Status',f:r=>lbl(r.status,r.status==='pending'?'warn':r.status==='settled'?'ok':'def')},{l:'',r:1,f:r=>r.status==='pending'?btn(inst,'Approve','reqok',{cls:'sm',need:'oversee',pool:r.pool,data:`data-v="${r.id}"`})+' '+btn(inst,'Reject','reqno',{cls:'o sm',need:'oversee',pool:r.pool,data:`data-v="${r.id}"`}):''}],rows,empty:'No requests'})},
+
+access(inst){const me=grant(inst.actor),edit=me&&me.level==='configure';
+  return head(inst,'Access',[['Dashboard','dashboard'],['Access']])+
+  `<div class="al ${edit?'info':'warn'}" style="margin-bottom:24px">${ic(edit?'info':'lock')}<span>${edit?'People come from HRMS, but Investments access is granted <b>only here</b>, in the exchange admin, by a Configure holder with two-step login. HRMS just links to this page and can only <b>remove</b> access (when someone leaves), never add it — so goatos admins can\'t give themselves access. At least two people must keep Configure.':'Only a Configure holder can change Investments access. You can see who has it.'}</span></div>`+
+  `<div class="card"><div class="tw"><table class="rt"><thead><tr><th>Person (from HRMS)</th><th>Investments level</th><th>Pools</th><th>PII</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>${S.people.map(p=>{const g=S.grants[p.id]||{level:'none',pools:'all',pii:false,expires:''},eg=grant(p.id),dis=edit?'':'disabled';
+   return `<tr><td data-l="Person"><div class="nm"><span class="av sm">${initials(p.name)}</span><div><b>${esc(p.name)}</b><small>${esc(p.title)}</small></div></div></td>
+   <td data-l="Level"><label class="tf sm" style="min-width:150px"><select id="${uid(inst,'gl-'+p.id)}" data-c="glevel" data-p="${p.id}" ${dis} aria-label="Level for ${esc(p.name)}">${LEVELS.map(l=>`<option value="${l}" ${g.level===l?'selected':''}>${LVL_LABEL[l]}</option>`).join('')}</select></label></td>
+   <td data-l="Pools"><div class="chips">${`<button class="chip ${g.pools==='all'?'on':''}" data-a="gpool" data-p="${p.id}" data-v="all" ${dis}>All</button>`+S.pools.map(pl=>`<button class="chip ${g.pools!=='all'&&g.pools.includes(pl.id)?'on':''}" data-a="gpool" data-p="${p.id}" data-v="${pl.id}" ${dis}>${esc(pl.name.split(' ').slice(0,2).join(' '))}</button>`).join('')}</div></td>
+   <td data-l="PII"><label class="sw"><input type="checkbox" data-c="gpii" data-p="${p.id}" ${g.pii?'checked':''} ${dis} aria-label="PII access for ${esc(p.name)}"></label></td>
+   <td data-l="Expires"><label class="tf sm" style="min-width:150px"><input type="date" id="${uid(inst,'ge-'+p.id)}" data-c="gexp" data-p="${p.id}" value="${g.expires||''}" ${dis} aria-label="Expiry for ${esc(p.name)}"></label></td>
+   <td data-l="Status">${g.level==='none'?lbl('No access','def'):eg.expired?lbl('Expired','err'):g.expires?lbl('Until '+fdate(g.expires),'warn'):lbl('Active','ok')}</td>
+   <td data-l=""><button class="btn t sm" data-a="actor" data-v="${p.id}" title="Sign in as this person to test">${ic('eye')}Test as</button></td></tr>`}).join('')}</tbody></table></div></div>
+  <div class="grid g2" style="margin-top:24px"><div class="card"><div class="ch"><h3>What each level can do</h3></div><div class="cb"><dl class="dl"><dt>View</dt><dd>See LPs, holdings, values and ledger for pools in scope</dd><dt>Do</dt><dd>View + add LPs, record investments and payouts, run valuations, reverse entries</dd><dt>Oversee</dt><dd>View + approve valuations and exit requests. Not a superset of Do (same as goatos)</dd><dt>Configure</dt><dd>Everything above + pools, settings, currencies, feature flags and access</dd><dt>PII</dt><dd>Separate switch: reveal email, phone, tax ID and bank · every reveal is logged</dd></dl></div></div>
+  <div class="card"><div class="ch"><h3>Safety rules</h3></div><div class="cb"><dl class="dl"><dt>Default</dt><dd>No access. Goatos admin / CEO roles grant nothing here</dd><dt>Configure holders</dt><dd>At least 2 without an expiry date (now ${configureHolders()})</dd><dt>Expiry</dt><dd>Access stops the day after the expiry date</dd><dt>Leaving</dt><dd>Exiting someone in HRMS removes their access immediately</dd></dl></div></div></div>`},
+
+settings(inst){const edit=can(inst.actor,'configure');const dis=edit?'':'disabled';
+  return head(inst,'Settings',[['Dashboard','dashboard'],['Settings']])+(edit?'':`<div class="al warn" style="margin-bottom:24px">${ic('lock')}<span>Read only · needs Configure.</span></div>`)+
+  `<div class="grid g2"><div class="card"><div class="ch"><div><h3>Currencies & exchange rates</h3><p>Rates to INR · ${esc(S.fx.source)} · as of ${fdate(S.fx.asOf)}</p></div></div><div class="cb">${Object.keys(S.fx.rates).filter(c=>c!=='INR').map(c=>`<div style="display:flex;flex-wrap:wrap;gap:12px 14px;align-items:center;margin-bottom:16px"><b style="width:44px">${c}</b><label class="tf sm" style="flex:1;min-width:140px"><span>1 ${c} = ₹</span><input type="number" step="any" id="${uid(inst,'fx-'+c)}" data-c="fx" data-v="${c}" value="${S.fx.rates[c]}" ${dis}></label><label class="sw" title="Accept money in ${c}"><input type="checkbox" data-c="ccyon" data-v="${c}" ${S.settings.currencies.includes(c)?'checked':''} ${dis}>Enabled</label></div>`).join('')}
+   <p class="muted" style="font-size:13px;margin:0">Money is converted to the pool's base currency at the rate on the day it arrives. LPs see today's rate, with its date and source.</p></div></div>
+   <div class="card"><div class="ch"><div><h3>Controls</h3><p>How strict the approval flow is</p></div></div><div class="cb" style="display:grid;gap:18px">
+    <label class="sw"><input type="checkbox" data-c="mc" ${S.settings.makerChecker?'checked':''} ${dis}><span><b>Maker-checker</b><br><span class="muted" style="font-size:13px">The person who runs a valuation can't approve it</span></span></label>
+    <label class="tf"><span>Default display currency for new LPs</span><select id="${uid(inst,'defccy')}" data-c="defccy" ${dis}>${S.settings.currencies.map(c=>`<option ${c===S.settings.displayDefault?'selected':''}>${c}</option>`).join('')}</select></label></div></div></div>
+  <div class="card" style="margin-top:24px"><div class="ch"><div><h3>Feature flags</h3><p>Switch features on or off without an app update. Flags never grant access to data.</p></div></div><div class="cb">${Object.entries(S.flags).map(([k,f])=>`<div class="li" style="flex-wrap:wrap"><label class="sw" style="flex:1;min-width:240px"><input type="checkbox" data-c="flag" data-v="${k}" ${f.on?'checked':''} ${dis}><span><b>${esc(f.label)}</b><br><span class="mono faint">exchange.${k}</span></span></label>
+    <div class="chips"><button class="chip ${f.who==='all'?'on':''}" data-a="flagwho" data-k="${k}" data-v="all" ${dis}>All LPs</button><button class="chip ${f.who==='some'?'on':''}" data-a="flagwho" data-k="${k}" data-v="some" ${dis}>Selected LPs</button></div>
+    ${f.who==='some'?`<div class="chips" style="width:100%;margin-top:10px">${S.investors.map(i=>`<button class="chip ${f.lps.includes(i.id)?'on':''}" data-a="flaglp" data-k="${k}" data-v="${i.id}" ${dis}>${f.lps.includes(i.id)?ic('check'):''}${esc(i.name)}</button>`).join('')}</div>`:''}</div>`).join('')}</div></div>
+  ${tableCard(inst,'cfglog',{title:'Change history',cols:[{l:'When',f:a=>fdate(a.day)},{l:'Who',f:a=>esc(who(a.actor))},{l:'Change',f:a=>esc(a.detail)}],rows:S.audit.filter(a=>a.action.startsWith('config')||a.action.startsWith('access')),empty:'No changes yet'})}`},
+
+audit(inst){if(!can(inst.actor,'configure'))return head(inst,'Audit log',[['Dashboard','dashboard'],['Audit log']])+`<div class="al warn">${ic('lock')}<span>The audit log covers every pool and every LP, so only Configure holders can open it.</span></div>`;const st=tstate(inst,'audit',{rpp:10});const kinds=[['all','All'],['view','Views'],['pii','PII reveals'],['money','Money'],['nav','Valuations'],['config','Config & access']];
+  const m={view:a=>a.action==='ledger.view',pii:a=>a.action==='pii.reveal',money:a=>/^(ledger\.(add|reverse)|payout|redeem)/.test(a.action),nav:a=>a.action.startsWith('nav'),config:a=>a.action.startsWith('config')||a.action.startsWith('access')};
+  let rows=S.audit.filter(a=>st.tab==='all'||m[st.tab](a));rows=filt(rows,st.q,a=>who(a.actor)+' '+a.detail);
+  return head(inst,'Audit log',[['Dashboard','dashboard'],['Audit log']])+`<div class="al info" style="margin-bottom:24px">${ic('audit')}<span>Every view, reveal, money entry and config change. Append-only. LPs see the entries about their own data.</span></div>`+
+  tableCard(inst,'audit',{tabs:kinds.map(k=>({v:k[0],l:k[1],n:k[0]==='all'?S.audit.length:S.audit.filter(m[k[0]]).length})),search:'Search person or detail',rpp:10,cols:[{l:'When',f:a=>fdate(a.day)+' <span class="faint">'+new Date(a.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+'</span>'},{l:'Who',f:a=>esc(who(a.actor))},{l:'Action',f:a=>`<span class="mono">${esc(a.action)}</span>`},{l:'Detail',f:a=>esc(a.detail)}],rows})}
+};
+function kindLbl(k){return lbl({subscription:'Subscription',payout:'Payout',redemption:'Buy-back',correction:'Correction'}[k]||k,{subscription:'ok',payout:'info',redemption:'vio',correction:'err'}[k]||'def')}
+function ledgerTable(inst,k,list,title,showInv){const st=tstate(inst,k);const pp=[...new Set(list.map(l=>l.pool))];
+  const tabs=[{v:'all',l:'All',n:list.length},{v:'subscription',l:'Subscriptions',n:list.filter(l=>l.kind==='subscription').length,c:'ok'},{v:'payout',l:'Payouts',n:list.filter(l=>l.kind==='payout').length,c:'info'},{v:'redemption',l:'Buy-backs',n:list.filter(l=>l.kind==='redemption').length,c:'vio'},{v:'correction',l:'Corrections',n:list.filter(l=>l.kind==='correction').length,c:'err'}];
+  let rows=list.filter(l=>st.tab==='all'||l.kind===st.tab);rows=filt(rows,st.q,l=>inv(l.inv).name+' '+pool(l.pool).name+' '+l.id+' '+(l.note||''));
+  rows=rows.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  return tableCard(inst,k,{title,tabs,search:'Search investor, pool or entry',cols:[
+   {l:'Entry',f:l=>showInv?`<div class="nm"><span class="av sm">${initials(inv(l.inv).name)}</span><div><b>${esc(inv(l.inv).name)}</b><small class="mono">${esc(l.id)}</small></div></div>`:`<b class="mono">${esc(l.id)}</b>`},
+   {l:'Type',f:l=>kindLbl(l.kind)+(l.reversedBy?' '+lbl('Reversed','def'):'')},{l:'Pool',f:l=>esc(pool(l.pool).name)},{l:'Date',f:l=>fdate(l.date)},
+   {l:'Paid',r:1,f:l=>l.paidCcy&&l.paidCcy!=='INR'&&l.kind==='subscription'?fm(l.paidAmt,l.paidCcy,{dec:2})+`<br><small class="faint">@ ₹${l.fx}</small>`:'—'},
+   {l:'Amount (INR)',r:1,f:l=>`<span class="${l.base<0?'':''}">${l.base>0?'+':'−'}${fm(Math.abs(l.base),'INR',{dec:2})}</span>`},
+   {l:'Units',r:1,f:l=>l.pending?lbl('Awaiting valuation','warn'):l.units?(l.units>0?'+':'')+fu(l.units)+`<br><small class="faint">@ ${fnpu(l.npu)}</small>`:'—'},
+   {l:'',r:1,f:l=>l.kind!=='correction'&&l.kind!=='payout'&&!l.reversedBy?btn(inst,'Reverse','dlg',{cls:'t sm',icon:'undo',need:'do',pool:l.pool,data:`data-v="reverse" data-g="${l.id}"`}):''}],rows,rpp:5,empty:'No entries'})}
+
+/* ============================ LP PAGES ============================ */
+function lpPage(inst){const R=LP[inst.route.split('-')[0]]||LP.portfolio;return R(inst)}
+function lpCcy(inst){const i=inv(inst.lp);return flagOn('multi_currency',i.id)?i.ccy:'INR'}
+function dual(inst,inr,o={}){const c=lpCcy(inst);return c==='INR'?fm(inr,'INR',o):fm(fxTo(inr,c),c,o)}
+function dualSub(inst,inr){const c=lpCcy(inst);return c==='INR'?'':`<span class="faint" style="font-size:12.5px">${fm(inr,'INR',{c:1})}</span>`}
+const LP={
+portfolio(inst){const i=inv(inst.lp),pf=portfolio(i.id),c=lpCcy(inst),vh=valueHistory(i.id),prev=vh.at(-2)?.v||0,last=vh.at(-1)?.v||0;
+  return head(inst,'Hi, '+i.name.split(' ')[0],[['Portfolio']])+
+  `<div class="grid g83"><div class="hero"><div class="t">Your portfolio value</div><div class="v num">${dual(inst,pf.value,{dec:c==='INR'?0:2})}</div><div class="s">${c!=='INR'?`${fm(pf.value,'INR')} at ₹${S.fx.rates[c]} per ${c} · ${esc(S.fx.source.split(' ·')[0])}, ${fdate(S.fx.asOf)}`:'Valued at the latest approved NAV'}</div>
+    <div class="row"><div><span>Invested</span><b class="num">${dual(inst,pf.invested,{c:1})}</b></div><div><span>Paid out to you</span><b class="num">${dual(inst,pf.received,{c:1})}</b></div><div><span>Total gain</span><b class="num">${pf.gain>=0?'+':''}${dual(inst,pf.gain,{c:1})}</b></div><div><span>Multiple</span><b>${pf.moic.toFixed(2)}×</b></div></div>
+    ${prev?`<div style="margin-top:18px;position:relative;z-index:1"><span class="chip" style="background:rgba(255,255,255,.16);color:#fff">${ic(last>=prev?'up':'dn')}${last>=prev?'+':''}${pct((last-prev)/prev)} vs last month</span></div>`:''}</div>
+   <div class="card"><div class="ch"><div><h3>Where your money is</h3><p>Your share of every asset, across pools</p></div></div><div class="cb">${chart(inst,{type:'donut',h:280,legend:1,colors:CLASS.map(x=>x[2]),labels:CLASS.map(x=>x[1]),series:CLASS.map(x=>Math.max(0,Math.round(pf.split[x[0]]))),yfmt:v=>dual(inst,v,{c:1}),total:'Total'})}</div></div></div>
+  <div class="card"><div class="ch"><div><h3>Value over time</h3><p>Month-end, approved valuations${c!=='INR'?' · in '+c+' at today\'s rate':''}</p></div></div><div class="cb" style="padding-top:8px">${chart(inst,{type:'area',h:300,colors:['--brand'],cats:vh.map(x=>fmon(x.d)),series:[{name:'Portfolio value',data:vh.map(x=>Math.round(c==='INR'?x.v:fxTo(x.v,c)))}],yax:v=>fm(v,c,{c:1}),yfmt:v=>fm(v,c,{c:1})})}</div></div>
+  <div class="grid g2">${pf.h.map(h=>`<button class="card pcard" data-a="nav" data-r="holding" data-g="${h.pool.id}"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b style="font-size:16px">${esc(h.pool.name)}</b>${ic('chev')}</div>
+    <div class="grid g3" style="gap:12px"><div><div class="muted" style="font-size:12.5px">Value</div><b class="num" style="font:700 18px var(--fd)">${dual(inst,h.value,{c:1})}</b></div><div><div class="muted" style="font-size:12.5px">Units</div><b class="num">${fu(h.units)}</b></div><div><div class="muted" style="font-size:12.5px">NAV / unit</div><b class="num">${fnpu(h.npu)}</b></div></div>
+    ${h.pending?`<div class="al warn" style="padding:8px 12px">${ic('info')}<span>${dual(inst,h.pending,{c:1})} waiting for units at the next valuation</span></div>`:''}<div><div class="muted" style="font-size:12.5px;margin-bottom:6px">You own ${pct(h.share,2)} of this pool</div><div class="bar"><i style="width:${Math.max(2,h.share*100)}%;background:var(--brand)"></i></div></div></button>`).join('')||'<div class="card empty"><b>No holdings yet</b>Your first investment will show here.</div>'}</div>`},
+
+holdings(inst){const pf=portfolio(inst.lp);return head(inst,'Pools',[['Portfolio','portfolio'],['Pools']])+`<div class="grid g2">${pf.h.map(h=>`<button class="card pcard" data-a="nav" data-r="holding" data-g="${h.pool.id}"><b style="font-size:16px">${esc(h.pool.name)}</b><span class="muted">${h.pool.scope.map(s=>esc(park(s.park).name)).join(' · ')}</span><b class="num" style="font:700 22px var(--fd)">${dual(inst,h.value,{c:1})}</b><span class="muted num">${fu(h.units)} units · ${pct(h.share,2)} of pool</span></button>`).join('')}</div>`},
+
+holding(inst){const p=pool(inst.arg),h=portfolio(inst.lp).h.find(x=>x.pool.id===p?.id);if(!p||!h)return LP.portfolio(inst);
+  const r=approvedRun(p.id),hist=runsOf(p.id).filter(x=>x.status==='approved'),g=r&&r.classes?sum(Object.values(r.classes)):0;
+  return head(inst,p.name,[['Portfolio','portfolio'],['Pools','holdings'],[p.name]])+
+  `<div class="grid g4">${widget('Your value',dual(inst,h.value,{c:1}),null,dualSub(inst,h.value),null)}${widget('Units',fu(h.units),null,pct(h.share,2)+' of pool',null)}${widget('NAV / unit',fnpu(h.npu),hist.length>1?(h.npu-hist[0].npu)/hist[0].npu:null,'since start',hist.map(x=>x.npu))}${widget('Last valued',r?fdate(r.date):'—',null,'approved',null)}</div>
+  <div class="grid g2"><div class="card"><div class="ch"><div><h3>NAV per unit</h3><p>Approved month-end values</p></div></div><div class="cb">${chart(inst,{type:'line',h:260,colors:['--brand'],cats:hist.map(x=>fmon(x.date)),series:[{name:'NAV / unit',data:hist.map(x=>+x.npu.toFixed(4))}],yax:v=>v.toFixed(3),yfmt:v=>fnpu(v)})}</div></div>
+   <div class="card"><div class="ch"><div><h3>Your share by asset</h3><p>${pct(h.share,2)} of every asset in the pool</p></div></div><div class="cb">${CLASS.map(([k,l,col])=>{const v=r&&r.classes&&g?h.value*(r.classes[k]/g):0;return v>0?`<div class="li"><i class="dot" style="background:var(${col})"></i><span class="tx"><b>${l}</b><small>${pct(g?r.classes[k]/g:0)} of pool assets</small></span><span class="v num">${dual(inst,v,{c:1})}</span></div>`:''}).join('')}</div></div></div>
+  <div class="card"><div class="ch"><div><h3>Where the herd is</h3><p>Live from goatos · left-ear RFID weighings. Your share is look-through, not title to any animal.</p></div></div><div class="cb">${p.scope.map(sc=>{const pk=park(sc.park),f=parkFacts(pk.id);return `<details class="drill"><summary>${ic('goat')}<span style="flex:1">${esc(pk.name)} <span class="muted" style="font-weight:500">· ${pk.region}${sc.pct<100?` · ${sc.pct}% in this pool`:''}</span></span><span class="num muted">${f.head.toLocaleString('en-IN')} head · avg ${f.avg.toFixed(1)} kg</span></summary>
+    ${pk.farms.map(fm_=>`<div style="margin:12px 0 0 32px"><b>${esc(fm_.name)}</b>${fm_.sheds.map(s=>`<div class="li" style="padding:8px 0"><span class="tx">${esc(s.name)}</span><span class="num muted">${s.head} head · ${s.avg} kg avg</span></div>`).join('')}</div>`).join('')}</details>`}).join('')}</div></div>`},
+
+transactions(inst){const i=inv(inst.lp);return head(inst,'Transactions',[['Portfolio','portfolio'],['Transactions']])+
+  tableCard(inst,'lptx',{tabs:[{v:'all',l:'All',n:S.ledger.filter(l=>l.inv===i.id).length}],cols:[{l:'Date',f:l=>fdate(l.date)},{l:'Type',f:l=>kindLbl(l.kind)},{l:'Pool',f:l=>esc(pool(l.pool).name)},{l:'Money',r:1,f:l=>`<small class="faint" style="display:block">${l.kind==='subscription'?'Paid':l.kind==='correction'?'Reversed':'Received'}</small><span style="white-space:nowrap">${l.kind==='subscription'?fm(l.paidAmt,l.paidCcy,{dec:2}):fm(Math.abs(l.base),'INR',{dec:2})}</span>`},{l:'Units',r:1,f:l=>l.pending?lbl('Awaiting valuation','warn'):l.units?(l.units>0?'+':'')+fu(l.units):'—'},{l:'NAV / unit',r:1,f:l=>l.npu?fnpu(l.npu):'—'}],rows:S.ledger.filter(l=>l.inv===i.id).slice().sort((a,b)=>b.date.localeCompare(a.date)),empty:'No transactions'})},
+
+statement(inst){const i=inv(inst.lp),pf=portfolio(i.id);
+  return head(inst,'Statement',[['Portfolio','portfolio'],['Statement']])+
+  `<div class="card inv"><div class="hd"><div style="display:flex;gap:14px;align-items:center"><span class="lg" style="width:48px;height:48px;border-radius:12px;background:var(--brand);color:var(--on-brand);display:grid;place-items:center;font:800 20px var(--fd)">M</span><div><b style="font-size:17px">Mesha Exchange</b><div class="muted" style="font-size:13px">Capital account statement</div></div></div><div style="text-align:right">${lbl('As of '+fdate(TODAY),'ok')}<div class="muted" style="font-size:13px;margin-top:6px">Since inception · INR</div></div></div>
+   <div class="grid g2" style="margin-bottom:28px"><div><div class="muted" style="font-size:12.5px;margin-bottom:4px">Investor</div><b>${esc(i.name)}</b><div class="muted">${esc(i.type)} · ${esc(i.country)}</div></div><div><div class="muted" style="font-size:12.5px;margin-bottom:4px">Valuation basis</div><b>Latest approved NAV per unit</b><div class="muted">${pf.h.map(h=>esc(h.pool.name)+' '+fnpu(h.npu)).join(' · ')}</div></div></div>
+   <div class="tw"><table class="rt"><thead><tr><th>Pool</th><th class="r">Contributed</th><th class="r">Distributed</th><th class="r">Units</th><th class="r">Closing value</th></tr></thead><tbody>${pf.h.map(h=>`<tr><td data-l="Pool"><b>${esc(h.pool.name)}</b></td><td class="r num" data-l="Contributed">${fm(h.inv,'INR')}</td><td class="r num" data-l="Distributed">${fm(h.rec,'INR')}</td><td class="r num" data-l="Units">${fu(h.units)}</td><td class="r num" data-l="Closing value">${fm(h.value,'INR')}</td></tr>`).join('')}</tbody></table></div>
+   <div class="tot num"><span class="muted">Total contributed</span><b>${fm(pf.invested,'INR')}</b><span class="muted">Total distributed</span><b>${fm(pf.received,'INR')}</b><span class="muted">Closing value</span><b>${fm(pf.value,'INR')}</b><span class="muted">Change in value</span><b class="${pf.gain>=0?'up':'dn'}">${pf.gain>=0?'+':''}${fm(pf.gain,'INR')}</b><span style="font-weight:700">Multiple (TVPI)</span><b style="font-size:18px">${pf.moic.toFixed(2)}×</b></div>
+   <p class="faint" style="font-size:12.5px;margin-top:28px">Generated from the unit ledger and approved valuations. Download links are short-lived and watermarked with your name.</p></div>`},
+
+sell(inst){const i=inv(inst.lp);if(!flagOn('exit_requests',i.id))return LP.portfolio(inst);const pf=portfolio(i.id),E=inst.errs||{};
+  const mine=S.requests.filter(r=>r.inv===i.id);
+  return head(inst,'Sell units',[['Portfolio','portfolio'],['Sell units']])+
+  `<div class="grid g2"><div class="card"><div class="ch"><div><h3>New request</h3><p>Mesha buys back at the NAV per unit on the day it approves.</p></div></div><div class="cb"><form data-f="sell" class="fgrid" style="grid-template-columns:minmax(0,1fr)" novalidate>
+   <label class="tf"><span>Pool</span><select id="${uid(inst,'sp')}" name="pool">${pf.h.filter(h=>h.units>0).map(h=>`<option value="${h.pool.id}">${esc(h.pool.name)} · ${fu(h.units-pendingUnits(i.id,h.pool.id))} free units</option>`).join('')}</select></label>
+   <label class="tf ${E.units?'err':''}"><span>Units to sell</span><input id="${uid(inst,'su')}" name="units" type="number" step="any" min="1" placeholder="e.g. 10000">${E.units?`<em>${esc(E.units)}</em>`:''}</label>
+   <button class="btn lg">Send request</button></form></div></div>
+   ${tableCard(inst,'myreq',{title:'Your requests',noPage:1,cols:[{l:'Pool',f:r=>esc(pool(r.pool).name)},{l:'Units',r:1,f:r=>fu(r.units)},{l:'Asked',f:r=>fdate(r.date)},{l:'Status',f:r=>lbl(r.status,r.status==='pending'?'warn':r.status==='settled'?'ok':'def')},{l:'',r:1,f:r=>r.status==='pending'?`<button class="btn t sm" data-a="reqcancel" data-v="${r.id}">Cancel</button>`:''}],rows:mine,empty:'No requests yet'})}</div>`},
+
+profile(inst){const i=inv(inst.lp),log=S.audit.filter(a=>a.inv===i.id&&['ledger.view','pii.reveal'].includes(a.action));
+  return head(inst,'Profile & security',[['Portfolio','portfolio'],['Profile']])+
+  `<div class="grid g38"><div class="card cb" style="text-align:center"><span class="ring" style="display:inline-block;margin:12px 0 16px"><span class="av" style="width:104px;height:104px;font-size:32px">${initials(i.name)}</span></span><h3 style="margin:0">${esc(i.name)}</h3><p class="muted" style="margin:4px 0 12px">${esc(i.type)} · ${esc(i.country)}</p>${lbl('Verified','ok')}</div>
+   <div class="card"><div class="ch"><h3>Details</h3></div><div class="cb"><dl class="dl"><dt>Email</dt><dd>${esc(i.email)}</dd><dt>Phone</dt><dd>${esc(i.phone)}</dd><dt>Payout bank</dt><dd>${mask(i.bank)}</dd>
+    <dt>Show my values in</dt><dd>${flagOn('multi_currency',i.id)?`<label class="tf sm" style="max-width:220px"><select id="${uid(inst,'myccy')}" data-c="myccy">${S.settings.currencies.map(c=>`<option ${c===i.ccy?'selected':''}>${c}</option>`).join('')}</select></label>`:'INR (multi-currency is off)'}</dd></dl>
+    <h4 style="margin:24px 0 8px">Sign-ins</h4>${i.logins.map(l=>`<div class="li"><span class="av sm">${initials(l.name)}</span><span class="tx"><b>${esc(l.name)}</b><small>Two-step: ${esc(l.mfa)} · last ${esc(l.last)}</small></span>${lbl('MFA on','ok')}</div>`).join('')}</div></div></div>
+  ${flagOn('lp_access_log',i.id)?tableCard(inst,'mylog',{title:'Who viewed my data',sub:'Every time Mesha staff opened your holdings or details',cols:[{l:'When',f:a=>fdate(a.day)+' <span class="faint">'+new Date(a.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+'</span>'},{l:'Who',f:a=>`<div class="nm"><span class="av sm">${initials(who(a.actor))}</span><div><b>${esc(who(a.actor))}</b><small>${esc(S.people.find(p=>p.id===a.actor)?.title||'')}</small></div></div>`},{l:'What',f:a=>a.action==='pii.reveal'?lbl('Revealed contact details','warn'):lbl('Viewed holdings','info')}],rows:log,empty:'Nobody has viewed your data'}):''}`}
+};
+function pendingUnits(iv,pid){return sum(S.requests.filter(r=>r.inv===iv&&r.pool===pid&&r.status==='pending'),r=>r.units)}
+
+/* ============================ DIALOGS ============================ */
+function dialogHtml(inst){const d=inst.dlg;const H=DLG[d.type];return `<div class="dlg-bg" data-a="dlgbg"><div class="dlg ${H.wide?'lgw':''}" role="dialog" aria-modal="true" aria-label="${esc(H.title(inst))}"><div class="dh">${esc(H.title(inst))}<button class="ib" style="margin-left:auto" data-a="dlgclose" aria-label="Close">${ic('x')}</button></div>${H.body(inst)}</div></div>`}
+const DLG={
+invest:{wide:1,title:()=>'Record investment',body(inst){const d=inst.dlg;const ps=poolsFor(inst.actor).filter(p=>p.status==='open'&&can(inst.actor,'do',p.id));const invs=investorsFor(inst.actor).filter(i=>i.status!=='exited');
+  if(!d.rows)d.rows=[{pool:d.g||ps[0]?.id,amt:''}];if(!d.inv)d.inv=d.i||invs[0]?.id;if(!d.ccy)d.ccy=inv(d.inv)?.ccy||'INR';if(!d.date)d.date=TODAY;
+  return `<form data-f="invest" novalidate><div class="db"><div class="fgrid">
+   <label class="tf full"><span>Investor</span><select id="${uid(inst,'di-inv')}" name="inv">${invs.map(i=>`<option value="${i.id}" ${i.id===d.inv?'selected':''}>${esc(i.name)} · ${i.country}</option>`).join('')}</select></label>
+   <label class="tf"><span>Money arrived on</span><input type="date" id="${uid(inst,'di-date')}" name="date" value="${d.date}" max="${TODAY}"><em>Rate and NAV/unit are taken on this date</em></label>
+   <label class="tf"><span>Currency paid</span><select id="${uid(inst,'di-ccy')}" name="ccy">${S.settings.currencies.map(c=>`<option ${c===d.ccy?'selected':''}>${c}</option>`).join('')}</select><em>${d.ccy!=='INR'?`1 ${d.ccy} = ₹${S.fx.rates[d.ccy]}`:'Pool base currency'}</em></label>
+   ${d.ccy!=='INR'?`<label class="tf full"><span>INR actually credited by the bank (optional)</span><input type="number" step="any" id="${uid(inst,'di-cr')}" name="credited" value="${esc(d.credited||'')}" placeholder="Leave blank to use the reference rate"><em>The bank's credited amount is the source of truth; the reference rate is kept for display</em></label>`:''}
+   ${d.rows.map((r,k)=>`<label class="tf"><span>Pool ${d.rows.length>1?k+1:''}</span><select id="${uid(inst,'di-p'+k)}" name="pool_${k}">${ps.map(p=>`<option value="${p.id}" ${p.id===r.pool?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><div style="display:flex;gap:8px;align-items:flex-start"><label class="tf" style="flex:1"><span>Amount · ${d.ccy}</span><input type="number" step="any" min="0" id="${uid(inst,'di-a'+k)}" name="amt_${k}" value="${esc(r.amt)}" placeholder="0"></label>${d.rows.length>1?`<button type="button" class="ib" style="margin-top:7px" data-a="inv-rm" data-v="${k}" aria-label="Remove split">${ic('trash')}</button>`:''}</div>`).join('')}
+   <div class="full"><button type="button" class="btn s sm" data-a="inv-add">${ic('plus')}Split across another pool</button></div></div>
+   <div class="card" style="margin-top:20px;box-shadow:none;background:var(--panel-2)"><div class="cb" id="${uid(inst,'inv-prev')}">${investPreview(inst)}</div></div></div>
+   <div class="df"><button type="button" class="btn o" data-a="dlgclose">Cancel</button><button class="btn" ${ps.length?'':'disabled'}>Record in ledger</button></div></form>`}},
+payout:{wide:1,title:()=>'New payout',body(inst){const d=inst.dlg;const ps=poolsFor(inst.actor).filter(p=>can(inst.actor,'do',p.id));if(!d.pool)d.pool=ps[0]?.id;if(!d.date)d.date=TODAY;if(d.amt==null)d.amt='';if(!d.note)d.note='Q3 2026 distribution';
+  return `<form data-f="payout" novalidate><div class="db"><div class="fgrid">
+   <label class="tf"><span>Pool</span><select id="${uid(inst,'dp-p')}" name="pool">${ps.map(p=>`<option value="${p.id}" ${p.id===d.pool?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>
+   <label class="tf"><span>Record date</span><input type="date" id="${uid(inst,'dp-d')}" name="date" value="${d.date}" max="${TODAY}"><em>Split by units held on this date</em></label>
+   <label class="tf"><span>Total to pay · INR</span><input type="number" step="any" id="${uid(inst,'dp-a')}" name="amt" value="${esc(d.amt)}" placeholder="e.g. 800000"><em>Comes out of the pool's cash</em></label>
+   <label class="tf"><span>Label</span><input id="${uid(inst,'dp-n')}" name="note" value="${esc(d.note)}"></label></div>
+   <div id="${uid(inst,'pay-prev')}" style="margin-top:20px">${payoutPreview(inst)}</div></div>
+   <div class="df"><button type="button" class="btn o" data-a="dlgclose">Cancel</button><button class="btn">Confirm payout</button></div></form>`}},
+reverse:{title:()=>'Reverse ledger entry',body(inst){const l=S.ledger.find(x=>x.id===inst.dlg.g);
+  return `<form data-f="reverse" novalidate><div class="db"><p>This adds a <b>correction</b> that cancels <span class="mono">${esc(l.id)}</span> (${esc(l.kind)}, ${fm(Math.abs(l.base),'INR',{dec:2})}${l.units?', '+fu(l.units)+' units':''}). The original stays in the ledger, marked reversed. ${l.kind==='subscription'?'The cash is also taken back out of the pool.':''}</p>
+   <label class="tf"><span>Reason (shown to the LP)</span><input id="${uid(inst,'rv-n')}" name="note" value="Entered in error" required></label></div>
+   <div class="df"><button type="button" class="btn o" data-a="dlgclose">Cancel</button><button class="btn d">Reverse entry</button></div></form>`}}};
+const DLG_AFTER={};
+function effRate(d){const ref=S.fx.rates[d.ccy]||1,tot=sum(d.rows,r=>+r.amt||0);return d.ccy!=='INR'&&+d.credited>0&&tot>0?+d.credited/tot:ref}
+function investPreview(inst){const d=inst.dlg;const rate=effRate(d);let tot=0;const rows=d.rows.map(r=>{const p=pool(r.pool),amt=+r.amt||0,base=amt*rate;tot+=base;const pr=p?pricingRun(p.id,d.date):null,dr=p?draftRun(p.id):null,npu=pr?pr.npu:(dr?dr.npu:npuAt(p?.id));
+  const bad=p&&!p.accepted.includes(d.ccy);return `<div class="li"><span class="tx"><b>${esc(p?.name||'—')}</b><small>${bad?`<span class="dn">${d.ccy} not accepted by this pool</span>`:`${fm(amt,d.ccy,{dec:2})}${d.ccy!=='INR'?' × ₹'+rate:''} = ${fm(base,'INR',{dec:2})} ÷ ${fnpu(npu)} `+(pr?`(approved valuation of ${fdate(pr.date)})`:`(estimate · units are issued at the next approved valuation)`)}</small></span><span class="v num">${pr?'':'≈ '}${fu(base/npu)} units</span></div>`}).join('');
+  return rows+`<div class="li"><span class="tx"><b>Total</b><small>Forward pricing: money buys units at the first approved valuation on or after the day it arrives, so nobody buys at a stale price.</small></span><span class="v num">${fm(tot,'INR',{dec:2})}</span></div>`}
+function payoutPreview(inst){const d=inst.dlg;const amt=+d.amt||0;if(!d.pool)return '';const rows=payoutEntries(d.pool,amt,d.date,'',inst.actor,false);const cash=pool(d.pool).assets.find(a=>a.cls==='wc')?.val||0;
+  if(!rows.length)return '<div class="al warn">'+ic('alert')+'<span>No units held on that date.</span></div>';
+  return `${amt>cash?`<div class="al err" style="margin-bottom:12px">${ic('alert')}<span>More than the pool's cash (${fm(cash,'INR',{c:1})}).</span></div>`:''}<div class="tw"><table class="rt"><thead><tr><th>LP</th><th class="r">Units on record date</th><th class="r">Share</th><th class="r">Payout</th></tr></thead><tbody>${rows.map(r=>`<tr><td data-l="LP"><b>${esc(inv(r.inv).name)}</b></td><td class="r num" data-l="Units">${fu(r.units)}</td><td class="r num" data-l="Share">${pct(r.units/sum(rows,x=>x.units),2)}</td><td class="r num" data-l="Payout"><b>${fm(r.amt,'INR',{dec:2})}</b></td></tr>`).join('')}</tbody></table></div><p class="faint" style="font-size:12.5px;margin:10px 0 0">Rounded down to the paisa; ${fm(amt-sum(rows,r=>r.amt),'INR',{dec:2})} left over stays in the pool.</p>`}
+
+/* ============================ ACTIONS ============================ */
+const A={
+nav:(inst,d)=>go(inst,d.r,d.g||null),
+drawer:(inst,d)=>{inst.drawer=d.v==='1';inst.el.querySelector('.lay').classList.toggle('dopen',inst.drawer)},
+ttab:(inst,d)=>{const s=tstate(inst,d.k);s.tab=d.v;s.page=0;render(inst)},
+tpg:(inst,d)=>{const s=tstate(inst,d.k);s.page=Math.max(0,s.page+(+d.v));render(inst)},
+actor:(inst,d)=>{inst.actor=d.v;inst.route='dashboard';inst.arg=null;inst.reveal=null;render(inst);toast('Signed in as '+who(d.v))},
+dlg:(inst,d)=>{inst.dlg={type:d.v,g:d.g,i:d.i};render(inst)},
+dlgclose:inst=>{inst.dlg=null;render(inst)},
+dlgbg:(inst,d,el,e)=>{if(e.target===el){inst.dlg=null;render(inst)}},
+runval:(inst,d)=>{const p=pool(d.v);S.runs=S.runs.filter(r=>!(r.pool===p.id&&r.status==='draft'));const r=computeRun(p,inst.actor);const live=npuAt(p.id),diff=Math.abs(r.npu-live)/live;
+  if(p.approval==='auto'&&!S.settings.makerChecker&&diff<=p.autoLimit/100){r.status='approved';r.approvedBy='system';S.runs.push(r);allocatePending(r);logA(inst.actor,'nav.approve',p.name,`Auto-approved ${fnpu(r.npu)} (${pct(diff,2)} move, limit ${p.autoLimit}%)`);toast('Auto-approved · within '+p.autoLimit+'% limit')}
+  else{S.runs.push(r);logA(inst.actor,'nav.compute',p.name,`Valuation run · ${fnpu(r.npu)} per unit`);toast(p.approval==='auto'?'Move is over the limit · waiting for approval':'Draft ready for approval')}commit(inst)},
+approve:(inst,d)=>{const r=S.runs.find(x=>x.id===d.v);if(!r)return;if(!(r.npu>0)){toast('NAV per unit is zero or below · dealing is suspended until it recovers','err');return}if(S.settings.makerChecker&&r.by===inst.actor){toast('Maker-checker: someone else must approve','err');return}r.status='approved';r.approvedBy=inst.actor;const got=allocatePending(r);logA(inst.actor,'nav.approve',pool(r.pool).name,`Approved NAV/unit ${fnpu(r.npu)}${got.length?` · issued units for ${got.length} pending subscription${got.length>1?'s':''}`:''}`);toast('Published · LPs now see '+fnpu(r.npu)+(got.length?` · ${got.length} pending subscription${got.length>1?'s':''} got units`:''));commit(inst)},
+discard:(inst,d)=>{const r=S.runs.find(x=>x.id===d.v);r.status='discarded';logA(inst.actor,'nav.discard',pool(r.pool).name,'Discarded draft valuation');commit(inst)},
+reveal:(inst,d)=>{inst.reveal=d.v||null;if(d.v){logA(inst.actor,'pii.reveal',d.v,'Revealed contact & KYC details of '+inv(d.v).name,{inv:d.v});save();rerenderAll(inst)}render(inst)},
+activate:(inst,d)=>{if(!can(inst.actor,'do'))return;const i=inv(d.v);i.status='active';i.since=TODAY;i.logins=[{name:i.name,mfa:'Passkey',last:'Just now'}];logA(inst.actor,'config.investor',i.name,'Invite accepted (simulated)');commit(inst);toast(i.name+' is now active')},
+reqok:(inst,d)=>{const r=S.requests.find(x=>x.id===d.v),p=pool(r.pool),held=unitsOf(r.inv,r.pool);if(!can(inst.actor,'oversee',p.id))return;if(r.units>held){toast('LP no longer holds that many units','err');return}const ar=approvedRun(p.id);if(!ar||(dd(TODAY)-dd(ar.date))/864e5>31){toast('Latest approved valuation is over 31 days old · approve a new one first','err');return}if(draftRun(p.id)){toast('A newer valuation is waiting · approve or discard it first so the price is current','err');return}const npu=ar.npu,cash=r2(r.units*npu);const wc=p.assets.find(a=>a.cls==='wc')?.val||0;if(cash>wc){toast(`Pool has ${fm(wc,'INR',{c:1})} cash · not enough to pay ${fm(cash,'INR',{c:1})}`,'err');return}
+  S.ledger.push({id:nid('L'),pool:p.id,inv:r.inv,kind:'redemption',units:-r.units,base:-cash,paidCcy:'INR',paidAmt:cash,fx:1,npu,date:TODAY,note:'Buy-back '+r.id,by:inst.actor});addWC(p,-cash);r.status='settled';logA(inst.actor,'redeem',inv(r.inv).name,`Bought back ${fu(r.units)} units for ${fm(cash,'INR')}`);toast('Settled · '+fm(cash,'INR'));commit(inst)},
+reqno:(inst,d)=>{const r=S.requests.find(x=>x.id===d.v);r.status='rejected';logA(inst.actor,'redeem.reject',inv(r.inv).name,'Rejected '+r.id);commit(inst)},
+reqcancel:(inst,d)=>{const r=S.requests.find(x=>x.id===d.v);r.status='cancelled';commit(inst);toast('Request cancelled')},
+'pe-ccy':(inst,d)=>{syncPool(inst);const a=inst.draft.accepted;const k=a.indexOf(d.v);k>=0?a.splice(k,1):a.push(d.v);render(inst)},
+'pe-add':(inst,d)=>{syncPool(inst);if(d.k==='scope'){const free=S.parks.find(k=>!inst.draft.scope.some(s=>s.park===k.id))||S.parks[0];inst.draft.scope.push({park:free.id,pct:Math.max(0,100-parkShareUsed(free.id,inst.draft.id))})}else inst.draft.assets.push({id:nid('A'),cls:'land',name:'',val:0,basis:'Entered by '+who(inst.actor)});render(inst)},
+'pe-rm':(inst,d)=>{syncPool(inst);inst.draft[d.k].splice(+d.v,1);render(inst)},
+'inv-add':inst=>{syncInvest(inst);const ps=poolsFor(inst.actor).filter(p=>p.status==='open');inst.dlg.rows.push({pool:(ps.find(p=>!inst.dlg.rows.some(r=>r.pool===p.id))||ps[0]).id,amt:''});render(inst)},
+'inv-rm':(inst,d)=>{syncInvest(inst);inst.dlg.rows.splice(+d.v,1);render(inst)},
+gpool:(inst,d)=>{if(!can(inst.actor,'configure'))return;const g=S.grants[d.p]||(S.grants[d.p]={level:'none',pools:'all',pii:false,expires:''});if(d.v==='all')g.pools='all';else{let a=g.pools==='all'?[]:g.pools.slice();a.includes(d.v)?a=a.filter(x=>x!==d.v):a.push(d.v);g.pools=a}logA(inst.actor,'access.pools',who(d.p),`${who(d.p)}: pools → ${g.pools==='all'?'all':g.pools.map(x=>pool(x).name).join(', ')}`);commit(inst)},
+flagwho:(inst,d)=>{if(!can(inst.actor,'configure'))return;S.flags[d.k].who=d.v;logA(inst.actor,'config.flag',d.k,`exchange.${d.k} → ${d.v==='all'?'all LPs':'selected LPs'}`);commit(inst)},
+sponsor:(inst,d)=>{const p=pool(d.v),nav=poolLiveNav(p);if(totalUnits(p.id)>0||!(nav>0))return;let sp=inv('inv-mesha');if(!sp){sp={id:'inv-mesha',name:'Mesha Agro (sponsor)',type:'Entity',country:'India',ccy:'INR',email:'finance@mesha.sg',phone:'',tax:'',bank:'',status:'active',since:TODAY,logins:[]};S.investors.push(sp)}
+  const units=r4(nav/p.unitStart);S.ledger.push({id:nid('L'),pool:p.id,inv:sp.id,kind:'subscription',units,base:r2(nav),paidCcy:'INR',paidAmt:r2(nav),fx:1,npu:p.unitStart,date:TODAY,note:'In-kind contribution of existing pool assets',by:inst.actor,inKind:true});
+  S.runs.push({id:nid('NAV'),pool:p.id,date:TODAY,npu:p.unitStart,status:'approved',by:inst.actor,approvedBy:inst.actor,classes:liveClasses(p),liab:p.liab,gross:nav+p.liab,nav,units});
+  logA(inst.actor,'ledger.add',sp.name,`Issued ${fu(units)} sponsor units in ${p.name} for existing assets`);commit(inst);toast('Sponsor units issued · pool opens at '+fnpu(p.unitStart))},
+paybatchrev:(inst,d)=>{const rows=S.ledger.filter(l=>l.kind==='payout'&&l.pool===d.p&&l.date===d.d&&l.note===d.n&&!l.reversedBy);if(!rows.length)return;const p=pool(d.p);let tot=0;rows.forEach(l=>{const c={id:nid('L'),pool:l.pool,inv:l.inv,kind:'correction',revKind:'payout',units:0,base:-l.base,paidCcy:'INR',paidAmt:-l.paidAmt,fx:1,npu:l.npu,date:TODAY,note:'Payout batch reversed',by:inst.actor,reverses:l.id};S.ledger.push(c);l.reversedBy=c.id;if(l.kind==='redemption'){const rq=S.requests.find(q=>l.note==='Buy-back '+q.id);if(rq)rq.status='reversed'}tot+=-l.base});addWC(p,tot);logA(inst.actor,'ledger.reverse',p.name,`Reversed payout batch "${d.n}" (${fm(tot,'INR')}, ${rows.length} LPs)`);commit(inst);toast('Payout batch reversed')},
+flaglp:(inst,d)=>{if(!can(inst.actor,'configure'))return;const f=S.flags[d.k];f.lps.includes(d.v)?f.lps=f.lps.filter(x=>x!==d.v):f.lps.push(d.v);logA(inst.actor,'config.flag',d.k,`exchange.${d.k}: ${f.lps.includes(d.v)?'added':'removed'} ${inv(d.v).name}`);commit(inst)}};
+const C={
+actor:(inst,el)=>A.actor(inst,{v:el.value}),
+lp:(inst,el)=>{inst.lp=el.value;inst.route='portfolio';inst.arg=null;render(inst)},
+tq:(inst,el)=>{const s=tstate(inst,el.dataset.k);s.q=el.value;s.page=0;render(inst)},
+trpp:(inst,el)=>{const s=tstate(inst,el.dataset.k);s.rpp=+el.value;s.page=0;render(inst)},
+tdense:(inst,el)=>{tstate(inst,el.dataset.k).dense=el.checked;render(inst)},
+glevel:(inst,el)=>{const pid=el.dataset.p,g=S.grants[pid]||(S.grants[pid]={level:'none',pools:'all',pii:false,expires:''}),old=g.level;
+  if(old==='configure'&&!g.expires&&el.value!=='configure'&&configureHolders()<=2){el.value=old;toast('At least two people must keep Configure','err');return}
+  g.level=el.value;logA(inst.actor,'access.level',who(pid),`${who(pid)}: ${LVL_LABEL[old]} → ${LVL_LABEL[g.level]}`);commit(inst);toast(who(pid)+' → '+LVL_LABEL[g.level])},
+gpii:(inst,el)=>{const g=S.grants[el.dataset.p];g.pii=el.checked;logA(inst.actor,'access.pii',who(el.dataset.p),`${who(el.dataset.p)}: PII ${el.checked?'on':'off'}`);commit(inst)},
+gexp:(inst,el)=>{const pid=el.dataset.p,g=S.grants[pid];if(g.level==='configure'&&el.value&&!g.expires&&configureHolders()<=2){toast('At least two people must keep Configure','err');render(inst);return}g.expires=el.value;logA(inst.actor,'access.expiry',who(pid),`${who(pid)}: expires ${el.value?fdate(el.value):'never'}`);commit(inst)},
+fx:(inst,el)=>{const v=+el.value;if(!(v>0)){toast('Rate must be above 0','err');return}const old=S.fx.rates[el.dataset.v];S.fx.rates[el.dataset.v]=v;S.fx.asOf=TODAY;S.fx.source='Manual rate · '+who(inst.actor);logA(inst.actor,'config.fx',el.dataset.v,`1 ${el.dataset.v}: ₹${old} → ₹${v}`);save();rerenderAll(inst)},
+ccyon:(inst,el)=>{const c=el.dataset.v,a=S.settings.currencies;if(el.checked){if(!a.includes(c))a.push(c)}else{if(S.pools.some(p=>p.accepted.includes(c))){el.checked=true;toast(c+' is still accepted by a pool · remove it there first','err');return}if(S.settings.displayDefault===c||S.investors.some(i=>i.ccy===c)){el.checked=true;toast(c+' is still an LP\'s display currency','err');return}S.settings.currencies=a.filter(x=>x!==c)}logA(inst.actor,'config.ccy',c,`${c} ${el.checked?'enabled':'disabled'}`);commit(inst)},
+mc:(inst,el)=>{S.settings.makerChecker=el.checked;logA(inst.actor,'config.control','maker-checker',`Maker-checker ${el.checked?'on':'off'}`);commit(inst)},
+defccy:(inst,el)=>{S.settings.displayDefault=el.value;logA(inst.actor,'config.default','display',`Default display currency → ${el.value}`);commit(inst)},
+flag:(inst,el)=>{S.flags[el.dataset.v].on=el.checked;logA(inst.actor,'config.flag',el.dataset.v,`exchange.${el.dataset.v} ${el.checked?'on':'off'}`);commit(inst);toast('exchange.'+el.dataset.v+(el.checked?' on':' off'))},
+myccy:(inst,el)=>{inv(inst.lp).ccy=el.value;commit(inst);toast('Showing values in '+el.value)}};
+/* form input listeners (live previews, no full re-render) */
+function syncInvest(inst){const f=inst.el.querySelector('form[data-f="invest"]');if(!f)return;const d=inst.dlg,fd=new FormData(f);d.inv=fd.get('inv');d.date=fd.get('date')||TODAY;d.ccy=fd.get('ccy');d.credited=fd.get('credited')||'';d.rows=d.rows.map((r,k)=>({pool:fd.get('pool_'+k),amt:fd.get('amt_'+k)}))}
+function syncPool(inst){const f=inst.el.querySelector('form[data-f="pool"]');if(!f||!inst.draft)return;const p=inst.draft,fd=new FormData(f),n=k=>fd.get(k);
+  if(n('name')!=null)p.name=n('name');if(n('base'))p.base=n('base');if(n('unitStart')!=null)p.unitStart=+n('unitStart');p.status=n('status');p.liab=+n('liab')||0;
+  p.rule={price:+n('price'),cts:+n('cts'),maxAge:+n('maxAge')};p.approval=n('approval');p.autoLimit=+n('autoLimit');
+  p.scope=p.scope.map((s,i)=>({park:n('sc_park_'+i),pct:+n('sc_pct_'+i)}));p.assets=p.assets.map((a,i)=>({...a,cls:n('as_cls_'+i),name:n('as_name_'+i),val:+n('as_val_'+i)}))}
+const F={
+pool(inst){syncPool(inst);const p=inst.draft,E={};const isNew=inst.arg==='new';
+  if(!p.name.trim())E.name='Give the pool a name';else if(S.pools.some(x=>x.id!==p.id&&x.name.toLowerCase()===p.name.trim().toLowerCase()))E.name='Another pool already has this name';
+  if(!(p.unitStart>0))E.unitStart='Must be above 0';if(!p.accepted.length)E.accepted='Accept at least one currency';
+  if(!p.accepted.includes(p.base))E.accepted='The base currency must be accepted';
+  if(!(p.rule.price>0))E.price='Price must be above 0';if(!(p.rule.cts>=0&&p.rule.cts<100))E.cts='Between 0 and 99';if(!(p.autoLimit>=0))E.autoLimit='0 or more';if(p.liab<0)E.liab='Can\'t be negative';
+  const dup=p.scope.map(s=>s.park).filter((x,i,a)=>a.indexOf(x)!==i);if(dup.length)E.scope=park(dup[0]).name+' is listed twice';
+  p.scope.forEach((s,i)=>{if(!(s.pct>0&&s.pct<=100))E['sc_pct_'+i]='1–100';else{const used=parkShareUsed(s.park,p.id);if(used+s.pct>100)E['sc_pct_'+i]=`Only ${100-used}% of ${park(s.park).name} is free`}});
+  if(p.status==='open'&&!p.scope.length)E.scope='An open pool needs at least one park';
+  p.assets.forEach((a,i)=>{if(!a.name.trim())E['as_name_'+i]='Name it';if(!(a.val>=0))E['as_val_'+i]='0 or more'});
+  inst.errs=E;if(Object.keys(E).length){render(inst);toast('Fix the highlighted fields','err');return}
+  if(isNew){p.id='p'+(S.pools.length+1)+Math.random().toString(36).slice(2,5);p.created=TODAY;S.pools.push(p);if(S.grants[inst.actor].pools!=='all')S.grants[inst.actor].pools.push(p.id);logA(inst.actor,'config.pool',p.name,'Created pool '+p.name)}
+  else{const i=S.pools.findIndex(x=>x.id===p.id),old=S.pools[i];const ch=[];if(old.rule.price!==p.rule.price)ch.push(`price ₹${old.rule.price}→₹${p.rule.price}/kg`);if(JSON.stringify(old.scope)!==JSON.stringify(p.scope))ch.push('parks changed');if(JSON.stringify(old.assets)!==JSON.stringify(p.assets))ch.push('asset values changed');if(old.status!==p.status)ch.push('status '+p.status);
+    S.pools[i]=p;logA(inst.actor,'config.pool',p.name,`Edited ${p.name}${ch.length?': '+ch.join(', '):''}`)}
+  const saved=p.id;inst.draft=null;inst.errs=null;save();toast(isNew?'Pool created':'Saved · run a valuation to reflect it for LPs');go(inst,'pools');rerenderAll(inst)},
+inv(inst,f,fd){const isNew=inst.arg==='new',E={};const v=k=>(fd.get(k)||'').trim();
+  if(!v('name'))E.name='Required';const em=v('email');if(isNew&&!em)E.email='Required for the invite';if(em&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em))E.email='Not a valid email';
+  if(em&&S.investors.some(x=>x.email.toLowerCase()===em.toLowerCase()&&x.id!==inst.arg))E.email='Another LP uses this email';
+  inst.errs=E;if(Object.keys(E).length){render(inst);return}
+  let i;if(isNew){i={id:nid('inv'),status:'invited',since:'',logins:[]};S.investors.push(i)}else i=inv(inst.arg);
+  Object.assign(i,{name:v('name'),type:v('type'),country:v('country'),ccy:v('ccy')});['email','phone','tax','bank'].forEach(k=>{if(v(k)||isNew)i[k]=v(k)});
+  logA(inst.actor,'config.investor',i.name,(isNew?'Added LP ':'Edited LP ')+i.name+(isNew?' · invite sent':''));inst.errs=null;save();toast(isNew?'Invite sent to '+i.email:'Saved');go(inst,'investor',i.id);rerenderAll(inst)},
+invest(inst){syncInvest(inst);const d=inst.dlg,iv=inv(d.inv),rate=r4(effRate(d));const bad=[];
+  if(!iv)bad.push('Pick an investor');if(d.date>TODAY)bad.push('Date can\'t be in the future');
+  const pls=d.rows.map(r=>r.pool);if(new Set(pls).size!==pls.length)bad.push('Same pool twice · combine the amounts');
+  d.rows.forEach(r=>{const p=pool(r.pool);if(!(+r.amt>0))bad.push('Every amount must be above 0');else if(!p.accepted.includes(d.ccy))bad.push(`${p.name} doesn't accept ${d.ccy}`);else if(p.status!=='open')bad.push(p.name+' is not open');else if(d.date<p.created)bad.push(`${p.name} didn't exist on ${fdate(d.date)}`);else if(!(npuAt(p.id)>0))bad.push(p.name+': dealing suspended (NAV per unit is zero or below)');else if(totalUnits(p.id)===0&&poolLiveNav(p)>0&&!pendingCash(p.id))bad.push(`${p.name} already holds ${fm(poolLiveNav(p),'INR',{c:1})} of assets with no units · issue sponsor units to Mesha first`)});
+  if(bad.length){toast([...new Set(bad)][0],'err');return}
+  d.rows.forEach(r=>{const p=pool(r.pool),amt=+r.amt,base=r2(amt*rate),pr=pricingRun(p.id,d.date);const e={id:nid('L'),pool:p.id,inv:iv.id,kind:'subscription',units:0,base,paidCcy:d.ccy,paidAmt:amt,fx:rate,npu:null,date:d.date,note:'Subscription',by:inst.actor};
+    if(pr){e.units=r4(base/pr.npu);e.npu=pr.npu;e.pricedOn=pr.date}else e.pending=true;S.ledger.push(e);addWC(p,base);
+    logA(inst.actor,'ledger.add',iv.name,`${iv.name}: ${fm(amt,d.ccy,{dec:2})} into ${p.name}`+(pr?` → ${fu(e.units)} units @ ${fnpu(pr.npu)} (valuation of ${fdate(pr.date)})`:' · units at next approved valuation'))});
+  if(iv.status==='invited')iv.status='invited';
+  const anyPending=S.ledger.slice(-d.rows.length).some(l=>l.pending);
+  inst.dlg=null;commit(inst);toast(anyPending?'Recorded · units are issued at the next approved valuation':'Recorded · priced at the first valuation after the money arrived')},
+payout(inst,f,fd){const d=inst.dlg;d.pool=fd.get('pool');d.date=fd.get('date');d.amt=fd.get('amt');d.note=fd.get('note');const amt=+d.amt,p=pool(d.pool);
+  if(!(amt>0)){toast('Enter an amount above 0','err');return}const cash=p.assets.find(a=>a.cls==='wc')?.val||0;if(amt>cash){toast('More than the pool\'s cash','err');return}
+  const rows=payoutEntries(d.pool,amt,d.date,d.note,inst.actor,true);if(!rows.length){toast('No units held on that date','err');return}
+  const paid=sum(rows,r=>r.amt);addWC(p,-paid);logA(inst.actor,'payout',p.name,`${d.note}: ${fm(paid,'INR',{dec:2})} to ${rows.length} LPs, record date ${fdate(d.date)}`);inst.dlg=null;commit(inst);toast('Paid '+fm(paid,'INR')+' to '+rows.length+' LPs')},
+reverse(inst,f,fd){const l=S.ledger.find(x=>x.id===inst.dlg.g);if(!l||l.reversedBy){toast('Already reversed','err');return}const p=pool(l.pool);
+  if(l.units>0&&unitsOf(l.inv,l.pool)-l.units< -1e-6){toast('LP no longer holds these units','err');return}
+  const c={id:nid('L'),pool:l.pool,inv:l.inv,kind:'correction',revKind:l.kind,units:-l.units,base:-l.base,paidCcy:l.paidCcy,paidAmt:-l.paidAmt,fx:l.fx,npu:l.npu,date:TODAY,note:fd.get('note')||'Correction',by:inst.actor,reverses:l.id};
+  S.ledger.push(c);l.reversedBy=c.id;if(l.kind==='subscription')addWC(p,-l.base);if(['payout','redemption'].includes(l.kind))addWC(p,-l.base);
+  logA(inst.actor,'ledger.reverse',inv(l.inv).name,`Reversed ${l.id} (${l.kind}) · ${c.note}`);inst.dlg=null;commit(inst);toast('Reversed '+l.id)},
+sell(inst,f,fd){const i=inv(inst.lp),pid=fd.get('pool'),u=+fd.get('units');const free=unitsOf(i.id,pid)-pendingUnits(i.id,pid);inst.errs={};
+  if(!(u>0))inst.errs.units='Enter units above 0';else if(u>free+1e-6)inst.errs.units=`You have ${fu(free)} free units`;
+  if(inst.errs.units){render(inst);return}inst.errs=null;
+  S.requests.unshift({id:'REQ-'+(1000+S.requests.length+1),inv:i.id,pool:pid,units:u,date:TODAY,status:'pending'});logA(i.id,'redeem.request',i.name,`${i.name} asked to sell ${fu(u)} units of ${pool(pid).name}`);commit(inst);toast('Request sent to Mesha')}};
+
+function bind(inst){const el=inst.el;
+  el.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(!a||!el.contains(a)||a.disabled)return;const fn=A[a.dataset.a];if(!fn)return;if(a.tagName==='BUTTON'&&a.type!=='submit')e.preventDefault();fn(inst,a.dataset,a,e)});
+  el.addEventListener('change',e=>{const c=e.target.closest('[data-c]');if(c&&C[c.dataset.c]&&c.dataset.c!=='tq')C[c.dataset.c](inst,c);
+    const f=e.target.closest('form');if(f&&f.dataset.f==='invest'){syncInvest(inst);if(e.target.name==='ccy'||e.target.name==='inv'){if(e.target.name==='inv'){inst.dlg.ccy=inv(inst.dlg.inv).ccy}render(inst)}else{const pv=document.getElementById(uid(inst,'inv-prev'));if(pv)pv.innerHTML=investPreview(inst)}}
+    if(f&&f.dataset.f==='payout'){const d=inst.dlg,fd=new FormData(f);d.pool=fd.get('pool');d.date=fd.get('date');d.amt=fd.get('amt');d.note=fd.get('note');const pv=document.getElementById(uid(inst,'pay-prev'));if(pv)pv.innerHTML=payoutPreview(inst)}});
+  el.addEventListener('input',e=>{const c=e.target.closest('[data-c="tq"]');if(c){C.tq(inst,c);return}
+    const f=e.target.closest('form');if(f&&f.dataset.f==='invest'){syncInvest(inst);const pv=document.getElementById(uid(inst,'inv-prev'));if(pv)pv.innerHTML=investPreview(inst)}
+    if(f&&f.dataset.f==='payout'){const d=inst.dlg,fd=new FormData(f);d.amt=fd.get('amt');d.pool=fd.get('pool');d.date=fd.get('date');d.note=fd.get('note');const pv=document.getElementById(uid(inst,'pay-prev'));if(pv)pv.innerHTML=payoutPreview(inst)}});
+  el.addEventListener('submit',e=>{e.preventDefault();const f=e.target;if(F[f.dataset.f])F[f.dataset.f](inst,f,new FormData(f))});
+  el.addEventListener('keydown',e=>{if(e.key==='Escape'&&(inst.dlg||inst.drawer)){inst.dlg=null;inst.drawer=false;render(inst)}})}
+
+/* ============================ SYSTEM DESIGN TAB ============================ */
+function renderDoc(){document.getElementById('doc').innerHTML=`
+<h2>Mesha Exchange · system design</h2>
+<p class="lede">Manju sets up pools on top of the existing parks, farms and sheds, records each LP's money, and approves valuations. Each LP signs in to exchange.mesha.sg or the app and sees only their own units, value and split. Everything in the CEO and LP tabs above runs on this design.</p>
+<h3>Decisions</h3>
+<div class="tw"><table><thead><tr><th>Topic</th><th>Decision</th></tr></thead><tbody>
+<tr><td><b>What LPs own</b></td><td>Units in a pool. A unit starts at 1.00 of the pool's base currency and then moves with the pool's value. New money is <b>forward priced</b>: it buys units at the first approved valuation on or after the day it arrives, so nobody buys at a stale price and earlier LPs are never diluted. Until then it shows as \"awaiting units\".</td></tr>
+<tr><td><b>Pools</b></td><td>One or more parks, each with a share % (a park can be split across pools, never above 100% in total). Plus land, sheds, stakes and cash entered by Manju.</td></tr>
+<tr><td><b>Global LPs</b></td><td>Money arrives in any enabled currency, is converted at the rate on the day it arrives, and is stored in the pool's base currency. LPs choose a display currency; the base amount and rate are always shown too.</td></tr>
+<tr><td><b>Valuation</b></td><td>Livestock = live kg from goatos weighings × price per kg × (1 − costs to sell) × park share. Runs are drafts until an Oversee holder approves them, or auto-approved when the move is inside the pool's limit. LPs only see approved values.</td></tr>
+<tr><td><b>Ledger</b></td><td>Append-only. Subscriptions, payouts, buy-backs and corrections. Nothing is edited or deleted; each row carries a hash of the previous one.</td></tr>
+<tr><td><b>Who sees money data</b></td><td>The LP (own data only), and staff Manju grants an Investments level to in HRMS. Goatos admin, CEO_internal and dev roles grant nothing.</td></tr>
+<tr><td><b>Apps</b></td><td>Separate repo <code>vgoats/mesha-exchange</code>. Web: Next.js + MUI Minimal (Standard Plus) with the Mesha theme at exchange.mesha.sg. iOS/Android: the same app wrapped with Capacitor, with over-the-air updates. Go exchange API.</td></tr>
+</tbody></table></div>
+<h3>Architecture</h3>
+<pre class="mermaid">flowchart LR
+  subgraph G["goatos (existing)"]
+    OPS[Staff apps] --> GDB[(goatos Postgres<br/>parks · sheds · animals<br/>weighings · sales)]
+    HR[HRMS People → Access]
+  end
+  GDB -- "read-only herd facts<br/>(no money data)" --> API
+  HR -- "Investments grant<br/>(Configure holders only)" --> API
+  subgraph X["exchange (separate repo + GCP project)"]
+    WEB[exchange.mesha.sg<br/>Next.js + MUI Minimal] --> API[exchange-api<br/>Go · Cloud Run]
+    APP[iOS / Android<br/>Capacitor + OTA] --> API
+    API --> XDB[(exchange Postgres<br/>RLS · CMEK)]
+    API --> KMS{{Cloud KMS<br/>PII keys}}
+    API --> FF[Feature flags]
+  end
+  AUTH[Firebase · investor tenant<br/>MFA required] --> WEB
+  AUTH --> APP</pre>
+<h3>Security layers</h3>
+<div class="layers">
+<div class="layer"><b>1 · Separate system</b><div>Own repo, GCP project, Cloud SQL instance (private IP, CMEK) and service account. No human DB credentials; devs and goatos admins have no IAM here.</div></div>
+<div class="layer"><b>2 · One permission check</b><div><code>can(person, action, pool)</code> on every request, from grants stored in the exchange (not goatos). Deny by default.</div></div>
+<div class="layer"><b>3 · Row-level security</b><div>FORCE RLS on every table. The API sets the LP id or the staff member's pools per transaction; a query without them fails instead of returning rows.</div></div>
+<div class="layer"><b>4 · Encryption</b><div>Names, email, phone, tax ID and bank encrypted per LP with Cloud KMS keys only the API can use. Shown masked; a reveal needs the PII switch and is logged.</div></div>
+<div class="layer"><b>5 · Audit</b><div>Every view, reveal, money entry and config change is logged, append-only. LPs see who viewed their data.</div></div>
+<div class="layer"><b>6 · Leak paths closed</b><div>No exchange data in logs, BigQuery, Ask Mesha / CEO AI, LLM tracing, analytics, emails or screenshot bots. Break-glass access needs two approvers and expires in 1 hour.</div></div></div>
+<h3>Access levels (HRMS → Investments)</h3>
+<div class="tw"><table><thead><tr><th>Level</th><th>Can</th></tr></thead><tbody>
+<tr><td><b>View</b></td><td>See LPs, holdings, values and the ledger for pools in scope</td></tr><tr><td><b>Do</b></td><td>View + add LPs, record investments and payouts, run valuations, reverse entries</td></tr>
+<tr><td><b>Oversee</b></td><td>View + approve valuations and exit requests. Not a superset of Do, same as goatos levels</td></tr><tr><td><b>Configure</b></td><td>Everything + pools, currencies, settings, feature flags and access. At least two holders at all times</td></tr>
+<tr><td><b>Extras</b></td><td>Pool scope, PII switch, expiry date. Maker-checker (optional) stops people approving their own valuation</td></tr></tbody></table></div>
+<h3>Data model</h3>
+<div class="tw"><table><thead><tr><th>Table</th><th>Holds</th></tr></thead><tbody>
+<tr><td><code>pool</code>, <code>pool_scope</code>, <code>pool_asset</code>, <code>asset_valuation</code>, <code>livestock_rule</code></td><td>Pool setup, parks and share %, other assets, the price rule</td></tr>
+<tr><td><code>investor</code>, <code>investor_user</code></td><td>LPs (PII encrypted, blind index for email), their logins</td></tr>
+<tr><td><code>ledger_entry</code></td><td>Every unit and cash movement with paid currency, rate, NAV/unit used, hash chain</td></tr>
+<tr><td><code>nav_run</code>, <code>nav_snapshot</code></td><td>Valuation drafts and approvals with all inputs</td></tr>
+<tr><td><code>staff_grant</code>, <code>access_log</code>, <code>feature_flag</code>, <code>fx_rate</code>, <code>config_change</code></td><td>Access, audit, flags, rates, settings history</td></tr></tbody></table></div>
+<h3>Edge cases handled in the prototype</h3>
+<ul><li>Base currency locks once units are issued; a disabled currency can't still be accepted by a pool.</li><li>A park can't be split above 100% across pools; the same park can't be listed twice.</li><li>Forward pricing: money gets units at the first approved valuation on or after its date; backdated money is priced by the valuation that followed it; money awaiting units is kept out of the NAV per unit.</li><li>Payouts split by units held on the record date, rounded down; leftover paise stay in the pool; can't pay more than the pool's cash.</li><li>Corrections reverse, never edit; an entry can't be reversed twice; units already sold can't be reversed.</li><li>LPs can't sell more than their free units (pending requests count).</li><li>Expired grants stop working the next day; at least two Configure holders; goatos admins get a 403.</li><li>New money raises the pool's cash, so NAV per unit doesn't jump when an LP invests.</li></ul>
+<h3>Hardening</h3>
+<ul><li><b>No single person</b> can read or move the data: protected code owners on migrations, permissions and encryption; only signed CI builds deploy; signed over-the-air bundles; the API can only reach KMS, its database, goatos and the rate provider.</li>
+<li><b>Grants live only in the exchange.</b> HRMS links here and can only remove access. Staff sign in to the exchange's own staff login with two-step verification.</li>
+<li><b>Maker-checker is mandatory</b> for valuations, reversals, payouts, buy-backs and grants in production.</li>
+<li><b>Row-level security fails closed</b> through a helper that raises when the session isn't set; no materialised views over protected tables.</li>
+<li><b>Tamper evidence:</b> one hash chain per pool; the daily head hash goes to a locked bucket in a separate project and onto every LP statement.</li>
+<li><b>Apps:</b> no caching of LP pages, screenshots blocked, session in Keychain/Keystore, native biometric lock and push.</li></ul>
+<h3>Build order</h3>
+<ol><li>GCP project, KMS, service account, investor Firebase tenant (3–4 days)</li><li>Schema, RLS, encryption, permission check and their tests (1 week)</li><li>Goatos read API for herd facts (3 days)</li><li>Valuation job and approval (1 week)</li><li>Manju's screens and the HRMS Investments row (1.5–2 weeks)</li><li>LP web on Minimal (1.5 weeks)</li><li>Capacitor apps and OTA updates, flag service (1 week)</li></ol>`}
+
+/* ============================ BOOT ============================ */
+load();
+mkInst('ceo','ceo','app-ceo');mkInst('lp','lp','app-lp');mkInst('mceo','ceo','app-mceo');mkInst('mlp','lp','app-mlp');
+Object.values(INST).forEach(bind);
+renderDoc();
+const VIEWS=['ceo','lp','mob','sys'];
+function show(v){VIEWS.forEach(x=>document.getElementById('v-'+x).hidden=x!==v);document.querySelectorAll('#ttabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  if(v==='ceo')render(INST.ceo);if(v==='lp')render(INST.lp);if(v==='mob'){render(INST.mceo);render(INST.mlp)}try{localStorage.setItem('mx-tab',v)}catch(e){}}
+document.getElementById('ttabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)show(b.dataset.v)});
+document.getElementById('resetBtn').addEventListener('click',()=>{seed();save();Object.values(INST).forEach(i=>{i.route=i.mode==='ceo'?'dashboard':'portfolio';i.arg=null;i.actor='manju';i.lp='inv-anita';i.dlg=null;i.t={}});show(document.querySelector('#ttabs .on').dataset.v);toast('Sample data restored')});
+document.getElementById('themeBtn').addEventListener('click',()=>{const r=document.documentElement,cur=r.getAttribute('data-theme'),dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.setAttribute('data-theme',dark?'light':'dark');Object.values(INST).forEach(i=>{if(i.el.offsetParent!==null)render(i)})});
+let start='ceo';try{start=localStorage.getItem('mx-tab')||'ceo'}catch(e){}const h=(location.hash||'').slice(1);if(VIEWS.includes(h))start=h;
+show(VIEWS.includes(start)?start:'ceo');
+</script>
