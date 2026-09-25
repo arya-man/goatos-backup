@@ -168,7 +168,7 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 func checkSaleDateWindow(w domain.DealWrite, now time.Time) error {
 	day, err := time.ParseInLocation("2006-01-02", w.SaleDate, biztime.DefaultLocation())
 	if err != nil {
-		return nil // Validate already refused a malformed date.
+		return nil // exception:exempt Validate already refused a malformed date; this window check has nothing to add.
 	}
 	today := biztime.BusinessDayStart(now)
 	closed := w.Status == "" || w.Status == domain.StatusDealClosed

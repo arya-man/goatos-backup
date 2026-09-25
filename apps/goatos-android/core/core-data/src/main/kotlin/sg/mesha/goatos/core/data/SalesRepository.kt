@@ -187,6 +187,7 @@ class DefaultSalesRepository(
      */
     override fun observeDeal(dealId: String): Flow<SalesDealDto?> =
         combine(database.salesDealItemDao().observeLatestForDeal(dealId), observeBlob<SalesDealDto>(DEAL_KEY_PREFIX + dealId)) { row, blob ->
+            // exception:exempt an unreadable cached ledger row falls back to the detail blob; nothing failed that a report could act on
             row?.let { runCatching { json.decodeFromString<SalesDealDto>(it.dtoJson) }.getOrNull() } ?: blob
         }.flowOn(Dispatchers.Default)
 
