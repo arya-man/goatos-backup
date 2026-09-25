@@ -45,6 +45,10 @@ type FarmBornRequest struct {
 	Stage   string
 	Limit   int
 	Offset  int
+	// Sort / Dir order the WHOLE sold set by one ledger column before it is paged ("sort all
+	// rows", 2026-09-25); blank is newest sale first.
+	Sort string
+	Dir  string
 }
 
 var (
@@ -64,6 +68,10 @@ var (
 func (s *FarmBornSalesService) FarmBornSales(ctx context.Context, tenantID string, req FarmBornRequest) (domain.FarmBornSales, error) {
 	if req.Offset < 0 || req.Offset > domain.MaxFarmBornOffset {
 		return domain.FarmBornSales{}, ErrFarmBornOffsetInvalid
+	}
+	order, err := domain.ParseTableSort(req.Sort, req.Dir, domain.FarmBornOrderable, domain.FarmBornDefaultSort)
+	if err != nil {
+		return domain.FarmBornSales{}, err
 	}
 	// Species and sex are the tenant's Configuration lists (OPEN UP TO NEW SPECIES, 2026-09-25), so
 	// a filter is checked for a code's SHAPE only: a configured third species filters like goat, and
@@ -117,7 +125,7 @@ func (s *FarmBornSalesService) FarmBornSales(ctx context.Context, tenantID strin
 	if err != nil {
 		return domain.FarmBornSales{}, err
 	}
-	out := domain.BuildFarmBornSales(facts, filter, req.Limit, req.Offset)
+	out := domain.BuildFarmBornSalesSorted(facts, filter, order, req.Limit, req.Offset)
 	// The bar's vocabulary is the whole population, not the filtered slice: narrowing to one
 	// breed must not make the other breeds vanish from the breed select.
 	options, err := s.repo.FarmBornOptions(ctx, tenantID)
@@ -139,6 +147,8 @@ func FarmBornHTTPError(err error) *Error {
 		return &Error{Code: "window_too_wide", Message: "That period is too long. Pick up to five years.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrFarmBornOffsetInvalid):
 		return &Error{Code: "invalid_offset", Message: "That page is out of range.", HTTPStatus: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrTableSortInvalid):
+		return &Error{Code: "invalid_sort", Message: "That column cannot be sorted.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrFarmBornSexInvalid):
 		return &Error{Code: "invalid_sex", Message: "Pick one of the farm's genders, or all.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrFarmBornSpeciesInvalid):

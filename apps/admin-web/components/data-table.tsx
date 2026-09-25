@@ -128,6 +128,7 @@ export function DataTable<Row>({
   footer,
   initialSorting,
   expandable,
+  serverSort,
 }: {
   columns: ColumnDef<Row>[];
   data: Row[];
@@ -141,16 +142,36 @@ export function DataTable<Row>({
   initialSorting?: SortingState;
   /** Rule 4 above: rows that open an in-place detail row. */
   expandable?: DataTableExpandable<Row>;
+  /**
+   * WHOLE-RESULT sorting ("sort all rows", 2026-09-25). When set, a header click does NOT reorder
+   * the rows this component holds -- that sorted one page out of hundreds -- but hands the new
+   * order to the page, which asks the backend for it. `sorting` is the order the rows ARRIVED in;
+   * `pending` marks the table busy in place while the re-ordered page is on its way.
+   */
+  serverSort?: {
+    sorting: SortingState;
+    onChange: (next: SortingState) => void;
+    pending?: boolean;
+    /** Screen-reader suffix for a sortable header, e.g. "sort all rows". Backend copy. */
+    sortLabel: string;
+  };
 }) {
-  const [sorting, setSorting] = useState<SortingState>(initialSorting ?? []);
+  const [localSorting, setLocalSorting] = useState<SortingState>(initialSorting ?? []);
+  const sorting = serverSort ? serverSort.sorting : localSorting;
 
   const table = useReactTable({
     data,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      if (serverSort) serverSort.onChange(next);
+      else setLocalSorting(next);
+    },
     getRowId,
     getCoreRowModel: getCoreRowModel(),
+    // The server already ordered the whole set; re-sorting its page here would only disagree.
+    manualSorting: Boolean(serverSort),
     getSortedRowModel: getSortedRowModel(),
     // The server owns the window. TanStack must not slice, count or page these rows.
     manualPagination: true,
@@ -161,7 +182,13 @@ export function DataTable<Row>({
   const colCount = table.getVisibleLeafColumns().length;
 
   return (
-    <div className="tablewrap" tabIndex={0} role="region" aria-label={ariaLabel}>
+    <div
+      className={serverSort?.pending ? "tablewrap tablewrap-busy" : "tablewrap"}
+      tabIndex={0}
+      role="region"
+      aria-label={ariaLabel}
+      aria-busy={serverSort?.pending || undefined}
+    >
       <table className={className} aria-label={ariaLabel}>
         <thead>
           <tr>
@@ -183,7 +210,7 @@ export function DataTable<Row>({
                       type="button"
                       className="thsort"
                       onClick={header.column.getToggleSortingHandler()}
-                      aria-label={`${String(header.column.columnDef.header)} — sort this page`}
+                      aria-label={`${String(header.column.columnDef.header)} — ${serverSort ? serverSort.sortLabel : "sort this page"}`}
                     >
                       {label}
                       <span aria-hidden="true" className="thsort-ind">

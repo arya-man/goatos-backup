@@ -1,10 +1,12 @@
 "use client";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
+import { useUrlSort } from "@/components/use-url-sort";
 import { Tag } from "@/components/ui-primitives";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 import type { BuyerAnalyticsRow } from "@/lib/api/procurement";
 import { humanDate, inr, num } from "./sales-format";
+import type { TableOrder } from "./table-order";
 
 /** Backend copy handed down by the server component; this file names no label of its own. */
 export type BuyerTableLabels = {
@@ -14,6 +16,8 @@ export type BuyerTableLabels = {
   oneTime: string;
   settled: string;
   empty: React.ReactNode;
+  /** Screen-reader suffix for a sortable header ("sort all rows"). */
+  sortAll: string;
 };
 
 /**
@@ -31,20 +35,31 @@ export type BuyerTableRow = BuyerAnalyticsRow & {
  * The buyers table on TanStack (maintainer request 2026-09-16, the pens-table shape). Columns and
  * their sort affordances come from the page's `sales-buyer-analytics` contract; the phone column
  * is dropped here when the payload withheld phones, so the header and the body agree. Sorting
- * reorders the served page only -- the window is the backend's, which is why the pager stays
- * outside -- and it opens on the backend's own order: newest last sale first.
+ * is WHOLE-RESULT (2026-09-25): the backend orders every buyer and pages the result, so the pager
+ * continues the same order; it opens on the backend's own order: newest last sale first.
  */
 export function BuyerTable({
   contract,
   rows,
   showPhones,
   labels,
+  order,
 }: {
   contract: AdminUiTableContract;
   rows: BuyerTableRow[];
   showPhones: boolean;
   labels: BuyerTableLabels;
+  /** The order the rows were served in; a header click asks the backend for a new one. */
+  order: TableOrder;
 }) {
+  // WHOLE-RESULT sorting: a header click re-orders EVERY buyer on the server and pages from its
+  // first row, instead of shuffling the 25 rows this table holds.
+  const serverSort = useUrlSort({
+    sort: order.sort,
+    dir: order.dir,
+    defaultSort: { id: "last_sale_date", desc: true },
+    pageParams: ["offset"],
+  });
   const visibleContract: AdminUiTableContract = {
     ...contract,
     // Older contracts declared these as columns; this screen already renders them as
@@ -151,7 +166,7 @@ export function BuyerTable({
       getRowId={(row) => row.buyer_key}
       ariaLabel={labels.ariaLabel}
       empty={labels.empty}
-      initialSorting={[{ id: "last_sale_date", desc: true }]}
+      serverSort={{ ...serverSort, sortLabel: labels.sortAll }}
     />
   );
 }

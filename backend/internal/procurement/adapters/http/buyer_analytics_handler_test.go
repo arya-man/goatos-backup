@@ -15,13 +15,15 @@ import (
 )
 
 type stubBuyerAnalyticsService struct {
-	out  domain.BuyerAnalytics
-	farm string
-	err  error
+	out     domain.BuyerAnalytics
+	farm    string
+	sortKey string
+	dir     string
+	err     error
 }
 
-func (s *stubBuyerAnalyticsService) BuyerAnalytics(_ context.Context, _ string, farm string, limit, offset int) (domain.BuyerAnalytics, error) {
-	s.farm = farm
+func (s *stubBuyerAnalyticsService) BuyerAnalyticsSorted(_ context.Context, _ string, farm, sortKey, dir string, limit, offset int) (domain.BuyerAnalytics, error) {
+	s.farm, s.sortKey, s.dir = farm, sortKey, dir
 	if s.err != nil {
 		return domain.BuyerAnalytics{}, s.err
 	}

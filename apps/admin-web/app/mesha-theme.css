@@ -101,6 +101,9 @@
      one lands, and blanking the table would throw away what the reader is comparing against — but
      they are visibly held back and inert so a stale row cannot be clicked or misread as the result. */
   .wfbusy{opacity:.55;transition:opacity .12s ease-in-out;pointer-events:none}
+  /* A table re-ordered by the backend ("sort all rows"): only ITS rows are held back while the new
+     order is on its way -- the page, its filters and every other section stay as they are. */
+  .tablewrap-busy tbody{opacity:.6;transition:opacity .12s ease-in-out;pointer-events:none}
   @media(prefers-reduced-motion:reduce){
     .routebar.on span{animation:none;transform:none;width:100%}
     .skel{animation:none}

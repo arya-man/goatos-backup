@@ -29478,6 +29478,10 @@ export interface operations {
                 stage?: string;
                 /** @description Sold-ledger page size; clamped to 25 by default and 100 at most. */
                 limit?: number;
+                /** @description The column to order the WHOLE filtered set by before it is paged, so page 2 continues page 1's order. Absent is the default order (newest sale first). An unknown column is refused with `invalid_sort`, never silently served in the default order. */
+                sort?: "tag" | "breed" | "sex" | "stage" | "pen" | "sale_date" | "buyer_name" | "sale_value";
+                /** @description Direction for `sort`; absent is ascending. A direction without `sort` is refused. */
+                dir?: "asc" | "desc";
                 /** @description Row offset into the newest-sale-first ledger. */
                 offset?: number;
             };
@@ -29509,6 +29513,10 @@ export interface operations {
                 farm?: "all" | "CBE" | "CPT";
                 /** @description Page size; clamped to 25 by default and 100 at most. */
                 limit?: number;
+                /** @description The column to order the WHOLE filtered set by before it is paged, so page 2 continues page 1's order. Absent is the default order (newest last sale first). An unknown column is refused with `invalid_sort`, never silently served in the default order. */
+                sort?: "buyer_name" | "purchases" | "animals" | "revenue" | "repeat" | "first_sale_date" | "last_sale_date" | "outstanding";
+                /** @description Direction for `sort`; absent is ascending. A direction without `sort` is refused. */
+                dir?: "asc" | "desc";
                 /** @description Row offset into the revenue-ordered buyer list. */
                 offset?: number;
             };

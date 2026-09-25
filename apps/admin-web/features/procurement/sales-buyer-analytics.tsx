@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import Link from "@/components/no-prefetch-link";
+import { LinkPending } from "@/components/link-pending";
 import {
   controlEnabled,
   copy,
@@ -23,6 +24,7 @@ import {
   readSalesParkScope,
 } from "./sales-chrome";
 import { BuyerTable } from "./buyer-table";
+import { tableOrderFromParams, type TableOrder } from "./table-order";
 
 const PAGE_PATH = "/sales/buyer-analytics";
 /** Only used when an older backend contract carries no buyers table; the contract page size wins. */
@@ -54,12 +56,14 @@ function BuyerSections({
   offset,
   limit,
   pageHref,
+  order,
 }: {
   analytics: BuyerAnalytics;
   pageContract: AdminUiPageContract;
   offset: number;
   limit: number;
   pageHref: (offset: number) => string;
+  order: TableOrder;
 }) {
   const summary = analytics.summary;
   const none = copy(pageContract, "value.none");
@@ -174,7 +178,9 @@ function BuyerSections({
               recency: recency(row),
             }))}
             showPhones={showPhones}
+            order={order}
             labels={{
+              sortAll: copy(pageContract, "table.sort_all"),
               ariaLabel: copy(pageContract, "section.buyers.title"),
               none,
               repeat: copy(pageContract, "chip.repeat"),
@@ -203,6 +209,7 @@ function BuyerSections({
                 className="btn"
               >
                 {copy(pageContract, "action.prev_page")}
+                <LinkPending />
               </Link>
             ) : (
               <span className="btn" aria-disabled="true">
@@ -216,6 +223,7 @@ function BuyerSections({
                 className="btn"
               >
                 {copy(pageContract, "action.next_page")}
+                <LinkPending />
               </Link>
             ) : (
               <span className="btn" aria-disabled="true">
@@ -247,10 +255,14 @@ export async function SalesBuyerAnalyticsPage({
   const limit = resolveLimit(one(sp, "limit"), pageSizes, defaultLimit);
   const offset = boundedInt(one(sp, "offset"), 0, 0, MAX_OFFSET);
 
+  // The table's whole-result order, validated against the contract's sortable columns.
+  const order = tableOrderFromParams(sp, table(pageContract, "sales-buyer-analytics"));
   const result = await getBuyerAnalytics({
     farm: farm === SALES_DEFAULT_FARM ? undefined : farm,
     limit,
     offset,
+    sort: order.sort || undefined,
+    dir: order.sort ? order.dir : undefined,
   });
   if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
 
@@ -285,6 +297,7 @@ export async function SalesBuyerAnalyticsPage({
           offset={result.data.offset}
           limit={result.data.limit}
           pageHref={pageHref}
+          order={order}
         />
       ) : null}
     </div>

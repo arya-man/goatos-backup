@@ -302,6 +302,60 @@ func readableCode(code string) string {
 // sum of deal shares) and denominator (the count of facts carrying a share) ranging over the same
 // key set, and a zero denominator yields 0 rather than a division.
 func BuildFarmBornSales(facts []FarmBornAnimalFact, filter FarmBornFilter, limit, offset int) FarmBornSales {
+	return BuildFarmBornSalesSorted(facts, filter, FarmBornDefaultSort, limit, offset)
+}
+
+// FarmBornOrderable is every sold-ledger column the backend orders the WHOLE sold set by.
+var FarmBornOrderable = map[string]bool{
+	"tag": true, "breed": true, "sex": true, "stage": true, "pen": true,
+	"sale_date": true, "buyer_name": true, "sale_value": true,
+}
+
+// FarmBornDefaultSort is the ledger's order when none is asked for: newest sale first.
+var FarmBornDefaultSort = TableSort{Key: "sale_date", Desc: true}
+
+func farmBornDefaultLess(a, b FarmBornSoldRow) bool {
+	if a.SaleDate != b.SaleDate {
+		return a.SaleDate > b.SaleDate
+	}
+	if a.Tag != b.Tag {
+		return a.Tag < b.Tag
+	}
+	return a.GoatID < b.GoatID
+}
+
+func farmBornText(key string, r FarmBornSoldRow) string {
+	switch key {
+	case "tag":
+		// The ledger shows the display id where the animal has no tag, and sorts what it shows.
+		if r.Tag != "" {
+			return r.Tag
+		}
+		return r.DisplayID
+	case "breed":
+		return r.Breed
+	case "sex":
+		return r.Sex
+	case "stage":
+		return r.Stage
+	case "pen":
+		// Park first: a pen name repeats across parks, and the ledger groups by where the pen is.
+		if r.PenDisplay == "" {
+			return ""
+		}
+		return strings.TrimSpace(r.ParkName + " " + r.PenDisplay)
+	case "sale_date":
+		return r.SaleDate
+	case "buyer_name":
+		return r.BuyerName
+	}
+	return ""
+}
+
+// BuildFarmBornSalesSorted is BuildFarmBornSales with the whole-result order the ledger asked for.
+// A row whose value is ABSENT (no recorded sale value, a blank tag) sits last whichever way the
+// column is sorted: missing is not zero and must never land between two real values.
+func BuildFarmBornSalesSorted(facts []FarmBornAnimalFact, filter FarmBornFilter, order TableSort, limit, offset int) FarmBornSales {
 	summary := FarmBornSummary{From: filter.From, To: filter.To}
 
 	breed := map[string]*FarmBornBucket{}
@@ -389,15 +443,34 @@ func BuildFarmBornSales(facts []FarmBornAnimalFact, filter FarmBornFilter, limit
 		summary.AvgPrice = summary.Revenue / float64(summary.SoldPriced)
 	}
 
-	// Newest sale first; tag then goat id make the order total.
-	sort.Slice(sold, func(i, j int) bool {
-		if sold[i].SaleDate != sold[j].SaleDate {
-			return sold[i].SaleDate > sold[j].SaleDate
+	// The asked-for column over the WHOLE sold set; newest sale, then tag, then goat id break its
+	// ties so the order is total and page 2 continues page 1.
+	sort.SliceStable(sold, func(i, j int) bool {
+		a, b := sold[i], sold[j]
+		if order.Key == "sale_value" {
+			switch {
+			case a.SaleValue == nil && b.SaleValue != nil:
+				return false
+			case a.SaleValue != nil && b.SaleValue == nil:
+				return true
+			case a.SaleValue != nil && b.SaleValue != nil:
+				if c := directed(compareOrdered(*a.SaleValue, *b.SaleValue), order.Desc); c != 0 {
+					return c < 0
+				}
+			}
+		} else if order.Key != "" {
+			x, y := strings.ToLower(farmBornText(order.Key, a)), strings.ToLower(farmBornText(order.Key, b))
+			switch {
+			case x == "" && y != "":
+				return false
+			case x != "" && y == "":
+				return true
+			}
+			if c := directed(compareOrdered(x, y), order.Desc); c != 0 {
+				return c < 0
+			}
 		}
-		if sold[i].Tag != sold[j].Tag {
-			return sold[i].Tag < sold[j].Tag
-		}
-		return sold[i].GoatID < sold[j].GoatID
+		return farmBornDefaultLess(a, b)
 	})
 
 	limit = ClampFarmBornPageSize(limit)

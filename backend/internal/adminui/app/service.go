@@ -4779,6 +4779,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// The farm chips, shared with every Sales read page (one park filter, 2026-09-25). They
 			// replace the filter bar's own park select, which wrote the same `park` a second way.
 			"filter.farm": "Farm",
+			// Screen-reader suffix of a sortable header: the order covers every sold animal.
+			"table.sort_all": "sort all rows",
 
 			// The filter bar. Period is the SOLD window (maintainer decision 2026-09-18: the
 			// on-farm count is today's whatever the period); the rest narrow the whole page.
@@ -4855,6 +4857,8 @@ func pageSpecificCopy(id string) map[string]string {
 		// by key so the toggle reads identically on every Sales page.
 		return map[string]string{
 			"crumb": "Sales",
+			// Screen-reader suffix of a sortable header: the order covers every buyer, not the page.
+			"table.sort_all": "sort all rows",
 
 			"filter.farm": "Farm",
 			"filter.all":  "All farms",

@@ -1,9 +1,11 @@
 "use client";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
+import { useUrlSort } from "@/components/use-url-sort";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 import type { FarmBornSoldRow } from "@/lib/api/procurement";
 import { humanDate, inr } from "./sales-format";
+import type { TableOrder } from "./table-order";
 
 /** Backend copy handed down by the server component; this file names no label of its own. */
 export type FarmBornSoldTableLabels = {
@@ -16,6 +18,8 @@ export type FarmBornSoldTableLabels = {
    */
   sexLabels: Record<string, string>;
   empty: React.ReactNode;
+  /** Screen-reader suffix for a sortable header ("sort all rows"). */
+  sortAll: string;
 };
 
 /**
@@ -28,11 +32,21 @@ export function FarmBornSoldTable({
   contract,
   rows,
   labels,
+  order,
 }: {
   contract: AdminUiTableContract;
   rows: FarmBornSoldRow[];
   labels: FarmBornSoldTableLabels;
+  /** The order the rows were served in; a header click asks the backend for a new one. */
+  order: TableOrder;
 }) {
+  // WHOLE-RESULT sorting over every sold animal in the filter (2026-09-25), paged from its first row.
+  const serverSort = useUrlSort({
+    sort: order.sort,
+    dir: order.dir,
+    defaultSort: { id: "sale_date", desc: true },
+    pageParams: ["offset"],
+  });
   const orDash = (value: string) =>
     value ? value : <span className="muted">{labels.notRecorded}</span>;
   const columns = columnsFromContract<FarmBornSoldRow>(contract, {
@@ -91,6 +105,7 @@ export function FarmBornSoldTable({
       ariaLabel={labels.ariaLabel}
       className="tbl"
       empty={labels.empty}
+      serverSort={{ ...serverSort, sortLabel: labels.sortAll }}
     />
   );
 }

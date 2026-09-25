@@ -17,7 +17,7 @@ import (
 
 // BuyerAnalyticsService is the behaviour this transport depends on.
 type BuyerAnalyticsService interface {
-	BuyerAnalytics(ctx context.Context, tenantID, farm string, limit, offset int) (domain.BuyerAnalytics, error)
+	BuyerAnalyticsSorted(ctx context.Context, tenantID, farm, sortKey, dir string, limit, offset int) (domain.BuyerAnalytics, error)
 }
 
 // BuyerAnalyticsHandler serves the Sales > Buyer analytics read.
@@ -117,7 +117,7 @@ func callerMaySeePhones(r *http.Request) bool {
 }
 
 // BuyerAnalytics serves GET /procurement/buyer-analytics. farm is the sales pages' toggle value
-// (all/CBE/CPT); limit and offset page the buyer rows only.
+// (all/CBE/CPT); sort/dir order EVERY buyer by one column before limit and offset page the rows.
 func (h *BuyerAnalyticsHandler) BuyerAnalytics(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, offset := 0, 0
@@ -137,7 +137,7 @@ func (h *BuyerAnalyticsHandler) BuyerAnalytics(w http.ResponseWriter, r *http.Re
 		}
 		offset = parsed
 	}
-	out, err := h.service.BuyerAnalytics(r.Context(), tenantID(r), q.Get("farm"), limit, offset)
+	out, err := h.service.BuyerAnalyticsSorted(r.Context(), tenantID(r), q.Get("farm"), q.Get("sort"), q.Get("dir"), limit, offset)
 	if err != nil {
 		h.writeErr(w, r, app.BuyerAnalyticsHTTPError(err))
 		return

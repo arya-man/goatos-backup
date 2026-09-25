@@ -278,7 +278,7 @@ export async function getLoadwiseSales(
 // that joins the vendor register to the sales ledger. ONE bounded request per render; the farm
 // value is the Sales pages' toggle, limit/offset page the rows only.
 export async function getBuyerAnalytics(
-  params: { farm?: string; limit?: number; offset?: number } = {},
+  params: { farm?: string; limit?: number; offset?: number; sort?: string; dir?: string } = {},
 ): Promise<ApiResult<BuyerAnalytics>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -286,7 +286,8 @@ export async function getBuyerAnalytics(
   return request(() =>
     client.request<BuyerAnalytics>("/procurement/buyer-analytics", {
       cache: "no-store",
-      query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset }),
+      // sort/dir order EVERY buyer before the page is cut, so a header sort is whole-result.
+      query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset, sort: params.sort, dir: params.dir }),
     }),
   );
 }
@@ -307,6 +308,8 @@ export async function getFarmBornSales(
     stage?: string;
     limit?: number;
     offset?: number;
+    sort?: string;
+    dir?: string;
   } = {},
 ): Promise<ApiResult<FarmBornSales>> {
   const config = await getServerConfig(true);
@@ -327,6 +330,8 @@ export async function getFarmBornSales(
         stage: params.stage,
         limit: params.limit,
         offset: params.offset,
+        sort: params.sort,
+        dir: params.dir,
       }),
     }),
   );

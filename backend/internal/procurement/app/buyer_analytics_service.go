@@ -38,6 +38,13 @@ var ErrBuyerFarmInvalid = errors.New("procurement: buyer analytics farm filter i
 // BuyerAnalytics returns the whole page for the filter: one page of buyers plus whole-filter
 // totals. limit/offset page the rows only.
 func (s *BuyerAnalyticsService) BuyerAnalytics(ctx context.Context, tenantID, farmRaw string, limit, offset int) (domain.BuyerAnalytics, error) {
+	return s.BuyerAnalyticsSorted(ctx, tenantID, farmRaw, "", "", limit, offset)
+}
+
+// BuyerAnalyticsSorted is BuyerAnalytics ordered by one buyer column over EVERY buyer in the
+// filter before the page is sliced ("sort all rows", 2026-09-25); a blank column is newest last
+// sale first, and an unknown column or direction is refused.
+func (s *BuyerAnalyticsService) BuyerAnalyticsSorted(ctx context.Context, tenantID, farmRaw, sortKey, dir string, limit, offset int) (domain.BuyerAnalytics, error) {
 	farms, err := s.repo.ListParkCodes(ctx, tenantID)
 	if err != nil {
 		return domain.BuyerAnalytics{}, err
@@ -49,6 +56,10 @@ func (s *BuyerAnalyticsService) BuyerAnalytics(ctx context.Context, tenantID, fa
 	if offset < 0 || offset > domain.MaxBuyerOffset {
 		return domain.BuyerAnalytics{}, ErrBuyerOffsetInvalid
 	}
+	order, err := domain.ParseTableSort(sortKey, dir, domain.BuyerOrderable, domain.BuyerDefaultSort)
+	if err != nil {
+		return domain.BuyerAnalytics{}, err
+	}
 	facts, err := s.repo.ClosedBuyerDeals(ctx, tenantID, farm)
 	if err != nil {
 		return domain.BuyerAnalytics{}, err
@@ -56,7 +67,7 @@ func (s *BuyerAnalyticsService) BuyerAnalytics(ctx context.Context, tenantID, fa
 	// The clock is the IST business day: "days since last purchase" is a difference of business
 	// dates, never of instants.
 	asOf := biztime.BusinessDayStart(s.now())
-	return domain.BuildBuyerAnalytics(facts, asOf, limit, offset), nil
+	return domain.BuildBuyerAnalyticsSorted(facts, asOf, order, limit, offset), nil
 }
 
 // ErrBuyerOffsetInvalid rejects a negative or absurdly deep page rather than clamping it, so a page
@@ -72,6 +83,8 @@ func BuyerAnalyticsHTTPError(err error) *Error {
 		return &Error{Code: "invalid_farm", Message: "Pick one of your parks, or all farms.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrBuyerOffsetInvalid):
 		return &Error{Code: "invalid_offset", Message: "That page is out of range.", HTTPStatus: http.StatusBadRequest}
+	case errors.Is(err, domain.ErrTableSortInvalid):
+		return &Error{Code: "invalid_sort", Message: "That column cannot be sorted.", HTTPStatus: http.StatusBadRequest}
 	default:
 		return Internal("The buyer figures could not be loaded. Try again.")
 	}

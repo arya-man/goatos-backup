@@ -135,6 +135,8 @@ func (h *FarmBornSalesHandler) FarmBornSales(w http.ResponseWriter, r *http.Requ
 		Stage:   q.Get("stage"),
 		Limit:   limit,
 		Offset:  offset,
+		Sort:    q.Get("sort"),
+		Dir:     q.Get("dir"),
 	})
 	if err != nil {
 		h.writeErr(w, r, app.FarmBornHTTPError(err))

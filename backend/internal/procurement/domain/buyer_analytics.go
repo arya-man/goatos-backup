@@ -192,6 +192,59 @@ func NormalizeBuyerName(name string) string {
 // numerator (revenue of buyers with Purchases >= 2) and denominator (revenue of every buyer)
 // ranging over the same key set, and a zero denominator yields 0 rather than a division.
 func BuildBuyerAnalytics(facts []BuyerDealFact, asOf time.Time, limit, offset int) BuyerAnalytics {
+	return BuildBuyerAnalyticsSorted(facts, asOf, BuyerDefaultSort, limit, offset)
+}
+
+// BuyerOrderable is every buyer column the backend orders the WHOLE filtered set by -- exactly the
+// columns the page contract marks sortable. `repeat` orders by repeat purchases.
+var BuyerOrderable = map[string]bool{
+	"buyer_name": true, "purchases": true, "animals": true, "revenue": true, "repeat": true,
+	"first_sale_date": true, "last_sale_date": true, "outstanding": true,
+}
+
+// BuyerDefaultSort is the page's order when none is asked for: newest last sale first.
+var BuyerDefaultSort = TableSort{Key: "last_sale_date", Desc: true}
+
+// buyerDefaultLess is the page's own order (maintainer instruction 2026-09-16): newest last sale,
+// then revenue, then name, then key -- total, and the tiebreak under every other column.
+func buyerDefaultLess(a, b BuyerRow) bool {
+	if a.LastSaleDate != b.LastSaleDate {
+		return a.LastSaleDate > b.LastSaleDate
+	}
+	if a.Revenue != b.Revenue {
+		return a.Revenue > b.Revenue
+	}
+	if a.BuyerName != b.BuyerName {
+		return a.BuyerName < b.BuyerName
+	}
+	return a.BuyerKey < b.BuyerKey
+}
+
+func buyerCompare(key string, a, b BuyerRow) int {
+	switch key {
+	case "buyer_name":
+		return compareOrdered(strings.ToLower(a.BuyerName), strings.ToLower(b.BuyerName))
+	case "purchases":
+		return compareOrdered(a.Purchases, b.Purchases)
+	case "animals":
+		return compareOrdered(a.Animals, b.Animals)
+	case "revenue":
+		return compareOrdered(a.Revenue, b.Revenue)
+	case "repeat":
+		return compareOrdered(a.RepeatPurchases, b.RepeatPurchases)
+	case "first_sale_date":
+		return compareOrdered(a.FirstSaleDate, b.FirstSaleDate)
+	case "last_sale_date":
+		return compareOrdered(a.LastSaleDate, b.LastSaleDate)
+	case "outstanding":
+		return compareOrdered(a.Outstanding, b.Outstanding)
+	}
+	return 0
+}
+
+// BuildBuyerAnalyticsSorted is BuildBuyerAnalytics with the whole-result order the table asked
+// for: the rows are ordered across every buyer in the filter BEFORE the page is sliced.
+func BuildBuyerAnalyticsSorted(facts []BuyerDealFact, asOf time.Time, order TableSort, limit, offset int) BuyerAnalytics {
 	type agg struct {
 		row   BuyerRow
 		types map[string]struct{}
@@ -296,17 +349,15 @@ func BuildBuyerAnalytics(facts []BuyerDealFact, asOf time.Time, limit, offset in
 
 	// Most recent buyer first (maintainer instruction 2026-09-16): the page answers "who bought
 	// lately", so the row whose LAST sale is newest leads; revenue only breaks a same-day tie.
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].LastSaleDate != rows[j].LastSaleDate {
-			return rows[i].LastSaleDate > rows[j].LastSaleDate
+	// The asked-for column first, over EVERY buyer; the page's own order breaks its ties, so the
+	// order is total and page 2 continues page 1.
+	sort.SliceStable(rows, func(i, j int) bool {
+		if order.Key != "" {
+			if c := directed(buyerCompare(order.Key, rows[i], rows[j]), order.Desc); c != 0 {
+				return c < 0
+			}
 		}
-		if rows[i].Revenue != rows[j].Revenue {
-			return rows[i].Revenue > rows[j].Revenue
-		}
-		if rows[i].BuyerName != rows[j].BuyerName {
-			return rows[i].BuyerName < rows[j].BuyerName
-		}
-		return rows[i].BuyerKey < rows[j].BuyerKey
+		return buyerDefaultLess(rows[i], rows[j])
 	})
 
 	limit = ClampBuyerPageSize(limit)

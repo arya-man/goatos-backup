@@ -11438,6 +11438,23 @@ paths:
             minimum: 1
             maximum: 100
           description: Sold-ledger page size; clamped to 25 by default and 100 at most.
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [tag, breed, sex, stage, pen, sale_date, buyer_name, sale_value]
+          description: >-
+            The column to order the WHOLE filtered set by before it is paged, so page 2 continues
+            page 1's order. Absent is the default order (newest sale first). An unknown column is refused
+            with `invalid_sort`, never silently served in the default order.
+        - name: dir
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+          description: Direction for `sort`; absent is ascending. A direction without `sort` is refused.
         - name: offset
           in: query
           required: false
@@ -11502,6 +11519,23 @@ paths:
             minimum: 1
             maximum: 100
           description: Page size; clamped to 25 by default and 100 at most.
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [buyer_name, purchases, animals, revenue, repeat, first_sale_date, last_sale_date, outstanding]
+          description: >-
+            The column to order the WHOLE filtered set by before it is paged, so page 2 continues
+            page 1's order. Absent is the default order (newest last sale first). An unknown column is refused
+            with `invalid_sort`, never silently served in the default order.
+        - name: dir
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+          description: Direction for `sort`; absent is ascending. A direction without `sort` is refused.
         - name: offset
           in: query
           required: false
