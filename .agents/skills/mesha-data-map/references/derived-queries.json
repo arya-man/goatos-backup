@@ -7,11 +7,11 @@
       "derived_from": [
         {
           "path": "apps/admin-web/features/weighing/weights-analytics.tsx",
-          "sha256": "ba832f10193891085cc382cf11ed05bcf700505de5e53754e2eadc5404da97a2"
+          "sha256": "5b576fa820d9de719dc41bf3974f5818a7ad794db95b0b887b7f7660fec10a77"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/weight_demographics.go",
-          "sha256": "5ce815fb11885f452728d5c694d3217c051b6b3d72cddb944924f3b8aac3c153"
+          "sha256": "844ea9e4196b64a5b140eb5fa4c4a8f6bc1e6fbbd198ce0e40ecdbbf29f56681"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/identity_scope.go",
@@ -37,7 +37,7 @@
       "derived_from": [
         {
           "path": "backend/internal/weighing/adapters/postgres/growth.go",
-          "sha256": "5ff63651f896b14b9c4d88fe507e63cde617586b1b476a6b529a2379a7903b45"
+          "sha256": "cef233c188009d6a42ef430bdebdfb98b8896236c405c76867ffbd3ad28b303c"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/identity_scope.go",
@@ -51,11 +51,11 @@
       "derived_from": [
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "41a0c1d1e396136f7db37262bb837bc65a73f8fc83977d0afc102cc88da4b9c5"
+          "sha256": "3edfc35331f22845759ef4f48da87a5db1636ca20a624d4876ca6b117be8d7ef"
         },
         {
           "path": "backend/internal/growthdirector/domain/fcr.go",
-          "sha256": "d5106f73287cfeea3983c64464cc767795f9272cfdbb5439db12b40575dc8f9d"
+          "sha256": "95d8a13c10251a85124fbd3778f5258b0d10b0a5f1adcc68ff5e7f29acce867f"
         }
       ]
     },
@@ -65,7 +65,7 @@
       "derived_from": [
         {
           "path": "backend/internal/feeddirection/adapters/postgres/analytics.go",
-          "sha256": "e40bba8e5fd56f2fdf7f063c92dbb371a83f3dae051eb7628905f95750e9f81d"
+          "sha256": "a507c2260bfaf657f8e018e3e678fa19d1d42b738795bb7070575e388936d8a7"
         },
         {
           "path": "backend/internal/feeddirection/domain/stock_family_merge.go",
@@ -83,7 +83,7 @@
       "derived_from": [
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "41a0c1d1e396136f7db37262bb837bc65a73f8fc83977d0afc102cc88da4b9c5"
+          "sha256": "3edfc35331f22845759ef4f48da87a5db1636ca20a624d4876ca6b117be8d7ef"
         }
       ]
     },
@@ -108,7 +108,7 @@
       "derived_from": [
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "41a0c1d1e396136f7db37262bb837bc65a73f8fc83977d0afc102cc88da4b9c5"
+          "sha256": "3edfc35331f22845759ef4f48da87a5db1636ca20a624d4876ca6b117be8d7ef"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/shed_partition_resolve.go",
@@ -131,7 +131,7 @@
         },
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "41a0c1d1e396136f7db37262bb837bc65a73f8fc83977d0afc102cc88da4b9c5"
+          "sha256": "3edfc35331f22845759ef4f48da87a5db1636ca20a624d4876ca6b117be8d7ef"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/shed_partition_resolve.go",

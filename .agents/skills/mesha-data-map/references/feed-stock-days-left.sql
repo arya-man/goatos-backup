@@ -159,9 +159,9 @@ LEFT JOIN recent r
 LEFT JOIN rate_override ov
   ON ov.farm_label = fs.farm_label
  AND ov.feed_item_key = fs.family_key
--- The retired check reads the FAMILY key, so a retired MEMBER still contributes
--- its leftover stock while a retired feed with no successor still drops out.
+-- ACTIVE FEEDS ONLY (2026-09-24, stock cards): a card needs a catalog row that says 'active';
+-- read on the FAMILY key, so a retired MEMBER still contributes to its active successor's card.
 LEFT JOIN feed_item_catalog c
   ON c.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND c.feed_item_key = fs.family_key
-WHERE COALESCE(c.status, 'active') <> 'retired'
+WHERE c.status = 'active'
 ORDER BY days_left NULLS LAST, fs.family_label, fs.farm_label;
