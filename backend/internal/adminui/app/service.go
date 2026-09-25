@@ -11935,6 +11935,9 @@ func humanLabel(key string) string {
 	// "Profit loss", which reads as one thing rather than either-or.
 	case "profit_loss":
 		return "Profit / loss"
+	// A chip column's key names the widget, not the fact: /routines' Today table read "State chip".
+	case "state_chip":
+		return "Status"
 	// The diagnosis-routing columns. humanLabel DERIVES a label from the column key, and the
 	// derivations here would be the machine's words on a screen a vet reads -- "Has published
 	// register", "Route count", "Type key". The farm's words are what the rest of this screen

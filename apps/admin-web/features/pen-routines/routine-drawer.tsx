@@ -881,25 +881,28 @@ export function RoutineDrawerForm({
           {confirmRetire ? (
             <>
               <span className="prt-confirm">{copy(pageContract, "action.retire.confirm")}</span>
-              <button type="submit" name="status" value="retired" className="btn sm danger" disabled={statusPending}>
+              <button key="retire-confirm" type="submit" name="status" value="retired" className="btn sm danger" disabled={statusPending}>
                 {copy(pageContract, "action.retire")}
               </button>
-              <button type="button" className="btn sm" onClick={() => setConfirmRetire(false)} disabled={statusPending}>
+              <button key="retire-keep" type="button" className="btn sm" onClick={() => setConfirmRetire(false)} disabled={statusPending}>
                 {label(pageContract, "action.retire.keep", "action.close")}
               </button>
             </>
           ) : (
             <>
               {routine.status === "active" ? (
-                <button type="submit" name="status" value="paused" className="btn sm" disabled={statusPending}>
+                <button key="status-paused" type="submit" name="status" value="paused" className="btn sm" disabled={statusPending}>
                   {copy(pageContract, "action.pause")}
                 </button>
               ) : (
-                <button type="submit" name="status" value="active" className="btn sm" disabled={statusPending}>
+                <button key="status-active" type="submit" name="status" value="active" className="btn sm" disabled={statusPending}>
                   {copy(pageContract, "action.resume")}
                 </button>
               )}
-              <button type="button" className="btn sm" onClick={() => setConfirmRetire(true)} disabled={statusPending}>
+              {/* Distinct keys: without them React reuses this node as the confirm's submit button while
+                  the click is still being handled, and the browser then submits it -- one click
+                  would retire the routine. */}
+              <button key="retire-ask" type="button" className="btn sm" onClick={() => setConfirmRetire(true)} disabled={statusPending}>
                 {copy(pageContract, "action.retire")}
               </button>
             </>
