@@ -1050,6 +1050,7 @@ export function ScheduleEditor({
   directionTime,
   correctionTime,
   transportTime,
+  editLabelKey = "action.edit_schedule",
 }: {
   pageContract: AdminUiPageContract;
   action: SaveAction;
@@ -1059,12 +1060,14 @@ export function ScheduleEditor({
   correctionTime: string;
   /** Absent means the park declared NO cutoff — unknown, never "no deadline". */
   transportTime?: string;
+  /** Copy key for the open button: "Edit schedule" on an authored row, "Set schedule" on a missing one. */
+  editLabelKey?: string;
 }) {
   return (
     <FeedConfigFormShell
       pageContract={pageContract}
       action={action}
-      editLabel={copy(pageContract, "action.edit_schedule")}
+      editLabel={copy(pageContract, editLabelKey)}
       openLabel={copy(pageContract, "section.schedule.note")}
     >
       <input type="hidden" name="park_id" value={parkId} />

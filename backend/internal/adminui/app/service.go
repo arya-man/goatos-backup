@@ -7892,6 +7892,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.session_template":             "No session template authored for this park, so the daily quantity cannot be split across sessions.",
 			"empty.session_template_filtered":    "No sessions match these filters.",
 			"empty.schedule":                     "No feeding schedule authored for this park yet.",
+			"action.add_schedule":                "Set schedule",
+			"label.schedule_missing":             "Not set. This park gets no feed direction or packing for this until a schedule is set.",
 			"empty.schedule_filtered":            "No schedule rows match these filters.",
 			"state.ration_grid_unavailable":      "Ration grid unavailable",
 			"state.shed_factors_unavailable":     "Feed factors unavailable",
