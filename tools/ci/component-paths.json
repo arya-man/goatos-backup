@@ -18,9 +18,6 @@
     ]
   },
   "ciCommonOnly": {
-    "prefixes": [
-      "tools/ci/"
-    ],
     "files": [
       "tools/ci/android-ui-diff.sh",
       "tools/ci/android-screenshot-scope.sh",
@@ -29,6 +26,7 @@
       "tools/ci/check-android-screenshot-scope.test.sh",
       "tools/ci/check-android-ui-diff.test.sh",
       "tools/ci/check-local-ci-evidence.mjs",
+      "tools/ci/check-run-local-ci-parallel.test.sh",
       "tools/ci/check-screenshot-remediation.sh",
       "tools/ci/check-screenshot-remediation.test.sh",
       "tools/ci/ci-scope.mjs",

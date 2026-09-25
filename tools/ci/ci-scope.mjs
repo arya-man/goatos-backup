@@ -281,7 +281,10 @@ function selfTest() {
   assert.deepEqual(qp(["backend/internal/permissions/adapters/postgres/grants.go"]), []);
   // CI tooling itself runs the common job (whose self-tests cover this scoping), never the DB gates.
   assert.deepEqual(pick(["tools/ci/run-local-ci.sh", "tools/ci/ci-scope.mjs", "tools/ci/component-paths.json"]).selectedJobs, ["common"]);
-  assert.deepEqual(pick(["tools/ci/gradle-run.sh"]).selectedJobs, ["common"]);
+  // Build helpers sourced by other jobs (Gradle/Java/dispatch) are not common-only: they force the full suite.
+  for (const helper of ["tools/ci/gradle-run.sh", "tools/ci/java21.sh", "tools/ci/parallel-dispatch.sh", "tools/ci/gradle-home.sh", "tools/ci/gradle-init/goatos-machine-lock.init.gradle"]) {
+    assert.equal(pick([helper]).full, true, `${helper} must force the full suite`);
+  }
   // Android DTOs are hand-mapped; no Android build or test reads contracts/ or
   // packages/api-client/, so a contract edit cannot fail the Android job. Android
   // still runs whenever its own DTOs/code change.
