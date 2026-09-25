@@ -148,9 +148,15 @@ func (f *fakeIssueStore) LoadIssueRows(_ context.Context, _ string, issueIDs []s
 type fakeScheduleReader struct {
 	clocks []domain.WorkflowClock
 	parks  []string
+	// validFrom, when set, is the business date the clocks start on: asked as of an earlier day,
+	// the park has no schedule -- a park whose feed schedule was added today.
+	validFrom string
 }
 
-func (f *fakeScheduleReader) ListScheduleClocks(_ context.Context, _, _ string, _ time.Time) ([]domain.WorkflowClock, error) {
+func (f *fakeScheduleReader) ListScheduleClocks(_ context.Context, _, _ string, asOf time.Time) ([]domain.WorkflowClock, error) {
+	if f.validFrom != "" && biztime.BusinessDate(asOf) < f.validFrom {
+		return nil, nil
+	}
 	return f.clocks, nil
 }
 
