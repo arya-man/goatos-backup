@@ -314,6 +314,14 @@ internal fun saleStepsProgressLine(steps: WorkflowDetailResponseDto): String =
 internal fun isFinalSaleStatus(status: String, options: SalesOptionsDto? = null): Boolean =
     saleStatusTone(status, options) == VendorsTone.DANGER
 
+/**
+ * New receipts for [dealId] still on this phone, as "₹1,500 · 26/09/2026" -- shown on the sale
+ * beside the recorded ones so a receipt saved offline is never entered a second time.
+ */
+internal fun pendingReceiptLines(payloads: List<sg.mesha.goatos.core.data.sync.SalesDealPaymentPayload>, dealId: String): List<String> =
+    payloads.filter { it.dealId == dealId && it.op == sg.mesha.goatos.core.data.sync.SalesPaymentOp.CREATE }
+        .mapNotNull { p -> p.request?.let { r -> dotJoin(rupees(r.amountRupees), farmDate(r.receivedOn)) } }
+
 internal fun SalesDealDto.plannedSaleDateIfDifferent(): String? =
     plannedSaleDate?.trim()?.takeIf { it.isNotEmpty() && it != saleDate }
 
@@ -417,7 +425,11 @@ class SaleDetailViewModel @Inject constructor(
     private val stepsDetail: Flow<WorkflowDetailResponseDto?> = local.map { it.stepsWorkflowId }.distinctUntilChanged()
         .flatMapLatest { id -> if (id.isBlank()) flowOf(null) else workflows.observeDetail(id) }
 
-    val state: StateFlow<SaleDetailUiState> = combine(repository.observeDeal(dealId), repository.observeOptions(), local, stepsDetail) { deal, options, l, steps ->
+    private val pendingReceipts: Flow<List<String>> = syncRepository.observePendingSalesPayments()
+        .map { payloads -> pendingReceiptLines(payloads, dealId) }
+        .distinctUntilChanged()
+
+    val state: StateFlow<SaleDetailUiState> = combine(repository.observeDeal(dealId), repository.observeOptions(), local, stepsDetail, pendingReceipts) { deal, options, l, steps, pending ->
         if (deal == null) {
             // Loaded and still nothing: say so, with a way to try again, rather than an empty
             // screen with a blank title and chip. There is no per-sale read on the server yet, so
@@ -442,6 +454,7 @@ class SaleDetailViewModel @Inject constructor(
                 payments = deal.payments.map { it.toUi() },
                 // The BACKEND's balance, formatted. Sheet-imported deals carry paise dust, so
                 // under a rupee reads as paid -- the same rule the ledger card uses.
+                pendingPayments = pending,
                 balanceLine = if (deal.paymentBalance >= 1.0) "${rupees(deal.paymentBalance)} still due" else "Fully paid",
                 // The backend decides what THIS deal may move to; an empty list hides the editor.
                 statuses = options?.statuses.orEmpty()

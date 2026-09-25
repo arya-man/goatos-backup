@@ -100,6 +100,8 @@ data class SaleDetailUiState(
     // --- editing the sale ---
     /** Receipts already on the deal, newest last, as the server returned them. */
     val payments: List<SalePaymentUi> = emptyList(),
+    /** New receipts still on this phone ("₹1,500 · 26/09/2026"), shown as waiting to send. */
+    val pendingPayments: List<String> = emptyList(),
     /** "₹1,00,000 still due" / "Fully paid" — BACKEND `payment_balance`, formatted, never derived. */
     val balanceLine: String = "",
     /** The status vocabulary, backend-owned; blank until the options read lands. */

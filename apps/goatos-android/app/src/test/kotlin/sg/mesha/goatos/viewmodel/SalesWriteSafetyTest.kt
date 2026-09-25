@@ -214,6 +214,28 @@ class SalesWriteSafetyTest {
         assertEquals("Tagged animals show when the phone is online.", vm.state.value.taggedLine)
     }
 
+    @Test
+    fun `a receipt saved on the phone shows on the sale until it reaches the ledger`() = runTest(dispatcher) {
+        // Seen offline on the phone (2026-09-26): a ₹1,500 receipt saved offline was invisible on
+        // the sale ("No payments recorded yet"), so it was entered again -- two writes, two keys.
+        val sync = SalesSync()
+        sync.pendingPayments.value = listOf(
+            sg.mesha.goatos.core.data.sync.SalesDealPaymentPayload(
+                clientId = "c-1", dealId = "deal-1", op = "create",
+                request = sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto(receivedOn = "2026-09-26", amountRupees = 1500.0),
+            ),
+            sg.mesha.goatos.core.data.sync.SalesDealPaymentPayload(
+                clientId = "c-2", dealId = "another-deal", op = "create",
+                request = sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto(receivedOn = "2026-09-26", amountRupees = 9.0),
+            ),
+        )
+        val vm = detailVm(sync)
+        backgroundScope.launch { vm.state.collect {} }
+        assertEquals(listOf("₹1,500 · 26/09/2026"), vm.state.value.pendingPayments)
+        sync.pendingPayments.value = emptyList()
+        assertEquals(emptyList<String>(), vm.state.value.pendingPayments)
+    }
+
     // ---------------------------------------------------------------- lead boards
 
     private fun leadVm(sync: SalesSync) = SalesLeadBoardViewModel(
@@ -343,6 +365,9 @@ private class SalesSync : SyncRepository by RecordingToxinSyncRepository() {
     }
 
     val statuses = mutableListOf<String>()
+    val pendingPayments = MutableStateFlow<List<sg.mesha.goatos.core.data.sync.SalesDealPaymentPayload>>(emptyList())
+
+    override fun observePendingSalesPayments(): Flow<List<sg.mesha.goatos.core.data.sync.SalesDealPaymentPayload>> = pendingPayments
 
     override suspend fun enqueueSalesDealStatusSet(clientId: String, dealId: String, status: String, acknowledgeStock: Boolean): AppResult<String> {
         statuses += status

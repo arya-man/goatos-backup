@@ -144,8 +144,15 @@ private fun MoneyCard(state: SaleDetailUiState, onEvent: (SaleDetailEvent) -> Un
         if (state.balanceLine.isNotBlank()) {
             Text(text = state.balanceLine, color = MeshaColors.Ink, style = MeshaType.rowValue)
         }
-        if (state.payments.isEmpty()) {
+        if (state.payments.isEmpty() && state.pendingPayments.isEmpty()) {
             Text(text = NO_PAYMENTS, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
+        // Saved on this phone and not on the ledger yet: shown so nobody enters it a second time.
+        state.pendingPayments.forEach { line ->
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Text(text = line, color = MeshaColors.Ink, style = MeshaType.rowValue)
+                Text(text = PENDING_PAYMENT, color = MeshaColors.Warn, style = MeshaType.caption)
+            }
         }
         state.payments.forEach { payment ->
             Row(
@@ -358,6 +365,7 @@ private const val TAGGED_NONE = "No animals tagged yet"
 private const val STOCK_CONFIRM_HINT = "Close it anyway only if the feed really did leave. If a load reached the farm and is not recorded yet, record that purchase instead."
 private const val STOCK_CONFIRM_CLOSE = "I checked the store — close it"
 private const val STOCK_CONFIRM_CANCEL = "Leave it"
+private const val PENDING_PAYMENT = "Saved on this phone · waiting to send"
 private const val FINAL_STATUS_ASK_PREFIX = "Mark this sale as "
 private const val FINAL_STATUS_ASK_SUFFIX = "? This cannot be undone, and any animals tagged to it go back to their pens."
 private const val FINAL_STATUS_KEEP = "Keep the sale"

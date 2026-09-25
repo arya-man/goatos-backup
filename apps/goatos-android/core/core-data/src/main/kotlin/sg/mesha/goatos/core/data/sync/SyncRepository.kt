@@ -140,6 +140,14 @@ interface SyncRepository {
      */
     fun observePendingMarketSurveyRecords(): Flow<List<MarketSurveyRecordPayload>> = flowOf(emptyList())
 
+    /**
+     * Sale receipts still on this phone (queued, sending, or waiting to retry), projected from the
+     * durable outbox so a sale's detail shows a receipt the moment it is saved -- not only once it
+     * reaches the ledger. Without it a receipt saved offline was invisible, and the person entered
+     * it again (two writes, two keys, two receipts on the ledger).
+     */
+    fun observePendingSalesPayments(): Flow<List<SalesDealPaymentPayload>> = flowOf(emptyList())
+
     /** Observes a specific outbox item by id (R50-006: leadership close needs to observe items
      *  that may be older than the recent-terminal window). Returns a Flow that emits whenever
      *  the item's status changes, never emitting null (item not found = no emission). */
@@ -1165,6 +1173,16 @@ class DefaultSyncRepository(
         // see observePendingHealthCaseOpens above).
         store.observeActive()
             .map { rows -> projectSubmittedGrains(rows, syncJson) }
+            .distinctUntilChanged()
+
+    override fun observePendingSalesPayments(): Flow<List<SalesDealPaymentPayload>> =
+        store.observeActiveByOpType(OutboxOpType.SALES_DEAL_PAYMENT_WRITE.name)
+            .map { rows ->
+                rows.mapNotNull { row ->
+                    // exception:exempt a corrupt receipt row is skipped in the UI overlay only; sync processing still owns its failure/reporting.
+                    runCatching { syncJson.decodeFromString<SalesDealPaymentPayload>(row.payloadJson) }.getOrNull()
+                }
+            }
             .distinctUntilChanged()
 
     override fun observePendingMarketSurveyRecords(): Flow<List<MarketSurveyRecordPayload>> =
