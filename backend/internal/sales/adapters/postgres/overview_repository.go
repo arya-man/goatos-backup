@@ -254,9 +254,7 @@ func queueClosedDeals(batch *pgx.Batch, tenantID, farm string, out *[]domain.Dea
 // dealLinesForClosedDealsSQL is dealLinesForPageSQL keyed by the closed-deal filter instead of an
 // id list. %s is buildDealFilter's WHERE over the deal alias d.
 const dealLinesForClosedDealsSQL = `
-	SELECT l.line_id::text, l.deal_id::text, l.line_no, l.product_type, l.breed,
-	       l.animal_count, l.male_count, l.female_count, l.total_weight_kg, l.sales_value,
-	       l.estimated_weight_kg, coalesce(l.estimated_weight_band, ''), coalesce(l.weight_estimate_basis, '')
+	SELECT ` + dealLineColumns + `
 	FROM public.sales_deal_lines l
 	WHERE l.tenant_id = $1
 	  AND l.deal_id IN (SELECT d.id FROM public.sales_deals d WHERE %s AND d.status = 'Deal Closed')

@@ -54,15 +54,20 @@ const dealPaymentsForPageSQL = `
 // those out of this SELECT did not fail anywhere: the row was written correctly, and every reader
 // got a line whose kind was blank and whose quantity was nil. A feed sale then folded into the
 // `other` bucket at zero kilograms, so the feature wrote perfect rows and reported nothing.
+// dealLineColumns is the ONE select list attachDealLineRows scans, in that exact order, over the
+// line alias l. Every deal-line read must use it: when 000422 added product/quantity columns the
+// overview kept its own 13-column copy while the scanner grew to 18, and /sales/overview 500'd.
+const dealLineColumns = `l.line_id::text, l.deal_id::text, l.line_no, l.product_type,
+	       coalesce(l.product_code, ''), coalesce(l.product_kind, ''), l.breed,
+	       l.quantity, coalesce(l.unit, ''), l.rate_per_unit,
+	       l.animal_count, l.male_count, l.female_count, l.total_weight_kg, l.sales_value,
+	       l.estimated_weight_kg, coalesce(l.estimated_weight_band, ''), coalesce(l.weight_estimate_basis, '')`
+
 const dealLinesForPageSQL = `
-	SELECT line_id::text, deal_id::text, line_no, product_type,
-	       coalesce(product_code, ''), coalesce(product_kind, ''), breed,
-	       quantity, coalesce(unit, ''), rate_per_unit,
-	       animal_count, male_count, female_count, total_weight_kg, sales_value,
-	       estimated_weight_kg, coalesce(estimated_weight_band, ''), coalesce(weight_estimate_basis, '')
-	FROM public.sales_deal_lines
-	WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
-	ORDER BY deal_id, line_no`
+	SELECT ` + dealLineColumns + `
+	FROM public.sales_deal_lines l
+	WHERE l.tenant_id = $1 AND l.deal_id = ANY($2::uuid[])
+	ORDER BY l.deal_id, l.line_no`
 
 // scanDeal reads one row of dealColumns, in that exact order.
 func scanDeal(row pgx.Row) (domain.Deal, error) {
