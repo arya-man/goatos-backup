@@ -5,6 +5,9 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 script="$repo/tools/ci/land-main.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/goatos-land-main-test.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
+# The real default lock is machine-wide; never let this self-test touch it (a
+# real landing holding it would make the test refuse its own runs).
+export GOATOS_LAND_MAIN_LOCK_DIR="$tmp/selftest-default.lock"
 
 git init --bare --initial-branch=main "$tmp/origin.git" >/dev/null
 git init --initial-branch=main "$tmp/seed" >/dev/null
