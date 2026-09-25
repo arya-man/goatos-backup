@@ -65,6 +65,14 @@ The overall target was that backend+web goes from about 31 to about 17-19 min, a
 - **Secrets stay out of the release source.** `gcloud deploy releases create --source=.` could now run while the Android build is writing to `/workspace`. `.gcloudignore` now excludes `android-sdk/`, `.gradle-home/`, `.docker/` and `.local/` (signing material). `.docker/` holds an access token and was not ignored before this change either.
 - **Strict rollout order is unchanged.** Kernel-worker drain, then migration, then the API revision is ready, then traffic moves. A new test asserts that the lanes start only after the API is ready and that the settle checks run only after every lane has been joined.
 
+### Judge review fixes (PR comment 5824290893), one commit each
+
+1. **HIGH, e79633b6e.** The whole `android-mobile-build` step body now runs in a `set -e` subshell. Any failure (apt, SDK, signing restore, Gradle) writes `failed <sha> rc=N` and the step exits 0. Tested locally: a PATH without apt gives step rc=0 and the marker is written.
+2. **MED, bca0cfe4c.** `stg-image-build.sh` falls back to the plain docker build when `buildx create` or `inspect --bootstrap` fails, for example on a BuildKit image pull rate limit. A genuine `buildx build` failure still fails the step. Tested with a fake docker: create fails → plain build, build fails → rc propagates.
+3. **MED, 3dfaadf95.** `.gcloudignore` also excludes Android `build/`, `.gradle/` and `.kotlin/`.
+4. **LOW, 9fa5b0799.** The task's EXIT trap joins any still-running rollout lanes and prints their logs before writing FAILED. There is a test for this.
+5. **LOW (follow-up).** The publish step installs the JDK with apt again and reuses the `/workspace` SDK, which costs about 1-2 min. A prebaked Android builder image would remove this and the build step's install too. Recorded under open decisions.
+
 ## Changes (local CI) — pending in this PR
 
 - f. **DONE.** Landing queue in `tools/ci/land-main.sh`, placed after the clean-tree and git-operation checks:
@@ -101,7 +109,7 @@ The overall target was that backend+web goes from about 31 to about 17-19 min, a
 ## Open decisions
 
 1. Cost of E2_HIGHCPU_32 against E2_HIGHCPU_8. It costs more per minute, but the build takes far fewer minutes. It also needs Cloud Build private-pool/quota headroom in asia-south1 (the default pool supports E2_HIGHCPU_32).
-2. Creating a GCS bucket/prefix for `_GRADLE_CACHE_URI`, and a prebaked Android builder image (JDK + SDK). Both are infrastructure this PR does not create.
+2. The publish step reinstalls the JDK (about 1-2 min). Creating a GCS bucket/prefix for `_GRADLE_CACHE_URI`, and a prebaked Android builder image (JDK + SDK). Both are infrastructure this PR does not create.
 3. A/B test for raising `--max-workers` on the local receipt path.
 
 ## Verification
@@ -110,6 +118,8 @@ Done:
 - `bash -n` on the changed scripts.
 - `yaml.safe_load` on `cloudbuild.stg.yaml` (step DAG checked).
 - `node --test tools/deploy/stg-*.test.mjs`: all pass (41 tests, including 1 new).
+- Fake-docker matrix for `stg-image-build.sh`: ok / builder-fail → plain / build-fail → rc.
+- The `android-mobile-build` body run with a failing apt: step rc=0 and a `failed` marker is written.
 - `bash tools/ci/land-main.test.sh`: passed, including the new lock and stale-lock cases.
 
 Pending:
