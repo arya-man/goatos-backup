@@ -1505,6 +1505,17 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "worker-stage-budgets-guard"
+    },
+    {
+      "id": "admin-web-heavy-client-imports",
+      "script": "tools/agent-hooks/check-admin-web-heavy-client-imports.mjs",
+      "makeTarget": "admin-web-heavy-client-imports-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-heavy-client-imports.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-heavy-client-imports.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-heavy-client-imports-guard",
+      "notes": "Heavy browser SDKs (markdown, OpenTelemetry/Faro tracing, firebase/*) must not be statically imported in the client graph; load them with import()/next/dynamic (PR #415 0afa8abf8: first-load JS ~440 -> ~325 KB gzip). Shrink-only ratchet in tools/agent-hooks/admin-web-heavy-client-imports.baseline.json."
     }
   ]
 }

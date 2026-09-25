@@ -779,6 +779,7 @@ run_admin_web() {
   step "admin-web proof media egress" make admin-web-proof-media-egress-guard
   step "admin-web phone viewport"  make admin-web-phone-viewport-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard
+  step "admin-web-heavy-client-imports-guard" make admin-web-heavy-client-imports-guard
   step "admin-web server/client values" make admin-web-server-client-values-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
   step "admin-web interaction patterns" make admin-web-interaction-patterns-guard
