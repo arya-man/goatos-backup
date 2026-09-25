@@ -2,7 +2,6 @@
   "version": 1,
   "forceFull": {
     "prefixes": [
-      ".github/workflows/",
       ".github/actions/",
       "tools/agent-hooks/"
     ],
@@ -14,7 +13,8 @@
       "package.json",
       "package-lock.json",
       "go.work",
-      "go.work.sum"
+      "go.work.sum",
+      ".github/workflows/ci.yml"
     ]
   },
   "ciCommonOnly": {
@@ -170,7 +170,8 @@
       "docs/",
       "fixtures/",
       "tools/deploy/",
-      "tools/ask-mesha-agent/"
+      "tools/ask-mesha-agent/",
+      ".github/workflows/"
     ],
     "files": [
       "cloudbuild.stg.yaml",
