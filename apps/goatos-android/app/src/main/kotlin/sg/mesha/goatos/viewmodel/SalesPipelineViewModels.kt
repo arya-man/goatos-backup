@@ -87,6 +87,7 @@ class SalesPipelineHubViewModel @Inject constructor(
 
     private val refreshing = MutableStateFlow(false)
     private val lastSynced = MutableStateFlow<Long?>(null)
+    private val refreshFailed = MutableStateFlow(false)
 
     init {
         analytics.track(AnalyticsEventsVendors.VENDORS_PIPELINE_OPENED)
@@ -99,7 +100,8 @@ class SalesPipelineHubViewModel @Inject constructor(
             repository.observeLeadMeta(SalesLeadSide.FARMER_GROUP, "", ""),
             refreshing,
             lastSynced,
-        ) { buyers, fpos, isRefreshing, synced ->
+            refreshFailed,
+        ) { buyers, fpos, isRefreshing, synced, failed ->
             SalesPipelineHubUiState(
                 entries = listOf(
                     SalesPipelineEntryUi(
@@ -116,6 +118,7 @@ class SalesPipelineHubViewModel @Inject constructor(
                 ),
                 isRefreshing = isRefreshing,
                 lastSyncedAt = synced,
+                isOffline = failed,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SalesPipelineHubUiState())
 
@@ -134,9 +137,11 @@ class SalesPipelineHubViewModel @Inject constructor(
         viewModelScope.launch {
             refreshing.value = true
             try {
-                repository.refreshLeadMeta(SalesLeadSide.BUYER)
-                repository.refreshLeadMeta(SalesLeadSide.FARMER_GROUP)
-                lastSynced.value = System.currentTimeMillis()
+                // "Updated" is stamped only when the server answered; offline it said "Updated just
+                // now" beside counts that were minutes old (phone E2E 2026-09-26).
+                val reached = repository.refreshLeadMeta(SalesLeadSide.BUYER) and repository.refreshLeadMeta(SalesLeadSide.FARMER_GROUP)
+                refreshFailed.value = !reached
+                if (reached) lastSynced.value = System.currentTimeMillis()
             } finally {
                 refreshing.value = false
             }
@@ -185,6 +190,7 @@ class SalesLeadBoardViewModel @Inject constructor(
     private data class Local(
         val refreshing: Boolean = false,
         val lastSynced: Long? = null,
+        val refreshFailed: Boolean = false,
         val form: SalesLeadFormUi? = null,
         /**
          * The open form's idempotency key, minted when the form OPENS. A double tap replays one
@@ -267,6 +273,7 @@ class SalesLeadBoardViewModel @Inject constructor(
                 },
                 isRefreshing = l.refreshing,
                 lastSyncedAt = l.lastSynced,
+                isOffline = l.refreshFailed,
                 writeStatus = l.writeStatus,
                 writeMessage = l.writeMessage,
             )
@@ -474,9 +481,9 @@ class SalesLeadBoardViewModel @Inject constructor(
             try {
                 // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
                 runCatching { repository.invalidateLeads(side, scope.value.search, scope.value.status) }
-                repository.refreshLeadMeta(side)
+                val reached = repository.refreshLeadMeta(side)
                 scope.value = scope.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
-                local.update { it.copy(lastSynced = System.currentTimeMillis()) }
+                local.update { if (reached) it.copy(lastSynced = System.currentTimeMillis(), refreshFailed = false) else it.copy(refreshFailed = true) }
             } finally {
                 local.update { it.copy(refreshing = false) }
             }

@@ -124,7 +124,8 @@ interface SalesRepository {
     fun fpoLeads(search: String, status: String): Flow<PagingData<SalesFpoLeadDto>>
     fun observeLeadMeta(side: SalesLeadSide, search: String, status: String): Flow<SalesLeadBoardMetaDto?>
     /** The unfiltered count behind the hub row for one board. */
-    suspend fun refreshLeadMeta(side: SalesLeadSide)
+    /** Re-reads the hub/board counts; true only when the server answered (so "updated" is true). */
+    suspend fun refreshLeadMeta(side: SalesLeadSide): Boolean
     suspend fun invalidateLeads(side: SalesLeadSide, search: String, status: String)
     /** The server's returned row after a queued lead edit landed, into every cached scope. */
     suspend fun persistServerBuyerLead(lead: SalesBuyerLeadDto)
@@ -242,9 +243,9 @@ class DefaultSalesRepository(
     override fun observeLeadMeta(side: SalesLeadSide, search: String, status: String): Flow<SalesLeadBoardMetaDto?> =
         observeBlob(salesLeadMetaCacheKey(side, search, status))
 
-    override suspend fun refreshLeadMeta(side: SalesLeadSide) {
+    override suspend fun refreshLeadMeta(side: SalesLeadSide): Boolean {
         // exception:exempt expected refresh failure; the cached count stays on the hub row.
-        runCatching {
+        return runCatching {
             // One row is enough: the hub shows the COUNT, and the board fetches its own pages.
             val meta = when (side) {
                 SalesLeadSide.BUYER -> api.getSalesBuyerLeads(1, 0, null, null)
@@ -256,7 +257,7 @@ class DefaultSalesRepository(
         }.onFailure {
             if (it is CancellationException) throw it
             android.util.Log.w(LOG_TAG, "sales_lead_meta_refresh_failed", it)
-        }
+        }.isSuccess
     }
 
     override suspend fun invalidateLeads(side: SalesLeadSide, search: String, status: String) {

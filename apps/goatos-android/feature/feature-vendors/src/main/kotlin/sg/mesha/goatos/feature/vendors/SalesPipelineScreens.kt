@@ -62,7 +62,7 @@ fun SalesPipelineHubScreen(
             title = HUB_TITLE,
             subtitle = HUB_SUBTITLE,
             onBack = { onEvent(SalesPipelineHubEvent.Back) },
-            below = { SyncStatusIndicator(isRefreshing = state.isRefreshing, lastSyncedAt = state.lastSyncedAt, hasData = state.entries.isNotEmpty()) },
+            below = { SyncStatusIndicator(isRefreshing = state.isRefreshing, lastSyncedAt = state.lastSyncedAt, hasData = state.entries.isNotEmpty(), isOffline = state.isOffline) },
             actions = { SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(SalesPipelineHubEvent.Refresh) }) },
         )
         LazyColumn(
@@ -112,7 +112,7 @@ fun SalesLeadBoardScreen(
                 title = state.title,
                 subtitle = state.countLine.ifBlank { null },
                 onBack = { onEvent(SalesLeadBoardEvent.Back) },
-                below = { SyncStatusIndicator(isRefreshing = state.isRefreshing, lastSyncedAt = state.lastSyncedAt, hasData = rows.itemCount > 0) },
+                below = { SyncStatusIndicator(isRefreshing = state.isRefreshing, lastSyncedAt = state.lastSyncedAt, hasData = rows.itemCount > 0, isOffline = state.isOffline) },
                 actions = { SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(SalesLeadBoardEvent.Refresh) }) },
             )
             val form = state.form

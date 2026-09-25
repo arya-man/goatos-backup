@@ -208,7 +208,7 @@ class SalesWriteSafetyTest {
     fun `an unread tag list never claims the sale has no animals tagged`() = runTest(dispatcher) {
         // Seen offline on the phone (2026-09-26): a sale with two tagged goats read "No animals
         // tagged yet" because the tag read failed and the blank line fell back to that sentence.
-        val animalSale = FakeSales { SalesDealDto(dealId = it, buyerName = "Mahendran", productType = "Goat", breed = "Beetal", animalCount = 2.0, status = "Deal Closed") }
+        val animalSale = FakeSales(deal = { SalesDealDto(dealId = it, buyerName = "Mahendran", productType = "Goat", breed = "Beetal", animalCount = 2.0, status = "Deal Closed") })
         val vm = SaleDetailViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "deal-1")), animalSale, SalesSync(), NoWorkflows, NoAnalytics, NoCrash)
         backgroundScope.launch { vm.state.collect {} }
         assertEquals("Tagged animals show when the phone is online.", vm.state.value.taggedLine)
@@ -241,6 +241,23 @@ class SalesWriteSafetyTest {
     private fun leadVm(sync: SalesSync) = SalesLeadBoardViewModel(
         SavedStateHandle(mapOf(Routes.SALES_PANEL_ARG to SalesPipelinePanel.BUYER_LEADS.name)), FakeSales(), sync, NoAnalytics, NoCrash,
     )
+
+    @Test
+    fun `a lead board that could not reach the server does not say it was just updated`() = runTest(dispatcher) {
+        // Seen offline on the phone (2026-09-26): "Updated just now" over counts minutes old.
+        val vm = SalesLeadBoardViewModel(
+            SavedStateHandle(mapOf(Routes.SALES_PANEL_ARG to SalesPipelinePanel.BUYER_LEADS.name)), FakeSales(metaReached = false), SalesSync(), NoAnalytics, NoCrash,
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        vm.onEvent(SalesLeadBoardEvent.Refresh)
+        assertEquals(null, vm.state.value.lastSyncedAt)
+        assertTrue(vm.state.value.isOffline)
+        val online = leadVm(SalesSync())
+        backgroundScope.launch { online.state.collect {} }
+        online.onEvent(SalesLeadBoardEvent.Refresh)
+        assertNotNull(online.state.value.lastSyncedAt)
+        assertTrue(!online.state.value.isOffline)
+    }
 
     @Test
     fun `a double tap on a new lead queues one lead`() = runTest(dispatcher) {
@@ -306,6 +323,7 @@ private object NoWorkflows : WorkflowsRepository by unused<WorkflowsRepository>(
 
 private class FakeSales(
     private val deal: (String) -> SalesDealDto = { SalesDealDto(dealId = it, buyerName = "Ramesh Traders") },
+    private val metaReached: Boolean = true,
 ) : SalesRepository by unused<SalesRepository>() {
     private val options = SalesOptionsDto(
         farms = listOf("CPT"),
@@ -328,7 +346,7 @@ private class FakeSales(
     override suspend fun refreshDeal(dealId: String) = sg.mesha.goatos.core.data.SaleRefreshResult.UNREACHABLE
     override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = AppResult.Err("offline")
     override fun observeLeadMeta(side: sg.mesha.goatos.core.data.SalesLeadSide, search: String, status: String) = flowOf(null)
-    override suspend fun refreshLeadMeta(side: sg.mesha.goatos.core.data.SalesLeadSide) = Unit
+    override suspend fun refreshLeadMeta(side: sg.mesha.goatos.core.data.SalesLeadSide) = metaReached
     override suspend fun invalidateLeads(side: sg.mesha.goatos.core.data.SalesLeadSide, search: String, status: String) = Unit
 }
 

@@ -33,6 +33,8 @@ data class SalesPipelineHubUiState(
     val entries: List<SalesPipelineEntryUi> = emptyList(),
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
+    /** The last refresh could not reach the server; the counts on screen are the saved copy. */
+    val isOffline: Boolean = false,
     /** Blank when the caller may record; the reason otherwise, rendered verbatim. */
     val disabledReason: String = "",
 )
@@ -110,6 +112,8 @@ data class SalesLeadBoardUiState(
     val emptyMessage: String = "",
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
+    /** The last refresh could not reach the server; the counts on screen are the saved copy. */
+    val isOffline: Boolean = false,
     val canRecord: Boolean = true,
     val writeStatus: VendorsWriteStatus = VendorsWriteStatus.IDLE,
     val writeMessage: String = "",

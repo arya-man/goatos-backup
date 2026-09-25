@@ -961,7 +961,7 @@ private class StubSalesRepository : SalesRepository {
     override fun buyerLeads(search: String, status: String): Flow<PagingData<SalesBuyerLeadDto>> = flowOf(PagingData.from(emptyList()))
     override fun fpoLeads(search: String, status: String): Flow<PagingData<SalesFpoLeadDto>> = flowOf(PagingData.from(emptyList()))
     override fun observeLeadMeta(side: SalesLeadSide, search: String, status: String): Flow<SalesLeadBoardMetaDto?> = flowOf(null)
-    override suspend fun refreshLeadMeta(side: SalesLeadSide) = Unit
+    override suspend fun refreshLeadMeta(side: SalesLeadSide) = true
     override suspend fun invalidateLeads(side: SalesLeadSide, search: String, status: String) = Unit
     override suspend fun persistServerBuyerLead(lead: SalesBuyerLeadDto) = Unit
     override suspend fun persistServerFpoLead(lead: SalesFpoLeadDto) = Unit
