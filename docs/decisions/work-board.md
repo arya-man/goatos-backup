@@ -334,3 +334,20 @@ Verification cards, two pieces of work had nowhere on the board to show.
 
 Pinned by `TestFeedAndWaterRemovalIsPartOfTheWeighingCard` and
 `TestMilkPreparationCard_OneToMany_ParkScope_StatusMatrix_Pagination` (each mutation-tested).
+
+## A day read never walks history (review of PR #429, 2026-09-25)
+
+Completed workflows and accepted toxin rounds grow forever, so a board source must bound every
+part of its day read by the DAY, never by tenant + park alone:
+
+- The engine-workflow source unions three disjoint arms: raised on D, open from before D,
+  completed on D. The last compares `updated_at` to D's IST bounds as a range, served by
+  `workflow_instances_board_completed_idx`. Its page is cut (state filter, keyset, limit) BEFORE the
+  shared card joins, which then run for the page's ids only.
+- The toxin source unions live rounds with rounds accepted on or after D (`reviewed_at` range,
+  `toxin_test_tasks_board_accepted_idx`).
+- Never write `(ts AT TIME ZONE 'Asia/Kolkata')::date = D` in a board read: no index serves it.
+
+Pinned by `TestEngineBoardDayReadNeverWalksCompletedHistory` and
+`TestToxinBoardDayReadNeverWalksAcceptedHistory`, which run EXPLAIN ANALYZE over two years of
+seeded history, cap the rows each read touches, and prove the pre-review predicate walks it all.

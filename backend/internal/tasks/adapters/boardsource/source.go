@@ -160,25 +160,52 @@ const boardStateSQL = `CASE
   ELSE 'due'
 END`
 
-// baseWhere binds every read to one tenant, one park and one business day, and to this lane's
-// engine modules. A workflow belongs to day D when it was RAISED on D, when it was raised
-// earlier and is STILL OPEN (owed work carries forward until it is done, as a pen visit does),
-// or when it was raised earlier and COMPLETED on D. Canceled workflows are nobody's work.
+// A workflow belongs to day D when it was RAISED on D, when it was raised earlier and is STILL
+// OPEN (owed work carries forward until it is done, as a pen visit does), or when it was raised
+// earlier and COMPLETED on D. Canceled workflows are nobody's work (state is open | completed |
+// canceled, workflow_instances_state_check, so "not canceled" is exactly open or completed).
+//
+// The three are written ONCE, as disjoint arms, each bounded by its own index (migration 000428):
+//
+//	raised on D           state IN (open, completed), event_date = D   workflow_instances_board_idx
+//	open from before D    state = open, event_date < D                  workflow_instances_board_idx
+//	completed on D        state = completed, updated_at in D's IST day  workflow_instances_board_completed_idx
+//
+// The completed arm compares updated_at to D's IST bounds as a RANGE, never
+// (updated_at AT TIME ZONE ...)::date = D: that form cannot use an index, so every completed
+// workflow the park ever had was walked and filtered (review of PR #429). The open arm stays
+// bounded because open work is what is still owed, not history.
 //
 // Owner: engine steps are owned by a DESIGNATION, not a person, and whoever holds it may do the
 // step; every workflow is therefore a pool row, which the operator lens always includes.
+const scopeSQL = `wi.tenant_id = $1::uuid
+    AND wi.park_id = $2::uuid
+    AND (wi.module = ANY($4::text[]) OR ($5::text[] IS NOT NULL AND NOT (wi.module = ANY($5::text[]))))`
+
+var dayArms = []string{
+	`wi.state IN ('open', 'completed') AND wi.event_date = $3::date`,
+	`wi.state = 'open' AND wi.event_date < $3::date`,
+	`wi.state = 'completed' AND wi.event_date < $3::date
+    AND wi.updated_at >= ($3::date::timestamp AT TIME ZONE 'Asia/Kolkata')
+    AND wi.updated_at < (($3::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')`,
+}
+
+// baseWhere is the row predicate for a read already pinned to ONE workflow (the subtask drill):
+// the scope and the three arms OR-ed.
 func baseWhere() string {
-	return `
-  wi.tenant_id = $1::uuid
-  AND wi.park_id = $2::uuid
-  AND wi.state <> 'canceled'
-  AND (wi.module = ANY($4::text[]) OR ($5::text[] IS NOT NULL AND NOT (wi.module = ANY($5::text[]))))
-  AND (
-        wi.event_date = $3::date
-     OR (wi.state = 'open' AND wi.event_date < $3::date)
-     OR (wi.state = 'completed' AND wi.event_date < $3::date
-         AND (wi.updated_at AT TIME ZONE 'Asia/Kolkata')::date = $3::date)
-  )`
+	return "\n  " + scopeSQL + "\n  AND ((" + strings.Join(dayArms, ")\n    OR (") + "))"
+}
+
+// dayMembersWhere is the day's membership for the list and the count: the three arms as a
+// UNION ALL of workflow ids (disjoint, so nothing repeats), each arm planned on its own index,
+// joined back on the primary key. An OR over the arms lets the planner fall back to one walk of
+// every completed workflow of the park.
+func dayMembersWhere() string {
+	arms := make([]string, len(dayArms))
+	for i, arm := range dayArms {
+		arms[i] = "SELECT wi.workflow_id FROM workflow_instances wi\n    WHERE " + scopeSQL + "\n      AND " + arm
+	}
+	return "\n  wi.tenant_id = $1::uuid\n  AND wi.workflow_id IN (\n    " + strings.Join(arms, "\n    UNION ALL\n    ") + ")"
 }
 
 // extraColumns follow BoardCardColumns: the ids and raw names the board row carries (the card
@@ -189,19 +216,27 @@ const extraColumns = `,
                 THEN btrim(gsp.partition_label) END, ''),
   w.board_state`
 
-// projection-review: membership=workflow_instances rows of ONE tenant and park whose engine module belongs to this lane (or, on the catch-all lane, to no mapped lane), not canceled, and in day D by the raised / still-open / completed-that-day predicate, one row per workflow (primary key workflow_id); group_key=(tenant_id, workflow_id) for the list and the derived board_state for the count; join_cardinality=the card joins are the phone list's 1:0..1 display enrichments (goats and both locations on their primary keys, the tag LATERAL LIMIT 1, goat_shed_partitions on its (tenant_id, goat_id) primary key, sop_definitions on (tenant_id, code), sales_deals / animal_purchase_loads / feed_purchases on their primary keys gated by template key), the CTE joins back on workflow_id (1:1), and the rework EXISTS never multiplies a row; pagination=keyset on workflow_id ASC after the cursor with LIMIT, state filter applied before the limit; scope=tenant_id, park_id, the day predicate and the lane's module set, repeated verbatim in the count query.
+// projection-review: membership=workflow_instances rows of ONE tenant and park whose engine module belongs to this lane (or, on the catch-all lane, to no mapped lane), not canceled, and in day D by the raised / still-open / completed-that-day predicate, one row per workflow (primary key workflow_id); group_key=(tenant_id, workflow_id) for the list and the derived board_state for the count; join_cardinality=the card joins are the phone list's 1:0..1 display enrichments (goats and both locations on their primary keys, the tag LATERAL LIMIT 1, goat_shed_partitions on its (tenant_id, goat_id) primary key, sop_definitions on (tenant_id, code), sales_deals / animal_purchase_loads / feed_purchases on their primary keys gated by template key), the CTE joins back on workflow_id (1:1), and the rework EXISTS never multiplies a row; pagination=keyset on workflow_id ASC after the cursor, state filter and LIMIT applied inside the MATERIALIZED page CTE, so the card joins run for the page's ids only (a primary-key ANY lookup); the day membership is a UNION ALL of three disjoint arms (raised on D, open from before D, completed on D), each bounded by its own day index; scope=tenant_id, park_id, the day predicate and the lane's module set, repeated verbatim in the count query.
 func listSQL() string {
 	return `
-WITH w AS (
-  SELECT wi.workflow_id, ` + boardStateSQL + ` AS board_state
-  FROM workflow_instances wi
-  WHERE ` + baseWhere() + `
-    AND ($7::uuid IS NULL OR wi.workflow_id > $7::uuid)
+WITH w AS MATERIALIZED (
+  SELECT x.workflow_id, x.board_state
+  FROM (
+    SELECT wi.workflow_id, ` + boardStateSQL + ` AS board_state
+    FROM workflow_instances wi
+    WHERE ` + dayMembersWhere() + `
+      AND ($7::uuid IS NULL OR wi.workflow_id > $7::uuid)
+  ) x
+  WHERE ($8::text[] IS NULL OR x.board_state = ANY($8::text[]))
+  ORDER BY x.workflow_id
+  LIMIT $9
 )
 SELECT ` + taskspg.BoardCardColumns + extraColumns + taskspg.BoardCardJoins + `
 JOIN w ON w.workflow_id = wi.workflow_id
 WHERE wi.tenant_id = $1::uuid
-  AND ($8::text[] IS NULL OR w.board_state = ANY($8::text[]))
+  -- The card joins start from workflow_instances; the page's ids reach them as a primary-key
+  -- lookup, so the card is built for this page only, never for every workflow of the tenant.
+  AND wi.workflow_id = ANY(ARRAY(SELECT workflow_id FROM w))
 ORDER BY wi.workflow_id
 LIMIT $9`
 }
@@ -213,7 +248,7 @@ SELECT board_state, count(*)
 FROM (
   SELECT ` + boardStateSQL + ` AS board_state
   FROM workflow_instances wi
-  WHERE ` + baseWhere() + `
+  WHERE ` + dayMembersWhere() + `
 ) x
 WHERE ($7::text[] IS NULL OR board_state = ANY($7::text[]))
 GROUP BY board_state`

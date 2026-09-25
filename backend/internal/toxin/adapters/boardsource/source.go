@@ -74,14 +74,36 @@ END`
 // (in_progress / pending_review) on every day since it was opened, an accepted round up to and
 // including the day it was accepted. The pool is everyone's: steps are person-independent among
 // testers, so every round is a pool row the operator lens includes.
+//
+// The two are disjoint ARMS, unioned by task id and each bounded by its own index (migration
+// 000428), with every time comparison a RANGE on D's IST day bounds:
+//
+//	live      status IN (in_progress, pending_review), created_at < end of D   toxin_test_tasks_board_idx
+//	accepted  status = accepted, reviewed_at >= start of D, created_at < end of D  toxin_test_tasks_board_accepted_idx
+//
+// The accepted arm used to be (reviewed_at AT TIME ZONE ...)::date >= D beside a created_at bound,
+// which no index serves, so every accepted round the park ever had was walked and filtered
+// (review of PR #429). Live rounds are what is still owed, never history, so that arm stays small.
+const parkCodeSQL = `upper(btrim(t.farm_label)) = (
+        SELECT upper(btrim(l.location_code)) FROM locations l
+        WHERE l.tenant_id = $1::uuid AND l.location_id = $2::uuid AND l.location_type = 'park')`
+
+const dayStartSQL = `($3::date::timestamp AT TIME ZONE 'Asia/Kolkata')`
+const dayEndSQL = `(($3::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')`
+
 const baseWhere = `
   t.tenant_id = $1::uuid
-  AND upper(btrim(t.farm_label)) = (
-        SELECT upper(btrim(l.location_code)) FROM locations l
-        WHERE l.tenant_id = $1::uuid AND l.location_id = $2::uuid AND l.location_type = 'park')
-  AND t.status IN ('in_progress', 'pending_review', 'accepted')
-  AND (t.created_at AT TIME ZONE 'Asia/Kolkata')::date <= $3::date
-  AND (t.status <> 'accepted' OR (t.reviewed_at AT TIME ZONE 'Asia/Kolkata')::date >= $3::date)`
+  AND t.task_id IN (
+    SELECT t.task_id FROM toxin_test_tasks t
+    WHERE t.tenant_id = $1::uuid AND ` + parkCodeSQL + `
+      AND t.status IN ('in_progress', 'pending_review')
+      AND t.created_at < ` + dayEndSQL + `
+    UNION ALL
+    SELECT t.task_id FROM toxin_test_tasks t
+    WHERE t.tenant_id = $1::uuid AND ` + parkCodeSQL + `
+      AND t.status = 'accepted'
+      AND t.reviewed_at >= ` + dayStartSQL + `
+      AND t.created_at < ` + dayEndSQL + `)`
 
 // projection-review: membership=toxin_test_tasks rows of ONE tenant whose farm_label is the requested park's code, live or accepted (cancelled excluded), in day D by the opened-on-or-before / not-yet-signed-off predicate, one row per round (primary key task_id); group_key=(tenant_id, task_id) for the list and the derived board_state for the count; join_cardinality=the park-code subquery reads ONE locations row by primary key, the completions count is a correlated aggregate (one number per round), the procedure LATERAL is one aggregate row over the round's own sop_version (sop_versions unique per (sop_id, version), sop_definitions unique per (tenant_id, code)), and locations park joins on its primary key; pagination=keyset on task_id ASC after the cursor with LIMIT, state filter applied before the limit; scope=tenant_id, the park code and the day predicate, repeated verbatim in the count query.
 const listSQL = `
