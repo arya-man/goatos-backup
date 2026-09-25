@@ -8948,10 +8948,15 @@ export interface components {
             profit_loss?: number | null;
             /** @description sold_value - purchase_value: the part of profit_loss that actually happened. Absent when no cost is recorded. profit_loss = realised_profit_loss + assumed_value whenever both exist. */
             realised_profit_loss?: number | null;
-            /** @description The ASSUMED value of the animals still on farm -- remaining x avg_sold_price, a price someone set or an average of past sales, not one anybody paid. Absent when the load holds nothing or no price exists to carry them at. Per animal: no weight enters it. */
+            /** @description The ASSUMED value of the animals still on farm, a price nobody has paid yet: by weight when assumed_value_method is `weight`, else remaining x avg_sold_price. Absent when the load holds nothing or no price exists to carry them at. */
             assumed_value?: number | null;
-            /** @description Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim ("58 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹5,51,000"). Empty when nothing is assumed. */
+            /** @description Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim ("58 animals · 1,241 kg (latest weights) × ₹/kg by stage and sex = ₹6,95,000", or "58 animals × ₹9,500 each (...) = ₹5,51,000 — priced per animal: 3 of 58 animals have no weight yet"). Empty when nothing is assumed. */
             assumed_value_basis?: string;
+            /**
+             * @description Which rule priced assumed_value (maintainer decision 2026-09-25): `weight` when EVERY live animal of the load has a latest weight and a price per kg for its species, stage and sex (growth_sale_price_assumptions, set on the Weighing Assumptions drawer) -- sum(weight x price); `per_animal` otherwise. Absent when nothing is assumed. Read-time only; nothing stored is rewritten.
+             * @enum {string}
+             */
+            assumed_value_method?: "weight" | "per_animal";
             /** @description Animals of this load ALREADY SOLD before its remaining animals were tracked here — seeded history, already folded into `sold` / `purchased` / `sold_value`; shown with the dates it spans. */
             prior_sold?: components["schemas"]["LoadwisePriorOutcome"] | null;
             /** @description Animals already dead before tracking started; folded into `mortality` / `purchased`. */

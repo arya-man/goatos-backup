@@ -610,6 +610,10 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 	if err := r.attachCostLines(ctx, tenantID, loads); err != nil {
 		return domain.LoadwiseSales{}, err
 	}
+	// The weight fact behind "assumed value by weight when we have it" (2026-09-25), one read.
+	if err := r.attachStockWeight(ctx, tenantID, asOf, loads); err != nil {
+		return domain.LoadwiseSales{}, err
+	}
 
 	// totalLoads rides each served row as a window count over the filtered pre-LIMIT set, so no
 	// second statement runs; zero served rows honestly means zero loads match the filter.

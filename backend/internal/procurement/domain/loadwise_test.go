@@ -2,6 +2,7 @@ package domain
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -723,11 +724,11 @@ func TestProfitSplitsRealisedFromTheAssumedValueOfStockOnFarm(t *testing.T) {
 	if half.ProfitLoss == nil || *half.ProfitLoss != *half.RealisedProfitLoss+*half.AssumedValue {
 		t.Fatalf("profit must be realised + assumed: %v", half.ProfitLoss)
 	}
-	if want := "6 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹57,000"; half.AssumedValueBasis != want {
+	if want := "6 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹57,000 — priced per animal: 6 of 6 animals have no weight yet"; half.AssumedValueBasis != want {
 		t.Fatalf("basis = %q, want %q", half.AssumedValueBasis, want)
 	}
 	unsold := out.Loads[1]
-	if unsold.AssumedValue == nil || *unsold.AssumedValue != 551000 || unsold.AssumedValueBasis != "58 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹5,51,000" {
+	if unsold.AssumedValue == nil || *unsold.AssumedValue != 551000 || unsold.AssumedValueBasis != "58 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹5,51,000 — priced per animal: 58 of 58 animals have no weight yet" {
 		t.Fatalf("unsold load: %v %q", unsold.AssumedValue, unsold.AssumedValueBasis)
 	}
 	soldout := out.Loads[2]
@@ -767,10 +768,10 @@ func TestAssumedValueBasisNamesTheAverageThatPricedIt(t *testing.T) {
 		{LoadID: "fallback", Purchased: 2, Remaining: 2, AnimalCost: lw(10000)},
 	}
 	out := FinalizeLoadwise(loads, 2, lw(9000), testAsOf)
-	if want := "2 animals × ₹9,333.33 each (this load's own average sold price) = ₹18,667"; out.Loads[0].AssumedValueBasis != want {
+	if want := "2 animals × ₹9,333.33 each (this load's own average sold price) = ₹18,667 — priced per animal: 2 of 2 animals have no weight yet"; out.Loads[0].AssumedValueBasis != want {
 		t.Fatalf("own basis = %q, want %q", out.Loads[0].AssumedValueBasis, want)
 	}
-	if want := "2 animals × ₹9,000 each (the overall average sold price) = ₹18,000"; out.Loads[1].AssumedValueBasis != want {
+	if want := "2 animals × ₹9,000 each (the overall average sold price) = ₹18,000 — priced per animal: 2 of 2 animals have no weight yet"; out.Loads[1].AssumedValueBasis != want {
 		t.Fatalf("fallback basis = %q, want %q", out.Loads[1].AssumedValueBasis, want)
 	}
 	if want := "Animals still on farm × each load's own average sold price, or ₹9,000 each (the overall average sold price) for a load that has sold none"; out.Summary.AssumedValueBasis != want {
@@ -779,5 +780,38 @@ func TestAssumedValueBasisNamesTheAverageThatPricedIt(t *testing.T) {
 	none := FinalizeLoadwise([]LoadwiseLoad{{LoadID: "x", Purchased: 2, Remaining: 2, AnimalCost: lw(1)}}, 1, nil, testAsOf)
 	if none.Loads[0].AssumedValue != nil || none.Loads[0].AssumedValueBasis != "" || none.Summary.AssumedValueBasis != "" {
 		t.Fatalf("with no price anywhere nothing is assumed: %+v", none.Loads[0])
+	}
+}
+
+// Every live animal weighed and priced per kg: the stock is its weight at the configured price,
+// replacing the per-animal price in the profit; a load one animal short keeps the per-animal price
+// and the summary names both rules (maintainer decision 2026-09-25).
+func TestAssumedValueUsesWeightOnlyWhenEveryLiveAnimalIsWeighedAndPriced(t *testing.T) {
+	loads := []LoadwiseLoad{
+		{LoadID: "w", Purchased: 3, Remaining: 3, AnimalCost: lw(30000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 3, WeighedAnimals: 3, TotalKg: 60, Value: 28650}},
+		{LoadID: "short", Purchased: 3, Remaining: 3, AnimalCost: lw(30000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 3, WeighedAnimals: 2, TotalKg: 40, Value: 18000}},
+		{LoadID: "unpriced", Purchased: 1, Remaining: 1, AnimalCost: lw(1000),
+			StockWeight: &LoadStockWeight{LiveAnimals: 1, WeighedAnimals: 1, TotalKg: 25, UnpricedGroups: []string{"sheep|K3|female"}}},
+	}
+	out := FinalizeLoadwise(loads, 3, lw(9000), testAsOf)
+	w := out.Loads[0]
+	if w.AssumedValueMethod != AssumedValueMethodWeight || *w.AssumedValue != 28650 || *w.ProfitLoss != 28650-30000 {
+		t.Fatalf("weight method: %+v", w)
+	}
+	if want := "3 animals · 60 kg (latest weights) × ₹/kg by stage and sex = ₹28,650"; w.AssumedValueBasis != want {
+		t.Fatalf("basis %q", w.AssumedValueBasis)
+	}
+	short := out.Loads[1]
+	if short.AssumedValueMethod != AssumedValueMethodPerAnimal || *short.AssumedValue != 27000 ||
+		!strings.HasSuffix(short.AssumedValueBasis, "priced per animal: 1 of 3 animals has no weight yet") {
+		t.Fatalf("short load: %v %q", short.AssumedValue, short.AssumedValueBasis)
+	}
+	if u := out.Loads[2]; !strings.HasSuffix(u.AssumedValueBasis, "priced per animal: no price per kg set for Sheep K3 female") {
+		t.Fatalf("unpriced: %q", u.AssumedValueBasis)
+	}
+	if !strings.HasPrefix(out.Summary.AssumedValueBasis, "Animals still on farm at their latest weight × ₹/kg by stage and sex where every animal") {
+		t.Fatalf("summary basis %q", out.Summary.AssumedValueBasis)
 	}
 }

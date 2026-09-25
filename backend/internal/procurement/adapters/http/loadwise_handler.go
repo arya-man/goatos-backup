@@ -115,6 +115,8 @@ type loadwiseLoadPayload struct {
 	RealisedProfitLoss *float64 `json:"realised_profit_loss,omitempty"`
 	AssumedValue       *float64 `json:"assumed_value,omitempty"`
 	AssumedValueBasis  string   `json:"assumed_value_basis"`
+	// "weight" or "per_animal" ("" when nothing is assumed): which rule priced assumed_value.
+	AssumedValueMethod string `json:"assumed_value_method,omitempty"`
 
 	// The pre-GoatOS history already folded into the counts above, exposed so the screen can say
 	// "already sold / already died before tracking started" with the dates it spans.
@@ -249,6 +251,7 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			RealisedProfitLoss: l.RealisedProfitLoss,
 			AssumedValue:       l.AssumedValue,
 			AssumedValueBasis:  l.AssumedValueBasis,
+			AssumedValueMethod: l.AssumedValueMethod,
 
 			PriorSold: toPriorPayload(l.PriorSold),
 			PriorDead: toPriorPayload(l.PriorDead),
