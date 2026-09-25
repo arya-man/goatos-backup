@@ -64,6 +64,11 @@ func emitSaleRecorded(ctx context.Context, tx pgx.Tx, tenantID, actorID, idempot
 		"animal_count":  animals,
 		"product_type":  write.ProductType,
 		"status":        write.Status,
+		// Whether the sale has animals to tag, load and pass out (maintainer decision 2026-09-25):
+		// decided HERE, from the lines being written in this transaction, so the opener never reads
+		// the sale. False for a manure / feed / other-item sale and for an animal line with no head
+		// count; the workflow then opens with its payment steps only.
+		"has_live_animals": write.HasLiveAnimals(),
 	}
 	visibility := map[string]any{"tenant_id": tenantID}
 	if parkID != "" {

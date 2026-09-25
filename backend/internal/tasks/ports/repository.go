@@ -28,6 +28,10 @@ type OpenWorkflowCommand struct {
 	// death form's proofs and answers). Ignored on a natural-key conflict: the first open wins and
 	// a redelivered event never relabels it.
 	CaptureEvidence authored.Evidence
+	// SaleHasAnimals decides the sale track's `sale_has_animals` steps (maintainer decision
+	// 2026-09-25). Nil = true: every other template, and a sale event written before the fact
+	// was carried, compiles every step.
+	SaleHasAnimals *bool
 }
 
 // GeneralSOP is one startable general work instruction.

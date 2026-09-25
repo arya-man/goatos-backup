@@ -32,7 +32,17 @@ type salesDealRecordedPayload struct {
 	SalesDealID string `json:"sales_deal_id"`
 	ParkID      string `json:"park_id"`
 	SaleDate    string `json:"sale_date"`
+	// Status is the deal's status at record time. A sale recorded already failed owes no work.
+	Status string `json:"status"`
+	// HasLiveAnimals decides the `sale_has_animals` steps (tag, loading video, gate pass). A
+	// POINTER on purpose: an event written before the key existed (still in the outbox on deploy)
+	// decodes as nil and opens exactly as it did before -- with every step.
+	HasLiveAnimals *bool `json:"has_live_animals"`
 }
+
+// dealStatusFailed is the sales ledger's failed-deal word (sales/domain.StatusDealFailed). The
+// tasks module names it rather than importing sales: the payload is the contract.
+const dealStatusFailed = "Deal Failed"
 
 // SaleRecordedWorkflowHandler opens the sale's workflow when a sale is recorded.
 type SaleRecordedWorkflowHandler struct{ svc *Service }
@@ -65,16 +75,22 @@ func (h *SaleRecordedWorkflowHandler) HandleEvent(ctx context.Context, e eventbu
 	if dealID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return nil
 	}
+	if strings.EqualFold(strings.TrimSpace(p.Status), dealStatusFailed) {
+		// Recorded as already failed: nothing is owed on it, and a card opened here would be
+		// work nobody does.
+		return nil
+	}
 	eventAt := e.OccurredAt
 	if eventAt.IsZero() {
 		eventAt = time.Now()
 	}
 	_, err := h.svc.OpenSubjectWorkflow(ctx, OpenSubjectWorkflowInput{
-		TenantID:     e.TenantID,
-		TemplateKey:  domain.TemplateKeySalesDeal,
-		SubjectRefID: dealID,
-		EventAt:      eventAt,
-		ParkID:       strings.TrimSpace(p.ParkID),
+		TenantID:       e.TenantID,
+		TemplateKey:    domain.TemplateKeySalesDeal,
+		SubjectRefID:   dealID,
+		EventAt:        eventAt,
+		ParkID:         strings.TrimSpace(p.ParkID),
+		SaleHasAnimals: p.HasLiveAnimals,
 	})
 	return err
 }

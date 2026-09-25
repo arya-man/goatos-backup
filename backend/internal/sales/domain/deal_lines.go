@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -457,4 +458,22 @@ func ValidateFeedItems(lines []DealLineWrite, items []string) error {
 		}
 	}
 	return nil
+}
+
+// HasLiveAnimals reports whether this sale sold animals that can be tagged: an animal-kind line
+// whose head counts add up to at least one whole animal (maintainer decision 2026-09-25). It decides
+// whether the sale's workflow carries its tag, loading-video and gate-pass steps.
+//
+// It is read from the LINES, never the deal-level animal_count -- legacy manure deals carry an
+// animal_count of 1 -- and it counts exactly what the tagging confirm will accept: the confirm
+// refuses a deal whose floored animal_count (the sum of its animal lines' counts, RollupLines) is
+// not above zero, so a line recorded with only a male/female split and no head count owes no tag.
+func (w DealWrite) HasLiveAnimals() bool {
+	total := 0.0
+	for _, l := range w.Lines {
+		if l.Kind() == KindAnimal && l.AnimalCount != nil && *l.AnimalCount > 0 {
+			total += *l.AnimalCount
+		}
+	}
+	return math.Floor(total) >= 1
 }

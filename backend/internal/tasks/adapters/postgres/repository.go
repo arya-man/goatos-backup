@@ -134,6 +134,7 @@ func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCom
 	template, sopVersionID, err := r.compileTemplate(ctx, cmd.TenantID, cmd.TemplateKey, domain.CompileOptions{
 		EventAt:            cmd.EventAt,
 		NeedsShedPlacement: needsShedPlacement,
+		SaleHasAnimals:     cmd.SaleHasAnimals == nil || *cmd.SaleHasAnimals,
 	})
 	if err != nil {
 		return false, err

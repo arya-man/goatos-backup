@@ -50,6 +50,9 @@ type OpenSubjectWorkflowInput struct {
 	EventAt       time.Time
 	ParkID        string
 	ShedID        string
+	// SaleHasAnimals decides a sale workflow's `sale_has_animals` steps. Nil = true (every step):
+	// only the sale opener sets it, and an old event without the fact opens as it always did.
+	SaleHasAnimals *bool
 }
 
 // OpenSubjectWorkflow returns the workflow id for the subject, opening it from the published SOP
@@ -72,13 +75,14 @@ func (s *Service) OpenSubjectWorkflow(ctx context.Context, in OpenSubjectWorkflo
 	}
 	ref := in.SubjectRefID
 	if _, err := s.repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{
-		TenantID:      in.TenantID,
-		TemplateKey:   in.TemplateKey,
-		SubjectGoatID: in.SubjectGoatID,
-		EventAt:       eventAt,
-		ParkID:        optionalUUID(in.ParkID),
-		ShedID:        optionalUUID(in.ShedID),
-		SubjectRefID:  &ref,
+		TenantID:       in.TenantID,
+		TemplateKey:    in.TemplateKey,
+		SubjectGoatID:  in.SubjectGoatID,
+		EventAt:        eventAt,
+		ParkID:         optionalUUID(in.ParkID),
+		ShedID:         optionalUUID(in.ShedID),
+		SubjectRefID:   &ref,
+		SaleHasAnimals: in.SaleHasAnimals,
 	}); err != nil {
 		return "", err
 	}

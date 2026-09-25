@@ -69,3 +69,37 @@ func TestSaleRecordedOpensAGoatlessWorkflowAndTheConfirmCompletesTheTagStep(t *t
 		t.Fatalf("tag completions = %v", repo.saleTagCompletions)
 	}
 }
+
+// TestSaleRecordedCarriesWhetherTheSaleHasAnimals (maintainer decision 2026-09-25): the opener
+// passes the event's has_live_animals to the compile so a manure / feed sale opens without its
+// tag step; an event written before the key existed opens with every step (nil = true); a sale
+// recorded already failed opens nothing.
+func TestSaleRecordedCarriesWhetherTheSaleHasAnimals(t *testing.T) {
+	open := func(payload map[string]any) []ports.OpenWorkflowCommand {
+		t.Helper()
+		repo := &openRecorder{fakeRepo: newFakeRepo(), byRef: map[string]string{}}
+		svc := NewService(repo, nil)
+		raw, _ := json.Marshal(payload)
+		if err := NewSaleRecordedWorkflowHandler(svc).HandleEvent(context.Background(), eventbus.Event{
+			Type: EventSalesDealRecorded, TenantID: "tenant", Key: "deal-1", Payload: raw, OccurredAt: time.Date(2026, 9, 25, 9, 0, 0, 0, time.UTC),
+		}); err != nil {
+			t.Fatalf("recorded handler: %v", err)
+		}
+		return repo.opened
+	}
+	manure := open(map[string]any{"sales_deal_id": "deal-1", "status": "Deal Closed", "has_live_animals": false})
+	if len(manure) != 1 || manure[0].SaleHasAnimals == nil || *manure[0].SaleHasAnimals {
+		t.Fatalf("manure sale must open with SaleHasAnimals=false, got %+v", manure)
+	}
+	animals := open(map[string]any{"sales_deal_id": "deal-1", "status": "Deal Closed", "has_live_animals": true})
+	if len(animals) != 1 || animals[0].SaleHasAnimals == nil || !*animals[0].SaleHasAnimals {
+		t.Fatalf("animal sale must open with SaleHasAnimals=true, got %+v", animals)
+	}
+	legacy := open(map[string]any{"sales_deal_id": "deal-1", "status": "Deal Closed"})
+	if len(legacy) != 1 || legacy[0].SaleHasAnimals != nil {
+		t.Fatalf("an event without has_live_animals must open as before (nil = every step), got %+v", legacy)
+	}
+	if failed := open(map[string]any{"sales_deal_id": "deal-1", "status": "Deal Failed", "has_live_animals": true}); len(failed) != 0 {
+		t.Fatalf("a sale recorded already failed must open nothing, got %+v", failed)
+	}
+}
