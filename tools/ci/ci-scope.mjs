@@ -17,7 +17,9 @@ function matches(pathname, group = {}) {
   const filePath = normalized(pathname);
   return (group.files ?? []).includes(filePath)
     || (group.prefixes ?? []).some((prefix) => filePath.startsWith(prefix))
-    || (group.extensions ?? []).some((extension) => filePath.endsWith(extension));
+    || (group.extensions ?? []).some((extension) => filePath.endsWith(extension))
+    // `dirs` match files directly inside a directory (one Go package), never its subtree.
+    || (group.dirs ?? []).includes(filePath.slice(0, filePath.lastIndexOf("/") + 1));
 }
 
 function matchesExcept(pathname, group = {}) {
@@ -26,6 +28,11 @@ function matchesExcept(pathname, group = {}) {
   if ((group.exceptPrefixes ?? []).some((prefix) => filePath.startsWith(prefix))) return false;
   return matches(filePath, group);
 }
+
+// The query-plans job is two independent DB gates. Each one is scheduled only when the diff
+// touches an input that can change its verdict (rules.queryPlans.<step>); a full/unmapped run
+// schedules both. See component-paths.json `queryPlans` for what each gate actually reads.
+export const QUERY_PLAN_STEPS = ["sqlc", "commandboard"];
 
 function allComponents() {
   return { backend: true, adminWeb: true, android: true };
@@ -53,6 +60,7 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
       common: true,
       ...allComponents(),
       queryPlans: true,
+      queryPlanSteps: [...QUERY_PLAN_STEPS],
       full: true,
       paths,
       reasons: ["no diff paths were available; conservative full suite"],
@@ -65,6 +73,7 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
       common: false,
       ...components,
       queryPlans: false,
+      queryPlanSteps: [],
       full: false,
       paths,
       reasons: paths.map((filePath) => `${filePath}: docs-only fast lane`),
@@ -107,13 +116,16 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
     && reasons.some((reason) => reason.includes("forces full suite"));
   const selectedJobs = ["common"];
   if (components.backend) selectedJobs.push("backend");
-  const queryPlans = paths.some((filePath) => matches(filePath, rules.queryPlans))
-    || reasons.some((reason) => reason.includes("fans out to"));
+  const queryPlanSteps = QUERY_PLAN_STEPS.filter((step) => (
+    full || paths.some((filePath) => matches(filePath, rules.queryPlans?.[step]))
+  ));
+  for (const step of queryPlanSteps) reasons.push(`query-plans: ${step} gate inputs changed`);
+  const queryPlans = queryPlanSteps.length > 0;
   if (queryPlans) selectedJobs.push("query-plans");
   if (components.adminWeb) selectedJobs.push("admin-web");
   if (components.android) selectedJobs.push("android");
 
-  return { common: true, ...components, queryPlans, full, paths, reasons, selectedJobs };
+  return { common: true, ...components, queryPlans, queryPlanSteps, full, paths, reasons, selectedJobs };
 }
 
 function resolveCommit(ref) {
@@ -165,6 +177,7 @@ function printClassification(result, format) {
     console.log(`common=${result.common}`);
     console.log(`backend=${result.backend}`);
     console.log(`query_plans=${result.queryPlans}`);
+    console.log(`query_plan_steps=${(result.queryPlanSteps ?? []).join(",")}`);
     console.log(`admin_web=${result.adminWeb}`);
     console.log(`android=${result.android}`);
     console.log(`full=${result.full}`);
@@ -189,13 +202,34 @@ function selfTest() {
     common: true, backend: true, adminWeb: true, android: false, full: false,
     selectedJobs: ["common", "backend", "admin-web"],
   });
-  const obligationQueryChange = classifyPaths([
-    "backend/internal/obligation/adapters/postgres/repository.go",
+  // PR #419 shape: an obligation adapter Go change. Neither plan gate reads that package
+  // (validate-sqlc-query-plans.sh EXPLAINs inline SQL over migrations; the command-board gate's
+  // test closure does not import obligation), so neither can change verdict -- no DB job.
+  const obligationGoChange = classifyPaths([
+    "backend/internal/obligation/adapters/postgres/assigned_batch_tasks.go",
+    "backend/internal/obligation/adapters/postgres/assigned_batch_tasks_test.go",
   ]);
-  assert.equal(obligationQueryChange.queryPlans, true,
-    "a production obligation-query change must schedule the PostgreSQL plan gate");
-  assert.equal(obligationQueryChange.selectedJobs.includes("query-plans"), true,
-    "normal PR/push CI must not leave the query-plan gate manual");
+  assert.deepEqual(obligationGoChange.selectedJobs, ["common", "backend"],
+    "an obligation Go-only change must not pay for the query-plan DB gates");
+  assert.deepEqual(obligationGoChange.queryPlanSteps, []);
+  const qp = (paths) => classifyPaths(paths).queryPlanSteps;
+  assert.deepEqual(qp(["backend/migrations/postgres/000500_x.sql"]), ["sqlc", "commandboard"],
+    "a migration changes both gates' database");
+  assert.deepEqual(qp(["backend/internal/obligation/adapters/postgres/sqlc/queries.sql"]), ["sqlc"],
+    "a sqlc query/schema edit schedules the sqlc plan gate");
+  assert.deepEqual(qp(["backend/tests/integration/validate-sqlc-query-plans.sh"]), ["sqlc"]);
+  // tools/postgres-ci.sh is unmapped shared tooling, so it forces the full suite and both gates.
+  assert.deepEqual(qp(["tools/postgres-ci.sh"]), ["sqlc", "commandboard"]);
+  assert.deepEqual(pick(["tools/dev/commandboard-query-plan-guard.sh"]).selectedJobs, ["common", "backend", "query-plans"]);
+  assert.deepEqual(qp(["tools/dev/commandboard-query-plan-guard.sh"]), ["commandboard"]);
+  assert.deepEqual(qp(["backend/internal/platform/pgtest/pgtest.go"]), ["commandboard"],
+    "the pgtest harness is the command-board gate's DB harness");
+  assert.deepEqual(qp(["backend/internal/verification/samplingsql/sql.go"]), ["commandboard"],
+    "a package in the command-board test's import closure schedules it");
+  assert.deepEqual(qp(["backend/go.sum"]), ["commandboard"]);
+  assert.deepEqual(qp(["Makefile"]), ["sqlc", "commandboard"], "forced full suite runs both");
+  assert.deepEqual(classifyPaths([]).queryPlanSteps, ["sqlc", "commandboard"]);
+  assert.deepEqual(qp(["docs/progress/local-ci.md"]), []);
   // The command board's statements live in vaccinationexecution, NOT vaccination, and that one
   // missing prefix meant a PR touching only those statements skipped the query-plans job entirely
   // -- and ci-required then VERIFIED the skip as expected and went green. The endpoint whose plans
@@ -204,6 +238,7 @@ function selfTest() {
   const commandBoardQueryChange = classifyPaths([
     "backend/internal/vaccinationexecution/adapters/postgres/commandboard_sql.go",
   ]);
+  assert.deepEqual(commandBoardQueryChange.queryPlanSteps, ["commandboard"]);
   assert.equal(commandBoardQueryChange.queryPlans, true,
     "a command-board query change must schedule the PostgreSQL plan gate");
   assert.equal(commandBoardQueryChange.selectedJobs.includes("query-plans"), true,
@@ -236,28 +271,36 @@ function selfTest() {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
   });
+  // package permissions is compiled into the command-board plan test, so it schedules that gate
+  // (and only that gate); its postgres adapter subpackage is not in the closure.
   assert.deepEqual(pick(["backend/internal/permissions/routes.go"]), {
     common: true, backend: true, adminWeb: false, android: false, full: false,
-    selectedJobs: ["common", "backend"],
+    selectedJobs: ["common", "backend", "query-plans"],
   });
+  assert.deepEqual(qp(["backend/internal/permissions/routes.go"]), ["commandboard"]);
+  assert.deepEqual(qp(["backend/internal/permissions/adapters/postgres/grants.go"]), []);
+  // CI tooling itself runs the common job (whose self-tests cover this scoping), never the DB gates.
+  assert.deepEqual(pick(["tools/ci/run-local-ci.sh", "tools/ci/ci-scope.mjs", "tools/ci/component-paths.json"]).selectedJobs, ["common"]);
+  assert.deepEqual(pick(["tools/ci/gradle-run.sh"]).selectedJobs, ["common"]);
   // Android DTOs are hand-mapped; no Android build or test reads contracts/ or
   // packages/api-client/, so a contract edit cannot fail the Android job. Android
   // still runs whenever its own DTOs/code change.
+  // A fan-out no longer implies the DB plan gates: neither gate reads contracts/ or a UI file.
   assert.deepEqual(pick(["contracts/openapi/app-api.yaml"]), {
     common: true, backend: true, adminWeb: true, android: false, full: false,
-    selectedJobs: ["common", "backend", "query-plans", "admin-web"],
+    selectedJobs: ["common", "backend", "admin-web"],
   });
   assert.deepEqual(pick(["apps/admin-web/features/verification-review/verification-review-page.tsx"]), {
     common: true, backend: true, adminWeb: true, android: true, full: false,
-    selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+    selectedJobs: ["common", "backend", "admin-web", "android"],
   });
   assert.deepEqual(pick(["apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyQueueScreen.kt"]), {
     common: true, backend: true, adminWeb: true, android: true, full: false,
-    selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+    selectedJobs: ["common", "backend", "admin-web", "android"],
   });
   assert.deepEqual(pick(["backend/internal/verification/adapters/proofmedia/resolver.go"]), {
     common: true, backend: true, adminWeb: true, android: true, full: false,
-    selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+    selectedJobs: ["common", "backend", "admin-web", "android"],
   });
   assert.deepEqual(pick(["docs/progress/local-ci.md"]), {
     common: false, backend: false, adminWeb: false, android: false, full: false,
@@ -300,8 +343,26 @@ function selfTest() {
   console.log("ci-scope: self-test passed");
 }
 
+// The command-board plan gate is scheduled from queryPlans.commandboard. Its package list must cover
+// the plan test's whole import closure (`go list -test -deps`), or a change to a newly imported
+// package would silently skip the gate. Fails closed when Go cannot answer.
+export function checkQueryPlanClosure(rules = JSON.parse(readFileSync(rulesPath, "utf8"))) {
+  const out = execFileSync("go", ["list", "-test", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}",
+    "./internal/vaccinationexecution/adapters/postgres/"], { cwd: "backend", encoding: "utf8" });
+  const prefix = "github.com/vgoats/goatos/backend/";
+  const dirs = [...new Set(out.split("\n").filter((l) => l.startsWith(prefix))
+    .map((l) => `backend/${l.slice(prefix.length).split(" ")[0].replace(/\.test$/, "")}/`))];
+  const rule = rules.queryPlans.commandboard;
+  const missing = dirs.filter((d) => !(rule.dirs ?? []).includes(d) && !(rule.prefixes ?? []).some((p) => d.startsWith(p)));
+  assert.deepEqual(missing, [],
+    "component-paths.json queryPlans.commandboard.dirs misses packages in the command-board plan test's import closure");
+  assert.ok(dirs.length > 5, "go list returned an implausibly small closure");
+  console.log(`ci-scope: command-board plan gate covers its ${dirs.length}-package import closure`);
+}
+
 if (process.argv.includes("--self-test")) {
   selfTest();
+  if (process.argv.includes("--check-query-plan-closure")) checkQueryPlanClosure();
 } else if (process.argv.includes("--verify-results")) {
   const expected = JSON.parse(process.env.CI_EXPECTED_RESULTS || "{}");
   const results = JSON.parse(process.env.CI_JOB_RESULTS || "{}");

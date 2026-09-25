@@ -19,6 +19,7 @@
   },
   "ciCommonOnly": {
     "prefixes": [
+      "tools/ci/"
     ],
     "files": [
       "tools/ci/android-ui-diff.sh",
@@ -52,23 +53,56 @@
     ]
   },
   "queryPlans": {
-    "prefixes": [
-      "backend/internal/analytics/adapters/postgres/",
-      "backend/internal/calendar/adapters/postgres/",
-      "backend/internal/feed/adapters/postgres/",
-      "backend/internal/feeddirection/adapters/postgres/",
-      "backend/internal/obligation/adapters/postgres/",
-      "backend/internal/permissions/adapters/postgres/",
-      "backend/internal/platform/postgres/",
-      "backend/internal/scale/adapters/postgres/",
-      "backend/internal/vaccination/adapters/postgres/",
-      "backend/internal/vaccinationexecution/adapters/postgres/",
-      "backend/internal/weighing/adapters/postgres/",
-      "backend/migrations/"
-    ],
-    "extensions": [
-      ".sql"
-    ]
+    "sqlc": {
+      "_why": "validate-sqlc-query-plans.sh EXPLAINs its own inline SQL against a DB built only from backend/migrations/postgres; its verdict is a pure function of these inputs. Any .sql (sqlc query/schema) edit also schedules it.",
+      "files": [
+        "backend/tests/integration/validate-sqlc-query-plans.sh",
+        "tools/postgres-ci.sh"
+      ],
+      "prefixes": [
+        "backend/migrations/"
+      ],
+      "extensions": [
+        ".sql"
+      ]
+    },
+    "commandboard": {
+      "_why": "commandboard-query-plan-guard.sh runs go test on vaccinationexecution/adapters/postgres over a migrated DB. `dirs` (exact package dirs, not subtrees) = that test's `go list -test -deps` internal closure outside vaccinationexecution; `make commandboard-query-plan-wiring-guard` fails if it drifts.",
+      "files": [
+        "tools/dev/commandboard-query-plan-guard.sh",
+        "backend/go.mod",
+        "backend/go.sum"
+      ],
+      "prefixes": [
+        "backend/migrations/",
+        "backend/internal/vaccinationexecution/"
+      ],
+      "dirs": [
+        "backend/internal/outbox/adapters/postgres/",
+        "backend/internal/outbox/adapters/publisher/eventbus/",
+        "backend/internal/outbox/app/",
+        "backend/internal/outbox/domain/",
+        "backend/internal/outbox/ports/",
+        "backend/internal/permissions/",
+        "backend/internal/platform/audit/",
+        "backend/internal/platform/auth/",
+        "backend/internal/platform/authallow/",
+        "backend/internal/platform/biztime/",
+        "backend/internal/platform/eventbus/",
+        "backend/internal/platform/httpmiddleware/",
+        "backend/internal/platform/kmetrics/",
+        "backend/internal/platform/localization/",
+        "backend/internal/platform/oploc/",
+        "backend/internal/platform/outbox/",
+        "backend/internal/platform/pgtest/",
+        "backend/internal/platform/readcache/",
+        "backend/internal/platform/sqlbind/",
+        "backend/internal/platform/tracecontext/",
+        "backend/internal/platform/uuidutil/",
+        "backend/internal/vaccination/domain/",
+        "backend/internal/verification/samplingsql/"
+      ]
+    }
   },
   "fanout": [
     {
@@ -109,7 +143,8 @@
         "tools/scale-guard/"
       ],
       "files": [
-        "tools/agent-hooks/postgres-bind-contract-baseline.json"
+        "tools/agent-hooks/postgres-bind-contract-baseline.json",
+        "tools/dev/commandboard-query-plan-guard.sh"
       ]
     },
     "adminWeb": {
