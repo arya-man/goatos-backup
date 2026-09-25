@@ -165,6 +165,13 @@ VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6,
 	tag(soldB, "tagged", "lw-alloc-b", 30)
 	tag(farmBornSold, "tagged", "lw-alloc-farm-born", 10)
 	tag(soldNoDealA, "released", "lw-alloc-released", 40)
+	// Each tagged animal is priced from ITS OWN sale line (maintainer decision 2026-09-25): the two
+	// sheep share the 20000 sheep line and the goat takes the 10000 goat line, so every tagged
+	// animal is still worth 10000 -- the per-animal figures below are unchanged by the rule.
+	if _, err := pool.Exec(ctx, `UPDATE goats SET species = CASE WHEN goat_id = $3::uuid THEN 'goat' ELSE 'sheep' END
+WHERE tenant_id = $1 AND goat_id = ANY($2::uuid[])`, testTenant, []string{soldA, soldB, farmBornSold}, farmBornSold); err != nil {
+		t.Fatalf("seed tagged species: %v", err)
+	}
 
 	// Load B's PRE-GOATOS history: 3 already sold for 30000 and 2 already dead before its
 	// remaining animals were tracked here. The read must fold both into the reconciliation.
@@ -424,7 +431,10 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		if _, err := pool.Exec(ctx, `
 	INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed, animal_count, total_weight_kg, sales_value)
 	VALUES ($1, $2::uuid, 1, 'Sheep', 'sheep', 'animal', 'Nari Suvarna', 2, 40, 20000),
-	       ($1, $2::uuid, 2, 'Goat', 'goat', 'animal', 'Malai', 1, 20, 16000);
+	       ($1, $2::uuid, 2, 'Goat', 'goat', 'animal', 'Malai', 1, 20, 16000)`, testTenant, dealD); err != nil {
+			t.Fatalf("seed unequal-rate lines: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
 	INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, weight_kg)
 	VALUES ($1, $3::uuid, $2::uuid, 'tagged', 'lw-alloc-unequal-rates', 20)`,
 			testTenant, dealD, goatD); err != nil {
@@ -473,7 +483,10 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		if _, err := pool.Exec(ctx, `
 	INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed, animal_count, total_weight_kg, sales_value)
 	VALUES ($1, $2::uuid, 1, 'Goat', 'goat', 'animal', 'Malai', 1, 20, 10000),
-	       ($1, $2::uuid, 2, 'Manure', 'manure', 'other', 'Manure', NULL, 1000, 102000);
+	       ($1, $2::uuid, 2, 'Manure', 'manure', 'other', 'Manure', NULL, 1000, 102000)`, testTenant, dealE); err != nil {
+			t.Fatalf("seed live-plus-manure lines: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
 	INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, weight_kg)
 	VALUES ($1, $3::uuid, $2::uuid, 'tagged', 'lw-alloc-live-plus-manure', 20)`,
 			testTenant, dealE, goatE); err != nil {

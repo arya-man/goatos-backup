@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -79,23 +80,14 @@ WITH member AS (
     -- property the read needs.
     ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC
 ),
+` + saleLineShareCTEs + // scale-guard:ignore: god-cte -- the loadwiseSalesSQL tail after the shared pricing CTEs; same bounded, LIMITed reporting read annotated on the const
+	`,
 deal_share AS (
-    -- A SALE IS A CLOSED DEAL (maintainer decision 2026-09-25), exactly as Summary and Farm born
-    -- count one. An animal tagged to an Advance Paid / In Discussion / Deal Failed deal carries no
-    -- share and is not 'sold' below until its deal closes; closed says which case this is.
-    SELECT a.goat_id,
-           (d.status = 'Deal Closed') AS closed,
-           CASE WHEN d.status = 'Deal Closed' AND d.sales_value > 0 THEN d.sales_value / cnt.tagged END AS share
-    FROM public.goat_sale_allocations a
-    JOIN public.sales_deals d
-      ON d.tenant_id = a.tenant_id AND d.id = a.sales_deal_id
-    JOIN (
-        SELECT tenant_id, sales_deal_id, count(*)::numeric AS tagged
-        FROM public.goat_sale_allocations
-        WHERE tenant_id = $1 AND status = 'tagged'
-        GROUP BY tenant_id, sales_deal_id
-    ) cnt ON cnt.tenant_id = a.tenant_id AND cnt.sales_deal_id = a.sales_deal_id
-    WHERE a.tenant_id = $1 AND a.status = 'tagged'
+    -- Each animal's price comes from ITS OWN SALE LINE through the shared saleLineShareCTEs (the
+    -- same CTE Farm born reads), and only a CLOSED deal is a sale (maintainer decisions
+    -- 2026-09-25). closed says whether the allocation's deal is closed; share is NULL otherwise.
+    -- projection-review: membership=animal_share, one row per live tagged animal; group_key=goat_id, priced per (deal, species, bucket) inside saleLineShareCTEs; join_cardinality=1:{0,1} per member goat through the tagged partial unique index; pagination=priced before the LIMITed load window; scope=tenant_id
+    SELECT goat_id, closed, share FROM animal_share
 ),
 sale_weight_sample AS (
     -- Newer GoatOS sales DO have per-animal sale weights on goat_sale_allocations. The legacy
@@ -460,23 +452,20 @@ SELECT $1, $2, k, a, 'app', nullif($5, '')::uuid
 FROM unnest($3::text[], $4::numeric[]) AS t(k, a)`
 
 // loadwiseOverallAvgSQL prices the remaining-stock fallback: the average per-animal share across
-// EVERY tagged allocation on a positive-value CLOSED deal (only a closed deal is a sale, the same
-// rule deal_share and Summary use) (farm-born sales included — a realized animal
+// EVERY priced tagged animal on a CLOSED deal, each priced from its own sale line by the shared
+// saleLineShareCTEs (only a closed deal is a sale, the same rule deal_share and Summary use) (farm-born sales included — a realized animal
 // price is a price whatever the animal's origin). The per-deal tagged count pre-aggregates the
 // many side exactly as in loadwiseSalesSQL, and the partial live-uniqueness index keeps one share
 // per animal.
+//
+// projection-review: membership=animal_share rows with a share (closed deals, priced from their own line); group_key=none, one tenant-wide average; join_cardinality=one row per live tagged animal via the tagged partial unique index; pagination=none, whole-tenant average independent of the load window; scope=tenant_id
+//
+// scale-guard:ignore: god-cte -- the shared saleLineShareCTEs pricing (one set-based pass over the tenant's tagged allocations and animal lines, both indexed on tenant) plus one aggregate; bounded at the 5k-50k envelope like loadwiseSalesSQL
 const loadwiseOverallAvgSQL = `
-SELECT COALESCE(avg(d.sales_value / cnt.tagged), 0)::float8, count(*)::int
-FROM public.goat_sale_allocations a
-JOIN public.sales_deals d
-  ON d.tenant_id = a.tenant_id AND d.id = a.sales_deal_id AND d.sales_value > 0 AND d.status = 'Deal Closed'
-JOIN (
-    SELECT tenant_id, sales_deal_id, count(*)::numeric AS tagged
-    FROM public.goat_sale_allocations
-    WHERE tenant_id = $1 AND status = 'tagged'
-    GROUP BY tenant_id, sales_deal_id
-) cnt ON cnt.tenant_id = a.tenant_id AND cnt.sales_deal_id = a.sales_deal_id
-WHERE a.tenant_id = $1 AND a.status = 'tagged'`
+WITH ` + saleLineShareCTEs + `
+SELECT COALESCE(avg(share), 0)::float8, count(*)::int
+FROM animal_share
+WHERE share IS NOT NULL`
 
 // LoadwiseSales returns the newest maxLoads loads reconciled: counts, attributed sold value,
 // recorded costs, the filtered load count and the overall average sold price. parkID optionally
@@ -531,7 +520,8 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	rows, err := r.pool.Query(ctx, loadwiseSalesSQL, tenantID, maxLoads, parkID)
+	boundSales := sqlbind.MustBind(loadwiseSalesSQL, tenantID, maxLoads, parkID)
+	rows, err := r.pool.Query(ctx, boundSales.SQL(), boundSales.Args()...)
 	if err != nil {
 		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise sales: %w", err)
 	}
@@ -605,7 +595,8 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 		overallAvg  float64
 		pricedCount int
 	)
-	if err := r.pool.QueryRow(ctx, loadwiseOverallAvgSQL, tenantID).Scan(&overallAvg, &pricedCount); err != nil {
+	boundAvg := sqlbind.MustBind(loadwiseOverallAvgSQL, tenantID)
+	if err := r.pool.QueryRow(ctx, boundAvg.SQL(), boundAvg.Args()...).Scan(&overallAvg, &pricedCount); err != nil {
 		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise overall avg: %w", err)
 	}
 	var overall *float64

@@ -1,7 +1,11 @@
 -- App: Sales > Load-wise (GET /procurement/loadwise; procurement/adapters/postgres/loadwise_repository.go
 -- + domain/loadwise.go). One row per purchase load. One load: run_reference('load-wise-sales.sql', where="load_no='131'").
--- sold = tagged GoatOS sales (goats sold, via goat_sale_allocations) + pre-GoatOS prior outcomes (counts only);
--- sold_value = deal value split evenly over each deal's tagged animals + prior sold value;
+-- sold = tagged GoatOS sales on 'Deal Closed' deals only (an animal exited against a deal still open is
+--   'unaccounted' until it closes) + pre-GoatOS prior outcomes (counts only);
+-- sold_value = each animal priced from ITS OWN sale line (2026-09-25 option B): the deal's animal line of its species
+--   (+ breed when the deal has several lines of that species; same species+breed lines pooled) / animals tagged to it;
+--   an unmatched animal takes the deal's unclaimed animal-line value / unmatched animals; a deal with no lines at all
+--   splits its value; feed/manure/other lines are never animal value. + prior sold value;
 -- sale_price_per_kg = sold_weighed_value / sold_weight_kg from ONE sample (sale_price_basis says which):
 --   'legacy'  = procurement_loads.sold_* columns, whenever pl.sold_weight_kg IS NOT NULL (always wins);
 --   'tagged'  = else tagged allocations with weight_kg>0 on 'Deal Closed' deals (total_weight_kg>0, sales_value>0),
@@ -17,15 +21,35 @@ WITH member AS (
   SELECT DISTINCT ON (plg.goat_id) plg.goat_id, plg.load_id
   FROM procurement_load_goats plg WHERE plg.current_state = 'accepted_herd_intake'
   ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC),
-cnt AS (SELECT sales_deal_id, count(*)::numeric tagged FROM goat_sale_allocations WHERE status='tagged' GROUP BY 1),
-ds AS (
-  SELECT a.goat_id, a.weight_kg, CASE WHEN d.sales_value > 0 THEN d.sales_value / cnt.tagged END share,
-         d.sales_value / NULLIF(d.total_weight_kg,0) deal_rate
-  FROM goat_sale_allocations a JOIN sales_deals d ON d.id = a.sales_deal_id JOIN cnt USING (sales_deal_id)
+sa AS (
+  SELECT a.goat_id, a.sales_deal_id, a.weight_kg, (d.status='Deal Closed') closed, d.sales_value dv,
+         d.sales_value / NULLIF(d.total_weight_kg,0) deal_rate,
+         NOT EXISTS (SELECT 1 FROM sales_deal_lines l WHERE l.deal_id=d.id) lineless,
+         lower(btrim(coalesce(g.species,''))) sp, lower(btrim(coalesce(g.breed,''))) br
+  FROM goat_sale_allocations a JOIN sales_deals d ON d.id=a.sales_deal_id JOIN goats g ON g.goat_id=a.goat_id
   WHERE a.status='tagged'),
+sl AS (
+  SELECT l.deal_id, coalesce(l.sales_value,0) v, lower(btrim(coalesce(c.species_code,l.product_code))) sp,
+         lower(btrim(coalesce(l.breed,''))) br,
+         count(*) OVER (PARTITION BY l.deal_id, lower(btrim(coalesce(c.species_code,l.product_code)))) sp_lines
+  FROM sales_deal_lines l LEFT JOIN sellable_product_catalog c ON c.tenant_id=l.tenant_id AND c.product_code=l.product_code
+  WHERE l.product_kind='animal'),
+lb AS (SELECT deal_id, sp, CASE WHEN sp_lines=1 THEN '*' ELSE br END bkt, sum(v) v FROM sl GROUP BY 1,2,3),
+ab AS (SELECT sa.*, lb.sp b_sp, lb.bkt b_bkt, lb.v b_v FROM sa LEFT JOIN lb ON lb.deal_id=sa.sales_deal_id AND lb.sp=sa.sp AND (lb.bkt='*' OR lb.bkt=sa.br)),
+bc AS (SELECT sales_deal_id, b_sp, b_bkt, count(*)::numeric n FROM ab WHERE b_sp IS NOT NULL GROUP BY 1,2,3),
+un AS (SELECT lb.deal_id, sum(lb.v) v FROM lb WHERE NOT EXISTS (SELECT 1 FROM bc WHERE bc.sales_deal_id=lb.deal_id AND bc.b_sp=lb.sp AND bc.b_bkt=lb.bkt) GROUP BY 1),
+uc AS (SELECT sales_deal_id, count(*)::numeric n FROM ab WHERE b_sp IS NULL GROUP BY 1),
+ds AS (
+  SELECT ab.goat_id, ab.weight_kg, ab.closed, CASE WHEN ab.closed THEN ab.deal_rate END deal_rate,
+    CASE WHEN NOT ab.closed THEN NULL
+         WHEN ab.b_sp IS NOT NULL THEN CASE WHEN ab.b_v>0 THEN ab.b_v/bc.n END
+         WHEN ab.lineless THEN CASE WHEN ab.dv>0 THEN ab.dv/uc.n END
+         ELSE CASE WHEN un.v>0 THEN un.v/uc.n END END share
+  FROM ab LEFT JOIN bc ON bc.sales_deal_id=ab.sales_deal_id AND bc.b_sp=ab.b_sp AND bc.b_bkt=ab.b_bkt
+  LEFT JOIN un ON un.deal_id=ab.sales_deal_id LEFT JOIN uc ON uc.sales_deal_id=ab.sales_deal_id),
 o AS (
   SELECT m.load_id, ds.share, ds.weight_kg, ds.deal_rate, lower(g.species) species,
-    CASE WHEN g.lifecycle_status='sold' OR g.exit_reason='sold' THEN 'sold'
+    CASE WHEN (g.lifecycle_status='sold' OR g.exit_reason='sold') AND (ds.goat_id IS NULL OR ds.closed) THEN 'sold'
          WHEN g.lifecycle_status='dead' OR g.exit_reason='died' THEN 'dead'
          WHEN g.lifecycle_status IN ('culled','transferred','lost') OR g.exit_reason IN ('culled','transferred','lost') THEN 'other'
          WHEN g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu') THEN 'remaining'

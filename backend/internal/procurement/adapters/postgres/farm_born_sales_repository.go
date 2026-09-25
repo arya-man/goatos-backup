@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"sort"
 	"strings"
 
@@ -47,22 +48,16 @@ WITH ident AS (
       AND gi.identifier_type IN ('animal_identifier_1', 'animal_identifier_2')
     ORDER BY gi.goat_id, CASE gi.identifier_type WHEN 'animal_identifier_1' THEN 0 ELSE 1 END, gi.created_at DESC
 ),
+` + saleLineShareCTEs + `,
 deal_share AS (
-    -- One tagged allocation per live animal (partial unique index on (tenant, goat) WHERE
-    -- status = 'tagged'), so this attaches at most 1:1. The per-deal tagged count pre-aggregates
-    -- the many side, so a deal's value divides over exactly its tagged animals.
-    SELECT a.goat_id, a.sales_deal_id, a.park_id, a.shed_id, a.partition_label,
-           d.sale_date, d.buyer_name,
-           CASE WHEN d.sales_value > 0 THEN (d.sales_value / cnt.tagged)::float8 END AS share
-    FROM public.goat_sale_allocations a
-    JOIN public.sales_deals d ON d.tenant_id = a.tenant_id AND d.id = a.sales_deal_id AND d.status = 'Deal Closed'
-    JOIN (
-        SELECT tenant_id, sales_deal_id, count(*)::numeric AS tagged
-        FROM public.goat_sale_allocations
-        WHERE tenant_id = $1 AND status = 'tagged'
-        GROUP BY tenant_id, sales_deal_id
-    ) cnt ON cnt.tenant_id = a.tenant_id AND cnt.sales_deal_id = a.sales_deal_id
-    WHERE a.tenant_id = $1 AND a.status = 'tagged'
+    -- Each animal is priced from ITS OWN SALE LINE by the shared saleLineShareCTEs, the same CTE
+    -- Load wise reads, and only a CLOSED deal is a sale (maintainer decisions 2026-09-25). An
+    -- allocation on an open deal is left out here exactly as before, so its animal reads its
+    -- exit date and no buyer.
+    -- projection-review: membership=animal_share narrowed to closed deals, one row per live tagged animal; group_key=goat_id, priced per (deal, species, bucket) inside saleLineShareCTEs; join_cardinality=1:{0,1} per animal through the tagged partial unique index; pagination=none, whole-filter read; scope=tenant_id
+    SELECT goat_id, sales_deal_id, park_id, shed_id, partition_label, sale_date, buyer_name, share
+    FROM animal_share
+    WHERE closed
 ),
 pop AS (
     SELECT g.goat_id, g.display_id, COALESCE(i.identifier_value, '') AS tag,
@@ -184,7 +179,7 @@ func (r *Repository) FarmBornAnimals(ctx context.Context, tenantID string, f dom
 	if shedID != "" {
 		partitionKey = oploc.NormalizePartition(f.Partition)
 	}
-	rows, err := r.pool.Query(ctx, farmBornAnimalsSQL,
+	boundAnimals := sqlbind.MustBind(farmBornAnimalsSQL,
 		tenantID, f.From, f.To,
 		strings.TrimSpace(f.ParkID), shedID, partitionKey,
 		strings.ToLower(strings.TrimSpace(f.Species)),
@@ -192,6 +187,7 @@ func (r *Repository) FarmBornAnimals(ctx context.Context, tenantID string, f dom
 		strings.ToLower(strings.TrimSpace(f.Sex)),
 		lowerAll(herdstage.ExpandFilter(compactStage(f.Stage))),
 	)
+	rows, err := r.pool.Query(ctx, boundAnimals.SQL(), boundAnimals.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("procurement: farm born animals: %w", err)
 	}
@@ -229,7 +225,8 @@ func (r *Repository) FarmBornOptions(ctx context.Context, tenantID string) (doma
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	rows, err := r.pool.Query(ctx, farmBornOptionsSQL, tenantID, herdstage.LowerMembers(), herdstage.FatteningKey)
+	boundOptions := sqlbind.MustBind(farmBornOptionsSQL, tenantID, herdstage.LowerMembers(), herdstage.FatteningKey)
+	rows, err := r.pool.Query(ctx, boundOptions.SQL(), boundOptions.Args()...)
 	if err != nil {
 		return domain.FarmBornOptions{}, fmt.Errorf("procurement: farm born options: %w", err)
 	}
