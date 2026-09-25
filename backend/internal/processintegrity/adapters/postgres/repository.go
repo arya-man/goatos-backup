@@ -1015,8 +1015,8 @@ legacy_unassigned_obligations AS MATERIALIZED (
     )
     AND (
       (oi.due_at <= $5::timestamptz AND ($4::timestamptz IS NULL OR oi.due_at >= $4::timestamptz))
-      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
-      OR oi.obligation_id = ANY (ARRAY(SELECT obligation_id FROM due_window_members))
+      OR oi.batch_id IN (SELECT batch_id FROM due_window_batches)
+      OR oi.obligation_id IN (SELECT obligation_id FROM due_window_members)
     )
 ),
 legacy_binding_obligations AS (
@@ -1296,15 +1296,18 @@ raw AS MATERIALIZED (
     -- obligation_instances column predicate, so the planner can ride
     -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) and
     -- obligation_instances_batch_idx (tenant_id, batch_id, status) instead of scanning the table.
-    -- The override key lists are materialized as InitPlan ARRAYs (not correlated IN-subqueries)
-    -- precisely so they stay constants the indexes can be probed with.
+    -- The override key lists are uncorrelated IN-subqueries, which Postgres runs once as HASHED
+    -- SubPlans (O(1) probe per row). They used to be "= ANY (ARRAY(SELECT ...))" InitPlan arrays,
+    -- but inside this OR the planner never turned them into index probes: it evaluated them as a
+    -- per-row filter, a LINEAR scan of a ~6k-element array for each of ~10k candidate rows, repeated
+    -- per protocol_version in the nested loop (STG 2026-09-25: 2.3 s cold -> ~0.1 s, identical rows).
     -- Superset proof: if the effective date is inside [$4, $5] but oi.due_at is not, the date was
     -- moved by a batch or an assignment, so the obligation is reachable through due_window_batches or
     -- due_window_members. No qualifying row is dropped; the exact bounds still run afterwards.
     AND (
       (oi.due_at <= $5::timestamptz AND ($4::timestamptz IS NULL OR oi.due_at >= $4::timestamptz))
-      OR oi.batch_id = ANY (ARRAY(SELECT batch_id FROM due_window_batches))
-      OR oi.obligation_id = ANY (ARRAY(SELECT obligation_id FROM due_window_members))
+      OR oi.batch_id IN (SELECT batch_id FROM due_window_batches)
+      OR oi.obligation_id IN (SELECT obligation_id FROM due_window_members)
     )
     -- Exact effective-due-date bounds (unchanged, authoritative).
     AND ($4::timestamptz IS NULL OR COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) >= $4::timestamptz)
