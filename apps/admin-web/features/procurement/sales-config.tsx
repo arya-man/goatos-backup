@@ -29,6 +29,7 @@ import { getValuationAssumptions } from "@/lib/api/sales-valuation-server";
 import { MarketConfigSection } from "./market-config-section";
 import { MarketReportersSection } from "./market-reporters-section";
 import { ValuationSection } from "./valuation-section";
+import { salesErrorText } from "./sales-error";
 
 const PAGE_PATH = "/sales/config";
 const DEFAULT_LIMIT = 25;
@@ -219,8 +220,7 @@ export async function SalesConfigPage({
 
         {!dealsResult.ok ? (
           <div className="alert" style={{ marginBottom: 14 }}>
-            <b>{dealsResult.error.code ?? dealsResult.error.kind}</b>&nbsp;
-            {dealsResult.error.message || copy(pageContract, "error.load")}
+            {salesErrorText(dealsResult.error, copy(pageContract, "error.load"))}
           </div>
         ) : null}
 
@@ -299,8 +299,7 @@ export async function SalesConfigPage({
 
         {!loadwiseResult.ok ? (
           <div className="alert" style={{ marginBottom: 14 }}>
-            <b>{loadwiseResult.error.code ?? loadwiseResult.error.kind}</b>&nbsp;
-            {loadwiseResult.error.message || copy(pageContract, "error.load")}
+            {salesErrorText(loadwiseResult.error, copy(pageContract, "error.load"))}
           </div>
         ) : null}
 

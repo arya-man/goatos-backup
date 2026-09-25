@@ -38,6 +38,7 @@ import {
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SALES_DEFAULT_FARM, SalesFarmToggle, SalesPageHeader, hrefWithQuery, readSalesParkScope } from "./sales-chrome";
+import { salesErrorText } from "./sales-error";
 
 const PAGE_PATH = "/sales/sold";
 const DEFAULT_LIMIT = 25;
@@ -393,8 +394,7 @@ export async function SalesSoldPage({
 
       {!overviewResult.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{overviewResult.error.code ?? overviewResult.error.kind}</b>&nbsp;
-          {overviewResult.error.message || copy(pageContract, "error.load")}
+          {salesErrorText(overviewResult.error, copy(pageContract, "error.load"))}
         </div>
       ) : null}
 
@@ -433,8 +433,7 @@ export async function SalesSoldPage({
 
         {!dealsResult.ok ? (
           <div className="alert" style={{ marginBottom: 14 }}>
-            <b>{dealsResult.error.code ?? dealsResult.error.kind}</b>&nbsp;
-            {dealsResult.error.message || copy(pageContract, "error.load")}
+            {salesErrorText(dealsResult.error, copy(pageContract, "error.load"))}
           </div>
         ) : null}
 

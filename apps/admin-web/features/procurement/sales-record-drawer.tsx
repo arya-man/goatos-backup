@@ -539,7 +539,7 @@ export function SalesRecordDrawer({
           <div className="dc">
             {/* RECORD drawer body: the mock's .metagrid of uppercase-key cells, never a flat stack. */}
             <div className="metagrid">
-              {cell(field("sale_date"), deal.sale_date)}
+              {cell(field("sale_date"), fmtDate(deal.sale_date))}
               {cell(field("farm"), deal.farm)}
               {cell(field("product_type"), deal.product_type)}
               {cell(field("breed"), deal.breed)}

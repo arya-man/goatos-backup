@@ -10,6 +10,7 @@ import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-cont
 import type { LoadwiseLoad, LoadwiseSales } from "@/lib/api/procurement";
 import type { ApiResult } from "@/lib/api/server";
 import { humanDate, inr, inrCompact, num, numCompactWhole, signedInr, signedInrCompact } from "./sales-format";
+import { salesErrorText } from "./sales-error";
 import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
 
 /**
@@ -171,8 +172,7 @@ export function LoadwiseSection({
         </div>
       ) : loadwise && !loadwise.ok ? (
         <div className="alert" style={{ marginTop: 12 }}>
-          <b>{loadwise.error.code ?? loadwise.error.kind}</b>&nbsp;
-          {loadwise.error.message || copy(pageContract, "error.load")}
+          {salesErrorText(loadwise.error, copy(pageContract, "error.load"))}
         </div>
       ) : loads.length === 0 ? (
         <div className="empty" style={{ marginTop: 12 }}>
@@ -262,7 +262,9 @@ export function LoadwiseSection({
               ],
               displays: [
                 load.purchase_value == null ? copy(pageContract, "value.cost_missing") : inrCompact(load.purchase_value),
-                inrCompact(load.sold_value),
+                // A load that has sold NOTHING has no sold value -- absence, never ₹0 -- the same
+                // "not sold yet" the weight chart shows for it. Keyed on the backend's sold COUNT.
+                load.sold === 0 ? copy(pageContract, "value.not_sold_yet") : inrCompact(load.sold_value),
                 load.profit_loss == null
                   ? copy(pageContract, "value.cost_missing")
                   : signedInrCompact(load.profit_loss),
@@ -488,7 +490,9 @@ export function LoadwiseSection({
                         "num",
                       )}
                       {cell(
-                        load.sold > load.sold_priced ? (
+                        load.sold === 0 ? (
+                          <span className="muted">{copy(pageContract, "value.not_sold_yet")}</span>
+                        ) : load.sold > load.sold_priced ? (
                           <span
                             title={`${num(load.sold - load.sold_priced)} ${copy(pageContract, "value.sold_unpriced")}`}
                           >

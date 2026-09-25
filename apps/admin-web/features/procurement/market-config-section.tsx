@@ -13,6 +13,7 @@ import {
   updateMarketQuestionAction,
 } from "./market-actions";
 import { MarketConfigForm, type MarketActionOutcomes } from "./market-config-form";
+import { salesErrorText } from "./sales-error";
 
 /**
  * Market survey config on Sales Config (maintainer decision 2026-09-14): the cities the
@@ -71,8 +72,7 @@ export function MarketConfigSection({
       <div className="bd market-config-body">
       {!configResult.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{configResult.error.code ?? configResult.error.kind}</b>&nbsp;
-          {configResult.error.message || copy(pageContract, "error.load")}
+          {salesErrorText(configResult.error, copy(pageContract, "error.load"))}
         </div>
       ) : null}
 

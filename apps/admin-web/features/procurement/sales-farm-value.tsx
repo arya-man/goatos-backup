@@ -13,6 +13,7 @@ import { inr, num } from "./sales-format";
 import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
 import { Over35Kpi } from "./over35-kpi";
 import { OVER35_MAX_TOLERANCE_G, OVER35_WINDOW_DAYS } from "./over35-window";
+import { salesErrorText } from "./sales-error";
 
 const PAGE_PATH = "/sales/farm-value";
 
@@ -240,14 +241,12 @@ export async function SalesFarmValuePage({
 
       {!overviewResult.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{overviewResult.error.code ?? overviewResult.error.kind}</b>&nbsp;
-          {overviewResult.error.message || copy(pageContract, "error.load")}
+          {salesErrorText(overviewResult.error, copy(pageContract, "error.load"))}
         </div>
       ) : null}
       {assumptions && !assumptions.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{assumptions.error.code ?? assumptions.error.kind}</b>&nbsp;
-          {assumptions.error.message || copy(pageContract, "error.load")}
+          {salesErrorText(assumptions.error, copy(pageContract, "error.load"))}
         </div>
       ) : null}
 

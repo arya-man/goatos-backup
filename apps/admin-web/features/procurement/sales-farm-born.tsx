@@ -14,6 +14,7 @@ import { humanDate, inr, num } from "./sales-format";
 import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
 import { FarmBornSoldTable } from "./farm-born-sold-table";
 import { tableOrderFromParams, type TableOrder } from "./table-order";
+import { salesErrorText } from "./sales-error";
 
 const PAGE_PATH = "/sales/farm-born";
 /** Only used when an older backend contract carries no sold table; the contract page size wins. */
@@ -501,8 +502,7 @@ export async function SalesFarmBornPage({
       >
         {!result.ok ? (
           <div className="alert" style={{ marginBottom: 14 }}>
-            <b>{result.error.code ?? result.error.kind}</b>&nbsp;
-            {result.error.message || copy(pageContract, "error.load")}
+            {salesErrorText(result.error, copy(pageContract, "error.load"))}
           </div>
         ) : (
           <FarmBornSections data={result.data} pageContract={pageContract} pageHref={pageHref} penOffset={penOffset} penHref={penHref} order={order} />

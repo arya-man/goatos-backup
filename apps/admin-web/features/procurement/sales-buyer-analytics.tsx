@@ -25,6 +25,7 @@ import {
 } from "./sales-chrome";
 import { BuyerTable } from "./buyer-table";
 import { tableOrderFromParams, type TableOrder } from "./table-order";
+import { salesErrorText } from "./sales-error";
 
 const PAGE_PATH = "/sales/buyer-analytics";
 /** Only used when an older backend contract carries no buyers table; the contract page size wins. */
@@ -276,8 +277,7 @@ export async function SalesBuyerAnalyticsPage({
 
       {!result.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{result.error.code ?? result.error.kind}</b>&nbsp;
-          {result.error.message || copy(pageContract, "error.load")}
+          {salesErrorText(result.error, copy(pageContract, "error.load"))}
         </div>
       ) : null}
 

@@ -15,6 +15,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { actionFeedbackCopy, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VendorFilterBar, type VendorFilterKey } from "./vendor-filter-bar";
 import { VendorLocalDrawer } from "./vendor-local-drawer";
+import { salesErrorText } from "./sales-error";
 
 const PAGE_SIZE = 25;
 
@@ -163,7 +164,7 @@ export async function VendorBoardPage({
 
       {!result.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message || copy(pageContract, "error.load")}
+          {salesErrorText(result.error, copy(pageContract, "error.load"))}
         </div>
       ) : null}
 

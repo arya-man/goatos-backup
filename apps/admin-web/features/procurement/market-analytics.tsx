@@ -14,6 +14,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { humanDate, num } from "./sales-format";
 import { SalesPageHeader } from "./sales-chrome";
 import { MarketTrendSection } from "./market-trend-section";
+import { salesErrorText } from "./sales-error";
 
 const PAGE_PATH = "/sales/market-analytics";
 /** The window chips, in days. 90 is the backend's own default. */
@@ -100,8 +101,7 @@ export async function MarketAnalyticsPage({
 
       {!analyticsResult.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{analyticsResult.error.code ?? analyticsResult.error.kind}</b>&nbsp;
-          {analyticsResult.error.message || copy(pageContract, "error.load")}
+          {salesErrorText(analyticsResult.error, copy(pageContract, "error.load"))}
         </div>
       ) : null}
 

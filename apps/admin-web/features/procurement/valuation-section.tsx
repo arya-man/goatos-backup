@@ -16,6 +16,7 @@ import { Calculator, Plus, X } from "lucide-react";
 import { useActionState, useMemo, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { fmtDateTime } from "@/lib/format";
 import type { ApiResult } from "@/lib/api/server";
 import type { StageRegisterEntry, ValuationAssumptions, ValuationBucket, ValuationStage } from "@/lib/api/sales-valuation-server";
 import { saveValuationAction, type ValuationActionState } from "./valuation-actions";
@@ -321,7 +322,7 @@ export function ValuationSection({
             ) : null}
             {v.updated_at ? (
               <span className="muted small">
-                {copy(pageContract, "valuation.updated")} {v.updated_at}
+                {copy(pageContract, "valuation.updated")} {fmtDateTime(v.updated_at)}
                 {v.updated_by_name ? ` · ${v.updated_by_name}` : ""}
               </span>
             ) : null}
