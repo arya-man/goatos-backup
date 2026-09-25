@@ -54,6 +54,50 @@ WHERE sd.tenant_id = v.tenant_id AND sd.sop_id = v.sop_id
       AND COALESCE(st.step->>'when', '') = ''
   );
 
+-- A tenant with no sales.deal SOP at all (created after 000369) gets the definition and v1 as the
+-- CURRENT seeded document -- tasks/domain/sopseed/sales_deal.json, embedded verbatim (pinned by
+-- TestMigrationEmbedsTheSalesSeed). Every tenant that existed at 000369 is patched above instead.
+-- seed-migration-guard:ignore owner=manohark issue=sales-workflow-conditions reason=seed-sales-sop-for-tenants-created-after-000369 expiry=2026-12-31
+INSERT INTO public.sop_definitions (tenant_id, code, name, description, status, category_key, kind, module_key)
+SELECT t.tenant_id, 'sales.deal', 'Sale',
+       'What happens after a sale is recorded: tagging the animals, loading them, the money -- and who does each step.',
+       'active', 'action', 'module', 'sales'
+FROM public.tenants t
+WHERE NOT EXISTS (SELECT 1 FROM public.sop_definitions sd WHERE sd.tenant_id = t.tenant_id AND sd.code = 'sales.deal')
+ON CONFLICT (tenant_id, code) DO NOTHING;
+
+INSERT INTO public.sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, compatibility, validation_report, published_at)
+SELECT sd.tenant_id, sd.sop_id, 1, 'Sale v1', 'published',
+       jsonb_build_object(
+         'schema_version', 'goatos.sop-form.v1',
+         'sop_code', 'sales.deal',
+         'title', 'Sale',
+         'fields', jsonb_build_array(),
+         'follow_up', $seed${
+  "schema_version": "goatos.sop-followup.v1",
+  "tracks": [
+    {
+      "key": "sales_deal", "module": "sales", "label": "Sale", "subject": "sale",
+      "steps": [
+        {"key": "tag_animals", "task_type": "sale_tag_animals", "title": "Tag the animals sold", "detail": "Scan or type the tag of every animal on this sale, enter its weight, and confirm. This step completes on its own once the tagging is confirmed.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "park_head", "when": "sale_has_animals"},
+        {"key": "loading_video", "task_type": "video_record", "title": "Record the animals being loaded", "detail": "One live video of the tagged animals walking onto the buyer's vehicle, ear tags visible.", "proof": {"video": 1}, "schedule": {"kind": "immediately"}, "owner": "park_head", "when": "sale_has_animals"},
+        {"key": "dispatch_note", "task_type": "photo_record", "title": "Photo of the gate pass", "detail": "One photo of the signed gate pass or dispatch note handed to the buyer's driver.", "proof": {"photo": 1}, "schedule": {"kind": "immediately"}, "owner": "park_head", "when": "sale_has_animals"},
+        {"key": "full_payment", "task_type": "record_yes_no", "title": "Has the buyer paid in full?", "detail": "Answer Yes when the receipts on the sale cover its value. Answer No if a balance is still due.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "procurement_director"},
+        {"key": "collect_balance", "task_type": "do_and_confirm", "title": "Collect the balance and record the receipt", "detail": "Follow up with the buyer for the amount still due and record each receipt on the sale as it comes in.", "proof": {}, "schedule": {"kind": "immediately"}, "owner": "procurement_director", "when_answer": {"step": "full_payment", "op": "eq", "value": ["no"]}}
+      ]
+    }
+  ]
+}$seed$::jsonb
+       ),
+       '{"subject_scope": "task", "types": ["video", "photo"], "required": false, "minimum_count": 0, "verify_before_apply": false, "approval_before_apply": false}'::jsonb,
+       '{"min_app_version": "0.2.0", "supported_field_types": ["boolean", "select", "multiselect", "number", "text", "video_proof", "photo_proof"], "supported_proof_actions": ["photo.capture", "video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
+       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded sale SOP (migration 000428)."}]}'::jsonb,
+       now()
+FROM public.sop_definitions sd
+WHERE sd.code = 'sales.deal'
+  AND NOT EXISTS (SELECT 1 FROM public.sop_versions v WHERE v.tenant_id = sd.tenant_id AND v.sop_id = sd.sop_id)
+ON CONFLICT (tenant_id, sop_id, version) DO NOTHING;
+
 -- +goose Down
 -- Forward-only on the document: removing the condition would re-stamp an unfinishable tag step on
 -- every manure / feed sale. The condition is inert without the code that reads it.

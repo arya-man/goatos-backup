@@ -149,6 +149,9 @@ func TestMigrationEmbedsTheSalesSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(string(patch), "$seed$"+strings.TrimSpace(string(live))+"$seed$") {
+		t.Fatal("migration 000428 does not embed the live sales_deal.json verbatim")
+	}
 	if !strings.Contains(string(patch), `'tag_animals', 'loading_video', 'dispatch_note'`) ||
 		!strings.Contains(string(patch), `{"when": "sale_has_animals"}`) {
 		t.Fatal("migration 000428 must condition exactly tag_animals, loading_video and dispatch_note on sale_has_animals")

@@ -159,6 +159,13 @@ func (r *Repository) RecordSaleAllocations(ctx context.Context, cmd ports.Record
 	return saleAllocationResult(cmd.SalesDealID, groups), nil
 }
 
+// lockSaleDealStatusSQL locks the deal row the confirm is about to tag onto (primary key read) and
+// returns its status, so a concurrent "mark failed" serializes with this confirm.
+const lockSaleDealStatusSQL = `
+SELECT status FROM sales_deals
+WHERE tenant_id = $1::uuid AND id = $2::uuid
+FOR UPDATE`
+
 func (r *Repository) lockAndCheckSaleAllocationCapacity(ctx context.Context, tx pgx.Tx, cmd ports.RecordSaleAllocationsCommand) error {
 	if cmd.DeclaredAnimalCount <= 0 {
 		return ports.ErrSaleDealNoAnimalCount
@@ -171,10 +178,7 @@ func (r *Repository) lockAndCheckSaleAllocationCapacity(ctx context.Context, tx 
 	// "mark failed" either commits first and is seen as failed here, or waits behind this lock
 	// and then counts the animals this confirm tagged and refuses (sales SetDealStatus).
 	var dealStatus string
-	if err := tx.QueryRow(ctx, `
-SELECT status FROM sales_deals
-WHERE tenant_id = $1::uuid AND id = $2::uuid
-FOR UPDATE`, cmd.TenantID, cmd.SalesDealID).Scan(&dealStatus); err != nil {
+	if err := tx.QueryRow(ctx, lockSaleDealStatusSQL, cmd.TenantID, cmd.SalesDealID).Scan(&dealStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ports.ErrSaleDealNotFound
 		}

@@ -210,3 +210,96 @@ func TestDealFailedCancelsItsSaleWorkflow(t *testing.T) {
 		t.Fatalf("a step of a cancelled sale workflow must refuse an answer with ErrActionCanceled, got %v", err)
 	}
 }
+
+// TestRepair000429UnsticksExistingSaleWorkflows runs migration 000429's own Up SQL over workflows
+// opened the OLD way (every step, whatever was sold): a manure sale (legacy animal_count = 1 on an
+// 'other' line) and an animal line with no head count lose their unfinished tag / loading / gate
+// pass steps, a failed deal's workflow is cancelled, a real animal sale is untouched, and a second
+// run changes nothing.
+func TestRepair000429UnsticksExistingSaleWorkflows(t *testing.T) {
+	repo, pool, ctx := newWorkflowRepo(t)
+	deals := []struct {
+		id, product, kind, status string
+		count                     *int
+	}{
+		{"5a1e5a1e-0000-4000-8000-00000000c001", "Manure", "other", "Deal Closed", intPtr(1)},
+		{"5a1e5a1e-0000-4000-8000-00000000c002", "Goat", "animal", "Deal Closed", nil},
+		{"5a1e5a1e-0000-4000-8000-00000000c003", "Goat", "animal", "Deal Failed", intPtr(4)},
+		{"5a1e5a1e-0000-4000-8000-00000000c004", "Goat", "animal", "Deal Closed", intPtr(3)},
+	}
+	for _, d := range deals {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO sales_deals (id, tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, sales_value, status)
+VALUES ($1::uuid, $2::uuid, DATE '2026-09-20', 'CBE', 'Repair buyer', $3, 'Any', $4, 1000, $5)`, d.id, wfTenant, d.product, d.count, d.status); err != nil {
+			t.Fatalf("seed deal: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, sales_value, product_code, product_kind)
+VALUES ($1::uuid, $2::uuid, 1, $3, 'Any', $4, 1000, lower($3), $5)`, wfTenant, d.id, d.product, d.count, d.kind); err != nil {
+			t.Fatalf("seed line: %v", err)
+		}
+		ref := d.id
+		if _, err := repo.OpenWorkflow(ctx, ports.OpenWorkflowCommand{TenantID: wfTenant, TemplateKey: domain.TemplateKeySalesDeal, EventAt: wfEventAt, SubjectRefID: &ref}); err != nil {
+			t.Fatalf("open %s: %v", d.id, err)
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "migrations", "postgres", "000429_sales_workflow_repair_stuck_steps.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := strings.SplitN(strings.SplitN(string(raw), "-- +goose Down", 2)[0], "-- +goose Up", 2)[1]
+	if _, err := pool.Exec(ctx, up); err != nil {
+		t.Fatalf("apply 000429: %v", err)
+	}
+	type card struct {
+		state, statuses string
+		total, done     int
+		next            *string
+		version         int
+	}
+	read := func(dealID string) card {
+		t.Helper()
+		var c card
+		if err := pool.QueryRow(ctx, `
+SELECT wi.state, wi.actions_total, wi.actions_done, wi.next_action_key, wi.row_version,
+       (SELECT string_agg(a.action_key || '=' || a.status, ',' ORDER BY a.seq) FROM workflow_actions a
+         WHERE a.tenant_id = wi.tenant_id AND a.workflow_id = wi.workflow_id)
+FROM workflow_instances wi
+WHERE wi.tenant_id = $1::uuid AND wi.template_key = 'sales_deal' AND wi.subject_ref_id = $2::uuid`, wfTenant, dealID).
+			Scan(&c.state, &c.total, &c.done, &c.next, &c.version, &c.statuses); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	noAnimals := "tag_animals=skipped,loading_video=skipped,dispatch_note=skipped,full_payment=pending,collect_balance=pending"
+	for _, d := range deals[:2] {
+		c := read(d.id)
+		if c.state != "open" || c.statuses != noAnimals || c.total != 2 || c.done != 0 || c.next == nil || *c.next != "full_payment" {
+			t.Fatalf("deal %s (%s) after repair = %+v (next %v), want the payment steps only", d.id, d.product, c, c.next)
+		}
+	}
+	if c := read(deals[2].id); c.state != "canceled" || c.next != nil || strings.Contains(c.statuses, "pending") {
+		t.Fatalf("failed deal after repair = %+v, want cancelled with no step owed", c)
+	}
+	animal := read(deals[3].id)
+	if animal.state != "open" || !strings.HasPrefix(animal.statuses, "tag_animals=pending") || animal.total != 5 {
+		t.Fatalf("a real animal sale must be untouched, got %+v", animal)
+	}
+	before := map[string]card{}
+	for _, d := range deals {
+		before[d.id] = read(d.id)
+	}
+	if _, err := pool.Exec(ctx, up); err != nil {
+		t.Fatalf("re-apply 000429: %v", err)
+	}
+	for _, d := range deals {
+		after, was := read(d.id), before[d.id]
+		if after.state != was.state || after.statuses != was.statuses || after.total != was.total ||
+			after.done != was.done || after.version != was.version || (after.next == nil) != (was.next == nil) ||
+			(after.next != nil && *after.next != *was.next) {
+			t.Fatalf("a second run changed deal %s: %+v -> %+v", d.id, before[d.id], after)
+		}
+	}
+}
+
+func intPtr(v int) *int { return &v }
