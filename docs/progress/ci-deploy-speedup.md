@@ -213,3 +213,8 @@ Dropped at the maintainer's request, so nothing custom was built. Landings queue
 | 8 | Multi-PR landing | `land.yml` input `prs` (space/comma list; `pr` still works): PRs merged in order onto a branch from origin/main (conflict fails naming the PR), one `make land-main`, each PR resolved per item 2. AGENTS.md: `gh workflow run land -f prs='x y z'`. | 74b054f3b |
 | 9 | Nits | m1-local-ci jobs use `[self-hosted, macOS, ARM64, goatos-local-ci]`. Rollout: the self-hosted runner image must be REBUILT because Alloy was removed from it. | 74b054f3b |
 | 10 | Run the two Postgres query-plan steps concurrently | FOLLOW-UP, not done: `validate-sqlc-plans`'s Docker fallback uses a fixed container/db name, so two concurrent plan runs can collide. Needs per-run scratch names first. | — |
+
+
+## 2026-09-25: one landing queue per machine, work only under ~/mesha
+
+Seven goatos clones under `~/airnd` (created by sessions started there) ran `land-main` outside the per-clone lock, overlapping landings and slowing them ~4x. The landing lock now defaults to `$HOME/.goatos/locks/goatos-land-main.lock` (machine-wide), and `land-main` / `ci-local` / `ai-setup` refuse checkouts outside `~/mesha` (`tools/ci/workspace-guard.sh`; runner workflows opt out with `GOATOS_ALLOW_OUTSIDE_WORKSPACE=1`).

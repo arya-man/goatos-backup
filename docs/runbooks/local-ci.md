@@ -71,7 +71,9 @@ closure-pending and the program PR cannot land.
 
 ### Landing queue
 
-Only one `make land-main` runs at a time per clone. The lock is a directory at `$(git rev-parse --git-common-dir)/goatos-land-main.lock`, shared by all worktrees. `GOATOS_LAND_MAIN_LOCK_DIR` overrides the location.
+Only one `make land-main` runs at a time on the machine. The lock is a directory at `$HOME/.goatos/locks/goatos-land-main.lock`, shared by every clone and worktree (a per-clone lock let clones outside `~/mesha` land concurrently and slowed landings ~4x). `GOATOS_LAND_MAIN_LOCK_DIR` overrides the location.
+
+`make land-main`, `make ci-local` and `make ai-setup` refuse to run from a checkout outside `$GOATOS_WORKSPACE_ROOT` (default `~/mesha`) with "Goat OS work belongs under ~/mesha; this clone is at <path>" (`tools/ci/workspace-guard.sh`). Only the self-hosted runner workflows (`land.yml`, `m1-local-ci.yml`) set `GOATOS_ALLOW_OUTSIDE_WORKSPACE=1`.
 
 - **Lock held by a live process:** land-main prints the holder's pid, worktree, SHA and start time, then exits 1. It never waits and never kills anything. Rerun after that landing finishes.
 - **Lock left by a process that has exited:** the lock is stale and is reclaimed automatically.

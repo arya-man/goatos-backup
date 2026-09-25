@@ -866,7 +866,7 @@
       "script": "tools/ci/check-local-ci-evidence.mjs",
       "makeTarget": "local-ci-evidence-guard",
       "realCheck": "node tools/ci/check-local-ci-evidence.mjs --verify",
-      "selfTest": "node tools/ci/check-local-ci-evidence.mjs --self-test && bash tools/ci/land-main.test.sh",
+      "selfTest": "node tools/ci/check-local-ci-evidence.mjs --self-test && bash tools/ci/land-main.test.sh && bash tools/ci/workspace-guard.test.sh",
       "owningDoc": "docs/runbooks/local-release-evidence.md",
       "requiredInCI": true,
       "ciStep": "local-ci-evidence-guard"

@@ -131,10 +131,10 @@ done
 # names the holder and exits non-zero so the caller can decide. A lock whose
 # holder PID is gone (or was reused) is stale and is reclaimed by atomic rename;
 # see tools/ci/land-lock.sh.
-land_lock_dir="${GOATOS_LAND_MAIN_LOCK_DIR:-$(git rev-parse --git-common-dir)/goatos-land-main.lock}"
-case "$land_lock_dir" in /*) ;; *) land_lock_dir="$repo/$land_lock_dir" ;; esac
 # shellcheck source=tools/ci/land-lock.sh
 source "$script_dir/land-lock.sh"
+land_lock_dir="$(land_lock_default_dir)"
+case "$land_lock_dir" in /*) ;; *) land_lock_dir="$repo/$land_lock_dir" ;; esac
 if land_lock_acquire "$land_lock_dir" "$(printf 'worktree=%s\nsha=%s\nstarted=%s\n' "$repo" "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"; then
   trap 'rm -rf "$land_lock_dir"' EXIT
 else

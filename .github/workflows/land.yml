@@ -50,6 +50,8 @@ jobs:
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
+      # Runner checkout lives under the runner _work dir, not ~/mesha.
+      GOATOS_ALLOW_OUTSIDE_WORKSPACE: "1"
       PR_INPUT: ${{ inputs.prs || inputs.pr }}
     steps:
       - name: Check out main (trusted base tools)

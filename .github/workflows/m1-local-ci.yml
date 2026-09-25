@@ -27,6 +27,10 @@ concurrency:
   group: m1-local-ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Runner checkout lives under the runner _work dir, not ~/mesha.
+env:
+  GOATOS_ALLOW_OUTSIDE_WORKSPACE: "1"
+
 jobs:
   preflight:
     name: M1 fast preflight

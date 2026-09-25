@@ -48,6 +48,10 @@ them away: `docs/architecture/operational-read-model-contract.md`
 - Defect/audit-ledger closure -> `docs/agent-rules/defect-ledgers.md`.
 - Morning README, workflow docs, ops mock auto-push -> `docs/agent-rules/engineering-conventions.md`. (Do-not list and validation are in core below.)
 
+## All Goat OS Work Lives Under ~/mesha (Claude AND Codex, 2026-09-25)
+
+Every Goat OS clone, worktree and scratch checkout lives under `~/mesha`. Never clone goatos anywhere else (not `~/airnd`, not `/tmp`); create worktrees as `~/mesha/goatos-wt-<topic>`. Clones elsewhere escaped the landing lock and slowed landings ~4x. `make land-main`, `make ci-local` and `make ai-setup` refuse to run outside `$GOATOS_WORKSPACE_ROOT` (default `~/mesha`); `GOATOS_ALLOW_OUTSIDE_WORKSPACE=1` is for the self-hosted GitHub runner only. The landing lock is machine-wide at `~/.goatos/locks/goatos-land-main.lock`.
+
 ## PR Review + Land Main Rule
 
 When the maintainer asks to review a GitHub PR and land main, the task is not

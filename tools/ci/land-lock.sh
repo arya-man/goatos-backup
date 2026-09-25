@@ -16,6 +16,18 @@
 # Contract: land_lock_acquire <dir> <holder-extra-lines>; returns 0 acquired,
 # 1 busy (holder described on stderr). Never waits, never kills.
 
+# Machine-wide by default so every clone and worktree on this laptop shares ONE
+# landing queue (per-clone locks let separate clones land concurrently).
+# GOATOS_LAND_MAIN_LOCK_DIR overrides the whole lock path (tests use it).
+land_lock_default_dir() {
+  if [ -n "${GOATOS_LAND_MAIN_LOCK_DIR:-}" ]; then
+    printf '%s\n' "$GOATOS_LAND_MAIN_LOCK_DIR"
+  else
+    mkdir -p "$HOME/.goatos/locks"
+    printf '%s\n' "$HOME/.goatos/locks/goatos-land-main.lock"
+  fi
+}
+
 land_lock_proc_start() {
   # Empty when the pid does not exist.
   LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//;s/ *$//'

@@ -21,6 +21,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 setup-crg: ai-setup
 
 ai-setup:
+	@bash tools/ci/workspace-guard.sh
 	@echo "Installing/upgrading local AI token-saving tools for this checkout..."
 	bash tools/ci/gradle-machine-setup.sh
 	@if command -v uv >/dev/null 2>&1; then \
@@ -338,6 +339,7 @@ assistant-route-closure-guard:
 local-ci-evidence-guard:
 	node tools/ci/check-local-ci-evidence.mjs --self-test
 	bash tools/ci/land-main.test.sh
+	bash tools/ci/workspace-guard.test.sh
 
 kernel-worker-retirement-gate-guard:
 	node tools/agent-hooks/check-kernel-worker-retirement-gate.mjs --self-test
@@ -844,6 +846,7 @@ org-boundary-guard:
 # GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh <job> (Gradle daemon, no benchmark compile).
 # Runbook: docs/runbooks/local-ci-and-landing.md
 ci-local:
+	@bash tools/ci/workspace-guard.sh
 	bash tools/ci/run-local-ci.sh $(if $(JOB),$(JOB),$(MODE))
 
 # screenshot-remediation-guard: proves, by execution, that the command the
@@ -910,7 +913,11 @@ ci-local-screenshots:
 # only the exact certified SHA through the Mesha credential path.
 # Runbook: docs/runbooks/local-ci-and-landing.md
 land-main:
+	@bash tools/ci/workspace-guard.sh
 	bash tools/ci/land-main.sh
+
+workspace-guard-self-test:
+	bash tools/ci/workspace-guard.test.sh
 
 java21-self-test:
 	bash tools/ci/java21.test.sh

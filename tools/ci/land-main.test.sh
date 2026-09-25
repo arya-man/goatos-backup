@@ -216,4 +216,13 @@ for round in 1 2 3 4 5 6 7 8 9 10; do
     || { echo "land-main self-test: winner's holder must own the lock" >&2; exit 1; }
 done
 
+# Default lock dir is machine-wide under $HOME/.goatos/locks, shared by every
+# clone/worktree; GOATOS_LAND_MAIN_LOCK_DIR still overrides it.
+got="$(source "$lock_lib"; HOME="$tmp/fakehome" GOATOS_LAND_MAIN_LOCK_DIR= land_lock_default_dir)"
+[ "$got" = "$tmp/fakehome/.goatos/locks/goatos-land-main.lock" ] \
+  || { echo "land-main self-test: default lock dir must be machine-wide, got $got" >&2; exit 1; }
+[ -d "$tmp/fakehome/.goatos/locks" ] || { echo "land-main self-test: lock parent not created" >&2; exit 1; }
+got="$(source "$lock_lib"; GOATOS_LAND_MAIN_LOCK_DIR=/x/y.lock land_lock_default_dir)"
+[ "$got" = "/x/y.lock" ] || { echo "land-main self-test: override ignored" >&2; exit 1; }
+
 echo "land-main self-test: passed"
