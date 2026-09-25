@@ -195,10 +195,27 @@ export function CountsBreakdownPensTable({
                   disabledReason={retagDisabledReason}
                 />
               </span>
+            ) : pen.stages.length === 0 && pen.shed_id ? (
+              // An EMPTY pen: no residents, so no resident stage to show. Its editor reads the
+              // pen's AUTHORED tag instead -- the one newborn placement reads -- which is why an
+              // empty pen is listed at all: a pen nobody can tag is a pen no kid can be born into.
+              <span onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+                <ShedTagEditor
+                  pageContract={pageContract}
+                  shedId={pen.shed_id}
+                  partitionLabel={pen.partition_label ?? ""}
+                  currentTag={pen.authored_stage}
+                  currentTagLabel={pen.authored_stage_label || stageLabels.get(pen.authored_stage) || undefined}
+                  emptyLabel={noStageLabel}
+                  stages={stages}
+                  enabled={retagEnabled}
+                  disabledReason={retagDisabledReason}
+                />
+              </span>
             ) : (
               composition(pen.stages, noStageLabel, undefined, stageLabels)
             ),
-          sortValue: (pen) => dominantKey(pen.stages) || noStageLabel,
+          sortValue: (pen) => dominantKey(pen.stages) || pen.authored_stage || noStageLabel,
         },
         breed: {
           cell: (pen) => composition(pen.breeds, noBreedLabel),

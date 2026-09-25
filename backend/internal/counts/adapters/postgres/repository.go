@@ -2810,7 +2810,11 @@ LIMIT $9 OFFSET $10`
 // handful of stage x breed x sex combinations (never more than the grain set itself), so a page of
 // pens carries at most a page's worth of grain rows -- bounded by the same limit, and one round trip
 // instead of one per expanded pen.
-const countsBreakdownPensSQL = countsBreakdownGroupedCTE + ` -- scale-guard:ignore: OFFSET walks the PRE-AGGREGATED pen set (one row per park/shed/partition, ~150 at this envelope), never canonical goats rows; handler rejects offset > 5000 outright.
+// countsBreakdownPenAliasExclusion suppresses legacy partition-alias location rows from the
+// empty-pen catalog, through the one shared oploc predicate.
+var countsBreakdownPenAliasExclusion = oploc.PartitionAliasExclusionSQL("shed")
+
+var countsBreakdownPensSQL = countsBreakdownGroupedCTE + ` -- scale-guard:ignore: OFFSET walks the PRE-AGGREGATED pen set (one row per park/shed/partition, ~150 at this envelope), never canonical goats rows; handler rejects offset > 5000 outright.
 ,
 pens AS (
   SELECT
@@ -2832,6 +2836,70 @@ pens AS (
     ) AS grain_rows
   FROM grouped gr
   GROUP BY gr.park_id, gr.shed_id, gr.partition_key
+),
+-- EMPTY PENS (2026-09-25). Every other pen here is DERIVED FROM ANIMALS, so a pen holding none --
+-- a new pen added on Configuration > Items & settings, a new park's kid pen -- never appeared, and
+-- the pen table is the only place a pen's stage tag is edited. A pen nobody can tag is a pen no
+-- newborn can be placed in (protocol/domain.IsNewbornPen reads that tag), so a new park could
+-- never record a birth. These rows exist so the tag editor is reachable; they carry no animals.
+--
+-- They join ONLY when the request names no ANIMAL attribute: the default live lifecycle and no
+-- stage, breed or sex filter. A pen with no animals cannot match "F2-Male" or "Boer", and listing
+-- it under such a filter would answer a question nobody asked. Farm and pen filters still apply,
+-- on the same keys the animal rows use, so a pen filter never lets an unrelated empty pen through.
+--
+-- The catalog is the authored one: active, non-retired shed locations with legacy partition-alias
+-- rows suppressed by the shared oploc predicate, LEFT JOINed to their active shed_partitions -- an
+-- undivided shed contributes ONE row as itself (key 'whole'), a divided shed one row per real pen.
+-- The same shape as pen routines' catalog read.
+--
+-- projection-review: membership=active non-alias sheds LEFT JOIN active shed_partitions, restricted by NOT EXISTS to pens absent from the animal pens CTE, only when no animal-attribute filter is bound; group_key=(shed_id, partition_key) where partition_key is shed_partitions.normalized_label (the catalog's own PK column and the SAME normalization partitionKeyExpr applies to goat_shed_partitions) or 'whole' for an undivided shed -- identical to the producer key of the pens CTE, which is what the NOT EXISTS compares; join_cardinality=shed_partitions PK (tenant_id, shed_id, normalized_label) so the LEFT JOIN yields one row per pen and a pen can never repeat, the alias predicate and the NOT EXISTS are semi-joins that cannot multiply; pagination=the union below is paged as one set, total_rows counts animal pens + empty pens while total_count/total_kids/total_adults add 0 per empty pen, so the numerator key set (animal rows) is unchanged and equal to the grain page's totals; scope=tenant_id plus the farm ($3, on the shed's parent park) and pen ($4/$8) predicates the animal rows honour
+empty_pens AS (
+  SELECT
+    shed.parent_location_id                  AS park_id,
+    shed.location_id                         AS shed_id,
+    COALESCE(sp.normalized_label, 'whole')   AS partition_key,
+    sp.partition_label                       AS partition_label_raw
+  FROM locations shed
+  LEFT JOIN shed_partitions sp
+         ON sp.tenant_id = shed.tenant_id AND sp.shed_id = shed.location_id AND sp.status = 'active'
+  WHERE shed.tenant_id = $1::uuid
+    AND shed.location_type = 'shed'
+    AND shed.status = 'active'
+    AND shed.retired_at IS NULL
+    AND ` + countsBreakdownPenAliasExclusion + ` -- scale-guard:ignore: continuation of the pen-page statement above; the OFFSET below walks the PRE-AGGREGATED pen set (animal pens + the authored empty-pen catalog, ~150 at this envelope), never canonical goats rows; handler rejects offset > 5000 outright.
+    AND (sp.normalized_label IS NOT NULL
+         OR NOT EXISTS (SELECT 1 FROM shed_partitions any_sp
+                        WHERE any_sp.tenant_id = shed.tenant_id AND any_sp.shed_id = shed.location_id AND any_sp.status = 'active'))
+    -- No animal-attribute filter: live lifecycle, no stage / breed / sex.
+    AND $2 = 'alive'
+    AND cardinality($5::text[]) = 0
+    AND cardinality($6::text[]) = 0
+    AND cardinality($7::text[]) = 0
+    AND (cardinality($3::text[]) = 0 OR shed.parent_location_id = ANY($3::text[]::uuid[]))
+    AND (cardinality($4::text[]) = 0 OR EXISTS (
+      SELECT 1
+      FROM unnest($4::text[], $8::text[]) AS pen(shed_id, partition_label)
+      WHERE (pen.shed_id = '' OR shed.location_id = NULLIF(pen.shed_id, '')::uuid)
+        AND (pen.partition_label = ''
+             OR regexp_replace(lower(btrim(COALESCE(sp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+                = regexp_replace(lower(btrim(pen.partition_label)), '^part[[:space:]]+', ''))
+    ))
+    -- Empty means no live animal on this key. An UNDIVIDED shed is empty only when no animal
+    -- stands anywhere in it: animals can carry a pen label the catalog never recorded, and that
+    -- shed must not also be listed as an empty whole shed beside its occupied pens.
+    AND NOT EXISTS (
+      SELECT 1 FROM pens occupied
+      WHERE occupied.shed_id = shed.location_id
+        AND (sp.normalized_label IS NULL OR occupied.partition_key = sp.normalized_label)
+    )
+),
+all_pens AS (
+  SELECT park_id, shed_id, partition_key, partition_label_raw, animal_count, kid_count, adult_count, grain_rows
+  FROM pens
+  UNION ALL
+  SELECT park_id, shed_id, partition_key, partition_label_raw, 0, 0, 0, '[]'::jsonb
+  FROM empty_pens
 )
 SELECT
   p.park_id::text,
@@ -2843,15 +2911,31 @@ SELECT
   p.kid_count,
   p.adult_count,
   p.grain_rows,
+  -- The pen's AUTHORED stage tag, the one newborn placement and shifting adoption read -- NOT its
+  -- residents' stage. Same resolution as tasks' newbornPenTagQuery: a real pen reads its
+  -- shed_partitions row, an undivided shed (key 'whole') reads its shed_profiles row. Both are
+  -- keyed lookups (shed_partitions PK, shed_profiles PK location_id, animal_stage_lookup unique
+  -- animal_stage_id), strict 1:{0,1}, so they cannot fan out a pen row or its window sums.
+  COALESCE(CASE WHEN p.partition_key = 'whole' THEN shed_tag.stage_code ELSE pen_tag.stage_code END, '') AS authored_stage,
+  COALESCE(CASE WHEN p.partition_key = 'whole' THEN shed_tag.name ELSE pen_tag.name END, '') AS authored_stage_name,
   count(*)            OVER () AS total_rows,
   sum(p.animal_count) OVER () AS total_count,
   sum(p.kid_count)    OVER () AS total_kids,
   sum(p.adult_count)  OVER () AS total_adults
-FROM pens p
+FROM all_pens p
 LEFT JOIN locations park
        ON park.tenant_id = $1::uuid AND park.location_id = p.park_id
 LEFT JOIN locations shed
        ON shed.tenant_id = $1::uuid AND shed.location_id = p.shed_id
+LEFT JOIN shed_partitions pen_cfg
+       ON pen_cfg.tenant_id = $1::uuid AND pen_cfg.shed_id = p.shed_id
+      AND pen_cfg.normalized_label = p.partition_key AND pen_cfg.status = 'active'
+LEFT JOIN animal_stage_lookup pen_tag
+       ON pen_tag.tenant_id = $1::uuid AND pen_tag.animal_stage_id = pen_cfg.animal_stage_id AND pen_tag.status = 'active'
+LEFT JOIN shed_profiles shed_cfg
+       ON shed_cfg.tenant_id = $1::uuid AND shed_cfg.location_id = p.shed_id
+LEFT JOIN animal_stage_lookup shed_tag
+       ON shed_tag.tenant_id = $1::uuid AND shed_tag.animal_stage_id = shed_cfg.animal_stage_id AND shed_tag.status = 'active'
 -- Farm, then pen name (maintainer, 2026-09-24), never head count: a reader finds a pen by walking
 -- the farm's pens in order. Farm is the park CODE (CBE, then CPT -- the 2026-09-16 rule). Pen
 -- names sort NATURALLY on their trailing number, so "Mandela 2" comes before "Mandela 10" and
@@ -3000,7 +3084,7 @@ SELECT * FROM (
 //	               distinct shed vocabulary (154 sheds exist, 98 hold live animals), not by herd
 //	               size, so it does not grow with the herd.
 //	scope        = tenant_id plus lifecycle_status only, same as its sibling branches.
-const countsBreakdownFacetsSQL = `
+var countsBreakdownFacetsSQL = `
 SELECT 'lifecycle' AS dimension, g.lifecycle_status AS series_key,
        CASE g.lifecycle_status
          WHEN 'alive' THEN 'Live'
@@ -3194,6 +3278,40 @@ WHERE sp.tenant_id = $1::uuid
       AND g4.shed_id = sp.shed_id
       AND g4.merged_into_goat_id IS NULL
       AND ($2 = '' OR g4.lifecycle_status = $2)
+  )
+UNION ALL
+-- An EMPTY UNDIVIDED shed (2026-09-25). Every branch above reaches a shed through goats or through
+-- shed_partitions, so a shed with no pens and no animals -- a freshly added pen on Configuration >
+-- Items & settings -- was offered nowhere, and a reader could not even filter to it. One zero-count
+-- option per such shed, keyed by the bare shed uuid (the oploc.Key() convention for an undivided
+-- shed). It cannot duplicate the goats-derived parent option (NOT EXISTS over live goats) nor the
+-- all-empty-subdivided branch above (NOT EXISTS over active shed_partitions).
+-- projection-review: membership=active, non-retired shed locations with no active shed_partitions row and no live animal, legacy partition-alias rows suppressed by oploc.PartitionAliasExclusionSQL; group_key=(location_id), the locations primary key, so one option per shed; join_cardinality=no joins, the three predicates are semi-joins (NOT EXISTS) that cannot multiply a row; pagination=whole-result rollup, never paged, like every facet branch; scope=tenant_id, emitted only in the live bucket, and the park key is the shed's own parent park -- there is no goats row to read one from
+SELECT 'shed', shed.location_id::text,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
+       0,
+       COALESCE(shed.parent_location_id::text, ''),
+       ''
+FROM locations shed
+WHERE shed.tenant_id = $1::uuid
+  -- Only in the live view, like the empty pen lines: under a dead / sold bucket "no animal of
+  -- that status" is not an empty pen, it is an irrelevant one.
+  AND $2 = 'alive'
+  AND shed.location_type = 'shed'
+  AND shed.status = 'active'
+  AND shed.retired_at IS NULL
+  AND ` + countsBreakdownPenAliasExclusion + `
+  AND NOT EXISTS (
+    SELECT 1 FROM shed_partitions any_sp
+    WHERE any_sp.tenant_id = shed.tenant_id AND any_sp.shed_id = shed.location_id AND any_sp.status = 'active'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM goats g6
+    WHERE g6.tenant_id = shed.tenant_id
+      AND g6.shed_id = shed.location_id
+      AND g6.merged_into_goat_id IS NULL
+      AND ($2 = '' OR g6.lifecycle_status = $2)
   )
 ORDER BY 1, 2, 5`
 
@@ -3936,6 +4054,7 @@ func scanCountsBreakdownPens(pageRows pgx.Rows, out *domain.CountsBreakdown) err
 		var partitionLabel *string
 		var grainJSON []byte
 		var totalRows, totalCount, totalKids, totalAdults int64
+		var authoredName string
 		if err := pageRows.Scan(
 			&pen.ParkID,
 			&pen.ParkLabel,
@@ -3946,6 +4065,8 @@ func scanCountsBreakdownPens(pageRows pgx.Rows, out *domain.CountsBreakdown) err
 			&pen.KidCount,
 			&pen.AdultCount,
 			&grainJSON,
+			&pen.AuthoredStage,
+			&authoredName,
 			&totalRows,
 			&totalCount,
 			&totalKids,
@@ -3981,6 +4102,9 @@ func scanCountsBreakdownPens(pageRows pgx.Rows, out *domain.CountsBreakdown) err
 				Sex:                        g.Sex,
 				Count:                      g.Count,
 			})
+		}
+		if pen.AuthoredStage != "" {
+			pen.AuthoredStageLabel = domain.StageDisplayLabel(pen.AuthoredStage, authoredName)
 		}
 		pen.Stages = rollupBreakdownDimension(pen.Rows, func(r domain.CountsBreakdownRow) string { return r.ManagementStage })
 		pen.Breeds = rollupBreakdownDimension(pen.Rows, func(r domain.CountsBreakdownRow) string { return r.Breed })

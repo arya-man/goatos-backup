@@ -18440,8 +18440,12 @@ export interface components {
             breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
             /** @description Composition by sex, largest bucket first. */
             sexes: components["schemas"]["CountsBreakdownSeriesPoint"][];
-            /** @description This pen's stage x breed x sex grain rows, largest first, each carrying the pen's own location. */
+            /** @description This pen's stage x breed x sex grain rows, largest first, each carrying the pen's own location. Empty for a pen holding no live animal. */
             rows: components["schemas"]["CountsBreakdownRow"][];
+            /** @description The pen's CONFIGURED stage tag as a stage code (the pen's own tag, or the shed's for an undivided shed), "" when none is set. It is what newborn placement and shifting adoption read, and the only stage an empty pen (count 0, no rows) has. */
+            authored_stage: string;
+            /** @description The reader's label for authored_stage; "" when no tag is set. */
+            authored_stage_label: string;
         };
         CountsBreakdownResponse: {
             /** @description The grain page. Empty when group_by=pen. */

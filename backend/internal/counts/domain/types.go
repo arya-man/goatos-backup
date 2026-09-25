@@ -602,6 +602,13 @@ type CountsBreakdownPenRow struct {
 	// Rows are this pen's stage x breed x sex grain rows, largest first -- exactly the rows the
 	// grain-grouped page would list for this pen, carrying the pen's own location on each.
 	Rows []CountsBreakdownRow `json:"rows"`
+	// AuthoredStage is the pen's CONFIGURED stage tag (shed_partitions.animal_stage_id for a pen,
+	// shed_profiles.animal_stage_id for an undivided shed) as a stage code, or "" when none is set.
+	// It is what newborn placement and shifting adoption read, and it is the only stage an EMPTY
+	// pen has -- Stages is derived from residents and is empty for one. AuthoredStageLabel is the
+	// reader's label for it (StageDisplayLabel), "" when no tag is set.
+	AuthoredStage      string `json:"authored_stage"`
+	AuthoredStageLabel string `json:"authored_stage_label"`
 }
 
 // CountsBreakdownLoadTag is one current goat identifier value carried by filtered animals on a
