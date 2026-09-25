@@ -4538,6 +4538,7 @@ fun AppNavHost(
                                 navController.navigate(openRoute) { launchSingleTop = true }
                             }
                         }
+                        WorkBoardDetailEvent.Refresh, WorkBoardDetailEvent.LoadMoreSubtasks -> vm.onEvent(event)
                     }
                 },
             )

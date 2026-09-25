@@ -22310,6 +22310,18 @@ components:
         by_module:
           type: object
           additionalProperties: { type: integer }
+        by_module_lane:
+          type: object
+          description: Every module's per-lane counts over the same whole filter.
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer }
+        by_module_state:
+          type: object
+          description: Every module's per-work-state counts over the same whole filter, so a client narrowed to a module and a lane can count that selection's done, pending and needs-attention cards without a second read.
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer }
         needs_attention: { type: integer }
         modules:
           type: array

@@ -173,11 +173,47 @@ data class WorkBoardDetailUiState(
     val row: WorkBoardRowUi? = null,
     /** True only when [WorkBoardRowUi.href] names a screen THIS build can open. */
     val canOpen: Boolean = false,
+    /**
+     * The row's units of work (its pens, animals, steps), worst first, as the backend drills them:
+     * the pages loaded so far, in order. The admin-web drawer's list, on the phone.
+     */
+    val subtasks: List<WorkBoardSubtaskUi> = emptyList(),
+    /** The WHOLE count for the row, never the pages loaded. */
+    val subtaskTotal: Int = 0,
+    /** True while nothing is cached yet and the first page is on its way. */
+    val subtasksLoading: Boolean = true,
+    /** True when the last read failed and nothing is cached to show. */
+    val subtasksFailed: Boolean = false,
+    /** True while a further page exists; the list asks for it as the reader nears the end. */
+    val hasMoreSubtasks: Boolean = false,
 )
+
+/** One unit of a row's work, every string backend-composed and rendered verbatim. */
+@Immutable
+data class WorkBoardSubtaskUi(
+    val key: String,
+    val name: String,
+    val subtitle: String = "",
+    val workState: String = "",
+    val lane: String = "",
+    val ownerName: String = "",
+    val needsAttention: Boolean = false,
+    val steps: List<WorkBoardStepUi> = emptyList(),
+)
+
+/** One link of a subtask's chain; [state] is the closed seven-value step vocabulary. */
+@Immutable
+data class WorkBoardStepUi(val name: String, val state: String, val detail: String = "")
 
 sealed interface WorkBoardDetailEvent {
     data object Back : WorkBoardDetailEvent
 
     /** Open the module's own screen through the row's backend `href`. */
     data object Open : WorkBoardDetailEvent
+
+    /** Re-read the loaded subtask pages (the screen came back into view). */
+    data object Refresh : WorkBoardDetailEvent
+
+    /** The reader neared the end of the loaded subtasks; fetch the next page if there is one. */
+    data object LoadMoreSubtasks : WorkBoardDetailEvent
 }

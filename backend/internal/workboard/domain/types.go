@@ -439,9 +439,13 @@ type Summary struct {
 	ByState      map[WorkState]int       `json:"by_state"`
 	ByModule     map[Module]int          `json:"by_module"`
 	ByModuleLane map[Module]map[Lane]int `json:"by_module_lane"`
-	Attention    int                     `json:"needs_attention"`
-	Modules      []Module                `json:"modules"`
-	Lanes        []Lane                  `json:"lanes"`
+	// ByModuleState is every module's per-state count, so a client filtered to a module (and a
+	// lane) can say how many of THOSE cards are done, pending and need attention without a second
+	// read (maintainer review 2026-09-25: the phone's tiles ignored its own chips).
+	ByModuleState map[Module]map[WorkState]int `json:"by_module_state"`
+	Attention     int                          `json:"needs_attention"`
+	Modules       []Module                     `json:"modules"`
+	Lanes         []Lane                       `json:"lanes"`
 	// Degraded names the modules whose aggregate read failed on THIS request; their counts are
 	// absent from the totals above rather than blanking the whole summary.
 	Degraded []Module `json:"degraded,omitempty"`
@@ -451,12 +455,13 @@ type Summary struct {
 // renders a zero rather than an absent key.
 func NewSummary(modules []Module) Summary {
 	s := Summary{
-		ByLane:       map[Lane]int{},
-		ByState:      map[WorkState]int{},
-		ByModule:     map[Module]int{},
-		ByModuleLane: map[Module]map[Lane]int{},
-		Modules:      modules,
-		Lanes:        Lanes(),
+		ByLane:        map[Lane]int{},
+		ByState:       map[WorkState]int{},
+		ByModule:      map[Module]int{},
+		ByModuleLane:  map[Module]map[Lane]int{},
+		ByModuleState: map[Module]map[WorkState]int{},
+		Modules:       modules,
+		Lanes:         Lanes(),
 	}
 	for _, l := range Lanes() {
 		s.ByLane[l] = 0
@@ -486,6 +491,13 @@ func (s *Summary) Add(module Module, byState map[WorkState]int) {
 			s.ByModuleLane[module] = map[Lane]int{}
 		}
 		s.ByModuleLane[module][lane] += n
+		if s.ByModuleState == nil {
+			s.ByModuleState = map[Module]map[WorkState]int{}
+		}
+		if s.ByModuleState[module] == nil {
+			s.ByModuleState[module] = map[WorkState]int{}
+		}
+		s.ByModuleState[module][state] += n
 		if state == WorkStateOverdue || state == WorkStateMissed || state == WorkStateRejected || state == WorkStateBlocked {
 			s.Attention += n
 		}

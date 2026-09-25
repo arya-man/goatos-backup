@@ -9477,6 +9477,18 @@ export interface components {
             by_module: {
                 [key: string]: number;
             };
+            /** @description Every module's per-lane counts over the same whole filter. */
+            by_module_lane?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /** @description Every module's per-work-state counts over the same whole filter, so a client narrowed to a module and a lane can count that selection's done, pending and needs-attention cards without a second read. */
+            by_module_state?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
             needs_attention: number;
             modules: components["schemas"]["WorkBoardModule"][];
             lanes: components["schemas"]["WorkBoardLane"][];

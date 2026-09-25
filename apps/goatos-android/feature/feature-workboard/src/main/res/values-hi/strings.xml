@@ -59,4 +59,16 @@
     <string name="work_board_empty_own">इस दिन आपकी सूची में कुछ नहीं है</string>
     <string name="work_board_empty_all">इस दिन बोर्ड पर कुछ नहीं है</string>
     <string name="work_board_error">आपका काम लोड नहीं हो सका। फिर से कोशिश के लिए ताज़ा करें।</string>
+    <string name="work_board_subtasks_title">क्या हुआ और क्या बाकी है</string>
+    <string name="work_board_subtasks_count_fmt">%2$d में से %1$d</string>
+    <string name="work_board_subtasks_loading">लोड हो रहा है…</string>
+    <string name="work_board_subtasks_empty">कुछ नहीं है</string>
+    <string name="work_board_subtasks_failed">यह सूची लोड नहीं हुई। वापस आने पर फिर कोशिश होगी।</string>
+    <string name="work_board_step_done">पूरा</string>
+    <string name="work_board_step_in_review">समीक्षा में</string>
+    <string name="work_board_step_in_progress">शुरू</string>
+    <string name="work_board_step_rework">वापस भेजा</string>
+    <string name="work_board_step_needs_attention">ध्यान दें</string>
+    <string name="work_board_step_locked">प्रतीक्षा में</string>
+    <string name="work_board_step_todo">बाकी</string>
 </resources>

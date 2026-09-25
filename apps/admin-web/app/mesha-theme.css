@@ -6099,7 +6099,11 @@ input[type="checkbox"]:not(.lt-people-row input):disabled{opacity:.5;cursor:not-
 .wb .pgnav{display:flex;align-items:center;gap:10px}
 .wb .pgnav .more{font:inherit;font-size:12.5px;font-weight:700;padding:6px 10px;color:var(--brand);border:1px solid var(--line);border-radius:8px;background:var(--panel);text-decoration:none}
 .wb .pgnav .more[aria-disabled="true"]{opacity:.4;pointer-events:none}
-@media (max-width:900px){.wb .board{grid-template-columns:repeat(4,minmax(260px,1fr))}.wb .tbar{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px}.wb .tbar>*{flex:none}}
+/* Phone width: the toolbar WRAPS, it never scrolls sideways. A sideways-scrolling toolbar clipped
+   every dropdown opened inside it -- the Module and Assignee menus opened with zero size at 390px
+   and the board could not be filtered from a phone (maintainer test 2026-09-25). Search takes the
+   first row whole; the other controls flow under it at their own width. */
+@media (max-width:900px){.wb .board{grid-template-columns:repeat(4,minmax(260px,1fr))}.wb .tbar{flex-wrap:wrap}.wb .tbar>*{flex:none}.wb .tbar .tsearch{flex:1 1 100%;max-width:none}}
 /* touch widths: the 40px tap target lives on the search box itself, not stacked on top of its padding */
 @media (max-width:560px){.wb .tsearch{min-height:40px;padding:0 10px}.wb .tsearch input{min-height:0}
   /* every toolbar control is a 40px tap target at phone width; the avatar stack keeps its 30px face

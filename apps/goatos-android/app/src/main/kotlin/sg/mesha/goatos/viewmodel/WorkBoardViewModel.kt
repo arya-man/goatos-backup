@@ -124,8 +124,8 @@ class WorkBoardViewModel @Inject constructor(
     ) { envelope, selection, isRefreshing, isOffline ->
         val summary = envelope.resource.data
         val hasSummary = summary != null
-        val done = summary?.laneCount(WorkBoardLanes.DONE) ?: 0
         val total = summary?.total ?: 0
+        val tiles = summary?.let { selectionTiles(it, selection.module, selection.lane) } ?: WorkBoardTiles(0, 0, 0)
         WorkBoardUiState(
             dateIso = selection.dateIso,
             dateLabel = dateLabel(selection.dateIso),
@@ -152,9 +152,9 @@ class WorkBoardViewModel @Inject constructor(
                     }
                 }
             },
-            doneCount = done,
-            pendingCount = (total - done).coerceAtLeast(0),
-            needsAttentionCount = summary?.needsAttention ?: 0,
+            doneCount = tiles.done,
+            pendingCount = tiles.pending,
+            needsAttentionCount = tiles.needsAttention,
             hasSummary = hasSummary,
             isRefreshing = isRefreshing,
             lastSyncedAt = envelope.resource.lastSyncedAt,
@@ -284,6 +284,38 @@ class WorkBoardViewModel @Inject constructor(
         const val ACTION_SET = "set"
         const val ACTION_CLEARED = "cleared"
     }
+}
+
+/** The three tiles over the cards the chips currently show. */
+internal data class WorkBoardTiles(val done: Int, val pending: Int, val needsAttention: Int)
+
+/** The work states a card needs attention in -- the backend's own Summary.Add set. */
+private val ATTENTION_STATES = setOf("overdue", "missed", "rejected", "blocked")
+
+/**
+ * The tiles count the SELECTION, not the whole board (maintainer review 2026-09-25: the tiles read
+ * 1 / 22 / 0 whichever chip was on). A module chip narrows to that module's per-state counts, a
+ * lane chip to the states that lane holds, and done / pending / needs-attention are counted over
+ * what is left. The chip COUNTS stay whole-board, so a chip never reads 0 because another is on.
+ * An older server that sends no per-module states falls back to the whole board for a module chip.
+ */
+internal fun selectionTiles(summary: WorkBoardSummaryDto, module: String, lane: String): WorkBoardTiles {
+    if (module.isBlank() && lane.isBlank()) {
+        // No chip: the server's own whole-board numbers, exactly as served.
+        val done = summary.laneCount(WorkBoardLanes.DONE)
+        return WorkBoardTiles(done = done, pending = (summary.total - done).coerceAtLeast(0), needsAttention = summary.needsAttention)
+    }
+    val byState: Map<String, Int> = if (module.isNotBlank()) {
+        summary.byModuleState?.get(module) ?: if (summary.byModuleState != null) emptyMap() else summary.byState.orEmpty()
+    } else {
+        summary.byState.orEmpty()
+    }
+    val laneStates = WorkBoardLanes.statesFor(lane).toSet()
+    val selected = if (lane.isBlank()) byState else byState.filterKeys { it in laneStates }
+    val total = selected.values.sum()
+    val done = selected["completed"] ?: 0
+    val attention = selected.filterKeys { it in ATTENTION_STATES }.values.sum()
+    return WorkBoardTiles(done = done, pending = (total - done).coerceAtLeast(0), needsAttention = attention)
 }
 
 private const val INDIA_ZONE = "Asia/Kolkata"

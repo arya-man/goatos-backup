@@ -69,4 +69,16 @@
     <string name="work_board_empty_own">Nothing on your list for this day</string>
     <string name="work_board_empty_all">Nothing on the board for this day</string>
     <string name="work_board_error">Couldn\'t load your work. Tap refresh to retry.</string>
+    <string name="work_board_subtasks_title">What is done and what is not</string>
+    <string name="work_board_subtasks_count_fmt">%1$d of %2$d</string>
+    <string name="work_board_subtasks_loading">Loading…</string>
+    <string name="work_board_subtasks_empty">Nothing to list</string>
+    <string name="work_board_subtasks_failed">Couldn\'t load this list. It retries when you come back.</string>
+    <string name="work_board_step_done">Done</string>
+    <string name="work_board_step_in_review">In review</string>
+    <string name="work_board_step_in_progress">Started</string>
+    <string name="work_board_step_rework">Sent back</string>
+    <string name="work_board_step_needs_attention">Needs attention</string>
+    <string name="work_board_step_locked">Waiting</string>
+    <string name="work_board_step_todo">To do</string>
 </resources>

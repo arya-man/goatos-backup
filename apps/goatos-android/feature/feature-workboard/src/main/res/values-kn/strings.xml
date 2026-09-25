@@ -59,4 +59,16 @@
     <string name="work_board_empty_own">ಈ ದಿನ ನಿಮ್ಮ ಪಟ್ಟಿಯಲ್ಲಿ ಏನೂ ಇಲ್ಲ</string>
     <string name="work_board_empty_all">ಈ ದಿನ ಬೋರ್ಡ್‌ನಲ್ಲಿ ಏನೂ ಇಲ್ಲ</string>
     <string name="work_board_error">ನಿಮ್ಮ ಕೆಲಸ ಲೋಡ್ ಆಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ರಿಫ್ರೆಶ್ ಒತ್ತಿ.</string>
+    <string name="work_board_subtasks_title">ಏನು ಮುಗಿದಿದೆ, ಏನು ಬಾಕಿ ಇದೆ</string>
+    <string name="work_board_subtasks_count_fmt">%2$d ರಲ್ಲಿ %1$d</string>
+    <string name="work_board_subtasks_loading">ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="work_board_subtasks_empty">ಏನೂ ಇಲ್ಲ</string>
+    <string name="work_board_subtasks_failed">ಈ ಪಟ್ಟಿ ಲೋಡ್ ಆಗಲಿಲ್ಲ. ಮರಳಿ ಬಂದಾಗ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸುತ್ತದೆ.</string>
+    <string name="work_board_step_done">ಮುಗಿದಿದೆ</string>
+    <string name="work_board_step_in_review">ಪರಿಶೀಲನೆಯಲ್ಲಿ</string>
+    <string name="work_board_step_in_progress">ಆರಂಭವಾಗಿದೆ</string>
+    <string name="work_board_step_rework">ಹಿಂದಕ್ಕೆ ಕಳುಹಿಸಲಾಗಿದೆ</string>
+    <string name="work_board_step_needs_attention">ಗಮನ ಬೇಕು</string>
+    <string name="work_board_step_locked">ಕಾಯುತ್ತಿದೆ</string>
+    <string name="work_board_step_todo">ಬಾಕಿ</string>
 </resources>
