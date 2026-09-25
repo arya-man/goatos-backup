@@ -6352,13 +6352,13 @@ export interface paths {
         };
         /**
          * The searchable disease list the death form's "due to disease" dropdown reads.
-         * @description Every disease a death may be attributed to, from the DIAGNOSIS REGISTER — the same vocabulary `health_cases.register_rule_id` stores and the Health Analytics disease board counts, so a cause of death can be read straight against the incidence board.
+         * @description Every disease a death may be attributed to: the built-in DIAGNOSIS REGISTER — the same vocabulary `health_cases.register_rule_id` stores and the Health Analytics disease board counts — PLUS every disease the tenant has authored in Health Config (maintainer decision 2026-09-25): the problem rules of its published diagnosis registers (`kind: register_rule`) and every treatment-tab disease that is published today (`kind: disease_key`, keyed by its stable disease key). One row per disease: a Health Config disease that is the same illness as a register diagnosis (same name, same key, or the course that diagnosis opens) is listed once, as the register row.
          *
-         *     ONE READ, NO PAGING, and static for the life of the server process: the register is embedded, validated at start-up, and cannot change under a running process, so a client may cache the list as long as it likes. It is roughly 33 diseases — an operator searches it with a thumb while standing over a dead animal, and a paged dropdown that round-trips per keystroke is the wrong shape for that moment.
+         *     ONE READ, NO PAGING, PER TENANT. It changes when Health Config publishes, so a client caches it for offline use and refreshes it when the death form opens. It is a few dozen diseases — an operator searches it with a thumb while standing over a dead animal, and a paged dropdown that round-trips per keystroke is the wrong shape for that moment. A disease later retired leaves this list but stays valid on the deaths already recorded under it.
          *
          *     FIELD ACTIONS ARE EXCLUDED. The register also carries advisory actions (tick treatment, hoof trimming, antihistamine, separate feeding); those are things to DO, not conditions an animal dies of, and never appear here.
          *
-         *     `animal_classes` says which registers carry each disease. A client may narrow the list to the animal in front of the operator, but it is never a reason to REJECT a selection: an animal can change class between its diagnosis and its death.
+         *     `animal_classes` says which registers carry each disease (empty for a treatment-tab disease, which belongs to no register class). A client may narrow the list to the animal in front of the operator, but it is never a reason to REJECT a selection: an animal can change class between its diagnosis and its death.
          */
         get: operations["listHealthDeathCauses"];
         put?: never;
@@ -7776,13 +7776,16 @@ export interface components {
             has_more: boolean;
         };
         HealthDeathCauseOption: {
-            /** @description The diagnosis register rule id, submitted verbatim as `death_cause_key`. */
+            /** @description The register rule id or Health Config disease key, submitted verbatim as `death_cause_key`. */
             key: string;
-            /** @enum {string} */
-            kind: "register_rule";
+            /**
+             * @description Submitted verbatim as `death_cause_kind`.
+             * @enum {string}
+             */
+            kind: "register_rule" | "disease_key";
             /** @description What the operator reads. Never the rule id, which is a machine key. */
             label: string;
-            /** @description The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening). */
+            /** @description The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening, or an authored type); empty for a Health Config treatment disease. */
             animal_classes: string[];
         };
         HealthDeathCauseCatalog: {
@@ -20403,10 +20406,10 @@ export interface components {
             exit_reason: "died";
             /** @description The operator's account of the death. REQUIRED on a normal death and OPTIONAL once a disease is named, where the coded cause is the recorded fact and the note is extra detail. A note that IS supplied is length-checked either way. */
             reason?: string;
-            /** @description The disease the animal died of, chosen from `GET /app/health/death-causes`. ABSENT means a NORMAL death — a complete answer, not missing data. A key the diagnosis register does not name is REJECTED rather than stored as typed: the value of a coded cause is that it groups, and one death filed under `MASTITIS` beside another under a near-miss is two diseases on the board and one in the barn. Must be given together with `death_cause_kind`, and only on a death — a cull is refused with sales and transfers, because a cull is a decision and a death is an outcome. */
+            /** @description The disease the animal died of, chosen from `GET /app/health/death-causes`. ABSENT means a NORMAL death — a complete answer, not missing data. A key the tenant's cause-of-death list does not name is REJECTED rather than stored as typed: the value of a coded cause is that it groups, and one death filed under `MASTITIS` beside another under a near-miss is two diseases on the board and one in the barn. Must be given together with `death_cause_kind`, and only on a death — a cull is refused with sales and transfers, because a cull is a decision and a death is an outcome. */
             death_cause_key?: string;
             /**
-             * @description Which vocabulary `death_cause_key` belongs to. Only `register_rule` may be submitted; `disease_key` exists in stored data for a pre-engine case and is resolved by the server from the animal's own case, never accepted from a client.
+             * @description Which vocabulary `death_cause_key` belongs to, echoed verbatim from the chosen option: `register_rule` for a diagnosis-register rule, `disease_key` for a disease authored in Health Config. A `disease_key` is accepted only while that disease is published (2026-09-25); a death already recorded under one stays valid after it is retired.
              * @enum {string}
              */
             death_cause_kind?: "register_rule" | "disease_key";
