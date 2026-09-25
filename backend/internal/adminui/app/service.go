@@ -606,7 +606,7 @@ func pages() []domain.PageContract {
 		// with the deals ledger LAST; FARM VALUE holds the live-herd valuation -- total farm
 		// value, total meat, Over 35 kg with its error margin, and the by-category breakdown.
 		// Both stay read-only by contract; entry is still /sales/config alone.
-		page("sales-sold", "/sales/sold", "/sales/sold", "Summary", "What has sold across CBE and CPT — revenue, animals, price per kg, buyers and the deals ledger.", "module-surface",
+		page("sales-sold", "/sales/sold", "/sales/sold", "Summary", "What has sold across every park — revenue, animals, price per kg, buyers and the deals ledger.", "module-surface",
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
@@ -681,7 +681,7 @@ func pages() []domain.PageContract {
 		// animals on the phone; this page never records, so its only control is the decision.
 		page("animal-purchases", "/procurement/animal-purchases", "/procurement/animal-purchases", "Animal purchases", "Loads on offer and the animals filmed in them. Watch each video and accept or reject the animal; the buying desk sees the answer on the phone at once.", "module-surface",
 			[]domain.TableContract{animalPurchaseLoadTable(), animalPurchaseAnimalTable()}),
-		page("feed-purchases", "/procurement/feed-purchases", "/procurement/feed-purchases", "Feed Purchases", "Feed bought for CBE and CPT — quantity, landed cost, vendor and payment state. These loads are what the stock and days-left cards on Feed Analytics are counted from.", "module-surface",
+		page("feed-purchases", "/procurement/feed-purchases", "/procurement/feed-purchases", "Feed Purchases", "Feed bought for each park — quantity, landed cost, vendor and payment state. These loads are what the stock and days-left cards on Feed Analytics are counted from.", "module-surface",
 			[]domain.TableContract{
 				feedPurchaseTable(),
 			}),
