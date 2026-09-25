@@ -22,10 +22,20 @@ shift 2
 repo_ref="${image%:*}"
 cache_ref="${repo_ref}:buildcache"
 
-if [ "${GOATOS_IMAGE_BUILD_CACHE:-1}" = "1" ] && docker buildx version >/dev/null 2>&1; then
+plain_build() {
+  echo "stg-image-build: plain docker build for ${image} ($1)"
+  shift
+  docker build --platform linux/amd64 "$@" -f "$dockerfile" -t "$image" .
+  docker push "$image"
+}
+
+cached_build() {
   builder="goatos-$(printf '%s' "${repo_ref##*/}" | tr -c 'a-zA-Z0-9-' '-')-$$"
-  docker buildx create --name "$builder" --driver docker-container --use >/dev/null
-  trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
+  # Creating the docker-container builder pulls moby/buildkit; a pull failure
+  # or rate limit must fall back to the plain build, never fail the deploy.
+  docker buildx create --name "$builder" --driver docker-container --use >/dev/null 2>&1 || return 3
+  docker buildx inspect --bootstrap "$builder" >/dev/null 2>&1 || { docker buildx rm "$builder" >/dev/null 2>&1 || true; return 3; }
+  rc=0
   docker buildx build \
     --platform linux/amd64 \
     --cache-from "type=registry,ref=${cache_ref}" \
@@ -35,10 +45,20 @@ if [ "${GOATOS_IMAGE_BUILD_CACHE:-1}" = "1" ] && docker buildx version >/dev/nul
     -f "$dockerfile" \
     -t "$image" \
     --push \
-    .
+    . || rc=$?
+  docker buildx rm "$builder" >/dev/null 2>&1 || true
+  return "$rc"
+}
+
+if [ "${GOATOS_IMAGE_BUILD_CACHE:-1}" = "1" ] && docker buildx version >/dev/null 2>&1; then
+  rc=0
+  cached_build "$@" || rc=$?
+  if [ "$rc" -eq 3 ]; then
+    plain_build "buildx builder unavailable" "$@"
+  elif [ "$rc" -ne 0 ]; then
+    exit "$rc"
+  fi
 else
-  echo "stg-image-build: buildx unavailable or cache disabled; plain docker build for ${image}"
-  docker build --platform linux/amd64 "$@" -f "$dockerfile" -t "$image" .
-  docker push "$image"
+  plain_build "buildx unavailable or cache disabled" "$@"
 fi
 echo "stg-image-build: pushed ${image}"
