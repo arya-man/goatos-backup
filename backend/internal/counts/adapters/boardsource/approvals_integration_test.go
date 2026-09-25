@@ -154,12 +154,18 @@ func TestApprovalsBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 8 {
-		t.Fatalf("8 rows expected (other park, yesterday and the canceled move are out), got %d", len(rows))
+	if len(rows) != 7 {
+		t.Fatalf("7 rows expected (other park, yesterday, the canceled move and the rejected birth are out), got %d", len(rows))
 	}
 	got := bySourceID(rows)
 	if _, leaked := got[ids["shift-canceled"]]; leaked {
 		t.Fatal("an approved move whose event was canceled never happened and must leave the board")
+	}
+	// A REJECTED request is final: no work is owed on it, so it leaves the board like a canceled
+	// move (maintainer 2026-09-25: "once it's rejected that action should also be gone"). It used
+	// to sit In progress as unclaimed pool work, which every operator board showed.
+	if _, leaked := got[ids["birth-rejected"]]; leaked {
+		t.Fatal("a rejected request owes no work and must leave the board")
 	}
 	want := map[string]struct {
 		state domain.WorkState
@@ -169,7 +175,6 @@ func TestApprovalsBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 		"shift-pending":  {domain.WorkStateDue, domain.LaneToDo, "Pen move · Godel 1 - Part 3"},
 		"birth-pending":  {domain.WorkStateDue, domain.LaneToDo, "Birth · Godel 1"},
 		"birth-approved": {domain.WorkStateCompleted, domain.LaneDone, "Birth · Godel 1"},
-		"birth-rejected": {domain.WorkStateRejected, domain.LaneInProgress, "Birth · Godel 1"},
 		// A death sits on its animal's own park board, at the animal's own pen.
 		"death-pending": {domain.WorkStateDue, domain.LaneToDo, "Death · Godel 1 - Part 3"},
 		// Approving a pen move authorizes it and moves nothing: the card follows the event.
@@ -200,8 +205,8 @@ func TestApprovalsBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if early.ClockLabel != "Raised 00:10" || early.Subtitle != "Raised by Dinakar" {
 		t.Errorf("birth raised at 00:10 IST belongs to the IST day: clock %q subtitle %q", early.ClockLabel, early.Subtitle)
 	}
-	if got[ids["birth-approved"]].Counts.Done != 1 || got[ids["birth-rejected"]].Counts.NeedsAttention != 1 {
-		t.Errorf("counts approved %+v rejected %+v", got[ids["birth-approved"]].Counts, got[ids["birth-rejected"]].Counts)
+	if got[ids["birth-approved"]].Counts.Done != 1 {
+		t.Errorf("counts approved %+v", got[ids["birth-approved"]].Counts)
 	}
 }
 
@@ -221,8 +226,8 @@ func TestApprovalsBoardScopeAndKeyset(t *testing.T) {
 	}
 	// The raiser's own board lists what they raised (their work in flight); the approver
 	// pool owns no row, so an approver's own lens still lists nothing of theirs.
-	if len(mine) != 8 {
-		t.Fatalf("raiser lens: everything they raised on this park-day, got %d", len(mine))
+	if len(mine) != 7 {
+		t.Fatalf("raiser lens: everything they raised on this park-day that still owes work, got %d", len(mine))
 	}
 	if theirs, err := src.ListRows(ctx, approvalQuery(apApprover)); err != nil || len(theirs) != 0 {
 		t.Fatalf("an approver owns no request: got %d err %v", len(theirs), err)
@@ -256,15 +261,15 @@ func TestApprovalsBoardScopeAndKeyset(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	if len(seen) != 8 {
-		t.Fatalf("keyset walk saw %d rows, want 5", len(seen))
+	if len(seen) != 7 {
+		t.Fatalf("keyset walk saw %d rows, want 7", len(seen))
 	}
 
 	counts, err := src.CountByState(ctx, approvalQuery(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counts[domain.WorkStateDue] != 3 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateRejected] != 1 || counts[domain.WorkStateInProgress] != 1 || counts[domain.WorkStateVerificationPending] != 1 || len(counts) != 5 {
+	if counts[domain.WorkStateDue] != 3 || counts[domain.WorkStateCompleted] != 2 || counts[domain.WorkStateRejected] != 0 || counts[domain.WorkStateInProgress] != 1 || counts[domain.WorkStateVerificationPending] != 1 || len(counts) != 4 {
 		t.Fatalf("counts %+v", counts)
 	}
 	otherPark, err := src.CountByState(ctx, ports.SourceQuery{TenantID: apTenant, ParkID: apOtherPk, BusinessDate: apDate})

@@ -3,6 +3,7 @@ package boardsource
 import (
 	"context"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"strconv"
 	"time"
 
@@ -25,11 +26,10 @@ import (
 
 // approvalSubtaskRankSQL is the SQL twin of domain.RankFor for a request, stated once.
 //
-//	rejected -> 0 needs attention
 //	pending  -> 1 to do (awaiting the approver pool)
+//	(a rejected request is off the board -- see approvals.go -- so it has no subtasks)
 //	approved -> 4 done
 const approvalSubtaskRankSQL = `CASE
-  WHEN a.status = 'rejected' THEN 0
   WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'rejected' THEN 0
   WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'authorized' THEN 2
   WHEN a.status = 'approved' AND a.request_type = 'shifting' AND se.event_status = 'pending_verification' THEN 3
@@ -52,7 +52,7 @@ LEFT JOIN shifting_events se ON se.tenant_id = a.tenant_id AND se.shifting_event
 LEFT JOIN goats g ON g.tenant_id = a.tenant_id AND g.goat_id = a.subject_goat_id
 WHERE a.tenant_id = $1::uuid
   AND a.approval_request_id = $5::uuid
-  AND a.status = ANY(ARRAY['pending','approved','rejected'])
+  AND a.status = ANY(ARRAY['pending','approved'])
   AND a.request_type = ANY(ARRAY['birth','shifting','death'])
   AND a.raised_at >= $3::timestamptz AND a.raised_at < $4::timestamptz
   AND ` + approvalParkSQL + ` = $2::text
@@ -76,7 +76,11 @@ func (s *ApprovalsSource) ListSubtasks(ctx context.Context, q ports.SubtaskQuery
 	limit := domain.BoundSubtaskLimit(q.Limit)
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, approvalSubtasksSQL, q.TenantID, q.ParkID, start, end, q.SourceID, afterRank, afterID, limit+1)
+	bound, err := sqlbind.Bind(approvalSubtasksSQL, q.TenantID, q.ParkID, start, end, q.SourceID, afterRank, afterID, limit+1)
+	if err != nil {
+		return domain.SubtaskPage{}, fmt.Errorf("counts boardsource subtasks bind: %w", err)
+	}
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SubtaskPage{}, fmt.Errorf("counts boardsource subtasks: %w", err)
 	}

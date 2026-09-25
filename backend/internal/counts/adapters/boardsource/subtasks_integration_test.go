@@ -100,8 +100,9 @@ func TestApprovalSubtasksAreTheRequestOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Subtasks) != 1 || !page.Subtasks[0].NeedsAttention || page.Subtasks[0].WorkState != domain.WorkStateRejected || states(page.Subtasks[0].Steps) != "done rework locked " || page.Subtasks[0].Steps[1].Detail != "not this pen" {
-		t.Fatalf("rejected %+v", page)
+	// A rejected request is off the board (2026-09-25), so it has no subtasks to open either.
+	if len(page.Subtasks) != 0 {
+		t.Fatalf("a rejected request must have no board subtasks, got %+v", page)
 	}
 	for name, id := range map[string]string{"yesterday": ids["birth-yesterday"], "other park": ids["shift-other-park"]} {
 		page, err := src.ListSubtasks(ctx, q(id))
