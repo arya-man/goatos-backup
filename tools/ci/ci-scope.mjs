@@ -336,7 +336,9 @@ function selfTest() {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
   });
-  assert.equal(pick([".github/workflows/ci.yml"]).full, true);
+  // No GitHub workflow/action YAML ever forces the full suite: ci-local does not execute it.
+  assert.equal(pick([".github/workflows/ci.yml"]).full, false);
+  assert.equal(pick([".github/workflows/ci.yml"]).android, false);
   // Other workflows are not run by ci-local: a land.yml/nightly edit must not force the full suite.
   assert.equal(pick([".github/workflows/land.yml"]).full, false);
   assert.equal(pick([".github/workflows/land.yml"]).android, false);
