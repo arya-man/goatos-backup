@@ -73,6 +73,13 @@ const (
 // from the small day-bounded batch / assignment tables into obligation_instances by batch_id or
 // obligation_id -- and the goat/park/protocol/status filters apply once to the union: 5 ms.
 //
+// The due_at arm is UNBATCHED obligations only (maintainer review 2026-09-25). The canonical read
+// files a batched obligation under its drive's planned day and falls back to due_at only for an
+// obligation with no batch; counting a batched obligation by its due_at said "work today" for a
+// drive planned on another day, and the board paid the full canonical read to find nothing -- at
+// Channapatna on 25/09 two obligations due that day, both in drives planned for other days, sent
+// the read past its budget and the board showed Vaccination as "couldn't load".
+//
 // $6/$7 are the business day as DATEs. dayStart is always an Asia/Kolkata midnight
 // (time.ParseInLocation of the business date), so planned_date in [$6, $7) is exactly the
 // legacy "planned_date at IST midnight in [$3, $4)" -- and it is sargable.
@@ -83,6 +90,7 @@ WITH cand AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
     AND oi.status <> 'canceled'
+    AND oi.batch_id IS NULL
     AND oi.due_at >= $3::timestamptz
     AND oi.due_at < $4::timestamptz
   UNION ALL
