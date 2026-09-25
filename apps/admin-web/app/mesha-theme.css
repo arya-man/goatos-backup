@@ -6054,7 +6054,7 @@ input[type="checkbox"]:not(.lt-people-row input):disabled{opacity:.5;cursor:not-
 .wb .menu .opt.on{color:var(--brand)}
 .wb .menu .foot{color:var(--muted);font-size:12px;border-top:1px solid var(--line2);margin-top:4px}
 .wb .etag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:5px;color:#fff}
-.wb .e-feed{background:#2F7A2A} .wb .e-health{background:#B3403C} .wb .e-vaccination{background:#2B66B8} .wb .e-weighing{background:#13816F} .wb .e-counts{background:#6E4FC4} .wb .e-procurement{background:#B5791A} .wb .e-milk{background:#33767A} .wb .e-pc_care{background:#2B66B8} .wb .e-verification{background:#5A6B7A} .wb .e-toxin{background:#B5791A} .wb .e-tasks{background:#6E4FC4}
+.wb .e-feed{background:#2F7A2A} .wb .e-health{background:#B3403C} .wb .e-vaccination{background:#2B66B8} .wb .e-weighing{background:#13816F} .wb .e-counts{background:#6E4FC4} .wb .e-procurement{background:#B5791A} .wb .e-milk{background:#33767A} .wb .e-pc_care{background:#2B66B8} .wb .e-verification{background:#5A6B7A} .wb .e-toxin{background:#B5791A} .wb .e-tasks{background:#6E4FC4} .wb .e-sales{background:#9A3F7A}
 .wb .etag.park{background:var(--panel-2);color:var(--muted);margin-left:4px}
 .wb .rule{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:-4px 0 12px}
 .wb .rule span b{color:var(--ink)}
@@ -6076,7 +6076,8 @@ input[type="checkbox"]:not(.lt-people-row input):disabled{opacity:.5;cursor:not-
 :root.light .wb .col .empty{color:var(--muted)}
 .wb .card .t{font-size:13.5px;font-weight:550;line-height:1.35;margin-bottom:7px;overflow-wrap:anywhere}
 .wb .card .row{display:flex;align-items:center;gap:8px;margin-top:8px}
-.wb .card .key{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wb .card .key{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--muted);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wb .card .key .kt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wb .ti{width:14px;height:14px;border-radius:3px;display:grid;place-items:center;font-size:9px;color:#fff;background:var(--brand-d);flex:none}
 .wb .ti.p{background:var(--purple)}
 .wb .card .sp{flex:1}
@@ -6105,7 +6106,7 @@ input[type="checkbox"]:not(.lt-people-row input):disabled{opacity:.5;cursor:not-
    first row whole; the other controls flow under it at their own width. A menu opens from its
    control's RIGHT edge and never wider than the screen, so the Module menu (the last control on
    its row) stays on screen instead of running past the right edge. */
-@media (max-width:900px){.wb .board{grid-template-columns:repeat(4,minmax(260px,1fr))}.wb .tbar{flex-wrap:wrap}.wb .tbar>*{flex:none}.wb .tbar .tsearch{flex:1 1 100%;max-width:none}.wb .tbar .menu{left:auto;right:0;max-width:calc(100vw - 32px)}}
+@media (max-width:900px){.wb .board{grid-template-columns:repeat(4,minmax(260px,1fr))}.wb .tbar{flex-wrap:wrap}.wb .tbar>*{flex:none}.wb .tbar .tsearch{flex:1 1 100%;max-width:none}.wb .tbar .menu{left:0;right:auto;max-width:calc(100vw - 32px)}}
 /* touch widths: the 40px tap target lives on the search box itself, not stacked on top of its padding */
 @media (max-width:560px){.wb .tsearch{min-height:40px;padding:0 10px}.wb .tsearch input{min-height:0}
   /* every toolbar control is a 40px tap target at phone width; the avatar stack keeps its 30px face

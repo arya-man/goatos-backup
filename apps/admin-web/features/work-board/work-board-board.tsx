@@ -5,7 +5,7 @@ import { TaskPeopleDropdown } from "@/components/people-dropdown";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { copy, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow, WorkBoardSummary } from "@/lib/api/work-board-server";
 import {
@@ -108,6 +108,20 @@ function ModuleMenu({ pageContract, options, selected, none, onChange }: { pageC
   const ref = useOutsideClose(open, () => setOpen(false));
   const all = !none && (selected.length === 0 || selected.length === options.length);
   const chosen = none ? [] : all ? options.map((o) => o.key) : selected;
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Keep the open menu on screen: it opens from its control's left edge, and where that would run
+  // past either side of a narrow viewport it is nudged back inside a 16px gutter.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!open || !menu) return;
+    menu.style.transform = "";
+    const box = menu.getBoundingClientRect();
+    const gutter = 16;
+    let shift = 0;
+    if (box.right > window.innerWidth - gutter) shift = window.innerWidth - gutter - box.right;
+    if (box.left + shift < gutter) shift = gutter - box.left;
+    if (shift) menu.style.transform = `translateX(${Math.round(shift)}px)`;
+  }, [open]);
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
       <button type="button" className="sel" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
@@ -124,7 +138,7 @@ function ModuleMenu({ pageContract, options, selected, none, onChange }: { pageC
         <ChevronDown className="ic" aria-hidden="true" />
       </button>
       {open ? (
-        <div className="menu" role="menu">
+        <div ref={menuRef} className="menu" role="menu">
           {options.map((option) => {
             const on = chosen.includes(option.key);
             return (
@@ -190,7 +204,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
       <div className="row">
         <span className="key" title={row.subtitle || row.pen.operational_location_display || ""}>
           <span className={`ti${row.module === "counts" ? " p" : ""}`} aria-hidden="true">{row.module === "counts" ? "✓" : row.module === "vaccination" ? "◆" : "▣"}</span>
-          {row.subtitle || row.pen.operational_location_display || (moduleOpt?.label ?? row.module)}
+          <span className="kt">{row.subtitle || row.pen.operational_location_display || (moduleOpt?.label ?? row.module)}</span>
         </span>
         {row.clock_label ? <span className={`clk ${clockClass(row)}`.trim()}>{row.clock_label}</span> : null}
         <span className="sp" />
