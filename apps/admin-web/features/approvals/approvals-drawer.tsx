@@ -212,6 +212,10 @@ function ApprovalsDrawerPanel({
             <Tag tone={statusTone(item.status)}>{approvalStatusLabel(item.status)}</Tag>
           </Meta>
           <Meta label={COPY.drawer.metaRaisedAt}>{fmtDateTime(item.raised_at)}</Meta>
+          {item.raised_by_name ? <Meta label={COPY.drawer.metaRaisedBy}>{item.raised_by_name}</Meta> : null}
+          {/* Backend-composed line: head count, farm and pens for a move; the animal's tag for a
+              death. Absent when nothing resolved, never an id. */}
+          {item.summary_line ? <Meta label={COPY.drawer.metaSummary}>{item.summary_line}</Meta> : null}
           {item.decided_at ? <Meta label={COPY.drawer.metaDecidedAt}>{fmtDateTime(item.decided_at)}</Meta> : null}
           {item.decision_reason ? <Meta label={COPY.drawer.metaDecisionReason}>{item.decision_reason}</Meta> : null}
         </div>

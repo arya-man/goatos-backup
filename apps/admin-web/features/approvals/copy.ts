@@ -62,6 +62,7 @@ export const APPROVALS_COPY = {
     metaStatus: "Status",
     metaRaisedBy: "Raised by",
     metaRaisedAt: "Raised at",
+    metaSummary: "Summary",
     metaSubjectGoat: "Subject goat",
     metaShiftingEvent: "Shifting event",
     metaDecidedBy: "Decided by",
@@ -69,7 +70,7 @@ export const APPROVALS_COPY = {
     metaDecisionReason: "Decision reason",
     summaryTitle: "Request detail",
     summaryEmpty: "No additional detail on this request.",
-    note: "Approving applies the request's effect atomically (a birth/death lifecycle change, or authorizing a shifting movement). Rejecting applies nothing and requires a reason the field operator will see.",
+    note: "Approving records the birth or death, or clears the pen move to go ahead. Rejecting changes nothing and needs a reason, which the person who raised it will see.",
   },
   capture: {
     title: "Recorded on the form",
