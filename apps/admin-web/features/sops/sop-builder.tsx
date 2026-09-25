@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronLeft, Eye, NotebookPen, Play, Plus, Video, X } from "lucide-react";
 import {
   buildFormDsl,
-  buildSopCode,
   fieldConfigKind,
   hasProofField,
   type BuilderInitial,
@@ -124,8 +123,6 @@ export function SopBuilder({
   const emitted = buildFormDsl(input);
   const fieldCount = emitted.fields.length;
   const ruleCount = emitted.rules?.length ?? 0;
-  // While editing, a new version pins to the existing SOP code — the name may change but the code does not.
-  const code = editing && initial ? initial.code : buildSopCode(input);
   const proofGapOk = domain === "general" || !proofRequired || hasProofField(input);
   const canPublish = Boolean(saved?.ok && saved.versionId && saved.report?.valid);
 
@@ -271,7 +268,7 @@ export function SopBuilder({
                   <div
                     aria-label={copy(pc, "modal.builder.domain_aria")}
                     title={copy(pc, "modal.builder.domain_title")}
-                    style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--line)", background: "var(--bg)", borderRadius: 8, padding: "8px 10px" }}
+                    style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, border: "1px solid var(--line)", background: "var(--bg)", borderRadius: 8, padding: "8px 10px" }}
                   >
                     <span className="tag t-pur">{copy(pc, "modal.builder.domain_label")}</span>
                     <span className="muted small">{copy(pc, "modal.builder.domain_locked")}</span>
@@ -289,7 +286,9 @@ export function SopBuilder({
                   </div>
                 </div>
                 <div className="muted small" style={{ marginTop: 5 }}>
-                  {copy(pc, "modal.builder.code_prefix")} <span className="mono">{code}</span> · {copy(pc, "modal.builder.policy_label")}
+                  {/* The SOP code (`counts.herd_operation`) is an internal key, never shown: the
+                      page already names the module, and this line says what the SOP governs. */}
+                  {copy(pc, "modal.builder.policy_label")}
                 </div>
               </div>
               <div className="fld" style={{ marginBottom: 0 }}>

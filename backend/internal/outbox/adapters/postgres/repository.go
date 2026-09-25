@@ -16,6 +16,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/outbox/domain"
 	"github.com/vgoats/goatos/backend/internal/outbox/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -444,17 +445,19 @@ func (r *Repository) Health(ctx context.Context, tenantID string, now time.Time)
 		now = time.Now().UTC()
 	}
 	var health domain.Health
+	// One scalar subquery per figure, each answered by an index (tenant_status_attempt,
+	// replay_guard, and 000428's tenant_published_at for MAX(published_at)). The previous single
+	// FILTERed aggregate had to read every outbox row of the tenant -- ~362k rows / ~1 GB on
+	// goatos-stg, ~4 s cold -- to produce four small counts and three stamps.
 	err := r.pool.QueryRow(ctx, `
 SELECT
-  COUNT(*) FILTER (WHERE status = 'pending')::bigint AS pending_count,
-  COUNT(*) FILTER (WHERE status = 'publishing')::bigint AS publishing_count,
-  COUNT(*) FILTER (WHERE status = 'failed')::bigint AS failed_count,
-  COUNT(*) FILTER (WHERE status = 'dead_letter')::bigint AS dead_letter_count,
-  MIN(created_at) FILTER (WHERE status = 'pending') AS oldest_pending_at,
-  MIN(updated_at) FILTER (WHERE status IN ('failed', 'dead_letter')) AS oldest_failure_at,
-  MAX(published_at) FILTER (WHERE status = 'published') AS last_published_at
-FROM outbox_messages
-WHERE tenant_id = $1::uuid`, tenantID).Scan(
+  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'pending')::bigint AS pending_count,
+  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'publishing')::bigint AS publishing_count,
+  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'failed')::bigint AS failed_count,
+  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'dead_letter')::bigint AS dead_letter_count,
+  (SELECT MIN(created_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'pending') AS oldest_pending_at,
+  (SELECT MIN(updated_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status IN ('failed', 'dead_letter')) AS oldest_failure_at,
+  (SELECT MAX(published_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'published') AS last_published_at`, tenantID).Scan(
 		&health.PendingCount,
 		&health.PublishingCount,
 		&health.FailedCount,
@@ -608,18 +611,17 @@ FOR UPDATE`, params.TenantID, params.IdempotencyKey).Scan(&actionID, &status, &r
 	if params.Action == "discard" {
 		reason = discardReason(params.Reason)
 	}
+	updateArgs := []any{params.TenantID, params.OutboxIDs, reason, params.Now}
 	if params.MaxReplays > 0 {
-		tag, execErr := tx.Exec(ctx, params.UpdateSQL, params.TenantID, params.OutboxIDs, reason, params.Now, params.MaxReplays)
-		err = execErr
-		if err == nil {
-			updatedCount = tag.RowsAffected()
-		}
-	} else {
-		tag, execErr := tx.Exec(ctx, params.UpdateSQL, params.TenantID, params.OutboxIDs, reason, params.Now)
-		err = execErr
-		if err == nil {
-			updatedCount = tag.RowsAffected()
-		}
+		updateArgs = append(updateArgs, params.MaxReplays)
+	}
+	update, bindErr := sqlbind.Bind(params.UpdateSQL, updateArgs...)
+	if bindErr != nil {
+		return ports.DLQActionResult{}, fmt.Errorf("outbox: %s dead letters: bind: %w", params.Action, bindErr)
+	}
+	tag, err := tx.Exec(ctx, update.SQL(), update.Args()...)
+	if err == nil {
+		updatedCount = tag.RowsAffected()
 	}
 	if err != nil {
 		return ports.DLQActionResult{}, fmt.Errorf("outbox: %s dead letters: %w", params.Action, err)
@@ -753,7 +755,11 @@ func dlqRepoActionHash(action string, outboxIDs []string, reason string) string 
 func (r *Repository) execStatusUpdate(ctx context.Context, sql string, args ...any) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, sql, args...)
+	update, err := sqlbind.Bind(sql, args...)
+	if err != nil {
+		return fmt.Errorf("outbox: bind status update: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, update.SQL(), update.Args()...)
 	if err != nil {
 		return err
 	}

@@ -96,3 +96,15 @@ this one checks for missing park/shed/date specificity).
 - **Read-model default (envelope):** canonical indexed SQL (list keyset ~20,
   summary indexed aggregate); the five named screen projections are retired and
   scope-exempt from `scale-guard`, plan-tested — nothing else is.
+
+## Proven performance patterns (from main + #415)
+
+Fix catalog PP-1..PP-22 (bad/good snippet, source commit, enforcing guard or
+"review-only"): [`docs/decisions/scale-anti-patterns.md` → "Proven performance
+patterns (from main + #415)"](../../../docs/decisions/scale-anti-patterns.md).
+Machine gates added 2026-09-25: `make scale-guard` rules `count-distinct-sort`,
+`cte-self-join`, `hand-rolled-read-cache`, `non-sargable-cast` (now `::text IN`),
+and `make admin-web-heavy-client-imports-guard`. Baselines only shrink.
+Apply the review-only rows (PP-7..PP-21) by hand when reviewing a hot read.
+
+PP-22 (2026-09-26): an OR with a subquery-membership branch (`IN (SELECT)`/`EXISTS`/`= ANY(SELECT)`) over a large table loses BitmapOr at 500k rows and seq-scans; split into UNION ALL per arm. Every changed large-table read needs a changed `Test*AtScale` plan test or `validate-sqlc-plans` entry in the same diff; STG-size EXPLAIN is not proof. Gates: `or-subquery-membership` (`make scale-guard`), `make scale-guard-plan-proof`.

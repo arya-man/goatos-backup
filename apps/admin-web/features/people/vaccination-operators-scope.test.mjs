@@ -16,7 +16,7 @@ const PARK_A = "20000000-0000-4000-8000-00000000000a";
 const PARK_B = "20000000-0000-4000-8000-00000000000b";
 
 function fakeApi({ config, ambiguousParks, capThrows, configNotFound }) {
-  const calls = { configParkIds: [], positionScopeIds: [] };
+  const calls = { configParkIds: [], positionScopeIds: [], shiftParkIds: [] };
   return {
     calls,
     async getVaccinationOperatorAssignmentConfig(parkId) {
@@ -39,6 +39,10 @@ function fakeApi({ config, ambiguousParks, capThrows, configNotFound }) {
     },
     async listStaffLeave() {
       return { data: { items: [] } };
+    },
+    async listVaccinationOperatorShifts(parkId) {
+      calls.shiftParkIds.push(parkId);
+      return { data: { parkId, shifts: [{ operatorId: "w1", displayName: "Op", shiftLabel: "am", shiftStartMinute: 480, shiftEndMinute: 1020 }] } };
     },
   };
 }
@@ -112,4 +116,13 @@ test("a successful capacity-config load leaves capConfigError null and passes th
   const result = await loadVaccinationOperatorsScreen(api);
   assert.equal(result.capConfigError, null);
   assert.equal(result.capRowVersion, 3, "the real backend rowVersion must flow through, not a fabricated 0");
+});
+
+test("a park with no drive-operator assignment yet still loads its shifts, scoped to that park", async () => {
+  const api = fakeApi({ config: CONFIG, configNotFound: true });
+  const result = await loadVaccinationOperatorsScreen(api, PARK_B);
+  assert.equal(result.state, "ready");
+  assert.equal(result.config, null);
+  assert.deepEqual(api.calls.shiftParkIds, [PARK_B], "the shift read must carry the chosen park");
+  assert.equal(result.shifts.length, 1, "shifts come from their own read, not the missing assignment config");
 });

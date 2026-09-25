@@ -106,3 +106,68 @@ export function useTaskRowsVersion(): number {
 export function taskRowPatch(taskID: string): Patch | undefined {
   return patches.get(taskID);
 }
+
+/**
+ * WRITES TO ONE TASK ARE SERIALISED, and every write reads its fence when it is SENT.
+ *
+ * A comment bumps the task's row_version. A status change made 0.4 s later used to capture the
+ * fence into its FormData at the click -- while the comment was still in flight -- and Next queues
+ * server actions, so the status write arrived second carrying the pre-comment version and the
+ * backend refused it with a false "this task was changed while this board was open" (2026-09-25).
+ *
+ * `runTaskWrite` chains each write behind the previous one for the same task, and the write body
+ * reads `currentTaskRowVersion` only when its turn comes, so it carries the version the comment
+ * just published. `useTaskWriteInFlight` lets the status menu and the edit form show the saving
+ * state (and stay disabled) while a write to that task is still on the wire.
+ */
+const chains = new Map<string, Promise<unknown>>();
+const inFlight = new Map<string, number>();
+
+function setInFlight(taskID: string, delta: number) {
+  const next = (inFlight.get(taskID) ?? 0) + delta;
+  if (next > 0) inFlight.set(taskID, next);
+  else inFlight.delete(taskID);
+  notify(taskID);
+}
+
+export function runTaskWrite<T>(taskID: string, write: () => Promise<T>): Promise<T> {
+  setInFlight(taskID, 1);
+  const previous = chains.get(taskID) ?? Promise.resolve();
+  // A refused or failed earlier write must not block the next one; its own caller handles it.
+  const run = previous.then(
+    () => write(),
+    () => write(),
+  );
+  chains.set(taskID, run);
+  const settle = () => {
+    if (chains.get(taskID) === run) chains.delete(taskID);
+    setInFlight(taskID, -1);
+  };
+  run.then(settle, settle);
+  return run;
+}
+
+/** The fence a write must send NOW: the newest of the published version and the server row's. */
+export function currentTaskRowVersion(taskID: string, serverRowVersion: number): number {
+  const published = patches.get(taskID)?.rowVersion;
+  return typeof published === "number" && published > serverRowVersion ? published : serverRowVersion;
+}
+
+export function taskWriteInFlight(taskID: string): boolean {
+  return (inFlight.get(taskID) ?? 0) > 0;
+}
+
+export function useTaskWriteInFlight(taskID: string): boolean {
+  return useSyncExternalStore(
+    (fn) => {
+      const set = listeners.get(taskID) ?? new Set();
+      set.add(fn);
+      listeners.set(taskID, set);
+      return () => {
+        set.delete(fn);
+      };
+    },
+    () => taskWriteInFlight(taskID),
+    () => false,
+  );
+}

@@ -13,6 +13,7 @@ import (
 
 	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
@@ -155,6 +156,7 @@ func (r *Repository) CorrectCensusSlice(ctx context.Context, cmd ports.CorrectCe
 // value that somehow reached here cannot name a column. For breed, breed_id moves with the text --
 // `goats` carries both, and leaving the id pointing at the old breed would make the two disagree
 // for every reader that joins through it.
+// scale-guard:plan-proof-exempt: the census slice's goats scope (the shared census scope predicate) is unchanged; the edits only add breeds.tenant_id to lookups in the per-farm breeds catalogue (tens of rows) and validate a sex code in Go.
 func (r *Repository) applyCensusSliceCorrection(ctx context.Context, tx pgx.Tx, cmd ports.CorrectCensusSliceCommand) (int, error) {
 	partitionKey := oploc.NormalizePartition(stringValue(cmd.PartitionLabel))
 	args := []any{cmd.TenantID, cmd.ShedID, partitionKey, cmd.ManagementStage, cmd.Breed, cmd.Sex, cmd.Value}
@@ -169,10 +171,10 @@ func (r *Repository) applyCensusSliceCorrection(ctx context.Context, tx pgx.Tx, 
 		statement = `
 UPDATE goats
 SET breed = (SELECT btrim(b.canonical_name) FROM breeds b
-             WHERE b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
+             WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
              ORDER BY b.breed_id LIMIT 1),
     breed_id = (SELECT b.breed_id FROM breeds b
-                WHERE b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
+                WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
                 ORDER BY b.breed_id LIMIT 1),
     updated_at = now()
 WHERE goat_id IN (SELECT g.goat_id ` + censusSliceScopeSQL + `)`
@@ -197,10 +199,22 @@ WHERE goat_id IN (SELECT g.goat_id ` + censusSliceScopeSQL + `)`
 // assertCensusSliceValue fails a correction whose target value is not in the tenant's vocabulary.
 //
 // It exists because the UPDATE would otherwise ACCEPT an unknown breed and write NULL into
-// breed_id via its subquery -- a silent half-write leaving the text and the id disagreeing. Sex is
-// already closed at the service boundary and again by goats_sex_check, so only breed needs the
-// catalog lookup.
+// breed_id via its subquery -- a silent half-write leaving the text and the id disagreeing. A SEX
+// must be one of the tenant's ACTIVE genders (Configuration > Items & settings, read through
+// platform/animalvocab): goats has had no sex CHECK since 000346, so this is the only thing that
+// stops a correction writing a gender the farm never configured (OPEN UP TO NEW SPECIES,
+// 2026-09-25 -- a configured third gender is a valid correction target).
 func (r *Repository) assertCensusSliceValue(ctx context.Context, tx pgx.Tx, cmd ports.CorrectCensusSliceCommand) error {
+	if cmd.Field == "sex" {
+		sexes, err := animalvocab.ListSexes(ctx, tx, cmd.TenantID)
+		if err != nil {
+			return fmt.Errorf("identity: correct census slice: validate sex: %w", err)
+		}
+		if !animalvocab.Has(sexes, cmd.Value) {
+			return ports.ErrCensusCorrectionValue
+		}
+		return nil
+	}
 	if cmd.Field != "breed" {
 		return nil
 	}
@@ -208,8 +222,8 @@ func (r *Repository) assertCensusSliceValue(ctx context.Context, tx pgx.Tx, cmd 
 	if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM breeds b
-  WHERE b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($1::text)))`,
-		cmd.Value).Scan(&known); err != nil {
+  WHERE b.tenant_id = $2::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($1::text)))`,
+		cmd.Value, cmd.TenantID).Scan(&known); err != nil {
 		return fmt.Errorf("identity: correct census slice: validate breed: %w", err)
 	}
 	if !known {

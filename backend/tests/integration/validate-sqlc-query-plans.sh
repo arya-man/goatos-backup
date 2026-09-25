@@ -34,6 +34,13 @@ The script creates and drops its own scratch database from that admin DSN.
 EOF
 }
 
+# The self-hosted land runner's PATH carries no Homebrew, so a bare `psql` is not found there.
+if ! command -v psql >/dev/null 2>&1; then
+  for psql_dir in /opt/homebrew/bin /opt/homebrew/opt/libpq/bin /usr/local/bin /usr/local/opt/libpq/bin; do
+    if [[ -x "$psql_dir/psql" ]]; then PATH="$psql_dir:$PATH"; break; fi
+  done
+fi
+
 if [[ -n "$plan_admin_dsn" ]]; then
   # Clone the REUSABLE migrated template (keyed by a hash of the migration files; built once per
   # migration set and shared with the pgtest harness) instead of replaying every migration over the

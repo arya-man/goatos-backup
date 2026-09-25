@@ -30,6 +30,10 @@ function load(filename) {
     (name) =>
       name === "@grafana/faro-web-sdk"
         ? { faro: { api: { pushEvent() {}, pushError() {} } } }
+        : name === "./actions"
+          ? // The Server Actions module is server-only; the drop's in-place write is never CALLED by
+            // a static render, so a stub that satisfies the import is enough here.
+            { changeLeadershipTaskStatusInPlaceAction: async () => ({ ok: false, code: "network" }), loadLeadershipTaskAction: async () => null }
         : name.startsWith("@/")
           ? load(path.join(root, name.slice(2)))
           : name.startsWith(".")

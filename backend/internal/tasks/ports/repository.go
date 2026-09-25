@@ -149,6 +149,11 @@ type Repository interface {
 	// CancelDeathWorkflowForGoat closes the staged workflow after an admin rejects the death.
 	// Idempotent and a no-op when no workflow exists.
 	CancelDeathWorkflowForGoat(ctx context.Context, tenantID, goatID string, canceledAt time.Time) error
+	// CancelBirthWorkflowsForRejectedBirth cancels a REJECTED birth's kid workflows and its shared
+	// mother track (maintainer decision 2026-09-25) and returns every action id of those
+	// workflows, so the caller can withdraw their still-pending verifier items. Idempotent: a
+	// second call changes nothing and returns the same ids.
+	CancelBirthWorkflowsForRejectedBirth(ctx context.Context, tenantID, birthEventID, motherGoatID string, childGoatIDs []string) ([]string, error)
 
 	// ApplyDeathSignoffApproved completes the sign-off action and the workflow after a verifier
 	// approves the death evidence. Idempotent.

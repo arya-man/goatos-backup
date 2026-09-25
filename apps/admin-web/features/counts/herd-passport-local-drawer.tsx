@@ -6,10 +6,16 @@ import { Syringe, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Tag } from "@/components/ui-primitives";
-import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalOption, readableOptionKey, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { dash, fmtDate } from "@/lib/format";
 import type { VaccinationPassport, VaccinationPassportHistoryItem } from "@/lib/api/server";
 import { HerdReproductiveEdit } from "./herd-actions-ui";
+
+/** A status chip's words: the tenant's own label from the page's option group, never the stored key. */
+function statusLabel(pageContract: AdminUiPageContract, groupId: string, value: string | null | undefined): string {
+  if (!value) return dash(value);
+  return optionalOption(pageContract, groupId, value)?.label ?? readableOptionKey(value);
+}
 
 type StatusKind = "lifecycle" | "health" | "breeding";
 type StatusTone = "ok" | "warn" | "dng" | "info" | "mut";
@@ -321,11 +327,11 @@ export function HerdPassportLocalDrawer({
             <div className="hk">{cols[5]}</div><div>{dash(item.breed)}</div>
             <div className="hk">{cols[6]}</div><div>{dash(item.sex)}</div>
             <div className="hk">{cols[7]}</div><div>{weightLabel(item.weightKg)}</div>
-            <div className="hk">{cols[8]}</div><div><Tag tone={statusTone(item.lifecycleStatus, "lifecycle")}>{dash(item.lifecycleStatus)}</Tag></div>
-            <div className="hk">{cols[9]}</div><div><Tag tone={statusTone(item.healthStatus, "health")}>{dash(item.healthStatus)}</Tag></div>
+            <div className="hk">{cols[8]}</div><div><Tag tone={statusTone(item.lifecycleStatus, "lifecycle")}>{statusLabel(pageContract, "herd_lifecycle", item.lifecycleStatus)}</Tag></div>
+            <div className="hk">{cols[9]}</div><div><Tag tone={statusTone(item.healthStatus, "health")}>{statusLabel(pageContract, "herd_health", item.healthStatus)}</Tag></div>
             <div className="hk">{cols[10]}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Tag tone={statusTone(item.reproductiveStatus, "breeding")}>{dash(item.reproductiveStatus)}</Tag>
+              <Tag tone={statusTone(item.reproductiveStatus, "breeding")}>{statusLabel(pageContract, "herd_reproductive", item.reproductiveStatus)}</Tag>
               {canEditReproductiveStatus ? (
                 <HerdReproductiveEdit
                   goatId={item.goatId}

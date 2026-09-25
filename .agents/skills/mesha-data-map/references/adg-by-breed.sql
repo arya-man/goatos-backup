@@ -3,7 +3,9 @@
 --  sections=dimensions -> backend/internal/weighing/adapters/postgres/weight_demographics.go
 --  GetWeightDemographics gain_by_breed + by_breed; identity_scope.go same-animal map;
 --  origin_scope.go origin tags/buckets; sex_scope.go normalizeSexFilter). Read-only. Verified 24/09/2026
--- against the live dashboard (4-22 Sep and 3 Aug-22 Sep 2026, Male).
+-- against the live dashboard (4-22 Sep and 3 Aug-22 Sep 2026, Male). Re-derived 26/09/2026 after #415:
+-- backend changes were perf-only (parallel scope resolution, deduped gsp_keys/live-shed joins, same
+-- results) plus pen-type codes from pen_types (Pen-wise tab only); Breed-wise semantics unchanged.
 -- Same filters as the screen. Run: run_reference('adg-by-breed.sql', params={from_date:'2026-09-04',
 -- to_date:'2026-09-22', sex:'male'}). Display rounding: gain_g_per_day whole g, avg_weight_kg 1 dp.
 -- param: from_date date  first IST business date (default: 14 days before today = the backend's 15-day default window)

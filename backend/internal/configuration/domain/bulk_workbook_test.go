@@ -90,7 +90,7 @@ func TestMatchSheetNameReadsTheWordsAPersonTypes(t *testing.T) {
 		"sexes":              RegSexes,
 		"Animals":            RegAnimals,
 		"Species":            RegSpecies,
-		"Breeds":             "", // read-only: no tab
+		"Breeds":             RegBreeds,
 		"Task types":         RegTaskTypes,
 		"Notes":              "",
 		"Sheet1":             "",

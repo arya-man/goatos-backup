@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.WorkBoardRowDto
 import sg.mesha.goatos.core.network.dto.WorkBoardRowsPageDto
+import sg.mesha.goatos.core.network.dto.WorkBoardSubtaskPageDto
 import sg.mesha.goatos.core.network.dto.WorkBoardSummaryDto
 
 /**
@@ -136,6 +137,39 @@ interface WorkBoardRepository {
      * detail's read. Null while nothing is cached; never a second network call.
      */
     fun observeRow(rowKey: String): Flow<WorkBoardRowDto?>
+
+    /**
+     * ONE cached page of a row's subtasks (its pens, animals, steps), Room-first: the detail
+     * screen renders what `work_board_meta_cache` holds for this row/park/day/page and a refresh
+     * upserts it. `data == null` on a cold cache.
+     */
+    fun observeSubtaskPage(request: WorkBoardSubtaskRequest): Flow<Resource<WorkBoardSubtaskPageDto>> =
+        kotlinx.coroutines.flow.flowOf(Resource(data = null))
+
+    /** Network -> Room for one subtask page. A failure leaves the cache untouched and is returned. */
+    suspend fun refreshSubtaskPage(request: WorkBoardSubtaskRequest): Result<WorkBoardSubtaskPageDto> =
+        Result.failure(UnsupportedOperationException("subtasks"))
+}
+
+/**
+ * One page of one row's subtasks. [cursor] is the backend's opaque subtask key ("" = first page);
+ * the page is [WORK_BOARD_PAGE_SIZE] units, the same screen-page the rows use.
+ */
+data class WorkBoardSubtaskRequest(
+    val rowKey: String,
+    val parkId: String?,
+    val businessDate: String,
+    val cursor: String = "",
+) {
+    fun cacheKey(): String = cacheKey(
+        WORK_BOARD_CACHE_SHAPE,
+        "subtasks",
+        rowKey,
+        parkId,
+        businessDate,
+        cursor,
+        WORK_BOARD_PAGE_SIZE.toString(),
+    )
 }
 
 class DefaultWorkBoardRepository(
@@ -205,6 +239,43 @@ class DefaultWorkBoardRepository(
             // an offline indicator instead of a blank wall.
             Result.failure(error)
         }
+    }
+
+    override fun observeSubtaskPage(request: WorkBoardSubtaskRequest): Flow<Resource<WorkBoardSubtaskPageDto>> {
+        val key = request.cacheKey()
+        return metaDao.observe(key)
+            .map { entity ->
+                val cached = readCachedJson<WorkBoardSubtaskPageDto>(
+                    json = json,
+                    cacheKey = key,
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { metaDao.delete(it) },
+                )
+                Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+            }
+            .flowOn(Dispatchers.Default)
+    }
+
+    override suspend fun refreshSubtaskPage(request: WorkBoardSubtaskRequest): Result<WorkBoardSubtaskPageDto> = try {
+        val page = api.getWorkBoardSubtasks(
+            rowKey = request.rowKey,
+            park = request.parkId,
+            businessDate = request.businessDate,
+            limit = WORK_BOARD_PAGE_SIZE,
+            cursor = request.cursor.ifBlank { null },
+        )
+        metaDao.upsert(
+            WorkBoardMetaCacheEntity(cacheKey = request.cacheKey(), dtoJson = json.encodeToString(page), updatedAt = clock()),
+        )
+        metaDao.enforceCacheBounds()
+        Result.success(page)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        // The cached page keeps serving behind the offline indicator.
+        Result.failure(error)
     }
 
     override fun observeRow(rowKey: String): Flow<WorkBoardRowDto?> =

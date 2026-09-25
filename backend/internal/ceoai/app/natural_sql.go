@@ -27,9 +27,18 @@ type knownParkScope struct {
 	id    string
 }
 
-var knownParkScopes = []knownParkScope{
-	{code: "CPT", label: "Channapatna", id: "00000000-0000-4000-8000-000000003002"},
-	{code: "CBE", label: "Coimbatore", id: "00000000-0000-4000-8000-000000003001"},
+// parkScopesOf is the question's parks as match scopes. The list is the tenant's ACTIVE parks,
+// attached server-side (Question.Parks, from Configuration > Items & settings > Parks); it used to
+// be a constant CBE/CPT pair, so a question naming any other park silently answered company-wide.
+func parkScopesOf(q domain.Question) []knownParkScope {
+	out := make([]knownParkScope, 0, len(q.Parks))
+	for _, p := range q.Parks {
+		if p.Code == "" && p.Name == "" {
+			continue
+		}
+		out = append(out, knownParkScope{code: p.Code, label: p.Name, id: p.ID})
+	}
+	return out
 }
 
 func naturalSQLPlan(q domain.Question, mem []domain.ResolvedEntities) (domain.SubQuestion, bool) {
@@ -49,7 +58,7 @@ func naturalSQLPlan(q domain.Question, mem []domain.ResolvedEntities) (domain.Su
 	isFarmBornQuestion := farmBornQuestion.MatchString(normalizedText)
 	isBreedQuestion := breedQuestion.MatchString(normalizedText)
 	if isActiveQuestion || isFarmBornQuestion || isBreedQuestion {
-		if scopes, ok := resolveKnownParkScopes(normalizedText, mem, isFarmBornQuestion); ok {
+		if scopes, ok := resolveKnownParkScopes(parkScopesOf(q), normalizedText, mem, isFarmBornQuestion); ok {
 			groupBy := "species"
 			if isBreedQuestion {
 				groupBy = "breed"
@@ -83,7 +92,7 @@ func naturalSQLPlan(q domain.Question, mem []domain.ResolvedEntities) (domain.Su
 
 func naturalFeedWeightBandPlan(q domain.Question, normalizedText string, mem []domain.ResolvedEntities) domain.SubQuestion {
 	params := map[string]any{}
-	if scope, ok := resolveKnownParkScope(normalizedText, mem); ok {
+	if scope, ok := resolveKnownParkScope(parkScopesOf(q), normalizedText, mem); ok {
 		params["park_label"] = scope.label
 		params["park_code"] = scope.code
 	}
@@ -102,7 +111,7 @@ func naturalSalesPlan(q domain.Question, normalizedText string, mem []domain.Res
 	if strings.Contains(normalizedText, "this month") || strings.Contains(normalizedText, "month") {
 		params["month"] = "current"
 	}
-	if scope, ok := resolveKnownParkScope(normalizedText, mem); ok {
+	if scope, ok := resolveKnownParkScope(parkScopesOf(q), normalizedText, mem); ok {
 		params["farm"] = scope.code
 	}
 	return domain.SubQuestion{
@@ -116,7 +125,7 @@ func naturalSalesPlan(q domain.Question, normalizedText string, mem []domain.Res
 }
 
 func naturalOperationalSQLPlan(q domain.Question, normalizedText string, mem []domain.ResolvedEntities) (domain.SubQuestion, bool) {
-	scope, hasScope := resolveKnownParkScope(normalizedText, mem)
+	scope, hasScope := resolveKnownParkScope(parkScopesOf(q), normalizedText, mem)
 	switch {
 	case mortalityQuestion.MatchString(normalizedText):
 		return sqlSubQuestion(q, "mortality_live_sql", mortalitySQL(q.Actor.TenantID, scope, hasScope, normalizedText, q.AsOf), "mortality", scope, hasScope), true
@@ -184,9 +193,9 @@ func normalizeNaturalSQLText(text string) string {
 	return replacer.Replace(low)
 }
 
-func resolveKnownParkScope(text string, mem []domain.ResolvedEntities) (knownParkScope, bool) {
+func resolveKnownParkScope(parks []knownParkScope, text string, mem []domain.ResolvedEntities) (knownParkScope, bool) {
 	low := strings.ToLower(text)
-	for _, scope := range knownParkScopes {
+	for _, scope := range parks {
 		if knownParkScopeMatches(low, scope) {
 			return scope, true
 		}
@@ -196,7 +205,7 @@ func resolveKnownParkScope(text string, mem []domain.ResolvedEntities) (knownPar
 		if park == "" {
 			continue
 		}
-		for _, scope := range knownParkScopes {
+		for _, scope := range parks {
 			if knownParkScopeMatches(park, scope) {
 				return scope, true
 			}
@@ -205,10 +214,10 @@ func resolveKnownParkScope(text string, mem []domain.ResolvedEntities) (knownPar
 	return knownParkScope{}, false
 }
 
-func resolveKnownParkScopes(text string, mem []domain.ResolvedEntities, defaultOwnFarms bool) ([]knownParkScope, bool) {
+func resolveKnownParkScopes(parks []knownParkScope, text string, mem []domain.ResolvedEntities, defaultOwnFarms bool) ([]knownParkScope, bool) {
 	low := strings.ToLower(text)
 	var scopes []knownParkScope
-	for _, scope := range knownParkScopes {
+	for _, scope := range parks {
 		if knownParkScopeMatches(low, scope) {
 			scopes = append(scopes, scope)
 		}
@@ -216,17 +225,40 @@ func resolveKnownParkScopes(text string, mem []domain.ResolvedEntities, defaultO
 	if len(scopes) > 0 {
 		return scopes, true
 	}
-	if scope, ok := resolveKnownParkScope(text, mem); ok {
+	if scope, ok := resolveKnownParkScope(parks, text, mem); ok {
 		return []knownParkScope{scope}, true
 	}
-	if defaultOwnFarms {
-		return append([]knownParkScope(nil), knownParkScopes...), true
+	if defaultOwnFarms && len(parks) > 0 {
+		return append([]knownParkScope(nil), parks...), true
 	}
 	return nil, false
 }
 
 func knownParkScopeMatches(low string, scope knownParkScope) bool {
-	return strings.Contains(low, strings.ToLower(scope.code)) || strings.Contains(low, strings.ToLower(scope.label))
+	return (scope.code != "" && containsWord(low, strings.ToLower(scope.code))) ||
+		(scope.label != "" && strings.Contains(low, strings.ToLower(scope.label)))
+}
+
+// containsWord matches a short park code as a whole word, so a code like "HF" does not match inside
+// "half" once any park code can appear, not only the two three-letter ones.
+func containsWord(low, word string) bool {
+	for i := 0; ; {
+		j := strings.Index(low[i:], word)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(word)
+		beforeOK := start == 0 || !isWordByte(low[start-1])
+		afterOK := end == len(low) || !isWordByte(low[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
 }
 
 func joinedParkLabels(scopes []knownParkScope) string {

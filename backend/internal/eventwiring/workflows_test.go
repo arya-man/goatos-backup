@@ -18,6 +18,7 @@ func TestRegisterWorkflowConsumersRegistersAll(t *testing.T) {
 	want := map[string]int{
 		"counts.death.reported":         1,
 		"counts.death.rejected":         1,
+		"counts.birth.rejected":         1,
 		"goat.created":                  1,
 		"goat.exited":                   1,
 		"goat.identifier.added":         1,
@@ -41,6 +42,7 @@ func TestRegisterCountsCaptureConsumersRegistersAll(t *testing.T) {
 	RegisterCountsCaptureConsumers(bus, nil, nil, nil)
 	want := map[string]int{
 		"counts.birth.reported":         1,
+		"counts.birth.rejected":         1,
 		"verification.verdict.approved": 1,
 		"verification.verdict.rework":   1,
 	}

@@ -129,8 +129,8 @@ test("production Tasks page uses live backend data, with fixtures confined to pr
   );
   assert.match(
     drawerHost,
-    /if \(!openID \|\| details\[openID\] \|\| preview\) return;/,
-    "the host never fetches live detail in preview",
+    /if \(!openID \|\| preview\) return;/,
+    "the host never fetches live detail in preview (it re-reads on every live open)",
   );
   // Production activity is the task's OWN feed and notes (`LeadershipTask.activity` /
   // `notes`), handed verbatim to the tabbed feed -- never invented on the client and never a

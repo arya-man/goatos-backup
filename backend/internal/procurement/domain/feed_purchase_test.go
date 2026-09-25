@@ -13,7 +13,7 @@ func f(v float64) *float64 { return &v }
 func validWrite() FeedPurchaseWrite {
 	return FeedPurchaseWrite{
 		PurchaseDate:  "2026-08-20",
-		FarmLabel:     FeedFarmCPT,
+		FarmLabel:     "CPT",
 		FeedItemLabel: "Dry Sorghum Forage",
 		QuantityKg:    5420,
 		FeedCost:      f(48980),
@@ -61,7 +61,7 @@ func TestFeedPurchaseValidateRejectsEachBadField(t *testing.T) {
 			tc.mutate(&w)
 			// Normalize first, exactly as the service does: a whitespace-only vendor must fail the
 			// required check, not pass it because it was non-empty before trimming.
-			err := w.Normalize().Validate(pinnedToday)
+			err := w.Normalize().Validate(pinnedToday, testFeedFarms)
 			var v ErrFeedPurchaseValidation
 			if !errors.As(err, &v) {
 				t.Fatalf("want a field validation error, got %v", err)
@@ -76,12 +76,12 @@ func TestFeedPurchaseValidateRejectsEachBadField(t *testing.T) {
 // TestFeedPurchaseValidateAcceptsAGoodWrite proves the rules above are not simply rejecting
 // everything, and that TODAY is allowed -- the boundary the future-date rule sits on.
 func TestFeedPurchaseValidateAcceptsAGoodWrite(t *testing.T) {
-	if err := validWrite().Normalize().Validate(pinnedToday); err != nil {
+	if err := validWrite().Normalize().Validate(pinnedToday, testFeedFarms); err != nil {
 		t.Fatalf("valid write rejected: %v", err)
 	}
 	today := validWrite()
 	today.PurchaseDate = "2026-08-24"
-	if err := today.Normalize().Validate(pinnedToday); err != nil {
+	if err := today.Normalize().Validate(pinnedToday, testFeedFarms); err != nil {
 		t.Fatalf("a load bought TODAY must be recordable: %v", err)
 	}
 }
@@ -156,17 +156,17 @@ func TestFeedPurchaseCostRollupUsesTheSplitWhenNoTotalIsGiven(t *testing.T) {
 // label.
 func TestNormalizeFeedFarmFilterRejectsAnUnknownFarm(t *testing.T) {
 	for _, raw := range []string{"", "all", "ALL"} {
-		if farm, ok := NormalizeFeedFarmFilter(raw); !ok || farm != "" {
+		if farm, ok := NormalizeFeedFarmFilter(raw, testFeedFarms); !ok || farm != "" {
 			t.Fatalf("%q => %q/%v, want the whole company", raw, farm, ok)
 		}
 	}
-	if farm, ok := NormalizeFeedFarmFilter("CBE"); !ok || farm != FeedFarmCBE {
+	if farm, ok := NormalizeFeedFarmFilter("CBE", testFeedFarms); !ok || farm != "CBE" {
 		t.Fatalf("CBE => %q/%v", farm, ok)
 	}
-	if _, ok := NormalizeFeedFarmFilter("cbe"); ok {
+	if _, ok := NormalizeFeedFarmFilter("cbe", testFeedFarms); ok {
 		t.Fatal("a farm value must be exact: lower case must be rejected, not coerced")
 	}
-	if _, ok := NormalizeFeedFarmFilter("HYD"); ok {
+	if _, ok := NormalizeFeedFarmFilter("HYD", testFeedFarms); ok {
 		t.Fatal("an unknown farm must be rejected, never widened to the whole company")
 	}
 }

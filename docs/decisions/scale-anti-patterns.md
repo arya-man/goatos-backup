@@ -1403,3 +1403,136 @@ A visible pen card may combine several assignments, including overdue work. Its 
 Room's identity-only task set for a selected pen must remain complete: a LIMIT on distinct task IDs silently hides saved scans and proofs. Keep roster payload windows and task-detail network reads paginated, while pruning small task identity/freshness sets when membership changes. Regression coverage includes 21 distinct tasks, 65 ready tasks, and opening a card before its second list page loads.
 
 A full membership list must also contain every source task within an assignment: a representative task cannot authorize single-task submission. Compute bounded per-pen/operator-day totals on the backend from the same dated membership used by the roster. Count an animal once across assignments and let any outstanding obligation win over completed siblings; keep vaccine doses a separate numeric count. A card becomes record-only only when all source tasks are submitted or every obligation is accepted. Do not use loaded-page task IDs or parse a human count label to reconstruct an aggregate. Regressions must include a single assignment containing multiple tasks, a completed page-one assignment with pending off-page work, future/closed-overdue exclusions, a shared animal with both completed and pending work, and a submitted task alongside an unfinished task.
+
+## Proven performance patterns (from main + #415)
+
+Status: canonical (2026-09-25). Mined from every perf commit on `main` since
+2026-08-15 and from PR #415 (`perf/cold-queries`) plus its two review comments.
+Each pattern names the incident it came from, the measured before/after, and
+what enforces it. **Guard** = a machine rule with pass/fail fixtures and a
+shrink-only baseline of today's occurrences (never grow a baseline to land new
+code). **Review-only** = not statically detectable without a plan or a runtime;
+reviewers apply it via the goatos-code-review "Performance budget" lens. The
+older incident catalog (P1-P25, what went wrong) lives in
+`.agents/skills/scale-anti-patterns/SKILL.md`; this chapter is the *fix*
+catalog. Enforcement ledger: `docs/progress/perf-patterns-as-guards.md`.
+
+### Guard-enforced
+
+**PP-1 Collapse, then count — never `COUNT(DISTINCT)` over a big set.**
+Postgres cannot hash a DISTINCT aggregate; it sorts every input row (and spills).
+```sql
+-- bad
+SELECT cell, COUNT(DISTINCT target_id) FROM obligations GROUP BY cell;
+-- good: both aggregates hash; only the output cells sort
+WITH per_animal AS (SELECT cell, target_id FROM obligations GROUP BY cell, target_id)
+SELECT cell, count(*) FROM per_animal GROUP BY cell;
+```
+cb0c2d0dc shed-dose matrix 725 → 276 ms; ba2984573 notification unread count
+805 ms → 232 ms (27 MB disk sort gone). Guard: `make scale-guard` rule
+`count-distinct-sort` (36 pre-existing occurrences frozen in
+`tools/scale-guard/baseline.txt`).
+
+**PP-2 Pair rows with a window, never join a CTE to itself.**
+```sql
+-- bad: generic plan = nested loop of two CTE scans (2,131 x 2,531)
+FROM scan_rounds cur JOIN scan_rounds prev ON prev.round_no = cur.round_no - 1
+-- good
+SELECT *, LAG(round_no) OVER (PARTITION BY pen, animal ORDER BY round_no) FROM scan_rounds
+```
+ca7b21a82 growth FCR 800 → 100 ms (from the 6th call, when pgx switched to a
+generic plan). Guard: `scale-guard` rule `cte-self-join` (adjacent shape).
+The runtime twin is an `EXPLAIN (GENERIC_PLAN)` integration test that fails on
+a nested loop re-scanning a CTE (`TestFCRSegmentsGenericPlanNeverSelfJoinsScanRounds`)
+— add one for any statement whose plan can flip.
+
+**PP-3 Keep the column bare; cast the bind array.**
+```sql
+-- bad: seq-scans proof_artifacts per row
+WHERE proof_id = x OR proof_id::text IN (SELECT value FROM jsonb_each_text(...))
+-- good
+WHERE proof_id = ANY(array_append($1::uuid[], x))
+```
+ebe349c37 53,487 ms → 42 ms (buffers 17.1M → 8.8k). Guard: `scale-guard`
+`non-sargable-cast` (now covers `::text IN (` as well as `::text = ANY(`).
+
+**PP-4 One shared read cache, with scoped eviction from every writer.**
+Use `backend/internal/platform/readcache`: tenant + sorted park set + normalized
+params key, single flight, SWR only while the cross-instance LISTEN feed is up,
+bounded LRU, and a per-tenant generation so a pre-write load cannot repopulate.
+Every writer of a cached read's tables must publish its eviction inside the write
+transaction (a056df98a fixed stale serving). **Do not cache read-after-write
+paths** (calendar action lists, feed-stock after a write) unless the same change
+proves invalidation. 95b1054c1, b67beb26d, e056776a4. Guard: `scale-guard` rule
+`hand-rolled-read-cache` (map+mutex `*cache*` struct outside readcache; 3
+frozen). The "every writer evicts" half is review-only.
+
+**PP-5 Heavy browser SDKs load lazily.** react-markdown/remark/rehype, Faro /
+OpenTelemetry tracing and `firebase/*` reach the browser through `import()` /
+`next/dynamic` when first used, never as a static import in the client graph.
+```tsx
+// bad ("use client" shell → static)       // good
+import ReactMarkdown from "react-markdown"; const Md = dynamic(() => import("./ceo-ai-markdown"));
+```
+0afa8abf8 (#415): first-load JS ~440 → ~325 KB gzip, mobile Lighthouse 53-76 →
+83-92, LCP 5.6 → 3.8 s. Guard: `make admin-web-heavy-client-imports-guard`
+(import-graph check; 7 modules frozen; the baseline shrinks when #415 lands).
+
+**PP-6 Keyset, never OFFSET; LIMIT inside the scanning CTE.** Existing
+`offset-pagination` / `cte-limit-outside` rules; the #415 review found two NEW
+OFFSETs (feed packing variance, weight demographics) — fix, never baseline.
+
+**PP-22 OR + subquery membership defeats indexes at scale; validate plans at
+scale, not STG size.** Incident (2026-09-26, #415): a processintegrity aggregate
+swapped `oi.batch_id = ANY(ARRAY(SELECT …))` for `oi.batch_id IN (SELECT …)`
+inside the OR that bounds `obligation_instances`. Faster at STG (86k rows); at
+500k rows the planner could no longer BitmapOr the branch indexes and seq-scanned
+the table (1.2 s). Only `TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale`
+caught it. When the OR is what bounds a large-table scan, no subquery form is
+safe by default: split it.
+```sql
+-- bad: one OR arm is a subquery membership; no BitmapOr at scale
+WHERE oi.tenant_id = $1
+  AND (oi.due_at <= $2 OR oi.batch_id IN (SELECT batch_id FROM due_window_batches))
+-- good: one index-driven set per arm
+SELECT … FROM obligation_instances oi WHERE oi.tenant_id = $1 AND oi.due_at <= $2
+UNION ALL
+SELECT … FROM obligation_instances oi JOIN due_window_batches b USING (batch_id)
+WHERE oi.tenant_id = $1 AND oi.due_at > $2
+```
+Guards: `make scale-guard` rule `or-subquery-membership` (OR with an
+`IN (SELECT)` / `EXISTS` / `= ANY(SELECT)` / `= ANY(ARRAY(SELECT))` branch over a
+large table; kept only with `scale-guard:ignore: <reason>; plan: Test…AtScale`),
+and `make scale-guard-plan-proof` (changed large-table SQL must change or add a
+`Test*AtScale` plan test or a `validate-sqlc-plans` entry in the same diff).
+PP-14 applies only when other ANDed indexed predicates already bound the rows.
+
+### Review-only (plan- or runtime-dependent)
+
+| # | Pattern (bad → good) | Evidence |
+|---|---|---|
+| PP-7 | Attach the tiny side *before* the big CTE: a ~2-row planner estimate joined late becomes a nested loop (16,922 feed rows × 649 prices). Price each row first, 1:0..1. | ba2984573 FCR 1,931 → 410 ms |
+| PP-8 | Build a shared aggregate ONCE (one `MATERIALIZED` CTE) instead of two arms each rebuilding it; and `MATERIALIZED` a once-referenced CTE the planner would inline under a nested loop. | ba2984573 363 → 264 ms |
+| PP-9 | Dedupe a bridge before a `LATERAL` (46 distinct pairs, not 356 buckets). | 0df117ec2 ~100 → 38 ms |
+| PP-10 | Independent reads run side by side (errgroup) or in one `pgx.Batch`; the loop-shaped N+1 is already `n-plus-one`, the *sequential independent* shape is not detectable. | 0df117ec2, 52e03ecfc, ed86dad75, ca481260e, 5fda3ff8d, f93a08035 |
+| PP-11 | Compute-on-write day rollups (statement-level triggers with transition tables in the writer's txn, per-park advisory lock, hourly drain + daily reconcile, verbatim old SQL kept as test oracle) instead of a per-request god-CTE. Cost to check in review: trigger serialization of writers, SERIALIZABLE retry, seed-closeout rebuild wiring (#415 review). #415 dropped its per-obligation vaccination-execution facts (68c86b7ec, reverted) because the per-tenant clock serialized every goats/obligation/drive writer; keep trigger-maintained summaries to append-only or per-document sources (000431, 000433). | 52b81f5d7 |
+| PP-12 | Plan-mode discipline: measure generic vs custom per statement (`EXPLAIN ANALYZE EXECUTE` both); use `WithGenericPlanReadTx` where planning dominates, pin custom (`QueryExecModeExec`/`DescribeExec`) with a written reason where generic regresses; `max_parallel_workers_per_gather = 0` for small list plans. | 41d2f3053, 651149461 |
+| PP-13 | Warm heavy statements on new pooled connections in the background (never in `AfterConnect`, never gating readiness), READ ONLY, per-statement timeout. | a71babbaf 653 → 390 ms first call |
+| PP-14 | (Only when other ANDed indexed predicates bound the rows; if the OR bounds the scan, see PP-22.) Inside an `OR`, use an uncorrelated `IN (SELECT …)` (hashed SubPlan), not `= ANY(ARRAY(SELECT …))` (linear per row). At top level, `id = ANY(ARRAY(…))` as an InitPlan id set IS the good shape. | 92492b6b9 2.3 s → 0.1 s; f445c34b4 |
+| PP-15 | Correlated `EXISTS` over a CTE per (row, day) → a window (`MIN() OVER … RANGE … EXCLUDE GROUP`). | 856bfbbe0 4.3 s → 0.8 s |
+| PP-16 | "Latest per key" on a paged feed → newer-row probe on an index, not `DISTINCT ON` over the whole window. | 50950e9da 900 → 40 ms |
+| PP-17 | Normalize a join key once per source row, not once per fact row. | cb0c2d0dc |
+| PP-18 | At-most-one-row lookups as scalar subqueries so a keyset keeps index order (proved by `validate-sqlc-plans`). | cad771692 |
+| PP-19 | An index matches the access path, including FK columns hit by RI checks on delete. `validate-hot-index-migrations` checks lock safety, not coverage. | e716de39d 18.7 → 3.6 ms; 02a8c25f2; 29f166806 |
+| PP-20 | Admin-web SSR payload: pass a page only what it renders (the shell got the full 1.2 MB page-contract array on every page). | 0afa8abf8 HTML 1.45 MB → 12-400 KB |
+| PP-21 | Every changed hot read updates its `tools/perf/hot-paths.*.json` entry and runs `api-latency-gate.mjs`; EXPLAIN timings alone are not route proof. Equivalence proof (old vs new SQL, same snapshot) travels with the PR. | #415 review 5831411794 |
+## Breeds are listed per farm (2026-09-26)
+
+Migration 000442 gives `breeds` a `tenant_id`, and every list or by-name lookup of breeds now
+filters on it: the Configuration register, the web and phone breed pickers, Sales' breeds per
+product and the census breed correction. Those reads are a single tenant's catalogue (tens of
+rows) behind `breeds_tenant_status_idx (tenant_id, status)`; no read gains a join or a scan of
+`goats`, and joins through `goats.breed_id` are unchanged. The phone birth list's herd side is
+the same one-table `GROUP BY` over the tenant's live goats it was before.
+
+<!-- Coupling review 2026-09-26: migrations 000441 (species and sex are configured codes) and 000442 (breeds are per farm). 000441 loosens goat/sheep and female/male CHECKs on animal_purchase_candidates, growth_sale_price_assumptions and protocol_rule_dimensions to not-blank guards; every seeded species, sex and rule selector still passes. 000442 adds breeds.tenant_id and breed_aliases.tenant_id; the oldest tenant keeps every existing row and breed_id, so seeded goats' breed_id stay valid, and seed-vaccination-real now writes its tenant on the breed insert (ON CONFLICT tenant_id, species, canonical_name). Raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity and seed closeout are unchanged. -->

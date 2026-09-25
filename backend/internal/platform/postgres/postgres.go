@@ -31,6 +31,12 @@ type Config struct {
 	// ApplicationName is set only by deployed services (ServiceApplicationName).
 	// Empty leaves the DSN/driver default, which the manual change audit records.
 	ApplicationName string
+	// Warmer, when set, warms every new pooled connection in the background (see ConnWarmer).
+	Warmer *ConnWarmer
+	// WarmIdleConns is the pgxpool MinIdleConns used with Warmer (GOATOS_PG_WARM_IDLE_CONNS,
+	// default 1): a spare idle connection dialed and warmed off the request path. Capped at
+	// MaxConns-1; ignored without Warmer.
+	WarmIdleConns int32
 }
 
 // ConfigFromEnv builds pool config from environment variables without
@@ -44,6 +50,7 @@ func ConfigFromEnv() Config {
 		QueryTimeout:     envDuration("GOATOS_PG_QUERY_TIMEOUT", 3*time.Second),
 		AuthMaxConns:     envInt32("GOATOS_PG_AUTH_MAX_CONNS", DefaultAuthMaxConns),
 		AuthQueryTimeout: envDuration("GOATOS_PG_AUTH_QUERY_TIMEOUT", DefaultAuthQueryTimeout),
+		WarmIdleConns:    envInt32("GOATOS_PG_WARM_IDLE_CONNS", 1),
 	}
 }
 
@@ -62,6 +69,7 @@ func AuthPoolConfig(cfg Config) Config {
 		auth.MaxConns = DefaultAuthMaxConns
 	}
 	auth.MinConns = 0
+	auth.Warmer = nil
 	auth.QueryTimeout = cfg.AuthQueryTimeout
 	if auth.QueryTimeout <= 0 {
 		auth.QueryTimeout = DefaultAuthQueryTimeout
@@ -118,6 +126,9 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	poolCfg.MaxConns = cfg.MaxConns
 	poolCfg.MinConns = cfg.MinConns
 	configureOLTPRuntime(poolCfg)
+	if cfg.Warmer != nil {
+		cfg.Warmer.install(poolCfg, cfg.WarmIdleConns)
+	}
 	applyApplicationName(poolCfg, cfg.ApplicationName)
 	// otelpgx attaches a span per query/batch/copy/prepare/acquire (using the
 	// OTel global TracerProvider/MeterProvider, which observability.SetupTelemetry

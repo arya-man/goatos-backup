@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -295,6 +297,15 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		cmd.TenantID, cmd.GoatID, cmd.LifecycleStatus, cmd.ExitReason, cmd.OccurredAt); err != nil {
 		return nil, err
 	}
+	// A record made in error (a rejected birth's kid, 2026-09-25) must stop being scannable: every
+	// identifier it holds -- the provisional temporary tag and any permanent RFID already assigned
+	// -- is retired with the exit, in the same transaction. goat_identifiers_lifetime_value_unique
+	// keeps the value reserved for audit, so a retired RFID is never silently re-used.
+	if cmd.ExitReason == ports.ExitReasonRecordedInError {
+		if _, err := tx.Exec(ctx, sqlRetireGoatIdentifiers, cmd.TenantID, cmd.GoatID, cmd.OccurredAt); err != nil {
+			return nil, fmt.Errorf("identity: retire identifiers of a record made in error: %w", err)
+		}
+	}
 	// The CAUSE of death is deliberately not written here. Identity records that the animal
 	// left the herd and how; WHAT it died of is a clinical judgement Health owns and stores,
 	// and it travels on the event below so Health's own consumer can record it in the same
@@ -339,6 +350,86 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		SubjectID:     cmd.GoatID,
 		DeferCommit:   deferCommit,
 	})
+}
+
+// sqlRetireGoatIdentifiers retires every active identifier of one animal (its primary-key
+// neighbourhood: goat_identifiers is keyed per goat), valid_to strictly after valid_from.
+const sqlRetireGoatIdentifiers = `
+UPDATE goat_identifiers
+SET status = 'retired',
+    valid_to = GREATEST($3::timestamptz, valid_from + interval '1 microsecond'),
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'active'`
+
+// sqlLockGoatForRetirement reads the animal's lifecycle and version under a row lock.
+// scale-guard:plan-proof-exempt: single-animal statements keyed by the goats primary key (tenant_id, goat_id) and goat_identifiers (goat_id, status); no range read over goats.
+const sqlLockGoatForRetirement = `
+SELECT lifecycle_status, row_version, merged_into_goat_id IS NOT NULL
+FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid
+FOR UPDATE`
+
+// RetireGoatRecordedInErrorInTx retires one animal whose creating record was rejected, inside the
+// CALLER's transaction (counts' birth-reject decision), through the same terminal exit every
+// death and sale uses -- so goat.exited reaches obligations, pen counts, the herd register and
+// search exactly as for any exit. Lifecycle 'inactive', exit reason 'recorded_in_error', its
+// identifiers retired. The goat row is KEPT.
+//
+// Returns false with no write when the animal already left the register (or was merged): the
+// exit it already has stays the record. Idempotent on (goat, source record).
+func (r *Repository) RetireGoatRecordedInErrorInTx(ctx context.Context, tx pgx.Tx, cmd ports.RetireRecordedInErrorCommand) (bool, error) {
+	var lifecycle string
+	var rowVersion int
+	var merged bool
+	if err := tx.QueryRow(ctx, sqlLockGoatForRetirement, cmd.TenantID, cmd.GoatID).Scan(&lifecycle, &rowVersion, &merged); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, ports.ErrNotFound
+		}
+		return false, err
+	}
+	if merged || exitedLifecycleStatus(lifecycle) {
+		return false, nil
+	}
+	hashInput, err := json.Marshal(map[string]any{
+		"tenant_id": cmd.TenantID, "goat_id": cmd.GoatID, "source_ref": cmd.SourceRef,
+		"lifecycle": ports.LifecycleStatusInactive, "exit_reason": ports.ExitReasonRecordedInError,
+	})
+	if err != nil {
+		return false, fmt.Errorf("identity: recorded-in-error request hash: %w", err)
+	}
+	sum := sha256.Sum256(hashInput)
+	key := fmt.Sprintf("recorded_in_error:%s:%s", cmd.SourceRef, cmd.GoatID)
+	source := "counts"
+	occurredAt := cmd.OccurredAt
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	reason := strings.TrimSpace(cmd.Reason)
+	if reason == "" {
+		reason = "Recorded in error"
+	}
+	if _, err := r.ExitGoatInTx(ctx, tx, ports.ExitGoatCommand{
+		TenantID:             cmd.TenantID,
+		ActorID:              cmd.ActorID,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: cmd.TenantID + ":" + key,
+		IdempotencyScope:     "identity.goat_recorded_in_error",
+		RequestHash:          hex.EncodeToString(sum[:]),
+		TraceID:              cmd.TraceID,
+		GoatID:               cmd.GoatID,
+		LifecycleStatus:      ports.LifecycleStatusInactive,
+		ExitReason:           ports.ExitReasonRecordedInError,
+		Reason:               reason,
+		OccurredAt:           occurredAt.UTC(),
+		EvidenceRefs: []domain.EvidenceRef{{
+			EvidenceType: "source_record", EvidenceID: "counts_approval_request:" + cmd.SourceRef, SourceSystem: &source,
+		}},
+		RowVersion: rowVersion,
+		// Not a death: the critical-death guardrail stays armed.
+		GuardrailApproved: false,
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *Repository) StageGoat(ctx context.Context, cmd ports.StageGoatCommand) (*ports.AdminGoatMutationResult, error) {

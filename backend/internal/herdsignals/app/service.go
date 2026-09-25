@@ -194,22 +194,33 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 	}
 	// risk_state is the persisted classification (000402, written by RecomputeRisk): an indexed
 	// predicate with keyset paging, never a whole-cohort walk.
+	// Whole-filter summary: one aggregate query, cached per (tenant, filter) and invalidated by
+	// the live NOTIFY, so N viewers / polls inside the window share one aggregate. It does not
+	// depend on the page, so it is read concurrently with the page instead of after it.
+	summaryKey := liveCohortKey(actor.TenantID, parkID, shedID, mappingState, pattern, riskState, q)
+	var (
+		summary    domain.Summary
+		summaryErr error
+		summaryWG  sync.WaitGroup
+	)
+	summaryWG.Add(1)
+	go func() {
+		defer summaryWG.Done()
+		summary, summaryErr = s.summaries.get(ctx, summaryKey, domain.FreshLiveRead(ctx), func(ctx context.Context) (domain.Summary, error) {
+			return s.repo.LiveSummary(ctx, actor.TenantID, parkID, shedID, mappingState, pattern, riskState, q)
+		})
+	}()
 	tags, nextCursor, err := s.repo.ListTagsLatestKeyset(
 		ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q, cursor, limit, sort,
 	)
+	summaryWG.Wait()
 	if err != nil {
 		s.log.Error("failed to list tags latest", "error", err)
 		return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
 	}
-	// Whole-filter summary: one aggregate query, cached per (tenant, filter) and invalidated by
-	// the live NOTIFY, so N viewers / polls inside the window share one aggregate.
-	summaryKey := liveCohortKey(actor.TenantID, parkID, shedID, mappingState, pattern, riskState, q)
-	summary, err := s.summaries.get(ctx, summaryKey, domain.FreshLiveRead(ctx), func(ctx context.Context) (domain.Summary, error) {
-		return s.repo.LiveSummary(ctx, actor.TenantID, parkID, shedID, mappingState, pattern, riskState, q)
-	})
-	if err != nil {
-		s.log.Error("failed to compute live summary", "error", err)
-		return domain.LiveResponse{}, fmt.Errorf("live summary failed: %w", err)
+	if summaryErr != nil {
+		s.log.Error("failed to compute live summary", "error", summaryErr)
+		return domain.LiveResponse{}, fmt.Errorf("live summary failed: %w", summaryErr)
 	}
 
 	// Pen-group comparison baselines come from ONE whole-cohort aggregate query; only the
@@ -444,7 +455,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 	cards := []domain.InsightCard{
 		{
 			Key: "tags_live_now", Label: "Tags Live Now", Value: fmt.Sprintf("%d", d.TagsLiveNow), Unit: "tags",
-			SignalType: "derived", Formula: "distinct tags with last_seen_at within 5 min",
+			SignalType: "derived", Formula: "distinct tags heard in the last 5 min",
 			Caveat: "Counts tags that have sent a packet recently; a tag with no packet in 30+ minutes is excluded, not shown as zero.",
 		},
 		{
@@ -489,7 +500,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "feed_activity", Label: "Feed × Activity", Value: fmt.Sprintf("%d", d.FeedActivityShedsCount), Unit: "sheds",
-			SignalType: "correlated", Formula: "pen activity 2h before vs 2h after fed_at",
+			SignalType: "correlated", Formula: "pen activity 2h before vs 2h after feeding",
 			Caveat: "Pen-grain only: this cannot attribute a single tag's motion to feeding.",
 		},
 		{
@@ -515,6 +526,54 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 	if len(tags) == 0 {
 		return items
 	}
+
+	// baseline_delta and the battery trend depend only on the page's tag ids, so they run
+	// concurrently with the dependent resolve -> goats -> pens chain below instead of after it
+	// (five sequential round trips became three on the critical path).
+	tagIDs := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tagIDs = append(tagIDs, tag.TagID)
+	}
+	var (
+		baselines      map[string]int64
+		batteryHistory map[string]ports.BatteryHistoryPoint
+		motionDeltas   map[string]int64
+		motionErr      error
+		side           sync.WaitGroup
+	)
+	side.Add(2)
+	if includeMotionDelta24h {
+		// 24h motion delta also depends only on the page's tag ids: read it beside the others
+		// instead of as a trailing round trip after the whole enrichment.
+		side.Add(1)
+		go func() {
+			defer side.Done()
+			motionDeltas, motionErr = s.repo.GetMotionDeltas24h(ctx, tenantID, tagIDs)
+		}()
+	}
+	go func() {
+		defer side.Done()
+		// baseline_delta: one windowed query for the whole page (defect fix -- it was always nil
+		// because the only alternative was a per-row 24h scan, which AGENTS.md's scale
+		// anti-patterns forbid).
+		var err error
+		baselines, err = s.repo.GetBaselineDeltas(ctx, tenantID, tagIDs)
+		if err != nil {
+			s.log.Warn("failed to batch-fetch baseline deltas", "error", err)
+			baselines = map[string]int64{}
+		}
+	}()
+	go func() {
+		defer side.Done()
+		// Battery voltage trend: same batched-query discipline as baseline_delta above, one
+		// query for the whole page.
+		var err error
+		batteryHistory, err = s.repo.GetBatteryHistory(ctx, tenantID, tagIDs, s.thresholds.BatteryTrendWindowDays)
+		if err != nil {
+			s.log.Warn("failed to batch-fetch battery history", "error", err)
+			batteryHistory = map[string]ports.BatteryHistoryPoint{}
+		}
+	}()
 
 	// Batch-resolve tag_id/tag_mac -> goat_id for every row already marked 'mapped' at ingest.
 	values := make([]string, 0, len(tags)*2)
@@ -570,26 +629,7 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 		shedLocations = map[string]ports.ShedLocation{}
 	}
 
-	// baseline_delta: one windowed query for the whole page (defect fix -- it was always nil
-	// because the only alternative was a per-row 24h scan, which AGENTS.md's scale
-	// anti-patterns forbid).
-	tagIDs := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		tagIDs = append(tagIDs, tag.TagID)
-	}
-	baselines, err := s.repo.GetBaselineDeltas(ctx, tenantID, tagIDs)
-	if err != nil {
-		s.log.Warn("failed to batch-fetch baseline deltas", "error", err)
-		baselines = map[string]int64{}
-	}
-
-	// Battery voltage trend: same batched-query discipline as baseline_delta above, one query
-	// for the whole page.
-	batteryHistory, err := s.repo.GetBatteryHistory(ctx, tenantID, tagIDs, s.thresholds.BatteryTrendWindowDays)
-	if err != nil {
-		s.log.Warn("failed to batch-fetch battery history", "error", err)
-		batteryHistory = map[string]ports.BatteryHistoryPoint{}
-	}
+	side.Wait()
 
 	for _, tag := range tags {
 
@@ -719,20 +759,12 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 		applyRiskSignals(items, groupStats)
 	}
 	if includeMotionDelta24h {
-		s.populateMotionDeltas24h(ctx, tenantID, items)
+		applyMotionDeltas24h(s, items, motionDeltas, motionErr)
 	}
 	return items
 }
 
-func (s *Service) populateMotionDeltas24h(ctx context.Context, tenantID string, items []domain.LiveItem) {
-	if len(items) == 0 {
-		return
-	}
-	tagIDs := make([]string, 0, len(items))
-	for _, item := range items {
-		tagIDs = append(tagIDs, item.TagID)
-	}
-	motionDeltas24h, err := s.repo.GetMotionDeltas24h(ctx, tenantID, tagIDs)
+func applyMotionDeltas24h(s *Service, items []domain.LiveItem, motionDeltas24h map[string]int64, err error) {
 	if err != nil {
 		s.log.Warn("failed to batch-fetch 24h motion deltas", "error", err)
 		return

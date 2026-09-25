@@ -504,7 +504,10 @@ data class ScopeOption(val token: String, val lead: String, val name: String, va
  */
 @Composable
 fun ScopePickerSheet(
-    scopes: List<ScopeOption> = defaultScopeOptions(),
+    // REQUIRED, with no default: the parks come from bootstrap, which reads Configuration > Items &
+    // settings > Parks. A literal fallback list here showed CBE/CPT (with made-up counts) and would
+    // have hidden every other park from any caller that forgot to pass the real list.
+    scopes: List<ScopeOption>,
     onSelect: (label: String, token: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -527,13 +530,6 @@ fun ScopePickerSheet(
         }
     }
 }
-
-/** Default scope options when bootstrap data is not available yet. */
-fun defaultScopeOptions(): List<ScopeOption> = listOf(
-    ScopeOption("all", "◎", "All parks", "1,312 animals · company-wide"),
-    ScopeOption("cbe", "CB", "CBE · Coimbatore", "716 animals · 52% coverage"),
-    ScopeOption("cpt", "CP", "CPT · Channapatna", "596 animals · 42% coverage"),
-)
 
 // endregion
 

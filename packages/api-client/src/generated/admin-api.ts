@@ -3070,8 +3070,8 @@ export interface components {
             animal_identifier_1: string;
             animal_identifier_2?: string | null;
             breed: string | null;
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             age_band: string | null;
             lifecycle_status: string;
             reproductive_status: string | null;
@@ -3119,8 +3119,8 @@ export interface components {
             animal_identifier_1: string;
             /** @description Optional until double RFID tagging is live; that rollout must make this mandatory in both app validation and DB constraints. */
             animal_identifier_2?: string | null;
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             /** Format: uuid */
             farm_id?: string;
             farm_code?: string;
@@ -3133,8 +3133,8 @@ export interface components {
             /** @description The pen within shed_id this animal is placed into ('1', 'Part 3'), matching a row in the active shed_partitions catalog for that shed. Required when the resolved shed has one or more active partitions; omit it only for a genuinely non-partitioned shed. The service accepts a normalized alias such as "3" but preserves and returns the catalog's human label such as "Part 3". Never the "whole" sentinel. */
             partition_label?: string | null;
             breed?: string;
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             /** Format: date */
             dob: string;
             dob_estimated?: boolean;
@@ -3213,17 +3213,14 @@ export interface components {
             management_stage: string;
             /** @description The row's breed. May be empty — the census renders a blank breed as its own row, and correcting exactly those animals is the commonest reason to use this. */
             breed: string;
-            /**
-             * @description The row's sex. Part of the predicate, not something this call changes unless field=sex.
-             * @enum {string}
-             */
-            sex: "female" | "male";
+            /** @description The row's gender code, as stored. Part of the predicate, not something this call changes unless field=sex. */
+            sex: string;
             /**
              * @description Which column to correct. One field per command, so one audit row states one decision.
              * @enum {string}
              */
             field: "breed" | "sex";
-            /** @description The corrected value. Validated against the tenant's active breed catalog for `breed`, and against female/male for `sex`. A value equal to what the row already carries is rejected rather than written. */
+            /** @description The corrected value. Validated against the tenant's active breed catalog for `breed`, and against the tenant's active Configuration genders for `sex`. A value equal to what the row already carries is rejected rather than written. */
             value: string;
             /** @description Required on commit, ignored on preview. This write has no approval step and no proof behind it, so the reason is the account of why the register was changed. */
             reason?: string;
@@ -3916,10 +3913,10 @@ export interface components {
             goat_id?: string | null;
             animal_identifier_1: string | null;
             animal_identifier_2?: string | null;
-            /** @enum {string} */
-            species: "goat" | "sheep";
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             selection_state?: components["schemas"]["ProcurementSelectionState"];
             selection_reason?: string;
             purpose?: components["schemas"]["ProcurementPurpose"];
@@ -5569,6 +5566,8 @@ export interface components {
             importable?: boolean;
             /** @description A sheet adds rows only; the id column is not offered. */
             import_create_only?: boolean;
+            /** @description The register keeps no row version (Partitions); its sheet carries 0 and an update from it is applied without a version fence. */
+            unversioned?: boolean;
             /** @description The column a row's display is taken from when it is not name/label. */
             display_column?: string;
             filters?: string[];

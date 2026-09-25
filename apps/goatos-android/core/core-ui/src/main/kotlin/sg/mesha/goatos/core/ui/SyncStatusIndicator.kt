@@ -41,6 +41,13 @@ fun SyncStatusIndicator(
     hasData: Boolean,
     isOffline: Boolean = false,
     modifier: Modifier = Modifier,
+    /**
+     * The screen's own words for "the last refresh did not reach the server, so what you see is
+     * the saved copy" ("Couldn't refresh · showing saved tasks"). Null when the last refresh
+     * succeeded. Outranked only by [isRefreshing]: a screen must never read "Up to date" over a
+     * refresh that just failed.
+     */
+    refreshFailedLabel: String? = null,
     nowMillis: () -> Long = { System.currentTimeMillis() },
 ) {
     // Nothing cached yet: the screen's own loading/empty/error state owns this moment, so a
@@ -53,6 +60,10 @@ fun SyncStatusIndicator(
         isRefreshing -> {
             tint = MeshaColors.Muted
             label = "Syncing…"
+        }
+        refreshFailedLabel != null -> {
+            tint = MeshaColors.Warn
+            label = refreshFailedLabel
         }
         isOffline -> {
             tint = MeshaColors.Warn
@@ -73,7 +84,7 @@ fun SyncStatusIndicator(
             )
         } else {
             Icon(
-                imageVector = if (isOffline) MeshaIcons.Warn else MeshaIcons.Clock,
+                imageVector = if (isOffline || refreshFailedLabel != null) MeshaIcons.Warn else MeshaIcons.Clock,
                 contentDescription = null,
                 tint = tint,
                 modifier = Modifier.size(MeshaDimens.iconSm - 3.dp),

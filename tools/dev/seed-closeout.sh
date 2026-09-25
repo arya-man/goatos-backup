@@ -155,6 +155,25 @@ SELECT count(*) FROM upserted;
 SQL
 }
 
+# Pen types (migration 000437): the farm's classification of each pen (elevated, non-elevated, ...)
+# is authored on Configuration, and a reseed creates pens AFTER migrations have run, so without
+# this every reseeded pen would come back unclassified. fixtures/pen-types/pen-type-map.sql is the
+# last known copy of that answer (read from goatos-stg). It fills only pens with NO type, so it
+# never overwrites a choice the farm made on screen, and it is safe to re-run.
+apply_pen_type_map() {
+  local map="$repo/fixtures/pen-types/pen-type-map.sql"
+  echo "==> seed-closeout: apply pen type map"
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f fixtures/pen-types/pen-type-map.sql\n'
+    return
+  fi
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "seed-closeout: DATABASE_URL is required to apply the pen type map" >&2
+    exit 2
+  fi
+  psql "$DATABASE_URL" -qAt -v ON_ERROR_STOP=1 -f "$map" >/dev/null
+}
+
 run_goat_shed_integrity_proof() {
   echo "==> seed-closeout: goat-shed-integrity proof"
   if [ "$dry_run" -eq 1 ]; then
@@ -470,6 +489,21 @@ assert_reminder_audience_resolves() {
   fi
 }
 
+# Trigger-maintained summaries (migrations 000431, 000433): verification_review_item_watch is
+# derived from verification_review_events, and feed_direction_issue_{pens,items,tag_items,
+# session_items} from feed_direction_issue_rows. The triggers keep them in step on every write;
+# this re-derives them per tenant from the canonical rows so a seed that bypassed or disabled
+# triggers (COPY with session_replication_role, restores) cannot leave them stale.
+run_derived_summary_rebuilds() {
+  echo "==> seed-closeout: rebuild trigger-maintained summaries (000431 watch, 000433 feed issues)"
+  local sql="SELECT public.verification_review_item_watch_rebuild('${tenant_id}'::uuid); SELECT public.feed_direction_issue_summaries_rebuild('${tenant_id}'::uuid);"
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    psql "$DATABASE_URL" -c "%s"\n' "$sql"
+    return
+  fi
+  psql "$DATABASE_URL" -qAt -v ON_ERROR_STOP=1 -1 -c "$sql" >/dev/null
+}
+
 run_calendar_projectors() {
   if [ "${GOATOS_SEED_CLOSEOUT_RUN_CALENDAR:-1}" = "0" ]; then
     echo "==> seed-closeout: skip calendar projectors (GOATOS_SEED_CLOSEOUT_RUN_CALENDAR=0)"
@@ -503,8 +537,10 @@ fi
 # (identity.resolveDestinationTag). Derive it from canonical goats/locations BEFORE the shifting and
 # vaccination proofs, so a shed a movement targets already has an active configured profile.
 run_go_cmd seed-shed-profiles -tenant-id "$tenant_id"
+apply_pen_type_map
 run_goat_shed_integrity_proof
 run_required_projectors
+run_derived_summary_rebuilds
 run_herd_signals_projections
 run_vaccination_drive_batching
 run_expected_drive_schedule_proof

@@ -61,6 +61,15 @@ class LeadershipTaskListViewModel @Inject constructor(
     private val scope = MutableStateFlow(Scope())
     private val _isRefreshing = MutableStateFlow(false)
 
+    /**
+     * The refresh outcome, driven by the pager's own REFRESH LoadState (the host forwards it
+     * through [onRowsLoading] / [onRowsLoaded] / [onRowsLoadFailed]). The spinner used to be set
+     * and cleared in the same frame, so it never spun, and the header read "Up to date" over a
+     * refresh that had just failed offline.
+     */
+    private val _lastSyncedAt = MutableStateFlow<Long?>(null)
+    private val _refreshFailed = MutableStateFlow(false)
+
     init {
         // The page facts land once per list refresh; each landing means the backend just counted
         // the caller's unseen tasks, so the drawer/bar badge is re-read to match. `drop(1)` skips
@@ -81,7 +90,9 @@ class LeadershipTaskListViewModel @Inject constructor(
         _isRefreshing,
         scope,
         repository.pageMeta,
-    ) { refreshing, current, meta ->
+        _lastSyncedAt,
+        _refreshFailed,
+    ) { refreshing, current, meta, lastSyncedAt, refreshFailed ->
         val selectedChip = meta.filters.firstOrNull { chip ->
             if (current.filter.isBlank()) chip.selected else chip.key == current.filter
         }
@@ -92,6 +103,11 @@ class LeadershipTaskListViewModel @Inject constructor(
             // The backend's own page title once a page has landed; the nav label until then.
             title = meta.title.ifBlank { current.fallbackTitle },
             isRefreshing = refreshing,
+            lastSyncedAt = lastSyncedAt,
+            refreshFailed = refreshFailed && !refreshing,
+            // With nothing cached this is what the screen shows instead of a blank page — it needs
+            // no page facts (title/chips), which only a successful refresh brings.
+            isErrorEmpty = refreshFailed && !refreshing,
             emptyMessage = if (current.filter.isBlank()) {
                 selectedScope?.emptyMessage?.takeIf { it.isNotBlank() }
             } else {
@@ -155,6 +171,8 @@ class LeadershipTaskListViewModel @Inject constructor(
 
     /** Paging surfaced a load failure. The cached rows keep serving; this only reports it. */
     fun onRowsLoadFailed(error: Throwable) {
+        _isRefreshing.value = false
+        _refreshFailed.value = true
         crashReporter.recordException(error, "leadership task list page load failed")
         analytics.track(
             AnalyticsEventsLeadershipTasks.FAILURE,
@@ -162,17 +180,29 @@ class LeadershipTaskListViewModel @Inject constructor(
         )
     }
 
-    /** Non-blocking by contract: a failure leaves the cached rows on screen. */
+    /** The pager started (re)loading its first page: the spinner turns. */
+    fun onRowsLoading() {
+        _isRefreshing.value = true
+    }
+
+    /** The pager's refresh settled: the spinner stops and the saved copy is fresh again. */
+    fun onRowsLoaded() {
+        if (_isRefreshing.value || _refreshFailed.value) _lastSyncedAt.value = System.currentTimeMillis()
+        _isRefreshing.value = false
+        _refreshFailed.value = false
+    }
+
+    /**
+     * Non-blocking by contract: a failure leaves the cached rows on screen. The spinner turns now
+     * and stops only when the pager reports the refresh settled ([onRowsLoaded] /
+     * [onRowsLoadFailed]) — never in the same frame it started.
+     */
     private fun refresh() {
+        _isRefreshing.value = true
         viewModelScope.launch {
-            _isRefreshing.value = true
-            try {
-                // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
-                runCatching { repository.invalidateTasks(scope.value.taskScope, scope.value.filter) }
-                scope.value = scope.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
-            } finally {
-                _isRefreshing.value = false
-            }
+            // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
+            runCatching { repository.invalidateTasks(scope.value.taskScope, scope.value.filter) }
+            scope.value = scope.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
         }
     }
 

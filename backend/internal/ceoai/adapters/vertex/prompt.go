@@ -65,7 +65,7 @@ func buildPlanPrompt(q domain.Question, mem []domain.ResolvedEntities, catalog [
 		"To break a metric down by a dimension (e.g. goats vs sheep), set that param as a group-by via \"group_by\" " +
 		"(e.g. \"group_by\":\"species\") or as an equality filter (e.g. \"species\":\"goat\"). " +
 		"Never claim a supported param is unavailable, and never invent a param a tool does not list.")
-	sb.WriteString(sqlFallbackBlock(q.Actor.TenantID, windowHint(q)))
+	sb.WriteString(sqlFallbackBlock(q.Actor.TenantID, windowHint(q), q.Parks))
 	if len(mem) > 0 {
 		last := mem[len(mem)-1]
 		sb.WriteString(fmt.Sprintf("\nPrior turn context (for pronoun follow-ups): park=%q shed=%q metric=%q\n", last.ParkLabel, last.ShedLabel, last.Metric))
@@ -90,7 +90,7 @@ Example — "why are we behind on vaccination today" decomposes into shed + oper
 // every ceo_ai.* view the guard allows is described once — purpose, grain,
 // date column, column list — so the model drafts against real columns instead
 // of guessing. The tenant literal and LIMIT <= 100 rules are unchanged.
-func sqlFallbackBlock(tenantID, window string) string {
+func sqlFallbackBlock(tenantID, window string, parks []domain.ParkRef) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf(`
 
@@ -100,11 +100,10 @@ The SQL is only a DRAFT. The server will validate it with sqlguard and run it th
 - Always include WHERE tenant_id = %q and a LIMIT <= 100.
 - Prefer aggregate answers with count(*) grouped by the user's requested dimension. Use only columns the card lists; never invent a column.
 - Living/current herd questions on ceo_ai.animal_current_scope must include lifecycle_status = 'alive'.
-- Known park mappings: CPT/Channapatna park_id '00000000-0000-4000-8000-000000003002'; CBE/Coimbatore park_id '00000000-0000-4000-8000-000000003001'.
-- Return SQL columns as label, value, scope when possible; e.g. SELECT 'Active animals by breed' AS label, CAST(count(*) AS text) AS value, breed AS scope ...
+%s- Return SQL columns as label, value, scope when possible; e.g. SELECT 'Active animals by breed' AS label, CAST(count(*) AS text) AS value, breed AS scope ...
 - PERIODS: when the question names a period, pick a view WITH a date_col and bind the server-resolved window EXACTLY as <date_col> >= '<from>' AND <date_col> < '<to_exclusive>' (half-open, ISO dates). A view marked current-state has no period: answer as of now and say so.
 - FUNCTIONS: only these may be called (any other function is rejected): %s. Cast with CAST(x AS text) or x::text; use date_part('year', col), never EXTRACT(... FROM ...); use BETWEEN only on non-date columns.
-`, tenantID, strings.Join(sqlguard.AllowedFunctions(), ", ")))
+`, tenantID, parkMappingLine(parks), strings.Join(sqlguard.AllowedFunctions(), ", ")))
 	if window != "" {
 		sb.WriteString(window)
 	}
@@ -209,4 +208,25 @@ func extractJSON(raw string) string {
 		return raw[start : end+1]
 	}
 	return raw
+}
+
+// parkMappingLine names the tenant's ACTIVE parks for the SQL drafter, from the live list attached
+// to the question (Configuration > Items & settings > Parks). It used to be a constant CBE/CPT
+// line, so the model could not scope a question to any park added after those two.
+func parkMappingLine(parks []domain.ParkRef) string {
+	parts := make([]string, 0, len(parks))
+	for _, p := range parks {
+		if p.ID == "" {
+			continue
+		}
+		name := p.Name
+		if p.Code != "" && p.Code != p.Name {
+			name = p.Code + "/" + p.Name
+		}
+		parts = append(parts, fmt.Sprintf("%s park_id '%s'", name, p.ID))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "- Known park mappings: " + strings.Join(parts, "; ") + ".\n"
 }

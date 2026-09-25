@@ -1,9 +1,11 @@
 package http
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
@@ -214,16 +216,44 @@ func nonNilStrings(in []string) []string {
 
 type appBirthBreedsResponse struct {
 	Breeds []appBirthBreedOption `json:"breeds"`
+	// Species and Sexes are the tenant's active Configuration lists (OPEN UP TO NEW SPECIES,
+	// maintainer decision 2026-09-25) in the lists' own order: the birth form's species and sex
+	// pickers, labelled by the farm's own names. Additive -- an older APK ignores them and keeps its
+	// goat/sheep, female/male choices, which the write still accepts.
+	Species []appBirthVocabularyOption `json:"species"`
+	Sexes   []appBirthVocabularyOption `json:"sexes"`
+}
+
+type appBirthVocabularyOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// animalVocabularyReader is the optional slice of counts/app.Service that serves the birth form's
+// species and sex pickers; a recorder that lacks it (a unit-test fake) serves the built-ins.
+type animalVocabularyReader interface {
+	AnimalVocabulary(ctx context.Context, tenantID string) (animalvocab.Vocabulary, error)
+}
+
+func birthVocabularyOptions(entries []animalvocab.Entry) []appBirthVocabularyOption {
+	out := make([]appBirthVocabularyOption, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, appBirthVocabularyOption{Key: e.Code, Label: e.Name})
+	}
+	return out
 }
 
 type appBirthBreedOption struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
-	Count int64  `json:"count"`
+	// Species is the breed's species code from the breed register, so the phone offers only the
+	// chosen species' breeds. Blank for a herd breed the register does not know.
+	Species string `json:"species"`
+	Count   int64  `json:"count"`
 }
 
-// ListBirthBreeds returns the breeds present on the tenant's live herd, most-common first, for the
-// operator birth form's breed picker.
+// ListBirthBreeds returns every breed an operator may give a newborn -- the Configuration breed
+// register plus any breed the live herd carries -- most-carried first, for the birth form's picker.
 func (h *AppWriteHandler) ListBirthBreeds(w http.ResponseWriter, r *http.Request) {
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {
@@ -240,8 +270,22 @@ func (h *AppWriteHandler) ListBirthBreeds(w http.ResponseWriter, r *http.Request
 	// Non-nil slice so an empty herd serializes as {"breeds":[]}, never JSON null.
 	breeds := make([]appBirthBreedOption, 0, len(points))
 	for _, point := range points {
-		breeds = append(breeds, appBirthBreedOption{Key: point.Key, Label: point.Label, Count: point.Count})
+		breeds = append(breeds, appBirthBreedOption{Key: point.Key, Label: point.Label, Species: point.Species, Count: point.Count})
 	}
 
-	httpresponse.WriteJSON(w, http.StatusOK, appBirthBreedsResponse{Breeds: breeds})
+	vocab := animalvocab.Builtins()
+	if reader, ok := h.shifting.(animalVocabularyReader); ok {
+		v, err := reader.AnimalVocabulary(r.Context(), tenantID)
+		if err != nil {
+			h.writeCountsError(w, r, err)
+			return
+		}
+		vocab = v
+	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, appBirthBreedsResponse{
+		Breeds:  breeds,
+		Species: birthVocabularyOptions(vocab.Species),
+		Sexes:   birthVocabularyOptions(vocab.Sexes),
+	})
 }

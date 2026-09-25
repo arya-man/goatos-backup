@@ -299,6 +299,35 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
 
   // ---------- general text-over-text overlap + cut-off (fixed false positives) ----------
   {
+    // A text run's Range rect spans its WHOLE text, including what an ancestor with overflow other
+    // than visible clips away (an ellipsised card line): only the painted part can overlap anything,
+    // so each rect is cut to every clipping ancestor first. Without this a "…"-shortened line was
+    // reported as drawn over the card beside it (Work Board, 2026-09-25).
+    const clipToAncestors = (el, rect) => {
+      let left = rect.left, top = rect.top, right = rect.right, bottom = rect.bottom;
+      for (let a = el; a && a !== document.documentElement; a = a.parentElement) {
+        const cs = getComputedStyle(a);
+        if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+        const c = a.getBoundingClientRect();
+        left = Math.max(left, c.left); top = Math.max(top, c.top); right = Math.min(right, c.right); bottom = Math.min(bottom, c.bottom);
+      }
+      return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+    };
+    // An open menu, listbox or dialog paints OVER the page on purpose: text it covers is hidden
+    // beneath it, not drawn over. Such a pair is skipped only when the element actually on top at
+    // the overlap belongs to the overlay holding one text and the other text sits outside it.
+    const overlayOf = (el) => el.closest("[role=menu],[role=listbox],[role=dialog]");
+    const coveredByOverlay = (a, b) => {
+      const x = (Math.max(a.rect.left, b.rect.left) + Math.min(a.rect.right, b.rect.right)) / 2;
+      const y = (Math.max(a.rect.top, b.rect.top) + Math.min(a.rect.bottom, b.rect.bottom)) / 2;
+      const top = document.elementFromPoint(x, y);
+      if (!top) return false;
+      for (const [over, under] of [[a.el, b.el], [b.el, a.el]]) {
+        const layer = overlayOf(over);
+        if (layer && layer.contains(top) && !layer.contains(under)) return true;
+      }
+      return false;
+    };
     const boxes = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node && boxes.length < 1500; node = walker.nextNode()) {
@@ -306,7 +335,8 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
       if (!el || !node.textContent.trim() || el.closest("svg") || hidden(el)) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
-      for (const rect of range.getClientRects()) {
+      for (const raw of range.getClientRects()) {
+        const rect = clipToAncestors(el, raw);
         if (rect.width < 2 || rect.height < 2) continue;
         const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
         if (cx < 0 || cy < 0 || cx >= innerWidth || cy >= innerHeight) continue; // only what elementFromPoint can confirm
@@ -321,6 +351,7 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
         const o = inter(a.rect, b.rect);
         const smaller = Math.min(a.rect.width * a.rect.height, b.rect.width * b.rect.height);
         if (o > 12 && o / smaller > 0.25) {
+          if (coveredByOverlay(a, b)) continue;
           add("text-overlap", a.el, `overlaps ${describe(b.el)}`);
           b.el.setAttribute("data-smoke-issue", "text-overlap");
           if (found.length >= limit) break outer;

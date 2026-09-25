@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,48 @@ func WithPageLanePrefetch(ctx context.Context, queries []domain.Query) context.C
 	return context.WithValue(ctx, lanePrefetchContextKey{}, intents)
 }
 
+// sourceCountsKey stores, for the rest of the request, what the summary counted for one source:
+// its per-state counts and the state filter they were counted under.
+type sourceCountsKey struct {
+	service                  *Service
+	sourceIndex              int
+	tenant, park, day, owner string
+}
+
+type sourceCounts struct {
+	counts map[domain.WorkState]int
+	// states is the summary's own state filter; empty means every state was counted.
+	states []domain.WorkState
+}
+
+// seedSourceCounts records a source's summary counts so a lane read in the same request can
+// skip a source the summary already found empty for that lane.
+func (s *Service) seedSourceCounts(ctx context.Context, index int, q domain.Query, counts map[domain.WorkState]int) {
+	ports.SeedRequestRead(ctx, sourceCountsKey{s, index, q.TenantID, q.ParkID, q.BusinessDate, q.OwnerUserID}, sourceCounts{counts: counts, states: q.WorkStates})
+}
+
+// knownEmpty reports whether the summary of THIS request already counted the source as having
+// no row in any of the query's states. Only a first page qualifies, and only when every state
+// the lane asks for was one the summary counted -- otherwise the source is read as before.
+func (s *Service) knownEmpty(ctx context.Context, index int, query ports.SourceQuery) bool {
+	if query.AfterSourceID != "" || len(query.WorkStates) == 0 {
+		return false
+	}
+	known, ok := ports.PeekRequestRead[sourceCounts](ctx, sourceCountsKey{s, index, query.TenantID, query.ParkID, query.BusinessDate, query.OwnerUserID})
+	if !ok || known.counts == nil {
+		return false
+	}
+	for _, state := range query.WorkStates {
+		if len(known.states) > 0 && !slices.Contains(known.states, state) {
+			return false
+		}
+		if known.counts[state] > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 type sourceRowsKey struct {
 	service                                 *Service
 	sourceIndex                             int
@@ -42,6 +85,12 @@ func (s *Service) sourceRows(ctx context.Context, index int, src ports.Source, q
 	states := make([]string, len(query.WorkStates))
 	for i, state := range query.WorkStates {
 		states[i] = string(state)
+	}
+	if s.knownEmpty(ctx, index, query) {
+		// The summary counted this source empty for every state the lane asks for: nothing to
+		// read. Without this a module sharing a lane with a populated module (the engine
+		// workflows beside approvals under Counts) cost one round trip per empty source.
+		return []domain.Row{}, nil
 	}
 	key := sourceRowsKey{s, index, query.TenantID, query.ParkID, query.BusinessDate, query.OwnerUserID, strings.Join(states, "\x00"), query.AfterSourceID, query.Limit}
 	return ports.RequestRead(ctx, key, func(ctx context.Context) ([]domain.Row, error) {

@@ -48,6 +48,7 @@ func NewWorkflowConsumerService(pool *pgxpool.Pool, timeout time.Duration, log *
 //
 //	counts.death.reported                 -> open the staged death-video workflow
 //	counts.death.rejected                 -> cancel staged work; goat remains alive
+//	counts.birth.rejected                 -> cancel the litter's kid + mother workflows, withdraw their pending step items
 //	goat.created (origin_type=birth)      -> open birth_kid (+ shared birth_mother) workflows
 //	goat.exited (exit_reason=died)        -> release approved death evidence to Verify
 //	RFID promotion stays identity-owned; Tag the kid completes only with its task video
@@ -63,6 +64,7 @@ func RegisterWorkflowConsumers(bus eventbus.Bus, svc *tasksapp.Service, log *slo
 	_ = log
 	tasksapp.NewCountsDeathReportedHandler(svc).Register(bus)
 	tasksapp.NewCountsDeathRejectedHandler(svc).Register(bus)
+	tasksapp.NewCountsBirthRejectedHandler(svc).Register(bus)
 	tasksapp.NewGoatCreatedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewGoatExitedWorkflowHandler(svc).Register(bus)
 	tasksapp.NewIdentifierAddedWorkflowHandler(svc).Register(bus)
@@ -100,11 +102,19 @@ type CaptureReviewStore interface {
 //
 //	counts.birth.reported                  -> one birth_evidence item per form proof slot (ref_type birth_capture)
 //	verification.verdict.approved/.rework  -> that slot's review (+ rollup) on the approval row
+//	counts.birth.rejected                  -> withdraw the report's still-pending capture items
 //
 // engine (the tasks service) appends the re-shoot steps a rejection asks for (decision 5).
 func RegisterCountsCaptureConsumers(bus eventbus.Bus, enqueuer countsapp.BirthCaptureVerificationEnqueuer, store CaptureReviewStore, engine countsapp.CaptureReshootEngine) {
 	countsapp.NewBirthReportedVerificationHandler(enqueuer, nil).Register(bus)
 	countsapp.NewBirthCaptureVerdictHandler(store, nil).WithReshootEngine(engine).Register(bus)
+	// A rejected birth withdraws its report's still-pending capture items (2026-09-25). The same
+	// bridge that enqueues them withdraws them; a composition without the seam fails loudly.
+	var withdrawer countsapp.BirthCaptureVerificationWithdrawer
+	if w, ok := enqueuer.(countsapp.BirthCaptureVerificationWithdrawer); ok {
+		withdrawer = w
+	}
+	countsapp.NewBirthRejectedCaptureWithdrawHandler(withdrawer).Register(bus)
 }
 
 // NewCountsCaptureStores builds the durable-bus seams for RegisterCountsCaptureConsumers from a

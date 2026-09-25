@@ -139,3 +139,16 @@ func TestListTransportCarriesTheOverdueFilterAndItsChipCount(t *testing.T) {
 
 // compile-time proof the spy satisfies the transport's Service seam without the real service.
 var _ Service = (*listSpyService)(nil)
+
+// TestListTransportForwardsTheRawFilterKey pins that the transport hands the service the key the
+// client SENT. Normalising it here first (FilterKeyOrDefault) turned filter=bogus into "all"
+// before the service's unknown-key refusal could see it, so the refusal never fired (2026-09-25).
+func TestListTransportForwardsTheRawFilterKey(t *testing.T) {
+	spy := &listSpyService{page: ports.Page{StatusCounts: map[string]int{}, ScopeCounts: map[string]int{}}}
+	h := NewHandler(spy, nil)
+	rec := httptest.NewRecorder()
+	h.ListTasks(rec, listRequest("filter=bogus"))
+	if spy.got.FilterKey != "bogus" {
+		t.Fatalf("filter key reaching the service = %q, want the raw %q", spy.got.FilterKey, "bogus")
+	}
+}

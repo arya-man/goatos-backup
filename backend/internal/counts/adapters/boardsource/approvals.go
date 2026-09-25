@@ -53,7 +53,10 @@ func (s *ApprovalsSource) SourceType() string    { return ApprovalsSourceType }
 // approvalWorkStateSQL is the one place an approval request becomes a board work state.
 //
 //	pending  -> due       (awaiting the approver pool)
-//	rejected -> rejected  (turned down; the raiser is told why)
+//	rejected -> off the board (approvalBaseWhere): a turned-down request owes no work, so it
+//	            leaves like a canceled move (maintainer 2026-09-25: "once it's rejected that
+//	            action should also be gone"). It used to sit In progress as unclaimed pool work,
+//	            which every operator's board showed.
 //	approved birth / death -> completed (the decision IS the effect; it commits with it)
 //	approved PEN MOVE follows its shifting event, because approving a move AUTHORIZES it and
 //	MOVES NOTHING (maintainer decision 2026-07-19; the relocation runs at COMPLETION):
@@ -68,7 +71,6 @@ func (s *ApprovalsSource) SourceType() string    { return ApprovalsSourceType }
 // (live E2E 2026-09-11).
 const approvalWorkStateSQL = `CASE
   WHEN a.status = 'pending' THEN 'due'
-  WHEN a.status = 'rejected' THEN 'rejected'
   WHEN a.request_type <> 'shifting' THEN 'completed'
   WHEN se.event_status = 'applied' THEN 'completed'
   WHEN se.event_status = 'pending_verification' THEN 'verification_pending'
@@ -124,9 +126,10 @@ const uuidTextRe = `'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // own board lists what they raised, because it is their work in flight -- a pen move they
 // raised comes back to them to walk once it is authorized, and a birth they raised is theirs
 // until it is decided (live E2E 2026-09-11: an operator's board hid the move they owed).
+// scale-guard:plan-proof-exempt: only the status list narrows ('rejected' leaves the board); the page is still driven by counts_approval_requests_status_queue_idx (tenant_id, status, request_type, raised_at) and goats is still read only by its (tenant_id, goat_id) key.
 const approvalBaseWhere = `
   a.tenant_id = $1::uuid
-  AND a.status = ANY(ARRAY['pending','approved','rejected'])
+  AND a.status = ANY(ARRAY['pending','approved'])
   AND a.request_type = ANY(ARRAY['birth','shifting','death'])
   AND a.raised_at >= $3::timestamptz AND a.raised_at < $4::timestamptz
   AND NOT (a.request_type = 'shifting' AND a.status = 'approved' AND se.event_status = 'canceled')

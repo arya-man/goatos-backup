@@ -59,8 +59,8 @@ func (s codeLookupStore) options(ctx context.Context, q querier, t string) ([]po
 func (s codeLookupStore) usage(ctx context.Context, q querier, t, id string) (domain.Usage, error) {
 	checks := []usageCheck{{"animals", fmt.Sprintf(`SELECT count(*) FROM goats WHERE tenant_id = $1 AND %s = $2 AND lifecycle_status = 'alive'`, s.goatCol)}}
 	if s.breedCol != "" {
-		// breeds is not tenant-scoped: its species column is the code alone.
-		checks = append(checks, usageCheck{"breeds", fmt.Sprintf(`SELECT count(*) FROM breeds WHERE %s = $2 AND status = 'active' AND $1::uuid IS NOT NULL`, s.breedCol)})
+		// A farm's breeds name their species by its code (breeds are per farm since 000442).
+		checks = append(checks, usageCheck{"breeds", fmt.Sprintf(`SELECT count(*) FROM breeds WHERE tenant_id = $1 AND %s = $2 AND status = 'active'`, s.breedCol)})
 	}
 	return usageOf(ctx, q, t, id, checks...)
 }
@@ -352,9 +352,9 @@ func (roleStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error
 }
 
 // ---------------------------------------------------------------------------------------------
-// Breeds: the product-wide breeds table (no tenant column; $1 consumed so the wrapper lines up).
-// A breed is keyed by (species, canonical_name); goats name it by breed_id and by the text
-// column, so usage counts both.
+// Breeds: each farm's own list (breeds.tenant_id, migration 000442), edited here like any other
+// register. A breed is keyed by (tenant, species, canonical_name); goats name it by breed_id and by
+// the text column, so usage counts both.
 
 type breedStore struct{}
 
@@ -372,7 +372,7 @@ SELECT b.breed_id::text AS id,
        b.species || ' ' || lower(b.canonical_name) AS sort_key
 FROM breeds b
 LEFT JOIN species_lookup sl ON sl.tenant_id = $1::uuid AND sl.species_code = b.species
-WHERE $1::uuid IS NOT NULL`
+WHERE b.tenant_id = $1::uuid`
 
 func (breedStore) count(ctx context.Context, q querier, t string) (int, error) {
 	return breedProjection.count(ctx, q, t)
@@ -406,7 +406,7 @@ func (breedStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]
 		return "", err
 	}
 	var id string
-	if err := tx.QueryRow(ctx, sqlBreedInsert, species, domain.FieldString(f, "name"), nullText(f, "notes")).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, sqlBreedInsert, t, species, domain.FieldString(f, "name"), nullText(f, "notes")).Scan(&id); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return "", &ports.DuplicateError{Field: "name", Message: "That species already has a breed with this name."}
@@ -441,7 +441,18 @@ func (breedStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[str
 	if set == "" {
 		return "", nil
 	}
-	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE breeds SET %s, updated_at = now() WHERE breed_id = $1::uuid`, set), append([]any{id}, args...)...)
+	// The name before the rename: animals registered with the breed typed as text (no breed_id)
+	// carry that old name and must follow the rename too.
+	var oldName string
+	if sent(f, "name") {
+		if err := tx.QueryRow(ctx, sqlBreedName, t, id).Scan(&oldName); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", ports.ErrNotFound
+			}
+			return "", err
+		}
+	}
+	q, err := sqlbind.Bind(fmt.Sprintf(`UPDATE breeds SET %s, updated_at = now() WHERE breed_id = $1::uuid AND tenant_id = $%d::uuid`, set, len(args)+2), append(append([]any{id}, args...), t)...)
 	if err != nil {
 		return "", err
 	}
@@ -458,7 +469,7 @@ func (breedStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[str
 	}
 	if sent(f, "name") {
 		// goats.breed carries the name as text beside breed_id; keep them agreeing.
-		if _, err := tx.Exec(ctx, sqlBreedRenameGoats, t, id, domain.FieldString(f, "name")); err != nil {
+		if _, err := tx.Exec(ctx, sqlBreedRenameGoats, t, id, domain.FieldString(f, "name"), oldName); err != nil {
 			return "", err
 		}
 	}
@@ -473,7 +484,7 @@ func (breedStore) setStatus(ctx context.Context, tx pgx.Tx, t, id, status string
 	if status == domain.StatusActive {
 		dbStatus = "active"
 	}
-	tag, err := tx.Exec(ctx, `UPDATE breeds SET status = $2, updated_at = now() WHERE breed_id = $1::uuid`, id, dbStatus)
+	tag, err := tx.Exec(ctx, `UPDATE breeds SET status = $2, updated_at = now() WHERE breed_id = $1::uuid AND tenant_id = $3::uuid`, id, dbStatus, t)
 	if err != nil {
 		return err
 	}
@@ -487,10 +498,10 @@ func (breedStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) erro
 	if !isUUID(id) {
 		return ports.ErrNotFound
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM breed_aliases WHERE breed_id = $1::uuid`, id); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM breed_aliases WHERE breed_id = $1::uuid AND tenant_id = $2::uuid`, id, t); err != nil {
 		return err
 	}
-	tag, err := tx.Exec(ctx, `DELETE FROM breeds WHERE breed_id = $1::uuid`, id)
+	tag, err := tx.Exec(ctx, `DELETE FROM breeds WHERE breed_id = $1::uuid AND tenant_id = $2::uuid`, id, t)
 	if err != nil {
 		return mapWriteError(err)
 	}
@@ -505,8 +516,10 @@ const (
 	sqlBreedUsage = `
 SELECT count(*) FROM goats g
 WHERE g.tenant_id = $1 AND g.lifecycle_status = 'alive'
-  AND (g.breed_id = $2::uuid OR lower(g.breed) = lower((SELECT canonical_name FROM breeds WHERE breed_id = $2::uuid)))`
+  AND (g.breed_id = $2::uuid OR lower(g.breed) = lower((SELECT canonical_name FROM breeds WHERE breed_id = $2::uuid AND tenant_id = $1::uuid)))`
 	sqlBreedSpeciesExists = `SELECT 1 FROM species_lookup WHERE tenant_id = $1 AND species_code = $2 AND status = 'active'`
-	sqlBreedInsert        = `INSERT INTO breeds (species, canonical_name, status, review_notes) VALUES ($1, $2, 'active', $3) RETURNING breed_id::text`
-	sqlBreedRenameGoats   = `UPDATE goats SET breed = $3 WHERE tenant_id = $1 AND breed_id = $2::uuid`
+	// scale-guard:plan-proof-exempt: breeds is a per-farm catalogue of tens of rows; the goats statements here (usage count, rename) are rare Configuration writes/deletes already scoped to (tenant_id, breed_id) and only gain a tenant_id equality -- no serving read's access path changes.
+	sqlBreedInsert      = `INSERT INTO breeds (tenant_id, species, canonical_name, status, review_notes) VALUES ($1, $2, $3, 'active', $4) RETURNING breed_id::text`
+	sqlBreedName        = `SELECT canonical_name FROM breeds WHERE tenant_id = $1 AND breed_id = $2::uuid`
+	sqlBreedRenameGoats = `UPDATE goats SET breed = $3 WHERE tenant_id = $1 AND (breed_id = $2::uuid OR (breed_id IS NULL AND lower(btrim(breed)) = lower(btrim($4))))`
 )

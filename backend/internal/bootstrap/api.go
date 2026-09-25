@@ -138,6 +138,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	piboard "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/boardsource"
+	tasksboard "github.com/vgoats/goatos/backend/internal/tasks/adapters/boardsource"
+	toxinboard "github.com/vgoats/goatos/backend/internal/toxin/adapters/boardsource"
 	toxinhttp "github.com/vgoats/goatos/backend/internal/toxin/adapters/http"
 	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
 	toxinproof "github.com/vgoats/goatos/backend/internal/toxin/adapters/proof"
@@ -438,6 +440,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 
 	pgCfg := cfg.Postgres
 	pgCfg.ApplicationName = platformpg.ServiceApplicationName("api")
+	// New pooled connections are warmed in the background (heavy reads prepared / planned once per
+	// connection off the request path); statements are registered and the loop started below.
+	connWarmer := platformpg.NewConnWarmer(log)
+	pgCfg.Warmer = connWarmer
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
 		return nil, err
@@ -657,6 +663,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
+		WithOperatorShiftWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
 	weighingRepo := weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr)).
@@ -692,7 +699,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithFacetCache(countsReadCache)
 	countsService := countsapp.NewService(countsRepo)
 	countsProofValidator := countsproof.NewValidator(proofRepo)
-	// The cause-of-death vocabulary: the diagnosis register, folded once into a searchable
+	// The cause-of-death vocabulary: the diagnosis register plus the tenant's Health Config
+	// diseases (wired below, once the Health repository exists), folded into a searchable
 	// list. It is the death form's dropdown AND the check that refuses a cause the register
 	// does not name — one source, so the list an operator picks from and the list the
 	// server accepts cannot drift apart. Built here, ahead of Health's own wiring below,
@@ -733,7 +741,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// the same module, not a different module.
 	// The medicine picker's registry: a treatment step names an item from
 	// /configuration/items, never free text (maintainer instruction 2026-09-21).
-	healthConfigService := healthapp.NewConfigService(healthRepo).WithMedicineCatalog(healthRepo)
+	// The cause-of-death list is the built-in register PLUS what this tenant authored in
+	// Health Config (maintainer decision 2026-09-25), so it reads the same repository and
+	// drops a tenant's cached list the moment this process publishes a change to it.
+	healthDeathCauseService.WithTenantSource(healthRepo)
+	healthConfigService := healthapp.NewConfigService(healthRepo).WithMedicineCatalog(healthRepo).
+		WithRulebookChanged(healthDeathCauseService.Invalidate)
 	healthConfigHandler := healthhttp.NewConfigHandler(healthConfigService, log)
 	// The diagnosis register is the second tab of the same screen and shares its
 	// repository: one Health Config, one rulebook.
@@ -742,7 +755,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// authored -- otherwise the screen would mint types nobody could ever write for.
 	healthDiagnosisTypeService := healthapp.NewDiagnosisTypeService(healthRepo)
 	healthDiagnosisTypeHandler := healthhttp.NewDiagnosisTypeHandler(healthDiagnosisTypeService, log)
-	healthRegisterConfigService := healthapp.NewRegisterConfigService(healthRepo).WithTypes(healthRepo)
+	healthRegisterConfigService := healthapp.NewRegisterConfigService(healthRepo).WithTypes(healthRepo).
+		WithRulebookChanged(healthDeathCauseService.Invalidate)
 	healthRegisterConfigHandler := healthhttp.NewRegisterConfigHandler(healthRegisterConfigService, log)
 	// Download a type's rulebook, edit it, upload it back. The same service, because an upload
 	// lands in the ordinary draft and publishes through the ordinary gate.
@@ -981,7 +995,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	configurationImporter := configurationapp.NewImporter(configurationService, configurationRepo, identityService, "", log)
 	configurationHandler := configurationhttp.NewHandler(configurationService, log).
 		WithBulk(configurationService, configurationImporter, configurationRepo)
-	workforceService.WithModuleBadges(penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService))
+	// The Approvals module badge (2026-09-25) chains outermost: pending requests THIS caller may
+	// decide, from the same decidable types and park scope the queue applies.
+	workforceService.WithModuleBadges(countshttp.NewApprovalsBadges(
+		penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService),
+		countsApprovalService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	// The feed store is wired in so a sale taking more feed than it holds asks the desk to confirm
@@ -1301,6 +1319,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Convo:     ceoai.NewConversationStore(pool, cfg.Postgres.QueryTimeout),
 		Audit:     ceoobs.NewAuditTraceSink(ceoTraceStore),
 		Telemetry: ceoobs.NewMetrics(),
+		Parks:     ceoai.NewParkDirectory(pool, cfg.Postgres.QueryTimeout),
 		Traces:    ceoTraceStore,
 		// Thread surface backing GET/POST /ceo-ai/conversations* and the leadership
 		// starters probe GET /ceo-ai/starters (the launcher visibility gate).
@@ -1410,6 +1429,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	pressureCtx, stopPressureLogs := context.WithCancel(context.Background())
 	platformpg.LogPoolAcquirePressure(pressureCtx, pool, "main", log, 30*time.Second)
 	platformpg.LogPoolAcquirePressure(pressureCtx, authPool, "auth", log, 30*time.Second)
+	connWarmer.Register(apiConnWarmups()...)
+	connWarmer.Start(pressureCtx, pool)
 	closePools := func() {
 		stopPressureLogs()
 		authPool.Close()
@@ -1996,12 +2017,14 @@ func newWorkBoardService(pool *pgxpool.Pool, timeout time.Duration, processInteg
 
 // newWorkBoardSources is every module's board source, in registration order.
 func newWorkBoardSources(pool *pgxpool.Pool, timeout time.Duration, processIntegrityRepo *processintegritypg.Repository) []workboardports.Source {
-	return []workboardports.Source{
+	sources := []workboardports.Source{
 		weighingboard.New(pool, timeout),
 		feedboard.New(pool, timeout),
 		verificationboard.New(pool, timeout),
 		countsboard.NewApprovals(pool, timeout),
 		countsboard.NewMilkFeeding(pool, timeout),
+		// Milk preparation is its own task, the day before the feeding (maintainer, 2026-09-25).
+		countsboard.NewMilkPreparation(pool, timeout),
 		healthboard.New(pool, timeout),
 		pccareboard.New(pool, timeout),
 		// The next-day pen visit (maintainer decision 2026-09-14) rows on the day it is due
@@ -2017,5 +2040,31 @@ func newWorkBoardSources(pool *pgxpool.Pool, timeout time.Duration, processInteg
 			WithMemberResolver(piboard.NewPoolMemberResolver(pool, timeout)).
 			// The per-animal subtask drill is the source's own SQL and needs the pool.
 			WithPool(pool, timeout),
+		// Toxin (2026-09-25): every aflatoxin round a feed load owes, until it is signed off.
+		toxinboard.New(pool, timeout),
 	}
+	// EVERY workflow the shared tasks engine runs -- herd operations, the procurement intakes,
+	// the sale, general SOP runs, and any module that plugs into the engine later -- rows on the
+	// board through these, one per lane (tasks/adapters/boardsource.engineModuleLanes). A new
+	// SOP-driven module is on the board without a line here.
+	for _, src := range tasksboard.Sources(pool, timeout) {
+		sources = append(sources, src)
+	}
+	return sources
+}
+
+// apiConnWarmups is every statement the API warms on a new main-pool connection
+// (platformpg.ConnWarmer), in priority order: the per-request auth reads first, then the heavy
+// canonical reads whose first plan on a fresh backend costs the most.
+func apiConnWarmups() []platformpg.ConnWarmup {
+	var all []platformpg.ConnWarmup
+	all = append(all, workforcepg.AccessConnWarmups()...)
+	all = append(all, permissionspg.ConnWarmups()...)
+	all = append(all, calendarpg.ConnWarmups()...)
+	all = append(all, vaccexecpg.ConnWarmups()...)
+	all = append(all, processintegritypg.ConnWarmups()...)
+	all = append(all, weighingpg.ConnWarmups()...)
+	all = append(all, feeddirectionpg.ConnWarmups()...)
+	all = append(all, growthdirectorpg.ConnWarmups()...)
+	return all
 }

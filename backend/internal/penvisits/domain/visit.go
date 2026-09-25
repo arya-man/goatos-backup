@@ -136,6 +136,9 @@ var (
 	ErrProofRequired   = errors.New("pen visit: a live video (proof_ref) is required")
 	ErrInvalidProof    = errors.New("pen visit: the video could not be verified")
 	ErrVersionConflict = errors.New("pen visit: the task changed since it was loaded")
+	// ErrNotOpenYet: the visit is owed from its planned business day, never before it
+	// (maintainer decision 2026-09-25). The refusal is a *NotOpenYetError naming that day.
+	ErrNotOpenYet = errors.New("pen visit: not open yet")
 )
 
 // Task is one pen visit as stored, plus the two resolved labels every read carries.
@@ -207,8 +210,30 @@ func (t Task) IsVerified() bool { return t.Status == StatusCompleted }
 // CanSubmit: a configured visitor, while the visit still awaits a recording.
 func (t Task) CanSubmit(a Actor) bool { return t.IsAssignee(a) && t.AwaitsRecording() }
 
-// CheckSubmit is the rule the write re-runs under the row lock.
-func CheckSubmit(t Task, a Actor, proofRef string, rowVersion int) error {
+// OpensAfter reports whether the visit's planned business day is still ahead of `today` (both
+// YYYY-MM-DD India business dates; ISO dates order lexically). A pen visit is the DAY-AFTER check
+// (docs/decisions/pen-visit-tasks.md): filming it on the work day itself is not a visit.
+func (t Task) OpensAfter(today string) bool {
+	return t.PlannedDate != "" && today != "" && today < t.PlannedDate
+}
+
+// CanSubmitOn is CanSubmit on a business day: nothing is recordable before the visit's day.
+func (t Task) CanSubmitOn(a Actor, today string) bool { return t.CanSubmit(a) && !t.OpensAfter(today) }
+
+// NotOpenYetError names the day a visit opens. errors.Is(err, ErrNotOpenYet) holds.
+type NotOpenYetError struct{ PlannedDate string }
+
+func (e *NotOpenYetError) Error() string { return ErrNotOpenYet.Error() + " until " + e.PlannedDate }
+func (e *NotOpenYetError) Unwrap() error { return ErrNotOpenYet }
+
+// Message is the backend-owned farm sentence the refusal carries.
+func (e *NotOpenYetError) Message() string {
+	return "This visit opens on " + biztime.FarmDateFromBusinessDate(e.PlannedDate) + "."
+}
+
+// CheckSubmit is the rule the write re-runs under the row lock. `today` is the India business
+// date of the write (never the phone's clock).
+func CheckSubmit(t Task, a Actor, proofRef string, rowVersion int, today string) error {
 	if !t.IsAssignee(a) {
 		return ErrNotAssignee
 	}
@@ -223,6 +248,9 @@ func CheckSubmit(t Task, a Actor, proofRef string, rowVersion int) error {
 		return ErrInReview
 	case StatusCompleted:
 		return ErrAlreadyDone
+	}
+	if t.OpensAfter(today) {
+		return &NotOpenYetError{PlannedDate: t.PlannedDate}
 	}
 	if strings.TrimSpace(proofRef) == "" {
 		return ErrProofRequired
@@ -251,7 +279,11 @@ func ReasonLine(t Task, today string) string {
 	if yesterday, ok := dayBefore(today); ok && yesterday == t.SourceDate {
 		when = "yesterday"
 	}
-	return strings.Join(labels, ", ") + " " + when
+	line := strings.Join(labels, ", ") + " " + when
+	if t.AwaitsRecording() && t.OpensAfter(today) {
+		line += " · Opens on " + biztime.FarmDateFromBusinessDate(t.PlannedDate)
+	}
+	return line
 }
 
 // StateChip is the card chip: where the visit stands, in farm words. The gate speaks first
@@ -312,8 +344,12 @@ func Title(t Task) string {
 	return fmt.Sprintf("Visit %s · %s", pen, strings.TrimSpace(t.ParkName))
 }
 
-// Instruction is the detail screen's one sentence of what to do.
-func Instruction(t Task) string {
+// Instruction is the detail screen's one sentence of what to do on `today`.
+func Instruction(t Task, today string) string {
+	if t.AwaitsRecording() && t.OpensAfter(today) {
+		return "This visit opens on " + biztime.FarmDateFromBusinessDate(t.PlannedDate) +
+			". Go to the pen that day, look at the animals and record one video."
+	}
 	switch t.Status {
 	case StatusRework:
 		reason := strings.TrimSpace(t.ReworkReason)
@@ -335,7 +371,8 @@ func DoneLine(t Task) string {
 		return ""
 	}
 	at := t.SubmittedAt.In(biztime.DefaultLocation())
-	line := "Visited " + biztime.FarmDate(at) + " · " + strings.ToLower(at.Format("3:04 PM"))
+	// A farm TIMESTAMP is DD/MM/YYYY HH:MM, 24-hour, India time (date display lock 2026-09-10).
+	line := "Visited " + biztime.FarmDate(at) + " " + at.Format("15:04")
 	if t.VerifiedAt != nil && t.Status == StatusCompleted {
 		line += " · verified " + biztime.FarmDate(t.VerifiedAt.In(biztime.DefaultLocation()))
 	}
@@ -465,10 +502,10 @@ func StepFor(t Task, actor Actor, today string) Step {
 		Status:       t.Status,
 		StateChip:    StateChip(t, today),
 		StateTone:    StateTone(t),
-		Instruction:  Instruction(t),
+		Instruction:  Instruction(t, today),
 		DoneLine:     DoneLine(t),
 		ReworkReason: t.ReworkReason,
-		CanSubmit:    t.CanSubmit(actor),
+		CanSubmit:    t.CanSubmitOn(actor, today),
 		Verified:     t.IsVerified(),
 		ProofRef:     t.ProofRef,
 		SubmittedAt:  wireInstant(t.SubmittedAt),

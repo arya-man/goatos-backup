@@ -362,6 +362,14 @@ export type UpdateVaccinationOperatorAssignmentConfigRequest =
   AppApiComponents["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
 export type UpdateVaccinationCapacityConfigRequest =
   AppApiComponents["schemas"]["UpdateVaccinationCapacityConfigRequest"];
+export type VaccinationOperatorShiftList =
+  AppApiComponents["schemas"]["VaccinationOperatorShiftList"];
+export type PutVaccinationOperatorShiftRequest =
+  AppApiComponents["schemas"]["PutVaccinationOperatorShiftRequest"];
+export type VaccinationOperatorShiftWriteResult =
+  AppApiComponents["schemas"]["VaccinationOperatorShiftWriteResult"];
+export type VaccinationOperatorShiftClearResult =
+  AppApiComponents["schemas"]["VaccinationOperatorShiftClearResult"];
 export type VaccinationDriveAssignmentRow =
   AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse =
@@ -796,8 +804,15 @@ async function timedBackendFetch(
     // so a read racing the write cannot repopulate the cache with the pre-write answer.
     clearBackendReadCaches();
   }
+  // The backend's answer, 0 until one arrives. A write the backend REFUSED (4xx) changed nothing,
+  // so it does not stamp the read-your-writes marker below: stamping sets a cookie, and a cookie
+  // set inside a Server Action makes Next refresh the page -- which reset the URL of an open
+  // same-page drawer and closed it, so a refused save (a duplicate code, a field the backend
+  // rejects) vanished with its message instead of showing it beside the form.
+  let responseStatus = 0;
   try {
     const response = await fetch(input, fetchInit);
+    responseStatus = response.status;
     const durationMs = Math.round(performance.now() - startedAt);
     console.info(
       JSON.stringify({
@@ -840,9 +855,27 @@ async function timedBackendFetch(
   } finally {
     if (timeout) clearTimeout(timeout);
     // After the write lands OR throws: clear again so a read racing it cannot keep the
-    // pre-write answer, then stamp the cross-instance marker from the completed write.
-    if (method.toUpperCase() !== "GET") await noteBackendWrite();
+    // pre-write answer, then stamp the cross-instance marker from the completed write. A 4xx
+    // refusal wrote nothing, so it is not stamped (see responseStatus); a 5xx or a network error
+    // still is, because the write may have landed before the failure.
+    if (method.toUpperCase() !== "GET" && !isReadOnlyPost(url.pathname) && writeMayHaveLanded(responseStatus)) await noteBackendWrite();
+    else if (method.toUpperCase() !== "GET") clearBackendReadCaches();
   }
+}
+
+/**
+ * A POST that only READS: a `/preview` route computes what a write WOULD do and changes nothing.
+ * Stamping the write marker for one set a cookie, which made Next refresh the whole page mid-edit --
+ * the Counts Breakdown tag editor sat on "Applying…" behind that refresh before the operator had
+ * applied anything.
+ */
+export function isReadOnlyPost(pathname: string): boolean {
+  return /\/preview$/.test(pathname);
+}
+
+/** A write may have changed something unless the backend answered with a 4xx refusal. */
+export function writeMayHaveLanded(status: number): boolean {
+  return !(status >= 400 && status < 500);
 }
 
 /**
@@ -1624,6 +1657,8 @@ export type SetFeedConfigFeedItemStatusRequest =
   AppApiComponents["schemas"]["SetFeedConfigFeedItemStatusRequest"];
 export type SetFeedConfigSessionTemplateItemRequest =
   AppApiComponents["schemas"]["SetFeedConfigSessionTemplateItemRequest"];
+export type SetFeedConfigSessionPlanRequest =
+  AppApiComponents["schemas"]["SetFeedConfigSessionPlanRequest"];
 export type FeedConfigSessionTemplateItem =
   AppApiComponents["schemas"]["FeedConfigSessionTemplateItem"];
 export type UpsertFeedConfigShedFactorRequest =
@@ -2702,6 +2737,28 @@ export async function setFeedConfigFeedItemStatus(
  * park, because a declared slot is priced for EVERY shed and a missing rate blocks that shed's whole
  * sheet. Withdrawing closes the row rather than deleting it, so issued sheets stay explainable.
  */
+/**
+ * Sets a park's feeding sessions (name + share of the day). The shares must add up to exactly 1;
+ * an active session left out is retired, refused (409 `session_has_feeds`) while it serves a feed.
+ * This is how a park added on Configuration > Items & settings gets its sessions.
+ */
+export async function setFeedConfigSessionPlan(
+  body: SetFeedConfigSessionPlanRequest,
+  idempotencyKey = `feed-session-plan-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/session-templates", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function setFeedConfigSessionTemplateItem(
   body: SetFeedConfigSessionTemplateItemRequest,
   idempotencyKey = `feed-session-slot-${randomUUID()}`,
@@ -4237,7 +4294,8 @@ export type LeadershipTaskSort =
 export async function listLeadershipTasks(
   params: {
     scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
-    filter?: "all" | "open" | "in_progress" | "done" | "overdue";
+    /** `cancelled` lists cancelled tasks (maintainer decision 2026-09-25). */
+    filter?: "all" | "open" | "in_progress" | "done" | "cancelled" | "overdue";
     limit?: number;
     cursor?: string;
     /** Free text over title, brief and (for a bare integer) the task number. Max 120 chars. */
@@ -4498,6 +4556,62 @@ export async function getVaccinationLiveTracker(
         },
       ),
     ),
+  );
+}
+
+// A park's authored vaccination operator shifts, listed whether or not the park has a drive-operator
+// assignment yet (a newly added park has none and must set shifts first).
+export async function listVaccinationOperatorShifts(
+  parkId: string,
+): Promise<ApiResult<VaccinationOperatorShiftList>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorShiftList>("/vaccination/operator-shifts", {
+      method: "GET",
+      query: { park_id: parkId },
+      cache: "no-store",
+    }),
+  );
+}
+
+// Set (create or replace) one operator's shift for a park. Validate-or-reject on the backend;
+// idempotent on the Idempotency-Key header.
+export async function putVaccinationOperatorShift(
+  body: PutVaccinationOperatorShiftRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<VaccinationOperatorShiftWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorShiftWriteResult>("/vaccination/operator-shifts", {
+      method: "PUT",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// Clear one operator's shift for a park. Refused (409) while the park's drive-operator assignment
+// still names that operator.
+export async function deleteVaccinationOperatorShift(
+  parkId: string,
+  operatorId: string,
+  idempotencyKey: string,
+): Promise<ApiResult<VaccinationOperatorShiftClearResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorShiftClearResult>("/vaccination/operator-shifts", {
+      method: "DELETE",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      query: { park_id: parkId, operator_id: operatorId },
+    }),
   );
 }
 
@@ -6325,7 +6439,9 @@ function normalizeApiError(error: unknown): ApiUiError {
     return {
       kind: "backend_down",
       message:
-        "The backend took too long to return vaccination data. Try again after the local API finishes warming up.",
+        // Shared by every page, so it names no module (it used to say "vaccination data" on Tasks,
+        // Approvals and everything else) and uses no internal words.
+        "The server took too long to answer. Try again in a moment.",
       retryable: true,
     };
   }
@@ -6551,10 +6667,8 @@ export type AdminWebApprovalItem = {
   // authored line instead of each composing its own from raw ids. Optional by contract: absent
   // when nothing was resolvable, in which case a renderer drops the line rather than showing an id.
   //
-  // This page does not render raised_by_name or summary_line today — it deliberately omits the
-  // raiser and builds its own readable subject from resolved location names (see readableSubject).
-  // They are declared so the shape stays true to the contract and so this page can adopt the
-  // shared line later.
+  // The Approvals page renders raised_by_name in its "Raised by" column; it still composes its own
+  // subject from resolved location names (approval-display.ts) rather than summary_line.
   raised_by_name?: string;
   summary_line?: string;
   shifting_event_id?: string;
@@ -6602,6 +6716,13 @@ export type AdminWebApprovalListParams = {
   status?: string;
   cursor?: string;
   page_size?: number;
+  /** Server-side narrowing (the cursor is bound to it): birth | death | shifting. */
+  request_type?: AdminWebApprovalRequestType;
+  /** Server-side farm narrowing; a death matches through its animal's park. */
+  park_id?: string;
+  /** Calendar filter: first / last India business day raised (YYYY-MM-DD, inclusive). */
+  raised_from?: string;
+  raised_to?: string;
 };
 
 /** One keyset page of approval requests the caller may decide (GET /admin-web/counts/approvals). */
@@ -6619,9 +6740,37 @@ export async function listAdminWebApprovals(
         status: params.status,
         cursor: params.cursor,
         page_size: params.page_size,
+        request_type: params.request_type,
+        park_id: params.park_id,
+        raised_from: params.raised_from,
+        raised_to: params.raised_to,
       }),
     }),
   );
+}
+
+/**
+ * ONE approval request in the list's own item shape (GET /admin-web/counts/approvals/{id}),
+ * whatever its status or page: a link to an older request (a Work Board row, a bookmark) still
+ * opens its drawer. The server applies the list's authority; outside it the read is not found.
+ */
+// The route template is checked against the generated contract at compile time (`satisfies`),
+// and the response type is read from the contract's own schema, so a contract change that drops
+// or reshapes this endpoint fails the typecheck here. The client takes a literal path with no
+// parameter substitution, so the concrete URL is built from that checked template.
+const ADMIN_WEB_APPROVAL_ROUTE = "/admin-web/counts/approvals/{request_id}" satisfies keyof AppApiPaths;
+type AdminWebApprovalReadResponse =
+  AppApiPaths[typeof ADMIN_WEB_APPROVAL_ROUTE]["get"]["responses"][200]["content"]["application/json"];
+
+export async function getAdminWebApproval(requestId: string): Promise<ApiResult<AdminWebApprovalItem>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = ADMIN_WEB_APPROVAL_ROUTE.replace("{request_id}", encodeURIComponent(requestId)) as typeof ADMIN_WEB_APPROVAL_ROUTE;
+  const item: ApiResult<AdminWebApprovalReadResponse> = await request(() =>
+    client.request<AdminWebApprovalReadResponse>(path, { cache: "no-store" }),
+  );
+  return item;
 }
 
 /**

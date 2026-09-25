@@ -111,7 +111,7 @@ func confirmProductsStillSellable(ctx context.Context, tx pgx.Tx, tenantID strin
 const breedsBySpeciesSQL = `
 SELECT species, canonical_name
 FROM public.breeds
-WHERE species = ANY($1::text[]) AND status = 'active'
+WHERE tenant_id = $2 AND species = ANY($1::text[]) AND status = 'active'
 ORDER BY species, lower(canonical_name)`
 
 // sellableSpeciesSQL is the species an ANIMAL item may be sold as: the ones the breed register
@@ -120,7 +120,7 @@ ORDER BY species, lower(canonical_name)`
 const sellableSpeciesSQL = `
 SELECT DISTINCT species
 FROM public.breeds
-WHERE status = 'active' AND btrim(coalesce(species, '')) <> ''
+WHERE tenant_id = $1 AND status = 'active' AND btrim(coalesce(species, '')) <> ''
 ORDER BY species`
 
 // activeFeedItemsSQL is the feed a farm may sell: its own live catalogue, in the order it keeps it.
@@ -171,7 +171,7 @@ func (r *Repository) ListProductVariants(ctx context.Context, tenantID string, p
 
 	breedsBySpecies := map[string][]string{}
 	if len(species) > 0 {
-		rows, err := r.pool.Query(ctx, breedsBySpeciesSQL, species)
+		rows, err := r.pool.Query(ctx, breedsBySpeciesSQL, species, tenantID)
 		if err != nil {
 			return nil, fmt.Errorf("sales: list breeds: %w", err)
 		}
@@ -465,7 +465,7 @@ func (r *Repository) ListFeedItems(ctx context.Context, tenantID string) ([]stri
 func (r *Repository) ListSellableSpecies(ctx context.Context, tenantID string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, sellableSpeciesSQL)
+	rows, err := r.pool.Query(ctx, sellableSpeciesSQL, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("sales: list sellable species: %w", err)
 	}

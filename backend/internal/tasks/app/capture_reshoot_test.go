@@ -89,7 +89,7 @@ func TestDeathCaptureRejectAppendsReshootStepsAndTheBundleCarriesTheNewProof(t *
 	enq := &fakeEnqueuer{}
 	svc := NewService(repo, nil).WithVerificationEnqueuer(enq)
 	capture := authored.Evidence{Media: []authored.EvidenceMedia{{Ref: "old-tag", Kind: "photo", Label: "Animal with tag"}}}
-	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat, time.Date(2026, 9, 16, 9, 0, 0, 0, biztime.DefaultLocation()), capture); err != nil {
+	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat, "", time.Date(2026, 9, 16, 9, 0, 0, 0, biztime.DefaultLocation()), capture); err != nil {
 		t.Fatal(err)
 	}
 	var workflowID string

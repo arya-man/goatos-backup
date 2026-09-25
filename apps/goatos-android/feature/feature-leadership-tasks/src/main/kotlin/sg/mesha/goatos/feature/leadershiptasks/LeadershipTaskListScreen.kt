@@ -72,6 +72,7 @@ fun LeadershipTaskListScreen(
                     isRefreshing = state.isRefreshing,
                     lastSyncedAt = state.lastSyncedAt,
                     hasData = rows.itemCount > 0,
+                    refreshFailedLabel = if (state.refreshFailed) stringResource(R.string.leadership_tasks_refresh_failed) else null,
                 )
             },
             actions = {
@@ -97,18 +98,34 @@ fun LeadershipTaskListScreen(
         if (state.filters.isNotEmpty()) {
             LeadershipFilterRow(filters = state.filters, onEvent = onEvent)
         }
+        // A first open with nothing cached and the server down: the error with Try again, never a
+        // blank page (it needs no page facts from the server).
+        val emptyTitle = if (state.isErrorEmpty) stringResource(R.string.leadership_tasks_list_unavailable) else state.emptyMessage
+        val tryAgainLabel = stringResource(R.string.leadership_tasks_action_try_again)
+        val retryAction: (@Composable () -> Unit)? = if (state.isErrorEmpty) {
+            {
+                LeadershipGhostButton(
+                    label = tryAgainLabel,
+                    enabled = !state.isRefreshing,
+                    onClick = { onEvent(LeadershipTaskListEvent.Refresh) },
+                )
+            }
+        } else {
+            null
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (rows.itemCount == 0 && state.emptyMessage != null) {
+            if (rows.itemCount == 0 && emptyTitle != null) {
                 item(key = "empty") {
                     EmptyState(
-                        title = state.emptyMessage,
+                        title = emptyTitle,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         icon = if (state.isErrorEmpty) MeshaIcons.Warn else MeshaIcons.Tasks,
                         tone = if (state.isErrorEmpty) EmptyTone.Warn else EmptyTone.Neutral,
+                        action = retryAction,
                     )
                 }
             }

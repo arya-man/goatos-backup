@@ -412,8 +412,7 @@ func (r *Repository) commandBoardShedDoseCells(ctx context.Context, tenantID str
 		DoseRules: []string{},
 		Cells:     []domain.ShedDoseMatrixCell{},
 	}
-	bound := sqlbind.MustBind(commandBoardShedDoseSQL, tenantID, asOf, batchID, parkID)
-	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
+	rows, err := queryCommandBoardShedDose(ctx, r.pool, tenantID, asOf, batchID, parkID)
 	if err != nil {
 		return matrix, fmt.Errorf("vaccination command board: shed dose query: %w", err)
 	}

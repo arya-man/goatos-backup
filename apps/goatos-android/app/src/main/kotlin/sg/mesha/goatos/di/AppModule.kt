@@ -1046,6 +1046,8 @@ object AppModule {
         // Market survey (2026-09-14): same defect class -- without it a recorded card never
         // reconciles into the cached day after its write lands.
         marketRepository: sg.mesha.goatos.core.data.MarketRepository,
+        // A drained pen-visit submit re-reads the bootstrap so the Tasks "For me" badge drops.
+        navRefresh: sg.mesha.goatos.boot.NavStateRefreshSignal,
     ): SyncEngine {
         val pcCareRepository = DeferredPcCareRepository(pcCareRepositoryProvider)
         return SyncEngine(
@@ -1120,6 +1122,9 @@ object AppModule {
             OutboxOpType.LEAVE_REQUEST_WITHDRAW to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
             OutboxOpType.LEAVE_APPROVE to PostSuccessRefreshHook { clockRepositoryProvider.get().fetchLeaveQueue(null) },
             OutboxOpType.LEAVE_REJECT to PostSuccessRefreshHook { clockRepositoryProvider.get().fetchLeaveQueue(null) },
+            // Pen visits: a drained submit (or a visit another visitor already filmed) changes
+            // the Tasks "For me" badge, which lives in the bootstrap -- re-read it quietly.
+            OutboxOpType.PEN_VISIT_SUBMIT to sg.mesha.goatos.core.data.sync.penVisitSubmitSuccessHook { navRefresh.request() },
         ),
         preSuccessRefreshHooks = mapOf(
             OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),

@@ -179,10 +179,12 @@ func validateCorrectCensusSlice(body *domain.CorrectCensusSliceRequest, requireR
 	if len(body.Breed) > 120 {
 		return BadRequest("invalid_breed", "breed is not valid")
 	}
-	// Sex identifies the ROW, so it must be one of the two the column allows -- a row the census
-	// can render is a row with a real sex.
-	if body.Sex != "female" && body.Sex != "male" {
-		return BadRequest("invalid_sex", "sex must be female or male")
+	// Sex identifies the ROW, so it must have the shape of a gender code. Which genders exist is
+	// Configuration's list (OPEN UP TO NEW SPECIES, 2026-09-25): a row whose sex matches no live
+	// animal is refused by the repository as an empty slice, and a correction TARGET is checked
+	// against the tenant's active genders there too.
+	if !lookupCodePattern.MatchString(body.Sex) {
+		return BadRequest("invalid_sex", "sex must be one of the farm's genders")
 	}
 	if body.Field != "breed" && body.Field != "sex" {
 		return BadRequest("invalid_field", "field must be breed or sex")
@@ -190,8 +192,8 @@ func validateCorrectCensusSlice(body *domain.CorrectCensusSliceRequest, requireR
 	if body.Value == "" || len(body.Value) > 120 {
 		return BadRequest("invalid_value", "value is required")
 	}
-	if body.Field == "sex" && body.Value != "female" && body.Value != "male" {
-		return BadRequest("invalid_value", "sex must be female or male")
+	if body.Field == "sex" && !lookupCodePattern.MatchString(body.Value) {
+		return BadRequest("invalid_value", "sex must be one of the farm's genders")
 	}
 	// A correction that changes nothing is rejected rather than written: an audit row claiming a
 	// correction that moved no animal is noise in the one place that has to stay readable.

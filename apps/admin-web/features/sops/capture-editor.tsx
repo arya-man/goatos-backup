@@ -76,7 +76,7 @@ export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, 
             {form} — {copy(pc, "capture.subtitle")}
           </div>
           <div className="muted small" style={{ marginTop: 4 }}>
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, "capture.notice.pinned")}
+            {versionLabel} · {copy(pc, "capture.notice.pinned")}
           </div>
         </div>
         <div className="acts">

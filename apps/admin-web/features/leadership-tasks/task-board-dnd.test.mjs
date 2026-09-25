@@ -98,8 +98,13 @@ assert.ok(
   "the key must be minted inside the drop handler, not at module or render scope",
 );
 
-// ---- The FENCE is the row's own version, never a page-load snapshot.
-assert.match(dnd, /formData\.set\("row_version", String\(task\.rowVersion\)\)/);
+// ---- The FENCE is read when the write is SENT (after any queued write to the task landed),
+// never a page-load snapshot and never the number on screen at the drop (2026-09-25).
+assert.match(dnd, /formData\.set\("row_version", String\(currentTaskRowVersion\(task\.id,/);
+assert.match(dnd, /runTaskWrite\(task\.id,/);
+// ---- IN PLACE: the drop never posts the redirecting action (interaction-patterns lock).
+assert.match(dnd, /changeLeadershipTaskStatusInPlaceAction\(formData\)/);
+assert.doesNotMatch(dnd, /await action\(formData\)/);
 
 // ---- PHONE: no drag below the page's breakpoint, and the anchor's native drag is switched off
 // explicitly (an <a> is draggable by default, so silence would ship a URL drag).

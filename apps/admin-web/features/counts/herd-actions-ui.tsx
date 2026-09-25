@@ -273,6 +273,7 @@ function RegisterGoatDrawer({
 }) {
   const [parkId, setParkId] = useState<string>(parks[0]?.id ?? "");
   const [selectedLocationKey, setSelectedLocationKey] = useState<string>("");
+  const [species, setSpecies] = useState<string>("");
   const scopedSheds = sheds.filter((s) => s.parentId === parkId);
   const shedOptions = scopedSheds.length > 0 ? scopedSheds : sheds;
   const partitionedShedIds = new Set(
@@ -302,6 +303,10 @@ function RegisterGoatDrawer({
   const sexOptions = optionGroup(pageContract, "herd_sex");
   const speciesOptions = optionGroup(pageContract, "herd_species");
   const originOptions = optionGroup(pageContract, "herd_origin");
+  // The farm's own breeds (Configuration > Breeds), each naming its species in `group`. A backend
+  // that predates the list serves no group, and the form keeps its free-text breed box.
+  const breedGroup = pageContract.option_groups.find((group) => group.id === "herd_breeds");
+  const breedOptions = (breedGroup?.options ?? []).filter((o) => !o.group || o.group === species);
 
   const hasLocations = locationsAvailable && parks.length > 0 && locationOptions.length > 0;
   const hasStages = stagesAvailable && animalStages.length > 0;
@@ -358,7 +363,7 @@ function RegisterGoatDrawer({
         <Row>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
             <label htmlFor="rg_species">{copy(pageContract, "field.species")}</label>
-            <select id="rg_species" name="species" required defaultValue="">
+            <select id="rg_species" name="species" required value={species} onChange={(e) => setSpecies(e.target.value)}>
               <option value="" disabled>{copy(pageContract, "option.select_species")}</option>
               {speciesOptions.map((o) => (
                 <option key={o.key} value={o.key}>{o.label}</option>
@@ -404,7 +409,22 @@ function RegisterGoatDrawer({
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
             <label htmlFor="rg_breed">{copy(pageContract, "field.breed")}</label>
-            <input id="rg_breed" name="breed" placeholder={copy(pageContract, "placeholder.breed")} />
+            {breedGroup ? (
+              <>
+                {/* Keyed on the species so a breed picked under another species never survives the switch. */}
+                <select key={species} id="rg_breed" name="breed" defaultValue="" disabled={!species}>
+                  <option value="">{copy(pageContract, species ? "option.select_breed" : "option.select_species_first")}</option>
+                  {breedOptions.map((o) => (
+                    <option key={o.key} value={o.key}>{o.label}</option>
+                  ))}
+                </select>
+                {species && breedOptions.length === 0 ? (
+                  <div className="note">{copy(pageContract, "note.no_breeds_for_species")}</div>
+                ) : null}
+              </>
+            ) : (
+              <input id="rg_breed" name="breed" placeholder={copy(pageContract, "placeholder.breed")} />
+            )}
           </div>
           <div className="fld" style={{ flex: 1, minWidth: 160 }}>
             <label htmlFor="rg_stage">{copy(pageContract, "field.management_stage")}</label>

@@ -12,6 +12,8 @@
 --   JOIN LATERAL (SELECT * FROM pens k WHERE k.loc = X.shed_id AND k.lbl IN (regexp_replace(regexp_replace(lower(btrim(coalesce(
 --     X.partition_label,''))),'^[- ]*(part|pt)[-. ]*',''),'^whole$',''), '') ORDER BY k.lbl = '', k.o LIMIT 1) pen ON true
 --   weighing bucket: weighing_campaign_sheds.location_id; verification_items / pc_care_tasks / feed rows: shed_id.
+-- Re-validated 26/09/2026 vs 000437 (pen_types register; shed_partitions.shed_type now FK code): resolver
+-- never reads shed_type, so unchanged. Pen TYPE label = pen_types.name ON (tenant_id, pen_type_key = shed_type).
 -- Never assume records sit on the group row OR the pen row; this handles both. Answer with pen.display + park, GROUP BY pen_key.
 WITH pl AS (SELECT l.location_id id, l.name, l.status = 'active' AND l.retired_at IS NULL act, coalesce(pk.name, gp.name) park,
     CASE WHEN par.location_type = 'shed' THEN par.name ELSE coalesce((SELECT g.name FROM locations g WHERE g.location_type = 'shed'

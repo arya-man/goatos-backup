@@ -10,9 +10,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
@@ -66,16 +68,18 @@ func (r *Repository) UpsertGateway(ctx context.Context, tenantID string, gw doma
 	return err
 }
 
-// GetGatewaysByTenant fetches all gateways for a tenant.
-func (r *Repository) GetGatewaysByTenant(ctx context.Context, tenantID string) ([]domain.Gateway, error) {
-	query := `
+// gatewaysByTenantSQL lists a tenant's gateways, most recently updated first.
+const gatewaysByTenantSQL = `
 		SELECT tenant_id, gateway_id, label, park_id, shed_id, location_id,
 		       wifi_mac, ble_mac, network_mode, status, last_seen_at, created_at, updated_at
 		FROM public.herd_signal_gateways
 		WHERE tenant_id = $1
 		ORDER BY updated_at DESC
 	`
-	boundGateways := sqlbind.MustBind(query, tenantID)
+
+// GetGatewaysByTenant fetches all gateways for a tenant.
+func (r *Repository) GetGatewaysByTenant(ctx context.Context, tenantID string) ([]domain.Gateway, error) {
+	boundGateways := sqlbind.MustBind(gatewaysByTenantSQL, tenantID)
 	rows, err := r.db.Query(ctx, boundGateways.SQL(), boundGateways.Args()...)
 	if err != nil {
 		return nil, err
@@ -1356,48 +1360,142 @@ func (r *Repository) GetShedLocations(ctx context.Context, tenantID string, shed
 // CRITICAL: herd_signal_packets is partitioned on received_date, so both the received_at
 // range predicate and the received_date partition key must be present to enable partition
 // pruning. Without received_date, queries scan every retained partition.
+//
+// EDGE PARTITION FIRST. Even pruned to the window, "first/last row per tag" over ~30 daily
+// partitions is a Merge Append that starts an index scan in EVERY partition, per tag, per side
+// (19 tags x 2 x 30 = 1,140 index descents; ~150-300 ms on goatos-stg for one live page). Each
+// side now first probes only the partition at its own edge of the window -- the oldest day for
+// first_pkt, the current UTC day (and anything later) for last_pkt -- and falls back to the full
+// window only when that edge holds no reading (COALESCE evaluates the fallback lazily). The
+// answer is the same row: received_date is the UTC day of received_at (set together at ingest,
+// see IngestPackets), so if the edge partition holds any qualifying row the window's earliest
+// (latest) row is in it, and the probe applies the identical predicates and ORDER BY to it. The
+// cutoff day only decides how often the fallback runs, never the result, so it is independent of
+// the session time zone. Verified on stg: 0 diffs over 10 (tags, window) combinations, ~5 ms.
 func (r *Repository) GetBatteryHistory(ctx context.Context, tenantID string, tagIDs []string, windowDays int) (map[string]ports.BatteryHistoryPoint, error) {
 	result := make(map[string]ports.BatteryHistoryPoint)
 	if len(tagIDs) == 0 {
 		return result, nil
 	}
+	// PLAN-TIME PRUNING. The now()-derived received_date predicates only prune at executor
+	// start, so the planner still planned every retained partition (x each index) for each of
+	// the four subqueries: ~55-75 ms of PLANNING for ~4 ms of execution on goatos-stg, paid
+	// per request because each call gets a custom plan. The edge probes therefore also carry
+	// Go-computed received_date bounds ($4..$6) the planner can prune with, and the full-window
+	// fallbacks are planned only when some tag actually needs them (second query, missing tags
+	// only). The bounds are one-day-padded and only NARROW the probes, which keep the exact
+	// now()-based predicates: a probe that misses for any reason (clock skew, midnight) just
+	// sends that tag to the unchanged full-window fallback, so the answer is the same row.
+	today := biztime.BusinessDayStart(time.Now())
+	edge := today.AddDate(0, 0, -windowDays)
 	rows, err := r.db.Query(ctx, `
 		WITH tags AS (SELECT unnest($2::text[]) AS tag_id)
-		SELECT t.tag_id, first_pkt.battery_mv, first_pkt.received_at, last_pkt.battery_mv, last_pkt.received_at
+		SELECT t.tag_id, f.battery_mv, f.received_at, l.battery_mv, l.received_at
 		FROM tags t
 		LEFT JOIN LATERAL (
-			SELECT battery_mv, received_at
-			FROM public.herd_signal_packets
-			WHERE tenant_id = $1 AND tag_id = t.tag_id AND battery_mv IS NOT NULL
-			      AND received_at >= now() - make_interval(days => $3::int)
-			      AND received_date >= (now()::date - ($3::int || ' days')::interval)::date
-			ORDER BY received_at ASC
+			SELECT hp.battery_mv, hp.received_at FROM public.herd_signal_packets hp
+			WHERE hp.tenant_id = $1 AND hp.tag_id = t.tag_id AND hp.battery_mv IS NOT NULL
+			      AND hp.received_at >= now() - make_interval(days => $3::int)
+			      AND hp.received_date >= (now()::date - ($3::int || ' days')::interval)::date
+			      AND hp.received_date <= (now()::date - ($3::int || ' days')::interval)::date
+			      AND hp.received_date BETWEEN $4::date AND $5::date
+			ORDER BY hp.received_at ASC
 			LIMIT 1
-		) first_pkt ON true
+		) f ON true
 		LEFT JOIN LATERAL (
-			SELECT battery_mv, received_at
-			FROM public.herd_signal_packets
-			WHERE tenant_id = $1 AND tag_id = t.tag_id AND battery_mv IS NOT NULL
-			      AND received_at >= now() - make_interval(days => $3::int)
-			      AND received_date >= (now()::date - ($3::int || ' days')::interval)::date
-			ORDER BY received_at DESC
+			SELECT hp.battery_mv, hp.received_at FROM public.herd_signal_packets hp
+			WHERE hp.tenant_id = $1 AND hp.tag_id = t.tag_id AND hp.battery_mv IS NOT NULL
+			      AND hp.received_at >= now() - make_interval(days => $3::int)
+			      AND hp.received_date >= (now()::date - ($3::int || ' days')::interval)::date
+			      AND hp.received_date >= (now() AT TIME ZONE 'UTC')::date
+			      AND hp.received_date >= $6::date
+			ORDER BY hp.received_at DESC
 			LIMIT 1
-		) last_pkt ON true
-		WHERE first_pkt.battery_mv IS NOT NULL
-	`, tenantID, tagIDs, windowDays)
+		) l ON true
+`, tenantID, tagIDs, windowDays, edge.AddDate(0, 0, -1), edge.AddDate(0, 0, 1), today.AddDate(0, 0, -1))
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	type probe struct {
+		firstMV, lastMV *int
+		firstAt, lastAt *time.Time
+	}
+	probes := make(map[string]probe, len(tagIDs))
+	var missing []string
 	for rows.Next() {
 		var tagID string
-		var p ports.BatteryHistoryPoint
-		if err := rows.Scan(&tagID, &p.FirstMV, &p.FirstAt, &p.LastMV, &p.LastAt); err != nil {
+		var p probe
+		if err := rows.Scan(&tagID, &p.firstMV, &p.firstAt, &p.lastMV, &p.lastAt); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		result[tagID] = p
+		probes[tagID] = p
+		if p.firstMV == nil || p.lastMV == nil {
+			missing = append(missing, tagID)
+		}
 	}
-	return result, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(missing) > 0 {
+		// Full-window fallback, byte-for-byte the pre-probe predicates, for the tags whose
+		// edge partition held no reading.
+		frows, err := r.db.Query(ctx, `
+			WITH tags AS (SELECT unnest($2::text[]) AS tag_id)
+			SELECT t.tag_id, f.battery_mv, f.received_at, l.battery_mv, l.received_at
+			FROM tags t
+			LEFT JOIN LATERAL (
+				SELECT hp.battery_mv, hp.received_at FROM public.herd_signal_packets hp
+				WHERE hp.tenant_id = $1 AND hp.tag_id = t.tag_id AND hp.battery_mv IS NOT NULL
+				      AND hp.received_at >= now() - make_interval(days => $3::int)
+				      AND hp.received_date >= (now()::date - ($3::int || ' days')::interval)::date
+				ORDER BY hp.received_at ASC
+				LIMIT 1
+			) f ON true
+			LEFT JOIN LATERAL (
+				SELECT hp.battery_mv, hp.received_at FROM public.herd_signal_packets hp
+				WHERE hp.tenant_id = $1 AND hp.tag_id = t.tag_id AND hp.battery_mv IS NOT NULL
+				      AND hp.received_at >= now() - make_interval(days => $3::int)
+				      AND hp.received_date >= (now()::date - ($3::int || ' days')::interval)::date
+				ORDER BY hp.received_at DESC
+				LIMIT 1
+			) l ON true
+`, tenantID, missing, windowDays)
+		if err != nil {
+			return nil, err
+		}
+		defer frows.Close()
+		for frows.Next() {
+			var tagID string
+			var fb probe
+			if err := frows.Scan(&tagID, &fb.firstMV, &fb.firstAt, &fb.lastMV, &fb.lastAt); err != nil {
+				return nil, err
+			}
+			p := probes[tagID]
+			if p.firstMV == nil {
+				p.firstMV, p.firstAt = fb.firstMV, fb.firstAt
+			}
+			if p.lastMV == nil {
+				p.lastMV, p.lastAt = fb.lastMV, fb.lastAt
+			}
+			probes[tagID] = p
+		}
+		if err := frows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	for tagID, p := range probes {
+		if p.firstMV == nil {
+			continue
+		}
+		pt := ports.BatteryHistoryPoint{FirstMV: *p.firstMV, FirstAt: *p.firstAt}
+		if p.lastMV != nil {
+			pt.LastMV, pt.LastAt = *p.lastMV, *p.lastAt
+		}
+		result[tagID] = pt
+	}
+	return result, nil
 }
 
 func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tagIDs []string) (map[string]int64, error) {
@@ -1570,6 +1668,10 @@ func (r *Repository) GetGatewayWindowStats(ctx context.Context, tenantID string)
 // compute-on-read god CTE across every table (AGENTS.md scale anti-patterns).
 func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (ports.InsightsData, error) {
 	var d ports.InsightsData
+	// Each card is its own statement (see above), but they are independent reads that each fill
+	// their own fields of d, so they run up to four at a time instead of back to back. Errors
+	// keep their sequential precedence: the first failing card in declaration order is returned.
+	var steps []func(context.Context) error
 
 	// Card 1-4, 6-7, 12: all direct/derived from herd_signal_tag_latest, one indexed,
 	// tenant-scoped aggregate query.
@@ -1585,32 +1687,38 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		FROM public.herd_signal_tag_latest tl
 		WHERE tl.tenant_id = $1
 	`, tenantID)
-	err := r.db.QueryRow(ctx, boundCoreInsights.SQL(), boundCoreInsights.Args()...).Scan(
-		&d.TagsLiveNow, &d.MissingSignalCount, &d.LowMovementWatchCount, &d.HighMovementSpikeCount,
-		&d.WeakSignalTagsCount, &d.BatteryAttentionCount, &d.UnmappedSmartTagsCount,
-	)
-	if err != nil {
-		return d, fmt.Errorf("insights core aggregate: %w", err)
-	}
+	steps = append(steps, func(ctx context.Context) error {
+		if err := r.db.QueryRow(ctx, boundCoreInsights.SQL(), boundCoreInsights.Args()...).Scan(
+			&d.TagsLiveNow, &d.MissingSignalCount, &d.LowMovementWatchCount, &d.HighMovementSpikeCount,
+			&d.WeakSignalTagsCount, &d.BatteryAttentionCount, &d.UnmappedSmartTagsCount,
+		); err != nil {
+			return fmt.Errorf("insights core aggregate: %w", err)
+		}
+		return nil
+	})
 
 	// Card 5: shed_signal_coverage. Denominator = distinct sheds with a gateway deployed
 	// (herd_signal_gateways.shed_id, indexed). Numerator = distinct sheds holding a live
 	// (non-stale) tag, resolved through the mapped animal, same as the live view's join.
 	boundShedsTotal := sqlbind.MustBind(`SELECT count(DISTINCT shed_id) FROM public.herd_signal_gateways WHERE tenant_id = $1 AND shed_id IS NOT NULL`, tenantID)
-	err = r.db.QueryRow(ctx, boundShedsTotal.SQL(), boundShedsTotal.Args()...).Scan(&d.ShedsTotal)
-	if err != nil {
-		return d, fmt.Errorf("insights sheds total: %w", err)
-	}
+	steps = append(steps, func(ctx context.Context) error {
+		if err := r.db.QueryRow(ctx, boundShedsTotal.SQL(), boundShedsTotal.Args()...).Scan(&d.ShedsTotal); err != nil {
+			return fmt.Errorf("insights sheds total: %w", err)
+		}
+		return nil
+	})
 	boundShedsWithCoverage := sqlbind.MustBind(fmt.Sprintf(`
 		SELECT count(DISTINCT g.shed_id)
 		FROM public.herd_signal_tag_latest tl
 		%s
 		WHERE tl.tenant_id = $1 AND (`+effectiveMovementStateExpr+`) <> 'stale' AND g.shed_id IS NOT NULL
 	`, tagLocationJoin), tenantID)
-	err = r.db.QueryRow(ctx, boundShedsWithCoverage.SQL(), boundShedsWithCoverage.Args()...).Scan(&d.ShedsWithCoverage)
-	if err != nil {
-		return d, fmt.Errorf("insights sheds with coverage: %w", err)
-	}
+	steps = append(steps, func(ctx context.Context) error {
+		if err := r.db.QueryRow(ctx, boundShedsWithCoverage.SQL(), boundShedsWithCoverage.Args()...).Scan(&d.ShedsWithCoverage); err != nil {
+			return fmt.Errorf("insights sheds with coverage: %w", err)
+		}
+		return nil
+	})
 
 	// Card 8: post_vaccination_movement_watch. Bounded to the last 24h of accepted
 	// vaccination_completions (indexed by tenant_id), joined to a mapped tag currently watched.
@@ -1635,10 +1743,12 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  AND vc.administered_at >= tl.animal_monitoring_since
 		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive', 'missing')
 	`, tenantID)
-	err = r.db.QueryRow(ctx, boundPostVaccination.SQL(), boundPostVaccination.Args()...).Scan(&d.PostVaccinationWatchCount)
-	if err != nil {
-		return d, fmt.Errorf("insights post-vaccination watch: %w", err)
-	}
+	steps = append(steps, func(ctx context.Context) error {
+		if err := r.db.QueryRow(ctx, boundPostVaccination.SQL(), boundPostVaccination.Args()...).Scan(&d.PostVaccinationWatchCount); err != nil {
+			return fmt.Errorf("insights post-vaccination watch: %w", err)
+		}
+		return nil
+	})
 
 	// Card 9: health_case_activity_trend. Bounded to currently-active health_cases.
 	// projection-review: membership=health_cases.goat_id; group_key=count(DISTINCT hc.goat_id); join_cardinality=one goat can have multiple active smart-tag identifiers and each can be joined to herd_signal_tag_latest; pagination=none whole-result aggregate; scope=tenant_id
@@ -1657,10 +1767,12 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  AND tl.animal_monitoring_since IS NOT NULL
 		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive')
 	`, tenantID)
-	err = r.db.QueryRow(ctx, boundHealthActivity.SQL(), boundHealthActivity.Args()...).Scan(&d.HealthCaseActivityCount)
-	if err != nil {
-		return d, fmt.Errorf("insights health case activity: %w", err)
-	}
+	steps = append(steps, func(ctx context.Context) error {
+		if err := r.db.QueryRow(ctx, boundHealthActivity.SQL(), boundHealthActivity.Args()...).Scan(&d.HealthCaseActivityCount); err != nil {
+			return fmt.Errorf("insights health case activity: %w", err)
+		}
+		return nil
+	})
 
 	// Card 10: feed_activity. Bounded to the last 4h of feed_direction_completions, shed grain:
 	// a shed counts once if it was fed AND has at least one live mapped tag.
@@ -1680,10 +1792,12 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		      AND tl.animal_monitoring_since IS NOT NULL
 		  )
 	`, tagLocationJoin), tenantID)
-	err = r.db.QueryRow(ctx, boundFeedActivity.SQL(), boundFeedActivity.Args()...).Scan(&d.FeedActivityShedsCount)
-	if err != nil {
-		return d, fmt.Errorf("insights feed activity: %w", err)
-	}
+	steps = append(steps, func(ctx context.Context) error {
+		if err := r.db.QueryRow(ctx, boundFeedActivity.SQL(), boundFeedActivity.Args()...).Scan(&d.FeedActivityShedsCount); err != nil {
+			return fmt.Errorf("insights feed activity: %w", err)
+		}
+		return nil
+	})
 
 	// Card 11: weight_activity. Weighing is FREE-FLOW and ISOLATED (AGENTS.md): it dropped
 	// weighing_observations.animal_id outright (migration 000078) and never resolves a scan to
@@ -1708,11 +1822,28 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  AND tl.animal_monitoring_since IS NOT NULL
 		  AND wo.accepted_at >= tl.animal_monitoring_since
 	`, tenantID)
-	err = r.db.QueryRow(ctx, boundWeightActivity.SQL(), boundWeightActivity.Args()...).Scan(&d.WeightActivityTagsCount)
-	if err != nil {
-		return d, fmt.Errorf("insights weight activity: %w", err)
-	}
+	steps = append(steps, func(ctx context.Context) error {
+		if err := r.db.QueryRow(ctx, boundWeightActivity.SQL(), boundWeightActivity.Args()...).Scan(&d.WeightActivityTagsCount); err != nil {
+			return fmt.Errorf("insights weight activity: %w", err)
+		}
+		return nil
+	})
 
+	errs := make([]error, len(steps))
+	var group errgroup.Group
+	group.SetLimit(4)
+	for i, step := range steps {
+		group.Go(func() error {
+			errs[i] = step(ctx)
+			return nil
+		})
+	}
+	_ = group.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return d, err
+		}
+	}
 	return d, nil
 }
 

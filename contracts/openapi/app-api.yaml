@@ -5451,6 +5451,125 @@ paths:
           description: The supplied rowVersion no longer matches the stored config (concurrent edit).
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/operator-shifts:
+    get:
+      tags:
+        - Vaccination
+      operationId: listVaccinationOperatorShifts
+      summary: List every authored vaccination operator shift of one park.
+      description: >-
+        Returned whether or not the park has a drive-operator assignment yet: a newly added park has
+        none, and its operators' shifts must be set before one can be saved.
+      parameters:
+        - name: park_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The park's operator shifts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorShiftList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    put:
+      tags:
+        - Vaccination
+      operationId: putVaccinationOperatorShift
+      summary: Set (create or replace) one operator's vaccination shift for a park.
+      description: >-
+        Validate-or-reject: a missing or bad shift label, start/end time ("HH:MM", 24-hour, end after
+        start on the same day) or week-off returns 400 naming the field; nothing is defaulted. The
+        operator must be an ACTIVE workforce member whose home park is this park. The shift write and
+        a vaccination.roster.changed event commit in one transaction. Idempotent on Idempotency-Key:
+        an exact replay returns the original result; the same key with a different body is 409.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutVaccinationOperatorShiftRequest"
+      responses:
+        "200":
+          description: The shift as stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorShiftWriteResult"
+        "400":
+          description: A field was refused; `field` names it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorShiftFieldError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The Idempotency-Key was already used with a different request body.
+        "500":
+          $ref: "#/components/responses/ServerError"
+    delete:
+      tags:
+        - Vaccination
+      operationId: deleteVaccinationOperatorShift
+      summary: Clear one operator's vaccination shift for a park.
+      description: >-
+        Refused with 409 operator_shift_in_use while the park's drive-operator assignment names the
+        operator as its default or a selected operator (the planner would otherwise fail closed).
+        404 when the operator has no shift for the park. Idempotent on Idempotency-Key.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: park_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: operator_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The shift was cleared.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorShiftClearResult"
+        "400":
+          description: A field was refused; `field` names it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperatorShiftFieldError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          description: >-
+            operator_shift_in_use (the park's drive assignment still names this operator) or
+            idempotency_conflict.
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-direction/generation-preview:
     get:
       tags:
@@ -10074,7 +10193,10 @@ paths:
       description: >-
         The proof must be a FINISHED upload in this tenant, declared `video`, stored as video/*, and
         captured by the in-app camera (a gallery pick is refused). Only the assignee may submit, only
-        while the visit is still owed, and only on the row_version the screen loaded with (0 skips
+        while the visit is still owed, only from the visit's planned India business day onward
+        (earlier is 409 `visit_not_open_yet` with the farm sentence "This visit opens on
+        DD/MM/YYYY."; the card then carries can_submit=false and a reason_line ending
+        "Opens on DD/MM/YYYY"), and only on the row_version the screen loaded with (0 skips
         the fence). Submit IS completion: there is no verifier. Idempotent on the Idempotency-Key
         header: an exact replay returns the same completed visit.
       parameters:
@@ -10139,9 +10261,10 @@ paths:
         - name: filter
           in: query
           required: false
-          schema: { type: string, enum: [all, open, in_progress, done, overdue], default: all }
+          schema: { type: string, enum: [all, open, in_progress, done, cancelled, overdue], default: all }
           description: >-
-            The chip KEY. Absent or unknown resolves to `all` (which hides cancelled tasks).
+            The chip KEY. Absent resolves to `all` (which hides cancelled tasks); `cancelled` lists
+            only the cancelled tasks. An UNKNOWN key is 400 `invalid_filter`, never widened to all.
             `overdue` is a LENS, not a fifth status: open or in-progress tasks whose deadline_at
             is before the server's farm clock at request time. Its chip count in `filters[]` is
             that same late subset, whole-list, under the request's other filters.
@@ -10504,8 +10627,10 @@ paths:
       operationId: setLeadershipTaskComment
       summary: Add a two-way note to a task.
       description: >-
-        Appends a chronological task note while the task is not cancelled. The assignee, the raiser
-        and a leadership monitor can all write; the compatibility `comment` field is also refreshed
+        Appends a chronological task note while the task is not cancelled. The assignee, the raiser,
+        a leadership monitor and anyone a note on the task mentioned (a participant; maintainer
+        decision 2026-09-25 -- a mention may reply, and may not move status, edit or cancel) can all
+        write; anyone else is 403 `not_on_task`. The compatibility `comment` field is also refreshed
         for older clients when the assignee writes. The `Idempotency-Key` header is REQUIRED.
       parameters:
         - name: task_id
@@ -11247,7 +11372,7 @@ paths:
         - name: species
           in: query
           required: false
-          schema: { type: string, enum: [goat, sheep] }
+          schema: { type: string, description: "A species code from the tenant's Configuration list (goat, sheep, or one the farm added)." }
         - name: breed
           in: query
           required: false
@@ -12554,6 +12679,48 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Feed Config
+      operationId: setFeedConfigSessionPlan
+      summary: Set a park's feeding sessions and each one's share of the day.
+      description: >-
+        Replaces the park's ACTIVE feeding sessions with exactly the listed ones: a listed session is
+        added or edited in place (name and share of the day), and an active session that is not listed
+        is retired. The shares must add up to exactly 1 (the whole day), because generation splits
+        each pen's daily quantity across these sessions -- a plan short of 1 under-feeds every pen by
+        the gap. Retiring a session that still serves a feed is refused with 409 `session_has_feeds`,
+        because generation walks only active sessions and those feeds would silently stop reaching
+        any animal. This is how a park added on Configuration > Items & settings gets its sessions;
+        before it only a seed command could create them. Idempotent on the same terms as every other
+        feed-config write.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetFeedConfigSessionPlanRequest"
+      responses:
+        "200":
+          description: The authored edit's outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigWriteResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
   /feed-config/schedule:
@@ -16588,16 +16755,22 @@ paths:
       operationId: listHealthDeathCauses
       summary: The searchable disease list the death form's "due to disease" dropdown reads.
       description: >-
-        Every disease a death may be attributed to, from the DIAGNOSIS REGISTER — the same
-        vocabulary `health_cases.register_rule_id` stores and the Health Analytics disease
-        board counts, so a cause of death can be read straight against the incidence board.
+        Every disease a death may be attributed to: the built-in DIAGNOSIS REGISTER — the
+        same vocabulary `health_cases.register_rule_id` stores and the Health Analytics
+        disease board counts — PLUS every disease the tenant has authored in Health Config
+        (maintainer decision 2026-09-25): the problem rules of its published diagnosis
+        registers (`kind: register_rule`) and every treatment-tab disease that is published
+        today (`kind: disease_key`, keyed by its stable disease key). One row per disease: a
+        Health Config disease that is the same illness as a register diagnosis (same name,
+        same key, or the course that diagnosis opens) is listed once, as the register row.
 
 
-        ONE READ, NO PAGING, and static for the life of the server process: the register is
-        embedded, validated at start-up, and cannot change under a running process, so a
-        client may cache the list as long as it likes. It is roughly 33 diseases — an
-        operator searches it with a thumb while standing over a dead animal, and a paged
-        dropdown that round-trips per keystroke is the wrong shape for that moment.
+        ONE READ, NO PAGING, PER TENANT. It changes when Health Config publishes, so a client
+        caches it for offline use and refreshes it when the death form opens. It is a few
+        dozen diseases — an operator searches it with a thumb while standing over a dead
+        animal, and a paged dropdown that round-trips per keystroke is the wrong shape for
+        that moment. A disease later retired leaves this list but stays valid on the deaths
+        already recorded under it.
 
 
         FIELD ACTIONS ARE EXCLUDED. The register also carries advisory actions (tick
@@ -16605,9 +16778,10 @@ paths:
         not conditions an animal dies of, and never appear here.
 
 
-        `animal_classes` says which registers carry each disease. A client may narrow the
-        list to the animal in front of the operator, but it is never a reason to REJECT a
-        selection: an animal can change class between its diagnosis and its death.
+        `animal_classes` says which registers carry each disease (empty for a treatment-tab
+        disease, which belongs to no register class). A client may narrow the list to the
+        animal in front of the operator, but it is never a reason to REJECT a selection: an
+        animal can change class between its diagnosis and its death.
       responses:
         "200":
           description: The whole searchable cause-of-death vocabulary.
@@ -17479,10 +17653,53 @@ paths:
         - name: cursor
           in: query
           required: false
-          description: Opaque keyset cursor from a previous page's next_cursor.
+          description: >-
+            Opaque keyset cursor from a previous page's next_cursor. A cursor is bound to the
+            request_type / park_id filter it was minted under; replaying it under a different
+            filter is 400 invalid_cursor.
           schema:
             type: string
             maxLength: 512
+        - name: request_type
+          in: query
+          required: false
+          description: >-
+            Optional server-side filter to one request type. It only NARROWS what the caller may
+            decide: a type outside the caller's authority returns an empty page. Any other value is
+            400 invalid_request_type.
+          schema:
+            type: string
+            enum: [birth, death, shifting]
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Optional server-side farm filter, applied on top of the caller's park scope (a farm the
+            caller does not hold returns an empty page). A shifting request matches on its
+            destination farm, a birth on its farm, a death on the subject animal's farm. A
+            malformed id is 400 invalid_park_id.
+          schema:
+            type: string
+            format: uuid
+        - name: raised_from
+          in: query
+          required: false
+          description: >-
+            Optional calendar filter: the first India business day (YYYY-MM-DD, inclusive) a
+            request was raised on. A bad date, or a start after raised_to, is 400
+            invalid_date_range. Bound into the page cursor like the other filters.
+          schema:
+            type: string
+            format: date
+        - name: raised_to
+          in: query
+          required: false
+          description: >-
+            Optional calendar filter: the last India business day (YYYY-MM-DD, inclusive) a
+            request was raised on.
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: One page of approval requests.
@@ -17496,6 +17713,43 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin-web/counts/approvals/{request_id}:
+    get:
+      tags:
+        - Counts
+      operationId: getAdminWebCountsApproval
+      summary: Read ONE approval request the caller may decide, whatever its status or page.
+      description: >-
+        The admin-web Approvals page lists 20 requests at a time; a link straight to one request
+        (a Work Board row, a bookmark) must open its drawer even when that request sits on a later
+        page, under another status tab or another filter (maintainer decision 2026-09-25). Returns
+        the request in exactly the list's item shape. AUTHORITY IS THE LIST'S: a request type the
+        caller may not decide, or a farm outside the caller's park scope, reads as 404 -- the
+        request's existence is not disclosed -- and a malformed id is 400. Read-only.
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The request, in the approvals list's item shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountsApprovalListItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
   /app/counts/approvals/{request_id}/approve:
@@ -19415,16 +19669,17 @@ components:
       properties:
         key:
           type: string
-          description: The diagnosis register rule id, submitted verbatim as `death_cause_key`.
+          description: The register rule id or Health Config disease key, submitted verbatim as `death_cause_key`.
         kind:
           type: string
-          enum: [register_rule]
+          description: Submitted verbatim as `death_cause_kind`.
+          enum: [register_rule, disease_key]
         label:
           type: string
           description: What the operator reads. Never the rule id, which is a machine key.
         animal_classes:
           type: array
-          description: The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening).
+          description: The registers that carry this disease (adult, kid_milk, kid_weaning, kid_fattening, or an authored type); empty for a Health Config treatment disease.
           items: { type: string }
     HealthDeathCauseCatalog:
       type: object
@@ -19734,10 +19989,12 @@ components:
         by_pen_type:
           type: array
           description: >-
-            Always exactly three buckets in a FIXED order -- elevated, non-elevated, pen type
-            not set -- so the two sides never swap places between windows and an empty side
-            reads as a zero rather than vanishing. The class is configured per pen on
-            Configuration -> Items and settings -> Pens, never guessed from the pen's name.
+            One bucket per pen type in the farm's Pen types register (Configuration -> Items and
+            settings -> Pen types), in that register's order, then "pen type not set" last. Every
+            active type is present even at zero, so the bars never swap places between windows and
+            an empty type reads as a zero rather than vanishing; an archived type appears only while
+            cases sit in its pens. A pen's type is configured per partition, never guessed from the
+            pen's name. Keys are the register's codes; labels are its names.
           items:
             $ref: "#/components/schemas/HealthAnalyticsProblemBucket"
         by_age:
@@ -22081,7 +22338,7 @@ components:
     WorkBoardModule:
       type: string
       description: The operational module a board row belongs to, in board (keyset) order.
-      enum: [feed, health, vaccination, weighing, counts, milk, pc_care, toxin, procurement, verification, tasks]
+      enum: [feed, health, vaccination, weighing, counts, milk, pc_care, toxin, procurement, verification, tasks, sales]
     WorkBoardWorkState:
       type: string
       description: REUSED VERBATIM from process integrity; the board adds no state of its own.
@@ -22118,6 +22375,12 @@ components:
         done: { type: integer }
         pending: { type: integer }
         needs_attention: { type: integer }
+        in_review:
+          type: integer
+          description: Of pending, the units handed in and waiting for a verdict. Sent only by a source that knows it (the feed cards); absent means unknown, and the card reads pending as before.
+        not_started:
+          type: integer
+          description: Of pending, the units nobody has started (feed pens not filmed). Sent only by a source that knows it. Pending less in_review, not_started and needs_attention is work started and not handed in.
     WorkBoardRow:
       type: object
       required: [module, source_type, source_id, row_key, park_id, pen, business_date, work_state, lane, severity, owner, owner_state, title, counts]
@@ -22306,6 +22569,18 @@ components:
         by_module:
           type: object
           additionalProperties: { type: integer }
+        by_module_lane:
+          type: object
+          description: Every module's per-lane counts over the same whole filter.
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer }
+        by_module_state:
+          type: object
+          description: Every module's per-work-state counts over the same whole filter, so a client narrowed to a module and a lane can count that selection's done, pending and needs-attention cards without a second read.
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer }
         needs_attention: { type: integer }
         modules:
           type: array
@@ -22600,9 +22875,9 @@ components:
         load_ref: { type: string }
         seq_no: { type: integer }
         title: { type: string, description: Backend-owned row title ("Animal 7 · Female goat"). }
-        species: { type: string, enum: [goat, sheep] }
+        species: { type: string, description: "A species code from the tenant's Configuration list (goat, sheep, or one the farm added)." }
         species_label: { type: string }
-        sex: { type: string, enum: [male, female] }
+        sex: { type: string, description: "A gender code from the tenant's Configuration list (female, male, or one the farm added)." }
         sex_label: { type: string }
         breed: { type: string }
         age_months: { type: integer }
@@ -24801,6 +25076,40 @@ components:
             already know.
         feed_item:
           type: string
+    SetFeedConfigSessionPlanRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - sessions
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        sessions:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - session_no
+              - session_label
+              - split_fraction
+            properties:
+              session_no:
+                type: integer
+                minimum: 1
+              session_label:
+                type: string
+                minLength: 1
+                maxLength: 60
+              split_fraction:
+                type: string
+                description: >-
+                  This session's share of the day's quantity as a decimal string with at most four
+                  places ("0.6"). The shares of all listed sessions must add up to exactly 1.
     SetFeedConfigSessionTemplateItemRequest:
       type: object
       additionalProperties: false
@@ -30418,6 +30727,11 @@ components:
           type: string
         tone:
           type: string
+        group:
+          type: string
+          description: >-
+            The option this one belongs under, so a picker can narrow by an earlier choice
+            (a breed's species code on Register animal). Absent when the option has no group.
     AdminWebDisplayRule:
       type: object
       additionalProperties: false
@@ -30853,9 +31167,7 @@ components:
           maxLength: 120
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         age_band:
           type:
             - string
@@ -30969,9 +31281,7 @@ components:
           pattern: ^G-[0-9]{6,}$
         species:
           type: string
-          enum:
-            - goat
-            - sheep
+          description: A species code from the tenant's Configuration list (goat, sheep, or one the farm added).
         summary:
           $ref: "#/components/schemas/GoatSummary"
         identifiers:
@@ -33837,9 +34147,7 @@ components:
           description: Management stage from goat classification (e.g., Buck, Non-Pregnant Female).
         sex:
           type: string
-          enum:
-            - male
-            - female
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         animalCount:
           type: integer
     VaccinationCommandBoardCohortCell:
@@ -36360,6 +36668,10 @@ components:
         displayName:
           type: string
           description: Backend-owned operator display name (workforce_members.display_name).
+        parkId:
+          type: string
+          format: uuid
+          description: The park this shift is for.
         shiftLabel:
           type: string
           enum:
@@ -36385,6 +36697,104 @@ components:
             - saturday
             - sunday
           description: Lowercase weekday name; absent when the operator has no week-off.
+    VaccinationOperatorShiftList:
+      type: object
+      additionalProperties: false
+      required:
+        - parkId
+        - shifts
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        shifts:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationOperatorShift"
+    PutVaccinationOperatorShiftRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - operator_id
+        - shift_label
+        - shift_start
+        - shift_end
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        operator_id:
+          type: string
+          format: uuid
+          description: The operator's workforce member id.
+        shift_label:
+          type: string
+          enum:
+            - am
+            - pm
+            - rover
+        shift_start:
+          type: string
+          description: 24-hour start time, "HH:MM".
+          pattern: "^([01]?[0-9]|2[0-3]):[0-5][0-9]$"
+        shift_end:
+          type: string
+          description: 24-hour end time, "HH:MM"; must be later the same day than shift_start.
+          pattern: "^([01]?[0-9]|2[0-3]):[0-5][0-9]$"
+        week_off_weekday:
+          type:
+            - string
+            - "null"
+          description: Lowercase weekday name, or null / empty for no week-off.
+    VaccinationOperatorShiftWriteResult:
+      type: object
+      additionalProperties: false
+      required:
+        - shift
+        - idempotentReplay
+      properties:
+        shift:
+          $ref: "#/components/schemas/VaccinationOperatorShift"
+        idempotentReplay:
+          type: boolean
+    VaccinationOperatorShiftClearResult:
+      type: object
+      additionalProperties: false
+      required:
+        - parkId
+        - operatorId
+        - cleared
+        - idempotentReplay
+      properties:
+        parkId:
+          type: string
+          format: uuid
+        operatorId:
+          type: string
+          format: uuid
+        cleared:
+          type: boolean
+        idempotentReplay:
+          type: boolean
+    VaccinationOperatorShiftFieldError:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - trace_id
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+          description: Farm-worded reason, rendered verbatim beside the named field.
+        field:
+          type: string
+          description: The request field the refusal is about, when it is about one.
+        trace_id:
+          type: string
     VaccinationParkScopeOption:
       type: object
       additionalProperties: false
@@ -37892,9 +38302,9 @@ components:
         at its own (species, stage, sex) override when one is in force, else its species default.
       required: [species, management_stage, sex, price_per_kg_inr, effective_from, set_by]
       properties:
-        species: {type: string, enum: [goat, sheep]}
+        species: {type: string, description: "A species code from the tenant's Configuration list (goat, sheep, or one the farm added)."}
         management_stage: {type: string, description: 'A stage_code from the tenant stage vocabulary; "" on the species default.'}
-        sex: {type: string, enum: ["", female, male]}
+        sex: {type: string, description: "'' on the species default; otherwise A gender code from the tenant's Configuration list (female, male, or one the farm added)."}
         price_per_kg_inr: {type: number, format: double}
         effective_from: {type: string, format: date}
         set_by: {type: string}
@@ -37964,9 +38374,9 @@ components:
             additionalProperties: false
             required: [species]
             properties:
-              species: {type: string, enum: [goat, sheep]}
+              species: {type: string, description: "A species code from the tenant's Configuration list (goat, sheep, or one the farm added)."}
               management_stage: {type: string, description: 'Stage code of an override; "" (or absent) for the species default. Named together with sex.'}
-              sex: {type: string, enum: ["", female, male]}
+              sex: {type: string, description: "'' on the species default; otherwise A gender code from the tenant's Configuration list (female, male, or one the farm added)."}
               price_per_kg_inr:
                 type: number
                 format: double
@@ -40297,15 +40707,14 @@ components:
       additionalProperties: false
       required: [label, shed_type, animals, average_gain_g_per_day]
       description: >-
-        One breed's daily gain for ONE physical pen type, for the Pen-wise comparison Manju asked
-        for. It compares elevated pens against non-elevated pens. The class is CONFIGURED per pen
-        on Configuration -> Items and settings -> Pens; a pen nobody has typed is omitted from
-        both sides rather than guessed from its name.
+        One breed's daily gain for ONE pen type, for the Pen-wise comparison. Pen types are the
+        farm's own register (Configuration -> Items and settings -> Pen types) and each partition
+        is given one; a pen nobody has typed is omitted rather than guessed from its name.
       properties:
         label: {type: string, description: The breed, as stored.}
         shed_type:
           type: string
-          enum: [elevated, non_elevated]
+          description: "A code from the farm's Pen types register. The page contract's pen_types option group carries each code's name and order."
         animals:
           type: integer
           description: Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed.
@@ -40329,7 +40738,7 @@ components:
           description: "The breed whose bar this pen sits behind; matches WeighingWeightGainShedTypeBucket.label."
         shed_type:
           type: string
-          enum: [elevated, non_elevated]
+          description: "A code from the farm's Pen types register; matches WeighingWeightGainShedTypeBucket.shed_type."
         location_id: {type: string, format: uuid}
         partition_label: {type: string, description: "Empty for an undivided shed."}
         park_id: {type: string, description: "Empty when the shed's parent does not resolve to a park."}
@@ -40541,7 +40950,7 @@ components:
           items: {$ref: "#/components/schemas/WeighingWeightGainOriginBucket"}
         gain_by_breed_shed_type:
           type: array
-          description: "Daily gain per breed split by elevated vs non-elevated pen type, as configured per pen. Unclassified pens are omitted rather than guessed."
+          description: "Daily gain per breed split by pen type, as configured per partition from the farm's Pen types register. Unclassified pens are omitted rather than guessed."
           items: {$ref: "#/components/schemas/WeighingWeightGainShedTypeBucket"}
         shed_type_members:
           type: array
@@ -41091,9 +41500,7 @@ components:
             - "null"
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         age:
           type:
             - string
@@ -42095,6 +42502,8 @@ components:
         - breeds
         - sexes
         - rows
+        - authored_stage
+        - authored_stage_label
       properties:
         park_id:
           type: string
@@ -42146,9 +42555,18 @@ components:
             $ref: "#/components/schemas/CountsBreakdownSeriesPoint"
         rows:
           type: array
-          description: This pen's stage x breed x sex grain rows, largest first, each carrying the pen's own location.
+          description: This pen's stage x breed x sex grain rows, largest first, each carrying the pen's own location. Empty for a pen holding no live animal.
           items:
             $ref: "#/components/schemas/CountsBreakdownRow"
+        authored_stage:
+          type: string
+          description: >-
+            The pen's CONFIGURED stage tag as a stage code (the pen's own tag, or the shed's for an
+            undivided shed), "" when none is set. It is what newborn placement and shifting adoption
+            read, and the only stage an empty pen (count 0, no rows) has.
+        authored_stage_label:
+          type: string
+          description: The reader's label for authored_stage; "" when no tag is set.
     CountsBreakdownResponse:
       type: object
       additionalProperties: false
@@ -46184,9 +46602,7 @@ components:
           maxLength: 200
         species:
           type: string
-          enum:
-            - goat
-            - sheep
+          description: A species code from the tenant's Configuration list (goat, sheep, or one the farm added).
         farm_id:
           type: string
           format: uuid
@@ -46239,9 +46655,7 @@ components:
           maxLength: 120
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         dob:
           description: Date of birth. Required, and must not be after entry_date.
           type: string
@@ -46380,7 +46794,7 @@ components:
           description: >-
             The disease the animal died of, chosen from `GET /app/health/death-causes`.
             ABSENT means a NORMAL death — a complete answer, not missing data. A key the
-            diagnosis register does not name is REJECTED rather than stored as typed: the
+            tenant's cause-of-death list does not name is REJECTED rather than stored as typed: the
             value of a coded cause is that it groups, and one death filed under `MASTITIS`
             beside another under a near-miss is two diseases on the board and one in the
             barn. Must be given together with `death_cause_kind`, and only on a death — a
@@ -46389,9 +46803,11 @@ components:
           type: string
         death_cause_kind:
           description: >-
-            Which vocabulary `death_cause_key` belongs to. Only `register_rule` may be
-            submitted; `disease_key` exists in stored data for a pre-engine case and is
-            resolved by the server from the animal's own case, never accepted from a client.
+            Which vocabulary `death_cause_key` belongs to, echoed verbatim from the chosen
+            option: `register_rule` for a diagnosis-register rule, `disease_key` for a disease
+            authored in Health Config. A `disease_key` is accepted only while that disease is
+            published (2026-09-25); a death already recorded under one stays valid after it
+            is retired.
           type: string
           enum: [register_rule, disease_key]
         occurred_at:

@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaIconButton
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.ProofMediaPreview
@@ -81,6 +83,24 @@ fun LeadershipTaskDetailScreen(
                 )
             },
         )
+        if (state.unavailable) {
+            // Nothing cached and the server unreachable: say so and offer Try again — never an
+            // endless spinner with no way back.
+            EmptyState(
+                title = stringResource(R.string.leadership_tasks_detail_unavailable),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                icon = MeshaIcons.Warn,
+                tone = EmptyTone.Warn,
+                action = {
+                    LeadershipGhostButton(
+                        label = stringResource(R.string.leadership_tasks_action_try_again),
+                        enabled = !state.isRefreshing,
+                        onClick = { onEvent(LeadershipTaskDetailEvent.Refresh) },
+                    )
+                },
+            )
+            return@Column
+        }
         if (state.loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MeshaColors.BrandD)
@@ -204,8 +224,9 @@ fun LeadershipTaskDetailScreen(
                         modifier = leadershipCardModifier(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        val author = note.authorName.ifBlank { stringResource(R.string.leadership_tasks_note_author_fallback) }
                         Text(
-                            text = note.authorName.ifBlank { stringResource(R.string.leadership_tasks_note_author_fallback) },
+                            text = if (note.whenLabel.isBlank()) author else "$author · ${note.whenLabel}",
                             color = MeshaColors.Faint,
                             style = MeshaType.sectionLabel,
                         )

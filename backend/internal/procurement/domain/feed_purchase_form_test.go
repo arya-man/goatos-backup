@@ -102,13 +102,13 @@ func TestApplyFeedPurchaseAnswersFillsTheColumnsAndKeepsTheRest(t *testing.T) {
 // TestFeedPurchaseFormCatalogComesFromTheLedgersOwnVocabularies: the choices are the farms it buys
 // for, the ACTIVE feed catalog and the two payment states -- never a list typed into a document.
 func TestFeedPurchaseFormCatalogComesFromTheLedgersOwnVocabularies(t *testing.T) {
-	catalog := FeedPurchaseFormCatalog(FeedFarms, []string{"Maize", "Soya"}, FeedPaymentStatuses)
+	catalog := FeedPurchaseFormCatalog(testFeedFarms, []string{"Maize", "Soya"}, FeedPaymentStatuses)
 	form := CompileVendorForm(SeededFeedPurchaseFormDSL(), 1, catalog)
 	byID := map[string][]VendorQuestionOpt{}
 	for _, q := range form.Questions() {
 		byID[q.ID] = q.Options
 	}
-	if len(byID["farm_label"]) != len(FeedFarms) {
+	if len(byID["farm_label"]) != len(testFeedFarms) {
 		t.Fatalf("farm choices = %v", byID["farm_label"])
 	}
 	if len(byID["feed_item_label"]) != 2 {

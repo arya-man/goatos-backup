@@ -42,7 +42,7 @@ func TestAskStreamReassemblesAnswer(t *testing.T) {
 		spec:   ports.ToolSpec{Name: "herd_count", Route: domain.RouteAPI},
 		result: domain.ToolResult{Surface: "counts", Facts: []domain.Fact{{TenantID: "t1", Label: "active goats", Value: "1234"}}},
 	})
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	q := domain.Question{Actor: leadershipActor(), Text: "how many goats"}
 	sink := &collectSink{}
@@ -97,7 +97,7 @@ func TestAskStreamEmitsProgressBeforeAnswer(t *testing.T) {
 		spec:   ports.ToolSpec{Name: "herd_count", Route: domain.RouteAPI},
 		result: domain.ToolResult{Surface: "counts", Facts: []domain.Fact{{TenantID: "t1", Label: "active goats", Value: "1234"}}},
 	})
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	q := domain.Question{Actor: leadershipActor(), Text: "how many goats"}
 	sink := &progressSink{}
@@ -156,7 +156,7 @@ func TestAskStreamHonorsCancellation(t *testing.T) {
 	// A fallback IS wired to prove cancellation is NOT papered over by degrading
 	// to the deterministic planner: the ctx error must win.
 	fb := &fakeProvider{plan: domain.Plan{SubQuestions: []domain.SubQuestion{{ID: "s1", Route: domain.RouteAPI, ToolName: "x"}}}}
-	a := NewAssistant(Config{}, Deps{Provider: bp, Fallback: fb, Registry: NewRegistry(nil, nil, nil)})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: bp, Fallback: fb, Registry: NewRegistry(nil, nil, nil)})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	q := domain.Question{Actor: leadershipActor(), Text: "how many goats"}

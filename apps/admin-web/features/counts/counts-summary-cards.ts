@@ -31,6 +31,8 @@ type SummaryLabels = {
   k2: string;
   k3: string;
   k4: string;
+  /** Label for animals whose stage no card above names (a stage added on Configuration). */
+  other?: string;
 };
 
 type SummaryBucketKey = "fattening" | "bucks" | "breeding" | "icu" | "k0" | "k1" | "k2" | "k3" | "k4";
@@ -110,6 +112,9 @@ export function buildCountsSummaryCards(
     k3: emptyBucket(),
     k4: emptyBucket(),
   };
+  // Stages no card names -- a stage added on Configuration > Items & settings, or one this list
+  // has not caught up with. They used to be dropped, so the cards stopped adding up to the herd.
+  const unmatched = emptyBucket();
 
   for (const point of points) {
     const addTo = (bucketKey: SummaryBucketKey) => {
@@ -122,7 +127,18 @@ export function buildCountsSummaryCards(
 
     const bucketKey = classifyStage(point);
     if (bucketKey) addTo(bucketKey);
+    else {
+      unmatched.female += point.female;
+      unmatched.male += point.male;
+      unmatched.other += point.other;
+      unmatched.count += point.count;
+    }
   }
+
+  const otherCard: CountsSummaryCard[] =
+    unmatched.count > 0 && summaryLabels.other
+      ? [{ key: "other_stages", label: summaryLabels.other, count: unmatched.count, detail: countsSexDetail(unmatched, labels), tone: "muted" }]
+      : [];
 
   return [
     { key: "fattening", label: summaryLabels.fattening, count: buckets.fattening.count, detail: countsSexDetail(buckets.fattening, labels), tone: "brand" },
@@ -136,5 +152,6 @@ export function buildCountsSummaryCards(
       detail: countsSexDetail(buckets[key], labels),
       tone: "brand" as const,
     })),
+    ...otherCard,
   ];
 }

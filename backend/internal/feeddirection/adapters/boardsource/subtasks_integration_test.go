@@ -64,13 +64,11 @@ func TestFeedActivitySubtasksListPensWorstFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mine.Total != 3 || len(mine.Subtasks) != 3 {
-		t.Fatalf("owner lens must list only matching plus pool pens, got total=%d rows=%d", mine.Total, len(mine.Subtasks))
-	}
-	for _, sub := range mine.Subtasks {
-		if sub.Name == "Yashoda 2" {
-			t.Fatalf("owner lens leaked someone else's completed pen: %+v", mine.Subtasks)
-		}
+	// A feed card is the crew's: its drawer lists every pen under a person filter too, including
+	// Yashoda 2 that someone else filmed (maintainer review 2026-09-25) -- the same pens the card
+	// counts under that filter.
+	if mine.Total != 4 || len(mine.Subtasks) != 4 {
+		t.Fatalf("a person filter must list every pen of the crew's card, got total=%d rows=%d", mine.Total, len(mine.Subtasks))
 	}
 
 	// An unknown activity key resolves to an empty page, never an error.

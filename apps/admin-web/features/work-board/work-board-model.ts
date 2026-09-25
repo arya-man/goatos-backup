@@ -1,6 +1,7 @@
 import type { Tone } from "@/components/ui-primitives";
 import type { AdminUiOption, AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { optionGroup } from "@/lib/admin-ui-contract";
+import { fmtDate } from "@/lib/format";
 import type { WorkBoardLane, WorkBoardModule, WorkBoardRow, WorkBoardWorkState } from "@/lib/api/work-board-server";
 
 export const WORK_BOARD_PATH = "/work-board";
@@ -112,6 +113,12 @@ export function barSegments(row: WorkBoardRow): { ok: number; rev: number; run: 
   if (total <= 0) return { ok: 0, rev: 0, run: 0, brk: 0 };
   const pct = (n: number) => Math.max(0, Math.min(100, (100 * n) / total));
   const brk = Math.min(row.counts.pending, row.counts.needs_attention);
+  const split = pendingSplit(row);
+  if (split) {
+    // The source said where every unit is: the bar shows exactly that, and the units nobody has
+    // started stay the empty track.
+    return { ok: pct(row.counts.done), rev: pct(split.inReview), run: pct(split.started), brk: pct(brk) };
+  }
   const rest = row.counts.pending - brk;
   return {
     ok: pct(row.counts.done),
@@ -119,6 +126,20 @@ export function barSegments(row: WorkBoardRow): { ok: number; rev: number; run: 
     run: row.lane === "in_progress" ? pct(rest) : 0,
     brk: pct(brk),
   };
+}
+
+// pendingSplit is the card's pending work broken down, when the source sent the breakdown (the
+// feed cards do): handed in and waiting, started and not handed in, and not started. Without it a
+// card can only say "N started" for everything unfinished, which called 11 unfilmed feed pens
+// "started" (maintainer report 2026-09-25). Null means the source did not say.
+export function pendingSplit(row: WorkBoardRow): { inReview: number; started: number; notStarted: number } | null {
+  const inReview = row.counts.in_review;
+  const notStarted = row.counts.not_started;
+  if (inReview === undefined && notStarted === undefined) return null;
+  const review = inReview ?? 0;
+  const idle = notStarted ?? 0;
+  const brk = Math.min(row.counts.pending, row.counts.needs_attention);
+  return { inReview: review, started: Math.max(0, row.counts.pending - review - idle - brk), notStarted: idle };
 }
 
 // The names on a card's owner stack: the owner, plus "+N" when the backend appended partners.
@@ -134,16 +155,13 @@ export function ownerDisplayName(row: WorkBoardRow): string {
   return ownerStack(row).names[0] ?? "";
 }
 
-// The board's day label in the mock's shape ("Mon, 8 Sep"): weekday, day, short month, on the
-// India business calendar. A date is a format, not copy; the parts come from Intl so nothing here
-// is a hand-written month name. Unparseable input renders as given.
-const DAY_PARTS = new Intl.DateTimeFormat("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+// The board's day label: DD/MM/YYYY like every other date on every surface (maintainer lock
+// 2026-09-10, docs/decisions/date-display-format.md), through the console's one date helper. A
+// bare business date is anchored to IST midnight so it can never slip a day. Unparseable input
+// renders as given.
 export function dayLabel(iso?: string): string {
   if (!iso) return "—";
-  const d = new Date(iso.length === 10 ? `${iso}T00:00:00+05:30` : iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const parts = Object.fromEntries(DAY_PARTS.formatToParts(d).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-  return `${parts.weekday}, ${parts.day} ${parts.month}`;
+  return fmtDate(iso.length === 10 ? `${iso}T00:00:00+05:30` : iso);
 }
 
 // The park's short code from the contract's park options (what the park pick shows), so a card

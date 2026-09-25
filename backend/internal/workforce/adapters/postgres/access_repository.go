@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/parkscope"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	platformpostgres "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
@@ -544,6 +545,14 @@ func (r *AccessRepository) ResolvePermissions(ctx context.Context, tenantID, use
 		})
 	}
 	return permissions.PermissionsForAssignmentsWithBaseline(assignments), true, nil
+}
+
+// AccessConnWarmups lists the per-request access snapshot read, warmed on every new pooled
+// connection (platformpostgres.ConnWarmer): it runs on every authenticated request.
+func AccessConnWarmups() []platformpostgres.ConnWarmup {
+	return []platformpostgres.ConnWarmup{
+		{Name: "workforce.person_access_snapshot", SQL: resolvePersonAccessSnapshotSQL, Mode: platformpostgres.WarmCachedStatement, Args: platformpostgres.TenantFirst()},
+	}
 }
 
 func (r *AccessRepository) ResolveAccessSnapshot(ctx context.Context, tenantID, userID string) (httpmiddleware.PersonAccessSnapshot, bool, error) {

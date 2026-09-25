@@ -22,7 +22,7 @@ function sliceOf(row: CountsBreakdownRow): CensusSlice {
     partitionLabel: row.partition_label ?? "",
     managementStage: row.management_stage,
     breed: row.breed,
-    sex: row.sex === "male" ? "male" : "female",
+    sex: row.sex,
   };
 }
 

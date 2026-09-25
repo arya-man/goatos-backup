@@ -117,4 +117,6 @@
     <string name="proof_video_pen_routine_header">बाड़े की दिनचर्या</string>
     <string name="pen_routines_msg_capture_not_saved">यह सेव नहीं हुआ। फिर से लें।</string>
     <string name="pen_routines_msg_not_sent">सेव हुआ, पर भेजा नहीं जा सका। रिफ्रेश करके फिर कोशिश करें।</string>
+    <string name="pen_visits_msg_unavailable">यह विज़िट अभी लोड नहीं हुई। कनेक्शन देखें और फिर कोशिश करें।</string>
+    <string name="leadership_tasks_msg_task_unavailable">यह काम लोड नहीं हो सका। कनेक्शन देखें और फिर कोशिश करें।</string>
 </resources>

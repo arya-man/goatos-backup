@@ -233,3 +233,46 @@ func TestLeadershipTaskConsumerIgnoresOtherEventsAndRejectsBadPayloads(t *testin
 		t.Fatalf("nothing should be queued; got %+v", queue.queued)
 	}
 }
+
+// TestLeadershipTaskStatusPushNamesTheActorNotTheOtherParty (2026-09-25): since 2026-09-18 a
+// leadership MONITOR (the CEO) may move any task. The push built "<name> marked #N Done" from the
+// PARTY position -- the assignee's name in the raiser's push, the raiser's name in the assignee's
+// -- so a CEO's change told the raiser the assignee did it, and the assignee that the raiser did.
+// The line names who actually made the change, and a person it cannot name reads neutrally.
+func TestLeadershipTaskStatusPushNamesTheActorNotTheOtherParty(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		changedBy string
+		want      string
+		forbidden []string
+	}{
+		{"a monitor moved it", "55555555-5555-4555-8555-555555555555", "Someone on the leadership team", []string{"Hemant", "Ravi"}},
+		{"the assignee moved it", "44444444-4444-4444-8444-444444444444", "Ravi", []string{"Hemant marked"}},
+		{"the raiser moved it", "33333333-3333-4333-8333-333333333333", "Hemant", []string{"Ravi marked"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			queue := &targetTestQueue{}
+			consumer := notificationbridge.NewLeadershipTaskNotifyConsumer(&targetTestRecipients{}, queue, slog.Default())
+			if err := consumer.HandleEvent(context.Background(), eventbus.Event{
+				ID: "evt-actor", Type: notificationbridge.EventLeadershipTaskStatusChanged,
+				TenantID: "11111111-1111-4111-8111-111111111111",
+				Payload:  leadershipTaskPayload(map[string]any{"status": "done", "changed_by_user_id": tc.changedBy}),
+			}); err != nil {
+				t.Fatalf("HandleEvent: %v", err)
+			}
+			if len(queue.queued) == 0 {
+				t.Fatal("no push queued")
+			}
+			for _, n := range queue.queued {
+				if !strings.HasPrefix(n.Title, tc.want+" marked") || !strings.Contains(n.Body, "by "+tc.want+" on") {
+					t.Fatalf("push title=%q body=%q, want it to name %q as the one who made the change", n.Title, n.Body, tc.want)
+				}
+				for _, f := range tc.forbidden {
+					if strings.Contains(n.Title, f) || strings.Contains(n.Body, "by "+f+" on") {
+						t.Fatalf("push title=%q body=%q names %q, who did not make the change", n.Title, n.Body, f)
+					}
+				}
+			}
+		})
+	}
+}

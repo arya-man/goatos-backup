@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
@@ -199,44 +201,56 @@ func (r *Repository) growthDirectorWeightsUncached(ctx context.Context, tenantID
 	}
 	out.Parks = parks
 
+	// The six sections are independent reads of the same scope and each fills only its own field,
+	// so they run concurrently, at most growthDirectorSectionParallelism at a time (the weighing
+	// growth read's rule: one cold page load must not take the whole pool). The page then waits
+	// for the slowest group of reads instead of all of them in a row.
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(growthDirectorSectionParallelism)
 	if sectionSet["road_to_sale"] {
-		out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
-	}
-	if err != nil {
-		return out, err
+		g.Go(func() (err error) {
+			out.RoadToSale, err = r.roadToSale(gctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
+			return err
+		})
 	}
 	if sectionSet["fair_fight"] {
-		out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
-	}
-	if err != nil {
-		return out, err
+		g.Go(func() (err error) {
+			out.FairFight, err = r.fairFight(gctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
+			return err
+		})
 	}
 	if sectionSet["slow_growth"] {
-		out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
-	}
-	if err != nil {
-		return out, err
+		g.Go(func() (err error) {
+			out.SlowGrowth, err = r.slowGrowth(gctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
+			return err
+		})
 	}
 	if sectionSet["feed_vs_growth"] {
-		out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
-	}
-	if err != nil {
-		return out, err
+		g.Go(func() (err error) {
+			out.FeedVsGrowth, err = r.feedVsGrowth(gctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
+			return err
+		})
 	}
 	if sectionSet["feed_problems"] {
-		out.FeedProblems, err = r.feedProblems(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope)
-	}
-	if err != nil {
-		return out, err
+		g.Go(func() (err error) {
+			out.FeedProblems, err = r.feedProblems(gctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope)
+			return err
+		})
 	}
 	if sectionSet["trust"] {
-		out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+		g.Go(func() (err error) {
+			out.Trust, err = r.trust(gctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
+			return err
+		})
 	}
-	if err != nil {
+	if err := g.Wait(); err != nil {
 		return out, err
 	}
 	return out, nil
 }
+
+// growthDirectorSectionParallelism bounds the Weights tab's concurrent section reads.
+const growthDirectorSectionParallelism = 3
 
 func growthDirectorSectionSet(raw string) map[string]bool {
 	all := map[string]bool{

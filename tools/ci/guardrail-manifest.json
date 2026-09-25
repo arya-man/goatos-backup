@@ -1515,6 +1515,28 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "worker-stage-budgets-guard"
+    },
+    {
+      "id": "admin-web-heavy-client-imports",
+      "script": "tools/agent-hooks/check-admin-web-heavy-client-imports.mjs",
+      "makeTarget": "admin-web-heavy-client-imports-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-heavy-client-imports.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-heavy-client-imports.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-heavy-client-imports-guard",
+      "notes": "Heavy browser SDKs (markdown, OpenTelemetry/Faro tracing, firebase/*) must not be statically imported in the client graph; load them with import()/next/dynamic (PR #415 0afa8abf8: first-load JS ~440 -> ~325 KB gzip). Shrink-only ratchet in tools/agent-hooks/admin-web-heavy-client-imports.baseline.json."
+    },
+    {
+      "id": "scale-guard-plan-proof",
+      "script": "tools/scale-guard/planproof.go",
+      "makeTarget": "scale-guard-plan-proof",
+      "realCheck": "cd tools/scale-guard && go run . -root ../.. -plan-proof -base origin/main",
+      "selfTest": "cd tools/scale-guard && go test -run 'PlanProof|ORSubquery' ./...",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "scale-guard-plan-proof",
+      "notes": "PP-22: changed serving SQL over a large table needs a changed/added at-scale plan test (Test*AtScale in the package or a validate-sqlc-plans explain_* entry) in the same diff; exempt with `scale-guard:plan-proof-exempt: <reason>`. Sibling static rule or-subquery-membership (OR with an IN/EXISTS/= ANY(SELECT) branch over a large table) runs inside make scale-guard, shrink-only baseline in tools/scale-guard/baseline.txt."
     }
   ]
 }

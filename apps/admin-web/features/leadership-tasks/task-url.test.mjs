@@ -70,7 +70,9 @@ test("sort, scope and status filter are closed enums with a default", () => {
   assert.equal(normalizeTaskScope("assigned_to_me"), "assigned_to_me");
   assert.equal(normalizeTaskScope("nonsense"), "team_progress");
   assert.equal(normalizeTaskFilter("in_progress"), "in_progress");
-  assert.equal(normalizeTaskFilter("cancelled"), "all");
+  // Cancelled tasks are listed (maintainer decision 2026-09-25): `cancelled` is a filter value.
+  assert.equal(normalizeTaskFilter("cancelled"), "cancelled");
+  assert.equal(normalizeTaskFilter("archived"), "all");
 });
 
 test("a malformed uuid filter is dropped rather than sent as a 400", () => {
@@ -116,7 +118,7 @@ test("a board keeps every column under a status filter, and the other columns re
   // cards. What must still never happen is a live count above an empty column, so the excluded
   // columns' totals are 0, not the whole-list number.
   const all = ["open", "in_progress", "done", "cancelled"];
-  for (const filter of ["all", "open", "in_progress", "done", "overdue"]) {
+  for (const filter of ["all", "open", "in_progress", "done", "cancelled", "overdue"]) {
     assert.deepEqual([...boardColumnsForFilter(filter)], all, filter);
   }
   const totals = new Map([["open", 172], ["in_progress", 119], ["done", 117]]);
@@ -124,7 +126,12 @@ test("a board keeps every column under a status filter, and the other columns re
   assert.equal(boardColumnTotal("done", "done", totals), 117);
   assert.equal(boardColumnTotal("open", "done", totals), 0);
   assert.equal(boardColumnTotal("in_progress", "done", totals), 0);
+  // A backend without the cancelled count publishes none: the pill reads the placeholder.
   assert.equal(boardColumnTotal("cancelled", "all", totals), null);
+  const withCancelled = new Map([...totals, ["cancelled", 9]]);
+  assert.equal(boardColumnTotal("cancelled", "all", withCancelled), 9);
+  assert.equal(boardColumnTotal("cancelled", "cancelled", withCancelled), 9);
+  assert.equal(boardColumnTotal("open", "cancelled", withCancelled), 0);
   assert.equal(boardColumnTotal("open", "overdue", totals), null);
 });
 
@@ -142,7 +149,7 @@ test("the overdue lens is a filter value, and no column claims a total under it"
     assert.equal(boardColumnHasTotal(column, "overdue"), false);
     assert.equal(boardColumnHasTotal(column), true);
   }
-  assert.equal(boardColumnHasTotal("cancelled", "all"), false);
+  assert.equal(boardColumnHasTotal("cancelled", "all"), true);
 });
 
 test("`view` is read as an alias of `t_view`, and `t_view` wins when both are present", () => {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"strconv"
 	"strings"
 	"time"
@@ -145,6 +146,11 @@ func (s *Service) listParams(req ListRequest) (ports.ListParams, error) {
 	if err != nil {
 		return ports.ListParams{}, err
 	}
+	// An UNKNOWN chip key is refused, never widened to All: filter=cancelled used to return every
+	// working task before the Cancelled chip existed (2026-09-25). Blank still asks for All.
+	if !domain.IsKnownFilterKey(req.FilterKey) {
+		return ports.ListParams{}, BadRequest("invalid_filter", "That filter is not valid. Pick one from the list.")
+	}
 	filterKey := domain.FilterKeyOrDefault(req.FilterKey)
 	now := s.now()
 	var overdueBefore *time.Time
@@ -201,8 +207,10 @@ func optionalUUID(raw string) (string, error) {
 // instantRange reads an INCLUSIVE date range. BOTH ends are required together
 // (verification/ports/ports.go:53-98 precedent): a half-open range would have to invent the
 // missing end, and "today" and "the beginning of time" mean opposite things to a reader. A
-// bare date is read as that whole day in UTC -- the start for the lower end, the last instant
-// for the upper -- so "from 2026-09-01 to 2026-09-01" is one full day, not an empty range.
+// bare date is read as that whole Asia/Kolkata BUSINESS day -- the start of the day for the
+// lower end, the last instant before the next day starts for the upper -- so "from 2026-09-01
+// to 2026-09-01" is one full India day, not an empty range. UTC never defines a Goat OS day: read
+// as UTC, a task raised at 02:55 IST on 16/09 fell under 15/09 (2026-09-25 finding).
 func instantRange(fromRaw, toRaw string) (*time.Time, *time.Time, error) {
 	from := strings.TrimSpace(fromRaw)
 	to := strings.TrimSpace(toRaw)
@@ -227,24 +235,28 @@ func instantRange(fromRaw, toRaw string) (*time.Time, *time.Time, error) {
 }
 
 // parseRangeEnd reads one end of a range: an RFC3339 instant, or a bare YYYY-MM-DD widened to
-// the start or the very end of that UTC day.
+// the start or the very end of that India business day.
 func parseRangeEnd(raw string, upper bool) (*time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, raw); err == nil {
 		utc := t.UTC()
 		return &utc, nil
 	}
-	day, err := time.ParseInLocation("2006-01-02", raw, time.UTC)
+	day, err := time.ParseInLocation("2006-01-02", raw, biztime.DefaultLocation())
 	if err != nil {
 		// The screen reads the code and the farm-worded message; the parse cause rides along
 		// for the request log, the way the repository surfaces a bad cursor.
 		return nil, fmt.Errorf("%w: %q is neither an RFC3339 instant nor a YYYY-MM-DD date: %v",
 			BadRequest("invalid_date_range", "That date is not valid."), raw, err)
 	}
+	start := biztime.BusinessDayStart(day).UTC()
 	if upper {
-		end := day.Add(24*time.Hour - time.Nanosecond)
+		// The repository compares the upper end inclusively (<=), so it is the last instant
+		// BEFORE the next IST day starts. One MICROSECOND, not one nanosecond: timestamptz holds
+		// microseconds and would round 23:59:59.999999999 up to the next day's midnight.
+		end := biztime.BusinessDayStart(day.AddDate(0, 0, 1)).UTC().Add(-time.Microsecond)
 		return &end, nil
 	}
-	return &day, nil
+	return &start, nil
 }
 
 // GetTask reads one task the caller is party to, or a task the caller may monitor through

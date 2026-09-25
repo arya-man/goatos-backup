@@ -204,6 +204,9 @@ type Option struct {
 	Enabled        bool   `json:"enabled"`
 	DisabledReason string `json:"disabled_reason"`
 	Tone           string `json:"tone"`
+	// Group names the option this one belongs under, so a picker can narrow by an earlier
+	// choice: a breed's species code. Empty for an option that belongs to no group.
+	Group string `json:"group,omitempty"`
 }
 
 type DisplayRule struct {

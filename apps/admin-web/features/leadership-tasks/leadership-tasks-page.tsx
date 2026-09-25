@@ -36,6 +36,7 @@ import { TaskDrawerHost } from "./task-drawer-host";
 import { TaskViewBody, TaskViewProvider, TaskViewToggle } from "./task-view-switch";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
 import { TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
+import { withCancelledRows } from "./task-detail-pick";
 
 const TABLE_ID = "leadership-task-progress";
 
@@ -61,6 +62,7 @@ export function LeadershipTasksPage({
   selectedTaskID: selectedTaskIDProp,
   selectedTask,
   assignees = [],
+  cancelledRows = [],
 }: {
   page?: LeadershipTaskPage | null;
   pageContract: AdminUiPageContract;
@@ -73,6 +75,8 @@ export function LeadershipTasksPage({
    *  the drawer is fed from here; a task not on the current page still opens. */
   selectedTask?: LeadershipTaskPage["rows"][number] | null;
   assignees?: LeadershipTaskAssignee[];
+  /** The first page of the list's `cancelled` filter, read beside the board's page (route). */
+  cancelledRows?: LeadershipTaskPage["rows"];
 }) {
   const sp = searchParams ?? {};
   const tableContract = table(pageContract, TABLE_ID);
@@ -91,6 +95,10 @@ export function LeadershipTasksPage({
       : tasks.find((task) => task.id === selectedTaskID)
     : undefined;
   const hasTasks = tasks.length > 0;
+  // The board's Cancelled column is filled from the server's own cancelled list; the table keeps
+  // the page it was asked for.
+  const boardTasks = withCancelledRows(tasks, cancelledRows.map(rowFromTask));
+  const hasBoardTasks = boardTasks.length > 0;
 
   /**
    * The scope this screen is showing.
@@ -217,7 +225,7 @@ export function LeadershipTasksPage({
   const detailPanel = (
     <TaskDrawerHost
       preview={preview}
-      rows={tasks}
+      rows={boardTasks}
       initialDetail={selectedTask && selected ? selected : null}
       pageContract={pageContract}
       scopeKey={scopeKey}
@@ -229,6 +237,44 @@ export function LeadershipTasksPage({
       closeHref={closeHref}
     />
   );
+
+  /**
+   * The empty body, ONE for both views. The board used to render nothing at all with zero rows,
+   * so a search with no hits on the board read as a blank page; the "No tasks match. Clear the
+   * filters" state lived only in the list (2026-09-25).
+   */
+  const emptyState =
+    narrowed && selectedScope && scopeTotal(selectedScope) > 0 ? (
+            /* NO HITS IS NOT AN EMPTY QUEUE (Gate-1 #2): the scope holds tasks and the reader's
+               search / chip / person / dates hid every one of them, so say that and offer the way
+               back. The scope's own empty_message is for a scope that is truly empty. */
+            <div className="bd lt-empty-state" data-lt-empty="filtered">
+              <ClipboardList className="ic" aria-hidden="true" />
+              <div>
+                <b>{copy(pageContract, "empty.filtered", "No tasks match.")}</b>
+                <p>
+                  <a href={tasksClearedHref(basePath, sp)} className="lt-empty-clear">
+                    {copy(pageContract, "empty.filtered_action", "Clear the filters")}
+                  </a>{" "}
+                  {copy(pageContract, "empty.filtered_rest", "to see all {count}.").replace(
+                    "{count}",
+                    `${scopeTotal(selectedScope)}`,
+                  )}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="bd lt-empty-state">
+              <ClipboardList className="ic" aria-hidden="true" />
+              <div>
+                <b>
+                  {selectedScope?.empty_message ||
+                    copy(pageContract, "empty.tasks")}
+                </b>
+                <p>{copy(pageContract, "empty.tasks_detail")}</p>
+              </div>
+            </div>
+          );
 
   return (
     <TaskViewProvider initial={params.view}>
@@ -346,11 +392,11 @@ export function LeadershipTasksPage({
       <TaskViewBody
         board={
           <>
-      {hasTasks ? (
+      {hasBoardTasks ? (
         <div className="ltb-ground">
           <LeadershipTasksBoard
             pageContract={pageContract}
-            rows={tasks}
+            rows={boardTasks}
             filters={page?.filters ?? []}
             basePath={basePath}
             sp={sp}
@@ -370,7 +416,11 @@ export function LeadershipTasksPage({
             hrefForLimit={hrefForLimit}
           />
         </div>
-      ) : null}
+      ) : (
+        <section className="card lt-card lt-board-empty" style={{ minWidth: 0 }} data-testid="lt-board-empty">
+          {emptyState}
+        </section>
+      )}
           </>
         }
         list={
@@ -407,36 +457,8 @@ export function LeadershipTasksPage({
                 hrefForLimit={hrefForLimit}
               />
             </div>
-          ) : narrowed && selectedScope && scopeTotal(selectedScope) > 0 ? (
-            /* NO HITS IS NOT AN EMPTY QUEUE (Gate-1 #2): the scope holds tasks and the reader's
-               search / chip / person / dates hid every one of them, so say that and offer the way
-               back. The scope's own empty_message is for a scope that is truly empty. */
-            <div className="bd lt-empty-state" data-lt-empty="filtered">
-              <ClipboardList className="ic" aria-hidden="true" />
-              <div>
-                <b>{copy(pageContract, "empty.filtered", "No tasks match.")}</b>
-                <p>
-                  <a href={tasksClearedHref(basePath, sp)} className="lt-empty-clear">
-                    {copy(pageContract, "empty.filtered_action", "Clear the filters")}
-                  </a>{" "}
-                  {copy(pageContract, "empty.filtered_rest", "to see all {count}.").replace(
-                    "{count}",
-                    `${scopeTotal(selectedScope)}`,
-                  )}
-                </p>
-              </div>
-            </div>
           ) : (
-            <div className="bd lt-empty-state">
-              <ClipboardList className="ic" aria-hidden="true" />
-              <div>
-                <b>
-                  {selectedScope?.empty_message ||
-                    copy(pageContract, "empty.tasks")}
-                </b>
-                <p>{copy(pageContract, "empty.tasks_detail")}</p>
-              </div>
-            </div>
+            emptyState
           )}
         </section>
 

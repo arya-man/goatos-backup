@@ -83,7 +83,7 @@ INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_
   head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg,
   overdue_pending, row_seq, item_seq, amended)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Pen', NULL, 'Dry', 'Beetal',
-  'Beetal', $5, 'Morning', 10, false, $6, $7, 1.0, 1.0, false, $8, $9, false)
+  'Beetal', $5, CASE WHEN $5 = 1 THEN 'Morning' ELSE 'Evening' END, 10, false, $6, $7, 1.0, 1.0, false, $8, $9, false)
 ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, shed, session, workflow, item, rowSeq, itemSeq)
 	}
 	// Packing for D+1: A/B have completion rows below; C is issued but not filmed yet.
@@ -93,6 +93,10 @@ ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, shed, session, workflow, ite
 	// Direction on D: A has a rework completion; B is issued but not filmed yet.
 	issueRow("00000000-0000-4000-8000-0000000081a2", bsShedA, "normal", "Concentrate", 1, 0, 0)
 	issueRow("00000000-0000-4000-8000-0000000081a2", bsShedB, "normal", "Concentrate", 1, 1, 0)
+	// Direction on D, EVENING: A handed in and waiting for the verifier; B not filmed yet. It is
+	// its own card ("Feed direction · Evening"), never folded into the morning's.
+	issueRow("00000000-0000-4000-8000-0000000081a2", bsShedA, "normal", "Concentrate", 2, 2, 0)
+	issueRow("00000000-0000-4000-8000-0000000081a2", bsShedB, "normal", "Concentrate", 2, 3, 0)
 	// Experiment/wastage on D: A has completion; B is issued but not measured yet.
 	issueRow("00000000-0000-4000-8000-0000000081a3", bsShedA, "experiment", "Trial", 1, 0, 0)
 	issueRow("00000000-0000-4000-8000-0000000081a3", bsShedB, "experiment", "Trial", 1, 1, 0)
@@ -131,6 +135,10 @@ ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, bsServeNxt,
 INSERT INTO feed_distribution_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, completed_by, idempotency_key)
 VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,1,$5::date,'normal','rework',$6::uuid,$1::text)
 ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000093a1", bsTenant, bsPark, bsShedA, bsDate, bsOperator)
+	exec(t, ctx, pool, `
+INSERT INTO feed_distribution_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, completed_by, idempotency_key, distribution_proof_ref, water_proof_ref, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,2,$5::date,'normal','pending_verification',$6::uuid,$1::text,'proof:d-a2','proof:w-a2','{"distribution":["seed"]}'::jsonb)
+ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000093a2", bsTenant, bsPark, bsShedA, bsDate, bsOperator)
 
 	// Wastage: A completed (experiment-only workflow), measured on D.
 	exec(t, ctx, pool, `
@@ -144,6 +152,9 @@ func query(owner string, states ...domain.WorkState) ports.SourceQuery {
 }
 
 func feedActivityID(activity string) string { return bsPark + ":" + activity }
+
+// directionID names one session's direction card.
+func directionID(session string) string { return bsPark + ":direction:" + session }
 
 func byID(rows []domain.Row) map[string]domain.Row {
 	out := map[string]domain.Row{}
@@ -170,8 +181,8 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 4 {
-		t.Fatalf("four activity cards expected, got %d", len(rows))
+	if len(rows) != 5 {
+		t.Fatalf("five cards expected (packing, direction morning + evening, transport, wastage), got %d", len(rows))
 	}
 	got := byID(rows)
 	type want struct {
@@ -184,10 +195,13 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 	cases := map[string]want{
 		// Every card is a MIX of started and unstarted pens, so every card is In progress; a card
 		// with a pen sent back reads Rejected in that same lane.
-		feedActivityID("packing"):   {"Feed packing", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 2}, "3 pens · 1 done"},
-		feedActivityID("direction"): {"Feed direction", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 2, NeedsAttention: 1}, "2 pens · 0 done"},
-		feedActivityID("transport"): {"Feed transport", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1}, "4 pens · 1 done"},
-		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 1}, "2 pens · 1 done"},
+		// Every pen is in exactly one of approved / in review / sent back / started / not filmed,
+		// and the card's counts say which -- never "N started" for pens nobody filmed.
+		feedActivityID("packing"):   {"Feed packing", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 2, InReview: 1, NotStarted: 1}, "3 pens"},
+		directionID("1"):            {"Feed direction · Morning", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 2, NeedsAttention: 1, NotStarted: 1}, "2 pens"},
+		directionID("2"):            {"Feed direction · Evening", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Pending: 2, InReview: 1, NotStarted: 1}, "2 pens"},
+		feedActivityID("transport"): {"Feed transport", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1, InReview: 1, NotStarted: 1}, "4 pens"},
+		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 1, NotStarted: 1}, "2 pens"},
 	}
 	for id, w := range cases {
 		r, ok := got[id]
@@ -200,6 +214,9 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 		if r.Module != domain.ModuleFeed || r.SourceType != SourceType || r.RowKey != "feed|feed_activity|"+id {
 			t.Errorf("%s: identity %s/%s/%s", id, r.Module, r.SourceType, r.RowKey)
 		}
+		if r.OwnerState != domain.OwnerStatePool {
+			t.Errorf("%s: owner state %s, want pool (the crew's work, not unassigned)", id, r.OwnerState)
+		}
 		if r.ParkID != bsPark || r.ParkName != "Coimbatore" || r.BusinessDate != bsDate || r.Href != "/feed/analytics" {
 			t.Errorf("%s: scope %s %s %s href %q", id, r.ParkID, r.ParkName, r.BusinessDate, r.Href)
 		}
@@ -207,8 +224,8 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 	// The direction card has one pen sent back and one still unfilled: work has begun and is
 	// not all handed in, so it is In progress, and the rework makes it Rejected (amber) so the
 	// board points at the pen that needs the operator again.
-	if got[feedActivityID("direction")].Severity != domain.SeverityWatch {
-		t.Errorf("direction card (rejected pen) severity %s, want watch", got[feedActivityID("direction")].Severity)
+	if got[directionID("1")].Severity != domain.SeverityWatch {
+		t.Errorf("morning direction card (rejected pen) severity %s, want watch", got[directionID("1")].Severity)
 	}
 }
 
@@ -227,7 +244,7 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 	// Keyset: two at a time, in activity rank order, never repeated.
 	order := []string{}
 	after := ""
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 8; i++ {
 		q := query("")
 		q.Limit = 2
 		q.AfterSourceID = after
@@ -243,9 +260,14 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 			after = r.SourceID
 		}
 	}
-	wantOrder := []string{feedActivityID("packing"), feedActivityID("direction"), feedActivityID("transport"), feedActivityID("wastage")}
-	if len(order) != 4 || order[0] != wantOrder[0] || order[1] != wantOrder[1] || order[2] != wantOrder[2] || order[3] != wantOrder[3] {
+	wantOrder := []string{feedActivityID("packing"), directionID("1"), directionID("2"), feedActivityID("transport"), feedActivityID("wastage")}
+	if len(order) != len(wantOrder) {
 		t.Fatalf("keyset order %v", order)
+	}
+	for i := range wantOrder {
+		if order[i] != wantOrder[i] {
+			t.Fatalf("keyset order %v, want %v", order, wantOrder)
+		}
 	}
 
 	// State filter: with unstarted issued feed work visible, no feed activity is fully Done.
@@ -257,21 +279,27 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 		t.Fatalf("done-lane filter %v", done)
 	}
 
-	// Owner lens: the transport card drops the shed owned by someone else (C completed) and the
-	// pool shed A stays; done falls to 0 and the shed count to 3.
+	// Owner lens: a feed card is the crew's, so a person filter shows the SAME card -- every pen,
+	// including shed C that someone else filmed -- never a card shrunk to one person's pens
+	// (maintainer review 2026-09-25: a half-done card fell back to To do under a person filter).
 	mine := byID(mustRows(t, ctx, src, query(bsOperator)))
-	tr := mine[feedActivityID("transport")]
-	if tr.Counts.Done != 0 || tr.Subtitle != "3 pens · 0 done" {
-		t.Errorf("owner-lens transport counts %+v subtitle %q", tr.Counts, tr.Subtitle)
+	everyone := byID(mustRows(t, ctx, src, query("")))
+	for id, card := range everyone {
+		if got := mine[id]; got.Counts != card.Counts || got.WorkState != card.WorkState || got.Subtitle != card.Subtitle {
+			t.Errorf("%s under a person filter = %+v %s %q, want the crew's card %+v %s %q", id, got.Counts, got.WorkState, got.Subtitle, card.Counts, card.WorkState, card.Subtitle)
+		}
+	}
+	if len(mine) != len(everyone) {
+		t.Errorf("person filter shows %d feed cards, the crew has %d", len(mine), len(everyone))
 	}
 
-	// CountByState over the whole filter agrees with the rows: two mixed cards In progress, two
-	// with a rejected pen.
+	// CountByState over the whole filter agrees with the rows: three mixed cards In progress
+	// (packing, the evening direction, wastage), two with a rejected pen.
 	counts, err := src.CountByState(ctx, query(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counts[domain.WorkStateInProgress] != 2 || counts[domain.WorkStateRejected] != 2 {
+	if counts[domain.WorkStateInProgress] != 3 || counts[domain.WorkStateRejected] != 2 {
 		t.Fatalf("counts %+v", counts)
 	}
 
@@ -425,7 +453,7 @@ ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, bsShedA, partitio
 		t.Fatal("packing card expected")
 	}
 	// TWO pens of one shed: Part 4 in review is the leftmost lane, Part 3 done.
-	if packing.Counts != (domain.Counts{Done: 1, Pending: 1}) || packing.Subtitle != "2 pens · 1 done" {
+	if packing.Counts != (domain.Counts{Done: 1, Pending: 1, InReview: 1}) || packing.Subtitle != "2 pens" {
 		t.Fatalf("two pens of one shed: counts=%+v subtitle=%q", packing.Counts, packing.Subtitle)
 	}
 	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d3, SourceID: feedActivityID("packing"), Limit: 50})
@@ -520,7 +548,7 @@ ON CONFLICT (completion_id) DO NOTHING`, bsTenant, bsPark, bsShedA, serve4, bsOp
 	if packing == nil {
 		t.Fatal("packing card expected")
 	}
-	if packing.Counts != (domain.Counts{Pending: 1}) || packing.Subtitle != "1 pen · 0 done" {
+	if packing.Counts != (domain.Counts{Pending: 1, InReview: 1}) || packing.Subtitle != "1 pen" {
 		t.Fatalf("cosmetic label variants must be one pen: counts=%+v subtitle=%q", packing.Counts, packing.Subtitle)
 	}
 	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d4, SourceID: feedActivityID("packing"), Limit: 50})
@@ -675,5 +703,66 @@ func TestFeedActivityFreshLaneAndCountsAfterMutation(t *testing.T) {
 				t.Fatalf("reopened card has stale pen counts: %+v", current)
 			}
 		})
+	}
+}
+
+// TestFeedCardAndItsDrawerTellTheSameStory: the card's counts and the pens its drawer lists come
+// from ONE pen roll-up, so they cannot disagree (maintainer report 2026-09-25: a card read
+// "0/59 done · 59 started" over a drawer showing 11 pens not filmed). Each direction session's
+// drawer lists that session's pens only, and every card's pen buckets add up to its pen count.
+func TestFeedCardAndItsDrawerTellTheSameStory(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seed(t, ctx, pool)
+	src := New(pool, 5*time.Second)
+
+	rows, err := src.ListRows(ctx, query(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, card := range rows {
+		page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: card.SourceID, Limit: 50})
+		if err != nil {
+			t.Fatal(err)
+		}
+		drawer := map[domain.WorkState]int{}
+		for _, pen := range page.Subtasks {
+			drawer[pen.WorkState]++
+		}
+		pens := card.Counts.Done + card.Counts.Pending
+		if page.Total != pens {
+			t.Errorf("%s: drawer lists %d pens, card counts %d", card.Title, page.Total, pens)
+		}
+		started := card.Counts.Pending - card.Counts.InReview - card.Counts.NotStarted - card.Counts.NeedsAttention
+		if drawer[domain.WorkStateCompleted] != card.Counts.Done ||
+			drawer[domain.WorkStateVerificationPending] != card.Counts.InReview ||
+			drawer[domain.WorkStateRejected] != card.Counts.NeedsAttention ||
+			drawer[domain.WorkStateDue] != card.Counts.NotStarted ||
+			drawer[domain.WorkStateInProgress] != started {
+			t.Errorf("%s: drawer %v disagrees with card counts %+v", card.Title, drawer, card.Counts)
+		}
+	}
+
+	evening, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: bsDate, SourceID: directionID("2"), Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, pen := range evening.Subtasks {
+		got[pen.Name] = pen.Subtitle
+	}
+	if len(got) != 2 || got["Godel 1"] != "In review" || got["Castro"] != "Not filmed yet" {
+		t.Fatalf("evening drawer %v, want Godel 1 in review and Castro not filmed (the morning's rework must not leak in)", got)
+	}
+
+	// A card id without its session, or with one on a one-card activity, is not a card.
+	for _, bad := range []string{bsPark + ":direction", bsPark + ":packing:1", bsPark + ":direction:x"} {
+		q := query("")
+		q.AfterSourceID = bad
+		if _, err := src.ListRows(ctx, q); err == nil {
+			t.Errorf("cursor %q accepted", bad)
+		}
 	}
 }

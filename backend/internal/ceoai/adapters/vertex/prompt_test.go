@@ -64,6 +64,12 @@ func goldenQuestion() domain.Question {
 		Actor: domain.Actor{TenantID: "11111111-1111-1111-1111-111111111111", Role: "ceo_internal"},
 		Text:  "How many deaths last month by park?",
 		AsOf:  time.Date(2026, 7, 22, 0, 0, 0, 0, biztime.DefaultLocation()),
+		// The tenant's live parks, attached server-side; the prompt's park mapping line is built
+		// from these, never a constant.
+		Parks: []domain.ParkRef{
+			{Code: "CPT", Name: "Channapatna", ID: "00000000-0000-4000-8000-000000003002"},
+			{Code: "CBE", Name: "Coimbatore", ID: "00000000-0000-4000-8000-000000003001"},
+		},
 	}
 }
 
@@ -108,7 +114,7 @@ func TestPlanPromptByteBound(t *testing.T) {
 	}
 	// The card block alone is the growth surface: it must stay the minority of
 	// the headroom, i.e. the bound is not already consumed by fixed rules.
-	block := sqlFallbackBlock("t", "")
+	block := sqlFallbackBlock("t", "", nil)
 	if len(block) > MaxPlannerPromptBytes*3/4 {
 		t.Fatalf("schema-card block is %d bytes, more than 3/4 of the prompt bound", len(block))
 	}

@@ -31,6 +31,9 @@ const (
 	// work the system owes a person -- today the next-day pen visits -- rows here, never under
 	// the module whose work raised it. Appended last: the order is the cursor contract.
 	ModuleTasks Module = "tasks"
+	// ModuleSales is the sale's own workflow (the published sales.deal SOP: tag, load, settle),
+	// run by the shared tasks engine. Appended after tasks: the order is the cursor contract.
+	ModuleSales Module = "sales"
 )
 
 // Modules returns every module in board order. New modules append; the order is part of
@@ -39,7 +42,7 @@ func Modules() []Module {
 	return []Module{
 		ModuleFeed, ModuleHealth, ModuleVaccination, ModuleWeighing, ModuleCounts,
 		ModuleMilk, ModulePCCare, ModuleToxin, ModuleProcurement, ModuleVerification,
-		ModuleTasks,
+		ModuleTasks, ModuleSales,
 	}
 }
 
@@ -199,6 +202,13 @@ type Counts struct {
 	Done           int `json:"done"`
 	Pending        int `json:"pending"`
 	NeedsAttention int `json:"needs_attention"`
+	// InReview and NotStarted split Pending for a source that knows them (the feed cards,
+	// maintainer instruction 2026-09-25: "I need to see how everything is going"): units handed
+	// in and waiting for a verdict, and units nobody has started. The rest of Pending, less the
+	// units needing attention, is work started and not handed in. A source that does not know
+	// them leaves both zero and the card reads as before.
+	InReview   int `json:"in_review,omitempty"`
+	NotStarted int `json:"not_started,omitempty"`
 }
 
 // Row is THE contract. Every source emits exactly this.
@@ -432,9 +442,13 @@ type Summary struct {
 	ByState      map[WorkState]int       `json:"by_state"`
 	ByModule     map[Module]int          `json:"by_module"`
 	ByModuleLane map[Module]map[Lane]int `json:"by_module_lane"`
-	Attention    int                     `json:"needs_attention"`
-	Modules      []Module                `json:"modules"`
-	Lanes        []Lane                  `json:"lanes"`
+	// ByModuleState is every module's per-state count, so a client filtered to a module (and a
+	// lane) can say how many of THOSE cards are done, pending and need attention without a second
+	// read (maintainer review 2026-09-25: the phone's tiles ignored its own chips).
+	ByModuleState map[Module]map[WorkState]int `json:"by_module_state"`
+	Attention     int                          `json:"needs_attention"`
+	Modules       []Module                     `json:"modules"`
+	Lanes         []Lane                       `json:"lanes"`
 	// Degraded names the modules whose aggregate read failed on THIS request; their counts are
 	// absent from the totals above rather than blanking the whole summary.
 	Degraded []Module `json:"degraded,omitempty"`
@@ -444,12 +458,13 @@ type Summary struct {
 // renders a zero rather than an absent key.
 func NewSummary(modules []Module) Summary {
 	s := Summary{
-		ByLane:       map[Lane]int{},
-		ByState:      map[WorkState]int{},
-		ByModule:     map[Module]int{},
-		ByModuleLane: map[Module]map[Lane]int{},
-		Modules:      modules,
-		Lanes:        Lanes(),
+		ByLane:        map[Lane]int{},
+		ByState:       map[WorkState]int{},
+		ByModule:      map[Module]int{},
+		ByModuleLane:  map[Module]map[Lane]int{},
+		ByModuleState: map[Module]map[WorkState]int{},
+		Modules:       modules,
+		Lanes:         Lanes(),
 	}
 	for _, l := range Lanes() {
 		s.ByLane[l] = 0
@@ -479,6 +494,13 @@ func (s *Summary) Add(module Module, byState map[WorkState]int) {
 			s.ByModuleLane[module] = map[Lane]int{}
 		}
 		s.ByModuleLane[module][lane] += n
+		if s.ByModuleState == nil {
+			s.ByModuleState = map[Module]map[WorkState]int{}
+		}
+		if s.ByModuleState[module] == nil {
+			s.ByModuleState[module] = map[WorkState]int{}
+		}
+		s.ByModuleState[module][state] += n
 		if state == WorkStateOverdue || state == WorkStateMissed || state == WorkStateRejected || state == WorkStateBlocked {
 			s.Attention += n
 		}

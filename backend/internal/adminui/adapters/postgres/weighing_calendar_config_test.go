@@ -14,7 +14,7 @@ func TestCalendarConfigUsesDBAndInvalidatesRevisions(t *testing.T) {
 	defer pool.Close()
 	const tenant = "00000000-0000-4000-8000-000000000001"
 	repo := NewRepository(pool, 5*time.Second)
-	rules, rev, err := repo.loadWeighingWeightsPages(ctx, tenant)
+	rules, rev, err := repo.loadWeighingWeightsPages(ctx, pool, tenant)
 	if err != nil || rules == nil || rules.EarliestDate != "2026-07-05" || rules.DefaultFromDate != "2026-08-03" {
 		t.Fatalf("defaults: %+v %v", rules, err)
 	}
@@ -36,7 +36,7 @@ func TestCalendarConfigUsesDBAndInvalidatesRevisions(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE sop_versions v SET form_dsl=jsonb_set(form_dsl,'{weighing,weights_pages,default_from_date}','"2026-08-20"'::jsonb) FROM sop_definitions d WHERE v.tenant_id=d.tenant_id AND v.sop_id=d.sop_id AND d.code='weighing.session' AND v.tenant_id=$1::uuid AND v.status='published'`, tenant); err != nil {
 		t.Fatal(err)
 	}
-	rules, newRev, err := repo.loadWeighingWeightsPages(ctx, tenant)
+	rules, newRev, err := repo.loadWeighingWeightsPages(ctx, pool, tenant)
 	if err != nil || rules.DefaultFromMode != "rolling_weeks" || rules.DefaultFromWeeks != 6 || newRev == rev {
 		t.Fatalf("DB authority: %+v %v", rules, err)
 	}

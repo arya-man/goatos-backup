@@ -9,6 +9,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // milkPreparationGroupedCTE is the single definition of the page's canonical membership and row
@@ -71,6 +72,17 @@ var k3WindowPredicate = fmt.Sprintf(`(
           AND $3::date BETWEEN g.k3_milk_started_on AND g.k3_milk_started_on + %d)
     )`, milkCohortExpr, domain.MilkK3WindowDays-1)
 
+// MilkPreparationKidPredicate is THE test for "this animal is prepared for on the preparation
+// date bound as $3": live, unmerged, in a milk band of its own or a recovered one, and -- for K3 --
+// inside its weaning window. The page's grouped CTE and the Work Board's milk preparation card
+// (counts/adapters/boardsource) both read it, so the board can never say a park owes a
+// preparation the page shows nothing for, or the reverse. It names only the goats alias g and $3.
+var MilkPreparationKidPredicate = `g.merged_into_goat_id IS NULL
+    AND g.lifecycle_status = 'alive'
+    -- Its own band, or a recovered one. A clinically-housed kid with neither is excluded here.
+    AND (g.management_stage IN ('K1', 'K2', 'K3') OR g.milk_cohort IS NOT NULL)
+    AND ` + k3WindowPredicate
+
 var milkPreparationGroupedCTE = `
 WITH grouped AS MATERIALIZED (
   SELECT
@@ -107,11 +119,7 @@ WITH grouped AS MATERIALIZED (
   -- partitions), never goats, and every summary is a whole-filter aggregate over grouped_by_shed;
   -- scope=park, applied here from the caller's clamped filter so page and summary share one scope
   WHERE g.tenant_id = $1::uuid
-    AND g.merged_into_goat_id IS NULL
-    AND g.lifecycle_status = 'alive'
-    -- Its own band, or a recovered one. A clinically-housed kid with neither is excluded here.
-    AND (g.management_stage IN ('K1', 'K2', 'K3') OR g.milk_cohort IS NOT NULL)
-    AND ` + k3WindowPredicate + `
+    AND ` + MilkPreparationKidPredicate + `
     AND ($2 = '' OR g.park_id = NULLIF($2, '')::uuid)
   GROUP BY g.park_id, park.location_code, park.name,
            g.shed_id, shed.name, shed.location_code, ` + milkCohortExpr + `,
@@ -293,7 +301,8 @@ func (r *Repository) GetMilkPreparation(ctx context.Context, req domain.MilkPrep
 	parkID := ptrValue(req.ParkID)
 	preparationDay := biztime.BusinessDayStart(asOf)
 
-	rows, err := r.pool.Query(ctx, milkPreparationPageSQL, req.TenantID, parkID, preparationDay.Format("2006-01-02"), limit+1, offset)
+	bound := sqlbind.MustBind(milkPreparationPageSQL, req.TenantID, parkID, preparationDay.Format("2006-01-02"), limit+1, offset)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.MilkPreparationPage{}, fmt.Errorf("milk preparation: query rows: %w", err)
 	}

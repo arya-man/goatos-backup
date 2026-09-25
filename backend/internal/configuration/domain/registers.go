@@ -104,6 +104,9 @@ type Register struct {
 	// DisplayColumn names the column a row's display is taken from when it is not name/label
 	// (an animal's primary tag).
 	DisplayColumn string `json:"display_column,omitempty"`
+	// Unversioned registers keep no row version (shed_partitions has none): their sheet carries 0,
+	// and an update from it is applied without a version fence. Every other register refuses 0.
+	Unversioned bool `json:"unversioned,omitempty"`
 	// ImportCreateOnly registers take new rows from a sheet but never updates (Animals: the herd
 	// pipeline creates; an animal is corrected on its own screens).
 	ImportCreateOnly bool `json:"import_create_only,omitempty"`
@@ -112,6 +115,7 @@ type Register struct {
 // Register keys.
 const (
 	RegParks      = "parks"
+	RegPenTypes   = "pen_types"
 	RegPens       = "pens"
 	RegPartitions = "partitions"
 	RegSpecies    = "species"
@@ -256,9 +260,26 @@ var Registers = []Register{
 		Hint: "A park is one site with its own pens, people and work. Animals never move between parks.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
-			{Key: "code", Label: "Code", Type: TypeText, Required: true, Hint: "Short code such as CBE or CPT; used to order parks and name pens."},
+			{Key: "code", Label: "Code", Type: TypeText, Required: true, Hint: "1 to 12 letters and numbers, such as CBE or CPT. It orders parks, names pens and starts every kid's tag, and it cannot change once sales or purchases are recorded under it."},
 			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
+		},
+	},
+	{
+		// PEN TYPES ARE THE FARM'S OWN LIST (maintainer instruction 2026-09-25: "after park,
+		// before pens, we need pen type ... elevated, non-elevated, whatever we use in weighing or
+		// anywhere in future should not be hard coded, it should come from here"). Migration 000437
+		// replaced the elevated | non_elevated CHECK with this table and made the partition's
+		// shed_type a foreign key into it, so the Partitions dropdown, Weighing's Pen-wise chart and
+		// Health's pen-type cut all read one list. The code is the key those readers group by and
+		// is immutable; the name is only a label and may be renamed at any time.
+		Key: RegPenTypes, Label: "Pen types", One: "Pen type", Group: GroupFarmPlaces,
+		Hint: "The kinds of pen the farm builds, such as elevated or non-elevated. Each partition is given one; Weighing and Health Analytics compare them.",
+		Columns: []Column{
+			{Key: "name", Label: "Name", Type: TypeText, Required: true},
+			{Key: "code", Label: "Code", Type: TypeCode, Immutable: true, Hint: "Lowercase key such as elevated; cannot change once saved. Left blank, one is made from the name."},
+			{Key: "description", Label: "Description", Type: TypeNotes, ListHidden: true},
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true, Hint: "Charts show pen types in this order."},
 		},
 	},
 	{
@@ -286,15 +307,19 @@ var Registers = []Register{
 		// value on the building cannot say. Migration 000391 moved the column down from
 		// shed_profiles and carried every already-classified pen with it.
 		Key: RegPartitions, Label: "Partitions", One: "Partition", Group: GroupFarmPlaces,
-		Hint:    "A partition is one section of a pen, such as Part 3 or 2. Its label is what is painted on the pen.",
-		Filters: []string{"park_id", "pen_id", "shed_type"},
+		// shed_partitions has no row_version, so its sheet carries 0; without this a downloaded
+		// Partitions sheet could never be uploaded again -- which is how a farm maps a hundred pens
+		// to their pen types at once.
+		Unversioned: true,
+		Hint:        "A partition is one section of a pen, such as Part 3 or 2. Its label is what is painted on the pen.",
+		Filters:     []string{"park_id", "pen_id", "shed_type"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "pen_id", Label: "Pen", Type: TypeRef, Ref: RegPens, Required: true},
 			{Key: "label", Label: "Label", Type: TypeText, Required: true, Hint: "Part 3 and 3 are the same partition."},
-			{Key: "shed_type", Label: "Pen type", Type: TypeEnum,
-				Options: []Option{{Value: "elevated", Label: "Elevated"}, {Value: "non_elevated", Label: "Non-elevated"}},
-				Hint:    "Elevated pens keep the animals off the ground. Weighing and Health Analytics compare the two kinds. Left blank, this pen is reported as unclassified rather than counted into either side."},
+			// The choices are the Pen types register (migration 000437), never a list typed here.
+			{Key: "shed_type", Label: "Pen type", Type: TypeRef, Ref: RegPenTypes,
+				Hint: "Weighing and Health Analytics compare pens by type. Left blank, this pen is reported as unclassified rather than counted into any type."},
 			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
 		},
 	},
@@ -308,15 +333,12 @@ var Registers = []Register{
 		},
 	},
 	{
-		// Breeds (maintainer instruction 2026-09-18): the breeds table the herd register and
-		// procurement already name, one row per (species, breed). The underlying table is still a
-		// product-wide catalog, so this register is read-only here until breeds are tenant-scoped.
+		// Breeds (maintainer instruction 2026-09-18; editable per farm since the 2026-09-25
+		// decision, migration 000442): the breeds the herd register, the birth form, purchases and
+		// sales offer, one row per (farm, species, breed).
 		Key: RegBreeds, Label: "Breeds", One: "Breed", Group: GroupAnimalTypes,
-		Hint:      "The breeds already known to the herd register. Breed authoring stays with the herd workflow until breeds are tenant-scoped.",
-		ReadOnly:  true,
-		EditHref:  "/herd-register",
-		EditLabel: "Herd Register",
-		Filters:   []string{"species"},
+		Hint:    "Each breed belongs to a species. Every breed picker on web and phone offers the farm's breeds of the chosen species.",
+		Filters: []string{"species"},
 		Columns: []Column{
 			{Key: "name", Label: "Breed", Type: TypeText, Required: true},
 			{Key: "species", Label: "Species", Type: TypeRef, Ref: RegSpecies, Required: true},

@@ -253,8 +253,12 @@ func FarmBornSexLabel(sex string) string {
 		return "Male"
 	case "female":
 		return "Female"
-	default:
+	case "":
 		return "Sex not recorded"
+	default:
+		// A gender the farm added on Configuration (OPEN UP TO NEW SPECIES, 2026-09-25): its code,
+		// made readable, rather than claiming the sex was never recorded.
+		return readableCode(sex)
 	}
 }
 
@@ -265,9 +269,21 @@ func FarmBornSpeciesLabel(species string) string {
 		return "Goat"
 	case "sheep":
 		return "Sheep"
-	default:
+	case "":
 		return "Species not recorded"
+	default:
+		return readableCode(species)
 	}
+}
+
+// readableCode turns a configured lower_snake code ("water_buffalo") into farm words
+// ("Water buffalo") for a species or gender the product names no label for.
+func readableCode(code string) string {
+	words := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(code)), "_", " ")
+	if words == "" {
+		return ""
+	}
+	return strings.ToUpper(words[:1]) + words[1:]
 }
 
 // BuildFarmBornSales groups the filtered facts into the page: the headline, the four breakdowns,

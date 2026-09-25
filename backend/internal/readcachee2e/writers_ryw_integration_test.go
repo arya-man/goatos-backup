@@ -33,8 +33,8 @@ INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, status)
 SELECT $1::uuid, c, c, 'kid', 'active' FROM unnest(ARRAY['kid','weaner','K2']) AS c
 WHERE NOT EXISTS (SELECT 1 FROM animal_stage_lookup s WHERE s.tenant_id = $1::uuid AND s.stage_code = c)`, tenant)
 	execT(t, ctx, pool, `
-INSERT INTO breeds (species, canonical_name, status) VALUES ('goat', 'Beetal', 'active'), ('goat', 'Sirohi', 'active')
-ON CONFLICT DO NOTHING`)
+INSERT INTO breeds (tenant_id, species, canonical_name, status) VALUES ($1::uuid, 'goat', 'Beetal', 'active'), ($1::uuid, 'goat', 'Sirohi', 'active')
+ON CONFLICT DO NOTHING`, tenant)
 	pair := readcachetest.NewPair(t, ctx, pool)
 	repo := identitypg.NewRepository(pool, 30*time.Second).WithReadCacheInvalidator(pair.Writer)
 	parks := []string{park}

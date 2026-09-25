@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/leadershiptasks/domain"
@@ -21,10 +22,32 @@ import (
 // A row stores the two PLAIN values of the fact (a status key, an RFC3339 instant, a title);
 // domain.EventValueLabel composes the words. Nothing here decides a label.
 
+// event_id is minted in-process as a UUIDv7 (newEventID), not by the column's
+// gen_random_uuid() default. Every feed read orders by (occurred_at DESC, event_id DESC), and
+// the facts one write records share ONE occurred_at (an edit that moves the title and the
+// deadline writes two rows at the same instant). With random ids that tie broke at random, so
+// the feed showed the same edit in a different order on each write (flaky
+// TestLeadershipTaskActivityFeedIsWrittenInTheMutationTransaction, 2/6 on origin/main,
+// 2026-09-25). A v7 id is time-ordered and strictly increasing within the process
+// (google/uuid getV7Time), so event_id DESC is exactly newest-inserted-first -- the tie-breaker
+// the index, the keyset cursor and every page load already use, now deterministic. The table
+// has no insertion-order column; this needs no schema change and no cursor change. Rows written
+// before this (and the 000355 backfill) keep their random ids.
 const sqlInsertEvent = `
 INSERT INTO public.leadership_task_events (
-  tenant_id, task_id, occurred_at, actor_user_id, kind, from_value, to_value, note_id
-) VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::uuid, $5, $6, $7, NULLIF($8, '')::uuid)`
+  tenant_id, task_id, occurred_at, actor_user_id, kind, from_value, to_value, note_id, event_id
+) VALUES ($1::uuid, $2::uuid, $3::timestamptz, $4::uuid, $5, $6, $7, NULLIF($8, '')::uuid, $9::uuid)`
+
+// newEventID mints the activity row's id: a UUIDv7, strictly increasing in this process.
+func newEventID() string {
+	id, err := uuid.NewV7()
+	if err != nil {
+		// NewV7 fails only when the OS random source fails; fall back to a v4 id rather than
+		// losing the fact (the tie then breaks as it always did).
+		return uuid.NewString()
+	}
+	return id.String()
+}
 
 // projection-review: membership=leadership_task_events keyed on (tenant_id, task_id) for the
 // page's own task ids; group_key=none, one row per stored event, nothing aggregated;
@@ -43,7 +66,7 @@ ORDER BY e.task_id, e.occurred_at DESC, e.event_id DESC`
 
 // recordEvent writes one activity row inside tx.
 func recordEvent(ctx context.Context, tx execer, tenantID, taskID string, at time.Time, actorID, kind, from, to, noteID string) error {
-	if _, err := tx.Exec(ctx, sqlInsertEvent, tenantID, taskID, at, actorID, kind, from, to, noteID); err != nil {
+	if _, err := tx.Exec(ctx, sqlInsertEvent, tenantID, taskID, at, actorID, kind, from, to, noteID, newEventID()); err != nil {
 		return fmt.Errorf("leadership task: record %s event: %w", kind, err)
 	}
 	return nil

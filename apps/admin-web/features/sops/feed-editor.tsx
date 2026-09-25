@@ -34,7 +34,7 @@ type Props = {
   initialView?: "list" | "flow";
 };
 
-export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial, initialView = "list" }: Props) {
+export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, versionLabel, initial, initialView = "list" }: Props) {
   const router = useRouter();
   const [rows, setRows] = useState<FeedRows>(initial);
   // Keys the loaded version already carries never move; a new capture / question follows its title.
@@ -201,7 +201,7 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, sopCode
           <h1>{copy(pc, "fsop.title")}</h1>
           <div className="sub">{copy(pc, "fsop.subtitle")}</div>
           <div className="muted small" style={{ marginTop: 4 }}>
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, "fsop.notice.pinned")}
+            {versionLabel} · {copy(pc, "fsop.notice.pinned")}
           </div>
         </div>
         <div className="acts">

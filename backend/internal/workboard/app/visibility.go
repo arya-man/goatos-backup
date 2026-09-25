@@ -21,13 +21,18 @@ var moduleVisibility = map[domain.Module][]string{
 	// ProcurementReview, not ProcurementRead: the read is held by every operator and park
 	// head for the intake screens they work, and would put a procurement lane on every
 	// phone. The review authority is the desk that owns a load's state.
-	domain.ModuleProcurement:  {permissions.ProcurementReview},
+	// The purchase desks that WORK a load's steps (the animal-purchase and feed-purchase intake
+	// workflows) see the lane too; FeedPurchaseRead stays out -- the Feed Director reads the
+	// ledger for stock and does not work a load.
+	domain.ModuleProcurement:  {permissions.ProcurementReview, permissions.AnimalPurchaseWrite, permissions.AnimalPurchaseDecide, permissions.FeedPurchaseWrite},
 	domain.ModuleVerification: {permissions.VerificationReview, permissions.VerificationVerdict},
 	// Tasks (2026-09-14): the pen visits the kernel owes a park's visitors. Visible to whoever
 	// can record one (the Tasks module's Do tick) and to whoever reads the Tasks module at all,
 	// so a director or the CXO desk sees the park's visits beside the work that raised them.
 	// Pen routines (2026-09-16) row under the same lane, visible to whoever can work one.
 	domain.ModuleTasks: {permissions.PenVisitsExecute, permissions.PenRoutinesExecute, permissions.LeadershipTasksRead},
+	// Sales (2026-09-25): the sale workflow's steps. Whoever reads the Sales module reads its lane.
+	domain.ModuleSales: {permissions.SalesRead},
 }
 
 // VisibleModules returns, in board order, the modules a caller holding perms may see.

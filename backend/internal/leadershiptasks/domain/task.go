@@ -54,18 +54,21 @@ const (
 
 // Sentinel errors. The transport maps each to a stable code and a farm-worded message.
 var (
-	ErrTitleRequired            = errors.New("leadership task: title is required")
-	ErrTitleTooLong             = errors.New("leadership task: title too long")
-	ErrBodyTooLong              = errors.New("leadership task: body too long")
-	ErrAssigneeRequired         = errors.New("leadership task: assignee is required")
-	ErrTooManyAttachments       = errors.New("leadership task: too many attachments")
-	ErrInvalidAttachmentKind    = errors.New("leadership task: invalid attachment kind")
-	ErrDuplicateAttachment      = errors.New("leadership task: duplicate attachment")
-	ErrInvalidStatus            = errors.New("leadership task: invalid status")
-	ErrInvalidStatusTransition  = errors.New("leadership task: invalid status transition")
-	ErrTaskClosed               = errors.New("leadership task: task is closed")
-	ErrNotRaiser                = errors.New("leadership task: caller did not raise this task")
-	ErrNotAssignee              = errors.New("leadership task: caller is not the assignee")
+	ErrTitleRequired           = errors.New("leadership task: title is required")
+	ErrTitleTooLong            = errors.New("leadership task: title too long")
+	ErrBodyTooLong             = errors.New("leadership task: body too long")
+	ErrAssigneeRequired        = errors.New("leadership task: assignee is required")
+	ErrTooManyAttachments      = errors.New("leadership task: too many attachments")
+	ErrInvalidAttachmentKind   = errors.New("leadership task: invalid attachment kind")
+	ErrDuplicateAttachment     = errors.New("leadership task: duplicate attachment")
+	ErrInvalidStatus           = errors.New("leadership task: invalid status")
+	ErrInvalidStatusTransition = errors.New("leadership task: invalid status transition")
+	ErrTaskClosed              = errors.New("leadership task: task is closed")
+	ErrNotRaiser               = errors.New("leadership task: caller did not raise this task")
+	ErrNotAssignee             = errors.New("leadership task: caller is not the assignee")
+	// ErrNotOnTask refuses a NOTE from someone who is neither party, a monitor, nor mentioned. It
+	// is its own error so the refusal describes writing a note, not moving the status.
+	ErrNotOnTask                = errors.New("leadership task: caller is not on this task")
 	ErrSelfAssignment           = errors.New("leadership task: a task cannot be raised for oneself")
 	ErrAssigneeNotAssignable    = errors.New("leadership task: assignee is not assignable")
 	ErrFileNameTooLong          = errors.New("leadership task: file name too long")
@@ -246,10 +249,13 @@ func (t Task) CanChangeStatus(a Actor) bool {
 	return ((a.CanAct && t.IsAssignee(a)) || t.CanMonitor(a)) && t.Status != StatusCancelled
 }
 
-// CanComment: either task party, or a leadership monitor, can append a note while the task
-// is not cancelled.
+// CanComment: either task party, a leadership monitor, or someone a note on this task
+// mentioned (IsParticipant) can append a note while the task is not cancelled. MENTIONS CAN
+// REPLY (maintainer decision 2026-09-25): being named on a task lets you answer on it -- and
+// ONLY that; a participant still cannot move status, edit or cancel (CanChangeStatus, CanEdit and
+// CanCancel do not read IsParticipant).
 func (t Task) CanComment(a Actor) bool {
-	return (t.IsAssignee(a) || t.IsRaiser(a) || t.CanMonitor(a)) && t.Status != StatusCancelled
+	return (t.IsAssignee(a) || t.IsRaiser(a) || t.CanMonitor(a) || t.IsParticipant(a)) && t.Status != StatusCancelled
 }
 
 // CanMonitor reports the CEO/COO-style leadership authority: tenant-wide Team progress
@@ -375,6 +381,9 @@ const (
 	FilterOpen       = "open"
 	FilterInProgress = "in_progress"
 	FilterDone       = "done"
+	// FilterCancelled lists the cancelled tasks (maintainer decision 2026-09-25): the board has a
+	// Cancelled column, so they must be retrievable. All still means the working desk.
+	FilterCancelled = "cancelled"
 	// FilterOverdue is the LENS over the two working statuses: a task still open or in
 	// progress whose deadline has already passed on the farm clock (deadline_at < now). It is
 	// not a fifth status -- the card keeps its status, the column keeps its heading -- so the
@@ -385,7 +394,7 @@ const (
 
 // FilterKeys is the chip order. Overdue sits last: it is a lens over the other chips'
 // statuses, and reads naturally after the ladder the three status chips walk.
-var FilterKeys = []string{FilterAll, FilterOpen, FilterInProgress, FilterDone, FilterOverdue}
+var FilterKeys = []string{FilterAll, FilterOpen, FilterInProgress, FilterDone, FilterCancelled, FilterOverdue}
 
 // OverdueStatuses are the statuses the overdue lens ranges over: a done or cancelled task is
 // finished and can no longer be late.
@@ -439,14 +448,25 @@ func ScopeEmptyMessage(key string) string {
 	return "No tasks assigned to you yet."
 }
 
-// FilterKeyOrDefault normalizes a requested key, falling back to All so a stale client
-// still sees its list rather than an empty screen.
+// FilterKeyOrDefault normalizes a requested key: blank (and All) is All. The app layer refuses
+// an UNKNOWN key before it gets here (IsKnownFilterKey), so an unknown key never silently widens
+// to every working task.
 func FilterKeyOrDefault(key string) string {
 	switch strings.TrimSpace(key) {
-	case FilterOpen, FilterInProgress, FilterDone, FilterOverdue:
+	case FilterOpen, FilterInProgress, FilterDone, FilterCancelled, FilterOverdue:
 		return strings.TrimSpace(key)
 	}
 	return FilterAll
+}
+
+// IsKnownFilterKey reports whether a requested key names a chip. Blank is known: it asks for the
+// default.
+func IsKnownFilterKey(key string) bool {
+	switch strings.TrimSpace(key) {
+	case "", FilterAll, FilterOpen, FilterInProgress, FilterDone, FilterCancelled, FilterOverdue:
+		return true
+	}
+	return false
 }
 
 // StatusesForFilter resolves a chip key to the statuses it lists. All hides cancelled tasks:
@@ -459,6 +479,8 @@ func StatusesForFilter(key string) []string {
 		return []string{StatusInProgress}
 	case FilterDone:
 		return []string{StatusDone}
+	case FilterCancelled:
+		return []string{StatusCancelled}
 	case FilterOverdue:
 		return OverdueStatuses
 	}
@@ -475,6 +497,8 @@ func FilterLabel(key string) string {
 		return StatusChip(StatusInProgress)
 	case FilterDone:
 		return "Done"
+	case FilterCancelled:
+		return "Cancelled"
 	case FilterOverdue:
 		return "Overdue"
 	}
@@ -492,6 +516,8 @@ func FilterEmptyMessage(key string, canRaise bool) string {
 			return "Nothing is being worked on right now."
 		case FilterDone:
 			return "Nothing has been completed yet."
+		case FilterCancelled:
+			return "Nothing has been cancelled."
 		case FilterOverdue:
 			return "Nothing is past its deadline."
 		}
@@ -504,6 +530,8 @@ func FilterEmptyMessage(key string, canRaise bool) string {
 		return "Nothing in progress."
 	case FilterDone:
 		return "Nothing completed yet."
+	case FilterCancelled:
+		return "Nothing has been cancelled."
 	case FilterOverdue:
 		return "Nothing is past its deadline."
 	}

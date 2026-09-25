@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	"github.com/vgoats/goatos/backend/internal/growthdirector/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -202,7 +203,15 @@ func (s *Service) GetAssumptions(ctx context.Context, actor domain.Actor, includ
 // layer owns the business bands (ValidateAssumptionsUpdate) and the effective date, which is the
 // server's business day, never the client's.
 func (s *Service) PutAssumptions(ctx context.Context, actor domain.Actor, update domain.AssumptionsUpdate) (domain.Assumptions, error) {
-	if err := domain.ValidateAssumptionsUpdate(update); err != nil {
+	vocab := animalvocab.Builtins()
+	if src, ok := s.repo.(ports.AnimalVocabularySource); ok {
+		v, err := src.AnimalVocabulary(ctx, actor.TenantID)
+		if err != nil {
+			return domain.Assumptions{}, err
+		}
+		vocab = v
+	}
+	if err := domain.ValidateAssumptionsUpdate(update, vocab); err != nil {
 		return domain.Assumptions{}, fmt.Errorf("%w: %s", ports.ErrInvalidArgument, err.Error())
 	}
 	current, err := s.repo.GrowthSettings(ctx, actor.TenantID)

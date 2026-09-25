@@ -17,10 +17,10 @@ import kotlinx.coroutines.flow.Flow
  * be unavailable exactly when it is used, and every such death would be filed as normal — a
  * silent, permanent loss of the fact this whole feature exists to capture.
  *
- * ONE ROW, and there deliberately is no scope key beyond [SCOPE]: the catalog is tenant-wide, has
- * no filters, and is static for the life of a server process (the diagnosis registers are embedded
- * YAML validated at start-up). A refresh REPLACEs the single row, so the table cannot grow and
- * needs no eviction pass of its own.
+ * ONE ROW, and there deliberately is no scope key beyond [SCOPE]: the catalog is tenant-wide and has
+ * no filters. It CHANGES when Health Config publishes a disease (2026-09-25), which is why the
+ * death form refreshes it every time it opens. A refresh REPLACEs the single row, so the table
+ * cannot grow and needs no eviction pass of its own.
  *
  * A JSON BLOB rather than a row per disease, which is the opposite of the shape the paged work
  * queues use, and for the opposite reason: this is not a paged list. It is a few dozen entries

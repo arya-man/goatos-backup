@@ -1,13 +1,21 @@
 "use client";
 
-import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { faro } from "@grafana/faro-web-sdk";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 import { TaskBoardCard } from "./task-board-card";
-import type { TaskRow } from "./task-row";
-import { taskRowPatch, useTaskRowsVersion } from "./task-row-store";
+import { rowFromTask, type TaskRow } from "./task-row";
+import {
+  currentTaskRowVersion,
+  publishTaskRow,
+  runTaskWrite,
+  taskRowPatch,
+  useTaskRowsVersion,
+} from "./task-row-store";
+import { changeLeadershipTaskStatusInPlaceAction, loadLeadershipTaskAction, type StatusChangeResult } from "./actions";
+import { refusalSentence } from "./task-feedback-copy";
 import type { TaskBoardColumn } from "./task-url";
 
 /**
@@ -37,15 +45,14 @@ import type { TaskBoardColumn } from "./task-url";
  *   - 409 `task_closed` — the task is in a closed state and no longer moves;
  *   - a permission refusal (`not_assignee` / `not_raiser`) — authority here is per-actor: the
  *     assignee walks the ladder, the raiser cancels.
- * So the drop is optimistic for the ~one frame a reader can feel, and the SERVER is the
- * reconciliation: the action redirects with `task_status`/`task_code` on the URL and
- * `revalidatePath`s the desk, so the board re-renders from a fresh read and `TaskFeedbackBanner`
- * says which of the three happened. `useOptimistic` drops the provisional move the moment that
- * transition settles, which means a refusal puts the card back in its original column without a
- * single line of undo code — the card's position is always the last server truth plus, briefly,
- * the move in flight. A `version_conflict` is therefore already the "someone else changed this —
- * refreshing" story: the redirect IS the refresh, and the board the reader is left looking at is
- * the other actor's result, not a stale board.
+ * So the drop is OPTIMISTIC and IN PLACE -- the same write the drawer's status menu makes
+ * (`changeLeadershipTaskStatusInPlaceAction`, which RETURNS the task): the card moves at once
+ * through the row store, the backend's row replaces it when it lands, and a refusal puts the card
+ * back in its column with the sentence for that refusal under the board. There is no redirect
+ * and no route re-render (docs/decisions/admin-web-interaction-patterns.md: a click costs what it
+ * changes). A `version_conflict` re-reads the task and publishes where it IS now, so the board
+ * shows the other actor's result, not a stale one. The write is serialised behind any other write
+ * to the same task (`runTaskWrite`) and reads its `row_version` fence when it is sent.
  *
  * ── WHY ONLY SOME COLUMNS ACCEPT A CARD ───────────────────────────────────────────────────────
  * There is no transition matrix in this file. `task.statusOptions` is `status_options` off the
@@ -110,7 +117,6 @@ export function TaskBoardColumns({
   cardHrefs,
   selectedTaskID,
   activeFilter,
-  action,
   returnTo,
 }: {
   pageContract: AdminUiPageContract;
@@ -123,7 +129,9 @@ export function TaskBoardColumns({
   /** The contract's dash. Accepted for the callers that pass it; no pill renders it any more
    *  (Gate-1 #4, #14 -- see the pill below), so it is not read here. */
   placeholder?: string;
-  action: (formData: FormData) => void | Promise<void>;
+  /** Retired: the drop writes IN PLACE (`changeLeadershipTaskStatusInPlaceAction`) and no longer
+   *  posts the redirecting action. Accepted and ignored so an older caller still type-checks. */
+  action?: (formData: FormData) => void | Promise<void>;
   returnTo: string;
 }) {
   const dragCapable = useDragCapable();
@@ -152,14 +160,10 @@ export function TaskBoardColumns({
     }
     return delta;
   };
-  /**
-   * The move in flight. Optimistic, so React itself discards it when the transition that set it
-   * settles — which is the whole revert-on-refusal mechanism (see the file comment).
-   */
-  const [pendingMove, setPendingMove] = useOptimistic<PendingMove | null, PendingMove | null>(
-    null,
-    (_current, next) => next,
-  );
+  /** The move on the wire, for the card's saving state and the live announcement. */
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
+  /** The sentence for a refused drop, under the board (never a page banner, never a raw code). */
+  const [refusal, setRefusal] = useState("");
   /** The card under the reader's hand, so the columns can say whether they would accept it. */
   const [draggingTaskID, setDraggingTaskID] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<string | null>(null);
@@ -182,8 +186,6 @@ export function TaskBoardColumns({
     formData.set("idempotency_key", idempotencyKey);
     formData.set("return_to", returnTo);
     formData.set("task_id", task.id);
-    // The fence comes off the ROW being rendered, not off a number captured at page load.
-    formData.set("row_version", String(task.rowVersion));
     formData.set("status", to);
     // The status this board was SHOWING for the card, so a refusal can say whether the task moved
     // under the reader or was changed some other way. Not an input to the write; see `actions.ts`.
@@ -197,9 +199,39 @@ export function TaskBoardColumns({
     } catch {
       // Telemetry must never break a write.
     }
+    const chosen = task.statusOptions.find((option) => option.key === to);
+    const before = { status: task.status, statusLabel: task.statusLabel };
+    const serverRow = serverRows.find((row) => row.id === task.id);
+    setRefusal("");
+    setPendingMove({ taskID: task.id, to });
+    // OPTIMISTIC: the card changes lane now, through the same row store the drawer publishes to.
+    publishTaskRow(task.id, { status: to, statusLabel: chosen?.label ?? task.statusLabel });
     startTransition(async () => {
-      setPendingMove({ taskID: task.id, to });
-      await action(formData);
+      let result: StatusChangeResult;
+      try {
+        result = await runTaskWrite(task.id, () => {
+          // The fence is read when the write is SENT, off the row as the browser knows it then.
+          formData.set("row_version", String(currentTaskRowVersion(task.id, serverRow?.rowVersion ?? task.rowVersion)));
+          return changeLeadershipTaskStatusInPlaceAction(formData);
+        });
+      } catch {
+        result = { ok: false, code: "network" };
+      }
+      setPendingMove(null);
+      if (result.ok) {
+        publishTaskRow(task.id, rowFromTask(result.task));
+        return;
+      }
+      // ROLLBACK: the card goes back where it was, then (on a conflict) to where it IS now.
+      publishTaskRow(task.id, before);
+      if (result.code === "version_conflict" || result.statusNow) {
+        const fresh = await loadLeadershipTaskAction(task.id).catch(() => null);
+        if (fresh?.ok) publishTaskRow(task.id, rowFromTask(fresh.task));
+      }
+      setRefusal(
+        refusalSentence((k, fb) => copy(pageContract, k, fb), result.code, result.statusNow, result.who) ||
+          copy(pageContract, "action.failed_message", "Action could not be completed."),
+      );
     });
   };
 
@@ -339,6 +371,11 @@ export function TaskBoardColumns({
         </div>
       </div>
 
+      {refusal ? (
+        <p className="ltd-status-refusal ltb-refusal" role="alert" data-testid="ltb-refusal">
+          {refusal}
+        </p>
+      ) : null}
       {/* Not `aria-grabbed` (deprecated): the move in flight is announced as text instead. */}
       <p className="ltb-dndlive" role="status" aria-live="polite">
         {announcement}

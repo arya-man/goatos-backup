@@ -94,7 +94,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	for _, g := range page.OptionGroups {
 		groups[g.ID] = len(g.Options)
 	}
-	if groups["sales_farms"] != 3 {
+	if groups["sales_farms"] != 2 {
 		t.Fatalf("sales_farms options = %d", groups["sales_farms"])
 	}
 	if groups["sales_product_types"] != 3 {
@@ -670,8 +670,8 @@ func TestSalesSoldAndFarmValuePageContracts(t *testing.T) {
 		for _, g := range page.OptionGroups {
 			groups[g.ID] = len(g.Options)
 		}
-		if groups["sales_farms"] != 3 {
-			t.Fatalf("%s sales_farms options = %d, want 3", page.RouteID, groups["sales_farms"])
+		if groups["sales_farms"] != 2 {
+			t.Fatalf("%s sales_farms options = %d, want 2 (All farms + the one fake park)", page.RouteID, groups["sales_farms"])
 		}
 		if required := permissionsForNav(page.RouteID); len(required) != 1 || required[0] != permissions.SalesRead {
 			t.Fatalf("permissionsForNav(%s) = %v, want exactly SalesRead", page.RouteID, required)

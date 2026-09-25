@@ -247,3 +247,15 @@ plus the item-specific proof named.
 - **P25 Heavy request fed by the wrong grain / whole-set projection.** Bad:
   vaccination command read all 86k obligations, 88% canceled. Do: filter to the
   screen's grain with a partial index / projection. Proof: rows read vs returned.
+
+## Proven performance patterns (from main + #415)
+
+Fix catalog PP-1..PP-22 (bad/good snippet, source commit, enforcing guard or
+"review-only"): [`docs/decisions/scale-anti-patterns.md` → "Proven performance
+patterns (from main + #415)"](../../../docs/decisions/scale-anti-patterns.md).
+Machine gates added 2026-09-25: `make scale-guard` rules `count-distinct-sort`,
+`cte-self-join`, `hand-rolled-read-cache`, `non-sargable-cast` (now `::text IN`),
+and `make admin-web-heavy-client-imports-guard`. Baselines only shrink.
+Apply the review-only rows (PP-7..PP-21) by hand when reviewing a hot read.
+
+PP-22 (2026-09-26): an OR with a subquery-membership branch (`IN (SELECT)`/`EXISTS`/`= ANY(SELECT)`) over a large table loses BitmapOr at 500k rows and seq-scans; split into UNION ALL per arm. Every changed large-table read needs a changed `Test*AtScale` plan test or `validate-sqlc-plans` entry in the same diff; STG-size EXPLAIN is not proof. Gates: `or-subquery-membership` (`make scale-guard`), `make scale-guard-plan-proof`.

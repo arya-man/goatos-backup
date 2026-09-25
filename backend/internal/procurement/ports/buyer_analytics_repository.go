@@ -18,7 +18,9 @@ type BuyerAnalyticsRepository interface {
 	// ClosedBuyerDeals returns every closed deal in the filter with its buyer RESOLVED (vendor id
 	// when the deal's vendor still exists, else the one vendor whose business name matches the
 	// typed name, else the typed name), plus the deal's own animal/revenue/outstanding rollup.
-	// farm is "" for the whole company or an exact CBE/CPT. The phone number is always read here;
+	// farm is "" for the whole company or an exact active park code. The phone number is always read here;
 	// the handler blanks it for a caller who may not see the register.
 	ClosedBuyerDeals(ctx context.Context, tenantID, farm string) ([]domain.BuyerDealFact, error)
+	// ListParkCodes returns the codes of the tenant's active parks: the farm filter's choices.
+	ListParkCodes(ctx context.Context, tenantID string) ([]string, error)
 }

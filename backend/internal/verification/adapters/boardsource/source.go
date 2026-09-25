@@ -65,6 +65,16 @@ func (s *Source) SourceType() string    { return SourceType }
 //
 // Sampling is deliberately invisible here: an unsampled item is still pending until the
 // closeout approves it, and the board reports the status the row actually holds.
+// ownCardModules are the producers whose board cards carry their own verification as the LAST
+// STEP of the card (maintainer instruction 2026-09-25: feed, then "show verification always as
+// last step in Milk, Preventive Care, weighing and pen visits -- this only"). Their proofs are
+// never Verification cards as well: one piece of work counts once, in its own module's column.
+// Every other producer's proof (counts, vaccination, health, ...) still rows here.
+var ownCardModules = []string{"feed", "milk_feeding", "milk_preparation", "pc_care", "weighing", "pen_visits"}
+
+// notOnBoardSQL leaves ownCardModules' proofs out of every verification board read.
+var notOnBoardSQL = `v.source_module NOT IN ('` + strings.Join(ownCardModules, "', '") + `')`
+
 const workStateSQL = `CASE
   WHEN v.status = 'approved' THEN 'completed'
   WHEN v.status = 'rejected' THEN 'rejected'
@@ -87,8 +97,15 @@ END`
 // captured_at range seek; park_id and the status filter are residual over one day's rows.
 // (verification_items_pending_scope_idx is partial to status='pending' and carries no
 // date; verification_items_created_pen_idx is keyed on created_at, not captured_at.)
-const baseWhere = `
+//
+// A PROOF WHOSE MODULE HAS ITS OWN CARD IS NOT A VERIFICATION CARD (maintainer instructions
+// 2026-09-25). Feed, milk, preventive care, weighing and pen visit cards end in their own verify
+// step; listing each proof again here counted one piece of work twice at two grains -- 27 pens in
+// review on the feed packing card beside 54 packing videos in the same column. notOnBoardSQL
+// leaves them out of every read: rows, counts and drill alike.
+var baseWhere = `
   v.tenant_id = $1::uuid
+  AND ` + notOnBoardSQL + `
   AND v.captured_at >= $2::timestamptz
   AND v.captured_at < $3::timestamptz
   AND v.park_id = $4::uuid
@@ -101,7 +118,7 @@ const baseWhere = `
   AND ($5::uuid IS NULL OR v.operator_id = $5::uuid)`
 
 // projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), withdrawn excluded and a rejected item excluded once a later non-withdrawn item exists on the same (source_module, source_ref_type, source_ref_id) via a NOT EXISTS on verification_items_source_idx, one row per item (primary key); group_key=(tenant_id, item_id) for the list and the derived board_state for the count; join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
-const listSQL = `
+var listSQL = `
 WITH items AS (
   SELECT v.item_id, v.category, v.park_id, v.shed_id, COALESCE(v.partition_label, '') AS partition_label,
          v.captured_at, v.status, v.operator_id, COALESCE(v.subject_label, '') AS subject_label,
@@ -124,7 +141,7 @@ ORDER BY x.item_id
 LIMIT $8`
 
 // projection-review: membership=verification_items rows of ONE tenant and park whose captured_at falls in the half-open IST business day [day start, next day start), withdrawn excluded and a rejected item excluded once a later non-withdrawn item exists on the same (source_module, source_ref_type, source_ref_id) via a NOT EXISTS on verification_items_source_idx, one row per item (primary key); group_key=(tenant_id, item_id) (the count query groups by the SAME derived board_state over the SAME membership); join_cardinality=locations park/shed on their primary key (1:1) and workforce_members filtered to status='active' on the partial-unique (tenant_id,user_id) index (at most 1), so no join fans an item out; pagination=keyset on item_id ASC after the cursor with LIMIT, state filter inside WHERE; scope=tenant_id, park_id, the captured_at day range and the optional operator predicate, repeated verbatim in countSQL.
-const countSQL = `
+var countSQL = `
 SELECT board_state, count(*)
 FROM (
   SELECT ` + workStateSQL + ` AS board_state

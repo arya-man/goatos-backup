@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { onIdTokenChanged } from "firebase/auth";
-import {
-  clearFirebaseSession,
-  getFirebaseAuth,
-  isFirebaseSessionError,
-  syncBridgeSession,
-} from "@/lib/auth/firebase-client";
+
+// The Firebase SDK is loaded on demand after hydration: this bridge is mounted by the admin
+// shell on every page, and static imports put firebase/app + firebase/auth into every page's
+// first-load JS even though nothing here is needed for the first paint.
+const loadFirebase = () =>
+  Promise.all([import("firebase/auth"), import("@/lib/auth/firebase-client")]);
 
 const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
 
@@ -17,8 +16,9 @@ export function FirebaseSessionBridge() {
     let interval: ReturnType<typeof setInterval> | null = null;
     let unsubscribe: (() => void) | null = null;
 
-    void getFirebaseAuth()
-      .then((auth) => {
+    void loadFirebase()
+      .then(async ([{ onIdTokenChanged }, { clearFirebaseSession, getFirebaseAuth, isFirebaseSessionError, syncBridgeSession }]) => {
+        const auth = await getFirebaseAuth();
         if (!mounted) return;
         unsubscribe = onIdTokenChanged(auth, (user) => {
           if (!user) return;

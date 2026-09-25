@@ -21,7 +21,7 @@ export type TaskScope = (typeof TASK_SCOPES)[number];
  * tasks whose deadline is already past on the farm clock. The backend answers it with its own
  * whole-list count (the late subset, never open + in_progress), and its rows keep their status.
  */
-export const TASK_FILTERS = ["all", "open", "in_progress", "done", "overdue"] as const;
+export const TASK_FILTERS = ["all", "open", "in_progress", "done", "cancelled", "overdue"] as const;
 export type TaskFilter = (typeof TASK_FILTERS)[number];
 export const TASK_FILTER_OVERDUE: TaskFilter = "overdue";
 
@@ -48,10 +48,11 @@ export function normalizeTaskView(value: string | undefined): TaskView {
  * The board's columns, in the order a reader reads them: what has not started, what is moving,
  * what landed, what was dropped.
  *
- * `cancelled` is deliberately last AND deliberately outside `TASK_FILTERS`: the list endpoint
- * offers no `cancelled` filter and the response carries no whole-list count for it, so that
- * column can show rows but can never state a true total. The board says so rather than adding
- * up what happens to be on the page.
+ * `cancelled` is last. CANCELLED TASKS ARE LISTED (maintainer decision 2026-09-25): the list
+ * endpoint gains a `cancelled` filter with its own whole-list count, so `cancelled` is now a
+ * `TASK_FILTERS` value and its column states the backend's count when the response carries it.
+ * A backend without the key simply publishes no count, and the pill reads the placeholder --
+ * never a number summed from the rows on the page.
  */
 export const TASK_BOARD_COLUMNS = ["open", "in_progress", "done", "cancelled"] as const;
 export type TaskBoardColumn = (typeof TASK_BOARD_COLUMNS)[number];
@@ -129,7 +130,7 @@ export function unprefixedTaskParamAliases(
 
 /**
  * The whole-list count a column's pill shows under the active filter, or null when the backend
- * publishes none for it (cancelled today).
+ * publishes none for it (cancelled, on a backend older than its filter key).
  *
  * `all`: the status's own total. A status filter: that status's total, and 0 for every other
  * column -- the row query returns nothing for them, so the pill must not claim otherwise.

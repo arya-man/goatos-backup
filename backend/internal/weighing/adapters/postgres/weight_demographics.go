@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
@@ -409,41 +411,58 @@ func (r *Repository) getWeightDemographicsUncached(ctx context.Context, tenantID
 			return r.resolveOriginBucketScope(ctx, tenantID, parkIDs, origin)
 		}
 	}
-	originScope, originErr := resolveOrigin(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
-	if originErr != nil {
-		return domain.WeightDemographics{}, originErr
-	}
-	// The Birth-wise breakdown needs BOTH cohorts at once, which the single filter scope above
+	// The Birth-wise breakdown needs BOTH cohorts at once, which the single filter scope
 	// cannot express -- it answers "which animals match the selected origin", and this answers
 	// "which side is each animal on". Resolved through the SAME origin_scope.go the filter uses,
 	// so the breakdown and the filter can never disagree about which animals were bought.
-	var farmBornScope ReportScope
-	var purchasedScope ReportScope
-	if sectionSet["origin"] {
-		farmBornScope, err = resolveOrigin(ctx, tenantID, parkIDs, "farm_born", periodStart, periodEnd)
-		if err != nil {
-			return domain.WeightDemographics{}, err
-		}
-		purchasedScope, err = resolveOrigin(ctx, tenantID, parkIDs, "purchased", periodStart, periodEnd)
-		if err != nil {
-			return domain.WeightDemographics{}, err
-		}
-	}
+	//
+	// The same-animal map (identity_scope.go), widened by the SAME 90-day lookback the gain arm below
+	// reads, so a pair whose earlier weigh sits before the window still merges. This file resolves
+	// herd facts itself, but it must not resolve THIS one a second way: two answers to "which tags
+	// are one animal" on one page is the drift the single-resolver rule exists to stop. The shed
+	// partition shortcut never reads it, so it is resolved only when the full read runs.
+	//
+	// These inputs do not depend on one another, so they resolve side by side (at most three
+	// connections, the growth read's pool rule) and the page waits for the slowest, not the total.
 	shortcutSafe := !sectionSet["weekly_gain"] && !sectionSet["composition"] && !sectionSet["gain_thresholds"] && !sectionSet["shed_type"]
-	if weighingCategory == domain.CategoryPerShedPartition && sexFilter == "" && !originFiltered && shortcutSafe {
+	shortcut := weighingCategory == domain.CategoryPerShedPartition && sexFilter == "" && !originFiltered && shortcutSafe
+	var (
+		originScope    ReportScope
+		farmBornScope  ReportScope
+		purchasedScope ReportScope
+		idMap          AnimalIdentityMap
+	)
+	prelude, preludeCtx := errgroup.WithContext(ctx)
+	prelude.SetLimit(3)
+	prelude.Go(func() (err error) {
+		originScope, err = resolveOrigin(preludeCtx, tenantID, parkIDs, origin, periodStart, periodEnd)
+		return err
+	})
+	if sectionSet["origin"] {
+		prelude.Go(func() (err error) {
+			farmBornScope, err = resolveOrigin(preludeCtx, tenantID, parkIDs, "farm_born", periodStart, periodEnd)
+			return err
+		})
+		prelude.Go(func() (err error) {
+			purchasedScope, err = resolveOrigin(preludeCtx, tenantID, parkIDs, "purchased", periodStart, periodEnd)
+			return err
+		})
+	}
+	if !shortcut {
+		prelude.Go(func() (err error) {
+			idMap, err = r.resolveAnimalIdentityMap(preludeCtx, tenantID, parkIDs, periodStart.AddDate(0, 0, -90), periodEnd)
+			return err
+		})
+	}
+	if err := prelude.Wait(); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if shortcut {
 		out, err = r.getShedPartitionWeightDemographics(ctx, tenantID, parkIDs, periodStart, periodEnd, sectionSet, farmBornScope, purchasedScope, bandEdgesKg)
 		if err != nil {
 			return domain.WeightDemographics{}, err
 		}
 		return out, nil
-	}
-	// The same-animal map (identity_scope.go), widened by the SAME 90-day lookback the gain arm below
-	// reads, so a pair whose earlier weigh sits before the window still merges. This file resolves
-	// herd facts itself, but it must not resolve THIS one a second way: two answers to "which tags
-	// are one animal" on one page is the drift the single-resolver rule exists to stop.
-	idMap, idErr := r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -90), periodEnd)
-	if idErr != nil {
-		return out, idErr
 	}
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
@@ -605,6 +624,15 @@ resolved_gain AS (
 -- honest: Castro's residents share one breed, one sex and one stage, so it can be
 -- attributed; Godel 2 holds nine breeds and six stages, so it is attributed to
 -- nothing rather than guessed at.
+-- The register's distinct (shed, partition) labels, scrubbed ONCE: the fallback below compared
+-- every resident's scrubbed label per bucket (a regexp per goat row per bucket), and this is the
+-- same key over the same rows, collapsed first. It lists only partitions that HOLD goats, and
+-- that is the point: the fallback attributes a bucket to its residents, so an empty one has none.
+gsp_keys AS MATERIALIZED (SELECT d.tenant_id, d.shed_id, regexp_replace(lower(btrim(d.partition_label)), '^(part|pt)[\s.-]*', '') AS scrubbed_label FROM (SELECT DISTINCT tenant_id, shed_id, partition_label FROM goat_shed_partitions WHERE tenant_id = $1::uuid) d), -- operational-location:ignore: owner=ravi issue=vgoats/goatos#415 scope=reporting-read-resolves-residents-own-partition-keys-not-a-shed-catalog-file-allowlisted-for-goat_shed_partitions expiry=2026-12-31
+-- Not a partition CATALOG: nothing here lists the partitions a shed has for a picker or a
+-- count. It is the same per-goat key the correlated fallback read before, deduplicated, so a
+-- partition with zero residents correctly resolves no bucket (shed_partitions would add keys
+-- with no residents to attribute from).
 -- projection-review: membership=distinct scoped weighing buckets with unchanged live-resident or physical-shed partition fallback; group_key=(tenant_id,location_id,partition_label); join_cardinality=locations is 0..1 by global primary key and each fallback is 0..1 via LIMIT 1, no goat partition fanout; pagination=NONE, all scoped buckets retained; scope=tenant plus authorized park campaign scope, with fallback tenant and parent-location checks retained.
 shed_targets AS (
   SELECT DISTINCT s.location_id, s.partition_label,
@@ -615,20 +643,17 @@ shed_targets AS (
               AND phys.tenant_id = l.tenant_id
               AND phys.parent_location_id = l.parent_location_id
               AND phys.location_type = 'shed'
-              AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
+              AND phys.name = k.phys_name
               AND EXISTS (
                 SELECT 1
-                FROM goat_shed_partitions gsp
+                FROM gsp_keys gsp
                 WHERE gsp.tenant_id = l.tenant_id
                   AND gsp.shed_id = phys.location_id
                   -- Scrubbed key, exactly as shed_cohort below and sex_scope.go: the bucket name
                   -- "Godel 2 - Part 1" yields "1" while the register writes "Part 1", and comparing
                   -- them raw resolved this pen to NOTHING -- so its 76 male kids reached no chart at
                   -- all. Fixing only the cohort join was not enough; the pen has to RESOLVE first.
-                  AND regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
-                      = regexp_replace(lower(btrim(COALESCE(NULLIF(s.partition_label, ''),
-                          NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '')))),
-                          '^(part|pt)[\s.-]*', '')
+                  AND gsp.scrubbed_label = k.want_label
               )
             LIMIT 1)
          ) AS resolved_id,
@@ -644,12 +669,24 @@ shed_targets AS (
   -- per candidate goat partition instead of once per bucket.
   FROM (SELECT DISTINCT tenant_id, location_id, partition_label FROM scoped) s
   LEFT JOIN locations l ON l.location_id = s.location_id
-  LEFT JOIN LATERAL (
-    SELECT true AS present FROM goats gg
-    WHERE gg.tenant_id = $1::uuid
-      AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id
+  -- The bucket's fallback keys, computed once per bucket (the LIMIT 1 on this one-row subquery keeps them out of the
+  -- correlated lookup, where they were re-evaluated for every candidate register row).
+  CROSS JOIN LATERAL (
+    SELECT regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '') AS phys_name,
+           regexp_replace(lower(btrim(COALESCE(NULLIF(s.partition_label, ''),
+             NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '')))),
+             '^(part|pt)[\s.-]*', '') AS want_label
     LIMIT 1
-  ) live ON true
+  ) k
+  -- Sheds holding at least one live resident, resolved once for the scoped sheds (DISTINCT, so
+  -- 0..1 row per bucket exactly like the former per-bucket LIMIT 1 probe, which the planner ran
+  -- as a goats seq scan once per bucket).
+  LEFT JOIN (
+    SELECT DISTINCT gg.shed_id, true AS present FROM goats gg
+    WHERE gg.tenant_id = $1::uuid
+      AND gg.lifecycle_status = 'alive'
+      AND gg.shed_id IN (SELECT location_id FROM scoped)
+  ) live ON live.shed_id = s.location_id
   -- Origin filter, whole-shed half. A lump-sum bucket is claimed by the pen it was weighed in,
   -- which origin_scope.go has already decided; the alias spellings of one pen ("Godel 2 - Part 1"
   -- the location vs "Godel 2" carrying label "Part 1") are reconciled there, so this predicate is
@@ -1603,6 +1640,15 @@ latest AS (
   WHERE ($5::bool OR $8::bool OR $9::bool OR $11::bool)
   ORDER BY s.location_id, s.partition_label, sh.accepted_at DESC, sh.shed_observation_id DESC
 ),
+-- The register's distinct (shed, partition) labels, scrubbed ONCE: the fallback below compared
+-- every resident's scrubbed label per bucket (a regexp per goat row per bucket), and this is the
+-- same key over the same rows, collapsed first. It lists only partitions that HOLD goats, and
+-- that is the point: the fallback attributes a bucket to its residents, so an empty one has none.
+gsp_keys AS MATERIALIZED (SELECT d.tenant_id, d.shed_id, regexp_replace(lower(btrim(d.partition_label)), '^(part|pt)[\s.-]*', '') AS scrubbed_label FROM (SELECT DISTINCT tenant_id, shed_id, partition_label FROM goat_shed_partitions WHERE tenant_id = $1::uuid) d), -- operational-location:ignore: owner=ravi issue=vgoats/goatos#415 scope=reporting-read-resolves-residents-own-partition-keys-not-a-shed-catalog-file-allowlisted-for-goat_shed_partitions expiry=2026-12-31
+-- Not a partition CATALOG: nothing here lists the partitions a shed has for a picker or a
+-- count. It is the same per-goat key the correlated fallback read before, deduplicated, so a
+-- partition with zero residents correctly resolves no bucket (shed_partitions would add keys
+-- with no residents to attribute from).
 -- projection-review: membership=distinct scoped weighing buckets with unchanged live-resident or physical-shed partition fallback; group_key=(tenant_id,location_id,partition_label); join_cardinality=locations is 0..1 by global primary key and each fallback is 0..1 via LIMIT 1, no goat partition fanout; pagination=NONE, all scoped buckets retained; scope=tenant plus authorized park campaign scope, with fallback tenant and parent-location checks retained.
 shed_targets AS (
   SELECT DISTINCT s.location_id, s.partition_label,
@@ -1613,16 +1659,13 @@ shed_targets AS (
               AND phys.tenant_id = l.tenant_id
               AND phys.parent_location_id = l.parent_location_id
               AND phys.location_type = 'shed'
-              AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
+              AND phys.name = k.phys_name
               AND EXISTS (
                 SELECT 1
-                FROM goat_shed_partitions gsp
+                FROM gsp_keys gsp
                 WHERE gsp.tenant_id = l.tenant_id
                   AND gsp.shed_id = phys.location_id
-                  AND regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
-                      = regexp_replace(lower(btrim(COALESCE(NULLIF(s.partition_label, ''),
-                          NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '')))),
-                          '^(part|pt)[\s.-]*', '')
+                  AND gsp.scrubbed_label = k.want_label
               )
             LIMIT 1)
          ) AS resolved_id,
@@ -1635,12 +1678,24 @@ shed_targets AS (
                   '') AS resolved_partition_label
   FROM (SELECT DISTINCT tenant_id, location_id, partition_label FROM scoped) s
   LEFT JOIN locations l ON l.location_id = s.location_id
-  LEFT JOIN LATERAL (
-    SELECT true AS present FROM goats gg
-    WHERE gg.tenant_id = $1::uuid
-      AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id
+  -- The bucket's fallback keys, computed once per bucket (the LIMIT 1 on this one-row subquery keeps them out of the
+  -- correlated lookup, where they were re-evaluated for every candidate register row).
+  CROSS JOIN LATERAL (
+    SELECT regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '') AS phys_name,
+           regexp_replace(lower(btrim(COALESCE(NULLIF(s.partition_label, ''),
+             NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '')))),
+             '^(part|pt)[\s.-]*', '') AS want_label
     LIMIT 1
-  ) live ON true
+  ) k
+  -- Sheds holding at least one live resident, resolved once for the scoped sheds (DISTINCT, so
+  -- 0..1 row per bucket exactly like the former per-bucket LIMIT 1 probe, which the planner ran
+  -- as a goats seq scan once per bucket).
+  LEFT JOIN (
+    SELECT DISTINCT gg.shed_id, true AS present FROM goats gg
+    WHERE gg.tenant_id = $1::uuid
+      AND gg.lifecycle_status = 'alive'
+      AND gg.shed_id IN (SELECT location_id FROM scoped)
+  ) live ON live.shed_id = s.location_id
 ),
 shed_cohort AS (
   SELECT src.location_id,
@@ -2104,7 +2159,7 @@ func decodeWeightGainShedTypeBuckets(raw []byte) ([]domain.WeightGainShedTypeBuc
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
-		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "non_elevated") {
+		if json.Unmarshal(row[1], &shedType) != nil || strings.TrimSpace(shedType) == "" {
 			continue
 		}
 		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {
@@ -2153,7 +2208,7 @@ func decodeShedTypeMembers(raw []byte) ([]domain.ShedTypeMember, error) {
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
-		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "non_elevated") {
+		if json.Unmarshal(row[1], &shedType) != nil || strings.TrimSpace(shedType) == "" {
 			continue
 		}
 		if json.Unmarshal(row[2], &locationID) != nil || locationID == "" {

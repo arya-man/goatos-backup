@@ -41,4 +41,8 @@
     <string name="leadership_tasks_deadline_ok">సరే</string>
     <string name="leadership_tasks_deadline_cancel">రద్దు చేయి</string>
     <string name="leadership_tasks_deadline_prefix">గడువు</string>
+    <string name="leadership_tasks_refresh_failed">రిఫ్రెష్ కాలేదు · సేవ్ చేసిన పనులు చూపిస్తున్నాం</string>
+    <string name="leadership_tasks_detail_unavailable">ఈ పని లోడ్ కాలేదు. కనెక్షన్ చూసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="leadership_tasks_list_unavailable">మీ పనులు లోడ్ కాలేదు. కనెక్షన్ చూసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="leadership_tasks_action_try_again">మళ్లీ ప్రయత్నించండి</string>
 </resources>

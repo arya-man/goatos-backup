@@ -25,6 +25,7 @@
     <string name="work_board_module_procurement">కొనుగోలు</string>
     <string name="work_board_module_verification">ధృవీకరణ</string>
     <string name="work_board_module_tasks">పనులు</string>
+    <string name="work_board_module_sales">అమ్మకాలు</string>
 
     <string name="work_board_state_scheduled">నిర్ణయించబడింది</string>
     <string name="work_board_state_due">ఈరోజు చేయాలి</string>
@@ -45,6 +46,9 @@
     <string name="work_board_tile_pending">మిగిలినవి</string>
     <string name="work_board_tile_attention">శ్రద్ధ అవసరం</string>
     <string name="work_board_counts_fmt">%2$d లో %1$d పూర్తయ్యాయి</string>
+    <string name="work_board_split_in_review_fmt">%1$d సమీక్షలో</string>
+    <string name="work_board_split_started_fmt">%1$d ప్రారంభమైంది</string>
+    <string name="work_board_split_not_started_fmt">%1$d ప్రారంభం కాలేదు</string>
 
     <string name="work_board_detail_pen">పెన్</string>
     <string name="work_board_detail_park">ఫారం</string>
@@ -56,4 +60,16 @@
     <string name="work_board_empty_own">ఈ రోజు మీ జాబితాలో ఏమీ లేదు</string>
     <string name="work_board_empty_all">ఈ రోజు బోర్డులో ఏమీ లేదు</string>
     <string name="work_board_error">మీ పని లోడ్ కాలేదు. మళ్లీ ప్రయత్నించడానికి రిఫ్రెష్ నొక్కండి.</string>
+    <string name="work_board_subtasks_title">ఏది పూర్తైంది, ఏది మిగిలింది</string>
+    <string name="work_board_subtasks_count_fmt">%2$d లో %1$d</string>
+    <string name="work_board_subtasks_loading">లోడ్ అవుతోంది…</string>
+    <string name="work_board_subtasks_empty">ఏమీ లేదు</string>
+    <string name="work_board_subtasks_failed">ఈ జాబితా లోడ్ కాలేదు. తిరిగి వచ్చినప్పుడు మళ్లీ ప్రయత్నిస్తుంది.</string>
+    <string name="work_board_step_done">పూర్తైంది</string>
+    <string name="work_board_step_in_review">సమీక్షలో</string>
+    <string name="work_board_step_in_progress">ప్రారంభమైంది</string>
+    <string name="work_board_step_rework">తిరిగి పంపబడింది</string>
+    <string name="work_board_step_needs_attention">శ్రద్ధ అవసరం</string>
+    <string name="work_board_step_locked">వేచి ఉంది</string>
+    <string name="work_board_step_todo">మిగిలింది</string>
 </resources>

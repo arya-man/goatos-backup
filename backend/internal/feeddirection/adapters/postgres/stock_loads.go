@@ -195,21 +195,25 @@ load_allocations AS (
                GREATEST(0,
                    LEAST(
                        fc.cum_kg,
-                       CASE WHEN EXISTS (
-                           SELECT 1
-                           FROM positioned next_load
-                           WHERE next_load.farm_label = p.farm_label
-                             AND next_load.family_key = p.family_key
-                             AND next_load.depletes_from <= fc.feed_day
-                             AND (next_load.depletes_from, next_load.purchase_date, next_load.batch_no) >
-                                 (p.depletes_from, p.purchase_date, p.batch_no)
-                       )
+                       CASE WHEN COALESCE(p.next_depletes_from <= fc.feed_day, false)
                        THEN p.prior_net_kg + p.net_kg
                        ELSE fc.cum_kg
                        END
                    ) - GREATEST(fc.cum_kg - fc.kg, p.prior_net_kg)
                ) AS depleted_kg
-    FROM positioned p
+    -- "Is a LATER load (by the ledger order) already depleting on this day?" used to be a
+    -- correlated EXISTS scan of the whole positioned CTE per (load, day) pair -- 6k linear scans on
+    -- STG. It is the earliest depletes_from among the strictly later loads of the same farm+family
+    -- (EXCLUDE GROUP drops the load's own ordering peers, as the strict row comparison did; a NULL
+    -- family_key never joins movement_cells, so its partition is irrelevant), compared per day.
+    FROM (
+        SELECT pp.*,
+               MIN(pp.depletes_from) OVER (
+                   PARTITION BY pp.farm_label, pp.family_key
+                   ORDER BY pp.depletes_from, pp.purchase_date, pp.batch_no
+                   RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING EXCLUDE GROUP) AS next_depletes_from
+        FROM positioned pp
+    ) p
     JOIN movement_cells fc
       ON fc.farm_label = p.farm_label
      AND fc.family_key = p.family_key
@@ -217,15 +221,7 @@ load_allocations AS (
      AND fc.cum_kg > p.prior_net_kg
      AND (
          fc.cum_kg - fc.kg < p.prior_net_kg + p.net_kg
-         OR NOT EXISTS (
-             SELECT 1
-             FROM positioned next_load
-             WHERE next_load.farm_label = p.farm_label
-               AND next_load.family_key = p.family_key
-               AND next_load.depletes_from <= fc.feed_day
-               AND (next_load.depletes_from, next_load.purchase_date, next_load.batch_no) >
-                   (p.depletes_from, p.purchase_date, p.batch_no)
-         )
+         OR NOT COALESCE(p.next_depletes_from <= fc.feed_day, false)
      )
 ),
 load_days AS (

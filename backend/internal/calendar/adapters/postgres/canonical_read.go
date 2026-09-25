@@ -15,9 +15,12 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	platformpostgres "github.com/vgoats/goatos/backend/internal/platform/postgres"
 
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 )
@@ -288,16 +291,16 @@ catchup_drive_events AS (
       -- window / exception / overdue branches selecting FULL rows (no join-back), deduped so a row
       -- matching two branches is counted once.
       SELECT * FROM obligation_instances
-      WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      WHERE tenant_id = $1::uuid AND batch_id IS NULL /*se:parkdrive_unbatched*/
         AND status NOT IN ('waived', 'canceled', 'superseded', 'completed')
         AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
       UNION
       SELECT * FROM obligation_instances
-      WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      WHERE tenant_id = $1::uuid AND batch_id IS NULL /*se:parkdrive_unbatched*/
         AND status IN ('missed', 'in_progress', 'deferred')
       UNION
       SELECT * FROM obligation_instances
-      WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      WHERE tenant_id = $1::uuid AND batch_id IS NULL /*se:parkdrive_unbatched*/
         AND status IN ('scheduled', 'due') AND due_at < now()
     )
     SELECT
@@ -753,6 +756,7 @@ drive_sources AS (
     UNION ALL
     SELECT * FROM catchup_drive_events
   ) source
+  /*se:drive_sources*/
 ),
 -- projection-review: membership=drive_sources (batch_events plus catchup_drive_events, one source event row per stable event_id); group_key=(park_id, due_day) where due_day is derived from the source event due_at in Asia/Kolkata and batched sources already prefer planned_date before window_start; join_cardinality=source rows are UNION ALL event facts, grouped once by park/day with count(DISTINCT shed_id) only for shed metadata and scheduled_count filtered to active scheduled/review batch statuses so completed/canceled batches cannot create scheduled work; pagination=calendar park-drive grouping is computed inside the bounded canonical list request before the event page is emitted, while month markers use their own whole-month aggregate; scope=park_id from the event source, shed only remains a display dimension and never narrows park-drive membership
 park_drive_groups AS (
@@ -805,14 +809,14 @@ obligation_drive_membership AS (
     -- Unbatched window (index: idx_obligation_instances_calendar_window)
     SELECT oi0.*, NULL::timestamptz AS membership_at_override, NULL::uuid AS assignment_id
     FROM obligation_instances oi0
-    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL /*se:parkdrive_unbatched*/
       AND status NOT IN ('superseded', 'canceled', 'waived')
       AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
     UNION
     -- Unbatched bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due)
     SELECT oi0.*, NULL::timestamptz AS membership_at_override, NULL::uuid AS assignment_id
     FROM obligation_instances oi0
-    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL /*se:parkdrive_unbatched*/
       AND status IN ('missed', 'in_progress', 'deferred')
       AND due_at >= $2::timestamptz - interval '45 days'
       AND due_at < $3::timestamptz
@@ -820,7 +824,7 @@ obligation_drive_membership AS (
     -- Unbatched overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
     SELECT oi0.*, NULL::timestamptz AS membership_at_override, NULL::uuid AS assignment_id
     FROM obligation_instances oi0
-    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL /*se:parkdrive_unbatched*/
       AND status IN ('scheduled', 'due') AND due_at < now()
       AND due_at >= $2::timestamptz - interval '45 days'
       AND due_at < $3::timestamptz
@@ -844,7 +848,7 @@ obligation_drive_membership AS (
        cardinality(vda.vaccine_rule_ids) = 0
        OR oi2.rule_id = ANY(vda.vaccine_rule_ids)
      )
-    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
+    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL /*se:assignment*/
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
       AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
@@ -858,7 +862,7 @@ obligation_drive_membership AS (
     FROM obligation_instances oi2
     JOIN obligation_batches ob2
       ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
-    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
+    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL /*se:parkdrive_batch_due*/
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
       AND oi2.due_at >= $2::timestamptz
@@ -887,7 +891,7 @@ obligation_drive_membership AS (
       WHERE vda.tenant_id = oi2.tenant_id
         AND vda.batch_id = oi2.batch_id
     ) assignment_presence ON true
-    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
+    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL /*se:parkdrive_batch_planned*/
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
       AND NOT COALESCE(assignment_presence.has_assignment, false)
@@ -1102,6 +1106,7 @@ obligation_drive_membership AS (
   WHERE pd.category = 'vaccination'
     AND pv.status = 'published'
     AND oi.status NOT IN ('superseded', 'canceled', 'waived')
+    /*se:membership*/
 ),
 -- A logical vaccination drive may span multiple operator-days. Calendar rows stay at the
 -- executable park/day grain, while this bounded seed-and-expand rollup gives each row the same
@@ -2215,13 +2220,130 @@ FROM canonical_selected
 ORDER BY due_at ASC, event_id ASC
 LIMIT $10`
 
+// canonicalSingleEventSQL turns a statement over calendarCanonicalEventsCTE whose $4 is ONE event_id
+// into its single-event form: the /*se:...*/ markers (plain comments, inert in the list and sweep
+// statements) become filters that keep only the rows that can reach that event_id.
+//
+// Every park-drive aggregate (drive_sources -> park_drive_groups, obligation_drive_membership -> the
+// obligation_drive_* rollups -> park_drive_events) groups by (execution_drive_key, park_id, business
+// day) and only ever joins rows of the same group, and park_drive_events.event_id is a pure function
+// of that group key. Dropping rows of every OTHER group before aggregation therefore cannot change the
+// one row a single-event lookup returns; it only stops the lookup from rebuilding every drive in the
+// +/-2 year window (STG 2026-09-25: ~0.9-1.5 s -> see commit). Branch gates:
+//   - an assignment-member row always gets key vaccinationdrive:assignment:<its assignment_id>;
+//   - every other drive row (batch:, catchup:) surfaces as a parkdrive:... event_id.
+//
+// Non-drive event_ids (obligation:, completion:, calendar:) match neither, so the drive chain is skipped.
+// $8 is the business day parsed from a parkdrive:...:date:YYYY-MM-DD event_id (NULL for any other
+// or malformed id -- no group can match those, since park_drive_events always prints a valid day).
+const (
+	seDayStart = "($8::date::timestamp AT TIME ZONE 'Asia/Kolkata')"
+	seDayEnd   = "(($8::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')"
+)
+
+func seBatchDay(raw string) string {
+	return "((" + raw + " >= " + seDayStart + " AND " + raw + " < " + seDayEnd + ")" +
+		" OR ($8::date = (now() AT TIME ZONE 'Asia/Kolkata')::date AND ob2.status = 'in_progress' AND " + raw + " < " + seDayStart + "))"
+}
+
+// canonicalSingleEventDay extracts $8 for canonicalSingleEventSQL statements.
+func canonicalSingleEventDay(eventID string) any {
+	if !strings.HasPrefix(eventID, "parkdrive:") {
+		return nil
+	}
+	i := strings.LastIndex(eventID, ":date:")
+	if i < 0 {
+		return nil
+	}
+	day := eventID[i+len(":date:"):]
+	if _, err := time.Parse("2006-01-02", day); err != nil {
+		return nil
+	}
+	return day
+}
+
+// canonicalSourceEventsUnion is the source_events definition closing calendarCanonicalEventsCTE.
+const canonicalSourceEventsUnion = `source_events AS (
+  SELECT * FROM obligation_events
+  UNION ALL
+  SELECT * FROM vaccination_history_events
+  UNION ALL
+  SELECT * FROM park_drive_events
+  UNION ALL
+  SELECT * FROM sop_events
+  UNION ALL
+  SELECT * FROM config_events
+)`
+
+// canonicalSingleEvent holds one single-event statement per source_events branch. Each branch mints
+// event_ids under its own prefix (obligation:, completion:, parkdrive:/vaccinationdrive:assignment:,
+// calendar:), so an event_id can only ever match rows of the branch its prefix names. Keeping only
+// that branch in source_events leaves the other CTEs unreferenced, and Postgres neither plans nor runs
+// an unreferenced WITH query -- planning the whole ~2,000-line chain alone cost ~130-180 ms per call.
+// Any other id falls back to the full union (it matches nothing either way).
+type canonicalSingleEvent map[string]string
+
+func (c canonicalSingleEvent) forEvent(eventID string) string {
+	switch {
+	case strings.HasPrefix(eventID, "obligation:"):
+		return c["obligation"]
+	case strings.HasPrefix(eventID, "completion:"):
+		return c["completion"]
+	case strings.HasPrefix(eventID, "parkdrive:"), strings.HasPrefix(eventID, "vaccinationdrive:assignment:"):
+		return c["drive"]
+	case strings.HasPrefix(eventID, "calendar:"):
+		return c["calendar"]
+	}
+	return c[""]
+}
+
+func canonicalSingleEventSQL(sql string) canonicalSingleEvent {
+	if strings.Count(sql, canonicalSourceEventsUnion) != 1 {
+		panic("calendar: canonicalSingleEventSQL: source_events union not found exactly once")
+	}
+	full := canonicalSingleEventFilters(sql)
+	branch := func(body string) string {
+		return strings.Replace(full, canonicalSourceEventsUnion, "source_events AS (\n"+body+"\n)", 1)
+	}
+	return canonicalSingleEvent{
+		"":           full,
+		"obligation": branch("  SELECT * FROM obligation_events"),
+		"completion": branch("  SELECT * FROM vaccination_history_events"),
+		"drive":      branch("  SELECT * FROM park_drive_events"),
+		"calendar":   branch("  SELECT * FROM sop_events\n  UNION ALL\n  SELECT * FROM config_events"),
+	}
+}
+
+func canonicalSingleEventFilters(sql string) string {
+	return strings.NewReplacer(
+		// Unbatched rows never roll over: their business day is the IST day of due_at.
+		"/*se:parkdrive_unbatched*/", "AND $4::text LIKE 'parkdrive:%' AND due_at >= "+seDayStart+" AND due_at < "+seDayEnd,
+		// Batched rows land on the IST day of their raw date, or on TODAY when an in_progress batch
+		// rolls over (raw day < today). Superset of both; the exact group filter runs afterwards.
+		"/*se:parkdrive_batch_due*/", "AND $4::text LIKE 'parkdrive:%' AND "+seBatchDay("oi2.due_at"),
+		"/*se:parkdrive_batch_planned*/", "AND $4::text LIKE 'parkdrive:%' AND "+
+			seBatchDay("COALESCE((ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob2.window_start, ob2.window_end)"),
+		"/*se:assignment*/", "AND 'vaccinationdrive:assignment:' || vda.assignment_id::text = $4::text",
+		"/*se:membership*/", `AND CASE
+          WHEN oi.assignment_id IS NOT NULL THEN 'vaccinationdrive:assignment:' || oi.assignment_id::text
+          WHEN loc.park_id IS NOT NULL THEN 'parkdrive:park:' || loc.park_id::text || ':date:' || to_char((member.membership_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
+          ELSE 'parkdrive:tenant:' || $1::text || ':date:' || to_char((member.membership_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
+        END = $4::text`,
+		"/*se:drive_sources*/", `WHERE CASE
+    WHEN source.event_id LIKE 'vaccinationdrive:assignment:%' THEN source.event_id
+    WHEN source.park_id IS NOT NULL THEN 'parkdrive:park:' || source.park_id::text || ':date:' || to_char((source.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
+    ELSE 'parkdrive:tenant:' || $1::text || ':date:' || to_char((source.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
+  END = $4::text`,
+	).Replace(sql)
+}
+
 // calendarCanonicalDetailSQL resolves ONE calendar event by event_id straight from the canonical
 // source_events reconstruction (not canonical_selected -- a single-event lookup must still resolve an
 // individual 'obligation:<id>' (vaccination_dose_due) row, which canonical_selected's list-only
 // `event_type <> 'vaccination_dose_due'` filter deliberately excludes). Column order matches
 // scanCalendarEventWithDetail exactly (37 CalendarEvent columns + the raw detail jsonb blob).
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
-const calendarCanonicalDetailSQL = "WITH " + calendarCanonicalEventsCTE + `
+var calendarCanonicalDetailSQL = canonicalSingleEventSQL(strings.ReplaceAll("WITH "+calendarCanonicalEventsCTE+`
 SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
        window_end, timezone, timezone_source, park_id::text, park_code, shed_id::text, shed_name,
        cohort_id::text, cohort_name, target_type, target_count, protocol_id::text,
@@ -2248,7 +2370,16 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
 FROM source_events
 WHERE event_id = $4
   AND ($5::bool OR park_id = ANY($6::uuid[]) OR shed_id = ANY($7::uuid[]))
-LIMIT 1`
+LIMIT 1`, "current_setting('goatos.include_drive_summary', true) = 'true'", "true"))
+
+// calendarListTx is the list page's transaction: GenericPlanReadTx plus no parallel workers. The
+// generic plan is built (and cached per connection) under these settings. On STG the parallel plan
+// spent ~30 ms launching and merging two workers for a ~1k-row batch scan (exec 150 -> 120 ms, same
+// rows); the connection warm-up (ConnWarmups) opens the same transaction so it caches this plan.
+var calendarListTx = pgx.TxOptions{
+	AccessMode: platformpostgres.GenericPlanReadTx.AccessMode,
+	BeginQuery: platformpostgres.GenericPlanReadTx.BeginQuery + "; SET LOCAL max_parallel_workers_per_gather = 0",
+}
 
 // listEventsCanonical runs the canonical read-through page for ListEvents. Params mirror the projector
 // window ($1 tenant, $2 dateFrom, $3 dateToExclusive) plus the list filters ($4 owner, $5 status,
@@ -2266,29 +2397,21 @@ func (r *Repository) listEventsCanonical(
 	tenantWide bool, parkIDs, shedIDs []string,
 	includeDriveSummary bool,
 ) ([]domain.CalendarEvent, error) {
-	type queryer interface {
-		Query(context.Context, string, ...any) (pgx.Rows, error)
-	}
-	run := func(q queryer) (pgx.Rows, error) {
-		return q.Query(ctx, calendarCanonicalListSQL,
-			tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID,
-			cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, vaccine)
-	}
-	var rows pgx.Rows
-	var err error
+	// Generic plan inside one read-only transaction (platformpostgres.GenericPlanReadTx): under
+	// plan_cache_mode=auto the first five calls on every pooled connection re-planned this ~2,000-line
+	// statement (~80 ms each). The drive-summary flag rides the same BEGIN round trip.
+	txOpts := calendarListTx
 	if includeDriveSummary {
-		tx, txErr := r.pool.Begin(ctx)
-		if txErr != nil {
-			return nil, fmt.Errorf("calendar: begin rich canonical list: %w", txErr)
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-		if _, err = tx.Exec(ctx, "SET LOCAL goatos.include_drive_summary = 'true'"); err != nil {
-			return nil, fmt.Errorf("calendar: enable drive summary: %w", err)
-		}
-		rows, err = run(tx)
-	} else {
-		rows, err = run(r.pool)
+		txOpts.BeginQuery += "; SET LOCAL goatos.include_drive_summary = 'true'"
 	}
+	tx, err := r.pool.BeginTx(ctx, txOpts)
+	if err != nil {
+		return nil, fmt.Errorf("calendar: begin canonical list: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, calendarCanonicalListSQL,
+		tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID,
+		cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, vaccine)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: canonical list events: %w", err)
 	}

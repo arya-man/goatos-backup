@@ -2434,6 +2434,7 @@ CREATE TABLE public.breeds (
     review_notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id uuid NOT NULL,
     CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
 );
 
@@ -2498,9 +2499,7 @@ CREATE TABLE public.goats (
     CONSTRAINT goats_exited_lifecycle_check CHECK (((exited_at IS NULL) OR (lifecycle_status = ANY (ARRAY['dead'::text, 'sold'::text, 'culled'::text, 'transferred'::text, 'lost'::text, 'merged'::text, 'inactive'::text])))),
     CONSTRAINT goats_merge_redirect_shape_check CHECK (((merged_into_goat_id IS NULL) OR (merged_into_goat_id <> goat_id))),
     CONSTRAINT goats_origin_type_check CHECK (((origin_type IS NULL) OR (origin_type = ANY (ARRAY['birth'::text, 'procured'::text, 'imported'::text])))),
-    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1)),
-    CONSTRAINT goats_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text]))),
-    CONSTRAINT goats_species_check CHECK ((species = ANY (ARRAY['goat'::text, 'sheep'::text])))
+    CONSTRAINT goats_row_version_check CHECK ((row_version >= 1))
 );
 
 
@@ -5091,7 +5090,8 @@ CREATE TABLE public.breed_aliases (
     alias text NOT NULL,
     normalized_alias text NOT NULL,
     source_system text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id uuid NOT NULL
 );
 
 
@@ -7333,7 +7333,7 @@ CREATE TABLE public.protocol_rule_dimensions (
     CONSTRAINT protocol_rule_dimensions_animal_stage_check CHECK ((animal_stage <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_breed_check CHECK ((breed <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_procurement_purpose_check CHECK ((procurement_purpose <> ''::text)),
-    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text, 'all'::text]))),
+    CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((btrim(sex) <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_species_check CHECK ((species <> ''::text))
 );
 
@@ -8550,7 +8550,7 @@ ALTER TABLE ONLY public.breed_aliases
 --
 
 ALTER TABLE ONLY public.breed_aliases
-    ADD CONSTRAINT breed_aliases_unique_alias UNIQUE (normalized_alias, source_system);
+    ADD CONSTRAINT breed_aliases_unique_alias UNIQUE (tenant_id, normalized_alias, source_system);
 
 
 --
@@ -8566,7 +8566,7 @@ ALTER TABLE ONLY public.breeds
 --
 
 ALTER TABLE ONLY public.breeds
-    ADD CONSTRAINT breeds_unique_name UNIQUE (species, canonical_name);
+    ADD CONSTRAINT breeds_unique_name UNIQUE (tenant_id, species, canonical_name);
 
 
 --
@@ -14289,7 +14289,7 @@ CREATE TRIGGER admin_ui_animal_stages_revision_trg AFTER INSERT OR DELETE OR UPD
 -- Name: breeds admin_ui_breeds_revision_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER admin_ui_breeds_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.breeds FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_global_family_trg('breeds');
+CREATE TRIGGER admin_ui_breeds_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.breeds FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('breeds');
 
 
 --

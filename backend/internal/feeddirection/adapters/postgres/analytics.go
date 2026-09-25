@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
@@ -256,6 +257,11 @@ FROM pen
 GROUP BY feed_day
 ORDER BY feed_day`
 
+// STORED SHEET COLLAPSES (migration 000433): this read no longer re-totals feed_direction_issue_rows.
+// It reads each live sheet's rows already collapsed to the grain it needs (maintained by triggers
+// in every sheet write's own transaction) and re-aggregates them across a day's sheets with the same
+// SUM / MIN / MAX the raw-row collapse used, so the answer is unchanged (old-vs-new full diffs on
+// STG, and the analytics integration tests through the triggers).
 const directedAnalyticsCombinedSQL = `
 WITH iss AS (
     SELECT feed_direction_issue_id, feed_day
@@ -268,23 +274,58 @@ WITH iss AS (
       -- animals eating real feed, so the overview includes them alongside the normal sheet.
       AND workflow IN ('normal', 'experiment')
 ),
-pen_item AS (
+-- Per-sheet item totals (migration 000433, maintained on every sheet write): kg summed and the
+-- pen-grain heads (each pen-item's MAX over sessions) summed over the sheet's pens.
+issue_item AS (
     SELECT i.feed_day,
-           r.feed_item_key,
-           MIN(r.feed_item_label)                                AS feed_item_label,
-           r.shed_id,
-           r.partition_key,
-           r.shed_tag_key,
-           r.breed_key,
-           SUM(r.quantity_kg)                                    AS grain_kg,
-           MAX(r.head_count)                                     AS grain_heads
+           t.feed_item_key,
+           t.feed_item_label,
+           t.quantity_kg                                         AS grain_kg,
+           t.head_count                                          AS grain_heads
     FROM iss i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1
-     AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    WHERE r.quantity_kg IS NOT NULL
-    GROUP BY i.feed_day, r.feed_item_key,
-             r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key
+    JOIN feed_direction_issue_items t
+      ON t.tenant_id = $1
+     AND t.feed_direction_issue_id = i.feed_direction_issue_id
+),
+-- Pens that two sheets of one day (normal + experiment) both carry. Their heads must count ONCE
+-- per (day, pen, item) -- the MAX, exactly as the pen-grain collapse over raw rows did -- so the
+-- per-sheet sums above over-count them by SUM - MAX, which shared_excess subtracts. Nearly always
+-- empty, and then nothing below reads a raw sheet row.
+shared_pen AS (
+    SELECT i.feed_day, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key
+    FROM iss i
+    JOIN feed_direction_issue_pens p
+      ON p.tenant_id = $1
+     AND p.feed_direction_issue_id = i.feed_direction_issue_id
+    GROUP BY i.feed_day, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key
+    HAVING COUNT(*) > 1
+),
+shared_excess AS (
+    SELECT feed_day,
+           NULL::text                                            AS feed_item_label,
+           feed_item_key,
+           0::numeric                                            AS grain_kg,
+           -(SUM(heads) - MAX(heads))                            AS grain_heads
+    FROM (
+        -- One sheet's heads for one shared pen-item: the natural-key prefix (tenant, issue, shed,
+        -- partition) reaches just that pen's cells, so this never scans the window's sheet rows.
+        SELECT s.feed_day, s.shed_id, s.partition_key, s.shed_tag_key, s.breed_key, x.feed_item_key, x.heads
+        FROM shared_pen s
+        JOIN iss i ON i.feed_day = s.feed_day
+        CROSS JOIN LATERAL (
+            SELECT r.feed_item_key, MAX(r.head_count) AS heads
+            FROM feed_direction_issue_rows r
+            WHERE r.tenant_id = $1
+              AND r.feed_direction_issue_id = i.feed_direction_issue_id
+              AND r.shed_id = s.shed_id
+              AND r.partition_key = s.partition_key
+              AND r.shed_tag_key = s.shed_tag_key
+              AND r.breed_key = s.breed_key
+              AND r.quantity_kg IS NOT NULL
+            GROUP BY r.feed_item_key
+        ) x
+    ) per_issue
+    GROUP BY feed_day, feed_item_key, shed_id, partition_key, shed_tag_key, breed_key
 ),
 ext AS (
     SELECT x.feed_day,
@@ -311,22 +352,28 @@ item_rows AS (
              ''
            )                                                     AS per_head_grams
     FROM (
-        SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM pen_item
+        SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM issue_item
+        UNION ALL
+        SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM shared_excess
         UNION ALL
         SELECT feed_day, feed_item_label, feed_item_key, grain_kg, grain_heads FROM ext
     ) both_sources
     GROUP BY feed_day, feed_item_key
 ),
 day_pen AS (
-    SELECT feed_day,
-           shed_id,
-           partition_key,
-           shed_tag_key,
-           breed_key,
-           SUM(grain_kg)                                        AS grain_kg,
-           MAX(grain_heads)                                     AS grain_heads
-    FROM pen_item
-    GROUP BY feed_day, shed_id, partition_key, shed_tag_key, breed_key
+    -- Pen grain across items and sheets: kg summed, heads the pen's MAX (000433 per-sheet pens).
+    SELECT i.feed_day,
+           p.shed_id,
+           p.partition_key,
+           p.shed_tag_key,
+           p.breed_key,
+           SUM(p.quantity_kg)                                   AS grain_kg,
+           MAX(p.head_count)                                    AS grain_heads
+    FROM iss i
+    JOIN feed_direction_issue_pens p
+      ON p.tenant_id = $1
+     AND p.feed_direction_issue_id = i.feed_direction_issue_id
+    GROUP BY i.feed_day, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key
 ),
 day_rows AS (
     SELECT 'day'::text                                           AS row_kind,
@@ -363,6 +410,11 @@ ORDER BY feed_day, row_kind, feed_item_label`
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate (≤92 days × ≤2 parks), rows
 // reached via the issue-id natural-key prefix, the ADR's canonical-indexed-SQL default.
+// STORED SHEET COLLAPSES (migration 000433): this read no longer re-totals feed_direction_issue_rows.
+// It reads each live sheet's rows already collapsed to the grain it needs (maintained by triggers
+// in every sheet write's own transaction) and re-aggregates them across a day's sheets with the same
+// SUM / MIN / MAX the raw-row collapse used, so the answer is unchanged (old-vs-new full diffs on
+// STG, and the analytics integration tests through the triggers).
 const directedPenTagSQL = `
 WITH iss AS (
     SELECT feed_direction_issue_id, feed_day, park_id
@@ -373,31 +425,18 @@ WITH iss AS (
       AND state IN ('issued', 'amended', 'locked')
       AND workflow IN ('normal', 'experiment')
 ),
-cells AS (
-    SELECT i.feed_day,
-           i.park_id,
-           r.shed_id,
-           r.partition_key,
-           r.shed_tag_key,
-           r.breed_key,
-           r.feed_item_key,
-           MIN(r.shed_tag)                                       AS pen_tag_label,
-           SUM(r.quantity_kg)                                    AS kg,
-           MAX(r.head_count)                                     AS heads
-    FROM iss i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1
-     AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    WHERE r.quantity_kg IS NOT NULL
-    GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.shed_tag_key, r.breed_key, r.feed_item_key
-),
 pen_day AS (
-    SELECT feed_day, shed_id, partition_key, shed_tag_key, breed_key,
-           MIN(pen_tag_label) AS pen_tag_label,
-           SUM(kg)            AS grain_kg,
-           MAX(heads)         AS grain_heads
-    FROM cells
-    GROUP BY feed_day, shed_id, partition_key, shed_tag_key, breed_key
+    -- Per-sheet pen collapses (migration 000433) re-aggregated across a day's sheets with the same
+    -- SUM / MAX / MIN the raw-row collapse used.
+    SELECT i.feed_day, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key,
+           MIN(p.shed_tag)    AS pen_tag_label,
+           SUM(p.quantity_kg) AS grain_kg,
+           MAX(p.head_count)  AS grain_heads
+    FROM iss i
+    JOIN feed_direction_issue_pens p
+      ON p.tenant_id = $1
+     AND p.feed_direction_issue_id = i.feed_direction_issue_id
+    GROUP BY i.feed_day, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key
 ),
 tag_heads AS (
     SELECT shed_tag_key,
@@ -410,9 +449,12 @@ tag_heads AS (
     GROUP BY shed_tag_key
 ),
 tag_item_day AS (
-    SELECT feed_day, park_id, shed_tag_key, feed_item_key, SUM(kg) AS kg
-    FROM cells
-    GROUP BY feed_day, park_id, shed_tag_key, feed_item_key
+    SELECT i.feed_day, i.park_id, t.shed_tag_key, t.feed_item_key, SUM(t.quantity_kg) AS kg
+    FROM iss i
+    JOIN feed_direction_issue_tag_items t
+      ON t.tenant_id = $1
+     AND t.feed_direction_issue_id = i.feed_direction_issue_id
+    GROUP BY i.feed_day, i.park_id, t.shed_tag_key, t.feed_item_key
 ),
 priced_day AS (
     SELECT t.shed_tag_key, t.feed_day, SUM(t.kg * price.per_kg) AS rupees
@@ -503,25 +545,31 @@ func (r *Repository) DirectedAnalytics(ctx context.Context, tenantID string, q d
 	penTags := []domain.DirectedPenTag{}
 	wantDays := q.WantsDirected(domain.DirectedSectionDays)
 	wantItems := q.WantsDirected(domain.DirectedSectionItems)
+	// The day/item rollup and the pen-tag rollup are independent reads of the same window, so they
+	// run side by side (at most two connections): the page waits for the slower one, not both.
+	g, gctx := errgroup.WithContext(ctx)
 	if wantDays || wantItems {
-		var err error
-		days, items, err = r.directedDaysAndItems(ctx, tenantID, parkIDs, fromArg, toArg)
-		if err != nil {
-			return domain.DirectedAnalytics{}, err
-		}
-		if !wantDays {
-			days = []domain.DirectedDayTotal{}
-		}
-		if !wantItems {
-			items = []domain.DirectedDayItem{}
-		}
+		g.Go(func() error {
+			var err error
+			days, items, err = r.directedDaysAndItems(gctx, tenantID, parkIDs, fromArg, toArg)
+			return err
+		})
 	}
 	if q.WantsDirected(domain.DirectedSectionPenTags) {
-		var err error
-		penTags, err = r.directedPenTags(ctx, tenantID, parkIDs, fromArg, toArg)
-		if err != nil {
-			return domain.DirectedAnalytics{}, err
-		}
+		g.Go(func() error {
+			var err error
+			penTags, err = r.directedPenTags(gctx, tenantID, parkIDs, fromArg, toArg)
+			return err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return domain.DirectedAnalytics{}, err
+	}
+	if !wantDays {
+		days = []domain.DirectedDayTotal{}
+	}
+	if !wantItems {
+		items = []domain.DirectedDayItem{}
 	}
 	out := domain.DirectedAnalytics{Days: days, Items: items, PenTags: penTags}
 	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
@@ -669,12 +717,12 @@ GROUP BY 1`
 // projection-review: membership=feed_packing_verified_quantities at its (tenant_id, completion_id,
 // feed_item_key) natural key, joined 1:1 to its owning feed_packing_completions row by (tenant_id,
 // completion_id) -- the readings table's PK prefix -- restricted to status='completed' so only
-// verdicts that stand are compared; group_key=the planned CTE groups issue-row cells to (feed_day,
-// park_id, shed_id, partition_key, session_no, workflow, feed_item_key), exactly the completion's
-// own natural-key coordinates plus the item, pre-aggregating the N ration-grain side (SUM of the
-// already-rounded session quantities, the same summation BuildPackingRows does for the packer's
-// worklist) BEFORE the join, so readings LEFT JOIN planned is 1:0..1 per reading and can never fan
-// out; join_cardinality=readings:completions 1:1 by PK prefix, readings:locations 1:1 by the
+// verdicts that stand are compared; group_key=the planned CTE sums the live sheets' session/item
+// cells matching each reading's own (feed_day, park_id, shed_id, partition_key, session_no,
+// workflow, feed_item_key) coordinates, grouped by the reading's identity (completion_id,
+// feed_item_key), pre-aggregating the N ration-grain side (SUM of the already-rounded session
+// quantities, the same summation BuildPackingRows does for the packer's worklist) BEFORE the join,
+// so readings LEFT JOIN planned is 1:0..1 per reading and can never fan out; join_cardinality=readings:completions 1:1 by PK prefix, readings:locations 1:1 by the
 // locations (tenant_id, location_id) PK for park and shed names (labels come from the completion's
 // own canonical locations, so a reading whose planned row is absent -- "not on sheet" -- still
 // names its farm and shed), readings:planned 1:0..1 by the full
@@ -698,6 +746,12 @@ GROUP BY 1`
 // so the offset cannot grow with the herd. Keyset is not usable here: the sort key is a COMPUTED
 // absolute difference, neither unique nor indexable. The ORDER BY ends in the row's own identity,
 // so a page boundary never splits or repeats a bag.
+//
+// STORED SHEET COLLAPSES (migration 000433): this read no longer re-totals feed_direction_issue_rows.
+// It reads each live sheet's rows already collapsed to the grain it needs (maintained by triggers
+// in every sheet write's own transaction) and re-aggregates them across a day's sheets with the same
+// SUM / MIN / MAX the raw-row collapse used, so the answer is unchanged (old-vs-new full diffs on
+// STG, and the analytics integration tests through the triggers).
 //
 // scale-guard:ignore: bounded offset over a capped window, rejected past 5000; see above.
 const executionPackingVarianceSQL = `
@@ -723,27 +777,42 @@ WITH readings AS (
       AND ($8::text = '' OR COALESCE(NULLIF(lp.location_code, ''), lp.name) = $8::text OR lp.name = $8::text)
       AND ($9::text = '' OR q.feed_item_key = $9::text)
 ),
+-- Planned kg per READING: the live sheets' session/item cells at the reading's own coordinates,
+-- matched from the readings side instead of collapsing every window
+-- cell that has some reading and joining back on seven columns. Readings are unique per
+-- (completion_id, feed_item_key), so the grouping is the old per-coordinate group, attached to
+-- each reading that carries those coordinates.
 planned AS (
-    SELECT i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow,
-           r.feed_item_key,
-           SUM(r.quantity_kg)                       AS planned_kg,
-           MAX(r.session_label)                     AS session_label,
+    SELECT rd.completion_id, rd.feed_item_key,
+           SUM(s.quantity_kg)                       AS planned_kg,
+           MAX(s.session_label)                     AS session_label,
            -- The cohort of the bag, agree-or-go-bare: a pen-session-item whose sheet rows carry
            -- more than one breed reports 'Mixed' rather than naming one, which would be a cohort
-           -- nobody recorded.
-           CASE WHEN COUNT(DISTINCT COALESCE(NULLIF(r.breed, ''), 'Unspecified')) = 1
-                THEN MAX(COALESCE(NULLIF(r.breed, ''), 'Unspecified')) ELSE $5::text END AS breed_label
-    FROM feed_direction_issues i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1
-     AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    WHERE i.tenant_id = $1
-      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+           -- nobody recorded. MIN = MAX over the never-NULL coalesced breed is exactly
+           -- "one distinct value" and, unlike COUNT(DISTINCT), lets the planner hash-aggregate
+           -- instead of disk-sorting every sheet row in the window.
+           -- The per-sheet session/item collapse (migration 000433) keeps each cell's MIN and MAX
+           -- normalized breed, so MIN of the MINs = MAX of the MAXes is the same test.
+           CASE WHEN MIN(s.breed_min) = MAX(s.breed_max)
+                THEN MAX(s.breed_max) ELSE $5::text END AS breed_label
+    FROM readings rd
+    JOIN feed_direction_issues i
+      ON i.tenant_id = $1
+     AND i.feed_day = rd.target_date
+     AND i.park_id = rd.park_id
+    JOIN feed_direction_issue_session_items s
+      ON s.tenant_id = $1
+     AND s.feed_direction_issue_id = i.feed_direction_issue_id
+     AND s.shed_id = rd.shed_id
+     AND s.partition_key = rd.partition_key
+     AND s.session_no = rd.session_no
+     AND s.workflow = rd.workflow
+     AND s.feed_item_key = rd.feed_item_key
+    WHERE ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
       AND i.feed_day BETWEEN $3 AND $4
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.workflow IN ('normal', 'experiment')
-      AND r.quantity_kg IS NOT NULL
-    GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
+    GROUP BY rd.completion_id, rd.feed_item_key
 )
 SELECT rd.target_date::text,
        -- The PACKING day, which is what this table is about: a packer works day P on the sheet the
@@ -766,12 +835,7 @@ SELECT rd.target_date::text,
        (rd.entered_kg - COALESCE(p.planned_kg, 0))::text
 FROM readings rd
 LEFT JOIN planned p
-  ON p.feed_day = rd.target_date
- AND p.park_id = rd.park_id
- AND p.shed_id = rd.shed_id
- AND p.partition_key = rd.partition_key
- AND p.session_no = rd.session_no
- AND p.workflow = rd.workflow
+  ON p.completion_id = rd.completion_id
  AND p.feed_item_key = rd.feed_item_key
 -- EVERY measured bag, biggest difference first (maintainer decision 2026-08-24, replacing the
 -- outliers-only list). A bag that matched is evidence too -- the verifier entered it blind, so a
@@ -811,6 +875,11 @@ LIMIT $6 OFFSET $7`
 //
 // scale-guard:ignore: 5k-50k-envelope -- bounded per-(day, shed) aggregate over one window of
 // frozen sheets and their readings, canonical-indexed-SQL default.
+// STORED SHEET COLLAPSES (migration 000433): this read no longer re-totals feed_direction_issue_rows.
+// It reads each live sheet's rows already collapsed to the grain it needs (maintained by triggers
+// in every sheet write's own transaction) and re-aggregates them across a day's sheets with the same
+// SUM / MIN / MAX the raw-row collapse used, so the answer is unchanged (old-vs-new full diffs on
+// STG, and the analytics integration tests through the triggers).
 const executionConsumptionSQL = `
 WITH iss AS (
     SELECT feed_direction_issue_id, feed_day, park_id
@@ -821,33 +890,19 @@ WITH iss AS (
       AND state IN ('issued', 'amended', 'locked')
       AND workflow IN ('normal', 'experiment')
 ),
-planned_rows AS (
-    SELECT r.feed_direction_issue_id,
-           r.shed_id,
-           r.partition_key,
-           r.session_no,
-           r.workflow,
-           r.feed_item_key,
-           SUM(r.quantity_kg) AS target_kg
-    FROM iss i
-    JOIN feed_direction_issue_rows r
-      ON r.tenant_id = $1
-     AND r.feed_direction_issue_id = i.feed_direction_issue_id
-    WHERE r.quantity_kg IS NOT NULL
-    GROUP BY r.feed_direction_issue_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
-),
-planned AS (
+-- The shed's target: every non-blocked sheet kg of the day, from the per-sheet pen collapse
+-- (migration 000433) -- the same sum the session/item cells added up to.
+shed_target AS (
     SELECT i.feed_day,
            i.park_id,
-           r.shed_id,
-           r.partition_key,
-           r.session_no,
-           r.workflow,
-           r.feed_item_key,
-           r.target_kg
+           p.shed_id,
+           p.partition_key,
+           SUM(p.quantity_kg) AS target_kg
     FROM iss i
-    JOIN planned_rows r
-      ON r.feed_direction_issue_id = i.feed_direction_issue_id
+    JOIN feed_direction_issue_pens p
+      ON p.tenant_id = $1
+     AND p.feed_direction_issue_id = i.feed_direction_issue_id
+    GROUP BY i.feed_day, i.park_id, p.shed_id, p.partition_key
 ),
 readings AS (
     SELECT c.target_date,
@@ -869,23 +924,42 @@ readings AS (
 ),
 -- One row per SHED per day: every item and session summed. actual_kg stays NULL when the shed has
 -- no reading at all, which is what keeps "not verified yet" apart from "given nothing".
+-- A reading counts toward its shed once per sheet cell it matches at the full (date, park, shed,
+-- partition, session, workflow, item) key -- the per-sheet session/item collapse (000433) is that
+-- cell -- so a bag no sheet planned is left out, as the planned-side LEFT JOIN always did.
+matched AS (
+    SELECT r.target_date AS feed_day,
+           r.park_id,
+           r.shed_id,
+           r.partition_key,
+           SUM(r.actual_kg) AS actual_kg
+    FROM readings r
+    JOIN iss i
+      ON i.feed_day = r.target_date
+     AND i.park_id = r.park_id
+    JOIN feed_direction_issue_session_items s
+      ON s.tenant_id = $1
+     AND s.feed_direction_issue_id = i.feed_direction_issue_id
+     AND s.shed_id = r.shed_id
+     AND s.partition_key = r.partition_key
+     AND s.session_no = r.session_no
+     AND s.workflow = r.workflow
+     AND s.feed_item_key = r.feed_item_key
+    GROUP BY r.target_date, r.park_id, r.shed_id, r.partition_key
+),
 comparison AS (
-    SELECT p.feed_day,
-           p.park_id,
-           p.shed_id,
-           p.partition_key,
-           SUM(p.target_kg)       AS target_kg,
-           SUM(r.actual_kg)       AS actual_kg
-    FROM planned p
-    LEFT JOIN readings r
-      ON r.target_date = p.feed_day
-     AND r.park_id = p.park_id
-     AND r.shed_id = p.shed_id
-     AND r.partition_key = p.partition_key
-     AND r.session_no = p.session_no
-     AND r.workflow = p.workflow
-     AND r.feed_item_key = p.feed_item_key
-    GROUP BY p.feed_day, p.park_id, p.shed_id, p.partition_key
+    SELECT t.feed_day,
+           t.park_id,
+           t.shed_id,
+           t.partition_key,
+           t.target_kg,
+           m.actual_kg
+    FROM shed_target t
+    LEFT JOIN matched m
+      ON m.feed_day = t.feed_day
+     AND m.park_id = t.park_id
+     AND m.shed_id = t.shed_id
+     AND m.partition_key = t.partition_key
 )
 SELECT feed_day::text,
        (feed_day - 1)::text AS packing_day,
@@ -915,7 +989,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 	}
 	fromArg, toArg := from.Format("2006-01-02"), to.Format("2006-01-02")
 
-	readDays := func() ([]domain.ExecutionDay, error) {
+	readDays := func(ctx context.Context) ([]domain.ExecutionDay, error) {
 		days := map[string]*domain.ExecutionDay{}
 		var daysMu sync.Mutex
 		addToDay := func(d string, apply func(*domain.ExecutionDay)) {
@@ -1037,7 +1111,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		return outDays, nil
 	}
 
-	readConsumption := func() ([]domain.FeedConsumptionTrendDay, error) {
+	readConsumption := func(ctx context.Context) ([]domain.FeedConsumptionTrendDay, error) {
 		// ONE FEED DAY PAST THE WINDOW, so the trend's PACKING-day axis is not cut short.
 		//
 		// A bag is packed the day BEFORE the feed day it serves, and this arm plots packing days.
@@ -1079,7 +1153,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		return trend, nil
 	}
 
-	readPackingVariance := func() ([]domain.PackingVarianceRow, bool, error) {
+	readPackingVariance := func(ctx context.Context) ([]domain.PackingVarianceRow, bool, error) {
 		// One row MORE than the page is asked for: if it comes back there is a next page. A COUNT(*)
 		// over the same predicate would be a second scan to learn one bit.
 		varLimit, varOffset, err := domain.NormalisePackingVariancePage(q.PackingVarianceLimit, q.PackingVarianceOffset)
@@ -1127,35 +1201,43 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		varianceOut     []domain.PackingVarianceRow
 		varianceHasMore bool
 		distributionOut domain.ExecutionAnalytics
-		err             error
 	)
 
 	// Each arm runs only when asked for. A page that needs one array from a second, differently
-	// scoped read fetches THAT array, not the whole payload. The sections stay sequential: each
-	// section is already set-based, and running the heavy arms together makes OCI/Cloud SQL queue
-	// them into p95 spikes even though the individual queries are small.
+	// scoped read fetches THAT array, not the whole payload. The arms are independent reads of the
+	// same window and each writes only its own result, so they run side by side -- at most three
+	// at a time, the growth read's pool rule -- and a cold page waits for the slowest arm, not the
+	// total of all four.
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(3)
 	if q.Wants(domain.ExecutionSectionDays) {
-		daysOut, err = readDays()
-		if err != nil {
-			return domain.ExecutionAnalytics{}, err
-		}
+		g.Go(func() error {
+			var err error
+			daysOut, err = readDays(gctx)
+			return err
+		})
 	}
 	if q.Wants(domain.ExecutionSectionConsumption) {
-		consumptionOut, err = readConsumption()
-		if err != nil {
-			return domain.ExecutionAnalytics{}, err
-		}
+		g.Go(func() error {
+			var err error
+			consumptionOut, err = readConsumption(gctx)
+			return err
+		})
 	}
 	if q.Wants(domain.ExecutionSectionPackingVariance) {
-		varianceOut, varianceHasMore, err = readPackingVariance()
-		if err != nil {
-			return domain.ExecutionAnalytics{}, err
-		}
+		g.Go(func() error {
+			var err error
+			varianceOut, varianceHasMore, err = readPackingVariance(gctx)
+			return err
+		})
 	}
 	if q.Wants(domain.ExecutionSectionDistributionCompletions) {
-		if err := r.distributionCompletions(ctx, tenantID, parkIDs, to, q, &distributionOut); err != nil {
-			return domain.ExecutionAnalytics{}, err
-		}
+		g.Go(func() error {
+			return r.distributionCompletions(gctx, tenantID, parkIDs, to, q, &distributionOut)
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return domain.ExecutionAnalytics{}, err
 	}
 
 	out := domain.ExecutionAnalytics{}
@@ -2740,6 +2822,10 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock cache type %T", cached)
 }
 
+// stockReadParallelism bounds the stock page's concurrent section reads (the growth read's rule:
+// never let one cold analytics request occupy the pool).
+const stockReadParallelism = 3
+
 func (r *Repository) loadStockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery, from, to time.Time, parkIDs []uuid.UUID) (domain.StockAnalytics, error) {
 	out := domain.StockAnalytics{
 		Items:           []domain.StockItem{},
@@ -2758,48 +2844,53 @@ func (r *Repository) loadStockAnalytics(ctx context.Context, tenantID string, q 
 	// queries kept median low but created seconds-class tail latency through
 	// connection/query-plan contention. The UI reads a small farm-item set; steady
 	// p95 matters more than shaving a few milliseconds from p50.
+	// The six stock sections are independent reads; they run at most stockReadParallelism at a
+	// time so one cold page load cannot take the whole pool, and each writes only its own field.
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(stockReadParallelism)
 	if q.WantsStock(domain.StockSectionItems) {
-		items, err := r.stockItems(ctx, tenantID, parkIDs)
-		if err != nil {
-			return domain.StockAnalytics{}, err
-		}
-		out.Items = items
+		g.Go(func() (err error) {
+			out.Items, err = r.stockItems(gctx, tenantID, parkIDs)
+			return err
+		})
 	}
 	if q.WantsStock(domain.StockSectionFarmItems) {
-		items, err := r.stockFarmItems(ctx, tenantID, parkIDs)
-		if err != nil {
-			return domain.StockAnalytics{}, err
-		}
-		out.FarmItems = items
+		g.Go(func() (err error) {
+			out.FarmItems, err = r.stockFarmItems(gctx, tenantID, parkIDs)
+			return err
+		})
 	}
 	if q.WantsStock(domain.StockSectionForecast) {
-		items, err := r.stockForecast(ctx, tenantID, parkIDs)
-		if err != nil {
-			return domain.StockAnalytics{}, err
-		}
-		out.Forecast = items
+		g.Go(func() (err error) {
+			out.Forecast, err = r.stockForecast(gctx, tenantID, parkIDs)
+			return err
+		})
 	}
 	if q.WantsStock(domain.StockSectionExpenditure) {
-		items, err := r.stockExpenditure(ctx, tenantID, parkIDs, expFrom, expTo)
-		if err != nil {
-			return domain.StockAnalytics{}, err
-		}
-		out.Expenditure = items
+		g.Go(func() (err error) {
+			out.Expenditure, err = r.stockExpenditure(gctx, tenantID, parkIDs, expFrom, expTo)
+			return err
+		})
 	}
 	if q.WantsStock(domain.StockSectionItemExpenditure) {
-		items, err := r.stockItemExpenditure(ctx, tenantID, parkIDs, expFrom, expTo)
-		if err != nil {
-			return domain.StockAnalytics{}, err
-		}
-		out.ItemExpenditure = items
+		g.Go(func() (err error) {
+			out.ItemExpenditure, err = r.stockItemExpenditure(gctx, tenantID, parkIDs, expFrom, expTo)
+			return err
+		})
 	}
 	if q.WantsStock(domain.StockSectionSpend) {
-		var spend domain.SpendSummary
-		if err := r.pool.QueryRow(ctx, stockSpendSQL, tenantID, parkIDs, today).
-			Scan(&spend.Last7Days, &spend.ThisMonth, &spend.ThreeMonths, &spend.ThisYear); err != nil {
-			return domain.StockAnalytics{}, fmt.Errorf("feed analytics spend summary: %w", err)
-		}
-		out.Spend = spend
+		g.Go(func() error {
+			var spend domain.SpendSummary
+			if err := r.pool.QueryRow(gctx, stockSpendSQL, tenantID, parkIDs, today).
+				Scan(&spend.Last7Days, &spend.ThisMonth, &spend.ThreeMonths, &spend.ThisYear); err != nil {
+				return fmt.Errorf("feed analytics spend summary: %w", err)
+			}
+			out.Spend = spend
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return domain.StockAnalytics{}, err
 	}
 	return out, nil
 }

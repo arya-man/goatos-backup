@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -29,6 +30,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.RefreshOnResume
 
 /**
  * ONE board row (`/work/item/{rowKey}`) — a hosted drill with Up/Back and NO L0 chrome (Android
@@ -44,6 +46,9 @@ fun WorkBoardDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val row = state.row
+    // Refresh-on-open: cached subtasks render at once and a background read follows every time
+    // the reader lands on or returns to the row.
+    RefreshOnResume { onEvent(WorkBoardDetailEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = row?.title?.ifBlank { null } ?: stringResource(R.string.work_board_title),
@@ -114,6 +119,62 @@ fun WorkBoardDetailScreen(
                     WorkBoardFactLine(label = stringResource(R.string.work_board_detail_lane), value = laneLabel(row.lane))
                 }
             }
+            item(key = "subtasks_head") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.work_board_subtasks_title),
+                        color = MeshaColors.Ink,
+                        style = MeshaType.bodyStrong,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (state.subtaskTotal > 0) {
+                        Text(
+                            text = stringResource(R.string.work_board_subtasks_count_fmt, state.subtasks.size, state.subtaskTotal),
+                            color = MeshaColors.Muted,
+                            style = MeshaType.caption,
+                        )
+                    }
+                }
+            }
+            when {
+                state.subtasks.isNotEmpty() -> {
+                    items(count = state.subtasks.size, key = { i -> "subtask:" + state.subtasks[i].key }) { i ->
+                        WorkBoardSubtaskCard(state.subtasks[i])
+                        // Infinite scroll, never a "Load more" row: the next page is asked for
+                        // while three units are still below the fold.
+                        if (i >= state.subtasks.size - 3 && state.hasMoreSubtasks) {
+                            LaunchedEffect(state.subtasks.size) { onEvent(WorkBoardDetailEvent.LoadMoreSubtasks) }
+                        }
+                    }
+                }
+                state.subtasksFailed -> item(key = "subtasks_failed") {
+                    Text(
+                        text = stringResource(R.string.work_board_subtasks_failed),
+                        color = MeshaColors.Muted,
+                        style = MeshaType.caption,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+                state.subtasksLoading -> item(key = "subtasks_loading") {
+                    Text(
+                        text = stringResource(R.string.work_board_subtasks_loading),
+                        color = MeshaColors.Muted,
+                        style = MeshaType.caption,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+                else -> item(key = "subtasks_empty") {
+                    Text(
+                        text = stringResource(R.string.work_board_subtasks_empty),
+                        color = MeshaColors.Muted,
+                        style = MeshaType.caption,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
             if (state.canOpen) {
                 item(key = "open") {
                     WorkBoardPrimaryButton(
@@ -125,6 +186,50 @@ fun WorkBoardDetailScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+/** One unit of the row's work: its name, the backend's line about it, its state, and its steps. */
+@Composable
+private fun WorkBoardSubtaskCard(subtask: WorkBoardSubtaskUi) {
+    Column(
+        modifier = workBoardCardModifier(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = subtask.name,
+                color = MeshaColors.Ink,
+                style = MeshaType.bodyStrong,
+                modifier = Modifier.weight(1f),
+            )
+            WorkBoardChip(
+                label = workStateLabel(subtask.workState, subtask.lane),
+                accent = if (subtask.needsAttention) MeshaColors.Danger else laneAccent(subtask.lane),
+            )
+        }
+        if (subtask.subtitle.isNotBlank()) {
+            Text(text = subtask.subtitle, color = MeshaColors.Muted, style = MeshaType.caption)
+        }
+        if (subtask.steps.isNotEmpty()) {
+            // Each step's backend detail rides beside it (a weight, a submit time), as the web
+            // drawer shows it; a sent-back step's detail is the verifier's reason, on its own line.
+            val stepLines = subtask.steps.map { step ->
+                val base = step.name + ": " + stepStateLabel(step.state)
+                if (step.detail.isNotBlank() && step.state != "rework") "$base (${step.detail})" else base
+            }
+            Text(
+                text = stepLines.joinToString(" · "),
+                color = MeshaColors.Muted,
+                style = MeshaType.caption,
+            )
+            subtask.steps.filter { it.state == "rework" && it.detail.isNotBlank() }.forEach { step ->
+                Text(text = step.detail, color = MeshaColors.Danger, style = MeshaType.caption)
+            }
+        }
+        if (subtask.ownerName.isNotBlank()) {
+            Text(text = subtask.ownerName, color = MeshaColors.Muted, style = MeshaType.caption)
         }
     }
 }

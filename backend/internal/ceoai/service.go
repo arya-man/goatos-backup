@@ -42,6 +42,9 @@ type Options struct {
 	Memory    ports.MemoryStore
 	Audit     ports.AuditSink
 	Telemetry ports.Telemetry // observability metric facade (assistant_* OTel instruments)
+	// Parks is the tenant's live park list (NewParkDirectory), attached to every question so a
+	// park named in it is recognised -- including one added after the first two.
+	Parks ports.ParkDirectory
 
 	// Traces is the admin step-trace read port. When set, the assembled Service
 	// also mounts GET /ceo-ai/admin/trace/{request_id}.
@@ -119,6 +122,7 @@ func Build(opts Options) *Service {
 		Audit:     opts.Audit,
 		Critic:    opts.Critic,
 		Telemetry: opts.Telemetry,
+		Parks:     opts.Parks,
 		Semaphore: app.NewSemaphore(envInt("MESHA_AI_MAX_CONCURRENCY", 16)),
 		Logger:    log,
 	})

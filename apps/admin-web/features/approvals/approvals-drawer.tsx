@@ -16,6 +16,12 @@ import type { RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
 import { approveApprovalAction, rejectApprovalAction, resolveApprovalCaptureMediaUrl } from "./actions";
 import { ApprovalsActionTelemetry } from "./approvals-telemetry";
+import {
+  APPROVAL_REASON_MAX_BYTES,
+  approvalDetailRows,
+  approvalErrorSentence,
+  approvalStatusLabel,
+} from "./approval-display";
 
 const PATHNAME = "/approvals";
 
@@ -28,45 +34,6 @@ function statusTone(status: AdminWebApprovalItem["status"]): Tone {
   if (status === "approved") return "ok";
   if (status === "cancelled") return "info";
   return "warn";
-}
-
-// Turns the backend `summary` JSON into HUMAN-READABLE detail rows: park/shed IDs resolved to their
-// names ("From" / "To"), category/priority title-cased, reason shown verbatim. Raw UUIDs
-// (park/shed/event/goat ids) are never surfaced — an operator reads names, not ids.
-//
-// subjectAnimalLocation is BACKEND-OWNED COPY (item.subject_animal_location): a death payload
-// carries no shed/park id this function could resolve locally, so the animal's current park/shed/
-// partition — the fact this drawer used to omit entirely — is rendered verbatim from the backend
-// rather than re-derived here.
-function readableDetail(
-  summary: unknown,
-  locationNames: Record<string, string>,
-  subjectAnimalLocation?: string,
-): Array<{ label: string; value: string }> {
-  const s = summary && typeof summary === "object" && !Array.isArray(summary) ? (summary as Record<string, unknown>) : {};
-  const str = (k: string): string => (typeof s[k] === "string" ? (s[k] as string) : typeof s[k] === "number" ? String(s[k]) : "");
-  const title = (v: string): string => (v ? v.charAt(0).toUpperCase() + v.slice(1).replace(/_/g, " ") : "");
-  const name = (id: string): string => (id && locationNames[id] ? locationNames[id] : "");
-  const place = (parkId: string, shedId: string): string => [name(parkId), name(shedId)].filter(Boolean).join(" / ");
-
-  const out: Array<{ label: string; value: string }> = [];
-  const category = str("category");
-  if (category) out.push({ label: "Category", value: title(category) });
-  const priority = str("priority");
-  if (priority) out.push({ label: "Priority", value: title(priority) });
-  const from = place(str("source_park_id"), str("source_shed_id"));
-  if (from) out.push({ label: "From", value: from });
-  const to = place(str("destination_park_id"), str("destination_shed_id"));
-  if (to) out.push({ label: "To", value: to });
-  if (subjectAnimalLocation) out.push({ label: "Location", value: subjectAnimalLocation });
-  const reason = str("reason");
-  if (reason) out.push({ label: "Reason", value: reason });
-  // The raiser's own words on WHY the animals are moving, captured on the phone at raise time.
-  // Last, because it is the operator's narrative rather than a classified field — the approver
-  // reads the structured facts first, then the note explaining them.
-  const comment = str("comment");
-  if (comment) out.push({ label: "Operator note", value: comment });
-  return out;
 }
 
 export function ApprovalsDrawer({
@@ -198,10 +165,10 @@ function ApprovalsDrawerPanel({
   locationNames: Record<string, string>;
 }) {
   const decided = item.status !== "pending";
-  const detail = readableDetail(item.summary, locationNames, item.subject_animal_location);
+  const detail = approvalDetailRows(item.summary, locationNames, item.subject_animal_location);
 
   return (
-    <aside className={`drawer${open ? " on" : ""}`} aria-label={COPY.drawer.aria} aria-hidden={!open} inert={!open}>
+    <aside className={`drawer approvals-drawer${open ? " on" : ""}`} aria-label={COPY.drawer.aria} aria-hidden={!open} inert={!open}>
       <div className="dh">
         <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
           <Gavel className="ic" aria-hidden="true" />
@@ -220,10 +187,15 @@ function ApprovalsDrawerPanel({
 
       <div className="dc">
         <ApprovalsActionTelemetry status={feedback.status} code={feedback.code} />
-        {feedback.status ? (
-          <div className={feedback.status === "success" ? "alert ok" : "alert warn"} style={{ marginBottom: 12 }}>
-            <b>{feedback.status === "success" ? "Done" : COPY.feedback.failed}</b>&nbsp;
-            {feedback.code ?? ""}
+        {/* Only a REFUSED decision is shown here: the row is still pending, so it is still in the
+            list. A successful decision moves the row off this list and its confirmation is rendered
+            at page level. The error code is a machine key and is mapped to a sentence, never shown. */}
+        {feedback.status === "error" ? (
+          <div className="alert warn" role="alert" style={{ marginBottom: 12 }}>
+            <b>{COPY.feedback.failed}</b>
+            <div className="small" style={{ marginTop: 4 }}>
+              {approvalErrorSentence(feedback.code)}
+            </div>
           </div>
         ) : null}
 
@@ -237,9 +209,13 @@ function ApprovalsDrawerPanel({
         <div className="metagrid">
           <Meta label={COPY.drawer.metaType}>{titleCase(item.request_type)}</Meta>
           <Meta label={COPY.drawer.metaStatus}>
-            <Tag tone={statusTone(item.status)}>{item.status}</Tag>
+            <Tag tone={statusTone(item.status)}>{approvalStatusLabel(item.status)}</Tag>
           </Meta>
           <Meta label={COPY.drawer.metaRaisedAt}>{fmtDateTime(item.raised_at)}</Meta>
+          {item.raised_by_name ? <Meta label={COPY.drawer.metaRaisedBy}>{item.raised_by_name}</Meta> : null}
+          {/* Backend-composed line: head count, farm and pens for a move; the animal's tag for a
+              death. Absent when nothing resolved, never an id. */}
+          {item.summary_line ? <Meta label={COPY.drawer.metaSummary}>{item.summary_line}</Meta> : null}
           {item.decided_at ? <Meta label={COPY.drawer.metaDecidedAt}>{fmtDateTime(item.decided_at)}</Meta> : null}
           {item.decision_reason ? <Meta label={COPY.drawer.metaDecisionReason}>{item.decision_reason}</Meta> : null}
         </div>
@@ -299,7 +275,14 @@ function ApprovalsDrawerPanel({
               <input type="hidden" name="return_to" value={returnTo} />
               <label className="fld" style={{ marginBottom: 0 }}>
                 <span>{COPY.reject.reasonLabel}</span>
-                <textarea name="reason" rows={2} placeholder={COPY.reject.reasonPlaceholder} disabled={decided} required />
+                <textarea
+                  name="reason"
+                  rows={2}
+                  placeholder={COPY.reject.reasonPlaceholder}
+                  disabled={decided}
+                  required
+                  maxLength={APPROVAL_REASON_MAX_BYTES}
+                />
               </label>
               <button
                 type="submit"

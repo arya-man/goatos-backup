@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	platformpostgres "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
 type GrantSource struct {
@@ -54,10 +55,7 @@ ORDER BY role`, userID, tenantID)
 	return roles, nil
 }
 
-func (g *GrantSource) ActiveTenantGrants(ctx context.Context, userID, tenantID string) ([]permissions.ActiveGrant, error) {
-	ctx, cancel := context.WithTimeout(ctx, g.timeout)
-	defer cancel()
-	rows, err := g.pool.Query(ctx, `
+const activeTenantGrantsSQL = `
 SELECT role, scope_type, scope_id::text
 FROM user_scope_grants
 WHERE user_id = $1
@@ -65,7 +63,20 @@ WHERE user_id = $1
   AND status = 'active'
   AND valid_from <= now()
   AND (valid_to IS NULL OR valid_to > now())
-ORDER BY role, scope_type, scope_id`, userID, tenantID)
+ORDER BY role, scope_type, scope_id`
+
+// ConnWarmups lists the per-request grant read, warmed on every new pooled connection
+// (platformpostgres.ConnWarmer): it runs on every authenticated request.
+func ConnWarmups() []platformpostgres.ConnWarmup {
+	return []platformpostgres.ConnWarmup{
+		{Name: "permissions.active_tenant_grants", SQL: activeTenantGrantsSQL, Mode: platformpostgres.WarmCachedStatement, Args: platformpostgres.TenantFirst()},
+	}
+}
+
+func (g *GrantSource) ActiveTenantGrants(ctx context.Context, userID, tenantID string) ([]permissions.ActiveGrant, error) {
+	ctx, cancel := context.WithTimeout(ctx, g.timeout)
+	defer cancel()
+	rows, err := g.pool.Query(ctx, activeTenantGrantsSQL, userID, tenantID)
 	if err != nil {
 		return nil, err
 	}

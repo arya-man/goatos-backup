@@ -34,6 +34,8 @@ import sg.mesha.goatos.feature.counts.AddBirthEvent
 import sg.mesha.goatos.feature.counts.AddBirthField
 import sg.mesha.goatos.feature.counts.AddBirthUiState
 import sg.mesha.goatos.feature.counts.CountsFilterOptionUi
+import sg.mesha.goatos.feature.counts.breedsForSpecies
+import sg.mesha.goatos.feature.counts.keepOrFirst
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
 import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.rfid.ScanSource
@@ -84,6 +86,9 @@ class AddBirthViewModel @Inject constructor(
     val state: StateFlow<AddBirthUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+
+    /** Every breed the backend offers, before narrowing to the chosen species. */
+    private var allBreedOptions: List<CountsFilterOptionUi> = emptyList()
     private var scanJob: Job? = null
 
     /** The authored capture card (photos/videos/questions); empty = today's plain form. */
@@ -160,7 +165,14 @@ class AddBirthViewModel @Inject constructor(
         if (!beginEdit()) return
         _state.update { current ->
             when (field) {
-                AddBirthField.SPECIES -> current.copy(species = value)
+                // A species offers only its own breeds; a breed picked under another species is cleared.
+                AddBirthField.SPECIES -> breedsForSpecies(allBreedOptions, value).let { offered ->
+                    current.copy(
+                        species = value,
+                        breedOptions = offered,
+                        breed = if (offered.any { it.key == current.breed }) current.breed else "",
+                    )
+                }
                 AddBirthField.SEX -> current.copy(sex = value)
                 AddBirthField.TIME_OF_BIRTH -> current.copy(timeOfBirth = value)
                 AddBirthField.BREED -> current.copy(breed = value)
@@ -223,13 +235,31 @@ class AddBirthViewModel @Inject constructor(
         viewModelScope.launch {
             countsRepository.observeBirthBreeds().collect { resource ->
                 val options = resource.data?.breeds
-                    ?.map { CountsFilterOptionUi(it.key, it.label, it.count) }
+                    ?.map { CountsFilterOptionUi(it.key, it.label, it.count, it.species) }
+                    .orEmpty()
+                allBreedOptions = options
+                // The farm's species and genders ride the same cached read (OPEN UP TO NEW SPECIES,
+                // 2026-09-25). A selection the list no longer offers falls back to the list's first
+                // entry, so submit can never name a species the farm archived.
+                val species = resource.data?.species
+                    ?.filter { it.key.isNotBlank() }
+                    ?.map { CountsFilterOptionUi(it.key, it.label.ifBlank { it.key }, 0) }
+                    .orEmpty()
+                val sexes = resource.data?.sexes
+                    ?.filter { it.key.isNotBlank() }
+                    ?.map { CountsFilterOptionUi(it.key, it.label.ifBlank { it.key }, 0) }
                     .orEmpty()
                 _state.update { current ->
-                    val breedStillOffered = options.any { it.key == current.breed }
+                    val chosenSpecies = keepOrFirst(current.species, species)
+                    val offered = breedsForSpecies(options, chosenSpecies)
+                    val breedStillOffered = offered.any { it.key == current.breed }
                     current.copy(
-                        breedOptions = options,
+                        breedOptions = offered,
                         breed = if (breedStillOffered) current.breed else "",
+                        speciesOptions = species,
+                        species = chosenSpecies,
+                        sexOptions = sexes,
+                        sex = keepOrFirst(current.sex, sexes),
                     )
                 }
                 recomputeSubmitGate()
@@ -444,6 +474,8 @@ class AddBirthViewModel @Inject constructor(
                 timeOfBirth = nowIstTime(),
                 destinationParks = current.destinationParks,
                 breedOptions = current.breedOptions,
+                speciesOptions = current.speciesOptions,
+                sexOptions = current.sexOptions,
                 returnToBirthList = true,
                 submissionNotice = notice,
             )
@@ -464,6 +496,8 @@ class AddBirthViewModel @Inject constructor(
                 timeOfBirth = nowIstTime(),
                 destinationParks = current.destinationParks,
                 breedOptions = current.breedOptions,
+                speciesOptions = current.speciesOptions,
+                sexOptions = current.sexOptions,
                 lastRecordedMessage = confirmation,
             )
         }

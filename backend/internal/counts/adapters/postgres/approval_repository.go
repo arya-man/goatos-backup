@@ -42,6 +42,9 @@ type IdentityTxWriter interface {
 	// shed_partitions/shed_profiles itself; the adoption goes through this seam inside the same
 	// apply transaction as the relocation.
 	ConfigureAdoptedShedCohortInTx(ctx context.Context, tx pgx.Tx, cmd identityports.ConfigureAdoptedShedCohortCommand) error
+	// RetireGoatRecordedInErrorInTx retires a kid a REJECTED birth created, through identity's
+	// terminal exit (maintainer decision 2026-09-25). False with no write when it already left.
+	RetireGoatRecordedInErrorInTx(ctx context.Context, tx pgx.Tx, cmd identityports.RetireRecordedInErrorCommand) (bool, error)
 }
 
 // DeathEvidenceTxGate is implemented by the tasks Postgres repository. The consuming adapter owns
@@ -657,6 +660,7 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, tenantID, goatID).Scan(&park
 //
 // RequestTypes is caller-authority, not a client filter: it is derived from the caller's
 // permissions on the approver queue.
+// scale-guard:plan-proof-exempt: the approval list and pending count are driven by counts_approval_requests_status_queue_idx (tenant_id, status, request_type, raised_at); the new farm/calendar filters are extra predicates on those rows (raised_at is the index's own range column) and goats is read only by its (tenant_id, goat_id) key in a correlated lookup for death rows.
 func (r *Repository) ListApprovalRequests(ctx context.Context, q domain.ApprovalRequestQuery) (domain.ApprovalRequestPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -701,8 +705,22 @@ WHERE tenant_id = $1::uuid
         WHEN 'death' THEN (SELECT g.park_id::text FROM goats g
                             WHERE g.tenant_id = counts_approval_requests.tenant_id AND g.goat_id = counts_approval_requests.subject_goat_id)
       END = ANY($7::text[]))
+  -- The client's optional FARM filter ($8, 2026-09-25), resolved exactly as the scope filter
+  -- above (a death through its subject animal's park). It is ANDed with the scope, so a farm the
+  -- caller does not hold reads empty rather than widening; the keyset cursor carries the filter.
+  AND ($8::text IS NULL OR CASE request_type
+        WHEN 'shifting' THEN payload->>'destination_park_id'
+        WHEN 'birth' THEN payload->>'park_id'
+        WHEN 'death' THEN (SELECT g.park_id::text FROM goats g
+                            WHERE g.tenant_id = counts_approval_requests.tenant_id AND g.goat_id = counts_approval_requests.subject_goat_id)
+      END = $8::text)
+  -- The client's optional CALENDAR filter ($9 / $10, 2026-09-25): a half-open instant range over
+  -- India business days, resolved by the service. A plain raised_at range, so the existing
+  -- (tenant, status, request_type, raised_at) index still drives the page.
+  AND ($9::timestamptz IS NULL OR raised_at >= $9::timestamptz)
+  AND ($10::timestamptz IS NULL OR raised_at < $10::timestamptz)
 ORDER BY raised_at DESC, approval_request_id DESC
-LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageSize+1, q.CallerParkIDs)
+LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageSize+1, q.CallerParkIDs, nilIfBlank(q.FilterParkID), q.RaisedFrom, q.RaisedBefore)
 	if err != nil {
 		return domain.ApprovalRequestPage{}, fmt.Errorf("counts: list approval requests: %w", err)
 	}
@@ -742,6 +760,7 @@ LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageS
 		cursor, err := domain.EncodeApprovalRequestCursor(domain.ApprovalRequestCursor{
 			RaisedAt:          last.RaisedAt,
 			ApprovalRequestID: last.ApprovalRequestID,
+			Filter:            q.FilterKey,
 		})
 		if err != nil {
 			return domain.ApprovalRequestPage{}, err
@@ -751,6 +770,54 @@ LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageS
 	}
 	page.Items = items
 	return page, nil
+}
+
+// CountPendingApprovalRequests counts every PENDING request ListApprovalRequests would page
+// through for the same tenant, decidable types and caller park scope -- the phone's Approvals
+// badge. It is the list's predicate verbatim (minus the cursor, the limit and the client filter),
+// and TestApprovalsBadgeCountsWhatTheQueueLists pins the two to the same number.
+//
+// Index: counts_approval_requests_pending_queue_idx (tenant_id, status, request_type, ...) WHERE
+// status = 'pending' -- the tenant's pending slice for the decidable types; the park scope filters
+// inside it, exactly as the list does. Bounded by the pending backlog, never history.
+func (r *Repository) CountPendingApprovalRequests(ctx context.Context, q domain.ApprovalRequestQuery) (int, error) {
+	if len(q.RequestTypes) == 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var n int
+	if err := r.pool.QueryRow(ctx, sqlCountPendingApprovalRequests, q.TenantID, q.RequestTypes, q.CallerParkIDs).Scan(&n); err != nil {
+		return 0, fmt.Errorf("counts: count pending approval requests: %w", err)
+	}
+	return n, nil
+}
+
+// sqlCountPendingApprovalRequests is ListApprovalRequests' predicate over the whole pending queue.
+const sqlCountPendingApprovalRequests = `
+SELECT count(*)
+FROM counts_approval_requests
+WHERE tenant_id = $1::uuid
+  AND status = 'pending'
+  AND request_type = ANY($2::text[])
+  AND ($3::text[] IS NULL OR cardinality($3::text[]) = 0 OR CASE request_type
+        WHEN 'shifting' THEN payload->>'destination_park_id'
+        WHEN 'birth' THEN payload->>'park_id'
+        WHEN 'death' THEN (SELECT g.park_id::text FROM goats g
+                            WHERE g.tenant_id = counts_approval_requests.tenant_id AND g.goat_id = counts_approval_requests.subject_goat_id)
+      END = ANY($3::text[]))`
+
+// sqlCountSiblingPendingDeathReports counts the OTHER pending death reports of one animal.
+const sqlCountSiblingPendingDeathReports = `
+SELECT count(*) FROM counts_approval_requests
+WHERE tenant_id = $1::uuid AND status = 'pending' AND request_type = 'death'
+  AND subject_goat_id = $2::uuid AND approval_request_id <> $3::uuid`
+
+func nilIfBlank(s string) any {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return strings.TrimSpace(s)
 }
 
 // ---------------------------------------------------------------------------
@@ -867,6 +934,13 @@ WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid AND count_status = 'pen
 			current.TenantID, current.ApprovalRequestID); err != nil {
 			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: reject birth count eligibility: %w", err)
 		}
+		if err := r.retireRejectedBirthInTx(ctx, tx, current, in); err != nil {
+			return domain.ApprovalRequest{}, false, err
+		}
+	} else if current.RequestType == domain.ApprovalRequestTypeShifting {
+		if err := rejectShiftingEventInTx(ctx, tx, current); err != nil {
+			return domain.ApprovalRequest{}, false, err
+		}
 	}
 
 	// The status flip. `AND status = 'pending'` makes the transition itself the concurrency guard:
@@ -896,8 +970,22 @@ RETURNING `+approvalRequestColumns,
 		return domain.ApprovalRequest{}, false, fmt.Errorf("counts: decide approval request: %w", err)
 	}
 	if current.RequestType == domain.ApprovalRequestTypeDeath && in.Status == domain.ApprovalStatusRejected {
-		if err := insertDeathApprovalOutbox(ctx, tx, domain.EventDeathRejected, current, in.Reason); err != nil {
-			return domain.ApprovalRequest{}, false, err
+		// The animal has ONE death workflow (and one death-review hold on its health work), shared
+		// by every report of its death. counts.death.rejected cancels that workflow and resumes the
+		// held health work, so announcing it while ANOTHER report of the same animal is still
+		// pending stranded that report with no steps to record (2026-09-25). The rejection is
+		// announced once the animal has no pending death report left; this row is already flipped
+		// above, so the count sees only the others. Bounded by counts_approval_requests_status
+		// index (tenant_id, status, request_type, ...) -- a tenant's pending death reports.
+		var otherPending int
+		if err := tx.QueryRow(ctx, sqlCountSiblingPendingDeathReports,
+			current.TenantID, stringOrEmpty(current.SubjectGoatID), current.ApprovalRequestID).Scan(&otherPending); err != nil {
+			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: read sibling death reports: %w", err)
+		}
+		if otherPending == 0 {
+			if err := insertDeathApprovalOutbox(ctx, tx, domain.EventDeathRejected, current, in.Reason); err != nil {
+				return domain.ApprovalRequest{}, false, err
+			}
 		}
 	}
 
@@ -1085,6 +1173,168 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND authorization_st
 			in.DecidedAt.UTC(), in.IdempotencyKey, approvedGoatIDs); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// sqlRejectedBirthLitter reads the litter a birth approval request created (goat_births is keyed
+// per child; birth_event_id = the approval request id, at most three rows).
+const sqlRejectedBirthLitter = `
+SELECT child_goat_id::text, mother_goat_id::text
+FROM goat_births
+WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid
+ORDER BY child_ordinal`
+
+// retireRejectedBirthInTx applies the 2026-09-25 maintainer decision (superseding "existing
+// children remain canonical but count-ineligible; work remains available"), inside the reject
+// transaction:
+//
+//   - each kid the report created leaves the live register through identity's canonical terminal
+//     exit (lifecycle 'inactive', exit reason 'recorded_in_error', identifiers retired; goat.exited
+//     emitted), so obligations, pen counts, the herd register, sale eligibility and search clean up
+//     exactly as for any exit -- counts never writes goats itself;
+//   - counts.birth.rejected is announced, so the tasks module cancels the birth follow-up
+//     workflows and every producer withdraws its still-pending verifier items (event spine, no
+//     cross-module write).
+//
+// Atomic with the status flip: any failure rolls the whole rejection back. The request row's
+// `status = 'pending'` fence makes the rejection itself run once; a replayed decision returns the
+// stored row before reaching here.
+func (r *Repository) retireRejectedBirthInTx(ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest, in domain.ApprovalDecision) error {
+	if r.identityTx == nil {
+		return fmt.Errorf("counts: reject birth request %s: identity write seam is not wired", req.ApprovalRequestID)
+	}
+	rows, err := tx.Query(ctx, sqlRejectedBirthLitter, req.TenantID, req.ApprovalRequestID)
+	if err != nil {
+		return fmt.Errorf("counts: read rejected litter: %w", err)
+	}
+	var childIDs []string
+	motherID := ""
+	for rows.Next() {
+		var child, mother string
+		if err := rows.Scan(&child, &mother); err != nil {
+			rows.Close()
+			return fmt.Errorf("counts: scan rejected litter: %w", err)
+		}
+		childIDs = append(childIDs, child)
+		motherID = mother
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("counts: read rejected litter: %w", err)
+	}
+	actor := in.DecidedByUserID
+	for _, child := range childIDs { // scale-guard:ignore: a litter is at most three kids (goat_births_litter_size_check), each retired through identity's own guarded exit
+		if _, err := r.identityTx.RetireGoatRecordedInErrorInTx(ctx, tx, identityports.RetireRecordedInErrorCommand{
+			TenantID:   req.TenantID,
+			ActorID:    actor,
+			GoatID:     child,
+			SourceRef:  req.ApprovalRequestID,
+			Reason:     "Birth report rejected: " + strings.TrimSpace(in.Reason),
+			OccurredAt: in.DecidedAt.UTC(),
+			TraceID:    "counts.birth.rejected:" + req.ApprovalRequestID,
+		}); err != nil {
+			return fmt.Errorf("counts: retire kid %s of rejected birth: %w", child, err)
+		}
+	}
+	return insertBirthRejectedOutbox(ctx, tx, req, childIDs, motherID, actor, in.Reason)
+}
+
+// insertBirthRejectedOutbox writes counts.birth.rejected. Deterministic id + key per request.
+func insertBirthRejectedOutbox(ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest, childIDs []string, motherID, actorID, reason string) error {
+	if childIDs == nil {
+		childIDs = []string{}
+	}
+	idempotencyKey := domain.EventBirthRejected + ":" + req.ApprovalRequestID
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	now := time.Now().UTC()
+	payload, err := json.Marshal(map[string]any{
+		"event_id":         eventID,
+		"event_type":       domain.EventBirthRejected,
+		"schema_version":   countsEventSchemaVersion,
+		"schema_ref":       countsEventSchemaRef,
+		"aggregate_type":   "counts_approval_request",
+		"aggregate_id":     req.ApprovalRequestID,
+		"occurred_at":      now.Format(time.RFC3339Nano),
+		"recorded_at":      now.Format(time.RFC3339Nano),
+		"producer":         map[string]any{"service": "goatos-api", "module": "counts", "version": nil},
+		"idempotency_key":  idempotencyKey,
+		"actor":            map[string]any{"actor_type": "human", "actor_id": nilIfBlank(actorID), "actor_ref": nil},
+		"subject_type":     "counts_approval_request",
+		"subject_id":       req.ApprovalRequestID,
+		"visibility_scope": map[string]any{"tenant_id": req.TenantID},
+		"evidence_refs":    []map[string]string{{"evidence_type": "decision", "evidence_id": req.ApprovalRequestID}},
+		"payload": map[string]any{
+			"approval_request_id": req.ApprovalRequestID,
+			"birth_event_id":      req.ApprovalRequestID,
+			"child_goat_ids":      childIDs,
+			"mother_goat_id":      motherID,
+			"reason":              strings.TrimSpace(reason),
+		},
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s envelope: %w", domain.EventBirthRejected, err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer": "counts.ApprovalService", "schema_version": countsEventSchemaVersion,
+		"idempotency_key": idempotencyKey, "event_type": domain.EventBirthRejected,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s headers: %w", domain.EventBirthRejected, err)
+	}
+	if _, err := tx.Exec(ctx, sqlInsertCountsApprovalOutbox, req.TenantID, eventID, domain.EventBirthRejected,
+		countsEventSchemaVersion, req.ApprovalRequestID, countsEventTopic, payload, headers, idempotencyKey); err != nil {
+		return fmt.Errorf("counts: insert %s outbox: %w", domain.EventBirthRejected, err)
+	}
+	return nil
+}
+
+// sqlInsertCountsApprovalOutbox writes one counts approval-request event; a replay is a no-op.
+const sqlInsertCountsApprovalOutbox = `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'counts_approval_request', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT DO NOTHING`
+
+// rejectShiftingEventInTx retires the movement a rejected pen-move request governs, inside the
+// decision transaction (2026-09-25 finding).
+//
+// Before this, a reject flipped only the REQUEST, leaving the shifting_events row at
+// authorization_state='pending', event_status='pending' for ever: the raiser's read-only Pending
+// tab kept listing a movement nobody would approve, and the feed projection -- which counts a
+// RAISED movement until it is REJECTED (AFTERNOON FEED CORRECTION rule, 2026-08-10) -- kept
+// feeding the destination pen for animals that were never coming. 'rejected' is the state the
+// domain already names for "a movement an approver refused" (domain.ShiftingEventStatusRejected)
+// and both CHECK constraints allow it.
+//
+// The UPDATE is fenced on pending/pending, the only state an undecided request's movement can be
+// in: authorization happens only through approval, and completion is refused until authorized
+// (APPROVE-FIRST gate). A row in any other state is left untouched rather than overwritten; the
+// request's own status flip (decided_by_user_id, decided_at, decision_reason) is the audit record
+// of the decision. No domain event is emitted: the registry declares none for a shifting status
+// change, and every reader that owns the movement reads shifting_events directly.
+// sqlRejectPendingShiftingEvent retires a still-pending movement whose approval was rejected.
+// Primary-key update, fenced on pending/pending.
+const sqlRejectPendingShiftingEvent = `
+UPDATE shifting_events
+SET authorization_state = 'rejected',
+    event_status = 'rejected',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
+  AND authorization_state = 'pending' AND event_status = 'pending'`
+
+func rejectShiftingEventInTx(ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest) error {
+	if req.ShiftingEventID == nil || *req.ShiftingEventID == "" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, sqlRejectPendingShiftingEvent, req.TenantID, *req.ShiftingEventID); err != nil {
+		return fmt.Errorf("counts: reject shifting event: %w", err)
 	}
 	return nil
 }

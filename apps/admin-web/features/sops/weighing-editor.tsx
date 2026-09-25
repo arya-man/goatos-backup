@@ -55,7 +55,7 @@ type Props = {
   initialView?: "list" | "flow";
 };
 
-export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sopCode, versionLabel, initial, initialView = "list" }: Props) {
+export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, versionLabel, initial, initialView = "list" }: Props) {
   const router = useRouter();
   // The editor is handed rows parsed before the page contract was in hand; the contract's seeded
   // slot document (`wsop.capture.defaults`) fills the sections the document left implicit.
@@ -384,7 +384,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, sop
           <h1>{copy(pc, "wsop.title")}</h1>
           <div className="sub">{copy(pc, "wsop.subtitle")}</div>
           <div className="muted small" style={{ marginTop: 4 }}>
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, "wsop.notice.pinned")}
+            {versionLabel} · {copy(pc, "wsop.notice.pinned")}
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />

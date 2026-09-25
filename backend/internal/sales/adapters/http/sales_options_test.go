@@ -20,8 +20,10 @@ func TestSalesOptionsCarryEveryVocabularyTheWebDrawerOffers(t *testing.T) {
 		domain.ProductGoat:   {"Malai", "Sojat", "Osmanabadi", "Beetle", "Sirohi"},
 		domain.ProductManure: {domain.ProductManure},
 	}
-	got := buildSalesOptionsPayload(products, variants)
-	if len(got.Farms) != 2 || got.Farms[0] != domain.FarmCBE || got.Farms[1] != domain.FarmCPT {
+	// The farms are the tenant's active parks, passed through in park order: a third park added on
+	// Configuration > Items & settings is offered with no code change.
+	got := buildSalesOptionsPayload([]string{"CBE", "CPT", "HSR"}, products, variants)
+	if len(got.Farms) != 3 || got.Farms[0] != "CBE" || got.Farms[1] != "CPT" || got.Farms[2] != "HSR" {
 		t.Fatalf("farms = %v", got.Farms)
 	}
 	if len(got.ProductTypes) != 3 {

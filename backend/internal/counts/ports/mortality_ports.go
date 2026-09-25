@@ -23,5 +23,5 @@ type MortalityRepository interface {
 // narrow port so the mortality board can name a cause without importing Health's types --
 // the same shape the death form's DeathCauseValidator already takes.
 type DeathCauseLabeler interface {
-	LabelDeathCause(ctx context.Context, key string) string
+	LabelDeathCause(ctx context.Context, tenantID, key string) string
 }

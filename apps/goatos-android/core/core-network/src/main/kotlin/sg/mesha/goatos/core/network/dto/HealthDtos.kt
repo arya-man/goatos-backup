@@ -204,10 +204,9 @@ data class HealthCompleteResponseDto(
 data class DeathCauseOptionDto(
     val key: String = "",
     /**
-     * Which vocabulary [key] belongs to. Only `register_rule` is ever offered here — the
-     * treatment-card vocabulary is resolved server-side from the animal's own case and is
-     * rejected if a client submits one — so the phone echoes this back verbatim rather than
-     * composing a kind of its own.
+     * Which vocabulary [key] belongs to: `register_rule` for a diagnosis-register rule, or
+     * `disease_key` for a disease authored in Health Config (2026-09-25). The server decides
+     * which, so the phone echoes this back verbatim rather than composing a kind of its own.
      */
     val kind: String = "",
     val label: String = "",

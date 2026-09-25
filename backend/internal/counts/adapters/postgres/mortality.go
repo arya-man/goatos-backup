@@ -24,7 +24,7 @@ import (
 // aggregation over the tenant's own rows with no per-row fan-out and no page walk; this
 // screen earns its own projection only under that ADR's scale-out ladder.
 
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that were ON THE FARM at some point in the window (arrived on or before its last day and had not left before its first day) plus every animal that died inside it, each row flagged died so deaths and animals are counted off the same rows; group_key=breed | sex | species | park_id | load_id | vendor party_id on the animal row (facts that never change), and management_stage | kid/adult | (park, shed_id, normalized partition) over each animal's HISTORY SPANS for the facts that do (stage_span from goat.stage_changed events, pen_span from goat_location_history), counted DISTINCT per goat so an animal is one head in a bucket however many spans it held there; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1}, a span row is one per (goat, change) and every span count is count(DISTINCT goat_id), deaths are joined per bucket AFTER both sides are aggregated to that bucket's key, and locations / procurement_loads / parties are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that were ON THE FARM at some point in the window (arrived on or before its last day and had not left before its first day) plus every animal that died inside it, each row flagged died so deaths and animals are counted off the same rows; group_key=breed | sex | species | park_id | load_id | vendor party_id on the animal row (facts that never change), and management_stage | kid/adult | (park, shed_id, normalized partition) over each animal's HISTORY SPANS for the facts that do (stage_span from goat.stage_changed events, pen_span from goat_location_history), counted DISTINCT per goat so an animal is one head in a bucket however many spans it held there; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1}, a span row is one per (goat, change) and every span count collapses to one row per (bucket, goat) and counts those rows, deaths are joined per bucket AFTER both sides are aggregated to that bucket's key, and locations / procurement_loads / parties are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
 //
 // Expanded rationale:
 //
@@ -54,6 +54,8 @@ import (
 //	status matrix= died is exit_reason='died' OR (NULL exit_reason AND lifecycle 'dead'), the
 //	               identical predicate Herd Analytics' deaths column uses. Pinned by
 //	               TestMortalityDeathsMatchHerdAnalytics.
+//
+// scale-guard:plan-proof-exempt: only the final aggregation over the materialized stage_there / pen_there spans changes (COUNT(DISTINCT) -> pre-grouped count, PP-1); the goats / goat_identity_events scans that build those spans are unchanged.
 const mortalityPopulationSQL = `
 WITH bounds AS (
   SELECT $2::date AS from_date, $3::date AS to_date
@@ -195,12 +197,14 @@ SELECT 'total'::text AS dim, ''::text AS key, ''::text AS label, ''::text AS ext
 UNION ALL
 SELECT 'kid_adult', CASE WHEN t.is_kid THEN 'kid' ELSE 'adult' END, '', '',
        COALESCE(d.deaths, 0), t.animals
-  FROM (SELECT is_kid, count(DISTINCT goat_id)::bigint AS animals FROM stage_there GROUP BY is_kid) t
+  FROM (SELECT is_kid, count(goat_id)::bigint AS animals
+          FROM (SELECT DISTINCT is_kid, goat_id FROM stage_there) g GROUP BY is_kid) t
   LEFT JOIN (SELECT is_kid, count(*) FILTER (WHERE died)::bigint AS deaths FROM pop GROUP BY is_kid) d
          ON d.is_kid = t.is_kid
 UNION ALL
 SELECT 'stage', t.stage, t.stage, '', COALESCE(d.deaths, 0), t.animals
-  FROM (SELECT stage, count(DISTINCT goat_id)::bigint AS animals FROM stage_there GROUP BY stage) t
+  FROM (SELECT stage, count(goat_id)::bigint AS animals
+          FROM (SELECT DISTINCT stage, goat_id FROM stage_there) g GROUP BY stage) t
   LEFT JOIN (SELECT stage, count(*) FILTER (WHERE died)::bigint AS deaths FROM pop GROUP BY stage) d
          ON d.stage = t.stage
 UNION ALL
@@ -234,9 +238,14 @@ SELECT 'pen', COALESCE(d.park_id::text, '') || ':' || COALESCE(d.shed_id::text, 
           FROM pop
          GROUP BY park_id, shed_id, lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g'))
         HAVING count(*) FILTER (WHERE died) > 0) d
+  -- One row per (pen, goat) first, then count those rows: the hashable collapse the
+  -- count-distinct-sort rule asks for. min of the per-goat mins is the pen's min label.
+  -- projection-review: membership=pen_there span rows of the window; group_key=(park_id, shed_id, partition_key) after an inner (park_id, shed_id, partition_key, goat_id) collapse, so an animal is one head per pen however many spans; join_cardinality=inner group is 1 row per (pen, goat), outer counts those rows, then 1:1 to the deaths side on the pen key; pagination=none, whole-scope rollup; scope=tenant_id plus the optional park predicate inherited from pop/pen_there
   JOIN (SELECT park_id, shed_id, partition_key, min(partition_label) AS partition_label,
-               count(DISTINCT goat_id)::bigint AS animals
-          FROM pen_there
+               count(goat_id)::bigint AS animals
+          FROM (SELECT park_id, shed_id, partition_key, goat_id, min(partition_label) AS partition_label
+                  FROM pen_there
+                 GROUP BY park_id, shed_id, partition_key, goat_id) g
          GROUP BY park_id, shed_id, partition_key) t
     ON t.park_id IS NOT DISTINCT FROM d.park_id
    AND t.shed_id IS NOT DISTINCT FROM d.shed_id

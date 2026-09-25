@@ -365,7 +365,7 @@ func toScopePayloads(selected string, page ports.Page, actor domain.Actor) []fil
 
 // daysLeftPtr is the big number, or nil when the task has no deadline and so shows none.
 func daysLeftPtr(t domain.Task, now time.Time) *int {
-	if t.DeadlineAt == nil {
+	if !domain.ShowsCountdown(t) {
 		return nil
 	}
 	days := domain.DaysLeft(t, now)

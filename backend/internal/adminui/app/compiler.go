@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
@@ -71,9 +72,11 @@ type ReferenceFamilies struct {
 	Breeds             []ReferenceOption
 	HealthStatuses     []ReferenceOption
 	ReproductiveStates []ReferenceOption
-	DeferStates        []ReferenceOption
-	SOPLabels          []ReferenceOption
-	FeedItems          []ReferenceOption
+	// LifecycleStates labels the Herd Register lifecycle chip (status_definitions axis lifecycle).
+	LifecycleStates []ReferenceOption
+	DeferStates     []ReferenceOption
+	SOPLabels       []ReferenceOption
+	FeedItems       []ReferenceOption
 	// SOPTaskTypes is the tenant's Task Type Registry (sop_task_types, migration 000308):
 	// Key = task type key, Label = name, Title = description. SOPTaskTypeAnswerKinds carries
 	// the same keys with Label = answer kind, so the builder knows which steps take options.
@@ -83,7 +86,25 @@ type ReferenceFamilies struct {
 	// Key = designation code, Label = job title. The SOP step editor's "Done by" select
 	// (SALES SOP, 2026-09-19) is compiled from it, never from a constant list.
 	Designations []ReferenceOption
-	UIConfig     []ConfigEntry
+	// PenTypes is the farm's Pen types register (pen_types, migration 000437): Key = the code
+	// stored on shed_partitions.shed_type, Label = its name, in the farm's order, archived types
+	// included so a pen still carrying one keeps its name on a chart. Weighing returns only the
+	// code (pen_types is not on weighing's table allowlist), so the Pen-wise chart takes names and
+	// order from this family -- never from a constant list.
+	PenTypes []ReferenceOption
+	// AllBreeds is every species' breeds from the breed register (Breeds above is goat-only by
+	// design for the feed / vaccination rule pickers). The herd filter's breed choices are compiled
+	// from it, never a seven-breed literal.
+	AllBreeds []ReferenceOption
+	// Species and Sexes are the tenant's ACTIVE rows of Configuration's species / gender lists
+	// (species_lookup / sex_lookup, migration 000346): Key = code, Label = name, in the lists' own
+	// order. OPEN UP TO NEW SPECIES (maintainer decision 2026-09-25): every species / sex picker on
+	// the web is compiled from them, and every write path checks a code against the same rows
+	// (platform/animalvocab), so a species added on Configuration is offered and accepted at once.
+	// A new species has no vaccination schedule or sale price until one is authored for it.
+	Species  []ReferenceOption
+	Sexes    []ReferenceOption
+	UIConfig []ConfigEntry
 	// WeighingWeightsPages is the tenant's weighing_calendar_config row, compiled
 	// into both page contracts. SQL edits bump the admin-ui family revision.
 	// Nil (new tenant without an authored row) uses the documented initial defaults.
@@ -96,6 +117,11 @@ type ReferenceOption struct {
 	Label string
 	Title string
 	Tone  string
+	// Code is a park's short code (CBE, CPT, ...) where the family is Parks; empty elsewhere.
+	// Modules that store a park BY CODE (sales farms, feed purchase farms) are keyed on it.
+	Code string
+	// Group is a breed's species code where the family is AllBreeds; empty elsewhere.
+	Group string
 }
 
 type ConfigEntry struct {
@@ -106,10 +132,41 @@ type ConfigEntry struct {
 
 type cacheEntry struct {
 	expiresAt time.Time
+	contract  *compiledContract
+}
+
+// compiledContract is one compiled bootstrap plus the JSON of its pages, which is by far the
+// largest part of the payload (~1.3 MB). The pages are marshalled exactly once per compile:
+// the same bytes feed the "pages" family hash and are spliced into the response body, so the
+// contract is no longer encoded twice (once to hash it, once to send it). body is the full
+// wire body, built on first use and then shared by every hit on the same cache entry.
+type compiledContract struct {
 	response  domain.BootstrapResponse
+	pagesJSON []byte
+	bodyOnce  sync.Once
+	body      []byte
+	bodyErr   error
+}
+
+// Body returns the response exactly as json.NewEncoder(w).Encode(response) writes it
+// (trailing newline included), without re-encoding the pages.
+func (c *compiledContract) Body() ([]byte, error) {
+	c.bodyOnce.Do(func() { c.body, c.bodyErr = encodeBootstrapBody(c.response, c.pagesJSON) })
+	return c.body, c.bodyErr
 }
 
 func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
+	return s.bootstrapContract(ctx, input).response
+}
+
+// BootstrapBody returns the compiled contract's ETag and its encoded JSON body.
+func (s *Service) BootstrapBody(ctx context.Context, input BootstrapInput) (string, []byte, error) {
+	contract := s.bootstrapContract(ctx, input)
+	body, err := contract.Body()
+	return contract.response.CachePolicy.ETag, body, err
+}
+
+func (s *Service) bootstrapContract(ctx context.Context, input BootstrapInput) *compiledContract {
 	now := s.now()
 	// The person's own page ticks are resolved BEFORE the cache is consulted, and their
 	// fingerprint is part of the key.
@@ -174,13 +231,13 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(ctx, input, families, familyErr, personAccess, accessErr)
+	contract := s.compileContract(ctx, input, families, familyErr, personAccess, accessErr)
 	expiresAt := now.Add(s.cacheTTL)
-	s.storeCache(key, resp, now, expiresAt)
+	s.storeCache(key, contract, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
-		s.storeCache(revisionKey, resp, now, expiresAt)
+		s.storeCache(revisionKey, contract, now, expiresAt)
 	}
-	return resp
+	return contract
 }
 
 func procurementDirectorStockOnly(input BootstrapInput) bool {
@@ -217,21 +274,21 @@ func (s *Service) cacheKey(input BootstrapInput, families ReferenceFamilies, fam
 	}, "::")
 }
 
-func (s *Service) cached(key string, now time.Time) (domain.BootstrapResponse, bool) {
+func (s *Service) cached(key string, now time.Time) (*compiledContract, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cache == nil {
-		return domain.BootstrapResponse{}, false
+		return nil, false
 	}
 	entry, ok := s.cache[key]
 	if !ok || !entry.expiresAt.After(now) {
 		delete(s.cache, key)
-		return domain.BootstrapResponse{}, false
+		return nil, false
 	}
-	return entry.response, true
+	return entry.contract, true
 }
 
-func (s *Service) storeCache(key string, resp domain.BootstrapResponse, now time.Time, expiresAt time.Time) {
+func (s *Service) storeCache(key string, contract *compiledContract, now time.Time, expiresAt time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cache == nil {
@@ -247,7 +304,7 @@ func (s *Service) storeCache(key string, resp domain.BootstrapResponse, now time
 			s.evictCacheEntryLocked()
 		}
 	}
-	s.cache[key] = cacheEntry{expiresAt: expiresAt, response: resp}
+	s.cache[key] = cacheEntry{expiresAt: expiresAt, contract: contract}
 }
 
 func (s *Service) sweepExpiredCacheLocked(now time.Time) {
@@ -311,6 +368,17 @@ func (s *Service) compile(
 	personAccess personAccessSnapshot,
 	pageAccessErr error,
 ) domain.BootstrapResponse {
+	return s.compileContract(ctx, input, families, familyErr, personAccess, pageAccessErr).response
+}
+
+func (s *Service) compileContract(
+	ctx context.Context,
+	input BootstrapInput,
+	families ReferenceFamilies,
+	familyErr error,
+	personAccess personAccessSnapshot,
+	pageAccessErr error,
+) *compiledContract {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
 	if personAccess.pageAccessAssigned && personAccess.permissionsResolved {
 		held := make(map[string]struct{}, len(personAccess.permissions))
@@ -337,7 +405,12 @@ func (s *Service) compile(
 		// out of a product they are authorized for by a database blip -- and it SAYS so.
 		resp.DisplayRules = append(resp.DisplayRules, personPageAccessUnavailableRule(pageAccessErr))
 	}
-	hashes := familyHashes(resp, families, input, familyErr)
+	// Pages are final from here on (only DisplayRules change below). Encode them once.
+	pagesJSON, pagesErr := json.Marshal(resp.Pages)
+	if pagesErr != nil {
+		pagesJSON = nil
+	}
+	hashes := familyHashesWithPages(resp, pagesJSON, families, input, familyErr)
 	resp.FamilyHashes = hashes
 	resp.ContractRevision = hashStruct(hashes)
 	resp.CachePolicy = domain.ContractCachePolicy{
@@ -361,7 +434,7 @@ func (s *Service) compile(
 			},
 		})
 	}
-	return resp
+	return &compiledContract{response: resp, pagesJSON: pagesJSON}
 }
 
 func (s *Service) loadFamilies(ctx context.Context, tenantID string) (ReferenceFamilies, error) {
@@ -919,6 +992,15 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 	out := make([]domain.PageContract, len(pages))
 	copy(out, pages)
 	for i := range out {
+		// Farms stored BY CODE (sales, feed purchases) are the tenant's parks, on every page
+		// that declares the group -- so a park added on Configuration > Items & settings shows up
+		// in each of their pickers and filters at once.
+		for _, groupID := range []string{"sales_farms", "feed_purchase_farms"} {
+			if hasOptionGroup(out[i].OptionGroups, groupID) {
+				out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, groupID, farmOptionsFromParks(families.Parks, "All farms"))
+			}
+		}
+		out[i].OptionGroups = compileAnimalVocabularyGroups(out[i].OptionGroups, families)
 		switch out[i].RouteID {
 		case "action-center", "vaccination", "shed-execution":
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "park_display_chips", optionsFromReferences(families.Parks, "info"))
@@ -929,6 +1011,10 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// Source-backed reproductive vocabulary for the Herd Register reproductive edit drawer.
 			// Same status_definitions family the Config rule editor uses, minus the "any" sentinel.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_reproductive", optionsFromReferences(families.ReproductiveStates, ""))
+			// The register table's Health and Breeding chips render these labels, never the raw
+			// status key (`non_pregnant`, `under_treatment`).
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_health", optionsFromReferences(families.HealthStatuses, ""))
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "herd_lifecycle", optionsFromReferences(families.LifecycleStates, ""))
 		case "feed-direction", "feed-packing", "feed-config", "feed-analytics":
 			// Live feed vocabulary. feedOptionGroups() declares only fixed schema constraints;
 			// the actual feed items are tenant data from feed_item_catalog and arrive here as
@@ -976,6 +1062,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// the group empty; the parks themselves are tenant rows and must never be
 			// constants in contract code.
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "weighing_parks", optionsFromReferences(families.Parks, "info"))
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "pen_types", optionsFromReferences(families.PenTypes, ""))
 			// Tenant DB calendar configuration (maintainer request 2026-09-16): the window the two
 			// pages open on and the earliest calendar day come from the database row, not
 			// a client constant. Served as copy keys the pages read verbatim.
@@ -2109,6 +2196,71 @@ func defaultedDeferableStates(options []ReferenceOption) []ReferenceOption {
 	return merged
 }
 
+// animalVocabularyGroups maps each animal-vocabulary picker the contract declares to the
+// Configuration list it must be compiled from, and whether it leads with an "all" choice.
+var animalVocabularyGroups = []struct {
+	id      string
+	family  func(ReferenceFamilies) []ReferenceOption
+	withAll bool
+}{
+	{"herd_filter_breeds", func(f ReferenceFamilies) []ReferenceOption { return f.AllBreeds }, false},
+	// Register animal names a breed a new animal is registered under, so an archived breed (a
+	// review row, tone warn) is not offered; the herd FILTER above keeps it to find old animals.
+	{"herd_breeds", func(f ReferenceFamilies) []ReferenceOption { return activeReferences(f.AllBreeds) }, false},
+	{"herd_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
+	{"herd_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"herd_filter_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"proc_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
+	{"proc_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"farm_born_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
+	{"farm_born_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"counts_gender", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"assumption_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
+	{"assumption_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"rule_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, true},
+	{"rule_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, true},
+}
+
+// compileAnimalVocabularyGroups replaces every declared animal-vocabulary picker with the live
+// register. The literal list in contract code stays only as the fallback for a
+// family that did not load (an empty family is "unavailable", never "the farm has no species"), so
+// a failed read degrades to the old choices instead of an empty dropdown.
+func compileAnimalVocabularyGroups(groups []domain.OptionGroup, families ReferenceFamilies) []domain.OptionGroup {
+	out := groups
+	for _, g := range animalVocabularyGroups {
+		refs := g.family(families)
+		if len(refs) == 0 || !hasOptionGroup(out, g.id) {
+			continue
+		}
+		options := optionsFromReferences(refs, "")
+		if g.withAll {
+			options = prependOption("all", "all", "", "", options)
+		}
+		out = replaceOptionGroup(out, g.id, options)
+	}
+	return out
+}
+
+// activeReferences drops the archived rows of a register family (listed with tone "warn").
+func activeReferences(refs []ReferenceOption) []ReferenceOption {
+	out := make([]ReferenceOption, 0, len(refs))
+	for _, r := range refs {
+		if r.Tone != "warn" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func hasOptionGroup(groups []domain.OptionGroup, id string) bool {
+	for _, g := range groups {
+		if g.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func replaceOptionGroup(groups []domain.OptionGroup, id string, options []domain.Option) []domain.OptionGroup {
 	if options == nil {
 		options = []domain.Option{}
@@ -2169,6 +2321,21 @@ func mergeOptionGroupReferences(groups []domain.OptionGroup, id string, refs []R
 	return append(out, domain.OptionGroup{ID: id, Options: optionsFromReferences(refs, defaultTone)})
 }
 
+// farmOptionsFromParks is a code-keyed farm picker: "All farms" first, then one option per active
+// park that carries a code, in park order. Sales and feed purchases store a farm BY CODE, so their
+// pickers are compiled from the tenant's parks (Configuration > Items & settings > Parks) here,
+// never a CBE/CPT list in contract code -- that list hid every park after the first two.
+func farmOptionsFromParks(parks []ReferenceOption, allLabel string) []domain.Option {
+	out := []domain.Option{option("all", allLabel, "", "")}
+	for _, p := range parks {
+		if p.Code == "" {
+			continue
+		}
+		out = append(out, option(p.Code, p.Code, p.Title, ""))
+	}
+	return out
+}
+
 func optionsFromReferences(options []ReferenceOption, defaultTone string) []domain.Option {
 	out := make([]domain.Option, 0, len(options))
 	for _, ref := range options {
@@ -2176,7 +2343,9 @@ func optionsFromReferences(options []ReferenceOption, defaultTone string) []doma
 		if tone == "" {
 			tone = defaultTone
 		}
-		out = append(out, option(ref.Key, ref.Label, ref.Title, tone))
+		opt := option(ref.Key, ref.Label, ref.Title, tone)
+		opt.Group = ref.Group
+		out = append(out, opt)
 	}
 	return out
 }
@@ -2501,12 +2670,25 @@ func permissionsForNav(id string) []string {
 }
 
 func familyHashes(resp domain.BootstrapResponse, families ReferenceFamilies, input BootstrapInput, familyErr error) map[string]string {
+	return familyHashesWithPages(resp, nil, families, input, familyErr)
+}
+
+// familyHashesWithPages is familyHashes with the pages already encoded: pagesJSON is
+// json.Marshal(resp.Pages), so hashing it gives exactly hashStruct(resp.Pages). Nil falls back
+// to encoding them here.
+func familyHashesWithPages(resp domain.BootstrapResponse, pagesJSON []byte, families ReferenceFamilies, input BootstrapInput, familyErr error) map[string]string {
+	pagesHash := ""
+	if pagesJSON != nil {
+		pagesHash = hashBytes(pagesJSON)
+	} else {
+		pagesHash = hashStruct(resp.Pages)
+	}
 	hashes := map[string]string{
 		"chrome": hashStruct(struct {
 			Nav domain.NavigationContract
 			Top domain.TopBarContract
 		}{resp.Navigation, resp.TopBar}),
-		"pages":       hashStruct(resp.Pages),
+		"pages":       pagesHash,
 		"permissions": hashStruct(canonicalGrantParts(input.Grants)),
 		"locations":   hashStruct(families.Parks),
 		"config":      hashStruct(struct{ Breeds, Health, Repro, Defer, SOP []ReferenceOption }{families.Breeds, families.HealthStatuses, families.ReproductiveStates, families.DeferStates, families.SOPLabels}),
@@ -2531,7 +2713,11 @@ func hashStruct(v any) string {
 }
 
 func hashString(value string) string {
-	sum := sha256.Sum256([]byte(value))
+	return hashBytes([]byte(value))
+}
+
+func hashBytes(value []byte) string {
+	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:12])
 }
 

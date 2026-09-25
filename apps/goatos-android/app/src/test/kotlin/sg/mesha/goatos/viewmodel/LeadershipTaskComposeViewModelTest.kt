@@ -248,4 +248,53 @@ class LeadershipTaskComposeViewModelTest {
         assertEquals(LEADERSHIP_TEST_TASK_ID, vm.state.value.sentTaskId)
         job.cancel()
     }
+
+    @Test
+    fun `a draft file is deleted when removed from the draft and after the task is sent`() = runTest(dispatcher) {
+        val repository = FakeLeadershipTasksRepository(assigneeList = listOf(LeadershipAssigneeDto(userId = "cxo-1", name = "Ravi")))
+        val vm = viewModel(repository)
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        val dir = sg.mesha.goatos.leadershiptasks.LeadershipDraftFiles.draftDir(RuntimeEnvironment.getApplication().filesDir).apply { mkdirs() }
+        val removed = java.io.File(dir, "voice-removed.m4a").apply { writeText("aac") }
+        val sent = java.io.File(dir, "voice-sent.m4a").apply { writeText("aac") }
+        fun attachment(file: java.io.File) = DraftAttachment(
+            key = file.name,
+            kind = LeadershipAttachmentKind.AUDIO,
+            fileName = file.name,
+            mimeType = "audio/mp4",
+            sizeBytes = 3L,
+            durationMs = 1_000L,
+            localPath = file.absolutePath,
+            captureSource = "in_app_recorder",
+        )
+        vm.addAttachment(attachment(removed))
+        vm.addAttachment(attachment(sent))
+
+        vm.onEvent(LeadershipTaskComposeEvent.RemoveAttachment(removed.name))
+        advanceUntilIdle()
+        assertFalse("a removed voice note leaves no file behind", removed.exists())
+        assertTrue(sent.exists())
+
+        vm.onEvent(LeadershipTaskComposeEvent.TitleChanged("Fix the water line"))
+        vm.onEvent(LeadershipTaskComposeEvent.DeadlineChanged("2026-09-20T17:00:00+05:30"))
+        vm.onEvent(LeadershipTaskComposeEvent.Send)
+        advanceUntilIdle()
+        assertNotNull(vm.state.value.sentTaskId)
+        assertFalse("a sent attachment's local copy is dropped", sent.exists())
+        job.cancel()
+    }
+
+    @Test
+    fun `editing a task that cannot be loaded stops waiting and says so`() = runTest(dispatcher) {
+        val repository = FakeLeadershipTasksRepository(initialDetail = null)
+        val vm = viewModel(repository, savedStateHandle = SavedStateHandle(mapOf("task_id" to LEADERSHIP_TEST_TASK_ID)))
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse("the form does not wait forever", vm.state.value.assigneesLoading)
+        assertTrue(vm.state.value.message?.isNotBlank() == true)
+        assertFalse(vm.state.value.canSend)
+        job.cancel()
+    }
 }

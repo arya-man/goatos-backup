@@ -93,10 +93,16 @@ func (f *fakeRepo) ListRiskTenants(context.Context) ([]string, error) {
 }
 
 func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementState, liveState, _, _, _ *string, cursor string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, domain.Summary, *string, error) {
+	return f.listTagsFrom(f.livePages, movementState, liveState, cursor, limit)
+}
+
+// listTagsFrom pages an explicit base slice, so a risk-filtered read never has to swap
+// f.livePages (ListLive reads the page and the summary concurrently).
+func (f *fakeRepo) listTagsFrom(base []domain.TagLatest, movementState, liveState *string, cursor string, limit int) ([]domain.TagLatest, domain.Summary, *string, error) {
 	f.mu.Lock()
 	f.listLimits = append(f.listLimits, limit)
 	f.mu.Unlock()
-	livePages := f.filteredLivePages(movementState)
+	livePages := filterMovement(base, movementState)
 	if liveState != nil && *liveState != "" {
 		livePages = f.filteredLiveStatePages(livePages, *liveState)
 	}
@@ -129,10 +135,7 @@ func (f *fakeRepo) ListTagsLatestKeyset(ctx context.Context, tenantID string, pa
 		tags, _, next, err := f.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit, sort...)
 		return tags, next, err
 	}
-	saved := f.livePages
-	f.livePages = f.riskFiltered(riskState)
-	tags, _, next, err := f.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit, sort...)
-	f.livePages = saved
+	tags, _, next, err := f.listTagsFrom(f.riskFiltered(riskState), movementState, liveState, cursor, limit)
 	return tags, next, err
 }
 
@@ -286,12 +289,12 @@ func (f *fakeRepo) filteredLiveStatePages(tags []domain.TagLatest, liveState str
 	return filtered
 }
 
-func (f *fakeRepo) filteredLivePages(movementState *string) []domain.TagLatest {
+func filterMovement(base []domain.TagLatest, movementState *string) []domain.TagLatest {
 	if movementState == nil || *movementState == "" {
-		return f.livePages
+		return base
 	}
-	filtered := make([]domain.TagLatest, 0, len(f.livePages))
-	for _, tag := range f.livePages {
+	filtered := make([]domain.TagLatest, 0, len(base))
+	for _, tag := range base {
 		if tag.MovementState == *movementState {
 			filtered = append(filtered, tag)
 		}

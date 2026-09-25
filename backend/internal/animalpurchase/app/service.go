@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/animalpurchase/domain"
 	"github.com/vgoats/goatos/backend/internal/animalpurchase/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 )
 
 // Error is the transport-facing error shape.
@@ -93,6 +94,8 @@ func (s *Service) Catalog(ctx context.Context, tenantID string, version int) (do
 // for a page of rows (one read per distinct version, never one per row).
 func (s *Service) CatalogFor(ctx context.Context, tenantID string, rows []domain.Candidate) map[int]domain.Catalog {
 	out := map[int]domain.Catalog{}
+	var species, sexes []domain.Option
+	vocabRead := false
 	for _, c := range rows {
 		v := c.QuestionnaireVersion
 		if v == 0 {
@@ -106,7 +109,15 @@ func (s *Service) CatalogFor(ctx context.Context, tenantID string, rows []domain
 			// exception:exempt a version that cannot be read renders the row without its question labels; the answers themselves are still on the row.
 			continue
 		}
-		out[v] = cat
+		// The species / gender answers read under the farm's own Configuration names, the same
+		// choices the phone offered; read once per page, never per row.
+		if !vocabRead {
+			vocabRead = true
+			if sp, sx, err := s.animalOptions(ctx, tenantID); err == nil {
+				species, sexes = sp, sx
+			}
+		}
+		out[v] = cat.WithAnimalVocabulary(species, sexes)
 	}
 	return out
 }
@@ -137,16 +148,39 @@ func (s *Service) Options(ctx context.Context, tenantID string) (Options, error)
 	if err != nil {
 		return Options{}, err
 	}
+	farms, err := s.repo.ListParkCodes(ctx, tenantID)
+	if err != nil {
+		return Options{}, err
+	}
+	species, sexes, err := s.animalOptions(ctx, tenantID)
+	if err != nil {
+		return Options{}, err
+	}
+	cat = cat.WithFarms(farms).WithAnimalVocabulary(species, sexes)
 	return Options{
-		Species:              domain.Species(),
-		Sexes:                domain.Sexes(),
+		Species:              species,
+		Sexes:                sexes,
 		Conditions:           domain.Conditions(),
-		Farms:                domain.Farms(),
+		Farms:                domain.Farms(farms),
 		BreedSuggestions:     breeds,
 		Questionnaire:        cat.Questions,
 		QuestionnaireVersion: cat.Version,
 		LoadForm:             cat.LoadQuestions,
 	}, nil
+}
+
+// animalOptions is the tenant's active species and genders as form choices; a repository that
+// cannot answer (a unit-test fake) reads as the built-ins.
+func (s *Service) animalOptions(ctx context.Context, tenantID string) ([]domain.Option, []domain.Option, error) {
+	vocab := animalvocab.Builtins()
+	if src, ok := s.repo.(ports.AnimalVocabularySource); ok {
+		v, err := src.AnimalVocabulary(ctx, tenantID)
+		if err != nil {
+			return nil, nil, err
+		}
+		vocab = v
+	}
+	return domain.AnimalOptions(vocab.Species), domain.AnimalOptions(vocab.Sexes), nil
 }
 
 func (s *Service) CreateLoad(ctx context.Context, p ports.CreateLoadParams) (domain.Load, error) {
@@ -157,7 +191,13 @@ func (s *Service) CreateLoad(ctx context.Context, p ports.CreateLoadParams) (dom
 	if err != nil {
 		return domain.Load{}, err
 	}
+	farms, err := s.repo.ListParkCodes(ctx, p.TenantID)
+	if err != nil {
+		return domain.Load{}, err
+	}
+	cat = cat.WithFarms(farms)
 	p.Write.Catalog = cat
+	p.Write.Farms = farms
 	p.QuestionnaireVersion = cat.Version
 	p.Write.Normalize()
 	if err := p.Write.Validate(); err != nil {
@@ -190,6 +230,13 @@ func (s *Service) AddCandidate(ctx context.Context, p ports.AddCandidateParams) 
 	if err != nil {
 		return domain.Candidate{}, err
 	}
+	// The species and gender choices are the tenant's ACTIVE Configuration lists, never the
+	// document's: a species added there is accepted at once, an archived or unknown one refused.
+	species, sexes, err := s.animalOptions(ctx, p.TenantID)
+	if err != nil {
+		return domain.Candidate{}, err
+	}
+	cat = cat.WithAnimalVocabulary(species, sexes)
 	p.Write.Catalog = cat
 	p.QuestionnaireVersion = cat.Version
 	p.Write.Normalize()

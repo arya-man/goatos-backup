@@ -351,7 +351,10 @@ internal fun CountsSegmented(
     maxPerRow: Int = options.size.coerceAtLeast(1),
 ) {
     // Filled track with a selected pill — same coherent segmented look across all Counts screens.
-    val rows = options.chunked(maxPerRow.coerceAtLeast(1))
+    // Never wider than the options themselves: two choices under a three-per-row cap still split
+    // the line in half instead of leaving an empty third cell.
+    val perRow = maxPerRow.coerceIn(1, options.size.coerceAtLeast(1))
+    val rows = options.chunked(perRow)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -393,7 +396,7 @@ internal fun CountsSegmented(
                 }
                 // A short final row keeps the others' width rather than stretching to fill: the
                 // cells stay a consistent size, so the grid reads as one control.
-                repeat(maxPerRow - row.size) {
+                repeat(perRow - row.size) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }

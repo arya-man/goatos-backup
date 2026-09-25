@@ -38,7 +38,7 @@ func feedSale() DealWrite {
 // A farm that adds feed to its registry can sell feed, with no code naming it.
 func TestFeedIsSellableBecauseTheRegistrySaysSo(t *testing.T) {
 	w := feedSale().Normalize(farmCatalog())
-	if err := w.Validate(farmCatalog()); err != nil {
+	if err := w.Validate(farmCatalog(), testFarms); err != nil {
 		t.Fatalf("a feed sale must record: %v", err)
 	}
 	line := w.Lines[0]
@@ -63,7 +63,7 @@ func TestFeedIsSellableBecauseTheRegistrySaysSo(t *testing.T) {
 // registry rather than reciting a vocabulary this package no longer owns.
 func TestAProductTheFarmDoesNotSellIsRefused(t *testing.T) {
 	w := feedSale().Normalize(builtinCatalog())
-	err := w.Validate(builtinCatalog())
+	err := w.Validate(builtinCatalog(), testFarms)
 	if err == nil {
 		t.Fatal("selling feed with no feed product in the registry must be refused")
 	}
@@ -87,7 +87,7 @@ func TestAFeedLineWithoutKilogramsIsRefused(t *testing.T) {
 		w := feedSale()
 		mutate(&w)
 		w = w.Normalize(farmCatalog())
-		err := w.Validate(farmCatalog())
+		err := w.Validate(farmCatalog(), testFarms)
 		var v ErrDealValidation
 		if !errors.As(err, &v) || v.Field != "lines[1].quantity" {
 			t.Fatalf("%s: must be refused on the quantity field, got %#v", name, err)
@@ -101,7 +101,7 @@ func TestAFeedLineWithoutARateIsRefused(t *testing.T) {
 	w := feedSale()
 	w.Lines[0].RatePerUnit = nil
 	w = w.Normalize(farmCatalog())
-	err := w.Validate(farmCatalog())
+	err := w.Validate(farmCatalog(), testFarms)
 	var v ErrDealValidation
 	if !errors.As(err, &v) || v.Field != "lines[1].rate_per_unit" {
 		t.Fatalf("must be refused on the rate field, got %#v", err)
@@ -114,7 +114,7 @@ func TestAFeedLineMayNotCarryAnimals(t *testing.T) {
 	w := feedSale()
 	w.Lines[0].AnimalCount = f(12)
 	w = w.Normalize(farmCatalog())
-	err := w.Validate(farmCatalog())
+	err := w.Validate(farmCatalog(), testFarms)
 	if err == nil {
 		t.Fatal("a feed line naming animals must be refused")
 	}
@@ -153,7 +153,7 @@ func TestAnItemTheFarmAddedSellsByNumberAtARate(t *testing.T) {
 		BuyerName: "Tag Buyer", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
 		Lines: []DealLineWrite{{ProductType: "Sheep tags", Breed: "Sheep tags", Quantity: f(200), RatePerUnit: f(12)}},
 	}.Normalize(catalog)
-	if err := w.Validate(catalog); err != nil {
+	if err := w.Validate(catalog, testFarms); err != nil {
 		t.Fatalf("selling 200 tags must record: %v", err)
 	}
 	if w.Lines[0].SalesValue != 2400 {
@@ -168,7 +168,7 @@ func TestAnItemTheFarmAddedSellsByNumberAtARate(t *testing.T) {
 	missing.Lines = []DealLineWrite{{ProductType: "Sheep tags", Breed: "Sheep tags", Quantity: f(200)}}
 	missing = missing.Normalize(catalog)
 	var v ErrDealValidation
-	if err := missing.Validate(catalog); !errors.As(err, &v) || v.Field != "lines[1].rate_per_unit" {
+	if err := missing.Validate(catalog, testFarms); !errors.As(err, &v) || v.Field != "lines[1].rate_per_unit" {
 		t.Fatalf("a counted item with no rate must be refused on the rate field, got %#v", err)
 	}
 }
@@ -182,7 +182,7 @@ func TestAnAnimalLineIsStillPricedAsALot(t *testing.T) {
 		BuyerName: "Irshad Bhai", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
 		Lines: []DealLineWrite{{ProductType: "Goat", Breed: "Sojat", AnimalCount: f(12), SalesValue: 96000}},
 	}.Normalize(builtinCatalog())
-	if err := w.Validate(builtinCatalog()); err != nil {
+	if err := w.Validate(builtinCatalog(), testFarms); err != nil {
 		t.Fatalf("an animal lot must record without a rate: %v", err)
 	}
 	if w.Lines[0].SalesValue != 96000 {
@@ -278,7 +278,7 @@ func TestQueuedSaleResolvesPreviousProductName(t *testing.T) {
 	}
 	catalog := NewProductCatalog(rows)
 	write := feedSale().Normalize(catalog)
-	if err := write.Validate(catalog); err != nil {
+	if err := write.Validate(catalog, testFarms); err != nil {
 		t.Fatal(err)
 	}
 	code, kind, unit := write.Lines[0].ResolvedProduct()

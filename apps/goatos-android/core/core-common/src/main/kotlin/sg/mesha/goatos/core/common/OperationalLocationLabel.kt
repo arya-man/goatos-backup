@@ -24,16 +24,36 @@ const val WHOLE_SHED_PARTITION: String = "whole"
  *  - bare numeral -> "<shed> <label>": "Castro 1" (the name painted on the building)
  *  - worded label -> "<shed> - <label>": "Godel 1 - Part 3" (visual boundary)
  *
- * This appends UNCONDITIONALLY, which is correct for a physical shed name. If the name you hold
- * may already carry the pen, use [composeOperationalLocationLabelFromComposedName] instead.
+ * If the shed name already ends with the partition ("Godel 1" + "1"), it is returned unchanged
+ * rather than doubled, matching admin-web. If the name you hold may carry the pen in another form,
+ * use [composeOperationalLocationLabelFromComposedName].
  */
 fun composeOperationalLocationLabel(shedName: String?, partitionLabel: String?): String {
     val shed = shedName?.trim().orEmpty()
     val partition = partitionLabel?.trim().orEmpty()
     if (partition.isEmpty() || partition.equals(WHOLE_SHED_PARTITION, ignoreCase = true)) return shed
     if (shed.isEmpty()) return partition
+    if (alreadyEndsWithPartition(shed, partition)) return shed
     val separator = if (partition.all { it.isDigit() }) " " else " - "
     return "$shed$separator$partition"
+}
+
+/**
+ * True when the shed name already ends with the partition it would be given, so appending would
+ * double the pen ("Godel 1" + "1", "Mandela 1 - Part 1" + "Part 1"). Twin of admin-web's
+ * `alreadyEndsWithPartition` in lib/operational-location.ts.
+ */
+private fun alreadyEndsWithPartition(shed: String, partition: String): Boolean {
+    val whitespace = Regex("\\s+")
+    val normalizedShed = shed.trim().replace(whitespace, " ").lowercase()
+    val normalizedPartition = partition.trim().replace(whitespace, " ").lowercase()
+    if (normalizedPartition.isEmpty()) return false
+    if (normalizedPartition.all { it.isDigit() }) {
+        return normalizedShed.endsWith(" $normalizedPartition") ||
+            normalizedShed.endsWith(" - part $normalizedPartition") ||
+            normalizedShed.endsWith(" part $normalizedPartition")
+    }
+    return normalizedShed.endsWith(" - $normalizedPartition") || normalizedShed.endsWith(" $normalizedPartition")
 }
 
 /**

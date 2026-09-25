@@ -70,8 +70,12 @@ interface PenVisitsRepository {
     /** Room-first visit detail; null while nothing is cached yet. */
     fun observeVisit(taskId: String): Flow<PenVisitDto?>
 
-    /** Network -> Room detail refresh. Non-blocking contract: a failure leaves the cache serving. */
-    suspend fun refreshVisit(taskId: String)
+    /**
+     * Network -> Room detail refresh. Non-blocking contract: a failure leaves the cache serving.
+     * Returns whether the server was reached, so a screen with nothing cached can stop spinning
+     * and offer Try again instead of waiting forever.
+     */
+    suspend fun refreshVisit(taskId: String): Boolean
 
     /**
      * Reconciles a successful submit's RETURNED task into Room — the detail cache AND every
@@ -132,17 +136,23 @@ class DefaultPenVisitsRepository(
                     now = clock(),
                     quarantine = { database.penVisitDetailCacheDao().delete(it) },
                 ).data
+                    // No detail cached yet (first open with the server down): the list row IS the
+                    // same DTO, so render it rather than an endless spinner. The next detail
+                    // refresh replaces it with the full detail.
+                    ?: cachedListRow(taskId)
             }
             .flowOn(Dispatchers.Default)
 
-    override suspend fun refreshVisit(taskId: String) {
+    override suspend fun refreshVisit(taskId: String): Boolean { // offline-first-guard:ignore: writes Room through persistServerDetail (detail cache + list rows)
         // exception:exempt expected refresh failure (offline/timeout/5xx); the cache keeps serving
-        // and the next successful open/refresh repairs it — the non-blocking refresh contract.
-        runCatching { persistServerDetail(api.getPenVisit(taskId), invalidateLists = false) }
+        // and the next successful open/refresh repairs it — the non-blocking refresh contract. The
+        // outcome is RETURNED so the screen can tell "still loading" from "nothing to show".
+        return runCatching { persistServerDetail(api.getPenVisit(taskId), invalidateLists = false) }
             .onFailure {
                 if (it is CancellationException) throw it
                 android.util.Log.w(LOG_TAG, "pen_visit_detail_refresh_failed task=$taskId", it)
             }
+            .isSuccess
     }
 
     override suspend fun persistServerDetail(detail: PenVisitDetailDto) {
@@ -189,6 +199,14 @@ class DefaultPenVisitsRepository(
 
     private fun scopeKey(filter: String): String =
         cacheKey(PEN_VISIT_CACHE_SHAPE, "pen-visits", filter, PEN_VISIT_PAGE_SIZE.toString())
+
+    /** The newest cached LIST copy of [taskId], decoded; null when no list page ever held it. */
+    private suspend fun cachedListRow(taskId: String): PenVisitDto? {
+        val row = database.penVisitItemDao().rowsForTask(taskId).maxByOrNull { it.updatedAt } ?: return null
+        // exception:exempt an undecodable fallback row is simply not used; the detail cache and
+        // the next refresh remain the source, and the list mediator overwrites the row
+        return runCatching { json.decodeFromString<PenVisitDto>(row.dtoJson) }.getOrNull()
+    }
 
     private companion object {
         const val LOG_TAG = "GoatOsPenVisits"

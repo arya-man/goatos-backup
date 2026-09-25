@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
@@ -14,9 +15,13 @@ type birthProvisionalPrefixRepository interface {
 	BirthProvisionalPrefix(ctx context.Context, tenantID, parkID string) (string, error)
 }
 
-// BirthProvisionalPrefix returns the canonical park code used for a newborn's temporary identity
-// (CBE/CPT today). It is resolved server-side from the validated placement, never trusted from a
-// client label.
+// BirthProvisionalPrefix returns the canonical park code used for a newborn's temporary identity.
+// It is resolved server-side from the validated placement, never trusted from a client label.
+//
+// ANY active park may record a birth: the code is whatever Configuration > Items & settings >
+// Parks gave it. The only rule is that it can sit at the front of a tag ("HSR-04217"), so a code
+// carrying spaces or punctuation is refused with a message saying where to fix it, rather than
+// minting a tag nobody can read back off a scanner. It used to refuse every park but CBE and CPT.
 func (s *Service) BirthProvisionalPrefix(ctx context.Context, tenantID, parkID string) (string, error) {
 	repo, ok := s.repo.(birthProvisionalPrefixRepository)
 	if !ok {
@@ -27,11 +32,14 @@ func (s *Service) BirthProvisionalPrefix(ctx context.Context, tenantID, parkID s
 		return "", mapRepoErr(err)
 	}
 	prefix = strings.ToUpper(strings.TrimSpace(prefix))
-	if prefix != "CBE" && prefix != "CPT" {
-		return "", BadRequest("unsupported_birth_park", "birth placement must resolve to CBE or CPT")
+	if !birthTagPrefix.MatchString(prefix) {
+		return "", BadRequest("unsupported_birth_park", "This park's code cannot start a kid's tag. Give the park a short code of letters and numbers on Configuration > Items & settings > Parks.")
 	}
 	return prefix, nil
 }
+
+// birthTagPrefix is the shape a park code must have to start a provisional kid tag.
+var birthTagPrefix = regexp.MustCompile(`^[A-Z0-9]{1,12}$`)
 
 // Prepare seam for approval workflows.
 //

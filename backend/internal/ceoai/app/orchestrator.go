@@ -70,6 +70,7 @@ type Assistant struct {
 	audit     ports.AuditSink
 	critic    ports.Reviewer
 	telemetry ports.Telemetry
+	parks     ports.ParkDirectory
 	sem       *Semaphore
 	log       *slog.Logger
 	now       func() time.Time
@@ -90,6 +91,9 @@ type Deps struct {
 	Audit     ports.AuditSink
 	Critic    ports.Reviewer
 	Telemetry ports.Telemetry
+	// Parks attaches the tenant's live park list to each question. Nil leaves Question.Parks as the
+	// caller set it (tests), which means no park name is recognised.
+	Parks     ports.ParkDirectory
 	Semaphore *Semaphore
 	Logger    *slog.Logger
 }
@@ -119,7 +123,7 @@ func NewAssistant(cfg Config, d Deps) *Assistant {
 		registry: d.Registry, metrics: d.Metrics, moderator: d.Moderator,
 		convo: d.Convo, memory: memory, cache: d.Cache, limiter: d.Limiter,
 		budget: d.Budget, audit: d.Audit, critic: d.Critic, telemetry: d.Telemetry,
-		sem: sem, log: log,
+		parks: d.Parks, sem: sem, log: log,
 		now: time.Now,
 	}
 }
@@ -224,6 +228,15 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 			"The assistant is busy right now. Please try again in a few seconds."), nil
 	}
 	defer a.sem.Release()
+
+	if a.parks != nil && len(q.Parks) == 0 {
+		if parks, err := a.parks.ActiveParks(ctx, q.Actor.TenantID); err != nil {
+			// exception:exempt a park list that cannot be read only means no park name is recognised in this question; the answer degrades to company-wide tools instead of failing.
+			a.log.Warn("ceoai: park directory unavailable", "err", err)
+		} else {
+			q.Parks = parks
+		}
+	}
 
 	var mem []domain.ResolvedEntities
 	if a.memory != nil && q.ConversationID != "" {

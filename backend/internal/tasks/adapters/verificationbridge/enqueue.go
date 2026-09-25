@@ -14,6 +14,18 @@ import (
 // verificationCreator is the slice of the verification service this bridge needs: enqueue one item.
 type verificationCreator interface {
 	CreateItem(ctx context.Context, in verificationdomain.CreateItem) (verificationdomain.CreateItemResult, error)
+	// WithdrawItemsBySource is verification's producer retire seam (pending items only).
+	WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error)
+}
+
+var _ tasksapp.BirthStepVerificationWithdrawer = (*DeathEvidenceEnqueuer)(nil)
+
+// WithdrawBirthStepVerification withdraws the still-pending birth_evidence items raised for the
+// given steps (ref module=counts / ref_type=workflow_birth_action / ref_id=action_id) when their
+// birth is rejected. A verdict already cast is not touched.
+func (e *DeathEvidenceEnqueuer) WithdrawBirthStepVerification(ctx context.Context, tenantID string, actionIDs []string) error {
+	_, err := e.verification.WithdrawItemsBySource(ctx, tenantID, tasksdomain.VerificationModuleCounts, tasksdomain.VerificationRefTypeBirthAction, actionIDs)
+	return err
 }
 
 // DeathEvidenceEnqueuer adapts verification's CreateItem to the tasks DeathVerificationEnqueuer

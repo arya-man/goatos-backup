@@ -239,6 +239,9 @@ function routeBlocksFromSwitch(source) {
       if (closeIndex === -1 || closeIndex > end) continue;
       blockBodies.push(scanSource.slice(openIndex + 1, closeIndex));
     }
+    // Keys a case assigns directly (m["key"] = "...") are produced for that route too.
+    const assigned = [...caseBody.matchAll(/\bm\[\s*"[^"]+"\s*\]\s*=/g)].map((m) => m[0]);
+    if (assigned.length > 0) blockBodies.push(assigned.join("\n"));
     for (const helperMatch of caseBody.matchAll(/\b([a-zA-Z][A-Za-z0-9]*)Copy\(\)/g)) {
       const helperBody = functionBody(source, `${helperMatch[1]}Copy`);
       for (const helperMapMatch of helperBody.matchAll(mapPattern)) {
@@ -420,6 +423,8 @@ const ROUTE_BY_PATH_PREFIX = [
   ["features/vaccination-execution/", "shed-execution"],
   ["features/weighing/weights-analytics", "weighing-analytics"],
   ["features/weighing/weights-export", "weighing-analytics"],
+  // The Assumptions drawer lives in features/weighing/ but is mounted on /weighing/sops.
+  ["features/weighing/weights-assumptions", "weighing-sops"],
   ["features/weighing/weights", "weighing-weights"],
   ["features/work-board/", "work-board"],
   ["app/(admin)/action-center/", "action-center"],
@@ -520,6 +525,7 @@ function contractSourceIndex() {
     ["sopOptionGroups", idsFromGoBody(functionBody(backendService, "sopOptionGroups"))],
     ["shiftingSOPOptionGroups", idsFromGoBody(functionBody(backendService, "shiftingSOPOptionGroups"))],
     ["weighingSOPOptionGroups", idsFromGoBody(functionBody(backendService, "weighingSOPOptionGroups"))],
+    ["assumptionVocabularyOptionGroups", idsFromGoBody(functionBody(backendService, "assumptionVocabularyOptionGroups"))],
     ["inspectionOptionGroups", idsFromGoBody(functionBody(backendService, "inspectionOptionGroups"))],
   ]);
   optionHelperIDs.set("sopOptionGroupsFor", optionHelperIDs.get("sopOptionGroups") ?? new Set());

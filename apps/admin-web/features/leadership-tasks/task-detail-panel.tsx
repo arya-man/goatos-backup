@@ -17,7 +17,7 @@ import { EditTaskModal } from "./edit-task-modal";
 // function exported from a client module cannot be called here.
 import { initials, statusTone } from "./task-presentation";
 import { TASK_PARAM, tasksHref, tasksSearchParams, type TasksParams } from "./params";
-import type { TaskRow } from "./task-row";
+import { attachmentKindLabel, type TaskRow } from "./task-row";
 import { TASKS_PATHNAME } from "./task-url";
 import { TaskActivityComposer } from "./task-activity-composer";
 import { TaskStatusMenu } from "./task-status-menu";
@@ -57,6 +57,8 @@ export function TaskDetailPanel({
   onClose,
   loadingDetail = false,
   detailLoaded = !loadingDetail,
+  detailError,
+  onRetryDetail,
 }: {
   /** The selected row, or nothing at all when the reader has not picked one yet. */
   detail?: TaskRow | null;
@@ -71,6 +73,10 @@ export function TaskDetailPanel({
   loadingDetail?: boolean;
   /** The row carries its notes and activity (a deep link, or the drawer's own read landed). */
   detailLoaded?: boolean;
+  /** Set when the host's detail read failed: an inline sentence instead of a spinner forever. */
+  detailError?: string;
+  /** Re-runs the host's detail read. */
+  onRetryDetail?: () => void;
 }) {
   // The whole URL, rebuilt from the PARSED state: this component is handed `TasksParams` and no
   // raw search params, and `tasksSearchParams` is the seam that keeps the repeated cursor stack
@@ -181,9 +187,11 @@ export function TaskDetailPanel({
         </div>
         {detail.canEdit ? null : (
           <p className="ltd-quiet ltd-readonly" data-testid="ltd-read-only">
-            {detail.status === "done" || detail.status === "cancelled"
-              ? copy(pageContract, "detail.read_only_closed", "A finished task can't be edited. Reopen it to change the details.")
-              : copy(pageContract, "detail.read_only", "Only the person who raised this task can edit it.")}
+            {detail.status === "cancelled"
+              ? copy(pageContract, "detail.read_only_cancelled", "A cancelled task can't be edited or reopened.")
+              : detail.status === "done"
+                ? copy(pageContract, "detail.read_only_closed", "A finished task can't be edited. Reopen it to change the details.")
+                : copy(pageContract, "detail.read_only", "Only the person who raised this task can edit it.")}
           </p>
         )}
       </div>
@@ -225,7 +233,7 @@ export function TaskDetailPanel({
                     rel="noreferrer"
                   >
                     <Paperclip className="ic" aria-hidden="true" />
-                    <span className="ltd-att-name">{attachment.file_name || attachment.kind}</span>
+                    <span className="ltd-att-name">{attachment.file_name || attachmentKindLabel(attachment.kind)}</span>
                   </a>
                 ))}
               </div>
@@ -257,6 +265,16 @@ export function TaskDetailPanel({
                 {copy(pageContract, "activity.loading", "Loading activity…")}
               </p>
             ) : null}
+            {detailError ? (
+              <p className="ltd-feed-loading ltd-feed-error" role="alert" data-testid="ltd-detail-error">
+                {detailError}{" "}
+                {onRetryDetail ? (
+                  <button type="button" className="btn ghost sm" onClick={onRetryDetail}>
+                    {copy(pageContract, "action.retry", "Try again")}
+                  </button>
+                ) : null}
+              </p>
+            ) : null}
             <TaskActivityComposer
               // Remounted the moment the detail row (with its feed) replaces the summary row
               // the drawer opened from -- the composer seeds its feed on mount (Judge B, P1-1).
@@ -280,7 +298,14 @@ export function TaskDetailPanel({
           </summary>
           <div className="ltd-details-bd">
             <Row label={copy(pageContract, "column.assignee")}>
-              <Person name={detail.assignee} sub={detail.assigneeRole} dash={dash} />
+              <Person
+                name={detail.assignee}
+                sub={
+                  detail.assigneeRole ||
+                  (detail.isAssignee ? copy(pageContract, "label.assigned_to_me", "Assigned to me") : "")
+                }
+                dash={dash}
+              />
             </Row>
             <Row label={copy(pageContract, "column.raised_by")}>
               <Person name={detail.raisedBy} dash={dash} />

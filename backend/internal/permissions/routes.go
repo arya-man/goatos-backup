@@ -637,6 +637,9 @@ var protectedRoutes = []Route{
 	// Not yet consumed by the drive scheduler (Phase 5). Same config-authority permission as capacity.
 	{OperationID: "getVaccinationOperatorAssignmentConfig", Method: "GET", Pattern: "/vaccination/operator-assignment/config", Permissions: []string{ProtocolRead}},
 	{OperationID: "putVaccinationOperatorAssignmentConfig", Method: "PUT", Pattern: "/vaccination/operator-assignment/config", Permissions: []string{VaccinationCampaign}},
+	{OperationID: "listVaccinationOperatorShifts", Method: "GET", Pattern: "/vaccination/operator-shifts", Permissions: []string{ProtocolRead}},
+	{OperationID: "putVaccinationOperatorShift", Method: "PUT", Pattern: "/vaccination/operator-shifts", Permissions: []string{VaccinationCampaign}},
+	{OperationID: "deleteVaccinationOperatorShift", Method: "DELETE", Pattern: "/vaccination/operator-shifts", Permissions: []string{VaccinationCampaign}},
 	{OperationID: "listWeighingCampaigns", Method: "GET", Pattern: "/weighing/campaigns", Permissions: []string{WeighingMonitor}},
 	{OperationID: "createWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns", Permissions: []string{WeighingPlan}},
 	{OperationID: "updateWeighingCampaign", Method: "PUT", Pattern: "/weighing/campaigns/{campaign_id}", Permissions: []string{WeighingPlan}},
@@ -1053,6 +1056,7 @@ var protectedRoutes = []Route{
 	// up. Same authority as rewriting the grid, and for a stronger reason: this one can put a feed in
 	// front of every animal in the park, or take it away from all of them.
 	{OperationID: "setFeedConfigSessionTemplateItem", Method: "POST", Pattern: "/feed-config/session-template-items", Permissions: []string{FeedConfigWrite}},
+	{OperationID: "setFeedConfigSessionPlan", Method: "POST", Pattern: "/feed-config/session-templates", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
 	// Atomic multi-item enrolment of ONE pen. Same permission as the single-cell write -- it is the
 	// same authored surface -- but its own route because it carries an all-or-nothing guarantee.
@@ -1241,6 +1245,7 @@ var protectedRoutes = []Route{
 	// authority (maintainer decision 2026-08-05). Same coarse CountsApproveAccess route
 	// gate; the per-type binding check stays in the handler via DecidableApprovalRequestTypes.
 	{OperationID: "listAdminWebCountsApprovals", Method: "GET", Pattern: "/admin-web/counts/approvals", Permissions: []string{CountsApproveAccess}},
+	{OperationID: "getAdminWebCountsApproval", Method: "GET", Pattern: "/admin-web/counts/approvals/{request_id}", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "approveAdminWebCountsApproval", Method: "POST", Pattern: "/admin-web/counts/approvals/{request_id}/approve", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "rejectAdminWebCountsApproval", Method: "POST", Pattern: "/admin-web/counts/approvals/{request_id}/reject", Permissions: []string{CountsApproveAccess}},
 }

@@ -67,7 +67,7 @@ func TestFarmBornServiceForwardsThePenAndNormalisesTheRest(t *testing.T) {
 }
 
 // TestFarmBornServiceRefusesBadFilters pins every refusal: an inverted or malformed window, a window past five years, an
-// out-of-range page, and a sex or species outside the register's vocabulary.
+// out-of-range page, and a sex or species that is not even a code.
 func TestFarmBornServiceRefusesBadFilters(t *testing.T) {
 	svc := NewFarmBornSalesService(&stubFarmBornRepo{}).WithClock(func() time.Time { return time.Date(2026, 9, 18, 6, 0, 0, 0, time.UTC) })
 	for name, tc := range map[string]struct {
@@ -79,8 +79,8 @@ func TestFarmBornServiceRefusesBadFilters(t *testing.T) {
 		"garbage":  {FarmBornRequest{From: "yesterday"}, ErrFarmBornWindowInvalid, "invalid_window"},
 		"too wide": {FarmBornRequest{From: "2019-01-01", To: "2026-09-18"}, ErrFarmBornWindowTooWide, "window_too_wide"},
 		"offset":   {FarmBornRequest{Offset: -1}, ErrFarmBornOffsetInvalid, "invalid_offset"},
-		"sex":      {FarmBornRequest{Sex: "both"}, ErrFarmBornSexInvalid, "invalid_sex"},
-		"species":  {FarmBornRequest{Species: "cow"}, ErrFarmBornSpeciesInvalid, "invalid_species"},
+		"sex":      {FarmBornRequest{Sex: "male or female"}, ErrFarmBornSexInvalid, "invalid_sex"},
+		"species":  {FarmBornRequest{Species: "goat;sheep"}, ErrFarmBornSpeciesInvalid, "invalid_species"},
 	} {
 		_, err := svc.FarmBornSales(context.Background(), "t", tc.req)
 		if !errors.Is(err, tc.want) {
@@ -89,5 +89,14 @@ func TestFarmBornServiceRefusesBadFilters(t *testing.T) {
 		if httpErr := FarmBornHTTPError(err); httpErr.Code != tc.code || httpErr.HTTPStatus != 400 {
 			t.Fatalf("%s: http = %+v", name, httpErr)
 		}
+	}
+}
+
+// OPEN UP TO NEW SPECIES (maintainer decision 2026-09-25): a species or gender the farm added on
+// Configuration filters the page like goat or female; the filter no longer knows only two of each.
+func TestFarmBornServiceFiltersByAConfiguredThirdSpeciesAndGender(t *testing.T) {
+	svc := NewFarmBornSalesService(&stubFarmBornRepo{}).WithClock(func() time.Time { return time.Date(2026, 9, 18, 6, 0, 0, 0, time.UTC) })
+	if _, err := svc.FarmBornSales(context.Background(), "t", FarmBornRequest{Species: "alpaca", Sex: "castrated"}); err != nil {
+		t.Fatalf("a configured third species/gender filter was refused: %v", err)
 	}
 }

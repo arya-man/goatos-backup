@@ -58,7 +58,7 @@ type BuyerLead struct {
 // BuyerLeadWrite records a new buyer lead.
 type BuyerLeadWrite struct {
 	RecordedDate string // optional
-	Farm         string // optional, CBE/CPT when set
+	Farm         string // optional; an active park code when set
 	BuyerName    string
 	BuyerPlace   string
 	AnimalType   string
@@ -80,15 +80,15 @@ func (w BuyerLeadWrite) Normalize() BuyerLeadWrite {
 	return out
 }
 
-func (w BuyerLeadWrite) Validate() error {
+func (w BuyerLeadWrite) Validate(farms []string) error {
 	if w.BuyerName == "" {
 		return ErrFieldValidation{Field: "buyer_name", Reason: "required"}
 	}
 	if w.RecordedDate != "" && !validDate(w.RecordedDate) {
 		return ErrFieldValidation{Field: "recorded_date", Reason: "must be a date like 2026-08-18"}
 	}
-	if w.Farm != "" && !IsFarm(w.Farm) {
-		return ErrFieldValidation{Field: "farm", Reason: "must be CBE or CPT"}
+	if w.Farm != "" && !IsFarm(w.Farm, farms) {
+		return ErrFieldValidation{Field: "farm", Reason: ReasonUnknownFarm}
 	}
 	for field, v := range map[string]string{
 		"buyer_name": w.BuyerName, "buyer_place": w.BuyerPlace,
@@ -231,7 +231,7 @@ const MaxSoldTagRows = 200
 
 // SoldTagsWrite records the tag list handed over at one sale.
 type SoldTagsWrite struct {
-	Farm string // optional, CBE/CPT when set
+	Farm string // optional; an active park code when set
 	Rows []SoldTagRow
 }
 
@@ -247,9 +247,9 @@ func (w SoldTagsWrite) Normalize() SoldTagsWrite {
 	return out
 }
 
-func (w SoldTagsWrite) Validate() error {
-	if w.Farm != "" && !IsFarm(w.Farm) {
-		return ErrFieldValidation{Field: "farm", Reason: "must be CBE or CPT"}
+func (w SoldTagsWrite) Validate(farms []string) error {
+	if w.Farm != "" && !IsFarm(w.Farm, farms) {
+		return ErrFieldValidation{Field: "farm", Reason: ReasonUnknownFarm}
 	}
 	if len(w.Rows) == 0 {
 		return ErrFieldValidation{Field: "rows", Reason: "add at least one animal"}

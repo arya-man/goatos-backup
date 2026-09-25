@@ -1,5 +1,13 @@
 package postgres
 
+import (
+	"context"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
 // Command-board SQL, named and package-level.
 //
 // projection-review: membership=one tenant's obligation_instances in scope, joined to their rule
@@ -680,11 +688,19 @@ shed_dose_obligations AS (
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = oi.scope_id
+  -- The partition key is normalized once per goat_shed_partitions row (a few thousand) rather than
+  -- once per obligation row inside the shed_partitions hash join (~10k regexp_replace calls, ~0.3 s
+  -- on STG). A goat with no partition row keys as 'whole', exactly what the inline
+  -- regexp_replace(lower(btrim(COALESCE(NULL, 'whole'))), ...) produced.
+  LEFT JOIN (
+    SELECT gsp0.tenant_id, gsp0.goat_id, gsp0.shed_id, gsp0.partition_label,
+           regexp_replace(lower(btrim(COALESCE(gsp0.partition_label, 'whole'))), '^part[[:space:]]+', '') AS normalized_key
+    FROM goat_shed_partitions gsp0
+  ) gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = oi.scope_id
   LEFT JOIN shed_partitions sp
     ON sp.tenant_id = oi.tenant_id
    AND sp.shed_id = oi.scope_id
-   AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+   AND sp.normalized_label = COALESCE(gsp.normalized_key, 'whole')
    AND sp.status = 'active'
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
@@ -698,14 +714,27 @@ shed_dose_obligations AS (
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
 )
+-- Two hash-friendly passes instead of COUNT(DISTINCT): collapse to one row per (cell, animal)
+-- first, then count animals per cell. COUNT(DISTINCT) forced a text-collation sort of every
+-- obligation row (~10k on STG) before the aggregate; now only the ~800 cells are sorted.
+-- count(target_id) over the per-animal rows == COUNT(DISTINCT target_id); MIN/MAX of per-animal
+-- MIN/MAX == the cell's MIN/MAX.
 SELECT shed_id, shed_name, park_name, partition_label, dose_code, state,
-  COUNT(DISTINCT target_id) as animal_count,
+  COUNT(target_id) as animal_count,
   MIN(min_administered_at) as min_administered_at,
   MAX(max_administered_at) as max_administered_at,
-  MIN(due_at) as min_due_at,
-  MAX(due_at) as max_due_at
-FROM shed_dose_obligations
-WHERE state != 'other'
+  MIN(min_due_at) as min_due_at,
+  MAX(max_due_at) as max_due_at
+FROM (
+  SELECT shed_id, shed_name, park_name, partition_label, dose_code, state, target_id,
+    MIN(min_administered_at) as min_administered_at,
+    MAX(max_administered_at) as max_administered_at,
+    MIN(due_at) as min_due_at,
+    MAX(due_at) as max_due_at
+  FROM shed_dose_obligations
+  WHERE state != 'other'
+  GROUP BY shed_id, shed_name, park_name, partition_label, dose_code, state, target_id
+) per_animal
 GROUP BY shed_id, shed_name, park_name, partition_label, dose_code, state
 ORDER BY park_name, shed_name, partition_label, shed_id, dose_code, state
 `
@@ -1542,3 +1571,12 @@ const commandBoardCohortExceptionCountSQL = commandBoardCohortExceptionCTE + `
 SELECT park_id, management_stage, sex, dose_code, goat_id::text
 FROM exceptions
 `
+
+// queryCommandBoardShedDose runs commandBoardShedDoseSQL with pgx.QueryExecModeExec, which pins a
+// custom plan (~6 ms planning). In the default cached-statement mode plan_cache_mode=auto switches to
+// the generic plan after five executions per connection, and on STG that generic plan executes ~3x
+// slower (~220 ms vs ~70 ms) because it cannot prune by batch/park. The call lives next to the
+// constant so the bind-contract check can prove the four arguments against it.
+func queryCommandBoardShedDose(ctx context.Context, pool *pgxpool.Pool, tenantID string, asOf time.Time, batchID, parkID *string) (pgx.Rows, error) {
+	return pool.Query(ctx, commandBoardShedDoseSQL, pgx.QueryExecModeExec, tenantID, asOf, batchID, parkID)
+}

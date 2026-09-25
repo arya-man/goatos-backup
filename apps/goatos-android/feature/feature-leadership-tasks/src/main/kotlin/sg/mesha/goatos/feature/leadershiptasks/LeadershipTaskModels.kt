@@ -131,6 +131,8 @@ data class LeadershipTaskListUiState(
     val title: String = "",
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
+    /** True when the last refresh did not reach the server: the rows on screen are the saved copy. */
+    val refreshFailed: Boolean = false,
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
     val filters: List<LeadershipTaskFilterUi> = emptyList(),
@@ -161,12 +163,16 @@ data class LeadershipTaskNoteUi(
     val listKey: String,
     val authorName: String,
     val body: String,
+    /** When the note was written, `DD/MM/YYYY HH:MM` (IST); blank when the server sent no time. */
+    val whenLabel: String = "",
 )
 
 @Immutable
 data class LeadershipTaskDetailUiState(
     /** True until the first cached/fetched detail lands. */
     val loading: Boolean = true,
+    /** Nothing cached and the server unreachable: show the error with Try again, not a spinner. */
+    val unavailable: Boolean = false,
     val numberLabel: String = "",
     val statusChip: String = "",
     val status: String = "",

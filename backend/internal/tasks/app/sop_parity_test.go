@@ -205,7 +205,7 @@ func TestDeathCaptureEvidenceIsSnapshottedAtOpenAndLeadsTheBundle(t *testing.T) 
 		Rows:         []authored.EvidenceRow{{Label: "Found where?", Value: "Water trough"}},
 		MissingNote:  "Carcass photo",
 	}
-	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat, time.Date(2026, 9, 16, 9, 0, 0, 0, biztime.DefaultLocation()), capture); err != nil {
+	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat, "", time.Date(2026, 9, 16, 9, 0, 0, 0, biztime.DefaultLocation()), capture); err != nil {
 		t.Fatal(err)
 	}
 	var workflowID string
@@ -233,7 +233,7 @@ func TestDeathCaptureEvidenceIsSnapshottedAtOpenAndLeadsTheBundle(t *testing.T) 
 		t.Fatalf("rows = %+v, want %+v", item.ContextRows, wantRows)
 	}
 	// Redelivered counts.death.reported: the natural key absorbs it and the snapshot is untouched.
-	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat, time.Now(), authored.Evidence{VersionLabel: "later"}); err != nil {
+	if err := svc.OpenReportedDeathWorkflow(context.Background(), testTenant, testGoat, "", time.Now(), authored.Evidence{VersionLabel: "later"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := repo.workflows[workflowID].CaptureEvidence.VersionLabel; got != "v3" {

@@ -386,16 +386,28 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 	// projection) is no longer resolvable by detail lookup -- an accepted simplification for this
 	// envelope (see docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
 	from, to := canonicalUnboundedWindow(time.Now())
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: begin detail: %w", err)
+	// The recent-actions page does not depend on the detail row, so it runs concurrently; its
+	// result is only used once the detail row has resolved this event_id under the caller's scope
+	// (History's existence probe would re-run the canonical reconstruction just to learn that).
+	type historyResult struct {
+		resp domain.CalendarHistoryResponse
+		err  error
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err = tx.Exec(ctx, "SET LOCAL goatos.include_drive_summary = 'true'"); err != nil {
-		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: enable drive summary detail: %w", err)
-	}
-	bound := sqlbind.MustBind(calendarCanonicalDetailSQL, q.TenantID, from, to, q.EventID, tenantWide, parkIDs, shedIDs)
-	event, err := scanCalendarEventWithDetail(tx.QueryRow(ctx, bound.SQL(), bound.Args()...), &detailRaw, &linksRaw)
+	historyCh := make(chan historyResult, 1)
+	go func() {
+		resp, err := r.historyItems(ctx, domain.HistoryQuery{TenantID: q.TenantID, EventID: q.EventID, Limit: 10, Scope: q.Scope})
+		historyCh <- historyResult{resp, err}
+	}()
+	// calendarCanonicalDetailSQL has goatos.include_drive_summary folded to true, so no
+	// transaction / SET LOCAL round trips are needed.
+	bound := sqlbind.MustBind(calendarCanonicalDetailSQL.forEvent(q.EventID), q.TenantID, from, to, q.EventID, tenantWide, parkIDs, shedIDs, canonicalSingleEventDay(q.EventID))
+	// Generic plan: see platformpostgres.GenericPlanReadTx (planning was ~60-110 ms per call).
+	var event domain.CalendarEvent
+	err := platformpostgres.WithGenericPlanReadTx(ctx, r.pool, func(tx pgx.Tx) error {
+		var scanErr error
+		event, scanErr = scanCalendarEventWithDetail(tx.QueryRow(ctx, bound.SQL(), bound.Args()...), &detailRaw, &linksRaw)
+		return scanErr
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.CalendarEventDetail{}, ports.ErrNotFound
 	}
@@ -403,10 +415,11 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: get detail: %w", err)
 	}
 	blocks := decodeDetailBlocks(detailRaw)
-	recent, err := r.History(ctx, domain.HistoryQuery{TenantID: q.TenantID, EventID: q.EventID, Limit: 10, Scope: q.Scope})
-	if err != nil {
-		return domain.CalendarEventDetail{}, err
+	history := <-historyCh
+	if history.err != nil {
+		return domain.CalendarEventDetail{}, history.err
 	}
+	recent := history.resp
 	links := linksRaw
 	if detailLinks, ok := blocks["links"]; ok && len(detailLinks) > 0 && string(detailLinks) != "null" {
 		links = detailLinks
@@ -430,9 +443,19 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 func (r *Repository) History(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	if err := r.eventExists(ctx, q.TenantID, q.EventID, q.Scope); err != nil {
-		return domain.CalendarHistoryResponse{}, err
+	// Existence/scope probe and history page run concurrently; the probe still decides first.
+	existsCh := make(chan error, 1)
+	go func() { existsCh <- r.eventExists(ctx, q.TenantID, q.EventID, q.Scope) }()
+	resp, err := r.historyItems(ctx, q)
+	if existsErr := <-existsCh; existsErr != nil {
+		return domain.CalendarHistoryResponse{}, existsErr
 	}
+	return resp, err
+}
+
+// historyItems pages the event's history WITHOUT the scope/existence probe; callers must
+// have already resolved q.EventID under q.Scope.
+func (r *Repository) historyItems(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50
@@ -1826,19 +1849,22 @@ RETURNING notification_request_id`,
 // the history projection (see canonical_read.go's doc comment on GetEventDetail's residual: an event
 // older than canonical's 90-day retention window is no longer resolvable by ID).
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
-const calendarCanonicalExistsSQL = "WITH " + calendarCanonicalEventsCTE + `
+var calendarCanonicalExistsSQL = canonicalSingleEventSQL("WITH " + calendarCanonicalEventsCTE + `
 SELECT EXISTS (
   SELECT 1 FROM source_events
   WHERE event_id = $4
     AND ($5::bool OR park_id = ANY($6::uuid[]) OR shed_id = ANY($7::uuid[]))
-)`
+)`)
 
 func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter) error {
 	var exists bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
 	from, to := canonicalUnboundedWindow(time.Now())
-	bound := sqlbind.MustBind(calendarCanonicalExistsSQL, tenantID, from, to, eventID, tenantWide, parkIDs, shedIDs)
-	if err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&exists); err != nil {
+	bound := sqlbind.MustBind(calendarCanonicalExistsSQL.forEvent(eventID), tenantID, from, to, eventID, tenantWide, parkIDs, shedIDs, canonicalSingleEventDay(eventID))
+	// Generic plan: this single-event statement re-planned (~60 ms) on every call under auto.
+	if err := platformpostgres.WithGenericPlanReadTx(ctx, r.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&exists)
+	}); err != nil {
 		return err
 	}
 	if !exists {
@@ -2453,7 +2479,10 @@ WITH history AS (
       'after_state', after_state
     ) AS details
   FROM audit_log
-  WHERE tenant_id = $1::uuid AND metadata->>'calendar_event_id' = $2
+  -- "metadata ? 'calendar_event_id'" is implied by the equality (->> is NULL for a missing key) but
+  -- the planner cannot prove it, and it is the predicate of audit_log_tenant_calendar_event_recorded_idx;
+  -- without it this branch seq-scans the whole audit_log (~0.8 s on STG).
+  WHERE tenant_id = $1::uuid AND metadata ? 'calendar_event_id' AND metadata->>'calendar_event_id' = $2
 )
 SELECT history_id, event_type, status, title, actor_label, occurred_at, channel, reason, trace_id, source_table, details
 FROM history

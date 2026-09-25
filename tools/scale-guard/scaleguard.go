@@ -131,6 +131,9 @@ var (
 func main() {
 	root := flag.String("root", ".", "repo root to scan")
 	baseline := flag.String("baseline", "", "baseline file of accepted per-(rule,file) counts")
+	planProof := flag.Bool("plan-proof", false, "diff mode: changed large-table SQL must carry an at-scale plan test in the same diff (planproof.go)")
+	planBase := flag.String("base", "origin/main", "plan-proof: base ref (merge-base with HEAD); 'none' skips")
+	listRule := flag.String("list", "", "print every finding (file:line) of this rule, ignoring the baseline, and exit 0")
 	flag.Parse()
 
 	repo, err := filepath.Abs(*root)
@@ -147,6 +150,9 @@ func main() {
 			scanRoot = cand
 			break
 		}
+	}
+	if *planProof {
+		os.Exit(runPlanProof(repo, *planBase))
 	}
 	if *baseline == "" {
 		*baseline = filepath.Join(repo, "tools", "scale-guard", "baseline.txt")
@@ -181,6 +187,15 @@ func main() {
 		return nil
 	})
 	must(err)
+
+	if *listRule != "" {
+		for _, f := range findings {
+			if f.rule == *listRule {
+				fmt.Printf("%s:%d\n", f.rel, f.line)
+			}
+		}
+		return
+	}
 
 	// Count actual findings per (rule, file); block anything beyond the baseline.
 	actual := map[string]int{}
@@ -238,6 +253,7 @@ func main() {
 	os.Exit(1)
 }
 
+// projection-review: membership=repo-relative Go file paths exempted as one-time commands; group_key=file path; join_cardinality=map lookup 1:0..1 per scanned file; pagination=none, static set; scope=repository paths only, no tenant or runtime data
 var explicitOneTimeCommands = map[string]bool{
 	"backend/cmd/migrate/main.go":                     true,
 	"backend/cmd/seed-dev-email-grants/main.go":       true,
@@ -309,6 +325,70 @@ func scanFile(repo, path string) []finding {
 				add("cte-limit-outside", st.pos, st.name+": "+msg)
 			}
 		}
+	}
+
+	// Proven-performance-pattern rules (perfpatterns.go).
+	if isPostgresAdapter(rel) {
+		for _, st := range sqlConstText(file) {
+			if name := detectCTESelfJoin(st.text); name != "" {
+				add("cte-self-join", st.pos, st.name+": CTE "+name+" is joined directly to itself; under a generic plan this is a nested loop of two CTE scans (ca7b21a82). Pair rows with a window (LAG/LEAD/MIN() OVER) instead")
+			}
+		}
+	}
+	// or-subquery-membership (PP-22, orsubquery.go): per literal everywhere, plus assembled
+	// package-level statements whose pieces did not already match on their own. An ignore only
+	// counts when it names an at-scale plan test.
+	srcLines := strings.Split(string(src), "\n")
+	addOR := func(pos token.Pos, msg string) {
+		ln := fset.Position(pos).Line
+		if (ignored[ln] || ignored[ln-1]) && ignoreHasPlanProof(srcLines, ln) {
+			return
+		}
+		if ignored[ln] || ignored[ln-1] {
+			msg += " [the scale-guard:ignore here does not name an at-scale plan test]"
+		}
+		out = append(out, finding{rule: "or-subquery-membership", rel: rel, line: ln, msg: msg})
+	}
+	var orLitHits []token.Pos
+	orSeen := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING || len(lit.Value) < 12 {
+			return true
+		}
+		text, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			return true
+		}
+		if tables, expr := detectORSubqueryMembershipExpr(text); tables != nil {
+			orLitHits = append(orLitHits, lit.Pos())
+			if orSeen[expr] {
+				return true
+			}
+			orSeen[expr] = true
+			addOR(lit.Pos(), orSubqueryMsg("", tables))
+		}
+		return true
+	})
+	for _, st := range sqlConstText(file) {
+		covered := false
+		for _, p := range orLitHits {
+			if p >= st.valPos && p < st.end {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		if tables, expr := detectORSubqueryMembershipExpr(st.text); tables != nil && !orSeen[expr] {
+			orSeen[expr] = true
+			addOR(st.pos, orSubqueryMsg(st.name, tables))
+		}
+	}
+
+	for _, pos := range detectHandRolledReadCache(rel, file) {
+		add("hand-rolled-read-cache", pos, "hand-rolled map+mutex read cache; use backend/internal/platform/readcache (single flight, SWR, scoped cross-instance eviction, bounded LRU; 95b1054c1, a056df98a)")
 	}
 
 	// AST pass: loop-scoped rules.
@@ -425,6 +505,14 @@ func scanFile(repo, path string) []finding {
 		if nonSargableCastRe.MatchString(v) {
 			add("non-sargable-cast", lit.Pos(),
 				"casting an indexed column to text in an ANY predicate can disable its index; cast the bind array instead (column = ANY($1::uuid[]))")
+		}
+		if detectCastIn(v) {
+			add("non-sargable-cast", lit.Pos(),
+				"casting a column to text in an IN (...) predicate defeats its index (ebe349c37: 53 s -> 42 ms); compare the typed column to = ANY($1::uuid[]) / array_append(uuid[], col)")
+		}
+		if detectCountDistinct(v) {
+			add("count-distinct-sort", lit.Pos(),
+				"COUNT(DISTINCT ...) sorts every input row; collapse to one row per key (GROUP BY / SELECT DISTINCT, both hashable) and count those rows (cb0c2d0dc, ba2984573)")
 		}
 		if c := len(cteRe.FindAllString(v, -1)); c > godCTELimit {
 			add("god-cte", lit.Pos(),
@@ -543,7 +631,7 @@ func sqlConstText(file *ast.File) []sqlStatement {
 				if !ok || !sqlishRe.MatchString(text) {
 					continue
 				}
-				out = append(out, sqlStatement{name: name.Name, text: text, pos: name.Pos()})
+				out = append(out, sqlStatement{name: name.Name, text: text, pos: name.Pos(), end: vs.Values[i].End(), valPos: vs.Values[i].Pos()})
 			}
 		}
 	}
@@ -551,9 +639,11 @@ func sqlConstText(file *ast.File) []sqlStatement {
 }
 
 type sqlStatement struct {
-	name string
-	text string
-	pos  token.Pos
+	name   string
+	text   string
+	pos    token.Pos
+	valPos token.Pos // start of the value expression
+	end    token.Pos // end of the value expression
 }
 
 // maskSQLNoise blanks out SQL comments and single-quoted literals, preserving length and

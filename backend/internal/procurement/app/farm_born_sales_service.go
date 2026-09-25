@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
@@ -50,8 +51,8 @@ var (
 	ErrFarmBornWindowInvalid  = errors.New("procurement: farm born window is not a valid date range")
 	ErrFarmBornWindowTooWide  = errors.New("procurement: farm born window is wider than the served maximum")
 	ErrFarmBornOffsetInvalid  = errors.New("procurement: farm born page offset is out of range")
-	ErrFarmBornSexInvalid     = errors.New("procurement: farm born sex filter is not male or female")
-	ErrFarmBornSpeciesInvalid = errors.New("procurement: farm born species filter is not goat or sheep")
+	ErrFarmBornSexInvalid     = errors.New("procurement: farm born sex filter is not a gender code")
+	ErrFarmBornSpeciesInvalid = errors.New("procurement: farm born species filter is not a species code")
 )
 
 // FarmBornSales returns the whole page for the request.
@@ -64,12 +65,15 @@ func (s *FarmBornSalesService) FarmBornSales(ctx context.Context, tenantID strin
 	if req.Offset < 0 || req.Offset > domain.MaxFarmBornOffset {
 		return domain.FarmBornSales{}, ErrFarmBornOffsetInvalid
 	}
+	// Species and sex are the tenant's Configuration lists (OPEN UP TO NEW SPECIES, 2026-09-25), so
+	// a filter is checked for a code's SHAPE only: a configured third species filters like goat, and
+	// a code no animal carries simply matches nothing.
 	sex := strings.ToLower(strings.TrimSpace(req.Sex))
-	if sex != "" && sex != "male" && sex != "female" {
+	if sex != "" && !animalvocab.ValidCodeShape(sex) {
 		return domain.FarmBornSales{}, ErrFarmBornSexInvalid
 	}
 	species := strings.ToLower(strings.TrimSpace(req.Species))
-	if species != "" && species != "goat" && species != "sheep" {
+	if species != "" && !animalvocab.ValidCodeShape(species) {
 		return domain.FarmBornSales{}, ErrFarmBornSpeciesInvalid
 	}
 
@@ -136,9 +140,9 @@ func FarmBornHTTPError(err error) *Error {
 	case errors.Is(err, ErrFarmBornOffsetInvalid):
 		return &Error{Code: "invalid_offset", Message: "That page is out of range.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrFarmBornSexInvalid):
-		return &Error{Code: "invalid_sex", Message: "Pick male, female or all.", HTTPStatus: http.StatusBadRequest}
+		return &Error{Code: "invalid_sex", Message: "Pick one of the farm's genders, or all.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrFarmBornSpeciesInvalid):
-		return &Error{Code: "invalid_species", Message: "Pick goat, sheep or all.", HTTPStatus: http.StatusBadRequest}
+		return &Error{Code: "invalid_species", Message: "Pick one of the farm's species, or all.", HTTPStatus: http.StatusBadRequest}
 	default:
 		return Internal("The farm born figures could not be loaded. Try again.")
 	}

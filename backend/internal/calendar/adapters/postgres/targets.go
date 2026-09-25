@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
@@ -351,10 +352,19 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	if err != nil {
 		return domain.CalendarDriveTargetListResponse{}, ports.ErrNotFound
 	}
-	if err := r.eventExists(ctx, q.TenantID, q.EventID, q.Scope); err != nil {
-		return domain.CalendarDriveTargetListResponse{}, err
+	// The existence/scope probe and the roster read are independent reads, so they run
+	// concurrently; the probe's verdict still decides first (a missing or out-of-scope event
+	// returns its error before any roster or cursor error, exactly as when they ran in sequence).
+	existsCh := make(chan error, 1)
+	go func() { existsCh <- r.eventExists(ctx, q.TenantID, q.EventID, q.Scope) }()
+	resp, err := r.listDriveTargetRows(ctx, q, parsed)
+	if existsErr := <-existsCh; existsErr != nil {
+		return domain.CalendarDriveTargetListResponse{}, existsErr
 	}
+	return resp, err
+}
 
+func (r *Repository) listDriveTargetRows(ctx context.Context, q domain.DriveTargetQuery, parsed domain.ParsedDriveEvent) (domain.CalendarDriveTargetListResponse, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 10
@@ -411,7 +421,12 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	isParkDrive := parsed.ParkDrive
 
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
-	rows, err := r.pool.Query(ctx, calendarDriveTargetsSQL,
+	// QueryExecModeDescribeExec pins a custom plan (unnamed statement, ~15 ms planning) while keeping
+	// binary results. In the default cached-statement mode plan_cache_mode=auto switches to the generic
+	// plan after five executions per connection, and on STG that generic plan executes ~2x slower
+	// (~90 ms vs ~50 ms) for a park drive. QueryExecModeExec would also pin a custom plan but decodes
+	// text results, which renders scheduled_at in the session zone instead of time.Local.
+	rows, err := r.pool.Query(ctx, calendarDriveTargetsSQL, pgx.QueryExecModeDescribeExec,
 		q.TenantID, batchID, dueDay, parkID, shedID, tenantID, ruleID, cursorID,
 		tenantWide, parkIDs, shedIDs, isParkDrive, fetchLimit, q.Search, assignmentID)
 	if err != nil {

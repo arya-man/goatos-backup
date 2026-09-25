@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/protocol/ports"
 )
@@ -2310,11 +2311,15 @@ func normalizeSelectorValue(field, value string) (string, error) {
 		v = strings.ToLower(v)
 	}
 	if field == "sex" {
-		switch v {
-		case "female", "male", "all":
-			return v, nil
-		case "unknown":
+		// A sex selector names one of the farm's genders (Configuration > Items & settings; OPEN UP
+		// TO NEW SPECIES, maintainer decision 2026-09-25) or "all". Only the code's SHAPE is judged
+		// here, as species always was: a rule for a gender no animal carries simply schedules
+		// nothing, which is the honest outcome, never a guessed match.
+		switch {
+		case v == "unknown":
 			return "", fmt.Errorf("%w: unknown sex is banned from rule selectors", ErrNotPublishable)
+		case v == "all" || animalvocab.ValidCodeShape(v):
+			return v, nil
 		default:
 			return "", fmt.Errorf("%w: unsupported sex selector %q", ErrNotPublishable, value)
 		}

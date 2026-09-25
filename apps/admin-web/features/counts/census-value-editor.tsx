@@ -26,10 +26,10 @@ export type CensusSlice = {
   partitionLabel: string;
   managementStage: string;
   breed: string;
-  // The generated contract narrows this to the column's own domain. A census row can only carry one
-  // of the two, so the narrowing is honest -- and a row that somehow carried anything else must not
-  // be silently corrected against a slice the backend would read differently.
-  sex: "female" | "male";
+  // The row's own stored gender code, sent verbatim: the slice predicate matches it exactly. Genders
+  // are Configuration's list (OPEN UP TO NEW SPECIES, 2026-09-25), so a row may carry a third one,
+  // and folding an unknown gender into "female" would correct animals the operator never saw.
+  sex: string;
 };
 
 export function CensusValueEditor({

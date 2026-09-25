@@ -35,6 +35,7 @@ import {
   saveRationRate,
   saveSchedule,
   saveSessionFeed,
+  saveSessionPlan,
   setExperimentShedStatus,
 } from "./feed-config-actions";
 import {
@@ -45,6 +46,7 @@ import {
   RationRateEditor,
   ScheduleEditor,
   SessionFeedsCell,
+  SessionPlanEditor,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
 import { groupMissingRates, groupRetiredFeedGaps, type MissingRate, type RetiredFeedGaps } from "./missing-rates";
@@ -446,6 +448,15 @@ export async function FeedConfigPage({
   const rates = ratesResult && ratesResult.ok ? ratesResult.data : null;
   const sessions = sessionsResult && sessionsResult.ok ? sessionsResult.data : null;
   const schedule = scheduleResult && scheduleResult.ok ? scheduleResult.data : null;
+  // Workflows (from the contract's feed_workflow group) this park has NO open schedule for. Only
+  // computed when the schedule read succeeded for a chosen park: a failed read is not "missing".
+  const missingScheduleWorkflows =
+    scope.parkId && schedule
+      ? optionGroup(pageContract, "feed_workflow").filter(
+          (workflow) =>
+            !schedule.items.some((row) => row.park_id === scope.parkId && row.workflow === workflow.key && !row.valid_to),
+        )
+      : [];
   const experiment = experimentResult && experimentResult.ok ? experimentResult.data : null;
   const pens = pensResult && pensResult.ok ? pensResult.data : null;
   const feedItems = feedItemsResult && feedItemsResult.ok ? feedItemsResult.data : null;
@@ -1221,13 +1232,25 @@ export async function FeedConfigPage({
         </FeedFilters>
       </section>
 
-      {/* -------------------------------------------------- session template (read-only: no writer) */}
+      {/* ------------------------------------------------------------- session template (editable) */}
       <SectionError result={sessionsResult} titleKey="state.session_template_unavailable" pageContract={pageContract} />
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.session_template.title")}</h3>
           <span className="small muted">{copy(pageContract, "section.session_template.caption")}</span>
         </div>
+        {/* Its own full-width row under the header, never inside it: the open form holds a name and
+            a share per session, which the header's single line cannot lay out. */}
+        {scope.parkId && sessions ? (
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
+            <SessionPlanEditor
+              pageContract={pageContract}
+              action={saveSessionPlan}
+              parkId={scope.parkId}
+              sessions={activeSessions.map((row) => ({ session_no: row.session_no, session_label: row.session_label, split_fraction: String(row.split_fraction) }))}
+            />
+          </div>
+        ) : null}
         <div
           className="bd feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
@@ -1322,7 +1345,7 @@ export async function FeedConfigPage({
               </tr>
             </thead>
             <tbody>
-              {(schedule?.items ?? []).length === 0 ? (
+              {(schedule?.items ?? []).length === 0 && missingScheduleWorkflows.length === 0 ? (
                 <tr>
                   <td colSpan={scheduleCols.length + 1}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
@@ -1385,6 +1408,31 @@ export async function FeedConfigPage({
                   </tr>
                 ))
               )}
+              {/* A park with no schedule for a workflow gets NO feed direction or packing for it --
+                  silently, because the lifecycle sweep only visits scheduled parks. A park added on
+                  Configuration > Items & settings starts in exactly that state, so each missing
+                  workflow gets its own row here with a set-schedule control. */}
+              {missingScheduleWorkflows.map((workflow) => (
+                <tr key={`missing-${workflow.key}`}>
+                  <td>
+                    <span className={workflow.key === "experiment" ? "tag t-pur" : "tag t-ok"}>{workflow.label}</span>
+                  </td>
+                  <td colSpan={Math.max(scheduleCols.length - 1, 1)}>
+                    <span className="tag t-warn">{copy(pageContract, "label.schedule_missing")}</span>
+                  </td>
+                  <td>
+                    <ScheduleEditor
+                      pageContract={pageContract}
+                      action={saveSchedule}
+                      parkId={scope.parkId}
+                      workflow={workflow.key}
+                      directionTime=""
+                      correctionTime=""
+                      editLabelKey="action.add_schedule"
+                    />
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

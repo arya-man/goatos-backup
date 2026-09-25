@@ -42,7 +42,6 @@ export function FollowUpEditor({
   basePath,
   sopId,
   sopName,
-  sopCode,
   versionLabel,
   initial,
   initialView = "list",
@@ -185,7 +184,7 @@ export function FollowUpEditor({
           <h1>{copy(pc, "followup.title")}</h1>
           <div className="sub">{copy(pc, "followup.subtitle")}</div>
           <div className="sub muted small">
-            <code>{sopCode}</code> · {versionLabel} · {copy(pc, "followup.notice.capture_kept")}
+            {versionLabel} · {copy(pc, "followup.notice.capture_kept")}
           </div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
