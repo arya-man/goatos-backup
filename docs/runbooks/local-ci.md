@@ -134,9 +134,9 @@ judged. Every step is still a blocking step on the exact SHA; failures stay fata
   leaves no status file is FAILED (`signal/OOM/crash`).
 - **Concurrent steps inside a job** (`cstep_add`/`cstep_run`, same file-based
   verdict contract as job dispatch): backend `go test ./...` + govulncheck +
-  targeted race; admin-web lint + typecheck + unit tests; query-plans
-  `validate-sqlc-plans` + `commandboard-query-plan-guard` (each uses its own
-  scratch database).
+  targeted race; admin-web lint + typecheck + unit tests. The two query-plan
+  gates stay sequential: run concurrently against the same Postgres server, a
+  plan assertion flipped red, and a plan verdict must not depend on load.
 - **Android Gradle.** One shared `GRADLE_USER_HOME` for all worktrees
   (`$HOME/.cache/goatos-gradle`, not `~/.gradle`), `--build-cache`,
   `--configuration-cache` on the gated compile/unit/lint invocation (the

@@ -750,16 +750,16 @@ run_query_plans() {
   # Required for every backend diff. This deliberately stays outside the broad Postgres/E2E opt-in:
   # index regressions in production queries must fail ordinary PR, push, and local landing CI.
   prepare_query_plan_database
-  # The two plan gates are independent: each creates and drops its OWN scratch
-  # database (validate-sqlc-plans: goatos_sqlc_plans_$$ / its own container;
-  # commandboard: its own pgtest database), so they run CONCURRENTLY (plan D).
-  cstep_add "required PostgreSQL query plans" make validate-sqlc-plans
+  # Deliberately SEQUENTIAL. Running validate-sqlc-plans concurrently with the
+  # command-board guard against the same Postgres server flipped the
+  # ObligationUnbatchedDueKeysetLatePage plan assertion red (2/2 concurrent runs;
+  # green alone). A plan gate's verdict must not depend on neighbouring load, so
+  # plan D's parallel half is not applied here.
+  step "required PostgreSQL query plans" make validate-sqlc-plans
   # The command board's plan gate runs here for the same reason validate-sqlc-plans does: it is an
-  # index/plan-regression gate on a production read, and /vaccination/command already returned 500
-  # in staging once because nothing could see its plans. It resolves its own database (supplied DSN,
+  # index/plan-regression gate on a production read. It resolves its own database (supplied DSN,
   # OCI clone, or Docker) and fails rather than skipping when it can reach none.
-  cstep_add "command-board query plans" make commandboard-query-plan-guard
-  cstep_run
+  step "command-board query plans" make commandboard-query-plan-guard
   return 0
 }
 
