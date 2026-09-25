@@ -7700,7 +7700,7 @@ CREATE TABLE public.sales_deals (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT sales_deals_breed_not_blank CHECK ((btrim(breed) <> ''::text)),
     CONSTRAINT sales_deals_buyer_name_not_blank CHECK ((btrim(buyer_name) <> ''::text)),
-    CONSTRAINT sales_deals_farm_check CHECK ((farm = ANY (ARRAY['CBE'::text, 'CPT'::text]))),
+    CONSTRAINT sales_deals_farm_check CHECK ((btrim(farm) <> ''::text)),
     CONSTRAINT sales_deals_product_type_check CHECK ((product_type = ANY (ARRAY['Sheep'::text, 'Goat'::text, 'Manure'::text]))),
     CONSTRAINT sales_deals_sales_value_nonneg CHECK ((sales_value >= (0)::numeric)),
     CONSTRAINT sales_deals_status_check CHECK ((status = ANY (ARRAY['Deal Closed'::text, 'Deal Failed'::text, 'In Discussion'::text, 'Advance Paid'::text])))

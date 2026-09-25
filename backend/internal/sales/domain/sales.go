@@ -15,12 +15,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Farms the business operates. These are the CHECK-constrained storage forms.
-const (
-	FarmCBE = "CBE"
-	FarmCPT = "CPT"
-)
-
 // Product types a deal can sell. Sheep and Goat are the LIVE types (they carry animal counts and
 // live weight); Manure contributes weight and revenue but never animal counts.
 const (
@@ -38,12 +32,19 @@ const (
 	StatusAdvancePaid  = "Advance Paid"
 )
 
-// Farms, ProductTypes and Statuses mirror the CHECK constraints on sales_deals.
+// ProductTypes and Statuses mirror the CHECK constraints on sales_deals.
+//
+// There is deliberately no Farms list. A deal's farm is the CODE of one of the tenant's active
+// parks, authored on Configuration > Items & settings > Parks and read through
+// platform/parkcatalog, so a park added there can record sales the moment it is saved. A CBE/CPT
+// pair here refused every park after the first two.
 var (
-	Farms        = []string{FarmCBE, FarmCPT}
 	ProductTypes = []string{ProductSheep, ProductGoat, ProductManure}
 	Statuses     = []string{StatusDealClosed, StatusDealFailed, StatusInDiscussion, StatusAdvancePaid}
 )
+
+// ReasonUnknownFarm is the refusal for a farm no active park carries.
+const ReasonUnknownFarm = "must be one of your parks"
 
 // MaxSaleDateDaysAhead is how far past today a sale may be dated: a short horizon so a typo
 // cannot date a sale into next year, the same 60 days the web drawer caps at.
@@ -72,8 +73,15 @@ func StatusTone(status string) string {
 	return ""
 }
 
-// IsFarm reports whether raw is one of the two farms, exactly as stored.
-func IsFarm(raw string) bool { return raw == FarmCBE || raw == FarmCPT }
+// IsFarm reports whether raw is exactly one of farms, the tenant's active park codes.
+func IsFarm(raw string, farms []string) bool {
+	for _, f := range farms {
+		if f == raw {
+			return true
+		}
+	}
+	return false
+}
 
 // IsProductType and IsLiveProduct are deliberately GONE (migration 000422). What the farm sells
 // is a tenant registry, so "is this a product" is ProductCatalog.Lookup and "is this alive" is the
@@ -90,15 +98,15 @@ func IsStatus(raw string) bool {
 	}
 }
 
-// NormalizeFarmFilter resolves the page's farm query parameter. "" and "all" mean the whole
-// company; a farm value must be exact. ok is false for anything else -- the caller rejects rather
-// than silently widening the filter.
-func NormalizeFarmFilter(raw string) (farm string, ok bool) {
+// NormalizeFarmFilter resolves the page's farm query parameter against farms, the tenant's active
+// park codes. "" and "all" mean the whole company; a farm value must be exact. ok is false for
+// anything else -- the caller rejects rather than silently widening the filter.
+func NormalizeFarmFilter(raw string, farms []string) (farm string, ok bool) {
 	trimmed := strings.TrimSpace(raw)
 	switch {
 	case trimmed == "" || strings.EqualFold(trimmed, "all"):
 		return "", true
-	case trimmed == FarmCBE || trimmed == FarmCPT:
+	case IsFarm(trimmed, farms):
 		return trimmed, true
 	default:
 		return "", false
@@ -379,15 +387,15 @@ func (w DealWrite) Normalize(cat ProductCatalog) DealWrite {
 // The enums are validate-or-reject, never silently defaulted: a farm the CHECK constraint would
 // refuse, or a product the farm's registry does not carry, must fail here with a field-specific
 // message, not be rewritten to a value the caller never entered.
-func (w DealWrite) Validate(cat ProductCatalog) error {
+func (w DealWrite) Validate(cat ProductCatalog, farms []string) error {
 	if w.SaleDate == "" {
 		return ErrDealValidation{Field: "sale_date", Reason: "required"}
 	}
 	if _, err := time.Parse("2006-01-02", w.SaleDate); err != nil {
 		return ErrDealValidation{Field: "sale_date", Reason: "must be a date like 2026-08-17"}
 	}
-	if !IsFarm(w.Farm) {
-		return ErrDealValidation{Field: "farm", Reason: "must be CBE or CPT"}
+	if !IsFarm(w.Farm, farms) {
+		return ErrDealValidation{Field: "farm", Reason: ReasonUnknownFarm}
 	}
 	if len(w.Lines) == 0 {
 		return ErrDealValidation{Field: "lines", Reason: "add at least one product line"}

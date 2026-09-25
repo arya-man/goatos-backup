@@ -73,7 +73,7 @@ func SalesHTTPError(err error) *Error {
 			"This request was already submitted with different details. Review the recorded sale before trying again.")
 
 	case errors.Is(err, ErrSalesInvalidFarm):
-		return BadRequest("invalid_farm", "Choose CBE, CPT, or all farms.")
+		return BadRequest("invalid_farm", "Choose one of your parks, or all farms.")
 
 	case errors.Is(err, ErrSalesOffsetOutOfRange):
 		return BadRequest("page_out_of_range", "That page is beyond the sales ledger. Use the farm filter to narrow it down.")

@@ -27,6 +27,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vgoats/goatos/backend/internal/platform/parkcatalog"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 )
@@ -153,6 +154,9 @@ func main() {
 	}
 	defer pool.Close()
 
+	if err := validateFarms(ctx, pool, *tenantID, fixture); err != nil {
+		log.Fatalf("validate farms: %v", err)
+	}
 	if err := importAll(ctx, pool, *tenantID, fixture); err != nil {
 		log.Fatalf("import: %v", err)
 	}
@@ -180,13 +184,31 @@ func loadFixture(path string) (fixtureFile, error) {
 	return f, nil
 }
 
+// validateFarms refuses a deal whose farm is not the code of one of the tenant's active parks
+// (Configuration > Items & settings > Parks), naming the row, before anything is written.
+func validateFarms(ctx context.Context, pool *pgxpool.Pool, tenantID string, f fixtureFile) error {
+	parks, err := parkcatalog.ListActive(ctx, pool, tenantID)
+	if err != nil {
+		return err
+	}
+	farms := parkcatalog.Codes(parks)
+	for i, d := range f.Deals {
+		if !domain.IsFarm(d.Farm, farms) {
+			return fmt.Errorf("deal row %d (%s): farm %q is not one of the tenant's parks %v", i+1, d.BuyerName, d.Farm, farms)
+		}
+	}
+	return nil
+}
+
 // validateFixture fails loudly on any value the CHECK constraints would reject, naming the row, so
 // a broken export never half-imports.
 func validateFixture(f fixtureFile) error {
 	for i, d := range f.Deals {
 		row := i + 1
-		if !domain.IsFarm(d.Farm) {
-			return fmt.Errorf("deal row %d (%s): unrecognised farm %q", row, d.BuyerName, d.Farm)
+		// Whether the farm is one of the tenant's parks needs the database, so it is checked in
+		// validateFarms once connected; a dry run only proves the cell is filled.
+		if strings.TrimSpace(d.Farm) == "" {
+			return fmt.Errorf("deal row %d (%s): farm is blank", row, d.BuyerName)
 		}
 		// The fixture is the legacy sheet, which predates the sellable-product registry (migration
 		// 000422) and therefore carries only the three built-in products. It is checked against
