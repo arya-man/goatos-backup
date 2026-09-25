@@ -6,7 +6,7 @@
 // 43-min landing). The 20-min land-main cap (docs/progress/ci-deploy-speedup.md) scopes it:
 //
 //   compile  :app:compileStgReleaseKotlin, always (compiles every module :app depends on)
-//   unit     :app:testStgReleaseUnitTest, always; plus :<m>:testReleaseUnitTest for every
+//   unit     :app:testStgReleaseUnitTest, always; plus :<m>:testDebugUnitTest (library modules only have the debug unit-test variant) for every
 //            CHANGED library module and every library module that DEPENDS on one
 //            (transitively), when that module has src/test
 //   lint     :app:lintStgRelease only when app/**, core-designsystem, any res/ dir, or
@@ -74,7 +74,7 @@ export function scope(changedFiles, graph, { full = false } = {}) {
     }
   }
   const tasks = [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest"];
-  for (const m of libs) if (affected.has(m) && hasTests.get(m)) tasks.push(`${m}:testReleaseUnitTest`);
+  for (const m of libs) if (affected.has(m) && hasTests.get(m)) tasks.push(`${m}:testDebugUnitTest`);
   const appLint = buildWide || changed.has(":app") || changed.has(":core:core-designsystem") ||
     rels.some((r) => /(^|\/)src\/[^/]+\/res\//.test(r));
   if (appLint) tasks.push(":app:lintStgRelease");
@@ -105,19 +105,19 @@ function selfTest() {
   const cases = [
     ["no android diff -> app compile+unit only", ["backend/x.go"], {}, [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest"]],
     ["feature code -> its tests + its lint, no app lint", [P("feature/feature-a/src/main/kotlin/A.kt")], {},
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-a:testReleaseUnitTest", ":feature:feature-a:lintRelease"]],
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-a:lintRelease"]],
     ["core-model -> dependents' tests (transitive), lint core-model only", [P("core/core-model/src/main/kotlin/M.kt")], {},
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testReleaseUnitTest", ":feature:feature-a:testReleaseUnitTest", ":feature:feature-b:testReleaseUnitTest", ":core:core-model:lintRelease"]],
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":core:core-model:lintRelease"]],
     ["app code -> app lint", [P("app/src/main/kotlin/X.kt")], {},
       [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":app:lintStgRelease"]],
     ["resources -> app lint", [P("feature/feature-b/src/main/res/values/strings.xml")], {},
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-b:testReleaseUnitTest", ":app:lintStgRelease"]],
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease"]],
     ["design system -> app lint + dependents' tests", [P("core/core-designsystem/src/main/kotlin/T.kt")], {},
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-a:testReleaseUnitTest", ":app:lintStgRelease"]],
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":feature:feature-a:testDebugUnitTest", ":app:lintStgRelease"]],
     ["build logic -> every test + app lint", [P("gradle/libs.versions.toml")], {},
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testReleaseUnitTest", ":feature:feature-a:testReleaseUnitTest", ":feature:feature-b:testReleaseUnitTest", ":app:lintStgRelease"]],
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease"]],
     ["full -> every test + every lint", [], { full: true },
-      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testReleaseUnitTest", ":feature:feature-a:testReleaseUnitTest", ":feature:feature-b:testReleaseUnitTest", ":app:lintStgRelease",
+      [":app:compileStgReleaseKotlin", ":app:testStgReleaseUnitTest", ":core:core-model:testDebugUnitTest", ":feature:feature-a:testDebugUnitTest", ":feature:feature-b:testDebugUnitTest", ":app:lintStgRelease",
         ":core:core-model:lintRelease", ":core:core-ui:lintRelease", ":core:core-designsystem:lintRelease", ":feature:feature-a:lintRelease", ":feature:feature-b:lintRelease"]],
   ];
   let bad = 0;

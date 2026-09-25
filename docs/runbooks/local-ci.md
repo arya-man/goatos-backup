@@ -21,6 +21,34 @@ Hosted workflows, if later enabled, invoke these same targets. They are a mirror
 not the present authority. Do not maintain a second hand-copied command list in
 workflow YAML.
 
+## Landing scope vs the nightly full suite (20-min land-main cap)
+
+`make land-main` must finish in 20 minutes wall time. A landing (`make ci-local`,
+auto scope) therefore runs only what the diff can break, and the rest runs in
+`MODE=all` and in the nightly `nightly-full-ci` workflow on the self-hosted
+runner (03:00 IST). Nothing was deleted; it moved.
+
+| Gate | Landing (auto) | `MODE=all` / nightly |
+|---|---|---|
+| Android compile | `:app:compileStgReleaseKotlin` (all modules :app uses), 6 workers, shared build cache | same |
+| Android unit | `:app` + changed library modules + their dependents (`tools/ci/android-gradle-scope.mjs`) | every module |
+| Android lint | `:app:lintStgRelease` when `app/**`, `core-designsystem`, any `res/` or build logic changed; else changed library modules' `lintRelease` | every module + `:app` |
+| Paparazzi | diff-mapped on an Android UI diff (`ci-local-screenshots`) | full `--rerun-tasks` (nightly: `GOATOS_RUN_ANDROID_SCREENSHOTS=1`) |
+| config-cache guard, benchmark compile | Android build-logic diff only | always |
+| backend govulncheck | `backend/go.mod`/`go.sum` diff only | always |
+| gradle-worktree-lock mutation self-test (~24 min) | never (the real lock guard still runs on a lock diff) | always |
+
+`make land-main` prints per-job and total wall time; over 20 minutes it prints a
+loud WARNING with the top 5 steps and appends to `~/.goatos/land-main-budget.log`.
+It never fails a landing on budget. Knobs: `GOATOS_ANDROID_MAX_WORKERS` (default
+6), `GOATOS_CI_LOCAL_JOBS` (default 5, max 5), `GOATOS_LAND_BUDGET_SECONDS`.
+
+Per machine (opt-in, set in the maintainer's `~/.zshenv`):
+`GOATOS_LAND_VIA_QUEUE=1` hands `make land-main` to `land.yml` on the self-hosted
+runner (FIFO, one landing CI on the Mac at a time; `GOATOS_LAND_LOCAL=1` is the
+runner/emergency override) and `GOATOS_WORKSPACE_ROOT=<dir>` refuses landings from
+a checkout outside `<dir>`. Unset, `make land-main` behaves as before.
+
 ## Landing on main
 
 Codex and Claude must use this command when ordinary work or this documentation
