@@ -137,11 +137,16 @@ func (s *Service) Options(ctx context.Context, tenantID string) (Options, error)
 	if err != nil {
 		return Options{}, err
 	}
+	farms, err := s.repo.ListParkCodes(ctx, tenantID)
+	if err != nil {
+		return Options{}, err
+	}
+	cat = cat.WithFarms(farms)
 	return Options{
 		Species:              domain.Species(),
 		Sexes:                domain.Sexes(),
 		Conditions:           domain.Conditions(),
-		Farms:                domain.Farms(),
+		Farms:                domain.Farms(farms),
 		BreedSuggestions:     breeds,
 		Questionnaire:        cat.Questions,
 		QuestionnaireVersion: cat.Version,
@@ -157,7 +162,13 @@ func (s *Service) CreateLoad(ctx context.Context, p ports.CreateLoadParams) (dom
 	if err != nil {
 		return domain.Load{}, err
 	}
+	farms, err := s.repo.ListParkCodes(ctx, p.TenantID)
+	if err != nil {
+		return domain.Load{}, err
+	}
+	cat = cat.WithFarms(farms)
 	p.Write.Catalog = cat
+	p.Write.Farms = farms
 	p.QuestionnaireVersion = cat.Version
 	p.Write.Normalize()
 	if err := p.Write.Validate(); err != nil {

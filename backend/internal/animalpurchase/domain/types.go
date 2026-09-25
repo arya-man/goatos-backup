@@ -29,9 +29,6 @@ const (
 	DecisionAccepted = "accepted"
 	DecisionRejected = "rejected"
 
-	FarmCBE = "CBE"
-	FarmCPT = "CPT"
-
 	LoadStatusOpen   = "open"
 	LoadStatusClosed = "closed"
 
@@ -70,8 +67,16 @@ func Conditions() []Option {
 	}
 }
 
-func Farms() []Option {
-	return []Option{{FarmCBE, "CBE"}, {FarmCPT, "CPT"}}
+// Farms is the load's farm choice: one option per active park CODE, in park order. Parks are
+// authored on Configuration > Items & settings > Parks and read by the service through
+// platform/parkcatalog, so a park added there can receive a load at once. There is deliberately no
+// constant list: a CBE/CPT pair refused every park after the first two.
+func Farms(codes []string) []Option {
+	out := make([]Option, 0, len(codes))
+	for _, c := range codes {
+		out = append(out, Option{Value: c, Label: c})
+	}
+	return out
 }
 
 func labelOf(options []Option, value string) string {
@@ -207,6 +212,9 @@ type LoadWrite struct {
 	// SOP version the phone rendered (set by the service).
 	Answers Answers
 	Catalog Catalog
+	// Farms is the tenant's active park codes (set by the service): the only farms a load may be
+	// for.
+	Farms []string
 }
 
 // Normalize trims and upper-cases what the write compares on.
@@ -250,7 +258,7 @@ func (w LoadWrite) Validate() error {
 	if w.VendorID == "" {
 		return invalid("vendor_id", "Pick the vendor this load is bought from.")
 	}
-	if w.FarmLabel != FarmCBE && w.FarmLabel != FarmCPT {
+	if !hasOption(Farms(w.Farms), w.FarmLabel) {
 		return invalid("farm", "Pick the farm this load is for.")
 	}
 	if w.ExpectedCount < 0 || w.ExpectedCount > 10000 {

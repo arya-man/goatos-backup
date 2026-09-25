@@ -148,11 +148,28 @@ var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
 
 // Locked load-form questions: the load's identity and the columns the list reads.
 var lockedLoadQuestions = map[string]lockedQuestion{
-	"load_ref":       {Kind: KindText},
-	"vendor":         {Kind: KindVendor},
-	"farm":           {Kind: KindChoice, Options: []Option{{FarmCBE, FarmCBE}, {FarmCPT, FarmCPT}}},
+	"load_ref": {Kind: KindText},
+	"vendor":   {Kind: KindVendor},
+	// The farm's CHOICES are not fixed here and not read from the document: they are the tenant's
+	// active parks, filled in at read time by Catalog.WithFarms, so a park added on Configuration
+	// > Items & settings is offered on every published version at once.
+	"farm":           {Kind: KindChoice},
 	"expected_count": {Kind: KindNumber},
 	"notes":          {Kind: KindText},
+}
+
+// WithFarms returns a copy of the catalog whose load-form "farm" question offers exactly the
+// given park codes. The document's own farm options are a placeholder: which parks exist is
+// Configuration's answer, never the form author's.
+func (c Catalog) WithFarms(codes []string) Catalog {
+	out := c
+	out.LoadQuestions = append([]Question(nil), c.LoadQuestions...)
+	for i := range out.LoadQuestions {
+		if out.LoadQuestions[i].ID == "farm" {
+			out.LoadQuestions[i].Options = Farms(codes)
+		}
+	}
+	return out
 }
 
 // LockedLoadQuestionIDs lists the load-form ids whose kind is fixed, for the editor.
