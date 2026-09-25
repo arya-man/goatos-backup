@@ -65,6 +65,9 @@ export function FollowUpEditor({
   // an empty group (an older contract) simply hides the select.
   const owners = optionGroup(pc, "sop_step_owners");
   const conditions = optionGroup(pc, "sop_step_conditions");
+  // A SALE step's condition is its own backend group (2026-09-25): "only when the sale has
+  // animals". The herd conditions mean nothing on a sale and are never offered there.
+  const saleConditions = optionGroup(pc, "sop_step_conditions_sales");
   const sections = optionGroup(pc, "sop_step_sections");
 
   const [rows, setRows] = useState<FollowUpRows>(initial);
@@ -250,7 +253,7 @@ export function FollowUpEditor({
                     answerKinds={answerKinds}
                     scheduleKinds={scheduleKinds}
                     owners={owners}
-                    conditions={conditions}
+                    conditions={track.module === "sales" ? saleConditions : conditions}
                     sections={sections}
                     onChange={(patch) => updateStep(track.key, step.id, patch)}
                     onMove={(dir) => moveStep(track.key, step.id, dir)}
@@ -279,7 +282,7 @@ export function FollowUpEditor({
                     answerKinds={answerKinds}
                     scheduleKinds={scheduleKinds}
                     owners={owners}
-                    conditions={conditions}
+                    conditions={track.module === "sales" ? saleConditions : conditions}
                     sections={sections}
                     onChange={(patch) => updateStep(track.key, step.id, patch)}
                     onMove={(dir) => moveStep(track.key, step.id, dir)}
@@ -326,7 +329,7 @@ export function FollowUpEditor({
 // operations; a general work instruction or the sale has no such context, so the select is
 // not offered there (an "Include this step: Always" beside a sale step is noise).
 function hasEngineCondition(module: string): boolean {
-  return module !== "general" && module !== "sales";
+  return module !== "general";
 }
 
 function StepCard({

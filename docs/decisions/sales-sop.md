@@ -187,3 +187,68 @@ Pinned by `procurement/domain.TestValidateVendorFormRefusesWhatTheRegisterCannot
 its field, stale version refused, typed-only update preserves, side narrowing) and the OCI Postgres
 round trip `TestVendorFormAnswersRoundTripAndSurviveATypedOnlyUpdate`; web
 `vendor-form-model.test.mjs`; Android `VendorFormAnswersTest`.
+
+## A sale without animals (maintainer decision 2026-09-25)
+
+Every recorded sale opened the `sales_deal` workflow with "Tag the animals sold" on it, but the
+tagging confirm refuses a deal with no animal count -- so a manure, feed or other-item sale, or an
+animal sale recorded with a blank head count, carried a step nobody could finish and a card that
+stayed open and overdue forever.
+
+- New step condition **`sale_has_animals`** (`tasks/domain.StepWhenSaleHasAnimals`, compiled from
+  `CompileOptions.SaleHasAnimals`, the `kid_pen_unresolved` shape). It is refused outside a sale
+  track, and a sale track must keep at least one step without it, so a sale with no animals still
+  opens with its money steps.
+- The seeded document puts `"when": "sale_has_animals"` on **tag_animals, loading_video and
+  dispatch_note** (the gate pass). The tag step stays a REQUIRED engine step: a conditional tag
+  step is still present, so the document publishes (`engine_step_removed` still fires if it is
+  deleted). Migration `000428` adds the condition IN PLACE to each tenant's published version
+  (`000369` is untouched; checksummed on STG).
+- **Who decides:** the producer. `sales.deal.recorded` carries `has_live_animals`, computed from the
+  deal's LINES inside the recording transaction (`sales/domain.DealWrite.HasLiveAnimals`): an
+  animal-kind line whose head counts add up to one whole animal -- the same whole-animal test the
+  tagging gate applies. Never the deal-level `animal_count`: legacy manure deals carry `1` there.
+  An event written before the key existed opens every step, as before.
+- A kept step that waits on a dropped step (`requires`, an `after_step` schedule) is released
+  rather than left waiting forever; a branch off a dropped question is dropped with it.
+- On `/sales/sops` the step editor offers the condition as **"Only when the sale has animals"**
+  (option group `sop_step_conditions_sales`, backend copy).
+- Migration `000429` repairs workflows already open: the unfinished tag / loading / gate-pass steps
+  of a sale with no live animals are skipped and the card recomputed.
+
+**Not done: a sale EDITED after it opened.** There is no edit path for a deal's lines today (a sale
+is recorded, then only its status and receipts change), so nothing can gain or lose animals after
+the workflow opens. When a line edit is built, it must emit an event the tasks module consumes to
+skip the three steps (animals lost) or append them (animals gained) -- the engine has no
+append-steps-from-SOP call yet (only the birth capture re-shoot appends), so that half is its own
+piece of work.
+
+## A failed sale (maintainer decision 2026-09-25)
+
+"Deal Failed" only wrote an audit row; the sale's workflow stayed open.
+
+- `sales.Repository.SetDealStatus` now emits **`sales.deal.status_changed`** inside its transaction,
+  only when the status actually changes. `tasks/app.SaleStatusChangedWorkflowHandler` cancels the
+  deal's open workflow on Deal Failed: every unfinished step cancelled, finished steps kept, card
+  closed; idempotent. A write to a cancelled step is refused (`409 action_canceled`).
+- **The maintainer asked that animals already tagged to a failed sale go back to the herd in their
+  pen. That release is NOT built**, because there is no reversal of a sale exit anywhere: the
+  tagging confirm exits each animal as `sold` through the canonical exit, whose `goat.exited` event
+  cancels its open vaccination work, moves counts and the feed projection, and has already sent the
+  Feed Director the sale notice. Undoing it needs a new herd transition (sold -> alive in the same
+  pen, allocation `released`, audit) and a new event every one of those consumers understands
+  (vaccination regeneration, counts, feed). Until that exists, marking a sale failed is **refused
+  while animals are tagged to it** (`409 sale_has_tagged_animals`, "N animals are already tagged to
+  this sale and marked sold..."), counted through `sales/adapters/identitybridge` under the deal
+  row lock. The tagging confirm locks the same row and refuses a failed deal (`409
+  sale_deal_failed`), so the two can never both win.
+- Migration `000429` cancels the workflows of deals already marked Deal Failed.
+- Reopening a failed deal does not revive its cancelled workflow (follow-up if wanted).
+
+Pinned by `tasks/domain.TestSaleWithoutAnimalsOpensOnlyThePaymentSteps` and siblings,
+`tasks/app.TestSaleRecordedCarriesWhetherTheSaleHasAnimals`, `TestDealFailedCancelsTheSaleWorkflow`,
+`sales/domain.TestHasLiveAnimalsReadsTheAnimalLinesHeadCount`, and on real Postgres
+`TestSaleWithoutAnimalsOpensWithoutAnUnfinishableTagStep` (runs 000428's own SQL),
+`TestDealFailedCancelsItsSaleWorkflow`, `TestRepair000429UnsticksExistingSaleWorkflows`,
+`identity/adapters/postgres.TestASaleWithTaggedAnimalsCannotBeMarkedFailed` and
+`TestAFailedSaleEmitsItsEventAndTakesNoAnimals` -- each mutation-tested when written.
