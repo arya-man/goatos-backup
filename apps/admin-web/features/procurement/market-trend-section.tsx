@@ -1,0 +1,142 @@
+"use client";
+
+// telemetry:exempt view-only chart filter over data the page already holds; no write, no data read
+
+import { useState } from "react";
+
+import { ChartHover } from "@/components/chart-hover";
+import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
+import { SeriesLegend, SeriesLines, seriesColorVar, type LineSeries } from "@/components/svg-series";
+import { Tag } from "@/components/ui-primitives";
+import type { MarketSeries } from "@/lib/api/market-server";
+import { istDayPlus } from "@/lib/format";
+import { humanDate } from "./sales-format";
+
+/** Backend copy the server page resolves and hands down; this file names no label of its own. */
+export type MarketTrendLabels = {
+  title: string;
+  sub: string;
+  aria: string;
+  questionGroup: string;
+  cityGroup: string;
+  cityAll: string;
+  empty: string;
+};
+
+/**
+ * The market trend chart and its question / city chips (flicker fix, 2026-09-25).
+ *
+ * The chips used to be Links: every pick re-ran BOTH server reads for a series the page already
+ * held, and the whole page waited on them. Picking a question or a city only chooses which of the
+ * loaded series to draw, so it is CLIENT state now -- instant, no request -- and the URL follows
+ * through replaceLocalOverlayUrl (no navigation) so a reload or a shared link keeps the pick.
+ */
+export function MarketTrendSection({
+  series,
+  questions,
+  cities,
+  from,
+  today,
+  initialQuestion,
+  initialCity,
+  labels,
+}: {
+  series: MarketSeries[];
+  questions: { id: string; label: string }[];
+  cities: { id: string; label: string }[];
+  from: string;
+  today: string;
+  initialQuestion: string;
+  initialCity: string;
+  labels: MarketTrendLabels;
+}) {
+  const [question, setQuestion] = useState(initialQuestion);
+  const [city, setCity] = useState(initialCity);
+
+  const pick = (nextQuestion: string, nextCity: string) => {
+    setQuestion(nextQuestion);
+    setCity(nextCity);
+    const url = new URL(window.location.href);
+    if (nextQuestion && nextQuestion !== questions[0]?.id) url.searchParams.set("question", nextQuestion);
+    else url.searchParams.delete("question");
+    if (nextCity) url.searchParams.set("city", nextCity);
+    else url.searchParams.delete("city");
+    replaceLocalOverlayUrl(`${url.pathname}${url.search}`);
+  };
+
+  // Trend chart: the selected question, one line per city (and per unit within a city), on a
+  // shared day axis that starts on the FIRST morning any price was recorded inside the window.
+  // Days with no price are null so the line breaks honestly rather than interpolating.
+  const trendSeries = series.filter((s) => s.question_id === question && (city === "" || s.city_id === city));
+  const firstRecorded = series.reduce((min, s) => {
+    const first = s.points[0]?.business_date ?? "";
+    return first && (min === "" || first < min) ? first : min;
+  }, "");
+  const axisFrom = firstRecorded && firstRecorded > from ? firstRecorded : from;
+  const dayKeys: string[] = [];
+  for (let d = axisFrom; d <= today; d = istDayPlus(d, 1)) dayKeys.push(d);
+  const dayIndex = new Map(dayKeys.map((d, i) => [d, i] as const));
+  const lines: LineSeries[] = trendSeries.map((s, i) => {
+    const points: (number | null)[] = dayKeys.map(() => null);
+    for (const p of s.points) {
+      const idx = dayIndex.get(p.business_date);
+      if (idx !== undefined) points[idx] = p.price;
+    }
+    return { label: `${s.city_name} · ${s.unit_label}`, colorVar: seriesColorVar(i), points };
+  });
+  const span = dayKeys.length;
+  const step = span <= 14 ? 1 : span <= 90 ? 7 : span <= 180 ? 14 : 30;
+  const dayLabels = dayKeys.map((d, i) => (i % step === 0 ? humanDate(d) : ""));
+  const questionLabel = questions.find((q) => q.id === question)?.label ?? "";
+  const unit = trendSeries[0]?.unit_label ?? "";
+
+  return (
+    <section className="card wchart" style={{ marginTop: 12 }} aria-label={labels.aria}>
+      <div className="hd">
+        <h3>{labels.title}</h3>
+        <div className="sp" style={{ flex: 1 }} />
+        {unit ? <Tag tone="mut">{unit}</Tag> : null}
+      </div>
+      <p className="muted small">{labels.sub}</p>
+      <div className="chips" role="group" aria-label={labels.questionGroup}>
+        {questions.map((q) => (
+          <button
+            key={q.id}
+            type="button"
+            className={q.id === question ? "btn sm p" : "btn sm"}
+            aria-pressed={q.id === question}
+            onClick={() => pick(q.id, city)}
+          >
+            {q.label}
+          </button>
+        ))}
+      </div>
+      <div className="chips" role="group" aria-label={labels.cityGroup} style={{ marginTop: 6 }}>
+        <button type="button" className={city === "" ? "btn sm p" : "btn sm"} aria-pressed={city === ""} onClick={() => pick(question, "")}>
+          {labels.cityAll}
+        </button>
+        {cities.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            className={c.id === city ? "btn sm p" : "btn sm"}
+            aria-pressed={c.id === city}
+            onClick={() => pick(question, c.id)}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <ChartHover>
+        <SeriesLines
+          series={lines}
+          dayLabels={dayLabels}
+          valueNoun={unit || questionLabel}
+          chartLabel={`${labels.title} · ${questionLabel}`}
+          emptyLabel={labels.empty}
+        />
+      </ChartHover>
+      <SeriesLegend entries={lines.map((l) => ({ label: l.label, colorVar: l.colorVar }))} />
+    </section>
+  );
+}

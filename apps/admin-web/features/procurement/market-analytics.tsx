@@ -2,18 +2,18 @@ import { redirect } from "next/navigation";
 import { Phone } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
-import { ChartHover } from "@/components/chart-hover";
-import { SeriesLegend, SeriesLines, seriesColorVar, type LineSeries } from "@/components/svg-series";
+import { LinkPending } from "@/components/link-pending";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getMarketAnalytics, getMarketSurveyDay } from "@/lib/api/market-server";
-import type { MarketAnalytics, MarketLatestCell, MarketSeries } from "@/lib/api/market-server";
+import type { MarketAnalytics, MarketLatestCell } from "@/lib/api/market-server";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { humanDate, num } from "./sales-format";
 import { SalesPageHeader } from "./sales-chrome";
+import { MarketTrendSection } from "./market-trend-section";
 
 const PAGE_PATH = "/sales/market-analytics";
 /** The window chips, in days. 90 is the backend's own default. */
@@ -94,38 +94,6 @@ export async function MarketAnalyticsPage({
   const latestCities = uniqueBy(analytics.latest, (c) => c.city_id, (c) => c.city_name);
   const latestDate = analytics.latest.reduce((max, c) => (c.business_date > max ? c.business_date : max), "");
 
-  // Trend chart: the selected question, one line per city (and per unit within a city), on a
-  // shared day axis. The axis starts on the FIRST morning any price was recorded inside the
-  // window rather than on the window's first day, so a survey that began last week is not
-  // squeezed into the right edge of a 90-day axis. Days with no price are null so the line
-  // breaks honestly rather than interpolating a morning nobody phoned.
-  const trendSeries: MarketSeries[] = analytics.series.filter(
-    (s) => s.question_id === selectedQuestion && (selectedCity === "" || s.city_id === selectedCity),
-  );
-  const firstRecorded = analytics.series.reduce((min, s) => {
-    const first = s.points[0]?.business_date ?? "";
-    return first && (min === "" || first < min) ? first : min;
-  }, "");
-  const axisFrom = firstRecorded && firstRecorded > from ? firstRecorded : from;
-  const dayKeys: string[] = [];
-  for (let d = axisFrom; d <= today; d = istDayPlus(d, 1)) dayKeys.push(d);
-  const dayIndex = new Map(dayKeys.map((d, i) => [d, i] as const));
-  const lines: LineSeries[] = trendSeries.map((s, i) => {
-    const points: (number | null)[] = dayKeys.map(() => null);
-    for (const p of s.points) {
-      const idx = dayIndex.get(p.business_date);
-      if (idx !== undefined) points[idx] = p.price;
-    }
-    return { label: `${s.city_name} · ${s.unit_label}`, colorVar: seriesColorVar(i), points };
-  });
-  // Axis labels, thinned so a long axis stays legible: every day up to two weeks, then weekly,
-  // fortnightly, monthly.
-  const span = dayKeys.length;
-  const step = span <= 14 ? 1 : span <= 90 ? 7 : span <= 180 ? 14 : 30;
-  const dayLabels = dayKeys.map((d, i) => (i % step === 0 ? humanDate(d) : ""));
-  const selectedQuestionLabel = questions.find((q) => q.id === selectedQuestion)?.label ?? "";
-  const selectedUnit = trendSeries[0]?.unit_label ?? "";
-
   return (
     <div className="screen on market-analytics-page">
       <SalesPageHeader pageContract={pageContract} />
@@ -170,6 +138,7 @@ export async function MarketAnalyticsPage({
             aria-current={w === windowDays ? "true" : undefined}
           >
             {copy(pageContract, `filter.window.${w}`)}
+            <LinkPending />
           </Link>
         ))}
       </div>
@@ -241,53 +210,24 @@ export async function MarketAnalyticsPage({
             </div>
           </section>
 
-          <section className="card wchart" style={{ marginTop: 12 }} aria-label={copy(pageContract, "section.trend.aria")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "section.trend.title")}</h3>
-              <div className="sp" style={{ flex: 1 }} />
-              {selectedUnit ? <Tag tone="mut">{selectedUnit}</Tag> : null}
-            </div>
-            <p className="muted small">{copy(pageContract, "section.trend.sub")}</p>
-            <div className="chips" role="group" aria-label={copy(pageContract, "filter.question.label")}>
-              {questions.map((q) => (
-                <Link
-                  key={q.id}
-                  href={hrefWithQuery(sp, { question: q.id === questions[0]?.id ? null : q.id })}
-                  scroll={false}
-                  className={q.id === selectedQuestion ? "btn sm p" : "btn sm"}
-                  aria-current={q.id === selectedQuestion ? "true" : undefined}
-                >
-                  {q.label}
-                </Link>
-              ))}
-            </div>
-            <div className="chips" role="group" aria-label={copy(pageContract, "filter.city.label")} style={{ marginTop: 6 }}>
-              <Link href={hrefWithQuery(sp, { city: null })} scroll={false} className={selectedCity === "" ? "btn sm p" : "btn sm"} aria-current={selectedCity === "" ? "true" : undefined}>
-                {copy(pageContract, "filter.city.all")}
-              </Link>
-              {cities.map((c) => (
-                <Link
-                  key={c.id}
-                  href={hrefWithQuery(sp, { city: c.id })}
-                  scroll={false}
-                  className={c.id === selectedCity ? "btn sm p" : "btn sm"}
-                  aria-current={c.id === selectedCity ? "true" : undefined}
-                >
-                  {c.label}
-                </Link>
-              ))}
-            </div>
-            <ChartHover>
-              <SeriesLines
-                series={lines}
-                dayLabels={dayLabels}
-                valueNoun={selectedUnit || selectedQuestionLabel}
-                chartLabel={`${copy(pageContract, "section.trend.title")} · ${selectedQuestionLabel}`}
-                emptyLabel={copy(pageContract, "chart.trend.empty")}
-              />
-            </ChartHover>
-            <SeriesLegend entries={lines.map((l) => ({ label: l.label, colorVar: l.colorVar }))} />
-          </section>
+          <MarketTrendSection
+            series={analytics.series}
+            questions={questions}
+            cities={cities}
+            from={from}
+            today={today}
+            initialQuestion={selectedQuestion}
+            initialCity={selectedCity}
+            labels={{
+              title: copy(pageContract, "section.trend.title"),
+              sub: copy(pageContract, "section.trend.sub"),
+              aria: copy(pageContract, "section.trend.aria"),
+              questionGroup: copy(pageContract, "filter.question.label"),
+              cityGroup: copy(pageContract, "filter.city.label"),
+              cityAll: copy(pageContract, "filter.city.all"),
+              empty: copy(pageContract, "chart.trend.empty"),
+            }}
+          />
         </>
       )}
     </div>

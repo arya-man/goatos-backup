@@ -144,7 +144,11 @@ test("the Over 35 kg card asks for six weeks, and the backend floors it", () => 
   // page does not carry a second copy of a date the server already owns. The card lives on
   // Farm value since the 2026-09-11 split.
   const source = readFileSync(new URL("./sales-farm-value.tsx", import.meta.url), "utf8");
-  assert.match(source, /const OVER35_WINDOW_DAYS = 42;/);
+  // One window for the page's first count and the card's in-place re-count (over35-actions.ts).
+  const windowSource = readFileSync(new URL("./over35-window.ts", import.meta.url), "utf8");
+  assert.match(windowSource, /export const OVER35_WINDOW_DAYS = 42;/);
+  const actionSource = readFileSync(new URL("./over35-actions.ts", import.meta.url), "utf8");
+  assert.match(actionSource, /from: istDayPlus\(to, -OVER35_WINDOW_DAYS\)/);
   assert.match(source, /const over35From = istDayPlus\(over35To, -OVER35_WINDOW_DAYS\);/);
   // No anchor date lives on this page: a client-side floor would drift from the server's.
   assert.doesNotMatch(source, /2026-08-0\d/);

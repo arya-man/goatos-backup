@@ -15,6 +15,8 @@ const drawerSource = readFileSync(join(here, "weights-assumptions.tsx"), "utf8")
 const pageSource = readFileSync(join(here, "weights-analytics.tsx"), "utf8");
 const sopPageSource = readFileSync(join(here, "..", "..", "app", "(admin)", "weighing", "sops", "page.tsx"), "utf8");
 const farmValueSource = readFileSync(join(here, "..", "procurement", "sales-farm-value.tsx"), "utf8");
+const over35KpiSource = readFileSync(join(here, "..", "procurement", "over35-kpi.tsx"), "utf8");
+const over35ActionSource = readFileSync(join(here, "..", "procurement", "over35-actions.ts"), "utf8");
 const weightsSource = readFileSync(join(here, "weights.tsx"), "utf8");
 const serviceSource = readFileSync(
   join(here, "..", "..", "..", "..", "backend", "internal", "adminui", "app", "service.go"),
@@ -73,7 +75,12 @@ test("the sale-ready line reaches the weighing count as a parameter on every pag
   assert.match(weightsSource, /fillKg\(copy\(pageContract, "kpi\.over30\.label"\), saleLowerKg \?\? DEFAULT_SALE_READY_LOWER_KG\)/);
   // The label is filled from the SAME value the count used; a literal 35 must not survive.
   assert.match(pageSource, /fillKg\(copy\(pageContract, "kpi\.over35\.label"\), saleThresholdKg\)/);
-  assert.match(farmValueSource, /fillKg\(copy\(pageContract, "kpi\.over35"\), over35\.lineKg\)/);
+  // The Over 35 kg card renders in place (over35-kpi.tsx) from the page's own line and label.
+  assert.match(farmValueSource, /title: copy\(pageContract, "kpi\.over35"\)/);
+  assert.match(farmValueSource, /lineKg=\{over35\.lineKg\}/);
+  assert.match(over35KpiSource, /fillKg\(labels\.title, lineKg\)/);
+  // The in-place re-count takes the SAME tenant line, never a literal.
+  assert.match(over35ActionSource, /sale_threshold_kg: lineKg/);
   assert.doesNotMatch(farmValueSource, /Math\.max\(0, 35 - /, "the cut-off line must be computed from the assumption, not a literal 35");
   assert.match(serviceSource, /"kpi\.over35":\s+"Over \{kg\} kg"/, "the label carries the {kg} placeholder");
 });

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import Link from "@/components/no-prefetch-link";
+import { LinkPending } from "@/components/link-pending";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
@@ -144,6 +145,7 @@ export async function SalesLoadsPage({
                 aria-current={option.key === view ? "true" : undefined}
               >
                 {option.label}
+                <LinkPending />
               </Link>
             ))}
           </div>

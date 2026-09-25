@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import Link from "@/components/no-prefetch-link";
+import { LinkPending } from "@/components/link-pending";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { copy, optionGroup, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -12,6 +13,7 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { humanDate, inr, num } from "./sales-format";
 import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
 import { FarmBornSoldTable } from "./farm-born-sold-table";
+import { tableOrderFromParams, type TableOrder } from "./table-order";
 
 const PAGE_PATH = "/sales/farm-born";
 /** Only used when an older backend contract carries no sold table; the contract page size wins. */
@@ -148,6 +150,7 @@ function BreakdownCard({
           {pager.offset > 0 ? (
             <Link href={pager.href(Math.max(0, pager.offset - pager.limit))} scroll={false} className="btn">
               {copy(pageContract, "action.previous")}
+              <LinkPending />
             </Link>
           ) : (
             <span className="btn" aria-disabled="true">
@@ -157,6 +160,7 @@ function BreakdownCard({
           {pager.offset + pager.limit < rows.length ? (
             <Link href={pager.href(pager.offset + pager.limit)} scroll={false} className="btn">
               {copy(pageContract, "action.next")}
+              <LinkPending />
             </Link>
           ) : (
             <span className="btn" aria-disabled="true">
@@ -175,12 +179,14 @@ function FarmBornSections({
   pageHref,
   penOffset,
   penHref,
+  order,
 }: {
   data: FarmBornSales;
   pageContract: AdminUiPageContract;
   pageHref: (offset: number) => string;
   penOffset: number;
   penHref: (offset: number) => string;
+  order: TableOrder;
 }) {
   const s = data.summary;
   const unpriced = s.sold - s.sold_priced;
@@ -263,7 +269,9 @@ function FarmBornSections({
           <FarmBornSoldTable
             contract={table(pageContract, "sales-farm-born-sold")}
             rows={data.sold}
+            order={order}
             labels={{
+              sortAll: copy(pageContract, "table.sort_all"),
               ariaLabel: copy(pageContract, "section.sold.aria"),
               notRecorded: copy(pageContract, "value.not_recorded"),
               noDeal: copy(pageContract, "value.no_deal"),
@@ -283,6 +291,7 @@ function FarmBornSections({
             {data.offset > 0 ? (
               <Link href={pageHref(Math.max(0, data.offset - data.limit))} scroll={false} className="btn">
                 {copy(pageContract, "action.previous")}
+                <LinkPending />
               </Link>
             ) : (
               <span className="btn" aria-disabled="true">
@@ -292,6 +301,7 @@ function FarmBornSections({
             {data.offset + data.limit < data.total_sold ? (
               <Link href={pageHref(data.offset + data.limit)} scroll={false} className="btn">
                 {copy(pageContract, "action.next")}
+                <LinkPending />
               </Link>
             ) : (
               <span className="btn" aria-disabled="true">
@@ -355,6 +365,8 @@ export async function SalesFarmBornPage({
   const offset = boundedInt(one(sp, "offset"), 0, 0, MAX_OFFSET);
   const penOffset = boundedInt(one(sp, PEN_OFFSET_PARAM), 0, 0, MAX_OFFSET);
 
+  // The sold ledger's whole-result order, validated against the contract's sortable columns.
+  const order = tableOrderFromParams(sp, table(pageContract, "sales-farm-born-sold"));
   const result = await getFarmBornSales({
     from: from || undefined,
     to: to || undefined,
@@ -366,6 +378,8 @@ export async function SalesFarmBornPage({
     stage: stage || undefined,
     limit,
     offset,
+    sort: order.sort || undefined,
+    dir: order.sort ? order.dir : undefined,
   });
   if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
 
@@ -475,14 +489,23 @@ export async function SalesFarmBornPage({
         clears={["pen", "offset", PEN_OFFSET_PARAM]}
       />
 
-      <WorklistFilters basePath={PAGE_PATH} pageParam="offset" fields={filterFields} pageContract={pageContract}>
+      {/* The filters are STAGED and committed on one Apply (flicker fix, 2026-09-25): every pick used
+          to run the whole page again and dim all of it. Only the bar says it is busy now. */}
+      <WorklistFilters
+        basePath={PAGE_PATH}
+        pageParam="offset"
+        fields={filterFields}
+        pageContract={pageContract}
+        deferApply
+        holdChildren={false}
+      >
         {!result.ok ? (
           <div className="alert" style={{ marginBottom: 14 }}>
             <b>{result.error.code ?? result.error.kind}</b>&nbsp;
             {result.error.message || copy(pageContract, "error.load")}
           </div>
         ) : (
-          <FarmBornSections data={result.data} pageContract={pageContract} pageHref={pageHref} penOffset={penOffset} penHref={penHref} />
+          <FarmBornSections data={result.data} pageContract={pageContract} pageHref={pageHref} penOffset={penOffset} penHref={penHref} order={order} />
         )}
       </WorklistFilters>
     </div>

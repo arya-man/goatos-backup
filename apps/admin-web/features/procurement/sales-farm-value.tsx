@@ -4,14 +4,15 @@ import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights } from "@/lib/api/server";
-import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG, fillKg } from "@/features/weighing";
+import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG } from "@/features/weighing";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { getSalesOverview } from "@/lib/api/procurement-server";
 import type { SalesOverview } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { inr, num } from "./sales-format";
 import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
-import { SalesReadyToleranceControl } from "./sales-ready-tolerance-control";
+import { Over35Kpi } from "./over35-kpi";
+import { OVER35_MAX_TOLERANCE_G, OVER35_WINDOW_DAYS } from "./over35-window";
 
 const PAGE_PATH = "/sales/farm-value";
 
@@ -30,12 +31,10 @@ type Over35Card = {
   thresholdKg: number;
   /** The sale line before tolerance -- the tenant's assumption -- for the "Over N kg" label. */
   lineKg: number;
-  preserveQuery: [string, string][];
+  /** The page's park, so the card re-counts for the same scope the rest of the page shows. */
+  parkId: string;
 };
 
-/** The nominal sale-ready lookback; backend clamps tolerance reads to reliable weighing data. */
-const OVER35_WINDOW_DAYS = 42;
-const OVER35_MAX_TOLERANCE_G = 1000;
 /**
  * The buckets whose card shows its animals by sex (maintainer request 2026-09-11: "male, female,
  * missing ... for K0/K2/K3 or fattening ... no need for the other two"). Adult females and adult
@@ -108,32 +107,26 @@ function FarmValueSections({
                   strip it read as a count of animals already sold at that weight.
                   Gated by the page contract: a role that may not read weights sees the backend's
                   reason, never a zero. */}
-              <div className="kpi">
-                <div className="lab">{fillKg(copy(pageContract, "kpi.over35"), over35.lineKg)}</div>
-                <div className="val">{over35.count == null ? none : num(over35.count)}</div>
-                <div className="dl">
-                  {!over35.enabled
-                    ? over35.disabledReason
-                    : over35.count == null
-                      ? copy(pageContract, "kpi.over35.none")
-                      : `${copy(pageContract, "kpi.over35.sub")} · ${num(over35.thresholdKg, 1)}+`}
-                </div>
-                {/* The error margin tunes THIS card's figure and nothing else on the page, so it
-                    sits inside the card (maintainer request 2026-09-14). As a strip under the
-                    whole row it read as a page-wide control over the valuation too. */}
-                {over35.enabled ? (
-                  <SalesReadyToleranceControl
-                    key={over35.toleranceG}
-                    lineKg={over35.lineKg}
-                    valueG={over35.toleranceG}
-                    maxG={OVER35_MAX_TOLERANCE_G}
-                    preserveQuery={over35.preserveQuery}
-                    pagePath={PAGE_PATH}
-                    label={copy(pageContract, "kpi.over35.tolerance")}
-                    applyLabel={copy(pageContract, "kpi.over35.apply")}
-                  />
-                ) : null}
-              </div>
+              <Over35Kpi
+                // Re-mounted when the page's own park or margin changes underneath it.
+                key={`${over35.parkId}|${over35.toleranceG}`}
+                parkId={over35.parkId}
+                enabled={over35.enabled}
+                disabledReason={over35.disabledReason}
+                initialCount={over35.count}
+                initialToleranceG={over35.toleranceG}
+                lineKg={over35.lineKg}
+                maxG={OVER35_MAX_TOLERANCE_G}
+                labels={{
+                  title: copy(pageContract, "kpi.over35"),
+                  sub: copy(pageContract, "kpi.over35.sub"),
+                  none: copy(pageContract, "kpi.over35.none"),
+                  noneValue: none,
+                  tolerance: copy(pageContract, "kpi.over35.tolerance"),
+                  apply: copy(pageContract, "kpi.over35.apply"),
+                  failed: copy(pageContract, "error.load"),
+                }}
+              />
             </div>
           </section>
 
@@ -201,6 +194,9 @@ export async function SalesFarmValuePage({
   // once and handed to the weighing count -- weighing does not read the assumptions table. A
   // failed read (other than auth) is the CARD's failure: the count is not taken at the constants'
   // line and shown as valid; the card carries the error and no number (PR #320 review).
+  // The valuation does not depend on the sale line, so it is ASKED FOR FIRST and runs beside the
+  // assumptions -> weighing chain rather than after it (flicker fix, 2026-09-25).
+  const overviewPromise = getSalesOverview({ farm });
   const assumptions = over35Enabled ? await getGrowthAssumptions() : null;
   if (assumptions && firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
   const assumptionsFailed = assumptions != null && !assumptions.ok;
@@ -215,22 +211,14 @@ export async function SalesFarmValuePage({
     sale_threshold_kg: saleThresholdKg,
     sale_lower_kg: saleLowerKg,
   };
-  // The page's data in ONE parallel read: the overview (whose farm_valuation is this page's
-  // block) and, when enabled, the weighing count -- read for the selected park directly, since the
-  // page's scope IS the park id the weighing read takes.
+  // The weighing count is read for the selected park directly: the page's scope IS the park id
+  // the weighing read takes, so there is no all-parks read to throw away.
   const [overviewResult, weightsResult] = await Promise.all([
-    getSalesOverview({ farm }),
-    over35Enabled && !assumptionsFailed
-      ? getShedWeights({ ...over35Params, ...(parkId ? { park_id: parkId } : {}) })
-      : Promise.resolve(null),
+    overviewPromise,
+    over35Enabled && !assumptionsFailed ? getShedWeights({ ...over35Params, ...(parkId ? { park_id: parkId } : {}) }) : Promise.resolve(null),
   ]);
   if (firstAuthRequiredError(overviewResult)) redirect(INTERNAL_LOGIN_PATH);
   const over35Count: number | null = weightsResult?.ok ? weightsResult.data.summary.at_or_above_35kg : null;
-  const over35PreserveQuery = Object.entries(sp).flatMap(([key, value]) => {
-    if (key === "sale_ready_tolerance_g") return [];
-    const first = Array.isArray(value) ? value[0] : value;
-    return first ? ([[key, first]] as [string, string][]) : [];
-  });
   const over35: Over35Card = {
     enabled: over35Enabled && !assumptionsFailed,
     disabledReason: assumptionsFailed
@@ -242,7 +230,7 @@ export async function SalesFarmValuePage({
     toleranceG: over35ToleranceG,
     thresholdKg: over35ThresholdKg,
     lineKg: saleThresholdKg,
-    preserveQuery: over35PreserveQuery,
+    parkId,
   };
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
 

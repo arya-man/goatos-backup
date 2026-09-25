@@ -1,4 +1,5 @@
 import Link from "@/components/no-prefetch-link";
+import { LinkPending } from "@/components/link-pending";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { redirect } from "next/navigation";
 import { getAdminWebBootstrap } from "@/lib/api/server";
@@ -110,6 +111,7 @@ export function SalesFarmToggle({
           aria-current={id === parkId ? "true" : undefined}
         >
           {option.label}
+          <LinkPending />
         </Link>
       ))}
     </div>

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import Link from "@/components/no-prefetch-link";
+import { LinkPending } from "@/components/link-pending";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { Banknote } from "lucide-react";
@@ -19,7 +20,7 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listProcurementVendorOptions } from "@/lib/api/server";
 import type { ProcurementVendorOptions } from "@/lib/api/server";
-import { getSalesOptions, getSalesOverview, listSalesDeals } from "@/lib/api/procurement-server";
+import { getSalesOverview, listSalesDeals } from "@/lib/api/procurement-server";
 import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import {
@@ -305,6 +306,7 @@ function SoldSections({
                 {buyersPageNumber > 1 ? (
                   <Link href={buyersHref(buyersPageNumber - 1)} scroll={false} className="btn">
                     {copy(pageContract, "action.prev_page")}
+                    <LinkPending />
                   </Link>
                 ) : (
                   <span className="btn" aria-disabled="true">
@@ -314,6 +316,7 @@ function SoldSections({
                 {buyersPageNumber < buyersPageCount ? (
                   <Link href={buyersHref(buyersPageNumber + 1)} scroll={false} className="btn">
                     {copy(pageContract, "action.next_page")}
+                    <LinkPending />
                   </Link>
                 ) : (
                   <span className="btn" aria-disabled="true">
@@ -352,14 +355,15 @@ export async function SalesSoldPage({
   // one ledger page, and the vendor register the deal drawer names (LocalOverlayLink opens
   // without an RSC request, so drawer data must ride with the page). Fetch = render: the
   // weighing count belongs to Farm value.
-  const [overviewResult, dealsResult, vendorOptionsResult, salesOptionsResult] = await Promise.all([
+  // No /sales/options: it feeds only the record-sale FORM, and this page's contract declares no
+  // record control (read-only by contract), so reading it on every filter change was pure waste.
+  const [overviewResult, dealsResult, vendorOptionsResult] = await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
     // The deal drawer here is a READ-ONLY detail, and it still names the buyer's vendor. Resolving
     // that id to the register's name needs the active register with the page. ONE bounded read,
     // never a paged walk of /procurement/vendors: that is the banned SSR full-walk shape.
     listProcurementVendorOptions(),
-    getSalesOptions(),
   ]);
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
@@ -368,7 +372,6 @@ export async function SalesSoldPage({
   // The drawer renders a stated error for that case rather than an empty dropdown, which would read
   // as "there are no vendors" and send the person to add one that already exists.
   const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;
-  const salesOptions = salesOptionsResult.ok ? salesOptionsResult.data : null;
   const deals: SalesDeal[] = dealsResult.ok ? dealsResult.data.deals : [];
   const total = dealsResult.ok ? dealsResult.data.total : 0;
   const pageCount = Math.max(1, Math.ceil(total / limit));
@@ -493,6 +496,7 @@ export async function SalesSoldPage({
                 className="btn"
               >
                 {copy(pageContract, "action.prev_page")}
+                <LinkPending />
               </Link>
             ) : (
               <span className="btn" aria-disabled="true">
@@ -506,6 +510,7 @@ export async function SalesSoldPage({
                 className="btn"
               >
                 {copy(pageContract, "action.next_page")}
+                <LinkPending />
               </Link>
             ) : (
               <span className="btn" aria-disabled="true">
@@ -524,7 +529,7 @@ export async function SalesSoldPage({
         listHref={listHref}
         canRecord={canRecord}
         vendorOptions={vendorOptions}
-        salesOptions={salesOptions}
+        salesOptions={null}
         // Sold is READ-ONLY (maintainer decision 2026-09-11): its page contract declares no write
         // control, so this drawer never renders the record form and has no submit to confirm.
         // Every sales write is made on /sales/config, which is where the confirmation appears.
