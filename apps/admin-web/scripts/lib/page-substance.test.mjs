@@ -107,3 +107,11 @@ test("the route sweep consults the gate before its detectors and fails a blank p
   const firstCheck = runner.indexOf("assertRegressionPatterns(page");
   assert.ok(gateAt > 0 && firstCheck > 0 && gateAt < firstCheck, "the gate must run before the first detector");
 });
+
+test("stat tiles count as content and a named *-empty-state reads as an empty state", () => {
+  // Farm value is a page of .kpi tiles (no table, no .card); Tasks' filtered-out view says so in
+  // .lt-empty-state. Both were reported as blank pages by the production sweep.
+  const source = collectSubstance.toString();
+  assert.match(source, /\.kpi/, "the stat tile is a content unit");
+  assert.match(source, /-empty-state/, "a page-named empty state is an empty state");
+});

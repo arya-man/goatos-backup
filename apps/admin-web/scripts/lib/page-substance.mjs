@@ -43,7 +43,7 @@ export function collectSubstance() {
   const text = (main.innerText ?? "").trim();
   // An explicit empty state is the page SAYING it has nothing, which is a
   // different fact from the page drawing nothing at all.
-  const emptyState = [...main.querySelectorAll('[data-empty], .empty, .empty-state, [role="status"]')]
+  const emptyState = [...main.querySelectorAll('[data-empty], .empty, .empty-state, [class*="-empty-state"], [role="status"]')]
     .filter(vis).map((el) => (el.innerText ?? "").trim()).filter(Boolean);
   return {
     // Proof the script RAN. Without it, a snapshot that never happened and a
@@ -51,7 +51,8 @@ export function collectSubstance() {
     // against the page.
     collected: true,
     rows: count("tbody tr"),
-    cards: count("[data-card], .card, article"),
+    // .kpi is the shared stat tile (a figure with its label): a page of tiles is a page of content.
+    cards: count("[data-card], .card, article, .kpi"),
     cells: count("tbody td"),
     chartMarks: count("svg rect, svg path[d], svg circle, canvas"),
     // A settings/config form IS the page's content. Only fields inside a <form> count, so a

@@ -45,7 +45,6 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["procurement-sops", "/procurement/sops?scope_mode=company"],
     ["procurement-toxin-list", "/procurement/sops?scope_mode=company&compose=1&edit=${dynamic}&view=list"],
     ["procurement-toxin-flow", "/procurement/sops?scope_mode=company&compose=1&edit=${dynamic}&view=flow"],
-    ["sales", "/sales?scope_mode=company"],
     ["approvals", "/approvals?scope_mode=company"],
     ["approvals-approved", "/approvals?scope_mode=company&status=approved"],
     ["approvals-rejected", "/approvals?scope_mode=company&status=rejected"],
@@ -54,15 +53,13 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["verify-approved", "/verify?scope_mode=company&status=approved"],
     ["verify-rejected", "/verify?scope_mode=company&status=rejected"],
     ["verify-toxin", "/verify?scope_mode=company&toxin=1"],
-    ["actions", "/actions?scope_mode=company"],
-    ["verification", "/verification?scope_mode=company"],
     ["vaccination", "/vaccination?scope_mode=company"],
     ["vaccination-execution", "/vaccination?scope_mode=company#execution"],
     ["vaccination-sheds-status-action", "/vaccination?scope_mode=company&sheds_status=needs_review#execution"],
     ["vaccination-sheds-capacity-action", "/vaccination?scope_mode=company&sheds_capacity=capacity_breach#execution"],
     ["vaccination-live-tracker", "/vaccination/live-tracker?scope_mode=company"],
     ["vaccination-plan", "/vaccination/plan?scope_mode=company"],
-    ["vaccination-plan-edit", "/vaccination/plan/edit?scope_mode=company"],
+    ["vaccination-plan-edit", "/vaccination/plan/edit?scope_mode=company&version=${dynamic}"],
     ["sales-sold", "/sales/sold?scope_mode=company"],
     ["sales-farm-value", "/sales/farm-value?scope_mode=company"],
     ["sales-loads", "/sales/loads?scope_mode=company"],
@@ -130,10 +127,9 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["operations-dlq-failed", "/operations/dlq?scope_mode=company&status=failed"],
     ["operations-dlq-discarded", "/operations/dlq?scope_mode=company&status=discarded"],
     ["people", "/people?scope_mode=company"],
-    ["people-vaccination", "/people?scope_mode=company&tab=vaccination"],
+    ["people-vaccination", "/people?scope_mode=company&tab=vaccination&park=${dynamic}"],
     ["people-clock", "/people?scope_mode=company&tab=clock"],
     ["people-notifications", "/people?scope_mode=company&tab=notifications"],
-    ["ceo-ai-admin", "/ceo-ai-admin?scope_mode=company"],
     ["routines", "/routines?scope_mode=company"],
     ["leave", "/leave?scope_mode=company"],
     ["leave-approved", "/leave?scope_mode=company&status=approved"],
@@ -367,4 +363,14 @@ test("routes that need a fixture id are dropped when that id is missing", () => 
   }
   assert.match(smokeSource, /if \(route\.name === "goat-passport"\) return Boolean\(goatId\);/);
   assert.match(smokeSource, /return Boolean\(toxinSopId\);/);
+});
+
+test("the sweep visits each route once and never a retired redirect", () => {
+  const names = routeEntries.map(([name]) => name);
+  const repeated = names.filter((name, i) => names.indexOf(name) !== i);
+  assert.deepEqual(repeated, [], "a repeated route costs two page loads per viewport for one verdict");
+  const retiredBlock = smokeSource.match(/const RETIRED_ROUTES = Object\.freeze\(\{([\s\S]*?)\}\);/)?.[1] ?? "";
+  const retired = Array.from(retiredBlock.matchAll(/^\s*"?([a-z0-9-]+)"?:/gm), ([, name]) => name);
+  assert.ok(retired.includes("actions") && retired.includes("verification"), "retired names stay askable");
+  for (const name of retired) assert.ok(!names.includes(name), `${name} is retired and must not be visited`);
 });

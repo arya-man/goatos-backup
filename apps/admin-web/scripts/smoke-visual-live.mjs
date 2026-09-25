@@ -74,6 +74,15 @@ const SOP_FLOW_CODES = Object.freeze({
   "feed-sop-flow": { code: "feed.packing", basePath: "/feed/sops" },
   "sales-sop-flow": { code: "sales.deal", basePath: "/sales/sops" },
 });
+// Names callers (mesha-ops module-journeys.json) may still ask for, but that the sweep no longer
+// visits. Asking for one is skipped with its reason, never an unknown-route error, so a caller's
+// list and this table do not have to change in the same commit.
+const RETIRED_ROUTES = Object.freeze({
+  actions: "retired: /actions redirects to /verify (covered by the verify routes)",
+  verification: "retired: /verification redirects to /verify (covered by the verify routes)",
+  sales: "retired: /sales redirects to /sales/sold (covered by sales-sold)",
+  "ceo-ai-admin": "retired: the trace viewer draws nothing until a request id is typed in",
+});
 const KNOWN_ROUTE_NAMES = buildRoutes({
   toxinSopId: "placeholder",
   goatId: "placeholder",
@@ -81,8 +90,10 @@ const KNOWN_ROUTE_NAMES = buildRoutes({
   workflowRowId: "placeholder",
   calendarEventId: "placeholder",
   vaccinationShedPath: "/vaccination/execution/sheds/placeholder?scope_mode=company",
+  vaccinationDraftVersionId: "placeholder",
+  vaccinationParkId: "placeholder",
   sopFlowIds: Object.fromEntries(Object.keys(SOP_FLOW_CODES).map((route) => [route, "placeholder"])),
-}).map((route) => route.name);
+}).map((route) => route.name).concat(Object.keys(RETIRED_ROUTES));
 const onlyRoutesRaw = process.env.GOATOS_SMOKE_ONLY_ROUTES;
 const onlyRoutes = (onlyRoutesRaw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 // Present-but-empty (e.g. "," or whitespace) is an error: the caller asked to filter but named nothing.
@@ -106,7 +117,7 @@ await waitForApp(appBaseUrl);
 // A fixture the run cannot resolve costs us that route, not the whole module. Why each route
 // dropped out is remembered here so the selection step can say route_skipped=<name>:<why>,
 // and a lookup that failed with a backend error is reported as one finding of its own.
-const routeSkipReasons = new Map();
+const routeSkipReasons = new Map(Object.entries(RETIRED_ROUTES).filter(([name]) => onlyRoutes.includes(name)));
 const fixtureFindings = [];
 async function resolveFixture(label, routeNames, resolve) {
   if (!routeNames.some((name) => runsRoute(name))) return null;
@@ -131,8 +142,15 @@ const workflowRowId = await resolveFixture("workflow row", ["workflow-record"], 
   resolveSmokeWorkflowRowID(apiBaseUrl, bearerToken, tenantId));
 const calendarEventId = await resolveFixture("calendar event", ["calendar-drive-detail"], () =>
   resolveSmokeCalendarEventID(apiBaseUrl, bearerToken, tenantId));
-const vaccinationShedPath = await resolveFixture("vaccination shed", ["vaccination-shed-execution-detail"], () =>
+const vaccinationShedPath = await resolveFixture("vaccination shed", ["vaccination-shed-execution-detail", "people-vaccination"], () =>
   resolveSmokeVaccinationShedPath(apiBaseUrl, bearerToken, tenantId));
+// The shed lookup already names a park that runs vaccination; reuse it rather than a second read.
+const vaccinationParkId = vaccinationShedPath ? new URL(vaccinationShedPath, "http://x").searchParams.get("park") : null;
+if (!vaccinationParkId && runsRoute("people-vaccination") && !routeSkipReasons.has("people-vaccination")) {
+  routeSkipReasons.set("people-vaccination", "vaccination park unavailable in this run");
+}
+const vaccinationDraftVersionId = await resolveFixture("vaccination plan draft", ["vaccination-plan-edit"], () =>
+  resolveSmokeVaccinationDraftVersionID(apiBaseUrl, bearerToken, tenantId));
 const toxinSopId = await resolveFixture("toxin SOP", ["procurement-toxin-list", "procurement-toxin-flow"], () =>
   resolveSmokeToxinSopID(apiBaseUrl, bearerToken, tenantId));
 const sopFlowIds = {};
@@ -150,7 +168,7 @@ if (baselineDir) mkdirSync(diffDir, { recursive: true });
 // the allow-list used to be a second hand-maintained copy and it drifted: counts-sops and
 // counts-sops-builder were in this table, so a full sweep visited them, while a focused run
 // naming either was rejected as an unknown route.
-function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, sopFlowIds = {} }) {
+function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, vaccinationDraftVersionId, vaccinationParkId, sopFlowIds = {} }) {
   const routes = [
     { name: "control-tower", path: "/?scope_mode=company&lens=control-tower" },
     { name: "action-center", path: "/action-center?scope_mode=company" },
@@ -185,8 +203,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     // Capture-date window + newest-first sort (verification-review-page.tsx: vd_from/vd_to via
     // actions-date-params.ts, sort=captured_at_desc via verificationSort).
     { name: "verify-capture-window-desc", path: `/verify?scope_mode=company&vd_from=${smokeWideWindowFrom}&vd_to=${smokeWideWindowTo}&sort=captured_at_desc` },
-    { name: "actions", path: "/actions?scope_mode=company" },
-    { name: "verification", path: "/verification?scope_mode=company" },
     { name: "vaccination", path: "/vaccination?scope_mode=company" },
   {
     name: "vaccination-schedule",
@@ -197,7 +213,8 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "vaccination-sheds-capacity-action", path: "/vaccination?scope_mode=company&sheds_capacity=capacity_breach#execution" },
     { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
     { name: "vaccination-plan", path: "/vaccination/plan?scope_mode=company" },
-    { name: "vaccination-plan-edit", path: "/vaccination/plan/edit?scope_mode=company" },
+    // The editor opens one DRAFT version (?version=<id>); without it the page is a 404.
+    { name: "vaccination-plan-edit", path: `/vaccination/plan/edit?scope_mode=company&version=${encodeURIComponent(vaccinationDraftVersionId)}` },
     {
       name: "vaccination-shed-execution-detail",
       path: `${vaccinationShedPath ?? "/vaccination/execution/sheds/placeholder?scope_mode=company"}`,
@@ -207,7 +224,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "procurement-source-entry-health-pending", path: "/procurement/source-entry?scope_mode=company&status=health_pending" },
     { name: "procurement-source-entry-arrival-review", path: "/procurement/source-entry?scope_mode=company&status=arrival_review" },
     { name: "procurement-source-entry-accepted-intake", path: "/procurement/source-entry?scope_mode=company&status=accepted_intake" },
-    { name: "procurement", path: "/procurement?scope_mode=company" },
     { name: "procurement-vendors", path: "/procurement/vendors?scope_mode=company" },
     { name: "procurement-feed-purchases", path: "/procurement/feed-purchases?scope_mode=company" },
     { name: "procurement-animal-purchases", path: "/procurement/animal-purchases?scope_mode=company" },
@@ -218,7 +234,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "weighing-sop-flow", path: `/weighing/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(sopFlowIds["weighing-sop-flow"])}&view=flow` },
     { name: "feed-sop-flow", path: `/feed/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(sopFlowIds["feed-sop-flow"])}&view=flow` },
     { name: "sales-sop-flow", path: `/sales/sops?scope_mode=company&compose=1&edit=${encodeURIComponent(sopFlowIds["sales-sop-flow"])}&view=flow` },
-    { name: "sales", path: "/sales?scope_mode=company" },
     { name: "sales-sold", path: "/sales/sold?scope_mode=company" },
     { name: "sales-farm-value", path: "/sales/farm-value?scope_mode=company" },
     // Sale-ready tolerance slider state (sales-farm-value.tsx: sale_ready_tolerance_g, 0..1000).
@@ -231,7 +246,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "sales-config", path: "/sales/config?scope_mode=company" },
     { name: "sales-sops", path: "/sales/sops?scope_mode=company" },
     { name: "sales-vendors", path: "/sales/vendors?scope_mode=company" },
-    { name: "sales-sops", path: "/sales/sops?scope_mode=company" },
     { name: "feed-config", path: "/feed/config?scope_mode=company" },
     { name: "feed-analytics", path: "/feed/analytics?scope_mode=company" },
     { name: "feed-analytics-items", path: "/feed/analytics?scope_mode=company&tab=items" },
@@ -297,8 +311,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "health-analytics-treatment", path: "/health/analytics?scope_mode=company&tab=treatment" },
     { name: "health-analytics-engine", path: "/health/analytics?scope_mode=company&tab=engine" },
     { name: "health-config", path: "/health/config?scope_mode=company" },
-    { name: "configuration-items", path: "/configuration/items?scope_mode=company" },
-    { name: "configuration-work-instructions", path: "/configuration/work-instructions?scope_mode=company" },
     { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
     { name: "operations-audit-awaiting", path: "/operations/audit?scope_mode=company&status=verification_pending" },
     { name: "operations-audit-rejected", path: "/operations/audit?scope_mode=company&result=rejected" },
@@ -307,16 +319,15 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "operations-dlq-failed", path: "/operations/dlq?scope_mode=company&status=failed" },
     { name: "operations-dlq-discarded", path: "/operations/dlq?scope_mode=company&status=discarded" },
     { name: "people", path: "/people?scope_mode=company" },
-    { name: "people-vaccination", path: "/people?scope_mode=company&tab=vaccination" },
+    // Vaccination operators are per-park; with no park the tab is only a park picker.
+    { name: "people-vaccination", path: `/people?scope_mode=company&tab=vaccination&park=${encodeURIComponent(vaccinationParkId)}` },
     { name: "people-clock", path: "/people?scope_mode=company&tab=clock" },
     { name: "people-notifications", path: "/people?scope_mode=company&tab=notifications" },
-    { name: "ceo-ai-admin", path: "/ceo-ai-admin?scope_mode=company" },
     { name: "routines", path: "/routines?scope_mode=company" },
     { name: "leave", path: "/leave?scope_mode=company" },
     { name: "leave-approved", path: "/leave?scope_mode=company&status=approved" },
     { name: "leave-rejected", path: "/leave?scope_mode=company&status=rejected" },
     { name: "leave-withdrawn", path: "/leave?scope_mode=company&status=withdrawn" },
-    { name: "routines", path: "/routines?scope_mode=company" },
     { name: "tasks", path: "/tasks?scope_mode=company" },
     { name: "tasks-list", path: "/tasks?scope_mode=company&t_view=list" },
     { name: "tasks-overdue", path: "/tasks?scope_mode=company&filter=overdue" },
@@ -338,12 +349,14 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     if (route.name === "workflow-record") return Boolean(workflowRowId);
     if (route.name === "calendar-drive-detail") return Boolean(calendarEventId);
     if (route.name === "vaccination-shed-execution-detail") return Boolean(vaccinationShedPath);
+    if (route.name === "vaccination-plan-edit") return Boolean(vaccinationDraftVersionId);
+    if (route.name === "people-vaccination") return Boolean(vaccinationParkId);
     if (route.name in SOP_FLOW_CODES) return Boolean(sopFlowIds[route.name]);
     return true;
   });
 }
 
-const routes = buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, sopFlowIds });
+const routes = buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, vaccinationDraftVersionId, vaccinationParkId, sopFlowIds });
 
 // Names were already validated up front against KNOWN_ROUTE_NAMES; resolve the selection to concrete
 // routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load,
@@ -702,6 +715,15 @@ async function resolveSmokeVaccinationShedPath(baseUrl, token, tenant) {
     search.set("scope_mode", "company");
   }
   return `/vaccination/execution/sheds/${encodeURIComponent(shedID)}?${search.toString()}`;
+}
+
+// The plan editor only opens a draft (a published version is immutable). No draft is a normal
+// state, so it skips the route rather than failing it.
+async function resolveSmokeVaccinationDraftVersionID(baseUrl, token, tenant) {
+  const body = await fetchSmokeJson(`${baseUrl}/protocols?category=vaccination`, token, tenant, "vaccination plan draft lookup");
+  const draft = (Array.isArray(body?.items) ? body.items : []).find((item) => item?.status === "draft");
+  const id = draft?.protocol_version_id;
+  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 async function fetchSmokeJson(url, token, tenant, label) {
