@@ -722,14 +722,16 @@ WITH readings AS (
       AND ($9::text = '' OR q.feed_item_key = $9::text)
 ),
 planned AS (
-    SELECT i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow,
-           r.feed_item_key,
+    SELECT i.feed_day, i.park_id, r.shed_id, r.partition_key COLLATE "C" AS partition_key, r.session_no,
+           r.workflow COLLATE "C" AS workflow, r.feed_item_key COLLATE "C" AS feed_item_key,
            SUM(r.quantity_kg)                       AS planned_kg,
            MAX(r.session_label)                     AS session_label,
            -- The cohort of the bag, agree-or-go-bare: a pen-session-item whose sheet rows carry
            -- more than one breed reports 'Mixed' rather than naming one, which would be a cohort
-           -- nobody recorded.
-           CASE WHEN COUNT(DISTINCT COALESCE(NULLIF(r.breed, ''), 'Unspecified')) = 1
+           -- nobody recorded. MIN = MAX over the never-NULL coalesced breed is exactly
+           -- "one distinct value" and, unlike COUNT(DISTINCT), lets the planner hash-aggregate
+           -- instead of disk-sorting every sheet row in the window.
+           CASE WHEN MIN(COALESCE(NULLIF(r.breed, ''), 'Unspecified')) = MAX(COALESCE(NULLIF(r.breed, ''), 'Unspecified'))
                 THEN MAX(COALESCE(NULLIF(r.breed, ''), 'Unspecified')) ELSE $5::text END AS breed_label
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
@@ -741,7 +743,11 @@ planned AS (
       AND i.state IN ('issued', 'amended', 'locked')
       AND i.workflow IN ('normal', 'experiment')
       AND r.quantity_kg IS NOT NULL
-    GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
+      AND EXISTS (SELECT 1 FROM readings x
+                  WHERE x.target_date = i.feed_day AND x.park_id = i.park_id AND x.shed_id = r.shed_id
+                    AND x.partition_key = r.partition_key AND x.session_no = r.session_no
+                    AND x.workflow = r.workflow AND x.feed_item_key = r.feed_item_key)
+    GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key COLLATE "C", r.session_no, r.workflow COLLATE "C", r.feed_item_key COLLATE "C"
 )
 SELECT rd.target_date::text,
        -- The PACKING day, which is what this table is about: a packer works day P on the sheet the
