@@ -78,7 +78,9 @@ type Service struct {
 	// sop resolves the PC Care SOP rules a task is planned on and runs under (PC CARE SOP,
 	// 2026-09-22); nil runs the seeded rules.
 	sop *sopRules
-	now func() time.Time
+	// coverage serves the Care Coverage board (a read seam of its own; nil refuses the read).
+	coverage ports.PenCareCoverageReader
+	now      func() time.Time
 }
 
 // NewService constructs the service over the task store.
@@ -91,6 +93,13 @@ func NewService(store ports.TaskStore) *Service {
 // ErrStoreUnavailable rather than pretending to plan one.
 func (s *Service) WithRoundStore(r ports.RoundStore) *Service {
 	s.rounds = r
+	return s
+}
+
+// WithPenCareCoverage wires the Care Coverage board read. Production wires the same Postgres
+// repository that implements TaskStore.
+func (s *Service) WithPenCareCoverage(r ports.PenCareCoverageReader) *Service {
+	s.coverage = r
 	return s
 }
 
@@ -640,6 +649,41 @@ func (s *Service) plannableTaskForLifecycle(ctx context.Context, actor domain.Ac
 
 // monitorReadCapabilities admit the flat task list.
 var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
+
+// PenCareCoverage is the Care Coverage board: every pen in the caller's parks against the five
+// hands-on-the-animal categories, with the latest verified-done date per cell. Same read
+// authority and park clamp as the monitor task list.
+func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkID, cursor string, limit int) (ports.PenCareCoveragePage, error) {
+	if !actorHoldsAny(actor, monitorReadCapabilities) {
+		return ports.PenCareCoveragePage{}, ports.ErrForbidden
+	}
+	if s.coverage == nil {
+		return ports.PenCareCoveragePage{}, ports.ErrStoreUnavailable
+	}
+	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, monitorReadCapabilities...)
+	if parkID = strings.TrimSpace(parkID); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			return ports.PenCareCoveragePage{}, ports.ErrInvalidArgument
+		}
+		if err := checkParkScopeForAnyCapability(ctx, actor.TenantID, parkID, monitorReadCapabilities...); err != nil {
+			return ports.PenCareCoveragePage{}, err
+		}
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.coverage.PenCareCoverage(ctx, ports.PenCareCoverageQuery{
+		TenantID:          actor.TenantID,
+		AuthorizedParkIDs: authorizedParkSlice(parks),
+		TenantWide:        tenantWide,
+		ParkID:            parkID,
+		Limit:             limit,
+		Cursor:            strings.TrimSpace(cursor),
+	})
+}
 
 // ListTasks is the plan/monitor/oversee flat list for one due date, park-clamped.
 func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error) {

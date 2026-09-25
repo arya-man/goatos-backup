@@ -4259,6 +4259,33 @@ export async function getCommandBoardDriveOptions(
   );
 }
 
+// Care Coverage board (/vaccination/care-coverage): one keyset page of the caller's pens against
+// the five PC Care jobs. Columns and their labels arrive on the response; the page renders them.
+export type PCCarePenCoverage = AppApiComponents["schemas"]["PCCarePenCoverage"];
+
+export async function getPCCarePenCoverage(params: {
+  parkId?: string;
+  cursor?: string;
+  limit?: number;
+}): Promise<ApiResult<PCCarePenCoverage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(6000, (signal) =>
+      client.request<PCCarePenCoverage>("/app/pc-care/pen-coverage", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({
+          park_id: params.parkId,
+          cursor: params.cursor,
+          limit: params.limit,
+        }),
+      }),
+    ),
+  );
+}
+
 export async function listPCCareTasks(params: {
   date: string;
   parkId?: string;

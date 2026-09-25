@@ -45,6 +45,7 @@ type Service interface {
 	ReopenTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error
 	CloseRound(ctx context.Context, actor domain.Actor, roundID, reason, traceID string) error
 	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error)
+	PenCareCoverage(ctx context.Context, actor domain.Actor, parkID, cursor string, limit int) (ports.PenCareCoveragePage, error)
 	Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
 	GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error)
 	ListTaskAnimals(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) ([]ports.AnimalRow, string, error)
@@ -72,6 +73,7 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/pc-care/planner/catalog", h.GetPlannerCatalog)
 	mux.HandleFunc("GET /app/pc-care/planner/parks/{park_id}/sheds", h.GetPlannerParkSheds)
+	mux.HandleFunc("GET /app/pc-care/pen-coverage", h.GetPenCareCoverage)
 	mux.HandleFunc("POST /app/pc-care/rounds", h.PostCreateRound)
 	mux.HandleFunc("GET /app/pc-care/rounds", h.GetRoundCards)
 	mux.HandleFunc("GET /app/pc-care/rounds/{round_id}", h.GetRound)
@@ -666,6 +668,75 @@ func (h *Handler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeTaskPage(w, a, page)
+}
+
+type penCareCoverageCellDTO struct {
+	Category             string `json:"category"`
+	Done                 bool   `json:"done"`
+	LastDoneBusinessDate string `json:"last_done_business_date,omitempty"`
+}
+
+type penCareCoverageRowDTO struct {
+	ParkID                     string                   `json:"park_id"`
+	ParkName                   string                   `json:"park_name"`
+	ShedID                     string                   `json:"shed_id"`
+	ShedName                   string                   `json:"shed_name"`
+	PartitionLabel             string                   `json:"partition_label"`
+	OperationalLocationDisplay string                   `json:"operational_location_display"`
+	Cells                      []penCareCoverageCellDTO `json:"cells"`
+}
+
+type penCareCoverageResponse struct {
+	// Categories are the board's columns in display order, each with its backend-owned label.
+	Categories []categoryDTO           `json:"categories"`
+	Rows       []penCareCoverageRowDTO `json:"rows"`
+	Total      int                     `json:"total"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
+// GetPenCareCoverage serves the Care Coverage board: pens down the left, the five care
+// categories across the top, a tick where the work is done.
+func (h *Handler) GetPenCareCoverage(w http.ResponseWriter, r *http.Request) {
+	a, ok := h.requireAuthed(w, r)
+	if !ok {
+		return
+	}
+	page, err := h.service.PenCareCoverage(
+		r.Context(), a,
+		strings.TrimSpace(r.URL.Query().Get("park_id")),
+		strings.TrimSpace(r.URL.Query().Get("cursor")),
+		intQuery(r, "limit", 50),
+	)
+	if err != nil {
+		h.writeServiceError(w, r, "pc care pen coverage", err)
+		return
+	}
+	resp := penCareCoverageResponse{
+		Categories: make([]categoryDTO, 0, len(domain.PlannerCategories)),
+		Rows:       make([]penCareCoverageRowDTO, 0, len(page.Rows)),
+		Total:      page.Total,
+		NextCursor: page.NextCursor,
+	}
+	for _, category := range domain.PlannerCategories {
+		resp.Categories = append(resp.Categories, categoryDTO{Key: category, Label: domain.CategoryLabel(category)})
+	}
+	for _, row := range page.Rows {
+		dto := penCareCoverageRowDTO{
+			ParkID: row.ParkID, ParkName: row.ParkName,
+			ShedID: row.ShedID, ShedName: row.ShedName, PartitionLabel: row.PartitionLabel,
+			OperationalLocationDisplay: oploc.OperationalLocation{
+				ShedName: row.ShedName, PartitionLabel: row.PartitionLabel,
+			}.Display(),
+			Cells: make([]penCareCoverageCellDTO, 0, len(row.Cells)),
+		}
+		for _, cell := range row.Cells {
+			dto.Cells = append(dto.Cells, penCareCoverageCellDTO{
+				Category: cell.Category, Done: cell.LastDoneBusinessDate != "", LastDoneBusinessDate: cell.LastDoneBusinessDate,
+			})
+		}
+		resp.Rows = append(resp.Rows, dto)
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) GetWorklist(w http.ResponseWriter, r *http.Request) {

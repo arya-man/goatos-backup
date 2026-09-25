@@ -216,6 +216,9 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil),
 					navLeafDomain("vaccination-live-tracker", "Live Drive Tracker", "/vaccination/live-tracker", "pc.vaccination", nil),
+					// Care Coverage (maintainer request 2026-09-25): the vaccination status matrix's
+					// shape for the five PC Care jobs -- pens down the left, a tick where it is done.
+					navLeafDomain("vaccination-care-coverage", "Care Coverage", "/vaccination/care-coverage", "pc.vaccination", nil),
 					navLeafDomain("vaccination-plan", "Vaccination plan", "/vaccination/plan", "pc.vaccination", nil),
 					navLeaf("pc-care-sops", "Preventive Care SOP", "/pc-care/sops", nil),
 				},
@@ -306,6 +309,7 @@ func routeLabels() []domain.RouteLabelRule {
 		// Most-specific-first: the live tracker's exact rule must precede /vaccination's, or the
 		// crumb resolves to the parent label.
 		{Pattern: "/vaccination/live-tracker", Label: "Live Drive Tracker", Match: "exact"},
+		{Pattern: "/vaccination/care-coverage", Label: "Care Coverage", Match: "exact"},
 		// Needed because /vaccination is an EXACT rule: without its own entry the plan
 		// console's crumb silently falls back to the parent label, "Vaccination".
 		{Pattern: "/vaccination/plan/edit", Label: "Edit the plan", Match: "exact"},
@@ -570,6 +574,15 @@ func pages() []domain.PageContract {
 					[]string{"shed", "vaccine", "operator", "scheduled", "received", "closed", "remaining", "progress", "last_proof", "status"}, "lt_shed", []int{25, 50, 100}),
 				table("live-combo", "Combo doses", "/vaccination/live-tracker",
 					[]string{"animal", "shed", "proof", "doses"}, "goat_id"),
+			}),
+		// Care Coverage (maintainer request 2026-09-25). The vaccination status matrix's layout for
+		// the five hands-on-the-animal PC Care jobs: one row per pen, one column per job, a tick
+		// where the job's evidence was approved. Columns and their labels come from the read.
+		page("vaccination-care-coverage", "/vaccination/care-coverage", "/vaccination/care-coverage", "Care Coverage",
+			"Every pen against deworming, anti protozoan, ticks removal, hoof trimming and hair trimming — a tick where it is done.",
+			"module-surface", []domain.TableContract{
+				tableP("care-coverage", "Pen care status", "/app/pc-care/pen-coverage",
+					[]string{"pen", "deworming", "anti_protozoan", "ticks_removal", "hoof_trimming", "hair_trimming"}, "pen", []int{25, 50, 100}),
 			}),
 		page("shed-execution", "/vaccination/execution/sheds/{shed_id}", "/vaccination/execution/sheds/{shed_id}", "Vaccination pen detail", "Pen-wise vaccination detail: planned sessions, per-vaccine breakdown, and the pen's animal roster.", "record-drilldown",
 			[]domain.TableContract{
@@ -3336,6 +3349,27 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.linked":                       "Linked",
 			"label.placeholder":                  "—",
 			"label.more":                         "more",
+		}
+	case "vaccination-care-coverage":
+		return map[string]string{
+			"crumb":                           "Preventive Care (PC) · Vaccination",
+			"page.title":                      "Care Coverage",
+			"page.subtitle":                   "Every pen against the five care jobs. A tick means the job was done there and its video was approved.",
+			"section.matrix.title":            "Pen care status",
+			"section.matrix.aria":             "Pens against care jobs",
+			"section.matrix.note":             "The date under a tick is the day the job was last done in that pen. A job whose video is still waiting for review shows no tick yet.",
+			"section.matrix.empty":            "No pens in this view",
+			"section.matrix.empty_body":       "There are no active pens in the selected park.",
+			"section.matrix.unavailable":      "Care status is unavailable",
+			"section.matrix.unavailable_body": "The pen list could not be loaded. Reload the page to try again.",
+			"label.done":                      "Done",
+			"label.not_done":                  "Not done",
+			"label.done_on":                   "Done on",
+			"label.pen":                       "Pen",
+			"label.pens":                      "pens",
+			"action.first_page":               "First page",
+			"legend.done":                     "Done",
+			"legend.not_done":                 "Not done yet",
 		}
 	case "vaccination-live-tracker":
 		// Every visible string on /vaccination/live-tracker originates here. The page renders no

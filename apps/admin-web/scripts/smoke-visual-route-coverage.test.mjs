@@ -58,6 +58,7 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     ["vaccination-sheds-status-action", "/vaccination?scope_mode=company&sheds_status=needs_review#execution"],
     ["vaccination-sheds-capacity-action", "/vaccination?scope_mode=company&sheds_capacity=capacity_breach#execution"],
     ["vaccination-live-tracker", "/vaccination/live-tracker?scope_mode=company"],
+    ["vaccination-care-coverage", "/vaccination/care-coverage?scope_mode=company"],
     ["vaccination-plan", "/vaccination/plan?scope_mode=company"],
     ["vaccination-plan-edit", "/vaccination/plan/edit?scope_mode=company&version=${dynamic}"],
     ["sales-sold", "/sales/sold?scope_mode=company"],

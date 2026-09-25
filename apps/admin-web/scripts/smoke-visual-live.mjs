@@ -212,6 +212,7 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "vaccination-sheds-status-action", path: "/vaccination?scope_mode=company&sheds_status=needs_review#execution" },
     { name: "vaccination-sheds-capacity-action", path: "/vaccination?scope_mode=company&sheds_capacity=capacity_breach#execution" },
     { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
+    { name: "vaccination-care-coverage", path: "/vaccination/care-coverage?scope_mode=company" },
     { name: "vaccination-plan", path: "/vaccination/plan?scope_mode=company" },
     // The editor opens one DRAFT version (?version=<id>); without it the page is a 404.
     { name: "vaccination-plan-edit", path: `/vaccination/plan/edit?scope_mode=company&version=${encodeURIComponent(vaccinationDraftVersionId)}` },

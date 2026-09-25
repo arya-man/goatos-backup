@@ -880,6 +880,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	pcCareRepo := pccarepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	pcCareService := pccareapp.NewService(pcCareRepo).
 		WithRoundStore(pcCareRepo).
+		// Care Coverage board (maintainer request 2026-09-25): pens x the five care categories.
+		WithPenCareCoverage(pcCareRepo).
 		WithFeedWaterRemovalCutoff(feedWaterRemovalCutoffs).
 		WithProofValidator(pccareproof.NewValidator(proofRepo)).
 		// PC CARE SOP (maintainer decision 2026-09-22): the rules a task is planned on and runs

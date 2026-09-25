@@ -1946,6 +1946,16 @@
   @media(max-width:900px){.vaccination-schedule-summary{align-items:flex-start}.vaccination-schedule-summary .kpi{border-radius:8px}.vaccination-schedule-summary .kpi span{white-space:normal}.vaccination-schedule-hd .sp{display:none}}
   .main table.vaccination-status-matrix-table{min-width:860px}
   .main table.vaccination-status-matrix-table th:not(:first-child),.main table.vaccination-status-matrix-table td:not(:first-child){min-width:132px}
+  .main table.care-coverage-table{min-width:760px}
+  .main table.care-coverage-table th:not(:first-child),.main table.care-coverage-table td:not(:first-child){min-width:120px;text-align:center}
+  /* position:relative keeps each cell's visually-hidden label inside the table's own scroll box;
+     without it the absolute .sr-only spans resolve against the page and widen it at phone width. */
+  .main table.care-coverage-table td{position:relative}
+  .care-coverage-table .cc-done{display:inline-flex;flex-direction:column;align-items:center;gap:3px}
+  .care-coverage-table .cc-tick{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:999px;background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--brand)}
+  .care-coverage-table .cc-tick .ic{width:15px;height:15px;stroke-width:2.8}
+  .care-coverage-table .cc-date{font-size:11px;line-height:1.2}
+  .care-coverage-table .cc-miss{color:var(--muted)}
   .main table.vaccination-cohort-detail-table{min-width:980px}
   .main table.vaccination-cohort-detail-table th:nth-child(6),.main table.vaccination-cohort-detail-table td:nth-child(6){min-width:132px}
   .shed-overview-body{padding:16px}

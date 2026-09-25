@@ -7227,6 +7227,40 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /app/pc-care/pen-coverage:
+    get:
+      tags: [PC Care]
+      operationId: appGetPCCarePenCoverage
+      summary: Care Coverage board — every pen against the five PC Care jobs.
+      description: >-
+        One keyset page of the caller's pens (shed_partitions catalog grain; an undivided shed is
+        one row), each carrying one cell per hands-on-the-animal category in the `categories`
+        order. A cell is done when a task of that category in that pen had its evidence approved
+        by the verifier; last_done_business_date is the Asia/Kolkata business date it was last
+        done. `total` counts every pen in scope, independent of the page.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: Narrow to one park inside the caller's scope.
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: One page of pens.
+          content: { application/json: { schema: { $ref: "#/components/schemas/PCCarePenCoverage" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/pc-care/rounds:
     get:
       tags: [PC Care]
@@ -27777,6 +27811,49 @@ components:
             required: [shed_id, shed_label, operational_location_display]
         next_cursor: { type: string }
       required: [sheds]
+    PCCarePenCoverage:
+      type: object
+      properties:
+        categories:
+          type: array
+          description: The board's columns in display order, each with its backend-owned label.
+          items:
+            type: object
+            properties:
+              key: { $ref: "#/components/schemas/PCCareCategory" }
+              label: { type: string }
+            required: [key, label]
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              park_id: { type: string, format: uuid }
+              park_name: { type: string }
+              shed_id: { type: string, format: uuid }
+              shed_name: { type: string }
+              partition_label: { type: string }
+              operational_location_display:
+                type: string
+                description: Backend-composed pen display, rendered verbatim.
+              cells:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    category: { $ref: "#/components/schemas/PCCareCategory" }
+                    done: { type: boolean }
+                    last_done_business_date:
+                      type: string
+                      format: date
+                      description: Asia/Kolkata business date the job was last done in this pen; absent when not done.
+                  required: [category, done]
+            required: [park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, cells]
+        total:
+          type: integer
+          description: Every pen in scope (whole-filter aggregate, never the page length).
+        next_cursor: { type: string }
+      required: [categories, rows, total]
     PCCareCloseRequest:
       type: object
       properties:

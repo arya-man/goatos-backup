@@ -1,0 +1,249 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/pccare/domain"
+	"github.com/vgoats/goatos/backend/internal/pccare/ports"
+)
+
+// The Care Coverage board against the REAL schema (maintainer request 2026-09-25): pens down the
+// left, the five hands-on-the-animal categories across the top, a tick where the work is done.
+// These are the adversarial cases the aggregate/projection rule demands of a read that joins
+// tasks onto a pen catalog and groups them: one-to-many fan-out, page boundaries, park scope, and
+// the whole status matrix. Each is a way the board could silently tick the wrong pen.
+
+const (
+	covShedGodel = "9c000000-0000-4000-8000-000000004301"
+	covShedOther = "9c000000-0000-4000-8000-000000004302"
+)
+
+// seedCoverageGodel adds a partitioned shed "Godel 1" with pens "Part 1" and "Part 2" to pcPark.
+func seedCoverageGodel(t *testing.T, ctx context.Context, repo *Repository) {
+	t.Helper()
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'shed', 'S-G', 'Godel 1', 'active', $3::uuid, 2) ON CONFLICT (location_id) DO NOTHING`,
+		pcTenant, covShedGodel, pcPark); err != nil {
+		t.Fatalf("seed godel shed: %v", err)
+	}
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual'), ($1::uuid, $2::uuid, 'Part 2', '2', 'active', 'manual')
+ON CONFLICT DO NOTHING`, pcTenant, covShedGodel); err != nil {
+		t.Fatalf("seed godel partitions: %v", err)
+	}
+}
+
+// coverageTask plans one task, then moves it to the given work_state/status and submit day.
+func coverageTask(t *testing.T, ctx context.Context, repo *Repository, parkID, shedID, partition, category string, plannedDay int, workState, status string, submittedDay int) {
+	t.Helper()
+	key := fmt.Sprintf("cov-%s-%s-%s-%d", shedID[len(shedID)-4:], partition, category, plannedDay)
+	task, err := repo.CreateTask(ctx, ports.CreateTaskParams{
+		TenantID: pcTenant, Category: category, ParkID: parkID, ShedID: shedID, PartitionLabel: partition,
+		PlannedBusinessDate: pcBusinessDay(2026, 9, plannedDay),
+		AssigneeUserIDs:     assigneesFor(parkID),
+		IdempotencyKey:      key, CreatedBy: pcVerifier, ActorID: pcVerifier,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask %s: %v", key, err)
+	}
+	var submitted any
+	if submittedDay > 0 {
+		submitted = time.Date(2026, 9, submittedDay, 10, 0, 0, 0, time.FixedZone("IST", 5*3600+1800))
+	}
+	if _, err := repo.pool.Exec(ctx, `
+UPDATE pc_care_tasks SET work_state = $3, status = $4, submitted_at = $5
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, pcTenant, task.TaskID, workState, status, submitted); err != nil {
+		t.Fatalf("move task %s: %v", key, err)
+	}
+}
+
+func assigneesFor(parkID string) []string {
+	if parkID == pcOtherPark {
+		return []string{pcOtherParkOperator}
+	}
+	return []string{pcOperator1, pcOperator2}
+}
+
+func coverage(t *testing.T, ctx context.Context, repo *Repository, q ports.PenCareCoverageQuery) ports.PenCareCoveragePage {
+	t.Helper()
+	q.TenantID = pcTenant
+	page, err := repo.PenCareCoverage(ctx, q)
+	if err != nil {
+		t.Fatalf("PenCareCoverage: %v", err)
+	}
+	return page
+}
+
+// cellOf returns the done date of one category on the row whose display matches.
+func cellOf(t *testing.T, page ports.PenCareCoveragePage, shedID, partition, category string) (string, bool) {
+	t.Helper()
+	for _, row := range page.Rows {
+		if row.ShedID != shedID || row.PartitionLabel != partition {
+			continue
+		}
+		if len(row.Cells) != len(domain.PlannerCategories) {
+			t.Fatalf("row %s/%s has %d cells, want %d", shedID, partition, len(row.Cells), len(domain.PlannerCategories))
+		}
+		for _, cell := range row.Cells {
+			if cell.Category == category {
+				return cell.LastDoneBusinessDate, true
+			}
+		}
+	}
+	return "", false
+}
+
+// ONE-TO-MANY: a pen collects MANY tasks per category over time, each with several assignees.
+// The board must show ONE cell per category per pen carrying the LATEST done day, never a row per
+// task; and a partitioned shed's pens (MultipleDimensions: shed x partition) must never borrow
+// each other's ticks.
+func TestPenCoverageOneToManyTasksAndMultipleDimensionsPartitions(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+
+	coverageTask(t, ctx, repo, pcPark, pcShedA, "", domain.CategoryDeworming, 2, "completed", "completed", 3)
+	coverageTask(t, ctx, repo, pcPark, pcShedA, "", domain.CategoryDeworming, 10, "completed", "completed", 11)
+	coverageTask(t, ctx, repo, pcPark, pcShedA, "", domain.CategoryDeworming, 6, "completed", "completed", 7)
+	coverageTask(t, ctx, repo, pcPark, covShedGodel, "Part 1", domain.CategoryHoofTrimming, 4, "completed", "completed", 5)
+
+	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	if page.Total != 3 || len(page.Rows) != 3 {
+		t.Fatalf("pens = total %d rows %d, want 3 (Castro + Godel 1 Part 1/Part 2) with no per-task fan-out", page.Total, len(page.Rows))
+	}
+	if got, _ := cellOf(t, page, pcShedA, "", domain.CategoryDeworming); got != "2026-09-11" {
+		t.Fatalf("Castro deworming last done = %q, want the latest of three, 2026-09-11", got)
+	}
+	if got, _ := cellOf(t, page, covShedGodel, "Part 1", domain.CategoryHoofTrimming); got != "2026-09-05" {
+		t.Fatalf("Godel 1 Part 1 hoof = %q, want 2026-09-05", got)
+	}
+	if got, ok := cellOf(t, page, covShedGodel, "Part 2", domain.CategoryHoofTrimming); !ok || got != "" {
+		t.Fatalf("Godel 1 Part 2 hoof = %q (found %v), want no tick: its sibling pen's work is not its own", got, ok)
+	}
+	if got, _ := cellOf(t, page, pcShedA, "", domain.CategoryHoofTrimming); got != "" {
+		t.Fatalf("Castro hoof = %q, want no tick: another shed's work must not leak across", got)
+	}
+}
+
+// PAGINATION: a keyset walk at a tiny page size must visit every pen exactly once across page
+// boundaries, and total must stay the whole-scope count on every page.
+func TestPenCoveragePaginationPageBoundaryWalksEveryPenOnce(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	seedRoundCardsPark(t, ctx, repo, covShedOther, "S-O", "Gandhi 2")
+	coverageTask(t, ctx, repo, pcPark, covShedOther, "", domain.CategoryTicksRemoval, 3, "completed", "completed", 3)
+
+	seen := map[string]int{}
+	cursor := ""
+	pages := 0
+	for {
+		page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 1, Cursor: cursor})
+		pages++
+		if page.Total != 4 {
+			t.Fatalf("page %d total = %d, want the whole-scope 4 on every page", pages, page.Total)
+		}
+		if len(page.Rows) != 1 {
+			t.Fatalf("page %d rows = %d, want 1", pages, len(page.Rows))
+		}
+		seen[page.Rows[0].ShedID+"|"+page.Rows[0].PartitionLabel]++
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+		if pages > 10 {
+			t.Fatal("pagination did not terminate")
+		}
+	}
+	if pages != 4 || len(seen) != 4 {
+		t.Fatalf("walked %d pages over %d distinct pens (%v), want 4 and 4", pages, len(seen), seen)
+	}
+	for pen, n := range seen {
+		if n != 1 {
+			t.Fatalf("pen %s listed %d times across pages", pen, n)
+		}
+	}
+	if _, err := repo.PenCareCoverage(ctx, ports.PenCareCoverageQuery{TenantID: pcTenant, TenantWide: true, Cursor: "not-a-cursor!"}); err == nil {
+		t.Fatal("a malformed cursor must be refused, not read as the first page")
+	}
+}
+
+// PARK SCOPE: a park-scoped caller sees only their park's pens, and naming one park narrows a
+// tenant-wide caller. A pen in the other park with done work must never appear.
+func TestPenCoverageParkScopeClampsToAuthorizedParks(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON CONFLICT (location_id) DO NOTHING`,
+		pcTenant, covShedOther, pcOtherPark); err != nil {
+		t.Fatalf("seed other-park shed: %v", err)
+	}
+	coverageTask(t, ctx, repo, pcOtherPark, covShedOther, "", domain.CategoryDeworming, 3, "completed", "completed", 3)
+
+	scoped := coverage(t, ctx, repo, ports.PenCareCoverageQuery{AuthorizedParkIDs: []string{pcPark}, Limit: 50})
+	if scoped.Total != 1 || len(scoped.Rows) != 1 || scoped.Rows[0].ShedID != pcShedA {
+		t.Fatalf("park-scoped rows = %+v, want only CPT's Castro", scoped.Rows)
+	}
+	if got, _ := cellOf(t, scoped, pcShedA, "", domain.CategoryDeworming); got != "" {
+		t.Fatalf("CPT Castro deworming = %q, want no tick: the same-named CBE Castro's work must not leak", got)
+	}
+	none := coverage(t, ctx, repo, ports.PenCareCoverageQuery{Limit: 50})
+	if none.Total != 0 || len(none.Rows) != 0 {
+		t.Fatalf("no parks + not tenant-wide = %d rows, want 0", len(none.Rows))
+	}
+	narrowed := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, ParkID: pcOtherPark, Limit: 50})
+	if narrowed.Total != 1 || narrowed.Rows[0].ShedID != covShedOther || narrowed.Rows[0].ParkName != "CBE" {
+		t.Fatalf("park_id narrow = %+v, want only CBE's Castro", narrowed.Rows)
+	}
+	if got, _ := cellOf(t, narrowed, covShedOther, "", domain.CategoryDeworming); got != "2026-09-03" {
+		t.Fatalf("CBE Castro deworming = %q, want 2026-09-03", got)
+	}
+}
+
+// STATUS MATRIX: only a task whose evidence the verifier APPROVED ticks. Open, submitted and
+// awaiting a verdict, sent back for rework, and canceled work each leave the cell empty.
+func TestPenCoverageStatusMatrixOnlyApprovedWorkTicks(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+
+	cases := []struct {
+		category, workState, status string
+		wantTick                    bool
+	}{
+		{domain.CategoryDeworming, "scheduled", "open", false},
+		{domain.CategoryAntiProtozoan, "scheduled", "pending_verification", false},
+		{domain.CategoryTicksRemoval, "delayed", "rework", false},
+		{domain.CategoryHairTrimming, "canceled", "completed", false},
+		{domain.CategoryHoofTrimming, "completed", "completed", true},
+	}
+	for i, c := range cases {
+		coverageTask(t, ctx, repo, pcPark, pcShedA, "", c.category, 3+i, c.workState, c.status, 3+i)
+	}
+	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	for i, c := range cases {
+		got, _ := cellOf(t, page, pcShedA, "", c.category)
+		if c.wantTick && got != fmt.Sprintf("2026-09-%02d", 3+i) {
+			t.Fatalf("%s (%s/%s) = %q, want a tick dated its submit day", c.category, c.workState, c.status, got)
+		}
+		if !c.wantTick && got != "" {
+			t.Fatalf("%s (%s/%s) = %q, want no tick", c.category, c.workState, c.status, got)
+		}
+	}
+	// The columns are exactly the five hands-on-the-animal jobs, in order: the kernel-owned
+	// categories (feed & water removal, vaccine inventory) are never board columns.
+	cells := page.Rows[0].Cells
+	if len(cells) != len(domain.PlannerCategories) {
+		t.Fatalf("columns = %d, want %d", len(cells), len(domain.PlannerCategories))
+	}
+	for i, category := range domain.PlannerCategories {
+		if cells[i].Category != category {
+			t.Fatalf("column %d = %s, want %s", i, cells[i].Category, category)
+		}
+	}
+}

@@ -89,6 +89,9 @@ var modulePages = []ModulePage{
 
 	{Key: "preventive-care-vaccination", Module: "vaccination", Label: "Vaccination", Href: "/vaccination", Permissions: []string{ObligationRead, VaccinationRead}},
 	{Key: "vaccination-live-tracker", Module: "vaccination", Label: "Live Drive Tracker", Href: "/vaccination/live-tracker", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	// Care Coverage (maintainer request 2026-09-25): ticked with Vaccination, opened on the
+	// PC Care monitor read its data route requires.
+	{Key: "vaccination-care-coverage", Module: "vaccination", Label: "Care Coverage", Href: "/vaccination/care-coverage", Permissions: []string{PCCareMonitor}},
 	{Key: "vaccination-plan", Module: "vaccination", Label: "Vaccination plan", Href: "/vaccination/plan", Permissions: []string{ProtocolRead}},
 	// PC CARE SOP (maintainer decision 2026-09-22): pc_care's FIRST admin-web page. The module
 	// is otherwise phone-only; this is the desk where its cards are authored.

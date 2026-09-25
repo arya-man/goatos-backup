@@ -2609,6 +2609,10 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.FeedAnalyticsStockRead}
 	case "vaccination-live-tracker":
 		return []string{permissions.LocationsRead, permissions.ObligationRead, permissions.VaccinationRead}
+	case "vaccination-care-coverage":
+		// pc_care.monitor, which every holder of the board's data route's other capabilities
+		// also carries (plan/oversee/trimming levels all include it).
+		return []string{permissions.PCCareMonitor}
 	case "herd-signals":
 		return []string{permissions.HerdSignalsRead}
 	case "weighing-weights", "weighing-analytics":

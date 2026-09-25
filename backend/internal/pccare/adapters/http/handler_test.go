@@ -214,6 +214,10 @@ func (f *fakePCCareHTTPService) CloseRound(_ context.Context, _ domain.Actor, ro
 	f.lastCloseRoundID, f.lastCloseReason = roundID, reason
 	return f.lifecycleErr
 }
+func (f *fakePCCareHTTPService) PenCareCoverage(context.Context, domain.Actor, string, string, int) (ports.PenCareCoveragePage, error) {
+	return ports.PenCareCoveragePage{}, nil
+}
+
 func (f *fakePCCareHTTPService) ListTasks(context.Context, domain.Actor, string, string, string, string, int, bool) (ports.TaskPage, error) {
 	return ports.TaskPage{}, nil
 }

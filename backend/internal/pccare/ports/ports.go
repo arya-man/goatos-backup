@@ -515,3 +515,51 @@ type ProofValidator interface {
 	// register judged it as (video / photo) -- for an authored `either` slot.
 	LiveCameraProofKind(ctx context.Context, tenantID, proofID string) (string, error)
 }
+
+// PenCareCoverageQuery reads the Care Coverage board (maintainer request 2026-09-25): every pen
+// in the caller's parks down the left, the five hands-on-the-animal categories across the top,
+// and a tick where that category's work is DONE in that pen.
+type PenCareCoverageQuery struct {
+	TenantID string
+	// AuthorizedParkIDs clamps the read to the caller's park grants (empty + TenantWide=false
+	// means no parks — serve nothing).
+	AuthorizedParkIDs []string
+	TenantWide        bool
+	// ParkID optionally narrows to one park (must be inside the authorized set).
+	ParkID string
+	Limit  int
+	Cursor string
+}
+
+// PenCareCoverageCell is one category's answer for one pen. LastDoneBusinessDate is the IST
+// business date of the most recent task in that category whose evidence a verifier APPROVED
+// (status 'completed'); blank means the pen has no done work in that category.
+type PenCareCoverageCell struct {
+	Category             string
+	LastDoneBusinessDate string
+}
+
+// PenCareCoverageRow is one pen (shed x catalog partition; an undivided shed is one row).
+type PenCareCoverageRow struct {
+	ParkID         string
+	ParkName       string
+	ShedID         string
+	ShedName       string
+	PartitionLabel string
+	Cells          []PenCareCoverageCell
+}
+
+// PenCareCoveragePage is one keyset page of the board. Total counts every pen in scope (a
+// whole-filter aggregate, never the page length).
+type PenCareCoveragePage struct {
+	Rows       []PenCareCoverageRow
+	Total      int
+	NextCursor string
+}
+
+// PenCareCoverageReader serves the Care Coverage board. It is its own seam rather than a
+// widened TaskStore so unit fakes of the write surface are not forced to stub a read they
+// never make.
+type PenCareCoverageReader interface {
+	PenCareCoverage(ctx context.Context, q PenCareCoverageQuery) (PenCareCoveragePage, error)
+}

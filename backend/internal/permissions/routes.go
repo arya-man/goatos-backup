@@ -998,6 +998,7 @@ var protectedRoutes = []Route{
 	{OperationID: "appClosePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/close", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
 	{OperationID: "appReopenPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/reopen", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
 	{OperationID: "appClosePCCareRound", Method: "POST", Pattern: "/app/pc-care/rounds/{round_id}/close", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming}},
+	{OperationID: "appGetPCCarePenCoverage", Method: "GET", Pattern: "/app/pc-care/pen-coverage", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appPCCareWorklist", Method: "GET", Pattern: "/app/pc-care/worklist", Permissions: []string{PCCareExecute}},
 	{OperationID: "appGetPCCareTask", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCarePlanTrimming, PCCareMonitor, PCCareOverseeOperators}},

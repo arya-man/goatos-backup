@@ -2600,6 +2600,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/pc-care/pen-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Care Coverage board — every pen against the five PC Care jobs.
+         * @description One keyset page of the caller's pens (shed_partitions catalog grain; an undivided shed is one row), each carrying one cell per hands-on-the-animal category in the `categories` order. A cell is done when a task of that category in that pen had its evidence approved by the verifier; last_done_business_date is the Asia/Kolkata business date it was last done. `total` counts every pen in scope, independent of the page.
+         */
+        get: operations["appGetPCCarePenCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/pc-care/rounds": {
         parameters: {
             query?: never;
@@ -12497,6 +12517,36 @@ export interface components {
                 /** @description Non-empty when a live task already covers this pen for the chosen category+date. */
                 existing_task_id?: string;
             }[];
+            next_cursor?: string;
+        };
+        PCCarePenCoverage: {
+            /** @description The board's columns in display order, each with its backend-owned label. */
+            categories: {
+                key: components["schemas"]["PCCareCategory"];
+                label: string;
+            }[];
+            rows: {
+                /** Format: uuid */
+                park_id: string;
+                park_name: string;
+                /** Format: uuid */
+                shed_id: string;
+                shed_name: string;
+                partition_label: string;
+                /** @description Backend-composed pen display, rendered verbatim. */
+                operational_location_display: string;
+                cells: {
+                    category: components["schemas"]["PCCareCategory"];
+                    done: boolean;
+                    /**
+                     * Format: date
+                     * @description Asia/Kolkata business date the job was last done in this pen; absent when not done.
+                     */
+                    last_done_business_date?: string;
+                }[];
+            }[];
+            /** @description Every pen in scope (whole-filter aggregate, never the page length). */
+            total: number;
             next_cursor?: string;
         };
         PCCareCloseRequest: {
@@ -26200,6 +26250,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PCCarePlannerSheds"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetPCCarePenCoverage: {
+        parameters: {
+            query?: {
+                /** @description Narrow to one park inside the caller's scope. */
+                park_id?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of pens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCarePenCoverage"];
                 };
             };
             400: components["responses"]["BadRequest"];
