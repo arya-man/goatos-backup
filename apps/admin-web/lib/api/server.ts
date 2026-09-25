@@ -6552,10 +6552,8 @@ export type AdminWebApprovalItem = {
   // authored line instead of each composing its own from raw ids. Optional by contract: absent
   // when nothing was resolvable, in which case a renderer drops the line rather than showing an id.
   //
-  // This page does not render raised_by_name or summary_line today — it deliberately omits the
-  // raiser and builds its own readable subject from resolved location names (see readableSubject).
-  // They are declared so the shape stays true to the contract and so this page can adopt the
-  // shared line later.
+  // The Approvals page renders raised_by_name in its "Raised by" column; it still composes its own
+  // subject from resolved location names (approval-display.ts) rather than summary_line.
   raised_by_name?: string;
   summary_line?: string;
   shifting_event_id?: string;
@@ -6603,6 +6601,10 @@ export type AdminWebApprovalListParams = {
   status?: string;
   cursor?: string;
   page_size?: number;
+  /** Server-side narrowing (the cursor is bound to it): birth | death | shifting. */
+  request_type?: AdminWebApprovalRequestType;
+  /** Server-side farm narrowing; a death matches through its animal's park. */
+  park_id?: string;
 };
 
 /** One keyset page of approval requests the caller may decide (GET /admin-web/counts/approvals). */
@@ -6620,6 +6622,8 @@ export async function listAdminWebApprovals(
         status: params.status,
         cursor: params.cursor,
         page_size: params.page_size,
+        request_type: params.request_type,
+        park_id: params.park_id,
       }),
     }),
   );

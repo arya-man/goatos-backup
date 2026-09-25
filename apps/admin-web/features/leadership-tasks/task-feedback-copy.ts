@@ -131,4 +131,5 @@ export const REFUSAL_FALLBACKS: Record<
     plain: "That is not a move this task can make from where it is now.",
   },
   task_not_found: { plain: "This task is no longer on the list." },
+  not_on_task: { plain: "Only the people on this task, or someone named in a note on it, can write a note here." },
 };

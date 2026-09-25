@@ -39,6 +39,10 @@ export const APPROVALS_COPY = {
   farmTab: {
     all: "All farms",
   },
+  pager: {
+    next: "Older requests",
+    first: "Back to newest",
+  },
   kpi: {
     pendingInView: "Pending in view",
     birthDeathInView: "Birth / death in view",
@@ -47,8 +51,8 @@ export const APPROVALS_COPY = {
   },
   table: {
     // No id columns: "Subject" renders readable detail (shed move / request type), never a UUID.
-    // "Raised by" was dropped because the raiser is stored as a user id with no name source yet.
-    columns: ["Type", "Subject", "Raised", "Status", "Action"],
+    // "Raised by" is the backend-resolved raised_by_name (an unresolvable id is dropped, never shown).
+    columns: ["Type", "Subject", "Raised by", "Raised", "Status", "Action"],
   },
   drawer: {
     eyebrow: "Approval request",
