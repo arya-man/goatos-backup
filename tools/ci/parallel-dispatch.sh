@@ -57,14 +57,26 @@ job_group() {
   esac
 }
 
-# 12-core box: each job is itself multi-threaded (go vet ./..., next build, Gradle).
-# 3 is the sane default; hard-clamped to 1..4.
+# Default 5 = every component job at once (20-min land-main cap): with 3, the
+# LONGEST job (android) was launched last and queued behind `common`, so the
+# critical path was common + android instead of android alone. Each job is
+# multi-threaded, but backend/admin-web/common are short; hard-clamped to 1..5.
 ci_parallel_width() {
-  local n="${GOATOS_CI_LOCAL_JOBS:-3}"
-  case "$n" in ''|*[!0-9]*) n=3 ;; esac
+  local n="${GOATOS_CI_LOCAL_JOBS:-5}"
+  case "$n" in ''|*[!0-9]*) n=5 ;; esac
   [ "$n" -ge 1 ] 2>/dev/null || n=1
-  [ "$n" -le 4 ] || n=4
+  [ "$n" -le 5 ] || n=5
   printf '%s' "$n"
+}
+
+# Launch order: longest pole first, so a narrower width never parks android
+# behind a one-minute guard job. Output/accounting stay in SELECTION order.
+ci_launch_order() { # job... -> jobs sorted by expected wall time, longest first
+  local j p
+  for j in "$@"; do
+    case "$j" in android) p=1 ;; query-plans) p=2 ;; backend) p=3 ;; admin-web) p=4 ;; *) p=5 ;; esac
+    printf '%s %s\n' "$p" "$j"
+  done | sort -n -s -k1,1 | awk '{print $2}'
 }
 
 # ───────── interrupt-safe cleanup (traps) ─────────
@@ -149,7 +161,9 @@ dispatch_jobs() {
   _DISPATCH_ALL_PIDS=""
   _dispatch_install_traps
 
-  local pending=("${jobs[@]}")
+  local pending=()
+  local _j
+  for _j in $(ci_launch_order "${jobs[@]}"); do pending+=("$_j"); done
   local -a live_pids=() live_jobs=() live_groups=()
   local launched=0
 
@@ -157,6 +171,7 @@ dispatch_jobs() {
     local job="$1"
     (
       exec >"$rundir/$job.log" 2>&1          # per-job log; no interleaved output
+      local _t0=$SECONDS
       RESULTS=(); TIMINGS=(); FAILED_JOBS=(); FAILURES=(); fail=0
       run_job "$job"
       local rc=$?
@@ -171,6 +186,7 @@ dispatch_jobs() {
       : >"$rundir/$job.failures"
       [ "${#FAILURES[@]}" -eq 0 ] || printf '%s\n' "${FAILURES[@]}" >"$rundir/$job.failures"
       printf '%s' "${screenshots_ran:-}" >"$rundir/$job.screenshots"
+      printf '%s' "$(( SECONDS - _t0 ))" >"$rundir/$job.wall"
       # STATUS LAST, ATOMIC: a torn or absent write is indistinguishable from a
       # crash, and the parent scores both as failure.
       printf '%s' "$rc" >"$rundir/$job.status.tmp" && mv -f "$rundir/$job.status.tmp" "$rundir/$job.status"
@@ -254,6 +270,17 @@ dispatch_jobs() {
         RESULTS+=("FAIL  job ${job} produced NO status file (signal/OOM/crash) — treated as FAILED")
     fi
     accounted=$((accounted + 1))
+  done
+
+  # Per-job WALL time (the critical path is the max, not the sum). Written for
+  # land-main's 20-min budget report; instrumentation only, never a verdict.
+  local wallf
+  wallf="$(git rev-parse --git-path goatos-ci-local-jobwall.tsv 2>/dev/null || echo /dev/null)"
+  : >"$wallf" 2>/dev/null || true
+  for job in "${jobs[@]}"; do
+    line="$(cat "$rundir/$job.wall" 2>/dev/null || echo "?")"
+    echo "ci-local: job wall ${job} ${line}s"
+    printf '%s\t%s\n' "$job" "$line" >>"$wallf" 2>/dev/null || true
   done
 
   if [ "$accounted" -ne "${#jobs[@]}" ] || [ "$accounted" -ne "$launched" ]; then

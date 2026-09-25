@@ -218,4 +218,15 @@ done
 
 echo "land-main self-test: passed"
 
+# Budget report: over-budget landings warn loudly and are logged, never failed.
+out="$(cd "$tmp/candidate" && GOATOS_LAND_TEST_MODE=1 GOATOS_LAND_TEST_CI_COMMAND=true \
+  GOATOS_LAND_MAIN_LOCK_DIR="$tmp/budget.lock" GOATOS_LAND_BUDGET_SECONDS=-1 \
+  GOATOS_LAND_BUDGET_LOG="$tmp/budget.log" bash "$script" 2>&1)" \
+  || { echo "land-main self-test: over-budget landing must not change the exit status" >&2; echo "$out" >&2; exit 1; }
+printf '%s\n' "$out" | grep -q "OVER the -1s (20-min) budget" \
+  || { echo "land-main self-test: over-budget WARNING missing" >&2; echo "$out" >&2; exit 1; }
+grep -q $'\tover=yes\t' "$tmp/budget.log" \
+  || { echo "land-main self-test: over-budget landing not appended to the budget log" >&2; exit 1; }
+echo "land-main self-test: budget warning passed"
+
 bash "$repo/tools/ci/land-route.test.sh"

@@ -163,8 +163,42 @@ esac
 case "$land_lock_dir" in /*) ;; *) land_lock_dir="$repo/$land_lock_dir" ;; esac
 # shellcheck source=tools/ci/land-lock.sh
 source "$script_dir/land-lock.sh"
+# ── 20-min wall-time budget (docs/progress/ci-deploy-speedup.md) ────────────
+# Instrumentation only: prints per-job + total wall time on every exit and warns
+# loudly over budget. It NEVER changes the exit status or fails a landing.
+budget_limit="${GOATOS_LAND_BUDGET_SECONDS:-1200}"
+if [ "$test_mode" = "1" ]; then budget_log="${GOATOS_LAND_BUDGET_LOG:-/dev/null}"
+else budget_log="${GOATOS_LAND_BUDGET_LOG:-$HOME/.goatos/land-main-budget.log}"; fi
+budget_timings="$(git rev-parse --git-path goatos-ci-local-timings.tsv 2>/dev/null || echo /dev/null)"
+budget_timings_start="$(wc -l <"$budget_timings" 2>/dev/null | tr -d ' ' || echo 0)"
+budget_ci_seconds=0
+budget_report() {
+  local rc="$1" total=$SECONDS jobs="" top="" jobwall
+  jobwall="$(git rev-parse --git-path goatos-ci-local-jobwall.tsv 2>/dev/null || true)"
+  [ -f "$jobwall" ] && [ "$budget_ci_seconds" -gt 0 ] && jobs="$(awk -F'\t' '{printf "%s%s=%ss", (NR>1?" ":""), $1, $2}' "$jobwall")"
+  if [ -f "$budget_timings" ]; then
+    top="$(tail -n +"$((budget_timings_start + 1))" "$budget_timings" 2>/dev/null \
+      | awk -F'\t' 'NF>=7 {print $7"\t"$4"\t"$5}' | sort -t"$(printf '\t')" -k1,1nr | head -5)"
+  fi
+  echo "land-main: ──── wall time: total ${total}s (budget ${budget_limit}s) = ci-local ${budget_ci_seconds}s + fetch/rebase/stamp/push $((total - budget_ci_seconds))s"
+  [ -n "$jobs" ] && echo "land-main:      per-job wall (last ci-local run): ${jobs}"
+  if [ "$total" -gt "$budget_limit" ]; then
+    echo "land-main: ################################################################" >&2
+    echo "land-main: ##  WARNING: land-main took ${total}s, OVER the ${budget_limit}s (20-min) budget" >&2
+    echo "land-main: ##  top 5 steps:" >&2
+    printf '%s\n' "$top" | awk -F'\t' 'NF {printf "land-main: ##    %6ss  [%s] %s\n", $1, $2, $3}' >&2
+    echo "land-main: ##  logged to ${budget_log}" >&2
+    echo "land-main: ################################################################" >&2
+  fi
+  mkdir -p "$(dirname "$budget_log")" 2>/dev/null || true
+  printf '%s\tsha=%s\trc=%s\ttotal=%ss\tci=%ss\tover=%s\tjobs=%s\ttop=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev-parse --short=12 HEAD 2>/dev/null)" "$rc" "$total" \
+    "$budget_ci_seconds" "$([ "$total" -gt "$budget_limit" ] && echo yes || echo no)" "$jobs" \
+    "$(printf '%s' "$top" | awk -F'\t' 'NF {printf "%s%s:%ss", (NR>1?",":""), $3, $1}')" >>"$budget_log" 2>/dev/null || true
+}
+
 if land_lock_acquire "$land_lock_dir" "$(printf 'worktree=%s\nsha=%s\nstarted=%s\n' "$repo" "$(git rev-parse HEAD)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"; then
-  trap 'rm -rf "$land_lock_dir"' EXIT
+  trap 'land_rc=$?; budget_report "$land_rc"; rm -rf "$land_lock_dir"; exit "$land_rc"' EXIT
 else
   die "landing queue busy; rerun after that landing finishes (this command never waits or kills)"
 fi
@@ -219,7 +253,9 @@ while [ "$attempt" -le "$max_attempts" ]; do
       ci_target="ci-local-screenshots"
       echo "land-main: diff touches Android UI -> running make ${ci_target} (Paparazzi proof required by the push guard)"
     fi
+    ci_t0=$SECONDS
     make "$ci_target"
+    budget_ci_seconds=$((budget_ci_seconds + SECONDS - ci_t0))
   fi
 
   [ "$(git rev-parse HEAD)" = "$candidate_sha" ] || die "HEAD changed while ci-local ran; refusing to push uncertified code"

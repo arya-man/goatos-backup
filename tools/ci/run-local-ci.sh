@@ -348,11 +348,42 @@ android_screenshot_proof_coverage_guard() {
   bash tools/ci/check-android-screenshot-proof.sh tools/ci/run-local-ci.sh
 }
 
+# ── land-main 20-min cap (docs/progress/ci-deploy-speedup.md) ────────────────
+# The FULL Android suite (every module's unit tests + lint, the config-cache
+# guard, the benchmark compile) runs on MODE=all and in the nightly full-suite
+# workflow (.github/workflows/nightly-full-ci.yml, GOATOS_CI_FULL=1). A scoped
+# landing runs only what the diff can break (tools/ci/android-gradle-scope.mjs).
+ci_full_suite() {
+  [ "$only" = "all" ] && return 0
+  case "${GOATOS_CI_FULL:-0}" in 1|true|TRUE|True) return 0 ;; esac
+  return 1
+}
+
+# Android build logic (any *.gradle.kts, gradle.properties, gradle/**, buildSrc)
+# or the config-cache guard itself. FAIL-OPEN: an undeterminable diff counts as
+# changed.
+android_build_logic_changed() {
+  local changed
+  changed="$(changed_since_base 2>/dev/null)" || return 0
+  [ -n "$changed" ] || return 0
+  printf '%s\n' "$changed" | grep -Eq '^apps/goatos-android/(.*\.gradle\.kts|gradle\.properties|gradle/|buildSrc/|benchmark/)|^tools/ci/check-gradle-config-cache'
+}
+
+# Gradle workers for the landing Android lane. --max-workers=1 had no recorded
+# reason (see the comment on the compile step) and serialised ~40 modules; it was
+# the single largest term of the 43-min PR #404 landing.
+android_gradle_workers() {
+  local n="${GOATOS_ANDROID_MAX_WORKERS:-6}"
+  case "$n" in ''|*[!0-9]*) n=6 ;; esac
+  [ "$n" -ge 1 ] || n=1
+  printf '%s' "$n"
+}
+
 run_android_screenshots() {
   local filter_args
-  if filter_args="$(android_screenshot_gradle_filter_args)"; then
+  if ! ci_full_suite && filter_args="$(android_screenshot_gradle_filter_args)"; then
     echo "ci-local: Android screenshot scope mapped to targeted Paparazzi filters: ${filter_args}"
-    step_cached "android screenshots (targeted)" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process ${filter_args}"
+    step_cached "android screenshots (targeted)" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --build-cache --max-workers=$(android_gradle_workers) -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process ${filter_args}"
   else
     step_cached "android screenshots" bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
   fi
@@ -473,6 +504,8 @@ run_common() {
     step "gradle home + machine queue self-test" bash tools/ci/gradle-home.test.sh
     step "gradle machine setup self-test" bash tools/ci/gradle-machine-setup.test.sh
     step "parallel-dispatch cleanup self-test" bash tools/ci/check-parallel-dispatch-cleanup.test.sh
+    step "android gradle scope self-test" node tools/ci/android-gradle-scope.mjs --self-test
+    step "land-route self-test" bash tools/ci/land-route.test.sh
   else
     RESULTS+=("SKIP  ci-tooling self-tests (no tools/ci/** diff)")
     echo "── ci-local: ci-tooling self-tests SKIPPED (no tools/ci/** diff vs base)"
@@ -501,8 +534,14 @@ run_common() {
     RESULTS+=("SKIP  gradle-worktree-lock guard (no tools/ci/gradle-worktree-lock.sh diff)")
     echo "── ci-local: gradle-worktree-lock guard SKIPPED (no tools/ci/gradle-worktree-lock.sh diff vs base)"
   fi
-  if gradle_lock_selftest_changed; then
+  # The 23-mutant self-test is ~24 min (1431 s on the PR #404 landing) -- alone
+  # over the 20-min land-main cap -- so it runs on MODE=all and nightly only. A
+  # landing that edits the lock still runs the real guard above (~60 s).
+  if ci_full_suite; then
     step "gradle-worktree-lock guard self-test" bash tools/ci/check-gradle-worktree-lock.test.sh
+  elif gradle_lock_selftest_changed; then
+    RESULTS+=("SKIP  gradle-worktree-lock guard self-test (lock diff: runs on MODE=all + nightly; 20-min land-main cap)")
+    echo "── ci-local: gradle-worktree-lock guard self-test DEFERRED to MODE=all/nightly (lock diff present) -- run: make ci-local MODE=all"
   else
     RESULTS+=("SKIP  gradle-worktree-lock guard self-test (no lock/guard/harness diff)")
     echo "── ci-local: gradle-worktree-lock guard self-test SKIPPED (no lock/guard/harness diff vs base)"
@@ -559,7 +598,16 @@ run_backend() {
   step "shifting-sop-guard"         make shifting-sop-guard
   step "backend go mod verify" bash -c 'cd backend && go mod verify'
   step "backend go vet" bash -c 'cd backend && go vet ./...'
-  step "backend govulncheck" bash -c 'cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...'
+  # govulncheck answers "does a dependency in go.mod/go.sum carry a known vuln
+  # reachable from our code". The vuln DB changes daily regardless of the diff,
+  # so it is a NIGHTLY job (nightly-full-ci.yml) and MODE=all; a landing pays for
+  # it only when the dependency set itself changed (20-min land-main cap).
+  if ci_full_suite || changed_since_base | grep -Eq '^backend/go\.(mod|sum)$|^go\.work'; then
+    step "backend govulncheck" bash -c 'cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...'
+  else
+    RESULTS+=("SKIP  backend govulncheck (no go.mod/go.sum diff; runs on MODE=all + nightly)")
+    echo "── ci-local: backend govulncheck SKIPPED (no go.mod/go.sum diff; MODE=all + nightly run it)"
+  fi
   step "backend sqlc vet + diff" run_sqlc_static_checks
   step "backend targeted race" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=0 go test -race ./internal/platform/worker ./internal/platform/postgres ./internal/kernelstages ./internal/domainconsumer/app ./internal/outbox/adapters/postgres'
   step "agent: aggregate-projection" make aggregate-projection-guard
@@ -811,8 +859,13 @@ run_android() {
   # task actions). It is BEHAVIOURAL: the same failure a real build would hit.
   # It is not folded into the compile steps below, because those pass
   # --no-configuration-cache and so are structurally blind to this defect class.
-  step_cached "android config-cache guard self-test" bash tools/ci/check-gradle-config-cache.test.sh
-  step_cached "android config-cache guard" bash tools/ci/check-gradle-config-cache.sh
+  if ci_full_suite || android_build_logic_changed; then
+    step_cached "android config-cache guard self-test" bash tools/ci/check-gradle-config-cache.test.sh
+    step_cached "android config-cache guard" bash tools/ci/check-gradle-config-cache.sh
+  else
+    RESULTS+=("SKIP  android config-cache guard (no Android build-logic diff; runs on MODE=all + nightly)")
+    echo "── ci-local: android config-cache guard SKIPPED (no Android build-logic diff vs base; MODE=all + nightly run it)"
+  fi
   if [ "$fail" -ne 0 ]; then
     echo "── ci-local: android Gradle compile/screenshots/benchmark SKIPPED because Android config-cache checks are already red"
     RESULTS+=("SKIP  android Gradle compile/screenshots/benchmark (config-cache checks failed)")
@@ -877,7 +930,12 @@ run_android() {
   # Failure semantics are unchanged: Gradle stops at the first failing task, just
   # as the three sequential steps did. Adding --continue would report all three in
   # one pass (a strictly stronger gate) but is a separate decision.
-  step_cached "android :app compile+unit+lint" bash -c 'cd apps/goatos-android && mkdir -p app/build/generated/ksp/stgRelease/java/hilt_aggregated_deps && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --no-daemon --console=plain --no-configuration-cache --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  local android_tasks android_scope_args=""
+  ci_full_suite && android_scope_args="--full"
+  android_tasks="$(changed_since_base | node tools/ci/android-gradle-scope.mjs $android_scope_args)" \
+    || android_tasks=":app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease"
+  echo "ci-local: android Gradle tasks: ${android_tasks}"
+  step_cached "android :app compile+unit+lint" bash -c "cd apps/goatos-android && mkdir -p app/build/generated/ksp/stgRelease/java/hilt_aggregated_deps && ./gradlew ${android_tasks} --no-daemon --console=plain --no-configuration-cache --build-cache --max-workers=$(android_gradle_workers) -Dorg.gradle.jvmargs='-Xmx6g -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8' -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process"
   if [ "$fail" -ne 0 ]; then
     echo "── ci-local: android screenshots/benchmark SKIPPED because compile/unit/lint is already red"
     RESULTS+=("SKIP  android screenshots/benchmark (compile/unit/lint failed)")
@@ -917,7 +975,12 @@ run_android() {
       fi
       ;;
   esac
-  step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
+  if ci_full_suite || android_build_logic_changed; then
+    step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
+  else
+    RESULTS+=("SKIP  android benchmark compile (no Android build/benchmark diff; runs on MODE=all + nightly)")
+    echo "── ci-local: android benchmark compile SKIPPED (no Android build/benchmark diff; MODE=all + nightly run it)"
+  fi
   gradle_lock_clear_trap
   gradle_lock_release
   return 0

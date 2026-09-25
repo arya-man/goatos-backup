@@ -1,0 +1,41 @@
+name: nightly-full-ci
+
+# The FULL local-CI suite, nightly, on the self-hosted laptop runner. This is
+# what keeps the 20-min `make land-main` cap honest (docs/progress/ci-deploy-speedup.md,
+# "land-main 20-min cap"): a landing runs only what its diff can break, and
+# everything that was moved off the landing critical path runs here instead:
+#
+#   * every Android module's unit tests + lint (not only the changed ones)
+#   * the FULL Paparazzi screenshot run (--rerun-tasks), not the diff-mapped one
+#   * the Android configuration-cache guard + its self-test, the benchmark compile
+#   * backend govulncheck (landing runs it only on a go.mod/go.sum diff)
+#   * the ~24-min gradle-worktree-lock mutation self-test
+#
+# Same entry point as `make ci-local MODE=all`; nothing is deleted, only moved.
+# Runs at 03:00 IST, when no landing is expected. The runner executes one job at
+# a time, so a landing dispatched meanwhile queues behind it (FIFO).
+
+on:
+  schedule:
+    - cron: "30 21 * * *"   # 03:00 IST
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    name: full ci-local (MODE=all + full Android + full screenshots)
+    runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Full suite
+        env:
+          GOATOS_CI_FULL: "1"
+          GOATOS_RUN_ANDROID_SCREENSHOTS: "1"
+          GOATOS_RUN_POSTGRES_TESTS: "0"
+        run: tools/ci/run-local-ci.sh all
