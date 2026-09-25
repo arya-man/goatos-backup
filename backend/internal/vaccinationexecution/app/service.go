@@ -405,6 +405,18 @@ func (s *Service) DriveAssignments(ctx context.Context, q domain.DriveAssignment
 	if err != nil {
 		return domain.DriveAssignmentResponse{}, err
 	}
+	for i := range rows {
+		label := strings.TrimSpace(rows[i].PartitionLabel)
+		location := oploc.OperationalLocation{ShedName: rows[i].PhysicalShed, PartitionLabel: label}
+		rows[i].PartitionLabelRaw = nil
+		if location.IsPartitioned() {
+			value := label
+			rows[i].PartitionLabelRaw = &value
+		} else {
+			location.PartitionLabel = ""
+		}
+		rows[i].OperationalLocationDisplay = location.Display()
+	}
 	return domain.DriveAssignmentResponse{Source: domain.SourceAPI, Rows: rows}, nil
 }
 
