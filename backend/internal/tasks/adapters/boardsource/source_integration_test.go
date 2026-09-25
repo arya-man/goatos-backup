@@ -312,3 +312,125 @@ func keys(m map[string]domain.Row) []string {
 	}
 	return out
 }
+
+func startSeeded(t *testing.T) (context.Context, *pgxpool.Pool) {
+	t.Helper()
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	t.Cleanup(pool.Close)
+	wbSeed(t, ctx, pool)
+	return ctx, pool
+}
+
+// TestEngineBoardOneToManyStepsStayOneRow: a workflow with MANY steps -- several of them sent
+// back -- is ONE board row and counts ONCE; the rework EXISTS and the card joins never fan it out.
+func TestEngineBoardOneToManyStepsStayOneRow(t *testing.T) {
+	ctx, pool := startSeeded(t)
+	wbExec(t, ctx, pool, `
+INSERT INTO workflow_actions (tenant_id, workflow_id, action_key, seq, action_type, title, status, rework_reason)
+VALUES ($1::uuid, $2::uuid, 'extra1', 4, 'action', 'Extra one', 'rework', 'again'),
+       ($1::uuid, $2::uuid, 'extra2', 5, 'action', 'Extra two', 'rework', 'again')`, wbTenant, wfRework)
+	src := laneSource(t, pool, domain.ModuleProcurement)
+	rows, err := src.ListRows(ctx, wbQuery())
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, r := range rows {
+		if r.SourceID == wfRework {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("workflow with three sent-back steps rows %d times, want 1", n)
+	}
+	counts, err := src.CountByState(ctx, wbQuery())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts[domain.WorkStateRejected] != 1 {
+		t.Fatalf("rejected count = %d, want 1", counts[domain.WorkStateRejected])
+	}
+}
+
+// TestEngineBoardPaginationWalksEveryRowOnce: a one-row page walks the lane in keyset order,
+// every row exactly once, and ends; the count is the whole filter whatever the page size.
+func TestEngineBoardPaginationWalksEveryRowOnce(t *testing.T) {
+	ctx, pool := startSeeded(t)
+	src := laneSource(t, pool, domain.ModuleProcurement)
+	q := wbQuery()
+	q.Limit = 1
+	seen := map[string]bool{}
+	for i := 0; i < 20; i++ {
+		page, err := src.ListRows(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		if seen[page[0].SourceID] {
+			t.Fatalf("row %s served twice", page[0].SourceID)
+		}
+		seen[page[0].SourceID] = true
+		q.AfterSourceID = page[0].SourceID
+	}
+	counts, err := src.CountByState(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	if len(seen) != 5 || total != 5 {
+		t.Fatalf("walk saw %d rows, count says %d, want 5 and 5", len(seen), total)
+	}
+}
+
+// TestEngineBoardParkScopeAndOperatorLens: another park's workflow never shows, and the operator
+// lens (an owner filter) keeps every pool row -- engine steps are owned by a designation.
+func TestEngineBoardParkScopeAndOperatorLens(t *testing.T) {
+	ctx, pool := startSeeded(t)
+	src := laneSource(t, pool, domain.ModuleProcurement)
+	q := wbQuery()
+	q.ParkID = wbOther
+	other, err := src.ListRows(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other) != 1 || other[0].SourceID != wfOtherPark {
+		t.Fatalf("other park rows = %v, want just its own workflow", other)
+	}
+	q = wbQuery()
+	q.OwnerUserID = wbUser
+	mine, err := src.ListRows(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mine) != 5 {
+		t.Fatalf("operator lens rows = %d, want every pool row (5)", len(mine))
+	}
+}
+
+// TestEngineBoardStatusMatrix: every board state the source can produce is produced by exactly
+// the workflow built for it, and a state filter returns exactly that one.
+func TestEngineBoardStatusMatrix(t *testing.T) {
+	ctx, pool := startSeeded(t)
+	src := laneSource(t, pool, domain.ModuleProcurement)
+	for id, state := range map[string]domain.WorkState{
+		wfOpenToday: domain.WorkStateDue, wfOverdue: domain.WorkStateOverdue, wfRework: domain.WorkStateRejected,
+		wfInReview: domain.WorkStateVerificationPending, wfDoneToday: domain.WorkStateCompleted,
+	} {
+		q := wbQuery()
+		q.WorkStates = []domain.WorkState{state}
+		rows, err := src.ListRows(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 || rows[0].SourceID != id {
+			t.Errorf("state %s rows = %v, want just %s", state, rows, id)
+		}
+	}
+}

@@ -193,3 +193,89 @@ func TestToxinRoundsRowOnTheBoardOnADatabaseRoundTrip(t *testing.T) {
 		t.Errorf("out-of-day drill returned %d", empty.Total)
 	}
 }
+
+func txStart(t *testing.T) (context.Context, *Source) {
+	t.Helper()
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	t.Cleanup(pool.Close)
+	txSeed(t, ctx, pool)
+	return ctx, New(pool, 5*time.Second)
+}
+
+// TestToxinBoardOneToManyCompletionsStayOneRow: a round with several filmed steps is ONE row.
+func TestToxinBoardOneToManyCompletionsStayOneRow(t *testing.T) {
+	ctx, src := txStart(t)
+	rows, err := src.ListRows(ctx, txQuery())
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, r := range rows {
+		if r.SourceID == tStarted {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("round with two completions rows %d times, want 1", n)
+	}
+}
+
+// TestToxinBoardPaginationWalksEveryRowOnce: one-row pages walk every round once and end.
+func TestToxinBoardPaginationWalksEveryRowOnce(t *testing.T) {
+	ctx, src := txStart(t)
+	q := txQuery()
+	q.Limit = 1
+	seen := map[string]bool{}
+	for i := 0; i < 20; i++ {
+		page, err := src.ListRows(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		if seen[page[0].SourceID] {
+			t.Fatalf("round %s served twice", page[0].SourceID)
+		}
+		seen[page[0].SourceID] = true
+		q.AfterSourceID = page[0].SourceID
+	}
+	if len(seen) != 5 {
+		t.Fatalf("walk saw %d rounds, want 5", len(seen))
+	}
+}
+
+// TestToxinBoardParkScope: a round rows only at the park its load's code names.
+func TestToxinBoardParkScope(t *testing.T) {
+	ctx, src := txStart(t)
+	q := txQuery()
+	q.ParkID = txOther
+	rows, err := src.ListRows(ctx, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].SourceID != tOtherPark || rows[0].ParkName != "Channapatna" {
+		t.Fatalf("CPT rows = %+v, want just the CPT round", rows)
+	}
+}
+
+// TestToxinBoardStatusMatrix: each board state is produced by exactly the round built for it.
+func TestToxinBoardStatusMatrix(t *testing.T) {
+	ctx, src := txStart(t)
+	for id, state := range map[string]domain.WorkState{
+		tOpenOld: domain.WorkStateDue, tStarted: domain.WorkStateInProgress, tInReview: domain.WorkStateVerificationPending,
+		tAcceptedToday: domain.WorkStateCompleted, tRetest: domain.WorkStateRejected,
+	} {
+		q := txQuery()
+		q.WorkStates = []domain.WorkState{state}
+		rows, err := src.ListRows(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 || rows[0].SourceID != id {
+			t.Errorf("state %s rows = %v, want just %s", state, rows, id)
+		}
+	}
+}
