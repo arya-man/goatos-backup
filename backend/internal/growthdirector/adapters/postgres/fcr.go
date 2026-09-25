@@ -133,14 +133,21 @@ lump_rounds AS (
     AND so.animal_count > 0 AND so.average_weight_kg IS NOT NULL
   ORDER BY bp.pen_shed_id, bp.pen_key, bp.campaign_id, so.accepted_at DESC, so.shed_observation_id DESC
 ),
--- ONE SCANNED WEIGH PER ANIMAL PER PEN PER CAMPAIGN, keyed by the same-animal map ($6/$7) so a kid
--- scanned on its second RFID in the next round is still one kid.
-scan_rounds AS (
-  SELECT DISTINCT ON (bp.pen_shed_id, bp.pen_key, bp.campaign_id, COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))))
-         bp.pen_shed_id, bp.pen_key, bp.campaign_id, bp.period_start_date,
+-- The scanned observations of the scoped individual buckets, read ONCE. scan_rounds below and the
+-- pens statement's General-ADG legs (gen_scan_legs) both consume exactly this row set; reading it
+-- twice cost a second 244-loop index scan (~20 ms on the 2026-09-25 OCI clone). Same filter, same
+-- same-animal key ($6/$7), one row per observation.
+-- projection-review: membership=weighing_observations of the scoped individual_animal buckets in the
+-- window; group_key=none here (one row per observation, each consumer groups on its own key);
+-- join_cardinality=bucket_pen 1:1 per campaign_shed_id (the observation's own bucket) and the
+-- same-animal map 0..1 per tag, so no observation is multiplied; pagination=NONE; scope=tenant +
+-- authorized parks via bucket_pen, window $3/$4.
+scan_obs AS MATERIALIZED (
+  SELECT bp.pen_shed_id, bp.pen_key, bp.campaign_id, bp.period_start_date,
          COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS animal_key,
+         lower(btrim(o.scanned_identifier)) AS raw_tag,
          (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
-         o.weight_kg::float8 AS w
+         o.weight_kg::float8 AS w, o.accepted_at, o.observation_id
   FROM bucket_pen bp
   JOIN weighing_observations o
     ON o.tenant_id = $1::uuid AND o.campaign_shed_id = bp.campaign_shed_id
@@ -150,8 +157,14 @@ scan_rounds AS (
     AND o.verification_status <> 'rejected'
     AND btrim(o.scanned_identifier) <> ''
     AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
-  ORDER BY bp.pen_shed_id, bp.pen_key, bp.campaign_id, COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))),
-           o.accepted_at DESC, o.observation_id DESC
+),
+-- ONE SCANNED WEIGH PER ANIMAL PER PEN PER CAMPAIGN, keyed by the same-animal map ($6/$7) so a kid
+-- scanned on its second RFID in the next round is still one kid.
+scan_rounds AS (
+  SELECT DISTINCT ON (pen_shed_id, pen_key, campaign_id, animal_key)
+         pen_shed_id, pen_key, campaign_id, period_start_date, animal_key, d, w
+  FROM scan_obs
+  ORDER BY pen_shed_id, pen_key, campaign_id, animal_key, accepted_at DESC, observation_id DESC
 ),
 scan_pen_rounds AS (
   SELECT pen_shed_id, pen_key, campaign_id, period_start_date,
@@ -313,26 +326,16 @@ gen_lump AS (
     ON f.pen_shed_id = l.pen_shed_id AND f.pen_key = l.pen_key
   WHERE l.d > f.d
 ),
+-- projection-review: membership=scan_obs (one row per scoped observation); group_key=(pen_shed_id, pen_key, animal_key) in gen_scan; join_cardinality=no join, a window over scan_obs; pagination=NONE; scope=tenant + authorized parks + window via scan_obs.
 gen_scan_legs AS (
-  SELECT bp.pen_shed_id, bp.pen_key,
-         COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS animal_key,
-         o.weight_kg::float8 AS w,
-         (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
-         LAG(o.weight_kg::float8) OVER x AS pw,
-         LAG((o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date) OVER x AS pd
-  FROM bucket_pen bp
-  JOIN weighing_observations o
-    ON o.tenant_id = $1::uuid AND o.campaign_shed_id = bp.campaign_shed_id
-  LEFT JOIN unnest($6::text[], $7::text[]) AS akmap(tag, canonical_tag)
-    ON akmap.tag = lower(btrim(o.scanned_identifier))
-  WHERE bp.weighing_category = 'individual_animal'
-    AND o.verification_status <> 'rejected'
-    AND btrim(o.scanned_identifier) <> ''
-    AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
-    -- The page's Sex / Origin filter at the KID, exactly as growth.go's pairs CTE applies it
-    -- ($10 false = no filter; an empty list under a filter correctly matches nobody).
-    AND (NOT $10::bool OR lower(btrim(o.scanned_identifier)) = ANY($11::text[]))
-  WINDOW x AS (PARTITION BY COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) ORDER BY o.accepted_at, o.observation_id)
+  SELECT pen_shed_id, pen_key, animal_key, w, d,
+         LAG(w) OVER x AS pw,
+         LAG(d) OVER x AS pd
+  FROM scan_obs
+  -- The page's Sex / Origin filter at the KID, exactly as growth.go's pairs CTE applies it
+  -- ($10 false = no filter; an empty list under a filter correctly matches nobody).
+  WHERE (NOT $10::bool OR raw_tag = ANY($11::text[]))
+  WINDOW x AS (PARTITION BY animal_key ORDER BY accepted_at, observation_id)
 ),
 gen_scan AS (
   SELECT pen_shed_id, pen_key, avg(g) AS g, count(*)::int AS animals

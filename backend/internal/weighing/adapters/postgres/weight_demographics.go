@@ -847,16 +847,17 @@ pen_week AS (
   ) legs
   GROUP BY week_start, location_id, partition_label
 ),
--- The SCANNED half of the pen-week and load-week gain series, computed ONCE. Both jsonb arms
--- below consume exactly this aggregate; each used to rebuild it inline. animal_gain_week and
--- latest are CTEs the planner estimates at a handful of rows, so every rebuild ran as a nested
--- loop of each (animal, week) gain against every latest row -- 2,216 x 450 = ~1M join-filter
--- comparisons, ~100ms apiece on the 2026-09-24 OCI clone -- and the statement paid it twice.
--- Referenced by both arms, so it is materialized once and read twice. Same rows, same grain:
--- one row per (location_id, partition_label, week_start), n and gsum over the identical join.
+-- The SCANNED half of the pen-week gain series, computed ONCE as its own step. The load-week
+-- series no longer reads it: a load is its ANIMALS, followed wherever they were weighed, so that
+-- series is filled on the Go side from load_animals.go (loadAnimalBuckets, maintainer decision
+-- 2026-09-24), not from the pens on a fixed load tag list. animal_gain_week and latest are CTEs
+-- the planner estimates at a handful of rows, so inlining this aggregate ran as a nested loop of
+-- each (animal, week) gain against every latest row (~1M join-filter comparisons on the
+-- 2026-09-24 OCI clone); MATERIALIZED keeps it one pass. One row per (location_id,
+-- partition_label, week_start), n and gsum over the join below.
 -- projection-review: membership=animal_gain_week (one row per (tag, week)) joined to latest (one row
--- per tag, DISTINCT ON); group_key=(location_id, partition_label, week_start), the same key both
--- consumers used inline; join_cardinality=latest and ident are 1:0..1 per tag (DISTINCT ON) and goats
+-- per tag, DISTINCT ON); group_key=(location_id, partition_label, week_start), the key the pen-week
+-- arm groups on; join_cardinality=latest and ident are 1:0..1 per tag (DISTINCT ON) and goats
 -- is 1:0..1 on its primary key, so no (tag, week) row is multiplied; pagination=NONE, one bounded
 -- window aggregate; scope=tenant + the caller's park scope and window, inherited from scoped via
 -- latest and animal_gain_week.
@@ -1386,6 +1387,8 @@ SELECT
   -- The per-load series is no longer read here: a load is its ANIMALS, followed wherever they were
   -- weighed (load_animals.go, maintainer decision 2026-09-24), not the pens on a fixed tag list.
   -- The slot stays so every later bind keeps its number; the Go side fills gain_by_load_week.
+  -- projection-review: membership=none (constant empty array); group_key=none; join_cardinality=none, no join;
+  -- pagination=NONE; scope=unchanged -- loadAnimalBuckets owns the per-load grain and its own review.
   CASE WHEN $24::bool THEN '[]'::jsonb ELSE '[]'::jsonb END,
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
@@ -1487,6 +1490,21 @@ SELECT
 	if bindErr != nil {
 		return domain.WeightDemographics{}, fmt.Errorf("weighing: bind weight demographics query: %w", bindErr)
 	}
+	// The per-load series is its own statement (load_animals.go) with no input from this one, so it
+	// runs CONCURRENTLY on its own pool connection rather than as a second serial round trip after
+	// the main read: the request pays max(main, load) instead of main + load.
+	type loadBucketsResult struct {
+		rows []domain.WeightGainLoadWeekBucket
+		err  error
+	}
+	var loadBuckets chan loadBucketsResult
+	if sectionSet["weekly_gain"] {
+		loadBuckets = make(chan loadBucketsResult, 1)
+		go func() {
+			rows, err := r.loadAnimalBuckets(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, timeScope)
+			loadBuckets <- loadBucketsResult{rows: rows, err: err}
+		}()
+	}
 	if err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
@@ -1547,11 +1565,13 @@ SELECT
 	if out.GainByLoadWeek, err = decodeWeightGainLoadWeekBuckets(gainLoadWeekJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
-	if sectionSet["weekly_gain"] {
+	if loadBuckets != nil {
 		// The same animals and the same legs as every other load chart, on this tab's buckets and pen.
-		if out.GainByLoadWeek, err = r.loadAnimalBuckets(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, timeScope); err != nil {
-			return domain.WeightDemographics{}, err
+		res := <-loadBuckets
+		if res.err != nil {
+			return domain.WeightDemographics{}, res.err
 		}
+		out.GainByLoadWeek = res.rows
 	}
 	if out.GainThresholdsByBreed, err = decodeWeightGainThresholdBuckets(gainThresholdBreedJSON); err != nil {
 		return domain.WeightDemographics{}, err
