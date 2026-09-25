@@ -316,10 +316,26 @@ steps:
           exit 0
         fi
         export COMMIT_SHA="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk-headless openssl unzip
-        tools/deploy/stg-mobile-distribution.sh
+        # ANY failure here (apt, SDK, signing restore, Gradle) must not fail
+        # this step: a failed step cancels the concurrent backend/web rollout.
+        # It is recorded instead; android-mobile-distribution re-raises it
+        # after the rollout, and a missing "ok <sha>" marker also refuses.
+        set +e
+        (
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk-headless openssl unzip
+          tools/deploy/stg-mobile-distribution.sh
+        )
+        rc=$$?
+        set -e
+        if [[ "$${rc}" -ne 0 ]]; then
+          mkdir -p .local/android-mobile-build
+          printf 'failed %s rc=%s\n' "$$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)" "$${rc}" > .local/android-mobile-build/status
+          echo "Android build phase failed (rc=$${rc}); android-mobile-distribution will fail after the backend/web rollout."
+        fi
+        exit 0
 
   - id: android-mobile-distribution
     waitFor: ['android-mobile-build', 'stg-release-tag-bookkeeping', 'deploy-ask-mesha-agent']
