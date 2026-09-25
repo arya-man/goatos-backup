@@ -258,6 +258,8 @@ export function SaleAllocationDrawer({
           <b>
             <PackageCheck className="ic" size={15} aria-hidden /> {copy(pageContract, "action.tag_animals.label")}
           </b>
+          {/* Pushes the close control to the drawer's edge, where every other drawer keeps it. */}
+          <span className="sp" style={{ flex: 1 }} />
           <button ref={closeButtonRef} type="button" className="iconbtn" onClick={close} aria-label={copy(pageContract, "action.close")}>
             <X size={15} aria-hidden />
           </button>

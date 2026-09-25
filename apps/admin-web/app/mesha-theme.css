@@ -4743,6 +4743,9 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
    the bottom-margin reset belong here. */
 .sales-tagfilters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:4px}
 .sales-tagfilters .fld{margin-bottom:0;min-width:0}
+/* A global select floor (170px) is wider than a phone column here, so Park and Pen ran 14px past
+   the drawer's edge; each control fills its own column instead. */
+.sales-tagfilters select,.sales-tagfilters input{width:100%;min-width:0}
 /* The blocker chip is the reason a person cannot pick the animal, so it must never be
    clipped: the tag column truncates instead and the chip column keeps its full width. */
 .sales-tagtable{width:100%;table-layout:auto}
@@ -4753,6 +4756,16 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .sales-tagtable td:last-child{white-space:normal;text-align:right}
 .sales-tagreview{display:grid;gap:10px}
 .sales-tagreview .card{padding:10px 12px}
+/* The weight step reuses .sales-tagtable, whose first column is the pick table's 26px checkbox
+   and whose second is its monospace tag. Here the columns are tag, pen, weight: without these the
+   tag was squeezed into 26px and panned out of view on a phone, leaving ")6" beside a clipped box. */
+.sales-tagweights .sales-tagtable td:first-child{width:auto;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;white-space:normal;overflow-wrap:anywhere;word-break:break-all}
+.sales-tagweights .sales-tagtable td:nth-child(2){font-family:inherit;color:var(--muted)}
+.sales-tagweights .sales-tagtable td:last-child{width:1%;white-space:nowrap}
+/* Both tagging tables keep their few columns on a phone; the global phone floor
+   (`.main table{min-width:540px}`, and the drawer sits inside .main) made them 540px scrollers
+   inside a 300px drawer, which is what pushed the tags out of view. */
+aside.sales-tagdrawer table.sales-tagtable{min-width:0}
 @media (max-width:720px){
   .sales-tagpick{grid-template-columns:minmax(0,1fr)}
   .sales-tagpick-side{position:static;border-left:0;border-top:1px solid var(--line);padding:10px 0 0}
