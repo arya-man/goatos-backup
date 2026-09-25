@@ -1,5 +1,11 @@
 # Observability Runbook — Deploy, Verify, Operate
 
+> **Ownership moved (2026-09-25):** Grafana, Alloy, dashboards and alerting are
+> owned and deployed ONLY by `vgoats/mesha-ops` (`grafana/cloudbuild.yaml`). The
+> Goat OS STG deploy no longer deploys or smokes them. Deploy/verify steps below
+> that name goatos helper scripts are historical; use the mesha-ops runbook. See
+> `docs/decisions/grafana-owned-by-mesha-ops.md`.
+
 > Companion to `INFRA.md` (resource-level Terraform detail — this doc does not
 > duplicate it, only cross-links) and `OBSERVABILITY_DESIGN.md` (architecture).
 > Env: **goatos-stg**, region **asia-south1**.

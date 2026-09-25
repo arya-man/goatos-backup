@@ -307,7 +307,8 @@ A shared/reassigned device or role switch must not leak the prior principal's da
 - [ ] Backend read/list APIs do not broaden signed URL distribution without a
       reason; explicit download/open paths are logged and attributable, and any
       billing-risk PR states whether Cloud Monitoring/Slack alerts are actually
-      live or only configured in code.
+      live or only configured in code (alerts live in `vgoats/mesha-ops`;
+      see `docs/decisions/grafana-owned-by-mesha-ops.md`).
 - [ ] `make mobile-guard` run; whole-tree `make mobile-guard-audit`/`--all` for a
       real pass (diff-scoped CI is blind to backend-induced anti-patterns);
       Android build actually ran if compile is claimed
