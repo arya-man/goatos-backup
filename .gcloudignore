@@ -16,3 +16,9 @@ android-sdk/
 .gradle-home/
 .docker/
 .local/
+# Gradle writes these under /workspace while the release source uploads.
+apps/goatos-android/**/build/
+apps/goatos-android/**/.gradle/
+apps/goatos-android/**/.kotlin/
+apps/goatos-android/.gradle/
+apps/goatos-android/.kotlin/
