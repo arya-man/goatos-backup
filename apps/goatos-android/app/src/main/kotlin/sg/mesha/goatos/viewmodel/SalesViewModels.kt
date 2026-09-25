@@ -333,6 +333,15 @@ internal fun pendingSaleCards(payloads: List<sg.mesha.goatos.core.data.sync.Sale
         SalePendingUi(key = p.clientId, buyer = r.buyerName, line = dotJoin(sold, r.farm, rupees(if (r.lines.isEmpty()) r.salesValue else r.lines.sumOf { l -> l.quantity?.let { q -> l.ratePerUnit?.let { q * it } } ?: l.salesValue })))
     }
 
+/** The receipt box a refused receipt names, from the server's field or code; null when none. */
+internal fun refusedPaymentField(field: String?, code: String?): SalePaymentField? =
+    when (salesRefusedField(field, code) ?: code?.trim()) {
+        "amount_rupees", "payment_exceeds_sale_value" -> SalePaymentField.AMOUNT
+        "received_on" -> SalePaymentField.RECEIVED_ON
+        "note" -> SalePaymentField.NOTE
+        else -> null
+    }
+
 internal fun SalesDealDto.plannedSaleDateIfDifferent(): String? =
     plannedSaleDate?.trim()?.takeIf { it.isNotEmpty() && it != saleDate }
 
@@ -712,12 +721,20 @@ class SaleDetailViewModel @Inject constructor(
                             editMessage = MESSAGE_QUEUED_OFFLINE,
                             message = null,
                         )
-                        is QueuedWriteOutcome.Rejected -> it.copy(
-                            editInFlight = false,
-                            paymentEditor = editor?.copy(inFlight = false) ?: it.paymentEditor,
-                            editMessage = "",
-                            message = outcome.reason?.takeIf { r -> r.isNotBlank() } ?: MESSAGE_EDIT_FAILED,
-                        )
+                        is QueuedWriteOutcome.Rejected -> {
+                            val reason = outcome.reason?.takeIf { r -> r.isNotBlank() } ?: MESSAGE_EDIT_FAILED
+                            // The sentence also lands on the receipt box it is about: the banner
+                            // sits at the top of the sale, far above the editor and its Save.
+                            val box = refusedPaymentField(outcome.field, outcome.code)
+                            it.copy(
+                                editInFlight = false,
+                                paymentEditor = (editor ?: it.paymentEditor)?.let { e ->
+                                    e.copy(inFlight = false, fieldErrors = if (box == null) e.fieldErrors else e.fieldErrors + (box to reason))
+                                },
+                                editMessage = "",
+                                message = reason,
+                            )
+                        }
                     }
                 }
             }

@@ -157,6 +157,7 @@ class SalesWriteSafetyTest {
         vm.onEvent(SaleDetailEvent.SavePayment)
         sync.reject("row-1", code = "sales_invalid_amount_rupees", reason = "Amount is more than the balance.")
         assertNotNull("the editor stays open with what was typed", vm.state.value.paymentEditor)
+        assertEquals("the sentence lands on the amount box", "Amount is more than the balance.", vm.state.value.paymentEditor!!.fieldErrors[SalePaymentField.AMOUNT])
         vm.onEvent(SaleDetailEvent.PaymentFieldChanged(SalePaymentField.AMOUNT, "4000"))
         vm.onEvent(SaleDetailEvent.SavePayment)
         assertEquals(2, sync.payments.size)
@@ -234,6 +235,21 @@ class SalesWriteSafetyTest {
         assertEquals(listOf("₹1,500 · 26/09/2026"), vm.state.value.pendingPayments)
         sync.pendingPayments.value = emptyList()
         assertEquals(emptyList<String>(), vm.state.value.pendingPayments)
+    }
+
+    @Test
+    fun `a receipt refused for passing the sale value marks the amount box`() = runTest(dispatcher) {
+        // Seen on the phone (2026-09-26): 409 payment_exceeds_sale_value left the editor as typed
+        // with no mark, the reason in a banner far above it.
+        val sync = SalesSync()
+        val vm = detailVm(sync)
+        backgroundScope.launch { vm.state.collect {} }
+        vm.typePayment("50000")
+        vm.onEvent(SaleDetailEvent.SavePayment)
+        sync.reject("row-1", code = "payment_exceeds_sale_value", reason = "This takes the money received past the sale value.")
+        assertEquals("This takes the money received past the sale value.", vm.state.value.paymentEditor!!.fieldErrors[SalePaymentField.AMOUNT])
+        assertEquals(SalePaymentField.RECEIVED_ON, refusedPaymentField(null, "sales_invalid_received_on"))
+        assertEquals(null, refusedPaymentField(null, "sales_deal_not_found"))
     }
 
     // ---------------------------------------------------------------- lead boards
