@@ -92,6 +92,21 @@ test("T2: the drawer shows the newer of its cached detail and the list row", () 
   assert.deepEqual(pickDrawerRow(cachedV5, null), { row: cachedV5, detailLoaded: true });
 });
 
+test("T2: the drawer's own write never reads as a stale cache (feed stays shown, no endless loading)", () => {
+  // Live 25/09: comment + status in the drawer moved the list row to v7 through the published patch
+  // while the cached detail stayed v5, so the drawer showed "Loading activity..." forever.
+  const cachedV5 = row({ rowVersion: 5, status: "in_progress" });
+  const ownPatch = { rowVersion: 7, status: "done" };
+  const listPatched = withPatch(row({ rowVersion: 5, status: "in_progress" }), ownPatch);
+  const picked = pickDrawerRow(withPatch(cachedV5, ownPatch), listPatched);
+  assert.equal(picked.detailLoaded, true, "our own write must keep the loaded feed");
+  assert.equal(picked.row.status, "done");
+  // The host lays the patch over both sides; its source must say so.
+  const host = read("./task-drawer-host.tsx");
+  assert.match(host, /pickDrawerRow\(cached \? withPatch\(cached, patch\)/);
+  assert.match(host, /cacheBehindList/);
+});
+
 test("T2: a patch older than the row is ignored everywhere (drawer, table, chips)", () => {
   const r = row({ rowVersion: 7, status: "done" });
   assert.equal(withPatch(r, { rowVersion: 5, status: "in_progress" }).status, "done");

@@ -183,14 +183,29 @@ export function TaskDrawerHost({
     setReadNonce((n) => n + 1);
   }, []);
 
+  // The list row can move past the cached detail while the drawer is open (someone else moved the
+  // task, or the list re-rendered). The patch this drawer published itself is laid over BOTH sides
+  // first, so our own comment / status change never reads as "someone else changed it"; only a
+  // list row still newer after that means the cached feed is stale, and it is read again.
+  const openSummaryVersion = openID ? rows.find((row) => row.id === openID)?.rowVersion ?? 0 : 0;
+  const openPatch = openID ? taskRowPatch(openID) : undefined;
+  const openCachedVersion = openID && details[openID] ? withPatch(details[openID], openPatch).rowVersion : 0;
+  const cacheBehindList = !preview && openCachedVersion > 0 && openSummaryVersion > openCachedVersion;
+  useEffect(() => {
+    if (cacheBehindList) setReadNonce((n) => n + 1);
+  }, [cacheBehindList, openSummaryVersion]);
+
   if (!openID) return null;
 
   const summary = rows.find((row) => row.id === openID) ?? null;
-  // The newer of the cached detail and the list row wins (see `pickDrawerRow`), then the
-  // published patch (a status changed here, a version bumped by a comment) on top.
-  const picked = pickDrawerRow(details[openID], summary);
+  // The published patch (a status changed here, a version bumped by a comment) is laid over the
+  // cached detail AND the list row before they are compared, so this drawer's own write keeps its
+  // feed; then the newer of the two wins (see `pickDrawerRow`).
+  const patch = taskRowPatch(openID);
+  const cached = details[openID];
+  const picked = pickDrawerRow(cached ? withPatch(cached, patch) : undefined, summary ? withPatch(summary, patch) : null);
   if (!picked.row) return null;
-  const detail = withPatch(picked.row, taskRowPatch(openID));
+  const detail = picked.row;
   // Preview fixture rows are complete and never read live, so they are never "loading".
   const detailLoaded = picked.detailLoaded || preview;
   const failed = readFailed === openID;
