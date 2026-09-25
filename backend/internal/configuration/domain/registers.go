@@ -260,7 +260,7 @@ var Registers = []Register{
 		Hint: "A park is one site with its own pens, people and work. Animals never move between parks.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
-			{Key: "code", Label: "Code", Type: TypeText, Required: true, Hint: "Short code such as CBE or CPT; used to order parks and name pens."},
+			{Key: "code", Label: "Code", Type: TypeText, Required: true, Hint: "1 to 12 letters and numbers, such as CBE or CPT. It orders parks, names pens and starts every kid's tag, and it cannot change once sales or purchases are recorded under it."},
 			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},

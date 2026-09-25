@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -74,6 +75,9 @@ func (parkStore) usage(ctx context.Context, q querier, t, id string) (domain.Usa
 
 func (parkStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]any) (string, error) {
 	code := strings.ToUpper(domain.FieldString(f, "code"))
+	if err := validParkCode(code); err != nil {
+		return "", err
+	}
 	var id string
 	if err := tx.QueryRow(ctx, sqlPlaces4, t, code, domain.FieldString(f, "name")).Scan(&id); err != nil {
 		return "", locationWriteError(err, "park")
@@ -87,6 +91,12 @@ func (parkStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]a
 func (parkStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[string]any, rv int) (string, error) {
 	if sent(f, "code") {
 		f["code"] = strings.ToUpper(domain.FieldString(f, "code"))
+		if err := validParkCode(domain.FieldString(f, "code")); err != nil {
+			return "", err
+		}
+		if err := refuseRecodingAParkInUse(ctx, tx, t, id, domain.FieldString(f, "code")); err != nil {
+			return "", err
+		}
 	}
 	if err := updateLocation(ctx, tx, t, id, f, rv, "park"); err != nil {
 		return "", err
@@ -551,6 +561,34 @@ func requireStage(ctx context.Context, q querier, t, id string) error {
 
 // locationWriteError names the field a locations unique violation lands on: the code is derived
 // from the name for a pen, typed for a park or farm.
+// parkCodePattern is the shape a park code must have. Sales, feed purchases and purchase loads
+// store a park BY ITS CODE, and a newborn's provisional tag starts with it ("HSR-04217"), so the code
+// is letters and digits only -- a code with a space or a dash would refuse every birth in that park.
+var parkCodePattern = regexp.MustCompile(`^[A-Z0-9]{1,12}$`)
+
+func validParkCode(code string) error {
+	if parkCodePattern.MatchString(code) {
+		return nil
+	}
+	return &domain.ValidationError{Fields: []domain.FieldError{{Field: "code", Code: "invalid",
+		Message: "Use 1 to 12 letters and numbers, such as CBE or CPT. The code starts every kid's tag in this park."}}}
+}
+
+// refuseRecodingAParkInUse refuses changing a park's code once any record stores the park BY that
+// code (a sale, a feed purchase, an animal purchase load): those rows would stop matching the park
+// and drop out of its stock cards, filters and totals. A code that nothing has used yet may change.
+func refuseRecodingAParkInUse(ctx context.Context, q querier, t, id, newCode string) error {
+	var used bool
+	if err := q.QueryRow(ctx, sqlParkCodeInUse, t, id, newCode).Scan(&used); err != nil {
+		return err
+	}
+	if !used {
+		return nil
+	}
+	return &domain.ValidationError{Fields: []domain.FieldError{{Field: "code", Code: "in_use",
+		Message: "This park's code is already on sales, feed purchases or purchase loads recorded under it, so it cannot change. Keep the code and rename the park instead."}}}
+}
+
 func locationWriteError(err error, noun string) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -564,6 +602,23 @@ func locationWriteError(err error, noun string) error {
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
 const (
+	// sqlParkCodeInUse: $1 tenant, $2 park id, $3 the new code. True when the park's CURRENT code
+	// differs from the new one and some farm-keyed record already stores the current code.
+	sqlParkCodeInUse = `
+WITH cur AS (
+  SELECT upper(btrim(location_code)) AS code
+  FROM locations
+  WHERE tenant_id = $1 AND location_id = $2::uuid AND location_type = 'park'
+)
+SELECT EXISTS (
+  SELECT 1 FROM cur
+  WHERE cur.code IS NOT NULL AND cur.code <> '' AND cur.code <> $3
+    AND (
+      EXISTS (SELECT 1 FROM sales_deals d WHERE d.tenant_id = $1 AND d.farm = cur.code)
+      OR EXISTS (SELECT 1 FROM feed_purchases p WHERE p.tenant_id = $1 AND upper(p.farm_label) = cur.code)
+      OR EXISTS (SELECT 1 FROM animal_purchase_loads l WHERE l.tenant_id = $1 AND l.farm_label = cur.code)
+    )
+)`
 	sqlPlaces4 = `
 INSERT INTO locations (tenant_id, location_type, location_code, name, status)
 VALUES ($1, 'park', $2, $3, 'active')
