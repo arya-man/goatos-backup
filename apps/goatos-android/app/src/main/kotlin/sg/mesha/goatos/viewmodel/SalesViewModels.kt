@@ -79,6 +79,57 @@ internal fun SalesDealDto.hasAnimalsToTag(): Boolean {
     }
 }
 
+/**
+ * The ONE input a sales refusal names: the envelope's `field` when the server sent one, otherwise
+ * the field the sales module's stable `sales_invalid_<field>` code carries. Null when it names none.
+ */
+internal fun salesRefusedField(field: String?, code: String?): String? =
+    field?.trim()?.takeIf { it.isNotEmpty() }
+        ?: code?.trim()?.takeIf { it.startsWith(SALES_INVALID_PREFIX) }?.removePrefix(SALES_INVALID_PREFIX)?.takeIf { it.isNotEmpty() }
+
+private const val SALES_INVALID_PREFIX = "sales_invalid_"
+
+/** Where on the record-sale form a refused field lives. */
+internal sealed interface SalesRefusedTarget {
+    data class Deal(val field: SaleField) : SalesRefusedTarget
+    /** [index] is 0-based; the backend numbers lines from 1. */
+    data class Line(val index: Int, val field: SaleLineField) : SalesRefusedTarget
+}
+
+private val REFUSED_LINE = Regex("""^lines\[(\d+)]\.([a-z_]+)$""")
+
+/** Maps a backend field name (`lines[2].rate_per_unit`, `buyer_name`) onto the form; null when it is not a box here. */
+internal fun salesRefusedTarget(field: String?): SalesRefusedTarget? {
+    if (field.isNullOrBlank()) return null
+    fun lineField(name: String): SaleLineField? = when (name) {
+        "product_type" -> SaleLineField.PRODUCT_TYPE
+        "breed" -> SaleLineField.BREED
+        "animal_count", "male_count", "female_count" -> SaleLineField.ANIMAL_COUNT
+        "total_weight_kg" -> SaleLineField.TOTAL_WEIGHT_KG
+        "sales_value" -> SaleLineField.SALES_VALUE
+        "quantity" -> SaleLineField.QUANTITY
+        "rate_per_unit" -> SaleLineField.RATE_PER_UNIT
+        else -> null
+    }
+    REFUSED_LINE.matchEntire(field)?.let { m ->
+        val number = m.groupValues[1].toIntOrNull() ?: return null
+        val name = lineField(m.groupValues[2]) ?: return null
+        return if (number >= 1) SalesRefusedTarget.Line(number - 1, name) else null
+    }
+    return when (field) {
+        "sale_date" -> SalesRefusedTarget.Deal(SaleField.SALE_DATE)
+        "farm" -> SalesRefusedTarget.Deal(SaleField.FARM)
+        "buyer_vendor_id" -> SalesRefusedTarget.Deal(SaleField.BUYER_VENDOR_ID)
+        "buyer_name" -> SalesRefusedTarget.Deal(SaleField.BUYER_NAME)
+        "buyer_place" -> SalesRefusedTarget.Deal(SaleField.BUYER_PLACE)
+        "advance_amount" -> SalesRefusedTarget.Deal(SaleField.ADVANCE_AMOUNT)
+        "status" -> SalesRefusedTarget.Deal(SaleField.STATUS)
+        "comments" -> SalesRefusedTarget.Deal(SaleField.COMMENTS)
+        // A bare line field is the legacy single-product body's; it is the first line here.
+        else -> lineField(field)?.let { SalesRefusedTarget.Line(0, it) }
+    }
+}
+
 /** Sales tab (Procurement module, maintainer instruction 2026-09-04): the ledger, Room-first, by farm. */
 @HiltViewModel
 class SalesListViewModel @Inject constructor(
@@ -278,6 +329,14 @@ class SaleDetailViewModel @Inject constructor(
         val allocated: Int = 0,
         val message: String? = null,
         val paymentEditor: SalePaymentEditorUi? = null,
+        /**
+         * The idempotency keys of the receipt editor that is open, minted when it OPENS and dropped
+         * when it closes. A double tap therefore replays one write, a refused save corrected and
+         * saved again re-sends on the same key (the outbox re-opens its dead row), and the next
+         * receipt -- a new editor -- gets a key of its own.
+         */
+        val paymentSaveKey: String = "",
+        val paymentDeleteKey: String = "",
         val editInFlight: Boolean = false,
         val editMessage: String = "",
         // The feed store's refusal, and the status change waiting on the answer. Closing a sale is
@@ -370,7 +429,7 @@ class SaleDetailViewModel @Inject constructor(
             SaleDetailEvent.ConfirmStatusStock -> {
                 val pending = local.value.stockPendingStatus
                 val itemId = local.value.stockPendingItemId
-                if (itemId.isNotBlank()) enqueueEdit(null, MESSAGE_STATUS_SAVED, "sale confirmation failed", pending) {
+                if (itemId.isNotBlank() && !local.value.editInFlight) enqueueEdit(null, MESSAGE_STATUS_SAVED, "sale confirmation failed", pending) {
                     when (val result = syncRepository.confirmSalesStock(itemId)) {
                         is AppResult.Ok -> {
                             local.update { it.copy(stockConfirmMessage = "", stockPendingStatus = "", stockPendingItemId = "") }
@@ -391,6 +450,8 @@ class SaleDetailViewModel @Inject constructor(
         local.update {
             it.copy(
                 editMessage = "",
+                paymentSaveKey = UUID.randomUUID().toString(),
+                paymentDeleteKey = UUID.randomUUID().toString(),
                 paymentEditor = SalePaymentEditorUi(
                     paymentId = paymentId,
                     // Correcting a receipt starts from what it says now; adding one starts on
@@ -410,7 +471,10 @@ class SaleDetailViewModel @Inject constructor(
     }
 
     private fun savePayment() {
-        val editor = local.value.paymentEditor ?: return
+        val current = local.value
+        val editor = current.paymentEditor ?: return
+        // A second tap while the first is still on its way is the same save, not another receipt.
+        if (current.editInFlight || editor.inFlight) return
         val errors = validatePayment(editor.values)
         if (errors.isNotEmpty()) {
             local.update { it.copy(paymentEditor = editor.copy(fieldErrors = errors)) }
@@ -429,9 +493,9 @@ class SaleDetailViewModel @Inject constructor(
             failure = "payment write enqueue failed",
         ) {
             syncRepository.enqueueSalesDealPaymentWrite(
-                // A fresh client id per SAVE, so correcting a receipt twice records both
-                // corrections rather than replaying the first one's idempotency key.
-                clientId = UUID.randomUUID().toString(),
+                // The editor's key: stable across taps and a refused-then-corrected save, fresh for
+                // each editor opened -- so correcting a receipt twice still records both corrections.
+                clientId = current.paymentSaveKey,
                 dealId = dealId,
                 op = if (creating) SalesPaymentOp.CREATE else SalesPaymentOp.UPDATE,
                 paymentId = editor.paymentId,
@@ -441,11 +505,12 @@ class SaleDetailViewModel @Inject constructor(
     }
 
     private fun deletePayment() {
-        val editor = local.value.paymentEditor ?: return
-        if (editor.paymentId.isBlank()) return
+        val current = local.value
+        val editor = current.paymentEditor ?: return
+        if (editor.paymentId.isBlank() || current.editInFlight || editor.inFlight) return
         enqueueEdit(editor = editor, done = MESSAGE_PAYMENT_REMOVED, failure = "payment delete enqueue failed") {
             syncRepository.enqueueSalesDealPaymentWrite(
-                clientId = UUID.randomUUID().toString(),
+                clientId = current.paymentDeleteKey,
                 dealId = dealId,
                 op = SalesPaymentOp.DELETE,
                 paymentId = editor.paymentId,
@@ -485,8 +550,10 @@ class SaleDetailViewModel @Inject constructor(
         stockStatus: String = "",
         block: suspend () -> AppResult<String>,
     ) {
+        // In flight BEFORE the coroutine starts, so a second tap in the same frame is refused by
+        // the guard in its caller rather than racing this one to the outbox.
+        local.update { it.copy(editInFlight = true, paymentEditor = editor?.copy(inFlight = true) ?: it.paymentEditor) }
         viewModelScope.launch {
-            local.update { it.copy(editInFlight = true, paymentEditor = editor?.copy(inFlight = true) ?: it.paymentEditor) }
             when (val result = block()) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_SALE_EDITED)
@@ -916,13 +983,42 @@ class SaleCreateViewModel @Inject constructor(
                                     stockPendingItemId = itemId,
                                 )
                             } else {
-                                it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)
+                                it.refusedBy(outcome)
                             }
                     }
                 }
             }
         }
     }
+    /**
+     * The server refused the sale. Its sentence is backend-owned copy and is shown verbatim, and
+     * when it names a field the sentence also lands on THAT box -- a line's box when it names a
+     * line -- with the wizard back on the step that holds it. The form keeps everything typed, and
+     * the next submit re-sends on the same key (the outbox re-opens its dead row).
+     */
+    private fun Local.refusedBy(outcome: QueuedWriteOutcome.Rejected): Local {
+        val reason = outcome.reason?.trim().orEmpty().ifBlank { MESSAGE_NOT_SAVED }
+        val base = copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = reason)
+        return when (val target = salesRefusedTarget(salesRefusedField(outcome.field, outcome.code))) {
+            null -> base
+            is SalesRefusedTarget.Deal -> base.copy(
+                step = SALE_FIELD_STEP[target.field] ?: base.step,
+                fieldErrors = base.fieldErrors + (target.field to reason),
+            )
+            is SalesRefusedTarget.Line -> {
+                val line = base.lines.getOrNull(target.index) ?: return base
+                // A line sold by the unit shows no value box: its value IS quantity x rate, so a
+                // refused value is the rate the person typed.
+                val priced = line.quantity.isNotBlank() || line.rate.isNotBlank()
+                val field = if (target.field == SaleLineField.SALES_VALUE && priced) SaleLineField.RATE_PER_UNIT else target.field
+                base.copy(
+                    step = 0,
+                    lines = base.lines.map { if (it.id == line.id) it.copy(errors = it.errors + (field to reason)) else it },
+                )
+            }
+        }
+    }
+
     private fun validate(step: Int, v: Map<SaleField, String>): Map<SaleField, String> {
         val errors = mutableMapOf<SaleField, String>() // mobile-guard:ignore: per-call validation result, at most one entry per form field, returned and dropped
         fun nonNegative(f: SaleField, whole: Boolean = false) {
@@ -972,8 +1068,11 @@ class SaleCreateViewModel @Inject constructor(
                 // line without one takes the money and says nothing about what left the farm.
                 val quantity = line.quantity.trim().toDoubleOrNull()
                 if (quantity == null || quantity <= 0.0) errors[SaleLineField.QUANTITY] = MORE_THAN_ZERO
+                // The backend works the line's value out as quantity x rate and refuses a value
+                // that is not more than zero (deal_lines.go), so a rate of zero is refused here
+                // rather than queued to be refused later.
                 val rate = line.rate.trim().toDoubleOrNull()
-                if (rate == null || rate < 0.0) errors[SaleLineField.RATE_PER_UNIT] = AMOUNT
+                if (rate == null || rate <= 0.0) errors[SaleLineField.RATE_PER_UNIT] = MORE_THAN_ZERO
                 if (errors.isNotEmpty()) out[line.id] = errors
                 continue
             }
@@ -1060,6 +1159,12 @@ class SaleCreateViewModel @Inject constructor(
     private companion object {
         const val KEY_CLIENT_ID = "sale_create_client_id"
         const val STEP_COUNT = 3
+        /** Which wizard step holds each deal-level box. */
+        val SALE_FIELD_STEP = mapOf(
+            SaleField.SALE_DATE to 0, SaleField.FARM to 0,
+            SaleField.BUYER_VENDOR_ID to 1, SaleField.BUYER_NAME to 1, SaleField.BUYER_PLACE to 1,
+            SaleField.ADVANCE_AMOUNT to 2, SaleField.STATUS to 2, SaleField.COMMENTS to 2,
+        )
         /** Mirrors the backend's MaxDealLines. */
         const val MAX_LINES = 20
         const val BUYER_LIST_PREVIEW = 8

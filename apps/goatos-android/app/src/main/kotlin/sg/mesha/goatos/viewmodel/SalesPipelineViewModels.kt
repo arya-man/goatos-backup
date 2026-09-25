@@ -186,6 +186,12 @@ class SalesLeadBoardViewModel @Inject constructor(
         val refreshing: Boolean = false,
         val lastSynced: Long? = null,
         val form: SalesLeadFormUi? = null,
+        /**
+         * The open form's idempotency key, minted when the form OPENS. A double tap replays one
+         * write, and a refused lead corrected and saved again re-sends on the same key (the outbox
+         * re-opens its dead row); the next form opened gets a key of its own.
+         */
+        val formClientId: String = "",
         val statusPickerLeadId: String = "",
         val expandedLeadId: String = "",
         val writeStatus: VendorsWriteStatus = VendorsWriteStatus.IDLE,
@@ -271,7 +277,7 @@ class SalesLeadBoardViewModel @Inject constructor(
             SalesLeadBoardEvent.Refresh -> refresh()
             SalesLeadBoardEvent.Back -> Unit
             SalesLeadBoardEvent.OpenForm -> local.update {
-                it.copy(form = SalesLeadFormUi(values = defaultFormValues()), writeMessage = "")
+                it.copy(form = SalesLeadFormUi(values = defaultFormValues()), formClientId = UUID.randomUUID().toString(), writeMessage = "")
             }
             SalesLeadBoardEvent.CloseForm -> local.update { it.copy(form = null) }
             is SalesLeadBoardEvent.FieldChanged -> local.update { l ->
@@ -301,7 +307,13 @@ class SalesLeadBoardViewModel @Inject constructor(
 
     /** Opens the form on what the row already holds; a save REPLACES every editable field. */
     private fun openEdit(card: SalesLeadCardUi) {
-        local.update { it.copy(form = SalesLeadFormUi(values = card.editValues, editingLeadId = card.leadId), writeMessage = "") }
+        local.update {
+            it.copy(
+                form = SalesLeadFormUi(values = card.editValues, editingLeadId = card.leadId),
+                formClientId = UUID.randomUUID().toString(),
+                writeMessage = "",
+            )
+        }
         analytics.track(AnalyticsEventsVendors.VENDORS_PIPELINE_OPENED, mapOf(AnalyticsEvents.Params.REASON to "edit"))
     }
 
@@ -321,6 +333,8 @@ class SalesLeadBoardViewModel @Inject constructor(
 
     private fun submit() {
         val form = local.value.form ?: return
+        // A second tap while the first is on its way is the same lead, not another one.
+        if (form.inFlight) return
         val nameField = if (buyerBoard) SalesBuyerLeadField.BUYER_NAME.name else SalesFpoLeadField.FPO_NAME.name
         if (form.values[nameField].orEmpty().isBlank()) {
             local.update { it.copy(form = form.copy(fieldErrors = form.fieldErrors + (nameField to REQUIRED))) }
@@ -328,7 +342,7 @@ class SalesLeadBoardViewModel @Inject constructor(
         }
         val editingLeadId = form.editingLeadId
         val editing = editingLeadId.isNotBlank()
-        val clientId = UUID.randomUUID().toString()
+        val clientId = local.value.formClientId.ifBlank { UUID.randomUUID().toString().also { id -> local.update { it.copy(formClientId = id) } } }
         val payload = if (buyerBoard) {
             SalesPipelinePayload(
                 clientId = clientId,
@@ -362,7 +376,9 @@ class SalesLeadBoardViewModel @Inject constructor(
             )
         }
         val done = if (editing) MESSAGE_LEAD_CHANGED else MESSAGE_LEAD_SAVED
-        enqueue(payload, done, "sales lead enqueue failed") { local.update { it.copy(form = null) } }
+        // The form stays open, read-only, until the write's outcome is known: a lead the server
+        // refuses comes back with everything typed and the server's reason, never lost.
+        enqueue(payload, done, "sales lead enqueue failed", ownsForm = true) {}
     }
 
     private fun changeStatus(leadId: String, status: String) {
@@ -377,9 +393,10 @@ class SalesLeadBoardViewModel @Inject constructor(
         }
     }
 
-    private fun enqueue(payload: SalesPipelinePayload, done: String, failure: String, onOk: () -> Unit) {
+    private fun enqueue(payload: SalesPipelinePayload, done: String, failure: String, ownsForm: Boolean = false, onOk: () -> Unit) {
+        // In flight BEFORE the coroutine starts, so a second tap in the same frame is refused.
+        if (ownsForm) local.update { it.copy(form = it.form?.copy(inFlight = true)) }
         viewModelScope.launch {
-            local.update { it.copy(form = it.form?.copy(inFlight = true)) }
             when (val result = syncRepository.enqueueSalesPipelineWrite(payload)) {
                 is AppResult.Ok -> {
                     analytics.track(
@@ -391,7 +408,7 @@ class SalesLeadBoardViewModel @Inject constructor(
                     // The board is a SERVER read, so re-reading it the instant the row is queued
                     // shows the board WITHOUT the new lead -- the write has not reached the server
                     // yet. Follow the outbox row instead and re-read when it actually lands.
-                    refreshWhenWriteLands(result.value)
+                    refreshWhenWriteLands(result.value, if (ownsForm) payload.clientId else "")
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, failure) }
@@ -412,14 +429,30 @@ class SalesLeadBoardViewModel @Inject constructor(
      * outbox after the grace period leaves the board as it is and says so, rather than showing a
      * board that silently lacks the row the operator just entered.
      */
-    private fun refreshWhenWriteLands(outboxItemId: String) {
+    private fun refreshWhenWriteLands(outboxItemId: String, writeClientId: String) {
+        // Only the form THIS write came from is settled by its outcome: one closed and replaced by
+        // a fresh form in the meantime carries a different key and is left alone.
+        fun Local.ownsForm() = writeClientId.isNotEmpty() && formClientId == writeClientId
         viewModelScope.launch {
             syncRepository.followQueuedWrite(outboxItemId).collect { outcome ->
                 when (outcome) {
-                    QueuedWriteOutcome.Saved -> refresh()
-                    QueuedWriteOutcome.StillQueued -> local.update { it.copy(writeMessage = MESSAGE_QUEUED_OFFLINE) }
+                    QueuedWriteOutcome.Saved -> {
+                        // The lead is on the board: the form, and with it its key, is done.
+                        local.update { if (it.ownsForm()) it.copy(form = null, formClientId = "") else it }
+                        refresh()
+                    }
+                    // Durable on this phone and will be sent: the form has done its job too.
+                    QueuedWriteOutcome.StillQueued -> local.update {
+                        if (it.ownsForm()) it.copy(form = null, formClientId = "", writeMessage = MESSAGE_QUEUED_OFFLINE)
+                        else it.copy(writeMessage = MESSAGE_QUEUED_OFFLINE)
+                    }
+                    // The server's own sentence, verbatim; the typed form comes back editable.
                     is QueuedWriteOutcome.Rejected -> local.update {
-                        it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_FAILED)
+                        it.copy(
+                            form = if (it.ownsForm()) it.form?.copy(inFlight = false) else it.form,
+                            writeStatus = VendorsWriteStatus.FAILED,
+                            writeMessage = outcome.reason?.trim()?.takeIf { r -> r.isNotEmpty() } ?: MESSAGE_FAILED,
+                        )
                     }
                 }
             }
