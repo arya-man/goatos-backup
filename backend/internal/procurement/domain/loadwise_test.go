@@ -695,3 +695,89 @@ func TestFinalizeLoadwiseCarriesRemainingMixWithoutChangingSalesValueBasis(t *te
 		t.Fatalf("summary = %+v, want remaining/profit from overall value", out.Summary)
 	}
 }
+
+// Profit on a load that still holds animals is partly ASSUMED: the animals still on farm are
+// carried at a price someone set, not one anybody paid. The row says how much of the profit is
+// realised (sales less landed cost) and how much is that assumption, and states the basis in a
+// sentence the screen renders verbatim (maintainer request 2026-09-25).
+func TestProfitSplitsRealisedFromTheAssumedValueOfStockOnFarm(t *testing.T) {
+	loads := []LoadwiseLoad{
+		// Half-sold, costed.
+		{LoadID: "half", Purchased: 10, Sold: 4, Remaining: 6, AnimalCost: lw(60000), SoldValue: 40000, SoldPriced: 4},
+		// Fully unsold, costed.
+		{LoadID: "unsold", Purchased: 58, Remaining: 58, AnimalCost: lw(400000)},
+		// Sold out: nothing is assumed.
+		{LoadID: "soldout", Purchased: 5, Sold: 5, AnimalCost: lw(40000), SoldValue: 50000, SoldPriced: 5},
+		// Cost not recorded: no profit, so no split -- but the stock is still an assumption.
+		{LoadID: "nocost", Purchased: 3, Remaining: 3},
+	}
+	out := FinalizeLoadwise(loads, 4, lw(9000), testAsOf, lw(9500))
+
+	half := out.Loads[0]
+	if half.AssumedValue == nil || *half.AssumedValue != 57000 {
+		t.Fatalf("half-sold assumed value = %v, want 6 x 9500 = 57000", half.AssumedValue)
+	}
+	if half.RealisedProfitLoss == nil || *half.RealisedProfitLoss != -20000 {
+		t.Fatalf("half-sold realised = %v, want 40000 - 60000", half.RealisedProfitLoss)
+	}
+	if half.ProfitLoss == nil || *half.ProfitLoss != *half.RealisedProfitLoss+*half.AssumedValue {
+		t.Fatalf("profit must be realised + assumed: %v", half.ProfitLoss)
+	}
+	if want := "6 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹57,000"; half.AssumedValueBasis != want {
+		t.Fatalf("basis = %q, want %q", half.AssumedValueBasis, want)
+	}
+	unsold := out.Loads[1]
+	if unsold.AssumedValue == nil || *unsold.AssumedValue != 551000 || unsold.AssumedValueBasis != "58 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹5,51,000" {
+		t.Fatalf("unsold load: %v %q", unsold.AssumedValue, unsold.AssumedValueBasis)
+	}
+	soldout := out.Loads[2]
+	if soldout.AssumedValue != nil || soldout.AssumedValueBasis != "" {
+		t.Fatalf("a sold-out load assumes nothing: %v %q", soldout.AssumedValue, soldout.AssumedValueBasis)
+	}
+	if soldout.RealisedProfitLoss == nil || *soldout.RealisedProfitLoss != 10000 {
+		t.Fatalf("sold-out realised = %v", soldout.RealisedProfitLoss)
+	}
+	nocost := out.Loads[3]
+	if nocost.RealisedProfitLoss != nil || nocost.AssumedValue == nil {
+		t.Fatalf("no cost: realised must be absent, the stock still assumed: %v %v", nocost.RealisedProfitLoss, nocost.AssumedValue)
+	}
+
+	// The summary splits the profit over the SAME key set as profit_loss (costed loads only).
+	s := out.Summary
+	if s.AssumedValue != 57000+551000 {
+		t.Fatalf("summary assumed = %v, want costed loads' stock only", s.AssumedValue)
+	}
+	if s.RealisedProfitLoss != -20000-400000+10000 {
+		t.Fatalf("summary realised = %v", s.RealisedProfitLoss)
+	}
+	if s.ProfitLoss != s.RealisedProfitLoss+s.AssumedValue {
+		t.Fatalf("summary profit %v != realised %v + assumed %v", s.ProfitLoss, s.RealisedProfitLoss, s.AssumedValue)
+	}
+	if want := "Animals still on farm × ₹9,500 each (the unsold animal price set on Sales Config)"; s.AssumedValueBasis != want {
+		t.Fatalf("summary basis = %q, want %q", s.AssumedValueBasis, want)
+	}
+}
+
+// Without a Sales Config price each load's stock is carried at its own average sold price, else
+// the overall average, and the sentence names which -- with the figure to two places when the
+// average is not a whole rupee, so the product in the sentence is the product in the number.
+func TestAssumedValueBasisNamesTheAverageThatPricedIt(t *testing.T) {
+	loads := []LoadwiseLoad{
+		{LoadID: "own", Purchased: 5, Sold: 3, Remaining: 2, AnimalCost: lw(10000), SoldValue: 28000, SoldPriced: 3},
+		{LoadID: "fallback", Purchased: 2, Remaining: 2, AnimalCost: lw(10000)},
+	}
+	out := FinalizeLoadwise(loads, 2, lw(9000), testAsOf)
+	if want := "2 animals × ₹9,333.33 each (this load's own average sold price) = ₹18,667"; out.Loads[0].AssumedValueBasis != want {
+		t.Fatalf("own basis = %q, want %q", out.Loads[0].AssumedValueBasis, want)
+	}
+	if want := "2 animals × ₹9,000 each (the overall average sold price) = ₹18,000"; out.Loads[1].AssumedValueBasis != want {
+		t.Fatalf("fallback basis = %q, want %q", out.Loads[1].AssumedValueBasis, want)
+	}
+	if want := "Animals still on farm × each load's own average sold price, or ₹9,000 each (the overall average sold price) for a load that has sold none"; out.Summary.AssumedValueBasis != want {
+		t.Fatalf("summary basis = %q", out.Summary.AssumedValueBasis)
+	}
+	none := FinalizeLoadwise([]LoadwiseLoad{{LoadID: "x", Purchased: 2, Remaining: 2, AnimalCost: lw(1)}}, 1, nil, testAsOf)
+	if none.Loads[0].AssumedValue != nil || none.Loads[0].AssumedValueBasis != "" || none.Summary.AssumedValueBasis != "" {
+		t.Fatalf("with no price anywhere nothing is assumed: %+v", none.Loads[0])
+	}
+}

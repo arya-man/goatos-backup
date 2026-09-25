@@ -46,9 +46,9 @@ import (
 // per-deal tagged count pre-aggregates the many side at (tenant_id, sales_deal_id) before the
 // join, so a deal's value divides over exactly its tagged animals and sums back to at most the
 // deal's value. Every count the row reports (purchased / sold / mortality / other exits /
-// remaining) FILTERs the SAME member-x-goats row set, so purchased = sold + mortality + other +
-// remaining + unaccounted holds by construction; unaccounted is derived in the domain from these
-// five, never counted separately. The read serves the newest $2 loads while summary totals are
+// remaining / tagged-not-closed) FILTERs the SAME member-x-goats row set, so purchased = sold +
+// mortality + other + remaining + tagged-not-closed + unaccounted holds by construction;
+// unaccounted is derived in the domain from these six, never counted separately. The read serves the newest $2 loads while summary totals are
 // derived in the domain from exactly the served rows (the section's stated scope), and
 // total_loads is the whole-tenant count so the screen can say when older loads are not shown.
 //
@@ -87,7 +87,7 @@ deal_share AS (
     -- same CTE Farm born reads), and only a CLOSED deal is a sale (maintainer decisions
     -- 2026-09-25). closed says whether the allocation's deal is closed; share is NULL otherwise.
     -- projection-review: membership=animal_share, one row per live tagged animal; group_key=goat_id, priced per (deal, species, bucket) inside saleLineShareCTEs; join_cardinality=1:{0,1} per member goat through the tagged partial unique index; pagination=priced before the LIMITed load window; scope=tenant_id
-    SELECT goat_id, closed, share FROM animal_share
+    SELECT goat_id, closed, share, sale_date FROM animal_share
 ),
 sale_weight_sample AS (
     -- Newer GoatOS sales DO have per-animal sale weights on goat_sale_allocations. The legacy
@@ -161,6 +161,9 @@ outcomes AS (
     -- 'unaccounted', which the domain derives as the arithmetic gap over these same rows.
     SELECT m.load_id,
            ds.share,
+           -- The CLOSED deal's sale date, for the fattening span a GoatOS-era sale has no imported
+           -- figure for. NULL for anything but a closed tagged sale.
+           CASE WHEN ds.closed THEN ds.sale_date END AS sale_date,
            gp.park_code,
            lower(g.species) AS species,
            COALESCE(g.management_stage, '') AS stage,
@@ -168,10 +171,16 @@ outcomes AS (
            CASE
                -- Sold only when the sale is real: no tagged allocation (a pre-tagging or
                -- register-only exit), or one on a CLOSED deal. An animal exited against a deal
-               -- still open falls through to 'unaccounted' -- the register says sold, the ledger
-               -- says not yet, and that disagreement is shown rather than counted as a sale.
+               -- still open is 'tagged_open' below -- the register says sold, the ledger says not
+               -- yet, and that is shown as its own bucket rather than counted as a sale.
                WHEN (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')
                     AND (ds.goat_id IS NULL OR ds.closed) THEN 'sold'
+               -- Tagged to a sale whose deal is NOT closed yet (maintainer decision 2026-09-25):
+               -- the animal left the herd when it was tagged, but it is not a sale until the deal
+               -- closes. Its own bucket, so the load balances instead of reading Unaccounted; it
+               -- moves to 'sold' when the deal closes, and a failed deal releases it to the herd.
+               WHEN (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')
+                    AND ds.goat_id IS NOT NULL AND NOT ds.closed THEN 'tagged_open'
                WHEN g.lifecycle_status = 'dead' OR g.exit_reason = 'died' THEN 'mortality'
                WHEN g.lifecycle_status IN ('culled', 'transferred', 'lost')
                     OR g.exit_reason IN ('culled', 'transferred', 'lost') THEN 'other'
@@ -226,12 +235,18 @@ stats AS (
            (count(*) FILTER (WHERE o.outcome = 'mortality'))::int AS mortality,
            (count(*) FILTER (WHERE o.outcome = 'other'))::int AS other_exits,
            (count(*) FILTER (WHERE o.outcome = 'remaining'))::int AS remaining,
+           (count(*) FILTER (WHERE o.outcome = 'tagged_open'))::int AS tagged_open,
            -- The remaining animals BY SPECIES (maintainer request 2026-09-03): the Weighing
            -- Comparison tab values stock at rates that differ between species/stages, so a load's
            -- remaining head count must arrive already split. Same rows,
            -- same outcome rule, so the two never add up to more than the remaining count.
            (count(*) FILTER (WHERE o.outcome = 'remaining' AND o.species = 'sheep'))::int AS remaining_sheep,
            (count(*) FILTER (WHERE o.outcome = 'remaining' AND o.species = 'goat'))::int AS remaining_goats,
+           -- Animal-weighted mean sale DAY over the sold animals whose closed deal names one, as
+           -- days since a fixed epoch; the reconciled row subtracts the load's arrival day from it
+           -- (fattening span, maintainer request 2026-09-25). Same rows as sold, so it can never
+           -- describe an animal the sold count does not.
+           (avg(o.sale_date - DATE '2000-01-01') FILTER (WHERE o.outcome = 'sold' AND o.sale_date IS NOT NULL))::float8 AS sold_day_avg,
            COALESCE(sum(o.share) FILTER (WHERE o.outcome = 'sold'), 0)::float8 AS sold_value,
            (count(*) FILTER (WHERE o.outcome = 'sold' AND o.share IS NOT NULL))::int AS sold_priced,
            -- Agree-or-go-bare needs THREE facts, not one. count(DISTINCT) SKIPS NULLS, so a load
@@ -277,12 +292,20 @@ SELECT pl.load_id::text AS load_id, COALESCE(pl.context->>'load_ref', '') AS loa
        sw.sold_weight_kg AS sample_sold_weight_kg,
        sw.sold_weighed_animals AS sample_sold_weighed_animals,
        sw.sold_weighed_value AS sample_sold_weighed_value,
-       pl.arrived_on, pl.fattening_days,
+       pl.arrived_on,
+       -- Arrival to sale, animal-weighted: the imported legacy span when the load carries one,
+       -- else derived from the load's own animals on CLOSED deals. A span that runs backwards (a
+       -- sale dated before arrival) is a bad date, not a fact about the load, and stays absent.
+       COALESCE(pl.fattening_days,
+                CASE WHEN s.sold_day_avg IS NOT NULL AND pl.arrived_on IS NOT NULL
+                          AND round(s.sold_day_avg - (pl.arrived_on - DATE '2000-01-01')) >= 0
+                     THEN round(s.sold_day_avg - (pl.arrived_on - DATE '2000-01-01'))::int END) AS fattening_days,
        pl.row_version,
        pl.expected_count,
        COALESCE(s.purchased, 0) AS purchased, COALESCE(s.sold, 0) AS sold,
        COALESCE(s.mortality, 0) AS mortality,
        COALESCE(s.other_exits, 0) AS other_exits, COALESCE(s.remaining, 0) AS remaining,
+       COALESCE(s.tagged_open, 0) AS tagged_open,
        COALESCE(s.remaining_sheep, 0) AS remaining_sheep, COALESCE(s.remaining_goats, 0) AS remaining_goats,
        COALESCE(rm.mix, '[]'::jsonb) AS remaining_mix,
        COALESCE(s.sold_value, 0) AS sold_value, COALESCE(s.sold_priced, 0) AS sold_priced,
@@ -336,7 +359,7 @@ SELECT r.load_id, r.load_ref, r.vendor_name, r.purchase_date, r.status,
        r.row_version,
        r.expected_count,
        r.purchased, r.sold, r.mortality,
-       r.other_exits, r.remaining, r.remaining_sheep, r.remaining_goats, r.remaining_mix,
+       r.other_exits, r.remaining, r.tagged_open, r.remaining_sheep, r.remaining_goats, r.remaining_mix,
        r.sold_value, r.sold_priced,
        r.farm,
        r.prior_sold, r.prior_sold_value, r.prior_sold_first, r.prior_sold_last,
@@ -548,7 +571,7 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 			&row.RowVersion,
 			&row.DeclaredCount,
 			&row.Purchased, &row.Sold, &row.Mortality,
-			&row.OtherExits, &row.Remaining, &row.RemainingSheep, &row.RemainingGoats, &remainingMix,
+			&row.OtherExits, &row.Remaining, &row.TaggedNotClosed, &row.RemainingSheep, &row.RemainingGoats, &remainingMix,
 			&row.SoldValue, &row.SoldPriced,
 			&row.Farm,
 			&row.PriorSold.Count, &row.PriorSold.Value, &priorSoldFirst, &priorSoldLast,

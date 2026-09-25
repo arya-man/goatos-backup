@@ -61,7 +61,9 @@ type loadwiseLoadPayload struct {
 	Mortality     int `json:"mortality"`
 	OtherExits    int `json:"other_exits"`
 	Remaining     int `json:"remaining"`
-	Unaccounted   int `json:"unaccounted"`
+	// Tagged to a sale whose deal has not closed: out of the herd, not yet sold, no money.
+	TaggedNotClosed int `json:"tagged_not_closed"`
+	Unaccounted     int `json:"unaccounted"`
 
 	// CostLines itemise the three buckets below -- rendered when a load is OPENED, never in the
 	// list (maintainer decision 2026-09-01). Always emitted, empty for a load costed before the
@@ -108,6 +110,11 @@ type loadwiseLoadPayload struct {
 	PriceBasis     string   `json:"price_basis"`
 	RemainingValue *float64 `json:"remaining_value,omitempty"`
 	ProfitLoss     *float64 `json:"profit_loss,omitempty"`
+	// ProfitLoss split: what happened (sales less cost) and what is assumed (stock on farm at a
+	// per-animal price), plus the backend-composed sentence stating the assumption.
+	RealisedProfitLoss *float64 `json:"realised_profit_loss,omitempty"`
+	AssumedValue       *float64 `json:"assumed_value,omitempty"`
+	AssumedValueBasis  string   `json:"assumed_value_basis"`
 
 	// The pre-GoatOS history already folded into the counts above, exposed so the screen can say
 	// "already sold / already died before tracking started" with the dates it spans.
@@ -156,18 +163,23 @@ func toPriorPayload(p domain.LoadwisePriorOutcome) *loadwisePriorPayload {
 }
 
 type loadwiseSummaryPayload struct {
-	Purchased   int `json:"purchased"`
-	Sold        int `json:"sold"`
-	Mortality   int `json:"mortality"`
-	OtherExits  int `json:"other_exits"`
-	Remaining   int `json:"remaining"`
-	Unaccounted int `json:"unaccounted"`
+	Purchased       int `json:"purchased"`
+	Sold            int `json:"sold"`
+	Mortality       int `json:"mortality"`
+	OtherExits      int `json:"other_exits"`
+	Remaining       int `json:"remaining"`
+	TaggedNotClosed int `json:"tagged_not_closed"`
+	Unaccounted     int `json:"unaccounted"`
 
 	PurchaseValue  float64 `json:"purchase_value"`
 	CostedLoads    int     `json:"costed_loads"`
 	SoldValue      float64 `json:"sold_value"`
 	RemainingValue float64 `json:"remaining_value"`
 	ProfitLoss     float64 `json:"profit_loss"`
+
+	RealisedProfitLoss float64 `json:"realised_profit_loss"`
+	AssumedValue       float64 `json:"assumed_value"`
+	AssumedValueBasis  string  `json:"assumed_value_basis"`
 }
 
 type loadwisePayload struct {
@@ -197,13 +209,14 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			Status:       l.Status,
 			Farm:         l.Farm,
 
-			DeclaredCount: l.DeclaredCount,
-			Purchased:     l.Purchased,
-			Sold:          l.Sold,
-			Mortality:     l.Mortality,
-			OtherExits:    l.OtherExits,
-			Remaining:     l.Remaining,
-			Unaccounted:   l.Unaccounted,
+			DeclaredCount:   l.DeclaredCount,
+			Purchased:       l.Purchased,
+			Sold:            l.Sold,
+			Mortality:       l.Mortality,
+			OtherExits:      l.OtherExits,
+			Remaining:       l.Remaining,
+			TaggedNotClosed: l.TaggedNotClosed,
+			Unaccounted:     l.Unaccounted,
 
 			CostLines:        toCostLinePayload(l.CostLines),
 			AnimalCost:       l.AnimalCost,
@@ -233,6 +246,10 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			RemainingValue: l.RemainingValue,
 			ProfitLoss:     l.ProfitLoss,
 
+			RealisedProfitLoss: l.RealisedProfitLoss,
+			AssumedValue:       l.AssumedValue,
+			AssumedValueBasis:  l.AssumedValueBasis,
+
 			PriorSold: toPriorPayload(l.PriorSold),
 			PriorDead: toPriorPayload(l.PriorDead),
 
@@ -247,18 +264,23 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 		OverallAvgSoldPrice: out.OverallAvgSoldPrice,
 		UnsoldPriceBasis:    out.UnsoldPriceBasis,
 		Summary: loadwiseSummaryPayload{
-			Purchased:   out.Summary.Purchased,
-			Sold:        out.Summary.Sold,
-			Mortality:   out.Summary.Mortality,
-			OtherExits:  out.Summary.OtherExits,
-			Remaining:   out.Summary.Remaining,
-			Unaccounted: out.Summary.Unaccounted,
+			Purchased:       out.Summary.Purchased,
+			Sold:            out.Summary.Sold,
+			Mortality:       out.Summary.Mortality,
+			OtherExits:      out.Summary.OtherExits,
+			Remaining:       out.Summary.Remaining,
+			TaggedNotClosed: out.Summary.TaggedNotClosed,
+			Unaccounted:     out.Summary.Unaccounted,
 
 			PurchaseValue:  out.Summary.PurchaseValue,
 			CostedLoads:    out.Summary.CostedLoads,
 			SoldValue:      out.Summary.SoldValue,
 			RemainingValue: out.Summary.RemainingValue,
 			ProfitLoss:     out.Summary.ProfitLoss,
+
+			RealisedProfitLoss: out.Summary.RealisedProfitLoss,
+			AssumedValue:       out.Summary.AssumedValue,
+			AssumedValueBasis:  out.Summary.AssumedValueBasis,
 		},
 	})
 }

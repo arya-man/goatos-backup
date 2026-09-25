@@ -8895,6 +8895,8 @@ export interface components {
             other_exits: number;
             /** @description Still alive on farm. */
             remaining: number;
+            /** @description Animals tagged to a sale whose deal is NOT closed yet (Advance Paid, In Discussion...). Tagging exits an animal from the herd at once, but only a closed deal is a sale, so these are neither sold nor on farm. They carry no money (sold value and profit stay closed-deals-only), move to `sold` when the deal closes, and return to `remaining` when a failed deal releases them. purchased = sold + mortality + other_exits + remaining + tagged_not_closed + unaccounted. */
+            tagged_not_closed: number;
             /** @description purchased minus every outcome above. Positive = animals the load declares that nothing accounts for; negative = more animals attributed than it declares. Either way the screen shows it in red; it is never absorbed into another bucket. */
             unaccounted: number;
             /** @description What the three cost buckets below are MADE OF -- the farm's own cost events for this load. Rendered when a load is OPENED, never in the list (maintainer decision 2026-09-01): the list stays three columns and the breakdown appears on click. Empty for a load costed by hand before the itemisation existed, which is NOT the same as a load with no cost -- the buckets answer that. */
@@ -8927,11 +8929,11 @@ export interface components {
              * @description The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up at the source, so a load is bought a day or more before it lands here, and the fattening clock starts on arrival.
              */
             arrived_on?: string | null;
-            /** @description The RUNNING fattening clock: whole days from arrived_on to today's Asia/Kolkata business date, for a load that has NOT SOLD. Same start as fattening_days, which is why the two may be shown on one axis -- but they are MUTUALLY EXCLUSIVE: a load that has sold anything answers with its finished fattening_days alone, because its stragglers would otherwise tell a few animals' story at the scale of the whole load. Absent once anything has sold, once the load holds nothing, and when the arrival date is unknown. */
+            /** @description The RUNNING fattening clock: whole days from arrived_on to today's Asia/Kolkata business date, for the animals the load STILL HOLDS, whether or not it has begun selling (maintainer decision 2026-09-18). Same start as fattening_days, so a part-sold load shows both on one axis. Absent once the load holds nothing, and when the arrival date is unknown. */
             days_on_farm_so_far?: number | null;
             /** @description The load's AGE: whole days from its purchase date to today's Asia/Kolkata business date. A DIFFERENT clock from fattening_days -- that one starts on arrival and stops at sale, this one starts at purchase and keeps running while the load is open. A load past 90 days still holding animals raises the daily CXO alert. Absent when the purchase date is unknown. */
             days_since_purchase?: number | null;
-            /** @description Days between arrival and sale, ANIMAL-WEIGHTED across the load's sales -- a load that leaves in four batches over four months has no single sale date, and weighting by how many animals left on each answers "how long was the average animal fattened". */
+            /** @description Days between arrival and sale, ANIMAL-WEIGHTED across the load's sales -- a load that leaves in four batches over four months has no single sale date, and weighting by how many animals left on each answers "how long was the average animal fattened". The imported legacy span when the load has one; otherwise derived from the load's animals tagged to CLOSED deals (arrived_on to the deal's sale date, averaged per animal and rounded to whole days). Absent when neither exists. */
             fattening_days?: number | null;
             /** @description Deal value attributed to this load's sold animals. */
             sold_value: number;
@@ -8944,6 +8946,12 @@ export interface components {
             remaining_value?: number | null;
             /** @description sold_value + remaining_value - purchase_value: what the load is worth against what it cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names the average that valued that stock. */
             profit_loss?: number | null;
+            /** @description sold_value - purchase_value: the part of profit_loss that actually happened. Absent when no cost is recorded. profit_loss = realised_profit_loss + assumed_value whenever both exist. */
+            realised_profit_loss?: number | null;
+            /** @description The ASSUMED value of the animals still on farm -- remaining x avg_sold_price, a price someone set or an average of past sales, not one anybody paid. Absent when the load holds nothing or no price exists to carry them at. Per animal: no weight enters it. */
+            assumed_value?: number | null;
+            /** @description Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim ("58 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹5,51,000"). Empty when nothing is assumed. */
+            assumed_value_basis?: string;
             /** @description Animals of this load ALREADY SOLD before its remaining animals were tracked here — seeded history, already folded into `sold` / `purchased` / `sold_value`; shown with the dates it spans. */
             prior_sold?: components["schemas"]["LoadwisePriorOutcome"] | null;
             /** @description Animals already dead before tracking started; folded into `mortality` / `purchased`. */
@@ -8967,6 +8975,8 @@ export interface components {
             mortality: number;
             other_exits: number;
             remaining: number;
+            /** @description Tagged to a sale whose deal has not closed. */
+            tagged_not_closed: number;
             unaccounted: number;
             /** @description Sum of RECORDED costs only; `costed_loads` says how many rows carry one. */
             purchase_value: number;
@@ -8976,6 +8986,12 @@ export interface components {
             remaining_value: number;
             /** @description Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as costed_loads, so priced and unpriced loads are never mixed into one total. */
             profit_loss: number;
+            /** @description Of profit_loss, the realised part (sales less cost), over the SAME costed loads. */
+            realised_profit_loss: number;
+            /** @description Of profit_loss, the assumed value of animals still on farm, over the SAME costed loads. realised_profit_loss + assumed_value = profit_loss. */
+            assumed_value: number;
+            /** @description Backend-composed sentence stating the per-animal price rule; empty when nothing is assumed. */
+            assumed_value_basis: string;
         };
         LoadwiseWeights: {
             loads: components["schemas"]["LoadwiseWeightLoad"][];

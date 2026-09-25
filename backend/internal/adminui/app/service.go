@@ -1209,7 +1209,7 @@ func sortable(t domain.TableContract, keys ...string) domain.TableContract {
 // A key with no copy entry keeps the humanised default rather than rendering blank.
 func loadwiseTable() domain.TableContract {
 	t := tableP("sales-loadwise", "Load by load", "/procurement/loadwise-sales",
-		[]string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "landed_price_per_kg", "sold_value", "profit_loss"},
+		[]string{"load", "farm", "purchased", "sold", "mortality", "remaining", "tagged_not_closed", "unaccounted", "purchase_value", "landed_price_per_kg", "sold_value", "profit_loss"},
 		"load_id", []int{60})
 	copy := pageCopy("sales-loads")
 	for i := range t.Columns {
@@ -4270,7 +4270,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"loadwise.kpi.sold_value":          "Sold value",
 			"loadwise.kpi.sold_value.hint":     "from sales with tagged animals",
 			"loadwise.kpi.profit":              "Profit / loss",
-			"loadwise.kpi.profit.hint":         "sales plus stock on farm, against what the loads cost",
+			"loadwise.kpi.profit.hint":         "sales less landed cost, plus the assumed value of animals still on farm",
 			"chart.loadwise_counts.title":      "Animals per load",
 			"chart.loadwise_counts.empty":      "No loads to chart yet.",
 			"chart.loadwise_value.title":       "Money per load",
@@ -4279,9 +4279,25 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.series.sold_count":          "Sold",
 			"chart.series.mortality":           "Mortality",
 			"chart.series.remaining":           "Remaining",
-			"chart.series.purchase_value":      "Purchase value",
-			"chart.series.sold_value":          "Sold value",
-			"chart.series.profit_loss":         "Profit / loss",
+			// TAGGED, SALE NOT CLOSED (maintainer decision 2026-09-25): tagging takes an animal out
+			// of the herd at once, but only a closed deal is a sale, so an animal tagged to an
+			// Advance Paid or In Discussion deal is its own bucket -- neither sold nor on farm -- and
+			// the load balances instead of reading red Unaccounted.
+			"chart.series.tagged_not_closed": "Tagged, sale not closed",
+			"column.tagged_not_closed":       "Tagged, sale not closed",
+			"loadwise.kpi.tagged_not_closed": "tagged, sale not closed",
+			"value.tagged_not_closed.hint":   "Tagged to a sale that has not closed yet. Counted as sold once the deal closes; back on farm if the deal fails.",
+			// THE ASSUMPTION INSIDE THE PROFIT (maintainer request 2026-09-25). Profit carries the
+			// animals still on farm at a price someone set, so every place profit is shown says how
+			// much is realised and how much is assumed, and the backend's basis sentence says how.
+			"chart.series.assumed_value":  "Assumed value of animals still on farm",
+			"loadwise.assumed.label":      "Assumed value",
+			"loadwise.realised.label":     "Realised",
+			"loadwise.assumed.none":       "nothing assumed",
+			"value.bought_on":             "Bought on",
+			"chart.series.purchase_value": "Purchase value",
+			"chart.series.sold_value":     "Sold value",
+			"chart.series.profit_loss":    "Profit / loss",
 			// THE GROWTH READ (maintainer request 2026-09-01): weight in vs weight out, cost per
 			// kg vs price per kg, and the days between. Three charts under the money one, in the
 			// same load order, so the farm reads one column of loads down the page.

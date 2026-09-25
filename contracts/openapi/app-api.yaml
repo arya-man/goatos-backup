@@ -21629,7 +21629,7 @@ components:
       description: One procurement load's reconciliation row on the Sales page.
       required:
         [load_id, vendor_name, status, declared_count, purchased, sold, mortality, other_exits,
-         remaining, remaining_sheep, remaining_goats, remaining_mix, unaccounted, sold_value, sold_priced,
+         remaining, tagged_not_closed, remaining_sheep, remaining_goats, remaining_mix, unaccounted, sold_value, sold_priced,
          price_basis, row_version]
       # profit_loss is nullable-by-absence (no recorded cost), so it is deliberately not required.
       properties:
@@ -21660,6 +21660,15 @@ components:
         mortality: { type: integer, description: Animals of this load that died on farm. }
         other_exits: { type: integer, description: Culled, transferred or lost -- real outcomes, not discrepancies. }
         remaining: { type: integer, description: Still alive on farm. }
+        tagged_not_closed:
+          type: integer
+          description: >-
+            Animals tagged to a sale whose deal is NOT closed yet (Advance Paid, In Discussion...).
+            Tagging exits an animal from the herd at once, but only a closed deal is a sale, so
+            these are neither sold nor on farm. They carry no money (sold value and profit stay
+            closed-deals-only), move to `sold` when the deal closes, and return to `remaining` when
+            a failed deal releases them. purchased = sold + mortality + other_exits + remaining +
+            tagged_not_closed + unaccounted.
         unaccounted:
           type: integer
           description: >-
@@ -21752,12 +21761,10 @@ components:
           nullable: true
           description: >-
             The RUNNING fattening clock: whole days from arrived_on to today's Asia/Kolkata
-            business date, for a load that has NOT SOLD. Same start as fattening_days, which is
-            why the two may be shown on one axis -- but they are MUTUALLY EXCLUSIVE: a load that
-            has sold anything answers with its finished fattening_days alone, because its
-            stragglers would otherwise tell a few animals' story at the scale of the whole load.
-            Absent once anything has sold, once the load holds nothing, and when the arrival date
-            is unknown.
+            business date, for the animals the load STILL HOLDS, whether or not it has begun
+            selling (maintainer decision 2026-09-18). Same start as fattening_days, so a part-sold
+            load shows both on one axis. Absent once the load holds nothing, and when the arrival
+            date is unknown.
         days_since_purchase:
           type: integer
           nullable: true
@@ -21773,7 +21780,10 @@ components:
           description: >-
             Days between arrival and sale, ANIMAL-WEIGHTED across the load's sales -- a load that
             leaves in four batches over four months has no single sale date, and weighting by how
-            many animals left on each answers "how long was the average animal fattened".
+            many animals left on each answers "how long was the average animal fattened". The
+            imported legacy span when the load has one; otherwise derived from the load's animals
+            tagged to CLOSED deals (arrived_on to the deal's sale date, averaged per animal and
+            rounded to whole days). Absent when neither exists.
         sold_value: { type: number, description: Deal value attributed to this load's sold animals. }
         sold_priced:
           type: integer
@@ -21796,6 +21806,26 @@ components:
             cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole
             sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names
             the average that valued that stock.
+        realised_profit_loss:
+          type: number
+          nullable: true
+          description: >-
+            sold_value - purchase_value: the part of profit_loss that actually happened. Absent when
+            no cost is recorded. profit_loss = realised_profit_loss + assumed_value whenever both
+            exist.
+        assumed_value:
+          type: number
+          nullable: true
+          description: >-
+            The ASSUMED value of the animals still on farm -- remaining x avg_sold_price, a price
+            someone set or an average of past sales, not one anybody paid. Absent when the load
+            holds nothing or no price exists to carry them at. Per animal: no weight enters it.
+        assumed_value_basis:
+          type: string
+          description: >-
+            Backend-composed sentence saying HOW assumed_value was assumed, rendered verbatim
+            ("58 animals × ₹9,500 each (the unsold animal price set on Sales Config) = ₹5,51,000").
+            Empty when nothing is assumed.
         prior_sold:
           nullable: true
           allOf: [{ $ref: "#/components/schemas/LoadwisePriorOutcome" }]
@@ -21821,14 +21851,16 @@ components:
       type: object
       description: Aggregates over exactly the served rows -- no client re-derives its own totals.
       required:
-        [purchased, sold, mortality, other_exits, remaining, unaccounted, purchase_value,
-         costed_loads, sold_value, remaining_value, profit_loss]
+        [purchased, sold, mortality, other_exits, remaining, tagged_not_closed, unaccounted, purchase_value,
+         costed_loads, sold_value, remaining_value, profit_loss, realised_profit_loss, assumed_value,
+         assumed_value_basis]
       properties:
         purchased: { type: integer }
         sold: { type: integer }
         mortality: { type: integer }
         other_exits: { type: integer }
         remaining: { type: integer }
+        tagged_not_closed: { type: integer, description: Tagged to a sale whose deal has not closed. }
         unaccounted: { type: integer }
         purchase_value:
           type: number
@@ -21841,6 +21873,18 @@ components:
           description: >-
             Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as
             costed_loads, so priced and unpriced loads are never mixed into one total.
+        realised_profit_loss:
+          type: number
+          description: >-
+            Of profit_loss, the realised part (sales less cost), over the SAME costed loads.
+        assumed_value:
+          type: number
+          description: >-
+            Of profit_loss, the assumed value of animals still on farm, over the SAME costed loads.
+            realised_profit_loss + assumed_value = profit_loss.
+        assumed_value_basis:
+          type: string
+          description: Backend-composed sentence stating the per-animal price rule; empty when nothing is assumed.
     LoadwiseWeights:
       type: object
       additionalProperties: false

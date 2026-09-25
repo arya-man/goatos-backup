@@ -6,7 +6,7 @@ package domain
 // One row per procurement load answers: how many animals were purchased (accepted at herd
 // intake), how many of those are sold, dead, otherwise exited, and still on farm — and what the
 // load cost against what its animals brought in. Counts must reconcile: purchased = sold +
-// mortality + other exits + remaining + unaccounted, and a non-zero unaccounted is shown loudly,
+// mortality + other exits + remaining + tagged-not-closed + unaccounted, and a non-zero unaccounted is shown loudly,
 // never absorbed.
 //
 // Money rules, each locked with the maintainer:
@@ -24,7 +24,13 @@ package domain
 
 // Price bases for the remaining-stock estimate. The basis travels with the number so the screen
 // can say WHICH average priced it.
-import "time"
+import (
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+)
 
 const (
 	LoadwisePriceBasisLoad    = "load"
@@ -62,6 +68,12 @@ type LoadwiseLoad struct {
 	Mortality  int // exit_reason = died
 	OtherExits int // culled / transferred / lost — real outcomes, not discrepancies
 	Remaining  int // still alive on farm
+	// TaggedNotClosed is the animals tagged to a sale whose deal is NOT closed yet (Advance Paid,
+	// In Discussion...). Tagging exits an animal from the herd at once, but only a closed deal is
+	// a sale (maintainer decision 2026-09-25), so these are neither Sold nor on farm. They carry no
+	// money: sold value and profit stay closed-deals-only. They move to Sold when the deal closes;
+	// a failed deal releases them back to the herd, and they return to Remaining.
+	TaggedNotClosed int
 	// Remaining split by species (maintainer request 2026-09-03): the Comparison tab values the
 	// stock still on farm at a live-weight rate per species, so the head count arrives split.
 	// An animal with any other species value is in Remaining and in neither of these.
@@ -108,7 +120,9 @@ type LoadwiseLoad struct {
 	// ArrivedOn is the day the animals REACHED THE FARM -- not the purchase date, because the farm
 	// warms animals up at the source and buys them a day or more before they land here.
 	ArrivedOn string
-	// FatteningDays is arrival to sale, animal-weighted across the load's sales.
+	// FatteningDays is arrival to sale, animal-weighted across the load's sales: the imported
+	// legacy span when the load has one, else derived from its animals on CLOSED deals (arrival to
+	// each deal's sale date, averaged per animal) so a load sold through GoatOS has a sold bar too.
 	FatteningDays *int
 	// DaysOnFarmSoFar is the SAME clock as FatteningDays -- it starts on ARRIVAL -- but it has not
 	// stopped: it is the days the animals a load STILL HOLDS have been on the farm, at the current
@@ -166,6 +180,18 @@ type LoadwiseLoad struct {
 	// as profit. Part of it is UNREALISED whenever Remaining > 0, which is why the row also
 	// carries the price basis that valued the stock.
 	ProfitLoss *float64
+	// THE ASSUMPTION INSIDE THE PROFIT (maintainer request 2026-09-25). ProfitLoss carries the
+	// animals still on farm at a price someone SET, not one anybody paid, so the row splits it:
+	//   RealisedProfitLoss = sold value - landed cost (nil when the cost is not recorded), and
+	//   AssumedValue       = the animals still on farm x the resolved per-animal price (nil when
+	//                        the load holds nothing or there is no price to carry them at).
+	// Whenever both exist ProfitLoss = RealisedProfitLoss + AssumedValue. AssumedValueBasis is the
+	// sentence that says HOW it was assumed -- "58 animals × ₹9,500 each (the unsold animal price
+	// set on Sales Config) = ₹5,51,000" -- composed here so every surface renders one wording.
+	// The price is PER ANIMAL: no weight enters it (not the latest weigh, not the purchase weight).
+	RealisedProfitLoss *float64
+	AssumedValue       *float64
+	AssumedValueBasis  string
 
 	// PriorSold / PriorDead are the load's PRE-GOATOS outcomes (procurement_load_prior_outcomes):
 	// animals already sold or already dead before the load's remaining animals were tracked here,
@@ -190,12 +216,14 @@ type LoadwisePriorOutcome struct {
 // LoadwiseSummary aggregates the served rows — same grain, same predicate, summed once here so no
 // client re-derives its own totals.
 type LoadwiseSummary struct {
-	Purchased   int
-	Sold        int
-	Mortality   int
-	OtherExits  int
-	Remaining   int
-	Unaccounted int
+	Purchased  int
+	Sold       int
+	Mortality  int
+	OtherExits int
+	Remaining  int
+	// TaggedNotClosed: animals tagged to a sale whose deal has not closed (see LoadwiseLoad).
+	TaggedNotClosed int
+	Unaccounted     int
 
 	// PurchaseValue sums only RECORDED costs; CostedLoads says how many of the served loads carry
 	// one, so the total is never read as covering loads whose cost is missing.
@@ -207,6 +235,13 @@ type LoadwiseSummary struct {
 	// ProfitLoss sums only the loads that HAVE a profit figure (i.e. a recorded cost), over the
 	// same key set as CostedLoads, so the total never mixes priced and unpriced loads.
 	ProfitLoss float64
+	// ProfitLoss split over that SAME key set (loads with a recorded cost): RealisedProfitLoss is
+	// their sales less cost, AssumedValue their animals still on farm at the assumed price, and the
+	// two add up to ProfitLoss. AssumedValueBasis states the price rule in one sentence ("" when
+	// nothing is assumed anywhere).
+	RealisedProfitLoss float64
+	AssumedValue       float64
+	AssumedValueBasis  string
 }
 
 // LoadwiseSales is the whole load-wise read: the served rows (newest purchase first), whole-filter
@@ -298,6 +333,7 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		basis = LoadwisePriceBasisAssumed
 	}
 	out := LoadwiseSales{Loads: loads, TotalLoads: totalLoads, OverallAvgSoldPrice: overallAvg, UnsoldPriceBasis: basis}
+	anyAssumed := false
 	for i := range loads {
 		row := &loads[i]
 		// Fold the pre-GoatOS history in FIRST: those animals were purchased on this load and
@@ -316,7 +352,7 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		if row.DeclaredCount > 0 {
 			row.Purchased = row.DeclaredCount
 		}
-		row.Unaccounted = row.Purchased - row.Sold - row.Mortality - row.OtherExits - row.Remaining
+		row.Unaccounted = row.Purchased - row.Sold - row.Mortality - row.OtherExits - row.Remaining - row.TaggedNotClosed
 		row.PurchaseValue = loadPurchaseValue(row.AnimalCost, row.TransportCost, row.OtherCost)
 		row.AvgSoldPrice, row.PriceBasis = loadAvgSoldPrice(row.SoldValue, row.SoldPriced, overallAvg)
 		if assumed != nil {
@@ -336,12 +372,21 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		row.DaysSincePurchase = DaysSincePurchase(row.PurchaseDate, asOf)
 		row.DaysOnFarmSoFar = DaysOnFarmSoFar(row.ArrivedOn, asOf, row.Remaining)
 		row.ProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, row.RemainingValue)
+		row.RealisedProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, nil)
+		if row.Remaining > 0 && row.RemainingValue != nil && row.AvgSoldPrice != nil {
+			assumedValue := *row.RemainingValue
+			row.AssumedValue = &assumedValue
+			row.AssumedValueBasis = fmt.Sprintf("%d %s × %s each (%s) = %s",
+				row.Remaining, animalsWord(row.Remaining), rupeesPrice(*row.AvgSoldPrice),
+				priceBasisWords(row.PriceBasis), rupeesWhole(assumedValue))
+		}
 
 		out.Summary.Purchased += row.Purchased
 		out.Summary.Sold += row.Sold
 		out.Summary.Mortality += row.Mortality
 		out.Summary.OtherExits += row.OtherExits
 		out.Summary.Remaining += row.Remaining
+		out.Summary.TaggedNotClosed += row.TaggedNotClosed
 		out.Summary.Unaccounted += row.Unaccounted
 		out.Summary.SoldValue += row.SoldValue
 		if row.PurchaseValue != nil {
@@ -353,9 +398,90 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		}
 		if row.ProfitLoss != nil {
 			out.Summary.ProfitLoss += *row.ProfitLoss
+			out.Summary.RealisedProfitLoss += *row.RealisedProfitLoss
+			if row.AssumedValue != nil {
+				out.Summary.AssumedValue += *row.AssumedValue
+				anyAssumed = true
+			}
 		}
 	}
+	if anyAssumed {
+		out.Summary.AssumedValueBasis = summaryAssumedBasis(basis, overallAvg)
+	}
 	return out
+}
+
+// Price-basis words, shared by the per-load and the summary sentence.
+func priceBasisWords(basis string) string {
+	switch basis {
+	case LoadwisePriceBasisAssumed:
+		return "the unsold animal price set on Sales Config"
+	case LoadwisePriceBasisLoad:
+		return "this load's own average sold price"
+	default:
+		return "the overall average sold price"
+	}
+}
+
+// summaryAssumedBasis states the rule every load's stock was carried at. With a Sales Config price
+// it is one figure for all; otherwise a load with sales of its own uses its own average and the
+// overall average stands in for the rest.
+func summaryAssumedBasis(basis string, overallAvg *float64) string {
+	if basis == LoadwisePriceBasisAssumed && overallAvg != nil {
+		return fmt.Sprintf("Animals still on farm × %s each (%s)", rupeesPrice(*overallAvg), priceBasisWords(basis))
+	}
+	if overallAvg != nil {
+		return fmt.Sprintf("Animals still on farm × each load's own average sold price, or %s each (%s) for a load that has sold none",
+			rupeesPrice(*overallAvg), priceBasisWords(LoadwisePriceBasisOverall))
+	}
+	return "Animals still on farm × each load's own average sold price"
+}
+
+func animalsWord(n int) string {
+	if n == 1 {
+		return "animal"
+	}
+	return "animals"
+}
+
+// rupeesWhole renders a whole-rupee amount in Indian grouping: 551000 -> "₹5,51,000".
+func rupeesWhole(v float64) string {
+	return "₹" + indianGroup(int64(math.Round(v)))
+}
+
+// rupeesPrice renders a per-animal price: whole rupees when it is whole, else two places, so the
+// product written in the sentence is the product in the number.
+func rupeesPrice(v float64) string {
+	cents := int64(math.Round(v * 100))
+	if cents%100 == 0 {
+		return "₹" + indianGroup(cents/100)
+	}
+	sign := ""
+	if cents < 0 {
+		sign, cents = "-", -cents
+	}
+	return fmt.Sprintf("₹%s%s.%02d", sign, indianGroup(cents/100), cents%100)
+}
+
+func indianGroup(n int64) string {
+	sign := ""
+	if n < 0 {
+		sign, n = "-", -n
+	}
+	digits := strconv.FormatInt(n, 10)
+	if len(digits) <= 3 {
+		return sign + digits
+	}
+	head, tail := digits[:len(digits)-3], digits[len(digits)-3:]
+	var parts []string
+	for len(head) > 2 {
+		parts = append([]string{head[len(head)-2:]}, parts...)
+		head = head[:len(head)-2]
+	}
+	if head != "" {
+		parts = append([]string{head}, parts...)
+	}
+	return sign + strings.Join(parts, ",") + "," + tail
 }
 
 // loadPurchaseValue derives the landed value of one load. animal_cost is the anchor: without it
