@@ -163,6 +163,12 @@ FROM public.feed_purchases p WHERE %s`, where)
 // ListFeedFarms returns the codes of the tenant's active parks (Configuration > Items & settings >
 // Parks), so a park added there can buy feed at once.
 func (r *Repository) ListFeedFarms(ctx context.Context, tenantID string) ([]string, error) {
+	return r.ListParkCodes(ctx, tenantID)
+}
+
+// ListParkCodes returns the codes of the tenant's active parks, in park order. Every procurement
+// read or write that names a farm by code (feed purchases, buyer analytics) answers from here.
+func (r *Repository) ListParkCodes(ctx context.Context, tenantID string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	parks, err := parkcatalog.ListActive(ctx, r.pool, tenantID)

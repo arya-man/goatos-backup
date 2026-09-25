@@ -33,12 +33,16 @@ func (s *BuyerAnalyticsService) WithClock(now func() time.Time) *BuyerAnalyticsS
 
 // ErrBuyerFarmInvalid is the rejected farm filter: a present-but-unknown farm is refused rather
 // than silently served company-wide, the rule every sales page keeps.
-var ErrBuyerFarmInvalid = errors.New("procurement: buyer analytics farm filter is not CBE, CPT or all")
+var ErrBuyerFarmInvalid = errors.New("procurement: buyer analytics farm filter is not one of the parks or all")
 
 // BuyerAnalytics returns the whole page for the filter: one page of buyers plus whole-filter
 // totals. limit/offset page the rows only.
 func (s *BuyerAnalyticsService) BuyerAnalytics(ctx context.Context, tenantID, farmRaw string, limit, offset int) (domain.BuyerAnalytics, error) {
-	farm, ok := domain.NormalizeBuyerFarmFilter(farmRaw)
+	farms, err := s.repo.ListParkCodes(ctx, tenantID)
+	if err != nil {
+		return domain.BuyerAnalytics{}, err
+	}
+	farm, ok := domain.NormalizeBuyerFarmFilter(farmRaw, farms)
 	if !ok {
 		return domain.BuyerAnalytics{}, ErrBuyerFarmInvalid
 	}
@@ -65,7 +69,7 @@ func BuyerAnalyticsHTTPError(err error) *Error {
 	case err == nil:
 		return nil
 	case errors.Is(err, ErrBuyerFarmInvalid):
-		return &Error{Code: "invalid_farm", Message: "Pick CBE, CPT or all farms.", HTTPStatus: http.StatusBadRequest}
+		return &Error{Code: "invalid_farm", Message: "Pick one of your parks, or all farms.", HTTPStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrBuyerOffsetInvalid):
 		return &Error{Code: "invalid_offset", Message: "That page is out of range.", HTTPStatus: http.StatusBadRequest}
 	default:
