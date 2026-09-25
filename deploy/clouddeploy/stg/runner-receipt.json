@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "image": "asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:18664d3502014bab30a675c197955a50f7779b499c3b2683d59bb2334d75a72f",
+  "image": "asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:ebe6430f27656fd54bd534a8ba0dc43a63e6541aea9e7fbfad62cbda08061ebe",
   "files": {
     "deploy/clouddeploy/stg/runner.Dockerfile": "633681b440848c4a456648fa039a7d24c76fd9861a31cd6f0d85fe5d546ddaf0",
     "tools/deploy/stg-analytics-events-routing.sh": "6fe6e271b66cd08c576fd26353643ab1c4a14bf1fd4e23542ae71ccf6764fa54",
