@@ -2550,7 +2550,11 @@
   .buildermain{display:flex;flex-direction:column;gap:14px;min-width:0}
   .builderside{display:flex;flex-direction:column;gap:14px;position:sticky;top:14px}
   .buildermain .rowf{display:flex;gap:8px;flex-wrap:wrap}
-  .buildermain .rowf>*{flex:1;min-width:0}
+  /* A 180px basis, not flex:1 alone: with no basis the items shrank forever and the row never
+     wrapped, so at phone width "SOP basics" squeezed name, domain and kind side by side and
+     clipped all three ("Herd operati", "Counts / Herd Op", "Module-leve"). On a laptop they
+     still share the row; on a phone each takes a line. */
+  .buildermain .rowf>*{flex:1 1 180px;min-width:0}
   .qlist{display:flex;flex-direction:column;gap:10px}
   /* SOP-driven herd operations: the operator-steps editor (features/sops/followup-editor.tsx) */
   .sop-followup .followup-track{margin-bottom:12px;padding:10px 14px}
