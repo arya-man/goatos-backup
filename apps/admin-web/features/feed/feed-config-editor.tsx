@@ -1124,9 +1124,12 @@ export function SessionPlanEditor({
   sessions: { session_no: number; session_label: string; split_fraction: string }[];
 }) {
   const nextNo = sessions.reduce((max, row) => Math.max(max, row.session_no), 0) + 1;
+  // Spare blank rows to add sessions: two for a park that has none yet (a farm feeds at least
+  // morning and evening, and a single row would force two saves), one otherwise.
+  const spare = sessions.length === 0 ? 2 : 1;
   const rows = [
     ...sessions.map((row) => ({ session_no: row.session_no, session_label: row.session_label, share: fractionToPercent(row.split_fraction) })),
-    { session_no: nextNo, session_label: "", share: "" },
+    ...Array.from({ length: spare }, (_, i) => ({ session_no: nextNo + i, session_label: "", share: "" })),
   ];
   return (
     <FeedConfigFormShell

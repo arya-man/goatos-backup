@@ -1238,15 +1238,19 @@ export async function FeedConfigPage({
         <div className="hd">
           <h3>{copy(pageContract, "section.session_template.title")}</h3>
           <span className="small muted">{copy(pageContract, "section.session_template.caption")}</span>
-          {scope.parkId && sessions ? (
+        </div>
+        {/* Its own full-width row under the header, never inside it: the open form holds a name and
+            a share per session, which the header's single line cannot lay out. */}
+        {scope.parkId && sessions ? (
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
             <SessionPlanEditor
               pageContract={pageContract}
               action={saveSessionPlan}
               parkId={scope.parkId}
               sessions={activeSessions.map((row) => ({ session_no: row.session_no, session_label: row.session_label, split_fraction: String(row.split_fraction) }))}
             />
-          ) : null}
-        </div>
+          </div>
+        ) : null}
         <div
           className="bd feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
