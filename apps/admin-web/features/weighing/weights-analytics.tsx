@@ -1346,7 +1346,7 @@ function TimeTab({
 
   const bars = (growth?.weekly_gain ?? []).map((point) => ({
     key: point.week_start,
-    label: point.week_start,
+    label: fmtDate(point.week_start),
     value: Math.round(point.average_adg_g_per_day),
     valueLabel: `${Math.round(point.average_adg_g_per_day).toLocaleString("en-IN")} g`,
     modeLabel: `${point.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
@@ -1364,7 +1364,7 @@ function TimeTab({
     }
     (group.bars as GroupedBar[]).push({
       key: `${point.label}-${point.week_start}`,
-      label: point.week_start,
+      label: fmtDate(point.week_start),
       value: Math.round(point.average_gain_g_per_day),
       seriesKey: "gain",
       noteLabel: `${point.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,

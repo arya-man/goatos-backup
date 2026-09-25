@@ -3383,8 +3383,14 @@ select:disabled { opacity: .45; }
    INLINE beside the label (not under it, which doubled every row's height), a short row pitch,
    and the figure hugging the bar's right edge. The wide 36%/42% label column of the ranked
    shed list is not wanted here -- the group heading already carries the long name. */
-.wgrouped .wbar{grid-template-columns:minmax(150px,19%) minmax(160px,1fr) 64px;gap:10px;min-height:24px}
-.wgrouped .wbar .wbl{display:flex;flex-wrap:nowrap;align-items:center;gap:6px;overflow:visible;white-space:nowrap}
+/* The label cell holds name + `i` + head-count chip. At 150px/19% "Elevated pen" and
+   "Non-elevated pen" were clipped to "Elevated p…" / "Non-elevat…" at 1440px -- the name is the
+   one thing the row cannot lose. The column now fits the longest series name with its chip, and
+   the cell WRAPS rather than truncating: when it is still too narrow the chip drops under the
+   name (flex items wrap at their natural size, so the name is placed whole before anything
+   shrinks). The column stays a fixed track so every bar in the card starts at the same x. */
+.wgrouped .wbar{grid-template-columns:minmax(220px,26%) minmax(160px,1fr) 64px;gap:10px;min-height:24px}
+.wgrouped .wbar .wbl{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;overflow:visible;white-space:nowrap}
 .wgrouped .wbar .wbl-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .wgrouped .wbar .wbar-mode{flex:0 0 auto;margin-top:0}
 .wgrouped .wbar .wbt{height:14px}
@@ -3572,6 +3578,11 @@ aside.drawer .wt-assume-grid input:focus{border-color:var(--brand);box-shadow:0 
    horizontal scrollbar. The shed cell is therefore the only one that wraps; the three fixed columns
    keep the number where the eye expects it. */
 .weights-page table.wsgtable{width:100%;table-layout:fixed}
+/* The five fixed columns alone are ~500px, so at phone width `width:100%` left the pen and breed
+   columns ZERO: "Castro 1" rendered one letter per line and the Pen/Breed/Gender headers painted
+   over each other. A floor keeps every column readable; below it the table pans inside its own
+   `.tablewrap` (overflow-x:auto) and the page body never scrolls sideways. */
+.weights-page table.wsgtable{min-width:720px}
 .weights-page table.wsgtable th.wsg-park,
 .weights-page table.wsgtable td.wsg-park{width:78px}
 .weights-page table.wsgtable th.wsg-basis,
