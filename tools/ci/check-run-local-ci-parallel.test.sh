@@ -194,8 +194,33 @@ layer2() {
   rm -rf "$tmp"
 }
 
+# ── layer 3: the query-plans job runs exactly the gates GOATOS_QUERY_PLAN_STEPS selects ──
+# Trace mode against the SHIPPED script: nothing executes, but every `step` is printed.
+layer3() {
+  local out
+  qp_trace() { env -u GOATOS_FAST_LOCAL_CI GOATOS_CI_TRACE_ONLY=1 "$@" bash tools/ci/run-local-ci.sh query-plans 2>&1 | grep '^CI-TRACE' | sed 's/ ::.*//' | tr '\n' '|'; }
+  out="$(qp_trace env -u GOATOS_QUERY_PLAN_STEPS)"
+  [ "$out" = "CI-TRACE required PostgreSQL query plans|CI-TRACE command-board query plans|" ] \
+    && ok "query-plans with no step selection runs BOTH gates (explicit job / MODE=all)" || bad "unscoped query-plans ran: $out"
+  out="$(qp_trace GOATOS_QUERY_PLAN_STEPS=commandboard)"
+  [ "$out" = "CI-TRACE command-board query plans|" ] \
+    && ok "commandboard-only scope skips the sqlc plan gate" || bad "commandboard scope ran: $out"
+  out="$(qp_trace GOATOS_QUERY_PLAN_STEPS=sqlc)"
+  [ "$out" = "CI-TRACE required PostgreSQL query plans|" ] \
+    && ok "sqlc-only scope skips the command-board gate" || bad "sqlc scope ran: $out"
+  out="$(qp_trace GOATOS_QUERY_PLAN_STEPS=)"
+  [ -z "$out" ] && ok "an empty step selection runs no DB gate" || bad "empty scope ran: $out"
+  # MODE=all must ignore an inherited narrow selection.
+  grep -q 'unset GOATOS_QUERY_PLAN_STEPS  # MODE=all' tools/ci/run-local-ci.sh \
+    && ok "MODE=all clears any inherited query-plan step selection" || bad "MODE=all no longer clears GOATOS_QUERY_PLAN_STEPS"
+  # Auto scope must take the selection from the classifier, the same one the receipt re-validates.
+  grep -q "sed -n 's/^query_plan_steps=//p'" tools/ci/run-local-ci.sh \
+    && ok "auto scope reads query_plan_steps from ci-scope.mjs" || bad "auto scope does not read query_plan_steps"
+}
+
 echo "run-local-ci parallel dispatch self-test"
 layer1
 layer2
+layer3
 [ "$rc" -eq 0 ] && echo "run-local-ci-parallel: self-test passed" || echo "run-local-ci-parallel: self-test FAILED" >&2
 exit "$rc"

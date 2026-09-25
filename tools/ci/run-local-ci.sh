@@ -422,6 +422,9 @@ run_common() {
   step "org-boundary-guard" make org-boundary-guard
   step "guardrail-registration-guard" make guardrail-registration-guard
   step "commandboard-query-plan-wiring-guard" make commandboard-query-plan-wiring-guard
+  # ci-local schedules each DB plan gate only when a diff touches its inputs; this proves the
+  # per-gate trigger rules and that the command-board rule still covers its test's import closure.
+  step "query-plan scope self-test" node tools/ci/ci-scope.mjs --self-test --check-query-plan-closure
   step "local-stack-service-guard" make local-stack-service-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
   step "domain-event-architecture-guard" make domain-event-architecture-guard
@@ -633,17 +636,35 @@ run_backend() {
   return 0
 }
 
+# Which DB plan gates the query-plans job runs: a comma list of `sqlc`, `commandboard`.
+# Unset (explicit `query-plans` job, MODE=all) means BOTH. Auto scope sets it from the classifier
+# (tools/ci/ci-scope.mjs `query_plan_steps`), which schedules each gate only when the diff touches an
+# input that can change its verdict (tools/ci/component-paths.json `queryPlans`).
+query_plan_step_enabled() {
+  case ",${GOATOS_QUERY_PLAN_STEPS-sqlc,commandboard}," in *",$1,"*) return 0 ;; *) return 1 ;; esac
+}
+
 run_query_plans() {
   current_job="query-plans"
-  # Required for every backend diff. This deliberately stays outside the broad Postgres/E2E opt-in:
-  # index regressions in production queries must fail ordinary PR, push, and local landing CI.
-  prepare_query_plan_database
-  step "required PostgreSQL query plans" make validate-sqlc-plans
-  # The command board's plan gate runs here for the same reason validate-sqlc-plans does: it is an
-  # index/plan-regression gate on a production read, and /vaccination/command already returned 500
-  # in staging once because nothing could see its plans. It resolves its own database (supplied DSN,
-  # OCI clone, or Docker) and fails rather than skipping when it can reach none.
-  step "command-board query plans" make commandboard-query-plan-guard
+  # Required whenever a gate's inputs change. This deliberately stays outside the broad Postgres/E2E
+  # opt-in: index regressions in production queries must fail ordinary PR, push, and landing CI.
+  local want_sqlc=0 want_cb=0
+  query_plan_step_enabled sqlc && want_sqlc=1
+  query_plan_step_enabled commandboard && want_cb=1
+  if [ "$want_sqlc" = 0 ] && [ "$want_cb" = 0 ]; then
+    RESULTS+=("SKIP  query plans (GOATOS_QUERY_PLAN_STEPS selects no gate)")
+    return 0
+  fi
+  ci_trace_only || prepare_query_plan_database
+  if [ "$want_sqlc" = 1 ]; then
+    step "required PostgreSQL query plans" make validate-sqlc-plans
+  fi
+  # The command board's plan gate: /vaccination/command returned 500 in staging once because nothing
+  # could see its plans. It resolves its own database (supplied DSN, OCI clone, or Docker) and fails
+  # rather than skipping when it can reach none.
+  if [ "$want_cb" = 1 ]; then
+    step "command-board query plans" make commandboard-query-plan-guard
+  fi
   return 0
 }
 
@@ -949,6 +970,8 @@ case "$only" in
     base_ref="$ci_base_ref"
     scope="$(node tools/ci/ci-scope.mjs --base "$base_ref" --head HEAD --format github)" || exit 2
     selected="$(printf '%s\n' "$scope" | sed -n 's/^selected_jobs=//p')"
+    GOATOS_QUERY_PLAN_STEPS="$(printf '%s\n' "$scope" | sed -n 's/^query_plan_steps=//p')"
+    export GOATOS_QUERY_PLAN_STEPS
     scope_base="$(printf '%s\n' "$scope" | sed -n 's/^base=//p')"
     # The classifier must have resolved the SAME base this script diffed against
     # and will record; a divergence means two resolvers again.
@@ -960,6 +983,7 @@ case "$only" in
     is_full="$(printf '%s\n' "$scope" | sed -n 's/^full=//p')"
     [ -n "$selected" ] || { echo "ci-local: classifier returned no selected jobs" >&2; exit 2; }
     echo "ci-local: auto scope against ${receipt_base:-$base_ref} -> ${selected}"
+    case ",$selected," in *,query-plans,*) echo "ci-local: query-plan gates -> ${GOATOS_QUERY_PLAN_STEPS}" ;; esac
     IFS=',' read -r -a selected_array <<< "$selected"
     dispatch_jobs "${selected_array[@]}"
     receipt_jobs="$selected"
@@ -973,6 +997,7 @@ case "$only" in
   admin-web)  run_admin_web ;;
   android)    run_android ;;
   all)
+    unset GOATOS_QUERY_PLAN_STEPS  # MODE=all always runs every query-plan gate
     dispatch_jobs common backend query-plans admin-web android
     receipt_mode="all"
 	receipt_jobs="common,backend,query-plans,admin-web,android"
