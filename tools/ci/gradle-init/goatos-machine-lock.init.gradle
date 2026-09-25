@@ -20,10 +20,13 @@
 // - The OS drops the lock if the process dies (kill -9 included), so there are
 //   no stale locks and nothing to clean up.
 // - While waiting it logs the holder (pid, directory, start time) from
-//   <gradle home>/goatos-build.lock.holder. It never kills anything.
+//   <gradle home>/goatos-build.lock.holder once a minute. It never kills anything.
+// - After a timeout (default 45 min; env GOATOS_GRADLE_MACHINE_LOCK_TIMEOUT_MIN
+//   or -Pgoatos.machineLockTimeoutMin=N) it FAILS this build with the holder's
+//   details instead of waiting forever. The holder is left running.
 // - Opt out for one build: GOATOS_GRADLE_MACHINE_LOCK=0.
-// - Any error inside the lock logic is logged and the build continues without
-//   the lock. The queue must never fail a build.
+// - Any other error inside the lock logic is logged and the build continues
+//   without the lock. Only the wait timeout fails a build.
 
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
@@ -34,6 +37,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardOpenOption
 import javax.inject.Inject
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.invocation.Gradle
 import org.gradle.api.logging.Logger
@@ -45,10 +49,15 @@ import org.gradle.build.event.BuildEventsListenerRegistry
 import org.gradle.tooling.events.FinishEvent
 import org.gradle.tooling.events.OperationCompletionListener
 
+class GoatosMachineLockTimeout extends GradleException {
+    GoatosMachineLockTimeout(String msg) { super(msg) }
+}
+
 abstract class GoatosMachineLockService implements BuildService<GoatosMachineLockService.Params>, OperationCompletionListener, AutoCloseable {
     interface Params extends BuildServiceParameters {
         Property<String> getLockPath()
         Property<String> getBuildDir()
+        Property<Long> getTimeoutMinutes()
     }
 
     private static final Logger LOG = Logging.getLogger(GoatosMachineLockService)
@@ -58,6 +67,9 @@ abstract class GoatosMachineLockService implements BuildService<GoatosMachineLoc
     GoatosMachineLockService() {
         try {
             acquire()
+        } catch (GoatosMachineLockTimeout t) {
+            closeQuietly()
+            throw t
         } catch (Throwable t) {
             LOG.warn("goatos machine lock: ${t} -- building WITHOUT the machine queue")
             closeQuietly()
@@ -70,7 +82,8 @@ abstract class GoatosMachineLockService implements BuildService<GoatosMachineLoc
         Files.createDirectories(lockPath.getParent())
         channel = FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
         long t0 = System.currentTimeMillis()
-        long lastNote = 0
+        long lastNote = -60000
+        long timeoutMs = getParameters().getTimeoutMinutes().getOrElse(45L) * 60000L
         while (lock == null) {
             try {
                 lock = channel.tryLock()
@@ -79,12 +92,17 @@ abstract class GoatosMachineLockService implements BuildService<GoatosMachineLoc
             }
             if (lock != null) break
             long now = System.currentTimeMillis()
-            if (now - lastNote >= 10000) {
+            String holder = "unknown"
+            try {
+                holder = new String(Files.readAllBytes(holderPath), StandardCharsets.UTF_8).trim()
+            } catch (Throwable ignored) { }
+            if (timeoutMs > 0 && now - t0 >= timeoutMs) {
+                String msg = "goatos: gave up waiting ${(now - t0) / 60000} min for the machine Gradle lock held by ${holder}. That build was NOT killed. Retry when it finishes, or raise GOATOS_GRADLE_MACHINE_LOCK_TIMEOUT_MIN."
+                LOG.error(msg)
+                throw new GoatosMachineLockTimeout(msg)
+            }
+            if (now - lastNote >= 60000) {
                 lastNote = now
-                String holder = "unknown"
-                try {
-                    holder = new String(Files.readAllBytes(holderPath), StandardCharsets.UTF_8).trim()
-                } catch (Throwable ignored) { }
                 LOG.lifecycle("goatos: waiting for Gradle build by ${holder} (waited ${(now - t0) / 1000}s; one goatos Android build runs at a time on this machine; never kill another session's build)")
             }
             Thread.sleep(1000)
@@ -127,9 +145,15 @@ abstract class GoatosMachineLockPlugin implements Plugin<Gradle> {
                 String dir = settings.settingsDir.canonicalPath.replace('\\', '/')
                 if (!dir.endsWith("/apps/goatos-android")) return
                 String lockPath = new File(gradle.gradleUserHomeDir, "goatos-build.lock").absolutePath
+                long timeoutMin = 45L
+                String tv = gradle.startParameter.projectProperties.get("goatos.machineLockTimeoutMin") ?: System.getenv("GOATOS_GRADLE_MACHINE_LOCK_TIMEOUT_MIN")
+                if (tv) {
+                    try { timeoutMin = Long.parseLong(tv.trim()) } catch (NumberFormatException ignored) { }
+                }
                 def service = gradle.sharedServices.registerIfAbsent("goatosMachineLock", GoatosMachineLockService) { spec ->
                     spec.parameters.lockPath.set(lockPath)
                     spec.parameters.buildDir.set(dir)
+                    spec.parameters.timeoutMinutes.set(timeoutMin)
                 }
                 registry.onTaskCompletion(service)
                 // Take the lock now, before configuration, on a normal build.
@@ -138,6 +162,8 @@ abstract class GoatosMachineLockPlugin implements Plugin<Gradle> {
                 // the first task-completion event (so on a cache hit the very
                 // first task can run before the lock is held).
                 service.get()
+            } catch (GoatosMachineLockTimeout t) {
+                throw t
             } catch (Throwable t) {
                 Logging.getLogger(GoatosMachineLockPlugin).warn("goatos machine lock: not installed for this build: ${t}")
             }

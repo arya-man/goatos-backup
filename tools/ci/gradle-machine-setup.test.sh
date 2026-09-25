@@ -50,6 +50,9 @@ f=tools/ci/gradle-init/goatos-machine-lock.init.gradle
 grep -q 'endsWith("/apps/goatos-android")' "$f" && ok "init script only affects the goatos Android build" || bad "init script not scoped"
 grep -q 'channel.tryLock()' "$f" && grep -q 'void close()' "$f" && ok "OS file lock, released in close() at build end" || bad "lock/release shape missing"
 grep -q 'gradle.parent != null' "$f" && ok "nested builds do not re-take the lock (no self-deadlock)" || bad "nested builds would self-deadlock"
+grep -q 'GOATOS_GRADLE_MACHINE_LOCK_TIMEOUT_MIN' "$f" && grep -q 'throw new GoatosMachineLockTimeout' "$f" && grep -q 'getOrElse(45L)' "$f" && ok "wait times out (default 45 min, configurable) and fails the build" || bad "no lock wait timeout"
+grep -q 'now - lastNote >= 60000' "$f" && ok "waiting is logged every 60s" || bad "wait log cadence not 60s"
+grep -q 'NOT killed' "$f" && ! grep -Eq 'destroy|kill\(' "$f" && ok "timeout never kills the holder" || bad "timeout may kill the holder"
 
 # The init script compiles against the Gradle API, when a local Gradle 9 distribution exists.
 lib="$(ls -d "$HOME"/.gradle/wrapper/dists/gradle-9*-bin/*/gradle-9*/lib 2>/dev/null | head -1 || true)"
