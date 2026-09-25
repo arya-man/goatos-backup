@@ -739,10 +739,12 @@ class SaleDetailViewModel @Inject constructor(
         const val REQUIRED = "Required"
         const val NOT_A_NUMBER = "Enter a number"
         const val MORE_THAN_ZERO = "Must be more than zero"
-        const val MESSAGE_PAYMENT_ADDED = "Payment added. The balance updates when it reaches the ledger."
-        const val MESSAGE_PAYMENT_SAVED = "Payment saved. The balance updates when it reaches the ledger."
-        const val MESSAGE_PAYMENT_REMOVED = "Payment removed. The balance updates when it reaches the ledger."
-        const val MESSAGE_STATUS_SAVED = "Status saved. It reaches the ledger when the phone is online."
+        // Shown only once the server HAS the change (QueuedWriteOutcome.Saved); a change still on
+        // the phone says MESSAGE_QUEUED_OFFLINE instead. No future tense here.
+        const val MESSAGE_PAYMENT_ADDED = "Payment added."
+        const val MESSAGE_PAYMENT_SAVED = "Payment saved."
+        const val MESSAGE_PAYMENT_REMOVED = "Payment removed."
+        const val MESSAGE_STATUS_SAVED = "Status saved."
         const val MESSAGE_SAVING = "Saving change…"
         const val MESSAGE_QUEUED_OFFLINE = "Saved on this phone. It reaches the ledger when the phone is online."
         const val MESSAGE_EDIT_FAILED = "Could not save that change. Try again."

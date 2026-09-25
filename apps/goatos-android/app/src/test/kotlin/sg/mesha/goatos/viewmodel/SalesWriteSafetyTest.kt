@@ -168,6 +168,21 @@ class SalesWriteSafetyTest {
         assertNotEquals(sync.payments[1], sync.payments[2])
     }
 
+    @Test
+    fun `a status the server accepted says it is saved, never that it waits for the network`() = runTest(dispatcher) {
+        // Seen on the phone (2026-09-26): closing a sale online read "Status saved. It reaches the
+        // ledger when the phone is online." after the server already held it.
+        val sync = SalesSync()
+        val vm = detailVm(sync)
+        backgroundScope.launch { vm.state.collect {} }
+        vm.onEvent(SaleDetailEvent.ChangeStatus("Deal Closed"))
+        assertEquals(1, sync.statuses.size)
+        sync.succeed("row-1")
+        val message = vm.state.value.editMessage
+        assertEquals("Status saved.", message)
+        assertTrue(!message.contains("online"))
+    }
+
     // ---------------------------------------------------------------- lead boards
 
     private fun leadVm(sync: SalesSync) = SalesLeadBoardViewModel(
@@ -203,6 +218,7 @@ class SalesWriteSafetyTest {
         assertNotNull("the typed lead survives the refusal", form)
         assertEquals("Ramesh", form!!.values[SalesBuyerLeadField.BUYER_NAME.name])
         assertEquals("Phone number is not a phone number.", vm.state.value.writeMessage)
+        assertEquals("the sentence also lands on the box it names", "Phone number is not a phone number.", form.fieldErrors[SalesBuyerLeadField.PHONE_NUMBER.name])
         vm.onEvent(SalesLeadBoardEvent.FieldChanged(SalesBuyerLeadField.PHONE_NUMBER.name, "9876543210"))
         vm.onEvent(SalesLeadBoardEvent.Submit)
         assertEquals(2, sync.leads.size)
@@ -290,6 +306,13 @@ private class SalesSync : SyncRepository by RecordingToxinSyncRepository() {
         request: sg.mesha.goatos.core.network.dto.SalesDealPaymentWriteDto?,
     ): AppResult<String> {
         payments += clientId
+        return queued()
+    }
+
+    val statuses = mutableListOf<String>()
+
+    override suspend fun enqueueSalesDealStatusSet(clientId: String, dealId: String, status: String, acknowledgeStock: Boolean): AppResult<String> {
+        statuses += status
         return queued()
     }
 
