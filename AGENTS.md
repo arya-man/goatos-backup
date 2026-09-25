@@ -145,8 +145,9 @@ through ONE machine-wide queue:
   managed block in `~/.gradle/gradle.properties` pins `org.gradle.java.home` to
   Homebrew openjdk@21 and sets `org.gradle.daemon.idletimeout=600000`.
 - **Landing on main:** run `gh workflow run land -R vgoats/goatos -f pr=<n>`. The single
-  self-hosted runner queues landings FIFO. To land several PRs together, combine them
-  into one PR and land it once.
+  self-hosted runner queues landings FIFO. To club PRs: `gh workflow run land -R vgoats/goatos
+  -f prs='x y z'` (merged in order onto fresh main, one `make land-main`, each PR's head moved
+  to the landed SHA so GitHub marks it merged).
 
 ## Never Kill Another Agent's Build (Claude AND Codex)
 

@@ -79,8 +79,10 @@ Only one `make land-main` runs at a time per clone. The lock is a directory at `
 Many parallel sessions should not run `make land-main` themselves. Land a PR with
 `gh workflow run land -R vgoats/goatos -f pr=<n>`: the single self-hosted runner on the
 laptop runs one landing at a time, so GitHub queues them FIFO, and each job runs the
-normal `make land-main`. To land several PRs together, combine them into one PR and
-land that PR once.
+normal `make land-main`. To club PRs, pass `-f prs='x y z'`: they are merged in order
+onto a branch cut from fresh main (a conflict fails naming the PR), `make land-main` runs
+once, and each PR's head branch is moved to the landed SHA so GitHub marks it merged.
+Fork PRs are refused. The runner image must be rebuilt after Alloy was removed from it.
 
 ### Machine Gradle queue
 

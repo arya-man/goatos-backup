@@ -4,11 +4,20 @@ name: land
 # runner on Ravi's laptop (ravis-m1-pro-goatos). The runner executes one job at a
 # time, so GitHub itself queues landings FIFO; no custom queue code.
 #
-# A session lands a PR with:   gh workflow run land -R vgoats/goatos -f pr=<number>
-# To land 3-4 PRs together: merge them into one branch/PR, then land that PR once.
+#   one PR:            gh workflow run land -R vgoats/goatos -f pr=<n>
+#   club several PRs:  gh workflow run land -R vgoats/goatos -f prs='<a> <b> <c>'
 #
-# The job runs the normal `make land-main` (fresh-main rebase, full ci-local,
-# exact-SHA receipt, push). Nothing about the landing gate changes.
+# Several PRs are merged, in the given order, onto a temp branch cut from
+# origin/main (a conflict fails the run naming the PR), then `make land-main`
+# runs ONCE (fresh-main rebase, full ci-local, exact-SHA receipt, push).
+#
+# After landing, per AGENTS.md "PR Review + Land Main Rule": origin/main is
+# verified to contain the landed SHA, and each PR's head branch is moved to the
+# landed SHA so GitHub marks it Merged. Only if that push is refused is the PR
+# closed, with the reason in the comment. PR state is reported per PR.
+#
+# Authorship: land-main rebases, which keeps each commit's AUTHOR. The
+# `git config user.*` below is only the COMMITTER of rebased/merge commits.
 #
 # No `concurrency:` block on purpose: GitHub keeps only ONE pending run per
 # concurrency group and cancels older pending ones, which would drop landings.
@@ -18,53 +27,106 @@ on:
   workflow_dispatch:
     inputs:
       pr:
-        description: "PR number to land on main"
-        required: true
+        description: "PR number to land on main (or use prs)"
+        required: false
         type: string
+      prs:
+        description: "Several PR numbers to land together, space or comma separated, in order"
+        required: false
+        type: string
+
+# GITHUB_TOKEN only reads the repo and comments on PRs. Pushes to main and to
+# PR head refs use the runner user's own gh login (the maintainer identity).
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   land:
-    name: land PR ${{ inputs.pr }}
-    # Only maintainers may run arbitrary PR code on the laptop with Ravi's token.
+    name: land PR ${{ inputs.prs || inputs.pr }}
+    # Only maintainers may run PR code on the laptop with Ravi's token.
     if: contains(fromJSON('["ravimesha","arya-man","manju-mesha"]'), github.actor)
     runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
-    timeout-minutes: 90
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_INPUT: ${{ inputs.prs || inputs.pr }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out main (trusted base tools)
+        uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
-      - name: Check out the PR head
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ inputs.pr }}
-        run: |
-          set -euo pipefail
-          state="$(gh pr view "$PR" --json state,baseRefName --jq '.state + " " + .baseRefName')"
-          [ "$state" = "OPEN main" ] || { echo "PR $PR is not an open PR against main ($state)"; exit 1; }
-          gh pr checkout "$PR" --force
-          git log --oneline -1
-      - name: Preflight (gh login, ai-setup, Java 21)
+      - name: Preflight from main (gh login, ai-setup, Java 21)
         run: |
           set -euo pipefail
           gh auth status >/dev/null 2>&1 || { echo "runner user has no gh login; cannot push"; exit 1; }
           make ai-setup >/dev/null
           java -version 2>&1 | grep -q '"21' || { echo "runner java is not 21"; exit 1; }
-      - name: Land (make land-main)
+      - name: Validate PRs
+        run: |
+          set -euo pipefail
+          prs="$(printf '%s' "$PR_INPUT" | tr ',' ' ' | xargs)"
+          [ -n "$prs" ] || { echo "give pr or prs"; exit 1; }
+          : > "$RUNNER_TEMP/prs.tsv"
+          for pr in $prs; do
+            case "$pr" in *[!0-9]*) echo "not a PR number: $pr"; exit 1;; esac
+            info="$(gh pr view "$pr" --json state,baseRefName,headRefName,headRefOid,isCrossRepository,headRepositoryOwner \
+              --jq '[.state,.baseRefName,.headRefName,.headRefOid,(.isCrossRepository|tostring),.headRepositoryOwner.login]|@tsv')"
+            IFS=$'\t' read -r state base head oid cross owner <<<"$info"
+            [ "$state" = OPEN ] && [ "$base" = main ] || { echo "PR $pr is not an open PR against main ($state $base)"; exit 1; }
+            [ "$cross" = false ] && [ "$owner" = vgoats ] || { echo "PR $pr comes from a fork ($owner); refusing"; exit 1; }
+            printf '%s\t%s\t%s\n' "$pr" "$head" "$oid" >> "$RUNNER_TEMP/prs.tsv"
+          done
+          cat "$RUNNER_TEMP/prs.tsv"
+      - name: Build the landing branch
         run: |
           set -euo pipefail
           git config user.name "Raviteja"
           git config user.email "ravi@mesha.sg"
-          git config alias.mesha-push '!f() { token="$(gh auth token)" || exit 1; url="https://x-access-token:${token}@github.com/vgoats/goatos.git"; git push "$url" "${1:-HEAD:main}"; }; f'
-          make land-main
-      - name: Close the PR as landed
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ inputs.pr }}
+          git fetch -q origin main
+          n="$(wc -l < "$RUNNER_TEMP/prs.tsv" | tr -d ' ')"
+          if [ "$n" = 1 ]; then
+            IFS=$'\t' read -r pr head oid < "$RUNNER_TEMP/prs.tsv"
+            git fetch -q origin "$oid"
+            git checkout -q -B "land/pr-$pr" "$oid"
+          else
+            git checkout -q -B "land/batch-${GITHUB_RUN_ID}" origin/main
+            while IFS=$'\t' read -r pr head oid; do
+              git fetch -q origin "$oid"
+              git merge -q --no-edit -m "land: merge PR #$pr" "$oid" \
+                || { git merge --abort || true; echo "PR $pr conflicts with the PRs before it (or main); land it separately"; exit 1; }
+            done < "$RUNNER_TEMP/prs.tsv"
+          fi
+          git log --oneline -1
+      - name: Land (make land-main)
         run: |
           set -euo pipefail
-          sha="$(git rev-parse HEAD)"
-          gh pr comment "$PR" --body "Landed on main at $sha via the land workflow."
-          if [ "$(gh pr view "$PR" --json state --jq .state)" = "OPEN" ]; then
-            gh pr close "$PR" --comment "Content is on main at $sha."
-          fi
+          git config alias.mesha-push '!f() { token="$(gh auth token)" || exit 1; url="https://x-access-token:${token}@github.com/vgoats/goatos.git"; git push "$url" "${1:-HEAD:main}"; }; f'
+          make land-main
+      - name: Verify main and resolve each PR
+        if: success()
+        run: |
+          set -euo pipefail
+          git fetch -q origin main
+          landed="$(git rev-parse origin/main)"
+          git merge-base --is-ancestor HEAD "$landed" || { echo "origin/main $landed does not contain landed HEAD $(git rev-parse HEAD)"; exit 1; }
+          echo "origin/main = $landed"
+          token="$(gh auth token)"
+          url="https://x-access-token:${token}@github.com/vgoats/goatos.git"
+          while IFS=$'\t' read -r pr head oid; do
+            if git push -q --force-with-lease="refs/heads/$head:$oid" "$url" "$landed:refs/heads/$head"; then
+              gh pr comment "$pr" --body "Landed on main at $landed via the land workflow (run ${GITHUB_RUN_ID}). Head branch \`$head\` moved to the landed SHA so GitHub marks this PR merged."
+            else
+              gh pr comment "$pr" --body "Content landed on main at $landed, but the head branch \`$head\` could not be moved to it (it changed after the landing started, or is protected). Closing as landed; any newer commits on \`$head\` are NOT on main."
+            fi
+          done < "$RUNNER_TEMP/prs.tsv"
+          sleep 5
+          while IFS=$'\t' read -r pr head oid; do
+            state="$(gh pr view "$pr" --json state --jq .state)"
+            if [ "$state" = OPEN ]; then
+              gh pr close "$pr" --comment "Closed as landed: content is on main at $landed."
+              state=CLOSED
+            fi
+            echo "PR #$pr: $state (main $landed)"
+          done < "$RUNNER_TEMP/prs.tsv"

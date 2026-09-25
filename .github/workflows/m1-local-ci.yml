@@ -30,7 +30,7 @@ concurrency:
 jobs:
   preflight:
     name: M1 fast preflight
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
   ci-local:
     name: M1 ci-local
     needs: preflight
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
