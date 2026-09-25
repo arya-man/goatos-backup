@@ -3,6 +3,7 @@ import { assertSmokeRouteIdentity, assertAnimalPurchaseHeading } from "./lib/smo
 import { assertRegressionPatterns } from "./lib/regression-checks.mjs";
 import { exerciseOverlays } from "./lib/overlay-journeys.mjs";
 import { assertFeaturesPresent } from "./lib/feature-assertions.mjs";
+import { assessSubstance, collectSubstance, gateContentCheck } from "./lib/page-substance.mjs";
 import { validateLocalStackReceipt, validateSmokeActor } from "./lib/local-stack-receipt.mjs";
 import { noRoutesLeftError, planRouteSelection, routeSkippedLine } from "./lib/route-skips.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -517,6 +518,16 @@ try {
         writeBrowserEvidence(browserEvidence);
         console.log(`screenshot_path=${relativeToRepo(screenshotPath)}`);
         // Run every check on the page; one broken check must not hide the others.
+        // Every detector below is a defect FINDER, silent on a page that drew nothing. A page that
+        // loaded and drew no content at all is a finding about the page itself; one that says it is
+        // empty (or could not be read) is named as not judged and the detectors still run.
+        const substanceAssessment = assessSubstance(await page.evaluate(collectSubstance).catch(() => null));
+        const substanceGate = gateContentCheck(substanceAssessment);
+        browserEvidence.routes[browserEvidence.routes.length - 1].substance = substanceAssessment.verdict;
+        if (!substanceGate.judge) {
+          console.log(`route_not_judged=${viewport.label}:${route.name}|${substanceGate.finding ?? substanceGate.notAttempted}`);
+          if (substanceGate.finding) throw new Error(`${route.name} ${viewport.label}: ${substanceGate.finding}`);
+        }
         const routeErrors = [];
         const check = async (fn) => { try { await fn(); } catch (error) { routeErrors.push(error); } };
         await check(() => assertRegressionPatterns(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo }));
