@@ -4589,6 +4589,14 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
   .sales-loads-page .gcarea{height:116px;gap:6px}
   .sales-loads-page .gcval{font-size:9.5px;max-width:72px;overflow:hidden;text-overflow:ellipsis}
   .sales-loads-page .gclab,.sales-loads-page .gcsub{max-width:86px;overflow:hidden;text-overflow:ellipsis}
+  /* The hover card lives inside the chart's own horizontal scroller, so a card wider than the
+     phone (its rows never wrapped: "Load 126 · Ramesh Reddy (CBE Castro 1)", the assumed-value
+     basis) was cut at the scroller's edge. On a phone it spans the screen (fixed, so the scroller
+     cannot clip it) just under the top bar, and its lines wrap. */
+  .sales-loads-page .gcol .gtip,.sales-loads-page .gcol:hover .gtip,.sales-loads-page .gcol:focus-within .gtip{
+    position:fixed;top:72px;left:16px;right:16px;bottom:auto;min-width:0;max-width:none;transform:none}
+  .sales-loads-page .gtip-h,.sales-loads-page .gtip-r,.sales-loads-page .gtip-s{white-space:normal}
+  .sales-loads-page .gtip-s.gtip-wrap{max-width:none}
 }
 
 /* Hover card for the grouped columns. CSS-only so the chart stays a server component: the card is

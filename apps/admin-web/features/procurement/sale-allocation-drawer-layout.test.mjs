@@ -25,3 +25,7 @@ test("the close control sits at the drawer's edge", () => {
 test("a card's bare empty line is padded and muted, at zero specificity", () => {
   assert.match(css, /:where\(\.card\)>:where\(\.empty\)\{padding:14px 16px;color:var\(--muted\)/);
 });
+
+test("on a phone the Load wise hover card spans the screen instead of being cut by its chart scroller", () => {
+  assert.match(css, /\.sales-loads-page \.gcol \.gtip,[^{]*\{\s*position:fixed;top:72px;left:16px;right:16px;/);
+});
