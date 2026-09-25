@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   full:
@@ -39,3 +40,18 @@ jobs:
           GOATOS_RUN_ANDROID_SCREENSHOTS: "1"
           GOATOS_RUN_POSTGRES_TESTS: "0"
         run: tools/ci/run-local-ci.sh all
+      # The nightly is the ONLY place these moved gates run, so a red night must
+      # be seen: open (or comment on) one tracking issue with the run URL. The
+      # repo has no CI Slack webhook, so the issue is the alert channel.
+      - name: Alert on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="nightly-full-ci is RED"
+          body="Nightly full suite failed on main $(git rev-parse --short=12 HEAD): $RUN_URL"
+          n="$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$n" ]; then gh issue comment "$n" -R "$GITHUB_REPOSITORY" --body "$body"
+          else gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body"; fi
