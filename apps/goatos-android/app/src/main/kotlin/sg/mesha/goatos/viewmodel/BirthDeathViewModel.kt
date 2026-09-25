@@ -33,6 +33,7 @@ import sg.mesha.goatos.feature.counts.BirthDeathField
 import sg.mesha.goatos.feature.counts.BirthDeathMode
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
 import sg.mesha.goatos.feature.counts.CountsFilterOptionUi
+import sg.mesha.goatos.feature.counts.keepOrFirst
 import sg.mesha.goatos.feature.counts.DeathCauseKind
 import sg.mesha.goatos.feature.counts.DeathCauseOptionUi
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
@@ -302,11 +303,26 @@ class BirthDeathViewModel @Inject constructor(
                 val options = resource.data?.breeds
                     ?.map { CountsFilterOptionUi(it.key, it.label, it.count) }
                     .orEmpty()
+                // The farm's species and genders ride the same cached read (OPEN UP TO NEW SPECIES,
+                // 2026-09-25). A selection the list no longer offers falls back to the list's first
+                // entry, so submit can never name a species the farm archived.
+                val species = resource.data?.species
+                    ?.filter { it.key.isNotBlank() }
+                    ?.map { CountsFilterOptionUi(it.key, it.label.ifBlank { it.key }, 0) }
+                    .orEmpty()
+                val sexes = resource.data?.sexes
+                    ?.filter { it.key.isNotBlank() }
+                    ?.map { CountsFilterOptionUi(it.key, it.label.ifBlank { it.key }, 0) }
+                    .orEmpty()
                 _state.update { current ->
                     val breedStillOffered = options.any { it.key == current.breed }
                     current.copy(
                         breedOptions = options,
                         breed = if (breedStillOffered) current.breed else "",
+                        speciesOptions = species,
+                        species = keepOrFirst(current.species, species),
+                        sexOptions = sexes,
+                        sex = keepOrFirst(current.sex, sexes),
                     )
                 }
                 recomputeSubmitGate()
@@ -701,6 +717,8 @@ class BirthDeathViewModel @Inject constructor(
                 mode = current.mode,
                 destinationParks = current.destinationParks,
                 breedOptions = current.breedOptions,
+                speciesOptions = current.speciesOptions,
+                sexOptions = current.sexOptions,
                 // The VOCABULARY survives the reset, the SELECTION does not. Re-fetching the
                 // disease list between two deaths would leave the second animal's form without a
                 // dropdown on a phone that has since lost signal; carrying the previous animal's
