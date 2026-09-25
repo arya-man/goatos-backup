@@ -319,8 +319,10 @@ type SaleDealReader interface {
 // SaleAllocationPen is ONE pen's share of one sale confirm: where the animals stood when they
 // were tagged, and how many of them. It is what the Feed Director's push names pen by pen.
 type SaleAllocationPen struct {
-	ParkID                     string
-	ParkName                   string
+	ParkID   string
+	ParkName string
+	// ParkCode is the park's short code (CBE / CPT), for park-qualified pen names in a message.
+	ParkCode                   string
 	ShedID                     string
 	ShedName                   string
 	PartitionLabel             string

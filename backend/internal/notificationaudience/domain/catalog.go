@@ -124,10 +124,13 @@ const (
 	AlertWeighingTaskClosed     = "weighing.task_closed"
 	AlertWeighingWorkCadence    = "weighing.work_cadence"
 
-	AlertFeedLowStock           = "feed.low_stock"
-	AlertLeadershipTaskRaised   = "leadership.task_raised"
-	AlertLeadershipTaskDone     = "leadership.task_done"
-	AlertFeedSaleReduce         = "feed.sale_reduce"
+	AlertFeedLowStock         = "feed.low_stock"
+	AlertLeadershipTaskRaised = "leadership.task_raised"
+	AlertLeadershipTaskDone   = "leadership.task_done"
+	AlertFeedSaleReduce       = "feed.sale_reduce"
+	// AlertFeedSaleFailedReturn (maintainer decision 2026-09-25): a sale failed and its tagged
+	// animals went back into their pens -- the pens feed as before.
+	AlertFeedSaleFailedReturn   = "feed.sale_failed_return"
 	AlertProcurementLoadOverdue = "procurement.load_overdue"
 	AlertLeaveRequestRaised     = "leave.request_raised"
 	AlertLeaveRequestDecided    = "leave.request_decided"
@@ -310,6 +313,12 @@ var catalog = func() []Alert {
 			Key: AlertFeedSaleReduce, Module: "feed",
 			Label:               "Feed to reduce after a sale",
 			Blurb:               "Animals were tagged to a sale: the notice on confirmation naming the pens and the feed day, and the reminder on that feed day asking whether the ration was reduced.",
+			DefaultDesignations: []string{DesignationFeedDirector},
+		},
+		{
+			Key: AlertFeedSaleFailedReturn, Module: "feed",
+			Label:               "Animals back after a failed sale",
+			Blurb:               "A sale was marked failed and the animals tagged to it are back in their pens: names the buyer, each pen with how many animals returned, and the feed day from which those pens feed as before.",
 			DefaultDesignations: []string{DesignationFeedDirector},
 		},
 		{

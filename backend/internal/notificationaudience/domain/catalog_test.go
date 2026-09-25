@@ -56,7 +56,7 @@ func TestEveryDeclaredAlertKeyIsInTheCatalog(t *testing.T) {
 		AlertVaccinationDueTodayLeadership, AlertVaccinationWorkMissed, AlertVaccinationDriveReady, AlertVaccinationDriveClosed,
 		AlertWeighingPlanPublished, AlertWeighingSubmitted, AlertWeighingReopened, AlertWeighingVerdictApprove,
 		AlertWeighingVerdictRework, AlertWeighingPenClosed, AlertWeighingTaskClosed, AlertWeighingWorkCadence,
-		AlertFeedLowStock, AlertFeedSaleReduce, AlertProcurementLoadOverdue, AlertLeadershipTaskRaised, AlertLeadershipTaskDone,
+		AlertFeedLowStock, AlertFeedSaleReduce, AlertFeedSaleFailedReturn, AlertProcurementLoadOverdue, AlertLeadershipTaskRaised, AlertLeadershipTaskDone,
 		AlertAnimalPurchaseDecided,
 	} {
 		if _, ok := AlertByKey(key); !ok {
@@ -84,6 +84,7 @@ func TestDefaultsReproduceThePreCatalogAudiences(t *testing.T) {
 		AlertProcurementLoadOverdue:                  {DesignationCEO},
 		AlertAnimalPurchaseDecided:                   {DesignationProcurementDirector},
 		AlertFeedSaleReduce:                          {DesignationFeedDirector},
+		AlertFeedSaleFailedReturn:                    {DesignationFeedDirector},
 		AlertLeadershipTaskRaised:                    {DesignationCEO},
 		ProofAlertKey("health", ProofReviewSuffix):   {DesignationVerifier},
 		AlertVaccinationDueTodayLeadership:           {DesignationPCDirector, DesignationCEO},

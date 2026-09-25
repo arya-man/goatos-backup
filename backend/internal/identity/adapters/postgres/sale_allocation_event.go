@@ -70,6 +70,7 @@ SELECT a.sales_deal_id::text,
        a.allocated_at,
        COALESCE(a.park_id::text, ''),
        COALESCE(pk.name, ''),
+       COALESCE(pk.location_code, ''),
        COALESCE(a.shed_id::text, ''),
        COALESCE(sh.name, ''),
        COALESCE(a.partition_label, ''),
@@ -82,7 +83,7 @@ WHERE a.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR a.sales_deal_id = $2::uuid)
   AND ($3::timestamptz IS NULL OR a.allocated_at = $3::timestamptz)
   AND ($4::timestamptz IS NULL OR a.allocated_at >= $4::timestamptz)
-GROUP BY a.sales_deal_id, a.allocated_at, a.park_id, pk.name, a.shed_id, sh.name, a.partition_label
+GROUP BY a.sales_deal_id, a.allocated_at, a.park_id, pk.name, pk.location_code, a.shed_id, sh.name, a.partition_label
 ORDER BY a.allocated_at, a.sales_deal_id, pk.name, sh.name, a.partition_label`
 
 // listSaleAllocationBatches runs saleAllocationBatchesSQL and folds its (deal, instant, pen) rows
@@ -102,7 +103,7 @@ func (r *Repository) listSaleAllocationBatches(ctx context.Context, q saleAlloca
 		var dealID string
 		var at time.Time
 		var pen ports.SaleAllocationPen
-		if err := rows.Scan(&dealID, &at, &pen.ParkID, &pen.ParkName, &pen.ShedID, &pen.ShedName,
+		if err := rows.Scan(&dealID, &at, &pen.ParkID, &pen.ParkName, &pen.ParkCode, &pen.ShedID, &pen.ShedName,
 			&pen.PartitionLabel, &pen.Animals); err != nil {
 			return nil, fmt.Errorf("identity: scan sale allocation batch: %w", err)
 		}

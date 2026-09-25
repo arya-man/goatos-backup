@@ -146,6 +146,31 @@ SELECT (SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND even
 	if events != 2 || audits != 2 || identityEvents != 2 {
 		t.Fatalf("goat.reinstated outbox=%d audit=%d identity events=%d, want 2 each", events, audits, identityEvents)
 	}
+	// ONE goat.sale_released for the deal, with the pens the animals went back to (the Feed
+	// Director's message), even though the event was delivered twice.
+	var releasedEvents int
+	var releasedPayload []byte
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) OVER (), payload->'payload' FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'goat.sale_released' AND aggregate_id = $2::uuid
+LIMIT 1`, ssTenant, saleDealFailed).Scan(&releasedEvents, &releasedPayload); err != nil {
+		t.Fatalf("read goat.sale_released: %v", err)
+	}
+	var rel struct {
+		Animals int    `json:"animals"`
+		Buyer   string `json:"buyer_name"`
+		Pens    []struct {
+			Display string `json:"operational_location_display"`
+			Code    string `json:"park_code"`
+			Animals int    `json:"animals"`
+		} `json:"pens"`
+	}
+	if err := json.Unmarshal(releasedPayload, &rel); err != nil {
+		t.Fatal(err)
+	}
+	if releasedEvents != 1 || rel.Animals != 2 || rel.Buyer == "" || len(rel.Pens) != 2 || rel.Pens[0].Code == "" {
+		t.Fatalf("goat.sale_released count=%d payload=%s, want one event, 2 animals over 2 park-coded pens and the buyer", releasedEvents, releasedPayload)
+	}
 	// The released animals can be sold again, on a NEW sale.
 	seedSaleAllocationDeal(t, ctx, pool, saleDealB, 1)
 	if _, err := repo.RecordSaleAllocations(ctx, saleAllocCmd(saleDealB, []ports.SaleAllocationRow{
@@ -182,6 +207,16 @@ FROM sales_deals d WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid`, ssTenant, 
 	}
 	if status != salesdomain.StatusDealFailed || events != 1 {
 		t.Fatalf("failed deal status=%q events=%d, want Deal Failed and exactly one event", status, events)
+	}
+	// A failed sale with nothing tagged releases nothing and tells the Feed Director nothing.
+	deliverStatusChanged(t, ctx, pool, repo, saleDealFailed)
+	var released int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND event_type = 'goat.sale_released' AND aggregate_id = $2::uuid`,
+		ssTenant, saleDealFailed).Scan(&released); err != nil {
+		t.Fatal(err)
+	}
+	if released != 0 {
+		t.Fatalf("a failed sale with no tagged animals must emit no goat.sale_released, got %d", released)
 	}
 	_, err := repo.RecordSaleAllocations(ctx, saleAllocCmd(saleDealFailed, []ports.SaleAllocationRow{
 		{GoatID: one, RowVersion: goatRowVersion(t, pool, one)},

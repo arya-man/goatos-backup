@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -14,6 +16,7 @@ import (
 	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
 // A FAILED SALE GIVES ITS ANIMALS BACK (maintainer decision 2026-09-25, docs/decisions/sales-sop.md
@@ -124,6 +127,14 @@ func (r *Repository) ReleaseSaleAllocations(ctx context.Context, cmd ports.Relea
 		return 0, tx.Commit(ctx)
 	}
 
+	// The pen-by-pen breakdown of what is coming back, read BEFORE the rows stop being 'tagged':
+	// the Feed Director's grain is the pen (goat.sale_released, the mirror of goat.sale_allocated).
+	batches, err := r.listSaleAllocationBatches(ctx, tx, cmd.TenantID, &cmd.SalesDealID, nil, nil)
+	if err != nil {
+		return 0, err
+	}
+	released := mergeReleasedPens(cmd.SalesDealID, cmd.OccurredAt, batches)
+
 	ids := make([]string, 0, len(allocations))
 	for _, a := range allocations {
 		ids = append(ids, a.id)
@@ -137,6 +148,13 @@ func (r *Repository) ReleaseSaleAllocations(ctx context.Context, cmd ports.Relea
 	}
 	if _, err := tx.Exec(ctx, releaseAllocationsSQL, cmd.TenantID, ids, cmd.OccurredAt, strings.TrimSpace(cmd.ActorID), reason); err != nil {
 		return 0, fmt.Errorf("identity: release sale allocations: mark released: %w", err)
+	}
+	var buyer string
+	if err := tx.QueryRow(ctx, saleReleaseBuyerSQL, cmd.TenantID, cmd.SalesDealID).Scan(&buyer); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("identity: release sale allocations: read buyer: %w", err)
+	}
+	if err := r.insertSaleReleasedOutbox(ctx, qtx, tenantUUID, cmd, strings.TrimSpace(buyer), released); err != nil {
+		return 0, err
 	}
 	if err := r.commitHerdWrite(ctx, tx, cmd.TenantID); err != nil {
 		return 0, err
@@ -231,3 +249,135 @@ func (r *Repository) reinstateSoldGoatInTx(ctx context.Context, tx pgx.Tx, qtx *
 }
 
 var _ ports.SaleAllocationReleaser = (*Repository)(nil)
+
+// saleReleaseBuyerSQL reads the failed deal's buyer for the Feed Director's message, by primary
+// key -- the same deal row the tagging confirm already locks and writes.
+const saleReleaseBuyerSQL = `
+SELECT buyer_name FROM sales_deals WHERE tenant_id = $1::uuid AND id = $2::uuid`
+
+// goatSaleReleasedEventType (maintainer decision 2026-09-25): ONE event per released deal, in the
+// release transaction, carrying the pen-by-pen breakdown of the animals that came back -- the
+// mirror of goat.sale_allocated. Its consumer tells the Feed Director those pens feed as before.
+// Only a release that returned animals emits it; Deal Failed is final, so a deal emits it once.
+const goatSaleReleasedEventType = "goat.sale_released"
+
+// mergeReleasedPens folds the deal's confirm batches (a sale may be tagged in several confirms)
+// into one batch per pen, stamped with the release instant.
+func mergeReleasedPens(dealID string, at time.Time, batches []ports.SaleAllocationBatch) ports.SaleAllocationBatch {
+	out := ports.SaleAllocationBatch{SalesDealID: dealID, AllocatedAt: at}
+	index := map[string]int{}
+	for _, b := range batches {
+		for _, pen := range b.Pens {
+			key := pen.ParkID + "|" + pen.ShedID + "|" + pen.PartitionLabel
+			i, ok := index[key]
+			if !ok {
+				i = len(out.Pens)
+				index[key] = i
+				out.Pens = append(out.Pens, ports.SaleAllocationPen{
+					ParkID: pen.ParkID, ParkName: pen.ParkName, ParkCode: pen.ParkCode, ShedID: pen.ShedID, ShedName: pen.ShedName,
+					PartitionLabel: pen.PartitionLabel, OperationalLocationDisplay: pen.OperationalLocationDisplay,
+				})
+			}
+			out.Pens[i].Animals += pen.Animals
+			out.Animals += pen.Animals
+		}
+	}
+	return out
+}
+
+// insertSaleReleasedOutbox writes the goat.sale_released envelope inside the release transaction.
+func (r *Repository) insertSaleReleasedOutbox(ctx context.Context, qtx *identitydb.Queries, tenantUUID pgtype.UUID, cmd ports.ReleaseSaleAllocationsCommand, buyer string, batch ports.SaleAllocationBatch) error {
+	if batch.Animals == 0 {
+		return nil
+	}
+	dealUUID, err := uuidParam(cmd.SalesDealID)
+	if err != nil {
+		return err
+	}
+	idempotencyKey := goatSaleReleasedEventType + ":" + cmd.SalesDealID
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey + ":" + cmd.TenantID)
+	eventUUID, err := uuidParam(eventID)
+	if err != nil {
+		return err
+	}
+	traceID := strings.TrimSpace(cmd.TraceID)
+	if traceID == "" {
+		traceID = idempotencyKey
+	}
+	pens := make([]map[string]any, 0, len(batch.Pens))
+	parkIDs := map[string]struct{}{}
+	for _, pen := range batch.Pens {
+		if pen.ParkID != "" {
+			parkIDs[pen.ParkID] = struct{}{}
+		}
+		pens = append(pens, map[string]any{
+			"park_id":                      pen.ParkID,
+			"park_name":                    pen.ParkName,
+			"park_code":                    pen.ParkCode,
+			"shed_id":                      pen.ShedID,
+			"shed_name":                    pen.ShedName,
+			"partition_label":              pen.PartitionLabel,
+			"operational_location_display": pen.OperationalLocationDisplay,
+			"animals":                      pen.Animals,
+		})
+	}
+	var scope domain.LocationScope
+	if len(parkIDs) == 1 {
+		for id := range parkIDs {
+			parkID := id
+			scope.ParkID = &parkID
+		}
+	}
+	at := cmd.OccurredAt.UTC().Format("2006-01-02T15:04:05.000000Z")
+	payload, err := marshalEnvelopeWithTenant(eventEnvelope{
+		EventID:         eventID,
+		EventType:       goatSaleReleasedEventType,
+		SchemaVersion:   eventSchemaVersion,
+		SchemaRef:       eventSchemaRef,
+		AggregateType:   saleAllocationAggregate,
+		AggregateID:     cmd.SalesDealID,
+		OccurredAt:      at,
+		RecordedAt:      at,
+		Producer:        eventProducer{Service: "goatos-api", Module: "identity"},
+		IdempotencyKey:  idempotencyKey,
+		Actor:           eventActor{ActorType: "human", ActorID: nonEmptyStringPtr(cmd.ActorID)},
+		SubjectType:     saleAllocationSubject,
+		SubjectID:       cmd.SalesDealID,
+		VisibilityScope: scope,
+		EvidenceRefs:    saleEvidence(cmd.SalesDealID),
+		Payload: map[string]any{
+			"tenant_id":     cmd.TenantID,
+			"sales_deal_id": cmd.SalesDealID,
+			"buyer_name":    buyer,
+			"released_at":   cmd.OccurredAt.UTC().Format(time.RFC3339Nano),
+			"animals":       batch.Animals,
+			"pens":          pens,
+			"scope_type":    "sales_deal",
+			"scope_id":      cmd.SalesDealID,
+		},
+		TraceID: traceID,
+	}, cmd.TenantID)
+	if err != nil {
+		return fmt.Errorf("identity: sale released envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{"actor_id": cmd.ActorID, "trace_id": traceID})
+	if err != nil {
+		return err
+	}
+	if err := qtx.InsertOutboxMessage(ctx, identitydb.InsertOutboxMessageParams{
+		TenantID:       tenantUUID,
+		EventID:        eventUUID,
+		EventType:      goatSaleReleasedEventType,
+		SchemaVersion:  eventSchemaVersion,
+		AggregateType:  saleAllocationAggregate,
+		AggregateID:    dealUUID,
+		Topic:          goatLifecycleTopic,
+		Payload:        payload,
+		Headers:        headers,
+		IdempotencyKey: idempotencyKey,
+		TraceID:        nullableText(nonEmptyStringPtr(traceID)),
+	}); err != nil {
+		return fmt.Errorf("identity: insert sale released outbox: %w", err)
+	}
+	return nil
+}

@@ -271,8 +271,7 @@ What each module does when the animals come back:
   `returnedToHerd`. ONLY in that run does an obligation the exit cancelled (`ineligible_after_exit`)
   mint a successor, so the kernel re-owes the work the sale's exit cancelled; every other run keeps
   the exit cancellation terminal.
-- **Feed Director:** the sale notice already sent is not retracted. A "sale failed, animals back"
-  push would need new copy and an audience-catalog row -- recorded as a follow-up, not built.
+- **Feed Director:** one message, below ("A failed sale tells the Feed Director").
 
 Not done: a sale failed BEFORE this change keeps its animals sold (the release runs on the status
 event). If any exist, re-emitting the event for those deals is a one-off repair.
@@ -286,3 +285,48 @@ Pinned by `tasks/domain.TestSaleWithoutAnimalsOpensOnlyThePaymentSteps` and sibl
 `TestADealFailedIsFinalAndTakesNoAnimals`, `vaccination/app.TestReturnedToHerdRunReOwesTheWorkItsExitCancelled`,
 `sales/app.TestDealFailedIsFinal`, `identity/app.TestOnlyAFailedDealReleasesItsAnimals` -- each
 mutation-tested when written.
+
+## Three more sale rules (maintainer decisions 2026-09-25)
+
+### 1. The stock question is asked only at the close
+
+An OPEN feed sale (In Discussion, Advance Paid) takes nothing off the feed store until it closes,
+so recording one no longer asks "the store is short, confirm?". The question is asked once, when
+the sale closes: at record for a sale recorded as Deal Closed (or with no status, which records
+Deal Closed), or at the status change to Deal Closed. `sales/app.SalesService.confirmFeedStock`;
+pinned by `TestRecordingAnOpenFeedSaleNeverAsksTheStore`.
+
+### 2. A closed sale uses the close date
+
+Closing an open deal stamps TODAY's business date (Asia/Kolkata, the server's clock -- never the
+client's) as its `sale_date`, in the same statement as the status change, so its revenue and the
+feed store's depletion (`feed_sale_depletions.feed_day` follows `sale_date`) land on the day the
+sale actually happened. The date it was recorded for is kept in `sales_deals.planned_sale_date`
+(migration 000434), written on the FIRST close only, served on the deal payload as
+`planned_sale_date`; the audit row carries both dates. A re-close changes nothing. A sale recorded
+already Deal Closed keeps its typed date -- that is its sale date -- and has no planned date.
+
+The record-time date rule is now held on the server too: a sale recorded as closed cannot be dated
+after today, and no sale of any status beyond the 60-day window (`domain.MaxSaleDateDaysAhead`) the
+web drawer already offered. Pinned by `TestClosingASaleStampsTheCloseDateAndKeepsThePlannedOne`
+(Postgres) and `TestSaleDateWindowAtRecord`.
+
+### 3. A failed sale tells the Feed Director
+
+When a failed sale releases animals back into their pens, the release transaction emits ONE
+`goat.sale_released` per deal with the pens, and `notificationbridge.SaleFeedReduceNotifier` (the
+same notifier as the sale notice, stored-audience wired in every durable bus) sends ONE push:
+
+> Sale to Kumar Traders failed: 5 animals back in their pens
+> The sale to Kumar Traders failed on 25/09/2026. 5 animals are back in CBE Castro 1 (3) and CBE
+> Mandela 1 - Part 2 (2). Feed these pens as before from 27/09/2026.
+
+Pens are park-qualified operational names (oploc); dates DD/MM/YYYY; the feed day is
+`feeddirection/domain.SaleFeedReductionDay` on the pens' park correction clock at the release
+instant -- the same clock the sale notice reads. Audience: its own catalog key
+`feed.sale_failed_return` (default: the Feed Director), editable on People / HRMS ->
+Notifications. Event key `feed.sale_failed_return:<deal>`; notification type
+`feed_sale_failed_return` (migration 000435 widens the closed type list). A failed sale with no
+tagged animals releases nothing and sends nothing. Pinned by
+`TestFailedSaleTellsTheFeedDirectorWhichPensFeedAsBefore` (mutation-tested on the audience key)
+and the Postgres release test.

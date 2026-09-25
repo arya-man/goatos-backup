@@ -43,6 +43,11 @@ const (
 	NotificationTypeFeedSaleReduce = "feed_sale_reduce"
 	// NotificationTypeFeedSaleReduceReminder is the feed-day reminder.
 	NotificationTypeFeedSaleReduceReminder = "feed_sale_reduce_reminder"
+	// EventGoatSaleReleased is the failed-sale release event (identity/adapters/postgres/
+	// sale_allocation_release.go): ONE per released deal, with the pens the animals went back to.
+	EventGoatSaleReleased = "goat.sale_released"
+	// NotificationTypeFeedSaleFailedReturn is the "sale failed, animals back" message (2026-09-25).
+	NotificationTypeFeedSaleFailedReturn = "feed_sale_failed_return"
 
 	// saleFeedReminderWindow bounds the reminder's read: confirms older than this have had their
 	// feed day, and their key already exists. Four days covers a sale after the cutoff (feed day
@@ -73,6 +78,7 @@ type goatSaleAllocatedPayload struct {
 type goatSaleAllocatedPen struct {
 	ParkID                     string `json:"park_id"`
 	ParkName                   string `json:"park_name"`
+	ParkCode                   string `json:"park_code"`
 	ShedID                     string `json:"shed_id"`
 	ShedName                   string `json:"shed_name"`
 	PartitionLabel             string `json:"partition_label"`
@@ -130,15 +136,29 @@ func (n *SaleFeedReduceNotifier) WithClock(now func() time.Time) *SaleFeedReduce
 
 var _ eventbus.Handler = (*SaleFeedReduceNotifier)(nil)
 
-// Register subscribes the notice on the bus.
+// Register subscribes the notice and the failed-sale message on the bus.
 func (n *SaleFeedReduceNotifier) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventGoatSaleAllocated, n)
+	bus.Subscribe(EventGoatSaleReleased, n)
+}
+
+// goatSaleReleasedPayload mirrors the release producer's payload.
+type goatSaleReleasedPayload struct {
+	TenantID    string                 `json:"tenant_id"`
+	SalesDealID string                 `json:"sales_deal_id"`
+	BuyerName   string                 `json:"buyer_name"`
+	ReleasedAt  string                 `json:"released_at"`
+	Animals     int                    `json:"animals"`
+	Pens        []goatSaleAllocatedPen `json:"pens"`
 }
 
 // HandleEvent queues the confirm-time notice for one goat.sale_allocated event.
 func (n *SaleFeedReduceNotifier) HandleEvent(ctx context.Context, event eventbus.Event) error {
 	if n == nil || n.recipients == nil || n.queue == nil {
 		return nil
+	}
+	if event.Type == EventGoatSaleReleased {
+		return n.handleReleased(ctx, event)
 	}
 	if event.Type != EventGoatSaleAllocated {
 		return nil
@@ -356,4 +376,126 @@ func saleFeedPenList(pens []identityports.SaleAllocationPen) string {
 		return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 	}
 	return parts[0]
+}
+
+// A FAILED SALE GIVES ITS ANIMALS BACK (maintainer decision 2026-09-25). When a sale is marked
+// failed, identity returns every animal tagged to it to alive in the pen it was sold from and
+// emits goat.sale_released once, with the pens. The Feed Director -- who was told those pens would
+// feed fewer mouths -- gets ONE message naming the buyer, each pen (park-qualified, "CBE Castro 1")
+// with how many came back, and the feed day from which the pens feed as before. The feed day is
+// the SAME park correction clock the sale notice uses (feeddomain.SaleFeedReductionDay), read at
+// the release instant: the first sheet issued or corrected after the animals came back.
+// Audience: its own catalog key, feed.sale_failed_return (default: the Feed Director).
+// A release with no animals emits no event, so nothing is sent for it.
+func (n *SaleFeedReduceNotifier) handleReleased(ctx context.Context, event eventbus.Event) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var payload goatSaleReleasedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("sale failed return: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(event.TenantID)
+	}
+	dealID := strings.TrimSpace(payload.SalesDealID)
+	if tenantID == "" || dealID == "" || len(payload.Pens) == 0 || payload.Animals <= 0 {
+		return nil
+	}
+	releasedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(payload.ReleasedAt))
+	if err != nil {
+		return eventbus.PermanentError(fmt.Errorf("sale failed return: released_at %q: %w", payload.ReleasedAt, err))
+	}
+	batch := identityports.SaleAllocationBatch{SalesDealID: dealID, AllocatedAt: releasedAt, Animals: payload.Animals}
+	for _, pen := range payload.Pens {
+		batch.Pens = append(batch.Pens, identityports.SaleAllocationPen{
+			ParkID: pen.ParkID, ParkName: pen.ParkName, ParkCode: pen.ParkCode, ShedID: pen.ShedID, ShedName: pen.ShedName,
+			PartitionLabel: pen.PartitionLabel, OperationalLocationDisplay: pen.OperationalLocationDisplay,
+			Animals: pen.Animals,
+		})
+	}
+	feedDay, err := n.feedDay(ctx, tenantID, batch)
+	if err != nil {
+		return err
+	}
+	parkID := strings.TrimSpace(batch.Pens[0].ParkID)
+	recipients, err := n.audience.Recipients(ctx, tenantID, parkID, audiencedomain.AlertFeedSaleFailedReturn)
+	if err != nil {
+		return fmt.Errorf("sale failed return: %w", err)
+	}
+	if len(recipients) == 0 {
+		if n.logger != nil {
+			n.logger.WarnContext(ctx, "sale_failed_return_notification_no_recipients",
+				slog.String("tenant_id", tenantID), slog.String("sales_deal_id", dealID))
+		}
+		return nil
+	}
+	buyer := strings.TrimSpace(payload.BuyerName)
+	if buyer == "" {
+		buyer = "the buyer"
+	}
+	animals := fmt.Sprintf("%d animals", batch.Animals)
+	if batch.Animals == 1 {
+		animals = "1 animal"
+	}
+	parkQualified := make([]identityports.SaleAllocationPen, len(batch.Pens))
+	for i, pen := range batch.Pens {
+		parkQualified[i] = pen
+		where := strings.TrimSpace(pen.OperationalLocationDisplay)
+		if where == "" {
+			where = strings.TrimSpace(pen.ShedName)
+		}
+		if code := strings.TrimSpace(pen.ParkCode); code != "" && where != "" {
+			parkQualified[i].OperationalLocationDisplay = code + " " + where
+		}
+	}
+	visibleFeedDay := biztime.FarmDateFromBusinessDate(feedDay)
+	visibleFailedOn := biztime.FarmDateFromBusinessDate(biztime.BusinessDate(releasedAt))
+	eventKey := "feed.sale_failed_return:" + dealID
+	title := fmt.Sprintf("Sale to %s failed: %s back in their pens", buyer, animals)
+	verb, pens := "are", "these pens"
+	if batch.Animals == 1 {
+		verb = "is"
+	}
+	if len(batch.Pens) == 1 {
+		pens = "this pen"
+	}
+	body := fmt.Sprintf("The sale to %s failed on %s. %s %s back in %s. Feed %s as before from %s.",
+		buyer, visibleFailedOn, animals, verb, saleFeedPenList(parkQualified), pens, visibleFeedDay)
+	_, err = n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  eventKey,
+		TargetType:       "sales_deal",
+		TargetID:         dealID,
+		NotificationType: NotificationTypeFeedSaleFailedReturn,
+		Channel:          channelPushFCM,
+		Priority:         priorityHigh,
+		Title:            title,
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":          NotificationTypeFeedSaleFailedReturn,
+			"message_key":   "feed.sale_failed_return",
+			"screen":        "feed_stock",
+			"href":          "/feed/analytics",
+			"sales_deal_id": dealID,
+			"park_id":       parkID,
+			"park_name":     saleFeedParkName(batch.Pens),
+			"buyer_name":    buyer,
+			"pen_count":     fmt.Sprintf("%d", len(batch.Pens)),
+			"animals":       fmt.Sprintf("%d", batch.Animals),
+			// Structured fields stay ISO: the client parses these and renders its own string.
+			"failed_on":    biztime.BusinessDate(releasedAt),
+			"feed_day":     feedDay,
+			"priority":     priorityHigh,
+			"group_key":    "feed_sale_reduce:" + tenantID,
+			"collapse_key": eventKey,
+		},
+		Recipients: recipients,
+	})
+	if err != nil {
+		return fmt.Errorf("sale failed return: queue %s: %w", eventKey, err)
+	}
+	return nil
 }

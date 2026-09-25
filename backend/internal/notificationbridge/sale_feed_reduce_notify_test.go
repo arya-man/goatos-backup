@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	feeddomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	audiencedomain "github.com/vgoats/goatos/backend/internal/notificationaudience/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
@@ -265,3 +267,82 @@ func TestSaleFeedNoticeIgnoresOtherEventsAndRejectsGarbage(t *testing.T) {
 }
 
 func itoa64(v int64) string { return strconv.FormatInt(v, 10) }
+
+// feedAlertKeySpy records WHICH alert key a notifier asked the audience for.
+type feedAlertKeySpy struct{ keys []string }
+
+func (s *feedAlertKeySpy) Recipients(_ context.Context, _, _, key string) ([]calendarports.NotificationRecipient, error) {
+	s.keys = append(s.keys, key)
+	return []calendarports.NotificationRecipient{{MemberID: "m-fd", DeviceID: "d-fd", FCMToken: "fcm-feed", RoleLabel: "feed_director"}}, nil
+}
+
+func (s *feedAlertKeySpy) Addressed(context.Context, string, string, string, []string, []calendarports.NotificationRecipient) ([]calendarports.NotificationRecipient, error) {
+	return nil, nil
+}
+
+func saleReleasedEvent(t *testing.T, releasedAt time.Time, animals int, pens []map[string]any) eventbus.Event {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"tenant_id": missedTenant, "sales_deal_id": saleFeedDeal, "buyer_name": "Kumar Traders",
+		"released_at": releasedAt.UTC().Format(time.RFC3339Nano), "animals": animals, "pens": pens,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return eventbus.Event{ID: "evt-rel", Type: EventGoatSaleReleased, TenantID: missedTenant, Payload: payload}
+}
+
+// A FAILED SALE -> ONE message to the Feed Director (maintainer decision 2026-09-25): the buyer,
+// each pen park-qualified with how many came back, and the feed day from which those pens feed as
+// before -- the same park clock the sale notice reads. Its own catalog key; nothing for a release
+// that returned no animals.
+func TestFailedSaleTellsTheFeedDirectorWhichPensFeedAsBefore(t *testing.T) {
+	failed := time.Date(2026, 9, 25, 15, 0, 0, 0, saleFeedIST) // after the 14:00 cutoff -> 27/09
+	_, clocks, _, queue, notifier := newSaleFeedFixture(failed)
+	pens := []map[string]any{
+		{"park_id": missedPark, "park_name": "Coimbatore", "park_code": "CBE", "shed_id": "s1", "shed_name": "Castro",
+			"partition_label": "1", "operational_location_display": "Castro 1", "animals": 3},
+		{"park_id": missedPark, "park_name": "Coimbatore", "park_code": "CBE", "shed_id": "s2", "shed_name": "Mandela 1",
+			"partition_label": "Part 2", "operational_location_display": "Mandela 1 - Part 2", "animals": 2},
+	}
+	if err := notifier.HandleEvent(context.Background(), saleReleasedEvent(t, failed, 5, pens)); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	if len(queue.queued) != 1 {
+		t.Fatalf("queued %d, want exactly one message", len(queue.queued))
+	}
+	got := queue.queued[0]
+	if got.NotificationType != NotificationTypeFeedSaleFailedReturn || got.EventKey != "feed.sale_failed_return:"+saleFeedDeal {
+		t.Fatalf("type %q key %q", got.NotificationType, got.EventKey)
+	}
+	if got.Title != "Sale to Kumar Traders failed: 5 animals back in their pens" {
+		t.Fatalf("title = %q", got.Title)
+	}
+	want := "The sale to Kumar Traders failed on 25/09/2026. 5 animals are back in CBE Castro 1 (3) and CBE Mandela 1 - Part 2 (2). Feed these pens as before from 27/09/2026."
+	if got.Body != want {
+		t.Fatalf("body = %q\nwant  %q", got.Body, want)
+	}
+	if len(got.Recipients) != 1 || got.Recipients[0].DeviceID != "d-fd" {
+		t.Fatalf("recipients = %+v, want the feed director alone", got.Recipients)
+	}
+	if len(clocks.parks) != 1 || clocks.parks[0] != missedPark {
+		t.Fatalf("the feed day must read the pens' park clock, read %v", clocks.parks)
+	}
+	// The audience is its own configurable alert, not the sale notice's.
+	spy := &feedAlertKeySpy{}
+	notifier.WithAudience(spy)
+	if err := notifier.HandleEvent(context.Background(), saleReleasedEvent(t, failed, 5, pens)); err != nil {
+		t.Fatal(err)
+	}
+	if len(spy.keys) != 1 || spy.keys[0] != audiencedomain.AlertFeedSaleFailedReturn {
+		t.Fatalf("audience asked for %v, want %q", spy.keys, audiencedomain.AlertFeedSaleFailedReturn)
+	}
+	// A release that returned no animals sends nothing.
+	before := len(queue.queued)
+	if err := notifier.HandleEvent(context.Background(), saleReleasedEvent(t, failed, 0, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.queued) != before {
+		t.Fatal("a failed sale with no animals released must send nothing")
+	}
+}

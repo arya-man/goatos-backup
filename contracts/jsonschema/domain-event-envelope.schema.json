@@ -45,6 +45,7 @@
         "goat.exited",
         "goat.reinstated",
         "goat.sale_allocated",
+        "goat.sale_released",
         "sales.deal.recorded",
         "sales.deal.status_changed",
         "goat.location.changed",

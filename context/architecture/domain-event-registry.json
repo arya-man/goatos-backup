@@ -65,6 +65,7 @@
     "sales.deal.recorded",
     "sales.deal.status_changed",
     "goat.reinstated",
+    "goat.sale_released",
     "procurement.animal_purchase.decided",
     "procurement.animal_purchase.load_recorded",
     "procurement.animal_purchase.candidate_recorded"
@@ -1912,6 +1913,30 @@
       "owningDoc": "docs/decisions/sales-sop.md",
       "e2eProof": [
         "backend/internal/tasks/adapters/postgres/sales_workflow_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "goat.sale_released",
+      "producer": "FAILED SALE -> FEED DIRECTOR (maintainer decision 2026-09-25): identity Repository.ReleaseSaleAllocations emits ONE goat.sale_released per released deal, INSIDE the release transaction and only when it returned at least one animal -- the mirror of goat.sale_allocated at the Feed Director's grain, the pen. Payload: tenant_id, sales_deal_id, buyer_name (the failed deal's buyer, read by primary key in the same transaction), released_at, animals, pens[] (park_id, park_name, park_code, shed_id, shed_name, partition_label, operational_location_display composed by oploc, animals), scope_type, scope_id. Aggregate/subject sales_deal (000275). Idempotency key 'goat.sale_released:' + deal: Deal Failed is final, so a deal emits it at most once.",
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/sale_allocation_release.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/sale_feed_reduce_notify.go",
+          "notes": "SaleFeedReduceNotifier.handleReleased (the same notifier as the sale notice, registered with WithAudience(stored audience) + WithFeedClocks in every durable bus) queues ONE feed_sale_failed_return push, audience from catalog key feed.sale_failed_return (default Feed Director), naming the buyer, each pen park-qualified ('CBE Castro 1') with its count, the fail date and the feed day from which those pens feed as before -- feeddirection/domain.SaleFeedReductionDay on the pens' park correction clock at the release instant. Event key feed.sale_failed_return:<deal>, so a redelivery collapses. Reads every payload key except scope_type/scope_id (audit) and shed_id/partition_label (carried for readers; the display string is used)."
+        }
+      ],
+      "owningDoc": "docs/decisions/sales-sop.md",
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/sale_deal_failed_integration_test.go",
+        "backend/internal/notificationbridge/sale_feed_reduce_notify_test.go"
       ],
       "surfaces": [
         "backend",
