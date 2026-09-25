@@ -184,6 +184,7 @@ func TestAssignedTasklessListerOneToManyPageBoundaryDateShiftParkScopeStatusMatr
 		"10000000-0000-4000-8000-00000000fd03", "10000000-0000-4000-8000-00000000fd04",
 		"10000000-0000-4000-8000-00000000fd05", "10000000-0000-4000-8000-00000000fd06",
 		"10000000-0000-4000-8000-00000000fd07", "10000000-0000-4000-8000-00000000fd08",
+		"10000000-0000-4000-8000-00000000fd09",
 	}
 	seedParkConsolidationShed(t, ctx, pool, shedID, "lister-matrix-shed")
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goats...)
@@ -238,6 +239,7 @@ VALUES ($1, $2, 'OP-LISTER', 'Lister Operator', 'active', 'operator', $3)`, oper
 		planned      time.Time
 		batchStatus  string
 		after        string // extra SQL applied with $1=tenant, $2=batch
+		batchVersion string // batch protocol version; defaults to the retired version
 	}
 	mk := func(s spec) string {
 		t.Helper()
@@ -254,8 +256,12 @@ VALUES ($1, $2, 'OP-LISTER', 'Lister Operator', 'active', 'operator', $3)`, oper
 			obls = append(obls, obl)
 		}
 		planned := s.planned
+		batchVersion := s.batchVersion
+		if batchVersion == "" {
+			batchVersion = retiredVersion
+		}
 		batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
-			TenantID: tenantID, ProtocolVersionID: retiredVersion, ScopeType: s.batchScope, ScopeID: s.batchScopeID,
+			TenantID: tenantID, ProtocolVersionID: batchVersion, ScopeType: s.batchScope, ScopeID: s.batchScopeID,
 			Session: "manual:" + s.name, PlannedDate: &planned, Status: "planned",
 			EstimatedTargets: int32(len(obls)), PlannedQuantity: "1", QuantityUnit: "dose", ConductedBy: &operator,
 		}, obls)
@@ -306,6 +312,8 @@ ON CONFLICT DO NOTHING`, tenantID, batchID, obls[i], g); err != nil {
 WHERE a.tenant_id=$1 AND a.batch_id=$2 AND m.tenant_id=a.tenant_id AND m.assignment_id=a.assignment_id`})
 	retiredObl := mk(spec{name: "retired-obligations", goats: goats[7:8], oblVersion: retiredVersion, oblRule: retiredRule,
 		batchScope: "shed", batchScopeID: shedID, planned: due})
+	publishedBatchRetiredObl := mk(spec{name: "published-batch-retired-obligations", goats: goats[8:9], oblVersion: retiredVersion, oblRule: retiredRule,
+		batchScope: "shed", batchScopeID: shedID, planned: due, batchVersion: publishedVersion})
 
 	seen := map[string]domain.PlannedBatchFinalization{}
 	var after *domain.PlannedBatchFinalizationCursor
@@ -343,7 +351,10 @@ WHERE a.tenant_id=$1 AND a.batch_id=$2 AND m.tenant_id=a.tenant_id AND m.assignm
 			t.Fatalf("%s batch must not be listed on the published-version pass", name)
 		}
 	}
-	if len(seen) != 3 {
-		t.Fatalf("listed %d batches, want exactly 3", len(seen))
+	if _, ok := seen[publishedBatchRetiredObl]; !ok {
+		t.Fatalf("published-version batch with retired-version assigned obligations must stay listed on the published pass")
+	}
+	if len(seen) != 4 {
+		t.Fatalf("listed %d batches, want exactly 4", len(seen))
 	}
 }
