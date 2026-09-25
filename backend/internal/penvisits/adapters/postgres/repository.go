@@ -344,22 +344,22 @@ func (r *Repository) ForPens(ctx context.Context, tenantID, sourceKind string, p
 
 // OpenCount answers the badge: visits still awaiting a recording in the parks one person is
 // configured to visit.
-func (r *Repository) OpenCount(ctx context.Context, tenantID, userID string) (int, error) {
+func (r *Repository) OpenCount(ctx context.Context, tenantID, userID, today string) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var n int
-	if err := r.pool.QueryRow(ctx, sqlRepository4, tenantID, userID).Scan(&n); err != nil {
+	if err := r.pool.QueryRow(ctx, sqlRepository4, tenantID, userID, today).Scan(&n); err != nil {
 		return 0, fmt.Errorf("pen visit: open count: %w", err)
 	}
 	return n, nil
 }
 
 // OpenReasons reads the reasons of every visit one person still has to record.
-func (r *Repository) OpenReasons(ctx context.Context, tenantID, userID string) ([][]string, error) {
+func (r *Repository) OpenReasons(ctx context.Context, tenantID, userID, today string) ([][]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	// scale-guard:ignore: bounded by the open visits of ONE person's parks (pens worked yesterday, tens of rows), on pen_visit_tasks_park_idx; a badge read, no page.
-	rows, err := r.pool.Query(ctx, sqlRepository14, tenantID, userID)
+	rows, err := r.pool.Query(ctx, sqlRepository14, tenantID, userID, today)
 	if err != nil {
 		return nil, fmt.Errorf("pen visit: open reasons: %w", err)
 	}
@@ -899,7 +899,9 @@ GROUP BY t.work_state`
 SELECT count(*)::int
 FROM pen_visit_tasks t
 WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
-  AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')`
+  AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')
+  -- Only a visit that can be filmed NOW is owed (maintainer 2026-09-25: it opens on its day).
+  AND t.planned_business_date <= $3::date`
 	// Submit: the gate flips to pending_verification; the kernel clock is untouched. A rework
 	// resubmit clears the verifier's old reason -- the new clip supersedes it.
 	sqlRepository5 = `
@@ -1010,6 +1012,7 @@ SELECT t.reasons
 FROM pen_visit_tasks t
 WHERE t.tenant_id = $1 AND ` + visitorParkPredicate + `
   AND t.work_state IN ('scheduled', 'delayed') AND t.status IN ('open', 'rework')
+  AND t.planned_business_date <= $3::date
 LIMIT 500`
 	// The latest visit per pen raised by one parent kind (ForPens), on
 	// pen_visit_tasks_pen_source_idx; the EXISTS is a semijoin and never multiplies rows.

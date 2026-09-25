@@ -212,8 +212,16 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	if err != nil || len(otherPage.Rows) != 0 {
 		t.Fatalf("other person's list = %d rows, err %v", len(otherPage.Rows), err)
 	}
-	if n, err := repo.OpenCount(ctx, pvTenant, pvDinakar); err != nil || n != 2 {
+	if n, err := repo.OpenCount(ctx, pvTenant, pvDinakar, today); err != nil || n != 2 {
 		t.Fatalf("open count = %d err %v", n, err)
+	}
+	// The badge counts only visits that can be filmed NOW (maintainer 2026-09-25: a visit opens on
+	// its planned day). The day before, the same visits are listed but not counted.
+	if n, err := repo.OpenCount(ctx, pvTenant, pvDinakar, source); err != nil || n != 0 {
+		t.Fatalf("open count the day before the visits open = %d err %v, want 0", n, err)
+	}
+	if reasons, err := repo.OpenReasons(ctx, pvTenant, pvDinakar, source); err != nil || len(reasons) != 0 {
+		t.Fatalf("open reasons the day before = %v err %v, want none", reasons, err)
 	}
 
 	// A replay of the same day creates nothing. The digest can still be rebuilt from the open
@@ -296,7 +304,7 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	}
 	// A submitted visit is still under To do (its clock is open) and still counts as scheduled;
 	// the badge, though, no longer counts it -- nobody has to go anywhere for it.
-	if n, err := repo.OpenCount(ctx, pvTenant, pvSecond); err != nil || n != 1 {
+	if n, err := repo.OpenCount(ctx, pvTenant, pvSecond, "9999-12-31"); err != nil || n != 1 {
 		t.Fatalf("open count after submit = %d err %v", n, err)
 	}
 
@@ -378,7 +386,7 @@ func TestPenVisitLifecycleOneToManyParkScopePaginationPostgresPaths(t *testing.T
 	if final, err := repo.ApplyVerified(ctx, ports.VerdictParams{TenantID: pvTenant, TaskID: godel.TaskID, VerifiedBy: pvVerifier}); err != nil || !final.Applied || !final.Task.IsVerified() {
 		t.Fatalf("final approve = %+v err %v", final, err)
 	}
-	if n, err := repo.OpenCount(ctx, pvTenant, pvDinakar); err != nil || n != 0 {
+	if n, err := repo.OpenCount(ctx, pvTenant, pvDinakar, "9999-12-31"); err != nil || n != 0 {
 		t.Fatalf("open count after both verified = %d err %v", n, err)
 	}
 
