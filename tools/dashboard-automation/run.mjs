@@ -97,9 +97,6 @@ try {
   if (runCertificationExtras && enabled("GOATOS_DASHBOARD_LIGHTHOUSE", false)) {
     layer("lighthouse", "deterministic", () => runLighthouse(outDir));
   }
-  if (runCertificationExtras && enabled("GOATOS_DASHBOARD_GRAFANA_SMOKE", false)) {
-    layer("grafana-smoke", "deterministic", () => runNode(["tools/deploy/smoke-stg-grafana-dashboards.mjs"]));
-  }
   if (runCertificationExtras && enabled("GOATOS_DASHBOARD_VACCINATION_LIFECYCLE", true)) {
     layer("vaccination-lifecycle", "deterministic", () => runVaccinationLifecycleTests());
   }

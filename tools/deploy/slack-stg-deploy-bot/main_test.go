@@ -435,7 +435,7 @@ func TestCloudBuildReleaseScriptAsksCloudDeployBeforeAnnouncingAFailure(t *testi
 }
 
 // A failure inside stg-clouddeploy-release.sh can happen long before "gcloud deploy
-// releases create" runs - runner receipt, Alloy image validation, auth/project checks,
+// releases create" runs - runner receipt, auth/project checks,
 // dirty/non-main guards. No release exists in that case, so the build failure notice must
 // say so plainly instead of reporting the rollout state as UNKNOWN.
 func TestFailureBeforeReleaseCreationIsNotReportedAsUnknownRollout(t *testing.T) {

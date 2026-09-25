@@ -26,10 +26,6 @@ GOATOS_CRASHLYTICS_BQ_TABLE="${GOATOS_CRASHLYTICS_BQ_TABLE:-${PROJECT_ID}.fireba
 GOATOS_CRASHLYTICS_SESSIONS_TABLE="${GOATOS_CRASHLYTICS_SESSIONS_TABLE:-${PROJECT_ID}.firebase_sessions.sg_mesha_goatos_ANDROID}"
 GOATOS_PERFORMANCE_BQ_TABLE="${GOATOS_PERFORMANCE_BQ_TABLE:-${PROJECT_ID}.firebase_performance.sg_mesha_goatos_ANDROID}"
 
-OBSERVABILITY_ONLY="${CLOUD_DEPLOY_customTarget_observabilityOnly:-false}"
-ALLOY_IMAGE="${CLOUD_DEPLOY_customTarget_alloyImage:-}"
-GRAFANA_DOMAIN_ONLY="${CLOUD_DEPLOY_customTarget_grafanaDomainOnly:-false}"
-GRAFANA_SSO_ONLY="${CLOUD_DEPLOY_customTarget_grafanaSsoOnly:-false}"
 COMMIT_SHA="${CLOUD_DEPLOY_customTarget_commitSha:-}"
 BACKEND_IMAGE="${CLOUD_DEPLOY_customTarget_backendImage:-}"
 MIGRATION_IMAGE="${CLOUD_DEPLOY_customTarget_migrationImage:-}"
@@ -48,23 +44,6 @@ require_param() {
 
 require_release_inputs() {
   require_param "customTarget/commitSha" "$COMMIT_SHA"
-  [[ "$GRAFANA_DOMAIN_ONLY" == "true" || "$GRAFANA_DOMAIN_ONLY" == "false" ]] || die "customTarget/grafanaDomainOnly must be true or false"
-  [[ "$GRAFANA_SSO_ONLY" == "true" || "$GRAFANA_SSO_ONLY" == "false" ]] || die "customTarget/grafanaSsoOnly must be true or false"
-  [[ "$OBSERVABILITY_ONLY" == "true" || "$OBSERVABILITY_ONLY" == "false" ]] || die "observabilityOnly must be true or false"
-  local mode_count=0
-  for mode in "$GRAFANA_DOMAIN_ONLY" "$GRAFANA_SSO_ONLY" "$OBSERVABILITY_ONLY"; do
-    if [[ "$mode" == "true" ]]; then mode_count=$((mode_count + 1)); fi
-  done
-  [[ "$mode_count" -le 1 ]] || die "Grafana-only modes are mutually exclusive"
-  if [[ "$OBSERVABILITY_ONLY" == "true" ]]; then
-    [[ "$COMMIT_SHA" =~ ^[0-9a-f]{12,40}$ ]] || die "Observability requires a commit SHA"
-    require_param "customTarget/alloyImage" "$ALLOY_IMAGE"
-    return 0
-  fi
-  if [[ "$GRAFANA_DOMAIN_ONLY" == "true" || "$GRAFANA_SSO_ONLY" == "true" ]]; then
-    [[ "$COMMIT_SHA" =~ ^[0-9a-f]{12,40}$ ]] || die "Grafana cutover requires a commit SHA"
-    return 0
-  fi
   require_param "customTarget/backendImage" "$BACKEND_IMAGE"
   require_param "customTarget/migrationImage" "$MIGRATION_IMAGE"
   require_param "customTarget/adminWebImage" "$ADMIN_WEB_IMAGE"
@@ -381,43 +360,6 @@ PY
     die "public /app/analytics/events smoke did not land on $ANALYTICS_EVENTS_SERVICE (status=$code traceparent=$traceparent)"
 }
 
-observability_helper() {
-  local helper="$(dirname "${BASH_SOURCE[0]}")/stg-observability.py"
-  local assets="$(dirname "${BASH_SOURCE[0]}")/../../infra/grafana"
-  if [[ ! -f "$helper" ]]; then
-    helper=/usr/local/bin/goatos-stg-observability.py
-    assets=/opt/goatos/infra/grafana
-  fi
-  python3 "$helper" "$1" --assets "$assets" --alloy-image "$ALLOY_IMAGE" --log-metrics "$assets/../observability/faro-log-metrics.json"
-}
-
-observability_render() {
-  local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
-  [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
-  observability_helper plan > goatos-stg-observability.json
-  assert_image "Alloy" "$ALLOY_IMAGE"
-  run gcloud storage cp goatos-stg-observability.json "$output_path/goatos-stg-observability.json"
-  write_results "SUCCEEDED" "$output_path/goatos-stg-observability.json"
-}
-
-observability_apply_and_smoke() {
-  assert_image "Alloy" "$ALLOY_IMAGE"
-  observability_helper deploy
-  grafana_domain_auth_boundary
-  local smoke="$(dirname "${BASH_SOURCE[0]}")/smoke-stg-grafana-dashboards.mjs"
-  [[ -f "$smoke" ]] || smoke=/opt/goatos/tools/deploy/smoke-stg-grafana-dashboards.mjs
-  local receipt="$(dirname "${BASH_SOURCE[0]}")/../../infra/observability/firebase-initial-export.json"
-  [[ -f "$receipt" ]] || receipt=/opt/goatos/infra/observability/firebase-initial-export.json
-  [[ -f "$receipt" ]] || die "Firebase initial-export readiness receipt missing from runner"
-  node "$smoke" --url https://grafana.mesha.sg --no-proxy --query-validity-only --firebase-initial-export-receipt "$receipt"
-  echo "Observability deployment/query validation passed; full-data certification remains pending real traffic and source readiness."
-}
-
-observability_deploy() {
-  observability_apply_and_smoke
-  write_results "SUCCEEDED"
-}
-
 assert_analytics_worker_iam() {
   local account policy
   account="$(gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" --format='value(spec.template.spec.serviceAccountName)')"
@@ -459,152 +401,21 @@ if missing:
 ' "$GOATOS_ANALYTICS_SOURCE_APP_ID" "$GOATOS_CRASHLYTICS_BQ_TABLE" "$GOATOS_CRASHLYTICS_SESSIONS_TABLE" "$GOATOS_PERFORMANCE_BQ_TABLE"
 }
 
-normal_observability_deploy() {
-  [[ -n "$ALLOY_IMAGE" ]] || return 0
+# Grafana/Alloy/observability is owned and deployed by vgoats/mesha-ops
+# (docs/decisions/grafana-owned-by-mesha-ops.md). The STG deploy only asserts
+# the analytics-rollup job carries the verified backend image and Firebase env;
+# the kernel worker triggers its executions, not the deploy.
+assert_analytics_rollup_job() {
   [[ "$(job_image goatos-stg-analytics-rollup)" == "$BACKEND_IMAGE" ]] || die "analytics-rollup must use the verified backend image"
   assert_analytics_rollup_env
-  local smoke="$(dirname "${BASH_SOURCE[0]}")/smoke-stg-grafana-dashboards.mjs"
-  [[ -f "$smoke" ]] || smoke=/opt/goatos/tools/deploy/smoke-stg-grafana-dashboards.mjs
-  local receipt="$(dirname "${BASH_SOURCE[0]}")/../../infra/observability/firebase-initial-export.json"
-  [[ -f "$receipt" ]] || receipt=/opt/goatos/infra/observability/firebase-initial-export.json
-  local pending_args
-  if ! pending_args="$(node "$smoke" --firebase-rollup-args --firebase-initial-export-receipt "$receipt" \
-    --crash-table "$GOATOS_CRASHLYTICS_BQ_TABLE" --sessions-table "$GOATOS_CRASHLYTICS_SESSIONS_TABLE" \
-    --performance-table "$GOATOS_PERFORMANCE_BQ_TABLE")"; then
-    echo "Firebase initial-export verification unavailable; omitting Firebase tables for this deploy-time rollup only." >&2
-    pending_args="-crashlytics-bq-table=,-crashlytics-sessions-table=,-performance-bq-table="
-  fi
-  run gcloud run jobs execute goatos-stg-analytics-rollup --project="$PROJECT_ID" --region="$REGION" \
-    --args="-timeout=25m,-source=app_events,-lookback-days=7${pending_args:+,$pending_args}" --wait --quiet
-  observability_apply_and_smoke
-}
-
-grafana_sso_helper() {
-  local helper="$(dirname "${BASH_SOURCE[0]}")/stg-grafana-sso.py"
-  [[ -f "$helper" ]] || helper=/usr/local/bin/goatos-stg-grafana-sso.py
-  python3 "$helper" "$@"
-}
-
-grafana_sso_render() {
-  local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
-  [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
-  printf 'commit_sha=%s\nmode=grafana-sso-only\nservice=goatos-stg-grafana\ncallback=https://grafana.mesha.sg/login/generic_oauth\n' "$COMMIT_SHA" > goatos-stg-grafana-sso.txt
-  run gcloud storage cp goatos-stg-grafana-sso.txt "$output_path/goatos-stg-grafana-sso.txt"
-  write_results "SUCCEEDED" "$output_path/goatos-stg-grafana-sso.txt"
-}
-
-grafana_sso_deploy() {
-  local raw_url revision code
-  gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format=json > grafana-sso-before.json
-  grafana_sso_helper preflight grafana-sso-before.json
-  raw_url="$(service_uri goatos-stg-grafana)"
-  grafana_domain_auth_boundary
-  grafana_sso_helper update grafana-sso-before.json
-  revision="$(gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format='value(status.latestCreatedRevisionName)')"
-  [[ -n "$revision" ]] || die "Grafana SSO update did not create a revision"
-  wait_revision_ready "$revision" "Grafana SSO pre-traffic"
-  gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format=json > grafana-sso-after.json
-  grafana_sso_helper verify grafana-sso-before.json grafana-sso-after.json
-  run gcloud run services update-traffic goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" "--to-revisions=${revision}=100" --quiet
-  grafana_domain_auth_boundary
-  code="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$raw_url/login")"
-  [[ "$code" == "403" || "$code" == "404" ]] || die "Grafana raw URL still reachable: HTTP $code"
-  code="$(curl -sS --max-time 60 -D grafana-oauth-headers.txt -o /dev/null -w '%{http_code}' https://grafana.mesha.sg/login/generic_oauth)"
-  [[ "$code" == "302" ]] || die "Grafana OAuth start returned $code"
-  grafana_sso_helper redirect grafana-oauth-headers.txt
-  rm -f grafana-oauth-headers.txt
-  printf 'cloud-deploy-grafana-sso-ok commit=%s revision=%s\n' "$COMMIT_SHA" "$revision"
-  write_results "SUCCEEDED"
-}
-
-grafana_domain_render() {
-  local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
-  [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
-  printf 'commit_sha=%s\nmode=grafana-domain-only\nservice=goatos-stg-grafana\nroot_url=https://grafana.mesha.sg/\ningress=internal-and-cloud-load-balancing\n' "$COMMIT_SHA" > goatos-stg-grafana-domain.txt
-  run gcloud storage cp goatos-stg-grafana-domain.txt "$output_path/goatos-stg-grafana-domain.txt"
-  write_results "SUCCEEDED" "$output_path/goatos-stg-grafana-domain.txt"
-}
-
-grafana_domain_auth_boundary() {
-  local code
-  code="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' https://grafana.mesha.sg/login)"
-  [[ "$code" == "200" ]] || die "Grafana custom-domain login returned $code"
-  code="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' https://grafana.mesha.sg/api/search)"
-  [[ "$code" == "401" ]] || die "Grafana anonymous API must return 401, got $code"
-}
-
-grafana_domain_deploy() {
-  local certificate raw_url revision code
-  certificate="$(gcloud compute ssl-certificates describe goatos-grafana-cert --global --project="$PROJECT_ID" --format='value(managed.status)')"
-  [[ "$certificate" == "ACTIVE" ]] || die "Grafana certificate must be ACTIVE before cutover"
-  gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format=json > grafana-before.json
-  python3 - grafana-before.json <<'PY'
-import json, sys
-s = json.load(open(sys.argv[1]))
-containers = s['spec']['template']['spec']['containers']
-named = [c for c in containers if c.get('name') == 'grafana']
-assert len(named) == 1 or (len(containers) == 1 and not containers[0].get('name')), 'Cannot identify Grafana container'
-c = named[0] if named else containers[0]
-e = {v['name']: v for v in c.get('env', [])}
-assert e.get('GF_AUTH_ANONYMOUS_ENABLED', {}).get('value') == 'false', 'Grafana anonymous access must be disabled'
-assert e.get('GF_USERS_ALLOW_SIGN_UP', {}).get('value') == 'false', 'Grafana sign-up must be disabled'
-assert e.get('GF_SECURITY_ADMIN_PASSWORD', {}).get('valueFrom', {}).get('secretKeyRef'), 'Grafana admin password must remain Secret Manager-backed'
-PY
-  raw_url="$(service_uri goatos-stg-grafana)"
-  grafana_domain_auth_boundary
-  run gcloud run services update goatos-stg-grafana \
-    --project="$PROJECT_ID" --region="$REGION" \
-    --ingress=internal-and-cloud-load-balancing \
-    --update-env-vars=GF_SERVER_ROOT_URL=https://grafana.mesha.sg/ \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
-    --no-traffic --quiet
-  revision="$(gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format='value(status.latestCreatedRevisionName)')"
-  [[ -n "$revision" ]] || die "Grafana update did not create a revision"
-  wait_revision_ready "$revision" "Grafana domain pre-traffic"
-  run gcloud run services update-traffic goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --to-latest --quiet
-  gcloud run services describe goatos-stg-grafana --project="$PROJECT_ID" --region="$REGION" --format=json > grafana-after.json
-  python3 - grafana-before.json grafana-after.json <<'PY'
-import json, sys
-before, after = [json.load(open(p)) for p in sys.argv[1:]]
-assert after['metadata']['annotations']['run.googleapis.com/ingress'] == 'internal-and-cloud-load-balancing'
-bc = before['spec']['template']['spec']['containers']
-ac = after['spec']['template']['spec']['containers']
-assert [(c.get('name'), c['image']) for c in bc] == [(c.get('name'), c['image']) for c in ac], 'Grafana images changed during domain-only cutover'
-named = [c for c in ac if c.get('name') == 'grafana']
-assert len(named) == 1 or (len(ac) == 1 and not ac[0].get('name')), 'Cannot identify Grafana container'
-c = named[0] if named else ac[0]
-env = {v['name']: v for v in c.get('env', [])}
-assert env['GF_SERVER_ROOT_URL']['value'] == 'https://grafana.mesha.sg/'
-PY
-  grafana_domain_auth_boundary
-  code="$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "$raw_url/login")"
-  [[ "$code" == "403" || "$code" == "404" ]] || die "Grafana raw URL still reachable: HTTP $code"
-  printf 'cloud-deploy-grafana-domain-ok commit=%s revision=%s\n' "$COMMIT_SHA" "$revision"
-  write_results "SUCCEEDED"
 }
 
 render() {
   assert_target
   require_release_inputs
-  if [[ "$OBSERVABILITY_ONLY" == "true" ]]; then
-    observability_render
-    return
-  fi
-  if [[ "$GRAFANA_SSO_ONLY" == "true" ]]; then
-    grafana_sso_render
-    return
-  fi
-  if [[ "$GRAFANA_DOMAIN_ONLY" == "true" ]]; then
-    grafana_domain_render
-    return
-  fi
   assert_image "backend" "$BACKEND_IMAGE"
   assert_image "migration" "$MIGRATION_IMAGE"
   assert_image "admin-web" "$ADMIN_WEB_IMAGE"
-  if [[ -n "$ALLOY_IMAGE" ]]; then
-    observability_helper plan >/dev/null
-    assert_image "Alloy" "$ALLOY_IMAGE"
-  fi
 
   local output_path="${CLOUD_DEPLOY_OUTPUT_GCS_PATH:-}"
   [[ -n "$output_path" ]] || die "CLOUD_DEPLOY_OUTPUT_GCS_PATH is required for render"
@@ -634,25 +445,9 @@ EOF
 deploy() {
   assert_target
   require_release_inputs
-  if [[ "$OBSERVABILITY_ONLY" == "true" ]]; then
-    observability_deploy
-    return
-  fi
-  if [[ "$GRAFANA_SSO_ONLY" == "true" ]]; then
-    grafana_sso_deploy
-    return
-  fi
-  if [[ "$GRAFANA_DOMAIN_ONLY" == "true" ]]; then
-    grafana_domain_deploy
-    return
-  fi
   assert_image "backend" "$BACKEND_IMAGE"
   assert_image "migration" "$MIGRATION_IMAGE"
   assert_image "admin-web" "$ADMIN_WEB_IMAGE"
-  if [[ -n "$ALLOY_IMAGE" ]]; then
-    observability_helper plan >/dev/null
-    assert_image "Alloy" "$ALLOY_IMAGE"
-  fi
 
   assert_analytics_worker_iam
 
@@ -981,7 +776,7 @@ deploy() {
   smoke_http "$mcp_url/readyz" "200"
   curl -fsSIL "$STG_DASHBOARD_URL/login" >/dev/null
 
-  normal_observability_deploy
+  assert_analytics_rollup_job
 
   printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s mcp=%s worker=%s admin=%s\n' \
     "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"

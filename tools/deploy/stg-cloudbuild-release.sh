@@ -255,22 +255,6 @@ deploy_herd_signals_mqtt_bridge() {
   }
 }
 
-smoke_grafana_dashboards() {
-  if node tools/deploy/smoke-stg-grafana-dashboards.mjs \
-    --project "$PROJECT_ID" \
-    --region "$REGION" \
-    --service goatos-stg-grafana \
-    --url https://grafana.mesha.sg \
-    --no-proxy \
-    --query-validity-only \
-    --firebase-initial-export-receipt infra/observability/firebase-initial-export.json; then
-    echo "Grafana query validation passed; full-data readiness is pending separate certification."
-    return 0
-  fi
-  echo "ERROR: Grafana dashboard smoke failed; refusing to report backend/web deploy success with failed datasource queries or required live-data checks." >&2
-  return 1
-}
-
 # The Cloud Deploy rollout is the only thing that knows whether backend/web actually
 # rolled out. Cloud Build going red is a DIFFERENT fact: on 2026-09-22 build
 # dd97ab48-c979-43d0-95eb-3fdbaae9c20f failed on the 1800s rollout watchdog while
@@ -354,7 +338,6 @@ trap on_exit EXIT
 require_public_ingress_ready
 
 if already_deployed; then
-  smoke_grafana_dashboards
   notify_slack "SUCCEEDED" 'Backend/web is already running the latest `main`; no new release was created.'
   if [[ "$DEPLOY_MOBILE" != "true" ]]; then
     post_deploy_panel
@@ -375,7 +358,6 @@ notify_slack "STARTED" "Building images and creating Cloud Deploy release for ba
 
 tools/deploy/stg-clouddeploy-release.sh
 deploy_herd_signals_mqtt_bridge
-smoke_grafana_dashboards
 
 if [[ "$DEPLOY_MOBILE" == "true" ]]; then
   notify_slack "SUCCEEDED" "Backend/web rollout succeeded and live images were verified. Android mobile distribution will start next."

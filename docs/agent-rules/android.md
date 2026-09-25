@@ -147,6 +147,9 @@ that mint `download_url`, and admin-web media tags. A review that says "all good
 without naming these surfaces is incomplete. For PRs caused by a billing spike,
 the PR description must list: root cause, every newly found miss, files fixed,
 guards/tests run, and which alerts are live versus only configured in code.
+Cloud Monitoring/Slack billing and observability alerts are owned and
+deployed by `vgoats/mesha-ops`, not this repo; check them there
+(`docs/decisions/grafana-owned-by-mesha-ops.md`).
 
 A review request alone is not permission to push directly to `main`. If the
 maintainer explicitly asks to push, land, or merge after review, continue

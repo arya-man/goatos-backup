@@ -1,5 +1,7 @@
 # Deployment validity and data readiness
 
+> Grafana smoke/deploy moved to `vgoats/mesha-ops` (`docs/decisions/grafana-owned-by-mesha-ops.md`); the goatos commands below are historical.
+
 A successful Cloud Deploy rollout validates provisioning, authentication,
 all committed datasource queries, and the existing representative/feature data
 checks. Its smoke uses `--query-validity-only`. SQL errors, permission errors,

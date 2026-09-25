@@ -176,6 +176,13 @@ to `r-<12-char-sha>-<HHMMSS>` for this reason. Do not use long manual ids such
 as `goatos-stg-<sha>-manual-<timestamp>`; they can create the release and then
 fail before rollout creation.
 
+## Grafana / Observability Is Not Part Of This Deploy
+
+Grafana, Alloy, dashboards and Cloud Monitoring alerts are owned and deployed
+only by `vgoats/mesha-ops` (`grafana/cloudbuild.yaml`). The STG backend/web
+deploy does not apply, smoke or wait on them and cannot fail because of them.
+See `docs/decisions/grafana-owned-by-mesha-ops.md`.
+
 ## Forbidden Deploy Detours
 
 Do not use these for Goat OS STG deployment:

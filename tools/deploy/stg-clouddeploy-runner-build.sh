@@ -26,10 +26,6 @@ docker build --platform linux/amd64 -f deploy/clouddeploy/stg/runner.Dockerfile 
 docker run --rm --platform linux/amd64 --entrypoint /bin/bash "$image" -ceu '
   test -x /usr/local/bin/goatos-stg-clouddeploy-task
   test -x /usr/local/bin/goatos-stg-analytics-events-routing
-  test -r /usr/local/bin/goatos-stg-grafana-sso.py
-  node --check /opt/goatos/tools/deploy/smoke-stg-grafana-dashboards.mjs
-  test -r /opt/goatos/infra/observability/firebase-initial-export.json
-  python3 -m py_compile /usr/local/bin/goatos-stg-grafana-sso.py /usr/local/bin/goatos-stg-observability.py
   bash -n /usr/local/bin/goatos-stg-clouddeploy-task
   bash -n /usr/local/bin/goatos-stg-analytics-events-routing
   set +e

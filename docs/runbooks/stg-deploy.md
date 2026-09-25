@@ -159,6 +159,13 @@ run manual SQL for a normal release.
 
 Details and measurements: `docs/progress/ci-deploy-speedup.md`.
 
+## Grafana / Observability Is Not Part Of This Deploy
+
+Grafana, Alloy, dashboards and Cloud Monitoring alerts are owned and deployed
+only by `vgoats/mesha-ops` (`grafana/cloudbuild.yaml`). The STG backend/web
+deploy does not apply, smoke or wait on them and cannot fail because of them.
+See `docs/decisions/grafana-owned-by-mesha-ops.md`.
+
 ## GitHub Release Tag
 
 Every successful STG release must create an annotated GitHub tag with Backend,
