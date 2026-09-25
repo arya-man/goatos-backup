@@ -30,6 +30,7 @@ import type {
   SellableProductWrite,
 } from "@/lib/api/procurement";
 import { MAX_SALE_LINES } from "./sales-format";
+import { paymentIdempotencyKey } from "./payment-idempotency";
 
 // Every sales write is submitted from /sales/config (maintainer decision 2026-09-01), so that is
 // the page whose cache must be invalidated -- a save that revalidated only the read board would
@@ -246,10 +247,28 @@ export async function recordLoadCostAction(formData: FormData): Promise<void> {
 }
 
 /**
+ * What a refused payment write hands back to its form. `message` is the backend's own sentence and
+ * is carried only for a named FIELD refusal ("Received on cannot be in the future.") -- anything
+ * else (network, a 5xx) carries none, and the form shows its contract copy instead, because a
+ * transport error's text is not farm copy.
+ */
+export type SalesPaymentActionError = { code: string; message: string };
+
+function paymentRefusal(error: { code?: string; message: string }): SalesPaymentActionError {
+  const code = error.code ?? "";
+  return { code, message: code.startsWith("sales_invalid_") ? error.message : "" };
+}
+
+/**
  * Records one amount received from the buyer against a deal. The backend advances the running
  * received total in the same transaction; deal status stays a human decision.
+ *
+ * The idempotency key is the FORM's (payment-idempotency.ts): minted once when the drawer shows the
+ * form, so a double click posts the same key twice and the backend replays the first receipt
+ * instead of recording the money again. A refusal returns in place -- no redirect, no revalidate --
+ * so the form keeps what was typed and shows the backend's reason beside it.
  */
-export async function recordSalesDealPaymentAction(formData: FormData): Promise<void> {
+export async function recordSalesDealPaymentAction(formData: FormData): Promise<SalesPaymentActionError | undefined> {
   const dealId = requiredString(formData, "deal_id");
   const note = (formData.get("note")?.toString() ?? "").trim();
   const result = await recordSalesDealPayment(
@@ -259,18 +278,17 @@ export async function recordSalesDealPaymentAction(formData: FormData): Promise<
       amount_rupees: Number(requiredString(formData, "amount_rupees")),
       ...(note ? { note } : {}),
     },
-    // A fresh key per submit, like every sales write: retries of THIS invocation cannot count the
-    // same money twice, while a deliberate second submit records a second receipt.
-    randomUUID(),
+    paymentIdempotencyKey(formData),
   );
   if (!result.ok) {
-    actionRedirect(formData, "error", "action.payment_record_failed");
+    return paymentRefusal(result.error);
   }
+  // interaction-guard:ignore: success revalidates then redirects; only the refusal path returns, and it never revalidates.
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.payment_recorded");
 }
 
-export async function updateSalesDealPaymentAction(formData: FormData): Promise<void> {
+export async function updateSalesDealPaymentAction(formData: FormData): Promise<SalesPaymentActionError | undefined> {
   const dealId = requiredString(formData, "deal_id");
   const paymentId = requiredString(formData, "payment_id");
   const note = (formData.get("note")?.toString() ?? "").trim();
@@ -284,29 +302,27 @@ export async function updateSalesDealPaymentAction(formData: FormData): Promise<
       amount_rupees: amountRupees,
       note,
     },
-    // A FRESH key per submit (guard test in sales-actions.test.mjs, landed on main as d015e8480 and
-    // reintroduced as a stable hash by the merge): a deterministic key turns a later legitimate edit
-    // back to an earlier value, or a repeated delete, into an idempotent replay the backend skips.
-    randomUUID(),
+    // The FORM's key, never a hash of its content (d015e8480): a content-derived key would replay a
+    // later edit back to an earlier value as the old edit. The form's key rotates once an edit
+    // lands, so each edit is its own intent while a double click stays one.
+    paymentIdempotencyKey(formData),
   );
   if (!result.ok) {
-    actionRedirect(formData, "error", "action.payment_update_failed");
+    return paymentRefusal(result.error);
   }
+  // interaction-guard:ignore: success revalidates then redirects; only the refusal path returns, and it never revalidates.
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.payment_updated");
 }
 
-export async function deleteSalesDealPaymentAction(formData: FormData): Promise<void> {
+export async function deleteSalesDealPaymentAction(formData: FormData): Promise<SalesPaymentActionError | undefined> {
   const dealId = requiredString(formData, "deal_id");
   const paymentId = requiredString(formData, "payment_id");
-  const result = await deleteSalesDealPayment(
-    dealId,
-    paymentId,
-    randomUUID(),
-  );
+  const result = await deleteSalesDealPayment(dealId, paymentId, paymentIdempotencyKey(formData));
   if (!result.ok) {
-    actionRedirect(formData, "error", "action.payment_delete_failed");
+    return paymentRefusal(result.error);
   }
+  // interaction-guard:ignore: success revalidates then redirects; only the refusal path returns, and it never revalidates.
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.payment_deleted");
 }

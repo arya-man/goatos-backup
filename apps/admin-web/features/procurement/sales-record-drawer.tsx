@@ -2,7 +2,7 @@
 
 import { Banknote, Save, Trash2, X } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useActionState, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -24,7 +24,9 @@ import {
   recordSalesDealPaymentAction,
   setSalesDealStatusAction,
   updateSalesDealPaymentAction,
+  type SalesPaymentActionError,
 } from "./sales-actions";
+import { PAYMENT_IDEMPOTENCY_FIELD, paymentKeyFor, type MintedPaymentKey } from "./payment-idempotency";
 
 /** Reads the selected deal from the address bar. "" means the drawer is closed; "new" is the form. */
 function readDealParam(): string {
@@ -597,125 +599,31 @@ export function SalesRecordDrawer({
                     </tr>
                   </thead>
                   <tbody>
-                    {deal.payments.map((payment) => {
-                      const editFormId = `sales-payment-edit-${payment.payment_id}`;
-                      const deleteFormId = `sales-payment-delete-${payment.payment_id}`;
-                      return (
-                        <tr key={payment.payment_id}>
-                          <td style={{ whiteSpace: "nowrap" }}>
-                            {canUpdatePayment ? (
-                              <input
-                                form={editFormId}
-                                name="received_on"
-                                type="date"
-                                required
-                                defaultValue={payment.received_on}
-                                aria-label={copy(pageContract, "payments.column.received_on")}
-                              />
-                            ) : (
-                              fmtDate(payment.received_on)
-                            )}
-                          </td>
-                          <td style={{ whiteSpace: "nowrap" }}>
-                            {canUpdatePayment ? (
-                              <input
-                                form={editFormId}
-                                name="amount_rupees"
-                                type="number"
-                                min={0.01}
-                                step="0.01"
-                                required
-                                defaultValue={payment.amount_rupees}
-                                aria-label={copy(pageContract, "payments.column.amount")}
-                              />
-                            ) : (
-                              inr(payment.amount_rupees)
-                            )}
-                          </td>
-                          <td>
-                            {canUpdatePayment ? (
-                              <input
-                                form={editFormId}
-                                name="note"
-                                maxLength={300}
-                                defaultValue={payment.note}
-                                aria-label={copy(pageContract, "payments.column.note")}
-                              />
-                            ) : (
-                              payment.note || none
-                            )}
-                          </td>
-                          {showPaymentActions ? (
-                            <td style={{ whiteSpace: "nowrap" }}>
-                              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                                {canUpdatePayment ? (
-                                  <button
-                                    type="submit"
-                                    form={editFormId}
-                                    className="iconbtn"
-                                    aria-label={copy(pageContract, "action.update_deal_payment.label")}
-                                    title={copy(pageContract, "action.update_deal_payment.label")}
-                                  >
-                                    <Save className="ic" aria-hidden="true" />
-                                  </button>
-                                ) : null}
-                                {canDeletePayment ? (
-                                  <button
-                                    type="submit"
-                                    form={deleteFormId}
-                                    className="iconbtn"
-                                    aria-label={copy(pageContract, "action.delete_deal_payment.label")}
-                                    title={copy(pageContract, "action.delete_deal_payment.label")}
-                                  >
-                                    <Trash2 className="ic" aria-hidden="true" />
-                                  </button>
-                                ) : null}
-                              </div>
-                            </td>
-                          ) : null}
-                        </tr>
-                      );
-                    })}
+                    {deal.payments.map((payment) => (
+                      <PaymentRow
+                        key={payment.payment_id}
+                        payment={payment}
+                        dealId={deal.deal_id}
+                        dealHref={dealHref}
+                        pageContract={pageContract}
+                        canUpdate={canUpdatePayment}
+                        canDelete={canDeletePayment}
+                        showActions={showPaymentActions}
+                      />
+                    ))}
                   </tbody>
                 </table>
-                {deal.payments.map((payment) => (
-                  <div key={`${payment.payment_id}-forms`} hidden>
-                    <form id={`sales-payment-edit-${payment.payment_id}`} action={updateSalesDealPaymentAction}>
-                      <input type="hidden" name="return_to" value={dealHref} />
-                      <input type="hidden" name="deal_id" value={deal.deal_id} />
-                      <input type="hidden" name="payment_id" value={payment.payment_id} />
-                    </form>
-                    <form id={`sales-payment-delete-${payment.payment_id}`} action={deleteSalesDealPaymentAction}>
-                      <input type="hidden" name="return_to" value={dealHref} />
-                      <input type="hidden" name="deal_id" value={deal.deal_id} />
-                      <input type="hidden" name="payment_id" value={payment.payment_id} />
-                    </form>
-                  </div>
-                ))}
               </div>
             )}
 
             {canRecordPayment ? (
-              <form action={recordSalesDealPaymentAction}>
-                <input type="hidden" name="return_to" value={dealHref} />
-                <input type="hidden" name="deal_id" value={deal.deal_id} />
-                <div className="fld">
-                  <label htmlFor="sdp-received_on">{field("received_on")}</label>
-                  <input id="sdp-received_on" name="received_on" type="date" required />
-                </div>
-                <div className="fld">
-                  <label htmlFor="sdp-amount">{field("amount_rupees")}</label>
-                  <input id="sdp-amount" name="amount_rupees" type="number" min={0.01} step="0.01" required />
-                </div>
-                <div className="fld">
-                  <label htmlFor="sdp-note">{field("note")}</label>
-                  <input id="sdp-note" name="note" maxLength={300} />
-                  <div className="muted small">{copy(pageContract, "hint.record_payment")}</div>
-                </div>
-                <button type="submit" className="btn p">
-                  {copy(pageContract, "action.record_deal_payment.label")}
-                </button>
-              </form>
+              <RecordPaymentForm
+                // One form per deal: opening another deal is a new receipt, never the last one's key.
+                key={deal.deal_id}
+                deal={deal}
+                dealHref={dealHref}
+                pageContract={pageContract}
+              />
             ) : null}
 
             {canEditStatus ? (
@@ -758,6 +666,236 @@ export function SalesRecordDrawer({
           </div>
         ) : null}
       </aside>
+    </>
+  );
+}
+
+type PaymentAction = (formData: FormData) => Promise<SalesPaymentActionError | undefined>;
+type PaymentFormState = { settled: number; error: SalesPaymentActionError | null };
+const PAYMENT_FORM_IDLE: PaymentFormState = { settled: 0, error: null };
+
+function mintPaymentKey(): string {
+  return crypto.randomUUID();
+}
+
+/**
+ * One payment form's write: the action, whether it is in flight, the refusal it came back with,
+ * and the idempotency key the form carries.
+ *
+ * The key is minted when the form is shown and held while nothing about the form's outcome has
+ * moved, so every click on the same form posts the same key and the backend replays the first
+ * receipt rather than recording the money twice. It rotates when `outcome` changes (the receipt
+ * landed and the deal's payments re-read) or an attempt settles, so the next receipt is a new key.
+ * A successful save redirects, which remounts the drawer and mints afresh anyway.
+ */
+function usePaymentFormAction(action: PaymentAction, outcome: string) {
+  const [state, formAction, pending] = useActionState(
+    async (previous: PaymentFormState, formData: FormData): Promise<PaymentFormState> => ({
+      settled: previous.settled + 1,
+      error: (await action(formData)) ?? null,
+    }),
+    PAYMENT_FORM_IDLE,
+  );
+  const rotation = `${outcome}#${state.settled}`;
+  const [minted, setMinted] = useState<MintedPaymentKey>(() => paymentKeyFor(null, rotation, mintPaymentKey));
+  const next = paymentKeyFor(minted, rotation, mintPaymentKey);
+  if (next !== minted) {
+    // Reset during render, never in an effect: an effect would let one render submit the old key.
+    setMinted(next);
+  }
+  return { formAction, pending, error: state.error, key: next.key };
+}
+
+/** The backend's field sentence when it named one, else this form's contract copy. */
+function paymentErrorText(pageContract: AdminUiPageContract, error: SalesPaymentActionError, fallbackKey: string): string {
+  return error.message || copy(pageContract, fallbackKey);
+}
+
+/** The "add a receipt" form under a deal's payment history. */
+function RecordPaymentForm({
+  deal,
+  dealHref,
+  pageContract,
+}: {
+  deal: SalesDeal;
+  dealHref: string;
+  pageContract: AdminUiPageContract;
+}) {
+  const field = (key: string) => copy(pageContract, `field.${key}`);
+  const outcome = deal.payments.map((payment) => payment.payment_id).join(",");
+  const { formAction, pending, error, key } = usePaymentFormAction(recordSalesDealPaymentAction, outcome);
+  return (
+    <form action={formAction} aria-busy={pending}>
+      <input type="hidden" name="return_to" value={dealHref} />
+      <input type="hidden" name="deal_id" value={deal.deal_id} />
+      <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={key} />
+      {error ? (
+        <div role="alert" className="note warn">
+          {paymentErrorText(pageContract, error, "action.payment_record_failed")}
+        </div>
+      ) : null}
+      <div className="fld">
+        <label htmlFor="sdp-received_on">{field("received_on")}</label>
+        <input id="sdp-received_on" name="received_on" type="date" required />
+      </div>
+      <div className="fld">
+        <label htmlFor="sdp-amount">{field("amount_rupees")}</label>
+        <input id="sdp-amount" name="amount_rupees" type="number" min={0.01} step="0.01" required />
+      </div>
+      <div className="fld">
+        <label htmlFor="sdp-note">{field("note")}</label>
+        <input id="sdp-note" name="note" maxLength={300} />
+        <div className="muted small">{copy(pageContract, "hint.record_payment")}</div>
+      </div>
+      <button type="submit" className="btn p" disabled={pending} aria-disabled={pending}>
+        {copy(pageContract, "action.record_deal_payment.label")}
+      </button>
+    </form>
+  );
+}
+
+/**
+ * One receipt in the payment history, with its edit and remove forms. The two forms live in the
+ * actions cell (a form may sit in a cell, never across a row); the row's date/amount/note inputs
+ * join the edit form through their `form` attribute.
+ */
+function PaymentRow({
+  payment,
+  dealId,
+  dealHref,
+  pageContract,
+  canUpdate,
+  canDelete,
+  showActions,
+}: {
+  payment: SalesDeal["payments"][number];
+  dealId: string;
+  dealHref: string;
+  pageContract: AdminUiPageContract;
+  canUpdate: boolean;
+  canDelete: boolean;
+  showActions: boolean;
+}) {
+  const none = copy(pageContract, "value.none");
+  const editFormId = `sales-payment-edit-${payment.payment_id}`;
+  const deleteFormId = `sales-payment-delete-${payment.payment_id}`;
+  // The edit key rotates once the stored receipt changes, so a second edit -- even one back to an
+  // earlier value -- is a new intent with a new key.
+  const edit = usePaymentFormAction(
+    updateSalesDealPaymentAction,
+    `${payment.received_on}|${payment.amount_rupees}|${payment.note}`,
+  );
+  const remove = usePaymentFormAction(deleteSalesDealPaymentAction, payment.payment_id);
+  const busy = edit.pending || remove.pending;
+  const refusal = edit.error
+    ? paymentErrorText(pageContract, edit.error, "action.payment_update_failed")
+    : remove.error
+      ? paymentErrorText(pageContract, remove.error, "action.payment_delete_failed")
+      : "";
+  return (
+    <>
+      <tr aria-busy={busy}>
+        <td style={{ whiteSpace: "nowrap" }}>
+          {canUpdate ? (
+            <input
+              form={editFormId}
+              name="received_on"
+              type="date"
+              required
+              defaultValue={payment.received_on}
+              aria-label={copy(pageContract, "payments.column.received_on")}
+            />
+          ) : (
+            fmtDate(payment.received_on)
+          )}
+        </td>
+        <td style={{ whiteSpace: "nowrap" }}>
+          {canUpdate ? (
+            <input
+              form={editFormId}
+              name="amount_rupees"
+              type="number"
+              min={0.01}
+              step="0.01"
+              required
+              defaultValue={payment.amount_rupees}
+              aria-label={copy(pageContract, "payments.column.amount")}
+            />
+          ) : (
+            inr(payment.amount_rupees)
+          )}
+        </td>
+        <td>
+          {canUpdate ? (
+            <input
+              form={editFormId}
+              name="note"
+              maxLength={300}
+              defaultValue={payment.note}
+              aria-label={copy(pageContract, "payments.column.note")}
+            />
+          ) : (
+            payment.note || none
+          )}
+        </td>
+        {showActions ? (
+          <td style={{ whiteSpace: "nowrap" }}>
+            {canUpdate ? (
+              <form id={editFormId} action={edit.formAction} hidden>
+                <input type="hidden" name="return_to" value={dealHref} />
+                <input type="hidden" name="deal_id" value={dealId} />
+                <input type="hidden" name="payment_id" value={payment.payment_id} />
+                <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={edit.key} />
+              </form>
+            ) : null}
+            {canDelete ? (
+              <form id={deleteFormId} action={remove.formAction} hidden>
+                <input type="hidden" name="return_to" value={dealHref} />
+                <input type="hidden" name="deal_id" value={dealId} />
+                <input type="hidden" name="payment_id" value={payment.payment_id} />
+                <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={remove.key} />
+              </form>
+            ) : null}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              {canUpdate ? (
+                <button
+                  type="submit"
+                  form={editFormId}
+                  className="iconbtn"
+                  disabled={busy}
+                  aria-disabled={busy}
+                  aria-label={copy(pageContract, "action.update_deal_payment.label")}
+                  title={copy(pageContract, "action.update_deal_payment.label")}
+                >
+                  <Save className="ic" aria-hidden="true" />
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button
+                  type="submit"
+                  form={deleteFormId}
+                  className="iconbtn"
+                  disabled={busy}
+                  aria-disabled={busy}
+                  aria-label={copy(pageContract, "action.delete_deal_payment.label")}
+                  title={copy(pageContract, "action.delete_deal_payment.label")}
+                >
+                  <Trash2 className="ic" aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+          </td>
+        ) : null}
+      </tr>
+      {refusal ? (
+        <tr>
+          <td colSpan={showActions ? 4 : 3}>
+            <div role="alert" className="note warn">
+              {refusal}
+            </div>
+          </td>
+        </tr>
+      ) : null}
     </>
   );
 }
