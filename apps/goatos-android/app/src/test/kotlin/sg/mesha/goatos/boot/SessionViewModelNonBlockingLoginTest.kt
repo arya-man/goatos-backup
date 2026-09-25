@@ -360,7 +360,7 @@ class SessionViewModelNonBlockingLoginTest {
         } as sg.mesha.goatos.core.data.sync.SyncRepository
     }
 
-    private fun TestScope.buildSwitchVm(
+    private suspend fun TestScope.buildSwitchVm(
         store: SessionStore,
         auth: OkFirebase,
         pending: Int,
@@ -380,7 +380,17 @@ class SessionViewModelNonBlockingLoginTest {
             SyncJobsScheduler { }, api, SessionRelauncher { },
             AuthSessionEventSender(api, backgroundScope),
             syncRepositoryWithPending(pending, storedPending),
-        ).also { it.ioDispatcher = StandardTestDispatcher(testScheduler) }
+        ).also {
+            it.ioDispatcher = StandardTestDispatcher(testScheduler)
+            // Let the flavor's cold-start session bring-up finish BEFORE the switch is exercised.
+            // In the dev flavor with a blank baked DEV_BEARER_TOKEN (land-main / CI builds), that
+            // bring-up correctly wipes a non-dev marker (logout + vendor signOut), which used to
+            // race the switch and look like "wiped before confirm". The account-switch confirm is
+            // flavor-independent, so re-open a signed-in session after startup has settled.
+            advanceUntilIdle()
+            if (store.currentToken().isNullOrBlank()) store.setBearerToken(FIREBASE_SESSION_MARKER)
+            auth.signedOut = false
+        }
     }
 
     private fun activeSessionTokenForFlavor(): String =
