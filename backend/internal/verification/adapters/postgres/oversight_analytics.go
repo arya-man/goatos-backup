@@ -117,12 +117,9 @@ type pendingModuleAgg struct {
 	age1, age3, age7, ageOver int
 }
 
-// oversightPendingByModule is the in-sample pending backlog per module with its oldest age and
-// age buckets. The bucket FILTERs are disjoint half-open ranges on the bare captured_at column, so
-// each row lands in exactly one bucket and verification_items_queue_idx / the pending indexes still
-// drive the read.
-func (r *Repository) oversightPendingByModule(ctx context.Context, tenantID string) ([]pendingModuleAgg, error) {
-	query, err := sqlbind.Bind(`
+// oversightPendingByModuleSQL is oversightPendingByModule's statement, named so the at-scale plan
+// test (TestOversightAnalyticsQueryPlanUsesIndexesAtScale) EXPLAINs exactly this text.
+var oversightPendingByModuleSQL = `
 SELECT vi.module,
        count(*),
        max(EXTRACT(EPOCH FROM (now() - vi.captured_at)) / 3600.0),
@@ -132,9 +129,16 @@ SELECT vi.module,
        count(*) FILTER (WHERE vi.captured_at <  now() - interval '7 days')
 FROM verification_items vi
 WHERE vi.tenant_id = $1::uuid AND vi.status = 'pending'
-  AND `+samplingInSampleSQL()+`
+  AND ` + samplingInSampleSQL() + `
 GROUP BY vi.module
-ORDER BY vi.module`, tenantID)
+ORDER BY vi.module`
+
+// oversightPendingByModule is the in-sample pending backlog per module with its oldest age and
+// age buckets. The bucket FILTERs are disjoint half-open ranges on the bare captured_at column, so
+// each row lands in exactly one bucket and verification_items_queue_idx / the pending indexes still
+// drive the read.
+func (r *Repository) oversightPendingByModule(ctx context.Context, tenantID string) ([]pendingModuleAgg, error) {
+	query, err := sqlbind.Bind(oversightPendingByModuleSQL, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +163,8 @@ type verdictWindowAgg struct {
 	approved30d, rejected30d int
 }
 
-// oversightVerdictWindows reads the 7-day throughput and the 30-day approve/reject split in one
-// pass over the 30-day human-verdict window (the 7-day figures are FILTERs of the same rows).
-func (r *Repository) oversightVerdictWindows(ctx context.Context, tenantID string) (verdictWindowAgg, error) {
-	var v verdictWindowAgg
-	err := r.pool.QueryRow(ctx, `
+// oversightVerdictWindowsSQL is oversightVerdictWindows' statement (plan-tested at scale).
+const oversightVerdictWindowsSQL = `
 SELECT
   count(*) FILTER (WHERE verified_at >= now() - interval '7 days'),
   count(DISTINCT date_trunc('day', verified_at AT TIME ZONE 'Asia/Kolkata')) FILTER (WHERE verified_at >= now() - interval '7 days'),
@@ -172,7 +173,13 @@ SELECT
 FROM verification_items
 WHERE tenant_id = $1::uuid AND verified_at IS NOT NULL
   AND auto_resolution IS NULL
-  AND verified_at >= now() - interval '30 days'`, tenantID).Scan(&v.verdicts7d, &v.activeDays7d, &v.approved30d, &v.rejected30d)
+  AND verified_at >= now() - interval '30 days'`
+
+// oversightVerdictWindows reads the 7-day throughput and the 30-day approve/reject split in one
+// pass over the 30-day human-verdict window (the 7-day figures are FILTERs of the same rows).
+func (r *Repository) oversightVerdictWindows(ctx context.Context, tenantID string) (verdictWindowAgg, error) {
+	var v verdictWindowAgg
+	err := r.pool.QueryRow(ctx, oversightVerdictWindowsSQL, tenantID).Scan(&v.verdicts7d, &v.activeDays7d, &v.approved30d, &v.rejected30d)
 	return v, err
 }
 
@@ -348,19 +355,8 @@ type verifierIntegrityAgg struct {
 	itemsTracked, watchedToEnd, verdictWithoutPlay int
 }
 
-// oversightIntegrity is 6b) the watch-integrity aggregate per verifier, over items THOSE verifiers decided in the same
-// 14-day window: items tracked (has any review-event telemetry), watched-to-end count
-// (WatchedFullThreshold-equivalent 90%+ position/duration), verdict-without-play count (a
-// verdict_recorded event with no preceding video_play for that item/actor). ONE grouped query,
-// bounded to items decided in the window via a join on verification_items, never a per-item or
-// per-verifier loop.
-//
-// It runs concurrently with oversightVerifierActivity rather than after it: its decided set is the
-// same (tenant, verified_by and verified_at NOT NULL, last 14 days) set, so when that read finds no
-// verifier this one returns no rows either, and its rows are only ever attached to verifiers the
-// activity read returned.
-func (r *Repository) oversightIntegrity(ctx context.Context, tenantID string) ([]verifierIntegrityAgg, error) {
-	rows, err := r.pool.Query(ctx, `
+// oversightIntegritySQL is oversightIntegrity's statement (plan-tested at scale).
+const oversightIntegritySQL = `
 -- projection-review: membership=verification_items with the verification_review_item_watch summary bounded to (item, actor=verifier) pairs in last 14 days; group_key=verified_by; join_cardinality=1:0..1 on the summary's (tenant_id, item_id, actor_id) primary key, so one row per (verified_by, item_id); pagination=one row per verifier; scope=tenant_id + 14-day window.
 WITH decided_items AS (
   SELECT item_id, verified_by
@@ -392,7 +388,21 @@ SELECT verified_by,
        ) AS watched_to_end,
        count(*) FILTER (WHERE NOT played) AS verdict_without_play
 FROM per_item
-GROUP BY verified_by`, tenantID)
+GROUP BY verified_by`
+
+// oversightIntegrity is 6b) the watch-integrity aggregate per verifier, over items THOSE verifiers decided in the same
+// 14-day window: items tracked (has any review-event telemetry), watched-to-end count
+// (WatchedFullThreshold-equivalent 90%+ position/duration), verdict-without-play count (a
+// verdict_recorded event with no preceding video_play for that item/actor). ONE grouped query,
+// bounded to items decided in the window via a join on verification_items, never a per-item or
+// per-verifier loop.
+//
+// It runs concurrently with oversightVerifierActivity rather than after it: its decided set is the
+// same (tenant, verified_by and verified_at NOT NULL, last 14 days) set, so when that read finds no
+// verifier this one returns no rows either, and its rows are only ever attached to verifiers the
+// activity read returned.
+func (r *Repository) oversightIntegrity(ctx context.Context, tenantID string) ([]verifierIntegrityAgg, error) {
+	rows, err := r.pool.Query(ctx, oversightIntegritySQL, tenantID)
 	if err != nil {
 		return nil, err
 	}

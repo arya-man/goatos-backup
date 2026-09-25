@@ -93,15 +93,18 @@ family AS (
 cells AS (
     SELECT park_id, feed_item_key, feed_day, SUM(kg) AS kg
     FROM (
-        SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
+        -- Each locked sheet's kg per item, already collapsed by the 000433 triggers
+        -- (feed_direction_issue_items.quantity_kg = SUM of that sheet's non-blocked cells of the
+        -- item): the same figure the raw-row SUM gave, without re-reading every sheet row the
+        -- tenant ever locked (a Seq Scan of the whole sheet table at scale).
+        SELECT i.park_id, t.feed_item_key, i.feed_day, SUM(t.quantity_kg) AS kg
         FROM feed_direction_issues i
-        JOIN feed_direction_issue_rows r
-          ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+        JOIN feed_direction_issue_items t
+          ON t.tenant_id = $1 AND t.feed_direction_issue_id = i.feed_direction_issue_id
         WHERE i.tenant_id = $1
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
           AND i.state = 'locked'
-          AND r.quantity_kg IS NOT NULL
-        GROUP BY i.park_id, r.feed_item_key, i.feed_day
+        GROUP BY i.park_id, t.feed_item_key, i.feed_day
         UNION ALL
         SELECT x.park_id, x.feed_item_key, x.feed_day, SUM(x.quantity_kg) AS kg
         FROM feed_effective_external_consumption x

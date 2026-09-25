@@ -264,7 +264,7 @@ ORDER BY feed_day`
 // STG, and the analytics integration tests through the triggers).
 const directedAnalyticsCombinedSQL = `
 WITH iss AS (
-    SELECT feed_direction_issue_id, feed_day
+    SELECT feed_direction_issue_id, feed_day, park_id
     FROM feed_direction_issues
     WHERE tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
@@ -292,12 +292,12 @@ issue_item AS (
 -- per-sheet sums above over-count them by SUM - MAX, which shared_excess subtracts. Nearly always
 -- empty, and then nothing below reads a raw sheet row.
 shared_pen AS (
-    SELECT i.feed_day, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key
+    SELECT i.feed_day, i.park_id, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key
     FROM iss i
     JOIN feed_direction_issue_pens p
       ON p.tenant_id = $1
      AND p.feed_direction_issue_id = i.feed_direction_issue_id
-    GROUP BY i.feed_day, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key
+    GROUP BY i.feed_day, i.park_id, p.shed_id, p.partition_key, p.shed_tag_key, p.breed_key
     HAVING COUNT(*) > 1
 ),
 shared_excess AS (
@@ -311,7 +311,9 @@ shared_excess AS (
         -- partition) reaches just that pen's cells, so this never scans the window's sheet rows.
         SELECT s.feed_day, s.shed_id, s.partition_key, s.shed_tag_key, s.breed_key, x.feed_item_key, x.heads
         FROM shared_pen s
-        JOIN iss i ON i.feed_day = s.feed_day
+        -- Only the sharing park's sheets of that day: a pen belongs to one park, so another
+        -- park's sheet can never hold it and probing it was wasted work.
+        JOIN iss i ON i.feed_day = s.feed_day AND i.park_id = s.park_id
         CROSS JOIN LATERAL (
             SELECT r.feed_item_key, MAX(r.head_count) AS heads
             FROM feed_direction_issue_rows r
