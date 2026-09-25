@@ -152,6 +152,21 @@ export function SalesRecordDrawer({
   const [buyerPlace, setBuyerPlace] = useState("");
   const [recordError, setRecordError] = useState<{ code: string; message: string } | null>(null);
   const [recordPending, setRecordPending] = useState(false);
+  // A REF as well as the state: two clicks in one frame both see the render's `recordPending`
+  // (false), so only a ref read at the click can refuse the second one.
+  const recordPendingRef = useRef(false);
+  // The sale's idempotency key belongs to the FORM, like a receipt's (payment-idempotency.ts):
+  // minted when the form opens, carried by every submit of it, and rotated once an attempt
+  // settles -- so a double click is one sale and a deliberate second sale is a new key.
+  const [saleKey, setSaleKey] = useState(mintPaymentKey);
+  // The short-stock tick confirms the feed on screen WHEN it was ticked. Controlled, and cleared
+  // whenever a line or the farm changes: an uncontrolled box stayed ticked after the quantity went
+  // up, and the backend (which trusts the tick) recorded the bigger sale unasked.
+  const [stockAck, setStockAck] = useState(false);
+  const changeLines = (next: SaleLineDraft[]) => {
+    setLines(next);
+    setStockAck(false);
+  };
   const [syncedSelection, setSyncedSelection] = useState(selection);
   if (syncedSelection !== selection) {
     // Reset during render when the drawer opens on a different record, never in an effect -- an
@@ -159,6 +174,8 @@ export function SalesRecordDrawer({
     setSyncedSelection(selection);
     setRecordError(null);
     setLines([newSaleLine(1, products[0]?.name ?? "")]);
+    setStockAck(false);
+    setSaleKey(mintPaymentKey());
     setVendorId("");
     setVendorQuery("");
     setBuyerName("");
@@ -288,7 +305,8 @@ export function SalesRecordDrawer({
         {isAdding ? (
           <form onSubmit={async (event) => {
             event.preventDefault();
-            if (recordPending) return;
+            if (recordPendingRef.current) return;
+            recordPendingRef.current = true;
             const data = new FormData(event.currentTarget);
             setRecordPending(true);
             setRecordError(null);
@@ -296,12 +314,17 @@ export function SalesRecordDrawer({
               const result = await recordSaleAction(data);
               setRecordError(result ?? null);
             } finally {
+              recordPendingRef.current = false;
               setRecordPending(false);
+              // The attempt settled (a refusal came back; a save redirects and remounts anyway):
+              // the next submit is a new intent with a new key.
+              setSaleKey(mintPaymentKey());
             }
           }} style={{ display: "contents" }}>
             <div className="dc">
               {/* Refusals return in place, preserving controlled and native form fields. */}
               <input type="hidden" name="return_to" value={listHref} />
+              <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={saleKey} />
 
               {recordError && recordError.code !== "feed_stock_confirmation_required" ? <div role="alert" className="note warn">{recordError.message}</div> : null}
               <div className="note">{copy(pageContract, "required.hint")}</div>
@@ -327,7 +350,7 @@ export function SalesRecordDrawer({
               </div>
               <div className="fld">
                 <label htmlFor="s-farm">{field("farm")}</label>
-                <select id="s-farm" name="farm" required defaultValue="">
+                <select id="s-farm" name="farm" required defaultValue="" onChange={() => setStockAck(false)}>
                   <option value="" disabled>
                     —
                   </option>
@@ -340,7 +363,7 @@ export function SalesRecordDrawer({
               </div>
               <SaleLinesEditor
                 lines={lines}
-                onChange={setLines}
+                onChange={changeLines}
                 pageContract={pageContract}
                 products={products}
                 variants={variants}
@@ -357,6 +380,8 @@ export function SalesRecordDrawer({
                       name="stock_shortfall_acknowledged"
                       type="checkbox"
                       value="1"
+                      checked={stockAck}
+                      onChange={(event) => setStockAck(event.target.checked)}
                     />{" "}
                     {copy(pageContract, "field.stock_shortfall_ack")}
                   </label>

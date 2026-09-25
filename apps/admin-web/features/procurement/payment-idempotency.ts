@@ -1,4 +1,5 @@
-// The idempotency key of one receipt write (record / edit / remove a deal payment).
+// The idempotency key of one sales form write: a sale (record-sale drawer) or a receipt (record /
+// edit / remove a deal payment).
 //
 // THE KEY BELONGS TO THE FORM, NOT TO THE SUBMIT (defect 2026-09-25). It used to be minted inside
 // the Server Action on every call, so a double click on "Record payment" posted twice with two

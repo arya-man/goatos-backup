@@ -2,7 +2,6 @@
 
 // Write flow for the sales board's record-sale drawer. The backend response (or its error
 // envelope) drives the banner the operator sees — no optimistic success.
-import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
   actionRedirect,
@@ -100,9 +99,9 @@ function readSaleForm(formData: FormData): SalesDealWrite {
 }
 
 export async function recordSaleAction(formData: FormData): Promise<{ code: string; message: string } | undefined> {
-  // A fresh key per submit: retries of THIS action invocation cannot duplicate the deal, while a
-  // deliberate second submit records a second deal, which is what the operator asked for.
-  const result = await createSalesDeal(readSaleForm(formData), randomUUID());
+  // The FORM's key (payment-idempotency.ts): minted when the record-sale form opens, so a double
+  // click posts one key twice and the backend replays the first sale instead of recording two.
+  const result = await createSalesDeal(readSaleForm(formData), paymentIdempotencyKey(formData));
   if (!result.ok) {
     // The short-feed-sale CONFIRMATION (maintainer decision 2026-09-23) is not a failure: the sale
     // may be right and the purchase ledger behind. Keyed on the backend's CODE, never on its

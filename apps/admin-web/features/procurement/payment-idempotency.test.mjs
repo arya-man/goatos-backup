@@ -111,8 +111,8 @@ test("the key holds while the form's outcome holds, and moves when it moves", ()
 });
 
 test("every payment form is rendered with its key and cannot be submitted while in flight", () => {
-  // Record, edit and remove each carry the hidden key field.
-  assert.equal((drawerSource.match(/name=\{PAYMENT_IDEMPOTENCY_FIELD\}/g) ?? []).length, 3);
+  // Record, edit and remove each carry the hidden key field -- and so does the record-sale form.
+  assert.equal((drawerSource.match(/name=\{PAYMENT_IDEMPOTENCY_FIELD\}/g) ?? []).length, 4);
   assert.match(drawerSource, /usePaymentFormAction\(recordSalesDealPaymentAction/);
   assert.match(drawerSource, /usePaymentFormAction\(\s*updateSalesDealPaymentAction/);
   assert.match(drawerSource, /usePaymentFormAction\(deleteSalesDealPaymentAction/);
