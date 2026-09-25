@@ -198,3 +198,18 @@ Machine RAM snapshot that motivated steps 2-4: 32 GB total, 20.2 of 21.5 GB swap
 
 ### Step 4: land-main-batch dropped
 Dropped at the maintainer's request, so nothing custom was built. Landings queue on the free self-hosted runner instead: `.github/workflows/land.yml`, run with `gh workflow run land -R vgoats/goatos -f pr=<n>`. The single runner runs one job at a time, so GitHub queues landings FIFO, and each job runs the normal `make land-main`. To land several PRs together, combine them into one PR and land it once.
+
+## Judge round 4 (PR comments 5824815253, 5825036310)
+
+| # | Finding | Fix | Commit |
+|---|---|---|---|
+| 1 | HIGH: grafana-durability-guard removed while `infra/grafana/{dashboards,provisioning}` still feed `infra/envs/stg/observability.tf` | New `grafana-provisioning-guard` (`tools/ci/check-grafana-provisioning.mjs`): dashboards parse with uid+title, Terraform keeps the provisioning files and dashboards fileset wired, STG deploy scripts never read `infra/grafana`. Adversarial self-test; registered in manifest, `make guardrails`, `run-local-ci.sh` common. | ba20e302f |
+| 2 | HIGH: land.yml closed PRs instead of the PR Review + Land Main Rule | After land-main: origin/main verified to contain HEAD; each PR head ref force-with-lease moved to the landed SHA (same repo only) so GitHub marks it Merged; closed with a reason only if that push is refused; state reported per PR. | 74b054f3b |
+| 3 | MED: land.yml trust | `permissions: contents: read, pull-requests: write`; fork PRs refused (`isCrossRepository=false`, owner `vgoats`); preflight + ai-setup run from a `main` checkout before any PR code is fetched. land-main rebases, which keeps each commit's AUTHOR; `git config user.*` is only the committer (documented in the workflow). | 74b054f3b |
+| 4 | MED: init lock waits forever | Timeout (default 45 min; `GOATOS_GRADLE_MACHINE_LOCK_TIMEOUT_MIN` or `-Pgoatos.machineLockTimeoutMin`) fails the build naming the holder, never kills it; waiting logged every 60s. Known limit: on a configuration-cache hit the lock is taken at the first task-completion event, where a timeout is logged but may not fail the build. | c4b997b70 |
+| 5 | MED: user-level `org.gradle.java.home` forces JDK 21 on all projects | Kept on purpose (maintainer: Java 21 only, machine-wide); documented in the script header and as a comment inside the managed block. | 0c6ab2619 |
+| 6 | MED: GRADLE_USER_HOME reset breaks sandboxes | Reset only when `$HOME/.gradle` is writable (or creatable); otherwise keep the private home with a warning. Test added. | 0c6ab2619 |
+| 7 | LOW: gradle-home test inherits `GOATOS_ALLOW_PRIVATE_GRADLE_HOME` | `env -u` in the test helpers. | 0c6ab2619 |
+| 8 | Multi-PR landing | `land.yml` input `prs` (space/comma list; `pr` still works): PRs merged in order onto a branch from origin/main (conflict fails naming the PR), one `make land-main`, each PR resolved per item 2. AGENTS.md: `gh workflow run land -f prs='x y z'`. | 74b054f3b |
+| 9 | Nits | m1-local-ci jobs use `[self-hosted, macOS, ARM64, goatos-local-ci]`. Rollout: the self-hosted runner image must be REBUILT because Alloy was removed from it. | 74b054f3b |
+| 10 | Run the two Postgres query-plan steps concurrently | FOLLOW-UP, not done: `validate-sqlc-plans`'s Docker fallback uses a fixed container/db name, so two concurrent plan runs can collide. Needs per-run scratch names first. | — |
