@@ -357,15 +357,15 @@ func topBar() domain.TopBarContract {
 		},
 		ParkSelector: domain.TopBarControl{
 			Label: "Park scope", Enabled: true,
-			Hint:    "Pen scope: all pens — per-pen filtering is intentionally not wired in this slice yet.",
+			Hint:    "Every pen of the chosen park is shown.",
 			Options: []domain.TopBarOption{},
 		},
 		DateRangeSelector: domain.TopBarControl{
 			Label: "Showing data for", Enabled: true,
 			Hint: "Select the Goat OS business date used by the current page. Actions shows verification evidence for that day.",
 			Options: []domain.TopBarOption{
-				{Key: "last_7_days", Label: "Last 7 days", Enabled: false, DisabledReason: "Backend range filtering is not defined for the current process-integrity slice."},
-				{Key: "last_30_days", Label: "Last 30 days", Enabled: false, DisabledReason: "Backend range filtering is not defined for the current process-integrity slice."},
+				{Key: "last_7_days", Label: "Last 7 days", Enabled: false, DisabledReason: "This page shows one day at a time."},
+				{Key: "last_30_days", Label: "Last 30 days", Enabled: false, DisabledReason: "This page shows one day at a time."},
 			},
 		},
 		// The bell is LIVE (in-app notification centre + browser push ride this slot), so the
@@ -374,7 +374,7 @@ func topBar() domain.TopBarContract {
 		// used to say "Notifications are not wired in this admin-web slice yet." while the bell
 		// opened a working panel (gate-1 #5).
 		Notifications: domain.TopBarControl{Label: "Notifications", Enabled: true, DisabledReason: "", Options: []domain.TopBarOption{}},
-		RolePreview:   domain.RolePreviewActor{DisplayName: "Signed-in CEO/CXO", Initials: "CX", Subtitle: "Role and park scope resolved by backend RBAC"},
+		RolePreview:   domain.RolePreviewActor{DisplayName: "Signed-in CEO/CXO", Initials: "CX", Subtitle: "Access is set on People / HRMS"},
 	}
 }
 
@@ -2619,6 +2619,24 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.option_value":      "Value",
 			"field.option_label":      "Label",
 			"filter.park.all":         "All parks",
+			// The redesigned drawer (maintainer report 2026-09-26: the assigning part was the worst
+			// of it). Numbered steps, a line naming everyone the chosen roles reach, a pen search.
+			"section.details":        "Details",
+			"section.capture":        "What to record",
+			"summary.goes_to":        "Goes to {names}",
+			"summary.no_roles":       "Pick at least one role. Until then nobody gets this routine.",
+			"summary.no_holders":     "Nobody holds the chosen roles for this park yet, so nobody would get it.",
+			"count.pens_occupied":    "{occupied} of {total} pens have animals",
+			"count.pens_chosen":      "{chosen} of {total} chosen",
+			"filter.pens_search":     "Find a pen",
+			"action.select_all_pens": "Select all",
+			"action.clear_pens":      "Clear",
+			"label.pen_empty":        "No animals",
+			"empty.pens_search":      "No pen matches that name.",
+			"action.retire.keep":     "Keep it",
+			"date.previous_month":    "Previous month",
+			"date.next_month":        "Next month",
+			"date.invalid":           "Pick a date on or after {date}.",
 		}
 	case "configuration-items":
 		return map[string]string{

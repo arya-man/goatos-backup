@@ -2505,22 +2505,23 @@ func roleInitials(role string) string {
 }
 
 func scopeSummary(grants []permissions.ActiveGrant, parkCount int) string {
+	// Visible under the signed-in person's name on every page, so it is farm wording: which parks
+	// this person sees, never the RBAC terms ("tenant scope") the grant is stored under.
 	if len(grants) == 0 {
-		return "Role and park scope resolved by backend RBAC"
+		return "Access is set on People / HRMS"
 	}
 	for _, grant := range grants {
 		if grant.ScopeType == "tenant" {
-			if parkCount > 0 {
-				label := "active parks"
-				if parkCount == 1 {
-					label = "active park"
-				}
-				return fmt.Sprintf("tenant scope · %d %s", parkCount, label)
+			switch {
+			case parkCount == 1:
+				return "All parks · 1 park"
+			case parkCount > 1:
+				return fmt.Sprintf("All parks · %d parks", parkCount)
 			}
-			return "tenant scope"
+			return "All parks"
 		}
 	}
-	return "assigned scoped access"
+	return "Your parks"
 }
 
 func permissionsForNav(id string) []string {

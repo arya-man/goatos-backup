@@ -328,6 +328,9 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "leave-approved", path: "/leave?scope_mode=company&status=approved" },
     { name: "leave-rejected", path: "/leave?scope_mode=company&status=rejected" },
     { name: "leave-withdrawn", path: "/leave?scope_mode=company&status=withdrawn" },
+    // The routine drawer is the page's whole authoring surface (and where the phone-390 defects
+    // were: stretched checkboxes, Save off-screen); open it, not just the list behind it.
+    { name: "routines-create-drawer", path: "/routines?scope_mode=company&edit=new" },
     { name: "tasks", path: "/tasks?scope_mode=company" },
     { name: "tasks-list", path: "/tasks?scope_mode=company&t_view=list" },
     { name: "tasks-overdue", path: "/tasks?scope_mode=company&filter=overdue" },
