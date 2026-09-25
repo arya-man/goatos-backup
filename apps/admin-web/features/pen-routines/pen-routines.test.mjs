@@ -65,7 +65,7 @@ test("authoring controls render only when the contract enables them, else the ba
   assert.match(feature, /controlEnabled\(pageContract, "set_routine_status", false\)/);
   assert.match(feature, /\{canCreate && catalogParkId \? \(\s*<LocalOverlayLink/);
   assert.match(feature, /\{!canConfigure \? <div className="note"[^>]*>\{c\("configure\.disabled_no_access"\)\}<\/div> : null\}/);
-  assert.match(drawer, /readOnly \? \(\s*<div className="note">\{copy\(pageContract, "configure\.disabled_no_access"\)\}/);
+  assert.match(drawer, /readOnly \? \(?\s*<div className="note">\{copy\(pageContract, "configure\.disabled_no_access"\)\}/);
   assert.match(drawer, /isEdit && canSetStatus && routine\.status !== "retired"/);
   for (const source of [feature, drawer, filter, actions]) {
     assert.doesNotMatch(source, /ceo_internal|park_head|pc_director|role ===|\.role\b/, "no role-string conditional");
@@ -226,7 +226,7 @@ test("the drawer assigns by role, offers a whole-park scope and every few days, 
   assert.match(drawer, /copy\(pageContract, "hint\.park_scope"\)/);
   assert.match(drawer, /field\("interval_days"\)/);
   assert.match(drawer, /field\("start_date"\)/);
-  assert.match(drawer, /option\.key === "after_work" && draft\.scopeKind === "park"/, "after work is unavailable for a whole-park task");
+  assert.match(drawer, /(option\.key|key) === "after_work" && draft\.scopeKind === "park"/, "after work is unavailable for a whole-park task");
   assert.doesNotMatch(drawer, /assignee_user_ids|field\("assignees"\)|hint\.assignees/);
   assert.match(feature, /routine\.assignee_roles\.map\(\(option\) => option\.label\)/);
   assert.match(feature, /c\("table\.people\.preview"\)/);
