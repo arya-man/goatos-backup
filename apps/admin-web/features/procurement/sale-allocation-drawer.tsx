@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTran
 import { LOCAL_OVERLAY_URL_CHANGE_EVENT, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { fmtDate } from "@/lib/format";
 import type { SaleAllocationPreviewResponse, SaleCandidate } from "@/lib/api/server";
 import type { SalesDeal } from "@/lib/api/procurement";
 import {
@@ -554,7 +555,8 @@ function dealOptionLabel(deal: SalesDeal): string {
   ]
     .filter(Boolean)
     .join(" · ");
-  return [deal.sale_date, who, what].filter(Boolean).join("  —  ");
+  // DD/MM/YYYY like every visible date (2026-09-10 lock); the ISO sale_date is wire format.
+  return [deal.sale_date ? fmtDate(deal.sale_date) : "", who, what].filter(Boolean).join("  —  ");
 }
 
 /**

@@ -15,3 +15,19 @@ export function readBypassesShortCache(marker: string | undefined, nowMs: number
   // |age| bounds a skewed-clock marker from the future to the same window.
   return Math.abs(nowMs - writtenAt) <= WRITE_MARKER_WINDOW_MS;
 }
+
+// POSTs that WRITE NOTHING: a dry-run preview whose body is too large or too structured for a
+// query string. They must not clear the read caches or stamp the marker cookie -- setting a cookie
+// from a server action makes Next re-render the route, and that re-render pushes the router's own
+// URL, dropping the ?tag_sale= param a LocalOverlay drawer lives on. "Tag animals to sale" closed
+// itself the moment its Review step loaded (2026-09-25), so no animal could be tagged from the web.
+// Keyed by exact backend path; add one only after checking its handler writes nothing.
+export const READ_ONLY_BACKEND_POSTS: ReadonlySet<string> = new Set([
+  "/admin/goats/sale-allocations/preview",
+]);
+
+export function isBackendWrite(method: string, pathname: string): boolean {
+  const verb = method.toUpperCase();
+  if (verb === "GET" || verb === "HEAD") return false;
+  return !(verb === "POST" && READ_ONLY_BACKEND_POSTS.has(pathname));
+}
