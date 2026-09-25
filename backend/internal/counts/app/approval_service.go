@@ -12,8 +12,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
-	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 var (
@@ -236,6 +236,71 @@ func approvalRaisedRange(from, to string) (*time.Time, *time.Time, error) {
 	return start, before, nil
 }
 
+// requestInCallerScope is the ONE farm-scope rule for a single request, shared by Decide and
+// GetForCaller so reading and deciding can never disagree. A tenant-scoped caller (no parks) sees
+// every farm. A park-scoped caller sees a request only when its farm is one of THEIR parks: a pen
+// move's destination_park_id (== source park by P0-1), a birth's park_id, a death's subject animal
+// (goats.park_id, the indexed authority read). Fail CLOSED: a farm we cannot prove is out of scope.
+//
+// Live E2E 2026-09-11 found both named approvers (park_head in BOTH parks) refused on every
+// decision: the scope was ONE park (the first grant), births were denied to any scoped caller on
+// the wrong premise that a birth carries no park, and the refusal surfaced as a 500.
+func (s *ApprovalService) requestInCallerScope(ctx context.Context, req domain.ApprovalRequest, callerParkIDs []string) bool {
+	if len(callerParkIDs) == 0 {
+		return true
+	}
+	requestPark := ""
+	switch req.RequestType {
+	case domain.ApprovalRequestTypeShifting:
+		var shiftPayload shiftingApprovalPayload
+		if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &shiftPayload) == nil {
+			requestPark = strings.TrimSpace(shiftPayload.DestinationParkID)
+		}
+	case domain.ApprovalRequestTypeBirth:
+		var birthPayload struct {
+			ParkID string `json:"park_id"`
+		}
+		if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &birthPayload) == nil {
+			requestPark = strings.TrimSpace(birthPayload.ParkID)
+		}
+	case domain.ApprovalRequestTypeDeath:
+		if req.SubjectGoatID != nil && *req.SubjectGoatID != "" {
+			if reader, ok := s.repo.(approvalSubjectParkReader); ok {
+				if parkID, err := reader.ApprovalSubjectPark(ctx, req.TenantID, *req.SubjectGoatID); err == nil {
+					requestPark = strings.TrimSpace(parkID)
+				}
+			}
+		}
+	}
+	return requestPark != "" && containsString(callerParkIDs, requestPark)
+}
+
+// GetForCaller reads ONE request for a caller, whatever its status or place in the queue, so a
+// link to it (a Work Board row, a bookmark) opens it even when it is older than the first page
+// (maintainer 2026-09-25). It applies exactly the list's authority: a type the caller may not
+// decide, or a farm outside their scope, reads as NOT FOUND -- the request's existence is not
+// disclosed -- and a malformed id is refused.
+func (s *ApprovalService) GetForCaller(ctx context.Context, tenantID, approvalRequestID string, decidableTypes, callerParkIDs []string) (domain.ApprovalRequestSummary, error) {
+	approvalRequestID = strings.ToLower(strings.TrimSpace(approvalRequestID))
+	if strings.TrimSpace(tenantID) == "" || !uuidutil.IsUUIDString(approvalRequestID) {
+		return domain.ApprovalRequestSummary{}, ErrInvalidExceptionFilter
+	}
+	req, err := s.repo.GetApprovalRequest(ctx, tenantID, approvalRequestID)
+	if err != nil {
+		return domain.ApprovalRequestSummary{}, err
+	}
+	if !containsString(decidableTypes, req.RequestType) || !s.requestInCallerScope(ctx, req, callerParkIDs) {
+		return domain.ApprovalRequestSummary{}, ports.ErrApprovalRequestNotFound
+	}
+	return domain.ApprovalRequestSummary{
+		ApprovalRequestID: req.ApprovalRequestID, RequestType: req.RequestType, Status: req.Status,
+		RaisedByUserID: req.RaisedByUserID, RaisedAt: req.RaisedAt,
+		ShiftingEventID: req.ShiftingEventID, SubjectGoatID: req.SubjectGoatID, Summary: req.Payload,
+		DecidedByUserID: req.DecidedByUserID, DecidedAt: req.DecidedAt, DecisionReason: req.DecisionReason,
+		Capture: req.Capture, CaptureReviewStatus: req.CaptureReviewStatus, CaptureReviewReason: req.CaptureReviewReason,
+	}, nil
+}
+
 // CountPending is the number of PENDING requests this caller may decide -- the same decidable
 // types and park scope the list applies, over the whole queue (never a page). It answers the
 // phone's Approvals badge, so the badge equals what the queue lists.
@@ -315,33 +380,8 @@ func (s *ApprovalService) Decide(ctx context.Context, in DecisionInput) (domain.
 	// Live E2E 2026-09-11 found both named approvers (park_head in BOTH parks) refused on every
 	// decision: the scope was ONE park (the first grant), births were denied to any scoped
 	// caller on the wrong premise that a birth carries no park, and the refusal surfaced as a 500.
-	if len(in.CallerParkIDs) > 0 {
-		requestPark := ""
-		switch req.RequestType {
-		case domain.ApprovalRequestTypeShifting:
-			var shiftPayload shiftingApprovalPayload
-			if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &shiftPayload) == nil {
-				requestPark = strings.TrimSpace(shiftPayload.DestinationParkID)
-			}
-		case domain.ApprovalRequestTypeBirth:
-			var birthPayload struct {
-				ParkID string `json:"park_id"`
-			}
-			if len(req.Payload) > 0 && json.Unmarshal(req.Payload, &birthPayload) == nil {
-				requestPark = strings.TrimSpace(birthPayload.ParkID)
-			}
-		case domain.ApprovalRequestTypeDeath:
-			if req.SubjectGoatID != nil && *req.SubjectGoatID != "" {
-				if reader, ok := s.repo.(approvalSubjectParkReader); ok {
-					if parkID, err := reader.ApprovalSubjectPark(ctx, req.TenantID, *req.SubjectGoatID); err == nil {
-						requestPark = strings.TrimSpace(parkID)
-					}
-				}
-			}
-		}
-		if requestPark == "" || !containsString(in.CallerParkIDs, requestPark) {
-			return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
-		}
+	if !s.requestInCallerScope(ctx, req, in.CallerParkIDs) {
+		return domain.ApprovalRequest{}, false, ErrApprovalForbiddenScope
 	}
 
 	decision := domain.ApprovalDecision{

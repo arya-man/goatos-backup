@@ -150,3 +150,10 @@ test("calendar filter: the page sends the dates to the server and the filter cle
   const filter = readFileSync(new URL("./approvals-date-filter.tsx", import.meta.url), "utf8");
   assert.match(filter, /"ap_cursor"/, "a new date range must drop the page cursor (the server binds it to the filter)");
 });
+
+test("a link to a request that is not on this page still opens its drawer (read on its own)", () => {
+  const page = readFileSync(new URL("./approvals-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /getAdminWebApproval\(selectedId/);
+  assert.match(page, /items=\{drawerItems\}/);
+  assert.match(page, /justDecided/, "a just-decided row must not be re-read into a reopened drawer");
+});

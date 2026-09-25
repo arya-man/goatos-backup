@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -161,5 +162,72 @@ func TestApprovalListRaisedDateRangeIsIndiaDaysAndRefusesBadDates(t *testing.T) 
 				t.Fatalf("%s%s: status=%d body=%s, want 400 invalid_date_range", route, bad, rec.Code, rec.Body.String())
 			}
 		}
+	}
+}
+
+// getRepo serves one stored request (and a death's animal park) for the single-request read.
+type getRepo struct {
+	recordingApprovalRepo
+	req       domain.ApprovalRequest
+	goatParks map[string]string
+}
+
+func (r *getRepo) GetApprovalRequest(_ context.Context, _, id string) (domain.ApprovalRequest, error) {
+	if id != r.req.ApprovalRequestID {
+		return domain.ApprovalRequest{}, ports.ErrApprovalRequestNotFound
+	}
+	return r.req, nil
+}
+
+func (r *getRepo) ApprovalSubjectPark(_ context.Context, _, goatID string) (string, error) {
+	if p, ok := r.goatParks[goatID]; ok {
+		return p, nil
+	}
+	return "", ports.ErrGoatNotFound
+}
+
+func (w *realApprovalWorkflow) GetForCaller(ctx context.Context, tenantID, id string, types, parks []string) (domain.ApprovalRequestSummary, error) {
+	return w.svc.GetForCaller(ctx, tenantID, id, types, parks)
+}
+
+// A link to ONE request (a Work Board row, a bookmark) must open it even when it is older than the
+// first page of 20 (maintainer 2026-09-25). The single read applies exactly the list's authority:
+// a type the caller may not decide, or a farm outside their scope, reads as not found -- never as
+// the request -- and a malformed id is refused.
+func TestApprovalSingleReadOpensAnyRequestTheCallerMayDecide(t *testing.T) {
+	const cbe, cpt = "00000000-0000-4000-8000-000000003001", "00000000-0000-4000-8000-000000003002"
+	const reqID = "11111111-2222-4333-8444-555555555555"
+	repo := &getRepo{req: domain.ApprovalRequest{
+		ApprovalRequestID: reqID, RequestType: domain.ApprovalRequestTypeShifting, Status: domain.ApprovalStatusPending,
+		RaisedByUserID: testActorID, RaisedAt: time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC),
+		Payload: json.RawMessage(`{"destination_park_id":"` + cbe + `","goat_ids":["g1"]}`),
+	}}
+	approvals := &realApprovalWorkflow{fakeApprovalWorkflow: newFakeApprovalWorkflow(), svc: countsapp.NewApprovalService(repo, nil, nil)}
+	mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, newFakeGoatValidator())
+	RegisterAdminWebApprovals(mux, handlersByMux[mux])
+	get := func(id string, grant permissions.ActiveGrant) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, adminWebApprovalsRoute+"/"+id, nil)
+		ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), testTenantID), testActorID)
+		ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{grant})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req.WithContext(ctx))
+		return rec
+	}
+	tenant := permissions.ActiveGrant{Role: permissions.RoleCountsApprover, ScopeType: "tenant"}
+	rec := get(reqID, tenant)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), reqID) || !strings.Contains(rec.Body.String(), `"request_type":"shifting"`) {
+		t.Fatalf("tenant approver: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := get(reqID, permissions.ActiveGrant{Role: permissions.RoleCountsApprover, ScopeType: "park", ScopeID: cbe}); rec.Code != http.StatusOK {
+		t.Fatalf("approver of the request's own farm: status=%d", rec.Code)
+	}
+	if rec := get(reqID, permissions.ActiveGrant{Role: permissions.RoleCountsApprover, ScopeType: "park", ScopeID: cpt}); rec.Code != http.StatusNotFound {
+		t.Fatalf("approver of ANOTHER farm must read not found, got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := get("99999999-2222-4333-8444-555555555555", tenant); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown id: status=%d", rec.Code)
+	}
+	if rec := get("not-a-uuid", tenant); rec.Code != http.StatusBadRequest && rec.Code != http.StatusNotFound {
+		t.Fatalf("malformed id: status=%d", rec.Code)
 	}
 }

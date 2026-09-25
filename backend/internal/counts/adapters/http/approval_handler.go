@@ -49,6 +49,7 @@ const (
 	// CountsApproveAccess -- held by the four org tiers + admin + ceo_internal + counts_approver,
 	// not park_head.
 	adminWebApprovalsRoute       = "/admin-web/counts/approvals"
+	adminWebApprovalRoute        = "/admin-web/counts/approvals/{request_id}"
 	adminWebApprovalApproveRoute = "/admin-web/counts/approvals/{request_id}/approve"
 	adminWebApprovalRejectRoute  = "/admin-web/counts/approvals/{request_id}/reject"
 
@@ -68,6 +69,11 @@ type ApprovalWorkflow interface {
 type filteredApprovalLister interface {
 	ListFiltered(ctx context.Context, tenantID, status string, decidableTypes, callerParkIDs []string,
 		filter domain.ApprovalListFilter, pageSize int, cursor string) (domain.ApprovalRequestPage, error)
+}
+
+// singleApprovalReader is the optional one-request read (counts/app.ApprovalService implements it).
+type singleApprovalReader interface {
+	GetForCaller(ctx context.Context, tenantID, approvalRequestID string, decidableTypes, callerParkIDs []string) (domain.ApprovalRequestSummary, error)
 }
 
 // RegisterApprovals wires the mobile/app approval decision surface.
@@ -98,6 +104,7 @@ func approvalPageSize(w http.ResponseWriter, r *http.Request, h *AppWriteHandler
 // session middleware; only the telemetry route/command labels differ.
 func RegisterAdminWebApprovals(mux *http.ServeMux, h *AppWriteHandler) {
 	mux.HandleFunc("GET "+adminWebApprovalsRoute, h.ListApprovals)
+	mux.HandleFunc("GET "+adminWebApprovalRoute, h.GetApproval)
 	mux.HandleFunc("POST "+adminWebApprovalApproveRoute, h.ApproveRequestAdminWeb)
 	mux.HandleFunc("POST "+adminWebApprovalRejectRoute, h.RejectRequestAdminWeb)
 }
@@ -203,14 +210,22 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	items := h.approvalItems(r.Context(), tenantID, page.Items)
+	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})
+}
+
+// approvalItems renders summaries as the queue's list items: names resolved in one batched call
+// per entity kind (never per row), the backend-composed summary line, the capture card. The list
+// and the single-request read share it so an item reads the same wherever it is opened.
+func (h *AppWriteHandler) approvalItems(ctx context.Context, tenantID string, rows []domain.ApprovalRequestSummary) []appApprovalListItem {
 	// Names for the WHOLE page in one batched call per entity kind, before the render loop.
 	// Resolving inside the loop would be the banned N+1 fan-out: this page is capped at 20 rows,
 	// each naming a raiser and up to two sheds, so per-row lookups would turn one phone screen
 	// into dozens of serial reads (docs/decisions/scale-anti-patterns.md).
-	names := h.approvalNames(r.Context(), tenantID, page.Items)
+	names := h.approvalNames(ctx, tenantID, rows)
 
-	items := make([]appApprovalListItem, 0, len(page.Items))
-	for _, item := range page.Items {
+	items := make([]appApprovalListItem, 0, len(rows))
+	for _, item := range rows {
 		row := appApprovalListItem{
 			ApprovalRequestID: item.ApprovalRequestID,
 			RequestType:       item.RequestType,
@@ -245,7 +260,30 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		row.CaptureReviewReason = item.CaptureReviewReason
 		items = append(items, row)
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})
+	return items
+}
+
+// GetApproval serves GET /admin-web/counts/approvals/{request_id}: ONE request in the list's own
+// item shape, whatever its status or page, so a link to an older request still opens its drawer
+// (maintainer 2026-09-25). Authority is the list's: outside it reads 404, never the request.
+func (h *AppWriteHandler) GetApproval(w http.ResponseWriter, r *http.Request) {
+	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
+	if strings.TrimSpace(tenantID) == "" {
+		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "tenant context is required", nil)
+		return
+	}
+	reader, ok := h.approvals.(singleApprovalReader)
+	if !ok {
+		h.writeError(w, r, http.StatusNotImplemented, "approval_read_unavailable", "single approval read is not configured", nil)
+		return
+	}
+	decidable := permissions.DecidableApprovalRequestTypes(callerRoles(r))
+	item, err := reader.GetForCaller(r.Context(), tenantID, r.PathValue("request_id"), decidable, callerParkScope(r))
+	if err != nil {
+		h.writeApprovalError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, h.approvalItems(r.Context(), tenantID, []domain.ApprovalRequestSummary{item})[0])
 }
 
 // shiftingCaptureFromSummary lifts the raise snapshot a shifting request carries in its stored

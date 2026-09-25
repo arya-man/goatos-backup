@@ -6,6 +6,7 @@ import { Gavel } from "lucide-react";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import {
   firstAuthRequiredError,
+  getAdminWebApproval,
   listAdminWebApprovals,
   type AdminWebApprovalItem,
   type AdminWebApprovalRequestType,
@@ -67,6 +68,16 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const nextCursor = queue.ok ? queue.data.next_cursor ?? "" : "";
 
   const selectedId = one(sp, "ap_row");
+  // A link to a request that is not on this page (older than the first 20, or under another tab
+  // or filter -- a Work Board row, a bookmark) still opens its drawer: that one request is read on
+  // its own, under the same authority as the list (maintainer 2026-09-25). It opens the drawer only;
+  // the table keeps showing the page the reader is on.
+  // After a decision the redirect still names the decided row; its confirmation is the page-level
+  // banner, so that row is NOT re-read into a reopened drawer.
+  const justDecided = one(sp, "ap_status") === "success";
+  const onPage = !selectedId || justDecided || items.some((item) => item.approval_request_id === selectedId);
+  const linked = !onPage && UUID_RE.test(selectedId ?? "") ? await getAdminWebApproval(selectedId as string) : null;
+  const drawerItems = linked && linked.ok ? [...items, linked.data] : items;
   const feedback = { status: one(sp, "ap_status"), code: one(sp, "ap_code") };
   // A decided row leaves the Pending list on the redirect, so the drawer (which renders only a row
   // still in the list) can never carry the confirmation. It lives at page level instead.
@@ -232,7 +243,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
         ) : null}
       </section>
 
-      <ApprovalsDrawer items={items} initialSelectedId={selectedId} searchParams={sp} feedback={feedback} locationNames={locationNames} />
+      <ApprovalsDrawer items={drawerItems} initialSelectedId={selectedId} searchParams={sp} feedback={feedback} locationNames={locationNames} />
     </div>
   );
 }

@@ -699,6 +699,22 @@ coverage. Explicit documented exclusion — no coverage-matrix mapping required.
 
 | feed_direction_frozen_row_identity | func:RowKey | Explicit exclusion: internal feed-direction row reconstruction helper only; existing feed completion and verification reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: Approvals and Tasks review fixes (2026-09-25)
+
+The 25/09 Approvals + Tasks review (`fix/approvals-tasks-bugs`) adds behaviour fixes and plumbing
+behind reads that are ALREADY covered: the approvals queue (`GET /app/counts/approvals`, covered
+above through `counts_movement_daily`), Leadership Tasks and Pen Visits (both deliberately excluded
+above), and the Work Board (an operational lens over covered module reads). None of the names below
+introduces a new leadership KPI, table, Cube metric, `ceo_ai.*` view, MCP Toolbox tool or SQL
+fallback; each is a filter, a badge count equal to an existing list, a single-row read of an
+existing list's own item, an event consumer, or a pure display/validation helper. Explicit
+documented exclusion -- no coverage-matrix mapping required beyond these rows.
+
+| approvals_queue_filters_badge_single_read | GET /admin-web/counts/approvals/{request_id}, func:GetApproval, func:GetForCaller, func:ListFiltered, func:Key, func:CountPending, func:CountPendingApprovalRequests, func:NewApprovalsBadges, func:ModuleBadgeCounts, func:NavItemBadgeCounts | Explicit exclusion: the approvals queue's server-side type/farm/calendar filters, its phone badge (equal to the queue's own pending total) and the one-request read a link opens (the list's own item, under the list's authority). Every fact is the covered approvals queue / counts_movement_daily. |
+| approvals_summary_display | func:AnimalTag, func:ShiftTypeLabel, func:ShiftTypeMoveLabel | Explicit exclusion: display copy for the approver's summary line (the dead animal's tag, the human pen-move type); derives no fact. |
+| rejection_cleanup_consumers | func:NewBirthRejectedCaptureWithdrawHandler, func:NewCountsBirthRejectedHandler, func:HandleEvent, func:Register, func:WithdrawBirthCaptureVerification, func:WithdrawBirthStepVerification, func:RetireGoatRecordedInErrorInTx, func:CancelDeathWorkflowForGoat, func:CancelBirthWorkflowsForRejectedBirth, func:CancelRejectedBirthWorkflows, func:OpenReportedDeathWorkflow | Explicit exclusion: write-path consumers that clean up after a rejected birth/death report (cancel the operator workflows, withdraw pending verifier items, retire a rejected birth's kid through identity's normal exit) and reopen a death workflow for a new report. Herd counts they change are already covered by the herd/counts reads. |
+| tasks_and_visits_rules | func:ShowsCountdown, func:IsKnownFilterKey, func:OpensAfter, func:CanSubmitOn, func:CheckSubmit, func:Instruction, func:Error, func:Unwrap, func:Message | Explicit exclusion: pure Leadership Tasks / Pen Visits rules and typed errors (countdown visibility, filter-key validation, a pen visit opening on its planned day); both modules are already excluded above. |
+
 ## Explicit exclusion: feed follow-up day-window helpers (2026-09-23)
 
 `func:ResolveFeedFollowUpDay` and `func:AddBusinessDays`

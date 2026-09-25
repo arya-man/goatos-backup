@@ -6637,6 +6637,19 @@ export async function listAdminWebApprovals(
 }
 
 /**
+ * ONE approval request in the list's own item shape (GET /admin-web/counts/approvals/{id}),
+ * whatever its status or page: a link to an older request (a Work Board row, a bookmark) still
+ * opens its drawer. The server applies the list's authority; outside it the read is not found.
+ */
+export async function getAdminWebApproval(requestId: string): Promise<ApiResult<AdminWebApprovalItem>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/admin-web/counts/approvals/${encodeURIComponent(requestId)}` as keyof AppApiPaths & string;
+  return request(() => client.request<AdminWebApprovalItem>(path, { cache: "no-store" }));
+}
+
+/**
  * Approve or reject one request (POST /admin-web/counts/approvals/{id}/approve|reject). Carries the
  * mandatory Idempotency-Key so a retry cannot double-apply; the backend re-checks the caller's
  * authority against the request's STORED type, so an out-of-authority decision fails closed there.
