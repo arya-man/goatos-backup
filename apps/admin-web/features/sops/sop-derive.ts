@@ -259,7 +259,23 @@ export function deriveGates(formDsl: unknown, proofPolicy: unknown): string[] {
   if (Array.isArray(dsl?.["rules"]) && (dsl?.["rules"] as unknown[]).length > 0) {
     gates.push("Conditional rules");
   }
+  // A PC Care SOP carries its evidence on each kind of work's card (form_dsl.pc_care), not in
+  // proof_policy; without this its library card read "no proof gates" beside eleven videos.
+  const compulsory = pcCareCompulsoryCaptures(dsl);
+  if (compulsory > 0) gates.push(`${compulsory} compulsory capture${compulsory === 1 ? "" : "s"}`);
   return gates;
+}
+
+function pcCareCompulsoryCaptures(dsl: Json | null): number {
+  const categories = asObject(asObject(dsl?.["pc_care"])?.["categories"]);
+  if (!categories) return 0;
+  let count = 0;
+  for (const card of Object.values(categories)) {
+    const proofs = asObject(card)?.["proofs"];
+    if (!Array.isArray(proofs)) continue;
+    for (const proof of proofs) if (asBool(asObject(proof)?.["required"])) count++;
+  }
+  return count;
 }
 
 function proofPolicyTypes(policy: Json): string[] {
