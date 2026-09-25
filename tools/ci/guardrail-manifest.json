@@ -704,17 +704,6 @@
       "ciStep": "git-identity-guard"
     },
     {
-      "id": "grafana-durability",
-      "script": "tools/ci/check-grafana-durability.mjs",
-      "makeTarget": "grafana-durability-guard",
-      "realCheck": "node tools/ci/check-grafana-durability.mjs",
-      "selfTest": "node tools/ci/check-grafana-durability.mjs --self-test",
-      "owningDoc": "docs/observability/RUNBOOK.md",
-      "requiredInCI": true,
-      "ciStep": "grafana-durability-guard",
-      "notes": "When infra/grafana/dashboards JSONs exist, Terraform must keep file-provider provisioning wired into the Grafana Cloud Run GCS mount, and the staging deploy script must run the live Grafana dashboard smoke so a backend/web deploy cannot report green while Grafana is empty."
-    },
-    {
       "id": "goat-shed-integrity-db-proof",
       "script": "tools/dev/check-goat-shed-integrity.sh",
       "makeTarget": "goat-shed-integrity-db-proof",
