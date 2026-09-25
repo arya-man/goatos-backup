@@ -132,6 +132,11 @@ data class SaleDetailUiState(
      * nothing is waiting. Picking it from a dropdown used to write it on the spot.
      */
     val finalStatusPending: String = "",
+    /**
+     * Whether this person may change the sale (receipts, status). False hides those controls: the
+     * server refuses them without sales.write, and offering them only leads to a refused write.
+     */
+    val canEdit: Boolean = true,
     val isRefreshing: Boolean = false,
     val isLoading: Boolean = true,
     /** Loaded, and this phone holds no copy of the sale (not synced yet, or not in a loaded page). */

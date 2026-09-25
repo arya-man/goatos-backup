@@ -112,7 +112,7 @@ fun SaleDetailScreen(
             }
             item(key = "steps") { StepsCard(state, onEvent) }
             item(key = "money") { MoneyCard(state, onEvent) }
-            item(key = "status_edit") { StatusCard(state, onEvent) }
+            if (state.canEdit) item(key = "status_edit") { StatusCard(state, onEvent) }
             item(key = "tagged") { TaggedAnimalsCard(state) }
         }
         if (state.canTagAnimals) {
@@ -159,7 +159,7 @@ private fun MoneyCard(state: SaleDetailUiState, onEvent: (SaleDetailEvent) -> Un
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(MeshaDimens.radiusInput))
-                    .clickable(enabled = !state.editInFlight, role = Role.Button) { onEvent(SaleDetailEvent.OpenPayment(payment.paymentId)) }
+                    .clickable(enabled = state.canEdit && !state.editInFlight, role = Role.Button) { onEvent(SaleDetailEvent.OpenPayment(payment.paymentId)) }
                     .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -171,11 +171,13 @@ private fun MoneyCard(state: SaleDetailUiState, onEvent: (SaleDetailEvent) -> Un
                         Text(text = caption, color = MeshaColors.Muted, style = MeshaType.caption)
                     }
                 }
-                Text(text = EDIT_HINT, color = MeshaColors.BrandD, style = MeshaType.caption)
+                if (state.canEdit) Text(text = EDIT_HINT, color = MeshaColors.BrandD, style = MeshaType.caption)
             }
         }
         val editor = state.paymentEditor
-        if (editor == null) {
+        if (!state.canEdit) {
+            // Read-only: the receipts and the balance, and no way to change them.
+        } else if (editor == null) {
             Spacer(Modifier.height(2.dp))
             VendorsGhostButton(
                 label = ADD_PAYMENT,

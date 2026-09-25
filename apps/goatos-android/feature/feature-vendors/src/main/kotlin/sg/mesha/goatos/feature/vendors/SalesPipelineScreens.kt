@@ -214,7 +214,7 @@ private fun LeadCard(
                 VendorsChip(
                     label = card.statusLabel,
                     tone = card.statusTone,
-                    modifier = Modifier.clickable { onEvent(SalesLeadBoardEvent.OpenStatusPicker(card.leadId)) },
+                    modifier = Modifier.clickable(enabled = state.canRecord) { onEvent(SalesLeadBoardEvent.OpenStatusPicker(card.leadId)) },
                 )
             }
         }
@@ -245,7 +245,7 @@ private fun LeadCard(
             }
             card.details.forEach { row -> VendorsDetailRow(row) }
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (state.canRecord) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 VendorsGhostButton(
                     label = CHANGE_STATUS,
                     onClick = { onEvent(SalesLeadBoardEvent.OpenStatusPicker(card.leadId)) },

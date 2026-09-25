@@ -1542,6 +1542,8 @@ fun AppNavHost(
     canExecutePcCare: Boolean = false,
     canPlanPcCare: Boolean = false,
     canApproveVaccineStock: Boolean = false,
+    /** Whether Sales' write controls are offered (backend `sales_write`; see GoatOsShell). */
+    canWriteSales: Boolean = true,
     /**
      * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
      * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
@@ -4045,7 +4047,7 @@ fun AppNavHost(
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
             LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
             SalesListScreen(
-                state = state,
+                state = state.copy(canAdd = state.canAdd && canWriteSales),
                 rows = rows,
                 onEvent = { event ->
                     when (event) {
@@ -4125,7 +4127,7 @@ fun AppNavHost(
                 SalesPipelinePanel.valueOf(entry.arguments?.getString(Routes.SALES_PANEL_ARG).orEmpty())
             }.getOrDefault(SalesPipelinePanel.BUYER_LEADS)
             SalesLeadBoardScreen(
-                state = state,
+                state = state.copy(canRecord = state.canRecord && canWriteSales),
                 panel = panel,
                 rows = rows,
                 onEvent = { event ->
@@ -4148,7 +4150,7 @@ fun AppNavHost(
                 SalesPipelinePanel.valueOf(entry.arguments?.getString(Routes.SALES_PANEL_ARG).orEmpty())
             }.getOrDefault(SalesPipelinePanel.MARKET_QUOTE)
             SalesEvidenceScreen(
-                state = state,
+                state = state.copy(canRecord = state.canRecord && canWriteSales),
                 panel = panel,
                 onEvent = { event ->
                     when (event) {
@@ -4178,7 +4180,7 @@ fun AppNavHost(
             val vm: SaleDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             SaleDetailScreen(
-                state = state,
+                state = state.copy(canEdit = canWriteSales),
                 onEvent = { event ->
                     when (event) {
                         SaleDetailEvent.Back -> navController.popBackStack()

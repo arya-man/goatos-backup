@@ -296,6 +296,10 @@ fun GoatOsShell(navState: NavState) {
     // stock cards read-only and judges the submitted fridge proof; operators keep the capture
     // worklist. Backend-owned capability flag, never a role label.
     val canApproveVaccineStock = visibleNavState.featureFlags["pc_care_stock_approve"] == true
+    // Sales write controls (Record sale, receipts, status, leads, evidence): backend-owned
+    // `sales_write`. ABSENT means a server that predates the flag, so the controls stay offered
+    // as before -- the server's own 403 is still the gate; only an explicit false hides them.
+    val canWriteSales = visibleNavState.featureFlags["sales_write"] != false
 
     // Cold-start / pre-auth notification-tap deep-link. A tap can arrive before this NavHost even
     // exists (MainActivity writes into PendingNavigation as soon as the intent is read, well before
@@ -415,6 +419,7 @@ fun GoatOsShell(navState: NavState) {
             canExecutePcCare = canExecutePcCare,
             canPlanPcCare = canPlanPcCare,
             canApproveVaccineStock = canApproveVaccineStock,
+            canWriteSales = canWriteSales,
             // The SAME "has this person's own navigation arrived yet" test the push-route effect
             // above applies. Destinations that redirect on an absent capability must not act while
             // every flag still reads false because bootstrap has not answered.
