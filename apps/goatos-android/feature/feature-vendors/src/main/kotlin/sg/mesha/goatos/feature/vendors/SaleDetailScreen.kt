@@ -3,6 +3,9 @@ package sg.mesha.goatos.feature.vendors
 // telemetry:exempt pure stateless renderer; SaleDetailViewModel (in :app) owns the vendors_*
 // AnalyticsEventsVendors + CrashReporter wiring.
 
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.EmptyState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -49,6 +52,17 @@ fun SaleDetailScreen(
         )
         if (state.isLoading) {
             LoadingSkeletonList(modifier = Modifier.padding(MeshaDimens.gutter))
+            return@Column
+        }
+        if (state.notFound) {
+            EmptyState(
+                title = SALE_NOT_FOUND,
+                subtitle = SALE_NOT_FOUND_HINT,
+                modifier = Modifier.fillMaxWidth().padding(MeshaDimens.gutter),
+                icon = MeshaIcons.Warn,
+                tone = EmptyTone.Warn,
+                action = { VendorsPrimaryButton(label = SALES_TRY_AGAIN, enabled = !state.isRefreshing, onClick = { onEvent(SaleDetailEvent.Refresh) }) },
+            )
             return@Column
         }
         LazyColumn(
@@ -323,3 +337,6 @@ private const val TAGGED_NONE = "No animals tagged yet"
 private const val STOCK_CONFIRM_HINT = "Close it anyway only if the feed really did leave. If a load reached the farm and is not recorded yet, record that purchase instead."
 private const val STOCK_CONFIRM_CLOSE = "I checked the store — close it"
 private const val STOCK_CONFIRM_CANCEL = "Leave it"
+
+private const val SALE_NOT_FOUND = "This sale is not on this phone yet"
+private const val SALE_NOT_FOUND_HINT = "Open the sales list while online so it can load, then try again."

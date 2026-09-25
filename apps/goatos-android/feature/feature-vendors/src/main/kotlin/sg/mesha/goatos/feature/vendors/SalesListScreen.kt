@@ -47,13 +47,22 @@ fun SalesListScreen(
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onEvent(SalesListEvent.Refresh) }
+    val body = salesListBody(rows.itemCount, rows.loadState.refresh, state.emptyMessage)
+    // A refresh that failed while nothing is cached is the body's own state; with rows cached it is
+    // a stale indicator beside them, and the rows stay.
+    val refreshFailed = rows.loadState.refresh is LoadState.Error
     Box(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         Column(Modifier.fillMaxSize()) {
             MeshaScreenHeader(
                 title = state.title,
                 subtitle = state.countLine.ifBlank { null },
                 below = {
-                    SyncStatusIndicator(isRefreshing = state.isRefreshing, lastSyncedAt = state.lastSyncedAt, hasData = rows.itemCount > 0)
+                    SyncStatusIndicator(
+                        isRefreshing = state.isRefreshing || rows.loadState.refresh is LoadState.Loading,
+                        lastSyncedAt = state.lastSyncedAt,
+                        hasData = rows.itemCount > 0,
+                        isOffline = refreshFailed,
+                    )
                 },
                 actions = { SyncIconButton(isSyncing = state.isRefreshing, onSync = { onEvent(SalesListEvent.Refresh) }) },
             )
@@ -88,15 +97,41 @@ fun SalesListScreen(
                         }
                     }
                 }
-                if (rows.itemCount == 0 && state.emptyMessage != null) {
-                    item(key = "empty") {
+                when (body) {
+                    SalesListBody.Loading -> item(key = "loading") {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(color = MeshaColors.BrandD)
+                            Text(text = SALES_LOADING, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+                        }
+                    }
+                    SalesListBody.Unreachable -> item(key = "unreachable") {
                         EmptyState(
-                            title = state.emptyMessage,
+                            title = SALES_UNREACHABLE,
+                            subtitle = SALES_UNREACHABLE_HINT,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = MeshaDimens.gutter),
-                            icon = if (state.isErrorEmpty) MeshaIcons.Warn else MeshaIcons.Sale,
-                            tone = if (state.isErrorEmpty) EmptyTone.Warn else EmptyTone.Neutral,
+                            icon = MeshaIcons.Warn,
+                            tone = EmptyTone.Warn,
+                            action = {
+                                VendorsPrimaryButton(label = SALES_TRY_AGAIN, enabled = true, onClick = {
+                                    rows.retry()
+                                    onEvent(SalesListEvent.Refresh)
+                                })
+                            },
                         )
                     }
+                    is SalesListBody.Empty -> if (body.message.isNotBlank()) item(key = "empty") {
+                        EmptyState(
+                            title = body.message,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = MeshaDimens.gutter),
+                            icon = MeshaIcons.Sale,
+                            tone = EmptyTone.Neutral,
+                        )
+                    }
+                    is SalesListBody.Rows -> Unit
                 }
                 items(count = rows.itemCount, key = rows.itemKey { it.listKey }) { index ->
                     rows[index]?.let { card -> SaleCard(card) { onEvent(SalesListEvent.OpenSale(card.dealId)) } }

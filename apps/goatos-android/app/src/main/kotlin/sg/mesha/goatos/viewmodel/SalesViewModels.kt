@@ -153,13 +153,19 @@ class SalesListViewModel @Inject constructor(
         analytics.track(AnalyticsEventsVendors.VENDORS_SALES_VIEWED)
     }
 
-    val state: StateFlow<SalesListUiState> = combine(_isRefreshing, scope, repository.observeOptions(), repository.dealTotals) { refreshing, current, options, totals ->
+    /** The selected farm's OWN count, persisted beside its rows; never another filter's. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val scopeMeta = scope.map { it.farm }.distinctUntilChanged().flatMapLatest { repository.observeDealScope(it) }
+
+    val state: StateFlow<SalesListUiState> = combine(_isRefreshing, scope, repository.observeOptions(), scopeMeta) { refreshing, current, options, meta ->
+        val total = meta?.total ?: 0
         SalesListUiState(
             title = current.title,
             isRefreshing = refreshing,
+            lastSyncedAt = meta?.syncedAt?.takeIf { it > 0L },
             filters = listOf(VendorsFilterUi("", FILTER_ALL, current.farm.isBlank())) +
                 options?.farms.orEmpty().map { VendorsFilterUi(it, it, it == current.farm) },
-            countLine = if (totals.total > 0) "${totals.total} ${if (totals.total == 1) COUNT_ONE else COUNT_MANY}" else "",
+            countLine = if (total > 0) "$total ${if (total == 1) COUNT_ONE else COUNT_MANY}" else "",
             emptyMessage = if (current.farm.isNotBlank()) EMPTY_FILTERED else EMPTY_MESSAGE,
             canAdd = true,
         )
@@ -359,7 +365,10 @@ class SaleDetailViewModel @Inject constructor(
 
     val state: StateFlow<SaleDetailUiState> = combine(repository.observeDeal(dealId), repository.observeOptions(), local, stepsDetail) { deal, options, l, steps ->
         if (deal == null) {
-            SaleDetailUiState(isRefreshing = l.refreshing, isLoading = !l.loaded, message = l.message)
+            // Loaded and still nothing: say so, with a way to try again, rather than an empty
+            // screen with a blank title and chip. There is no per-sale read on the server yet, so
+            // the phone knows a sale only through the ledger pages it has loaded.
+            SaleDetailUiState(isRefreshing = l.refreshing, isLoading = !l.loaded, notFound = l.loaded, message = l.message)
         } else {
             val declared = deal.animalCount?.toInt() ?: 0
             val complete = declared > 0 && l.allocated >= declared

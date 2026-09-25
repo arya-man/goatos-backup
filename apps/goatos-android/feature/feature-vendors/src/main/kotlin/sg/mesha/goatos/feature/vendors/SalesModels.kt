@@ -120,6 +120,8 @@ data class SaleDetailUiState(
     val stockConfirmMessage: String = "",
     val isRefreshing: Boolean = false,
     val isLoading: Boolean = true,
+    /** Loaded, and this phone holds no copy of the sale (not synced yet, or not in a loaded page). */
+    val notFound: Boolean = false,
     val message: String? = null,
 )
 
