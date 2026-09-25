@@ -49,6 +49,7 @@ fun FeedPurchaseCreateScreen(
         MeshaScreenHeader(title = TITLE, subtitle = STEP_TITLES.getOrNull(state.step), onBack = { onEvent(FeedPurchaseCreateEvent.Back) })
         VendorsStepper(stepCount = state.stepCount, currentIndex = state.step, caption = "Step ${state.step + 1} of ${state.stepCount}")
         LazyColumn(
+            state = rememberStepListState(state.step),
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = MeshaDimens.gutter, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

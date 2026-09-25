@@ -28,6 +28,7 @@ dependencies {
     // networking, and no Room here: this module is a stateless renderer. State comes in as a
     // parameter and events go out through a callback; the @HiltViewModels that own the Room flows
     // and the paged reads live in :app.
+    implementation(project(":core:core-common"))
     implementation(project(":core:core-designsystem"))
     implementation(project(":core:core-model"))
     implementation(project(":core:core-ui"))

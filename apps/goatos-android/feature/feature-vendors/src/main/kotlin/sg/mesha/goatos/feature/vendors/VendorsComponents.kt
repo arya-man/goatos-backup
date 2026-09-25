@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,13 +53,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneOffset
 
 /**
  * The Vendors module's form and list kit. ONE dropdown, ONE text field, ONE date field, ONE chip
@@ -293,7 +297,7 @@ internal fun VendorsSegmented(
 
 /**
  * A date field: read-only text over the Material date picker, values as ISO `YYYY-MM-DD`,
- * rendered DD-MM-YYYY like every other date in the app. [maxIso] / [minIso] bound the picker.
+ * rendered DD/MM/YYYY through the app's one date helper, like every other date on screen. [maxIso] / [minIso] bound the picker.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -357,10 +361,7 @@ internal fun VendorsDateField(
     }
 }
 
-internal fun displayDate(iso: String): String {
-    val parts = iso.split("-")
-    return if (parts.size == 3) "${parts[2]}-${parts[1]}-${parts[0]}" else iso
-}
+internal fun displayDate(iso: String): String = GoatOsDates.fromWireDate(iso)
 
 private fun String.toEpochMillisOrNull(): Long? =
     runCatching { // exception:exempt date-picker input is user/server text; invalid dates fall back to an empty picker rather than surfacing a crash/report.
@@ -596,3 +597,15 @@ fun PurchaseStepsCard(
 private const val PURCHASE_STEPS_TITLE = "STEPS FOR THIS LOAD"
 private const val PURCHASE_STEPS_OPEN = "Open the steps"
 private const val PURCHASE_STEPS_OFFLINE = "Waiting for network to read the steps."
+
+/**
+ * The scroll state of a stepped form's body. A new step starts at its TOP: one shared list with
+ * the previous step's offset opened the Record sale buyer step half-way down its vendor list,
+ * with the "Who bought" search box scrolled out of sight.
+ */
+@Composable
+internal fun rememberStepListState(step: Int): LazyListState {
+    val listState = rememberLazyListState()
+    LaunchedEffect(step) { if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) listState.scrollToItem(0) }
+    return listState
+}

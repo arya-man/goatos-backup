@@ -72,6 +72,7 @@ fun VendorCreateScreen(
         )
         VendorsStepper(stepCount = state.stepCount, currentIndex = state.step, caption = "Step ${state.step + 1} of ${state.stepCount}")
         LazyColumn(
+            state = rememberStepListState(state.step),
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = MeshaDimens.gutter, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
