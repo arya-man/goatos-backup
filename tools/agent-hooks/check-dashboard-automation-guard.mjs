@@ -310,7 +310,7 @@ function dashboardRuntimeFindings() {
   for (const fragment of ["Herd Signal tables remain best-effort", "Castro field reconciliations are dated evidence", "deterministic content fingerprints"]) {
     if (!runbookSource.includes(fragment)) findings.push(`docs/runbooks/dashboard-automation-oci.md: missing residual-risk/fingerprint note ${fragment}`);
   }
-  for (const required of ["tools/dashboard-automation/check-latest-parity-receipt.mjs", "tools/perf/api-latency-gate.mjs", "apps/admin-web/scripts/capture-lighthouse.mjs", "tools/deploy/smoke-stg-grafana-dashboards.mjs", "tools/dashboard-automation/run-module-journeys.mjs", "tools/dashboard-automation/notify-slack.mjs", "tools/dashboard-automation/self-heal-pr.mjs"]) {
+  for (const required of ["tools/dashboard-automation/check-latest-parity-receipt.mjs", "tools/perf/api-latency-gate.mjs", "apps/admin-web/scripts/capture-lighthouse.mjs", "tools/dashboard-automation/run-module-journeys.mjs", "tools/dashboard-automation/notify-slack.mjs", "tools/dashboard-automation/self-heal-pr.mjs"]) {
     if (!runnerSource.includes(required)) findings.push(`${runnerRel}: runner no longer invokes ${required}`);
   }
   const latestReceiptRel = "tools/dashboard-automation/check-latest-parity-receipt.mjs";

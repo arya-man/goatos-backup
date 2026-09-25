@@ -1,5 +1,7 @@
 # Ask Mesha Grafana dashboard
 
+> Grafana is owned by `vgoats/mesha-ops`; add dashboards there (`docs/decisions/grafana-owned-by-mesha-ops.md`).
+
 `ask-mesha.json` charts `ask_mesha.events` (written by `../../events.mjs`): asks, success rate,
 failures by class, p50/p90 total + first-token latency, per-tool timing, a per-user table, recent
 asks, and spend this month vs the $100 cap. A logs panel shows the raw structured lines from
