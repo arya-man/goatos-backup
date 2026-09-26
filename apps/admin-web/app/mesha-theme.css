@@ -1089,11 +1089,6 @@
     .main table.health-analytics-table{min-width:680px}
   }
 
-  /* Full-width chart stack, one card per row. Deliberately NOT the mock's `.charts` masonry,
-     whose 340px columns squeeze a full-width bar chart's pen labels into a sliver.
-     Both Counts read screens share this ONE rule so they cannot drift apart. */
-  .main .counts-breakdown-charts{display:flex;flex-direction:column;gap:14px}
-  .main .counts-breakdown-charts .chartcard{width:100%}
   /* Mortality: rate and cross-tab cards two to a row on a wide screen, one below ~1100px, so a
      ten-row breed table does not stretch across the whole page with a bar on the far right. The
      cross tabs get the full width because their column count is data-driven. */

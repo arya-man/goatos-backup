@@ -2,15 +2,21 @@ import { splitParts } from "@/components/minimal/widgets";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 
-import { SvgStackedBars, type SvgBarDatum, type SvgStackedDatum } from "@/components/svg-bars";
+import type { SvgBarDatum, SvgStackedDatum } from "@/components/svg-bars";
 import Card from "@mui/material/Card";
-import CardHeader from "@mui/material/CardHeader";
-import CardContent from "@mui/material/CardContent";
-import type { KitTone } from "@/lib/tone";
-import { BarList } from "@/components/bar-list";
+import Box from "@mui/material/Box";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import {
+  EcommerceSalesOverview,
+  type EcommerceSalesOverviewItem,
+} from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { GoatGlyph } from "@/components/goat-glyph";
+import { KpiGrid } from "@/components/minimal/widgets";
 import { dash } from "@/lib/format";
 import { control, controlEnabled, copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -62,7 +68,20 @@ import Alert from "@mui/material/Alert";
 const PAGE_PATH = "/counts/breakdown";
 
 /** Legacy summary-card tone names -> kit tones (presentation only). */
-const SUMMARY_TONE: Record<string, KitTone> = { brand: "primary", teal: "info", amber: "warning", muted: "neutral" };
+const NO_SPARK = { categories: [], series: [] };
+const ROW_COLORS = ["primary", "info", "warning", "success", "secondary", "error"] as const;
+
+/** Breed rows as template EcommerceSalesOverview progress rows: count + share of the matching herd. */
+function shareRows(bars: SvgBarDatum[]): EcommerceSalesOverviewItem[] {
+  const total = bars.reduce((sum, bar) => sum + Math.max(bar.value, 0), 0);
+  return bars.map((bar, i) => ({
+    key: bar.key,
+    label: bar.label,
+    value: total > 0 ? Math.round((Math.max(bar.value, 0) / total) * 1000) / 10 : 0,
+    display: bar.value.toLocaleString("en-IN"),
+    color: ROW_COLORS[i % ROW_COLORS.length],
+  }));
+}
 const DEFAULT_PAGE_SIZE = 10;
 
 type AnimalStageOptionItem = {
@@ -472,8 +491,17 @@ export async function CountsBreakdownPage({
   const stageChangeEnabled = controlEnabled(pageContract, "change_shed_stage", false);
   const stageChangeReason = control(pageContract, "change_shed_stage").disabled_reason ?? "";
 
+  const breedChart = charts.find((chart) => chart.id === "breed")!;
+  const stageChart = charts.find((chart) => chart.id === "stage_sex")!;
+  const shedChart = charts.find((chart) => chart.id === "shed")!;
+  // A stacked segment is drawn only where it carries animals (a herd with every sex recorded never
+  // advertises a third key).
+  const stackedSegments = sexSegments.filter(
+    (segment) => segment.key !== "other" || stageSexData.some((point) => (point.segments.find((part) => part.key === "other")?.value ?? 0) > 0),
+  );
+
   return (
-    <div className="kit-enter screen on counts-breakdown-page">
+    <Stack spacing={3} useFlexGap className="counts-breakdown-page" sx={{ minWidth: 0 }}>
       <div>
         <PageHeader
           title={pageContract.title}
@@ -484,45 +512,52 @@ export async function CountsBreakdownPage({
       {/* An API failure surfaces as a visible error band, never as an empty table that reads
           to an operator as "this tenant has no animals". */}
       {!breakdownResult.ok ? (
-        <Alert severity="error" style={{ marginBottom: 16 }}>
+        <Alert severity="error" variant="outlined">
           <b>{breakdownResult.error.code ?? breakdownResult.error.kind}</b>&nbsp;{breakdownResult.error.message}
         </Alert>
       ) : null}
 
-      <div style={{ marginBottom: 16 }}>
-        <KpiGrid min={210} className="counts-breakdown-kpi-deck">
-          {/* Headline totals for the CURRENT filter selection, read from the response's
-              whole-result window totals - never recomputed from the visible page, which would
-              report a page subtotal as business truth. An unavailable read shows a dash. */}
-          <KpiCard
-            tone="primary"
-            icon={<GoatGlyph size={22} />}
-            label={copy(pageContract, "kpi.matching.label")}
-            value={breakdown ? totalCount : dash(null)}
-            hint={breakdown ? undefined : copy(pageContract, "kpi.matching.unavailable")}
+      {/* KPI row: template EcommerceWidgetSummary. Headline totals for the CURRENT filter
+          selection, read from the response's whole-result window totals - never recomputed from
+          the visible page, which would report a page subtotal as business truth. An unavailable
+          read shows a dash. */}
+      <Box component="section" aria-label={copy(pageContract, "kpi.matching.label")}>
+        <KpiGrid>
+          <EcommerceWidgetSummary
+            title={copy(pageContract, "kpi.matching.label")}
+            total={breakdown ? totalCount : dash(null)}
+            caption={breakdown ? undefined : copy(pageContract, "kpi.matching.unavailable")}
+            chart={NO_SPARK}
+            sx={{ height: 1 }}
           />
-          <KpiCard
-            tone="info"
-            icon={<GoatGlyph size={22} />}
-            label={copy(pageContract, "kpi.age.label")}
-            value={breakdown ? totalKids + totalAdults : dash(null)}
-            parts={breakdown ? splitParts(copy(pageContract, "kpi.age.label"), [totalKids, totalAdults]) : undefined}
-            hint={breakdown ? undefined : copy(pageContract, "kpi.matching.unavailable")}
+          <EcommerceWidgetSummary
+            title={copy(pageContract, "kpi.age.label")}
+            total={breakdown ? totalKids + totalAdults : dash(null)}
+            caption={
+              breakdown
+                ? splitParts(copy(pageContract, "kpi.age.label"), [totalKids, totalAdults])
+                    .map((part) => `${Number(part.value).toLocaleString("en-IN")} ${part.label}`)
+                    .join(" \u00b7 ")
+                : copy(pageContract, "kpi.matching.unavailable")
+            }
+            chart={NO_SPARK}
+            sx={{ height: 1 }}
           />
           {summaryCards.map((card) => (
-            <KpiCard
+            <EcommerceWidgetSummary
               key={card.key}
-              tone={SUMMARY_TONE[card.tone] ?? "neutral"}
-              label={card.label}
-              value={breakdown ? card.count : dash(null)}
-              hint={breakdown ? card.detail || copy(pageContract, "chart.empty") : copy(pageContract, "kpi.matching.unavailable")}
+              title={card.label}
+              total={breakdown ? card.count : dash(null)}
+              caption={breakdown ? card.detail || copy(pageContract, "chart.empty") : copy(pageContract, "kpi.matching.unavailable")}
+              chart={NO_SPARK}
+              sx={{ height: 1 }}
             />
           ))}
         </KpiGrid>
-      </div>
+      </Box>
 
       <div>
-      <Card className="counts-breakdown-card" sx={{ mb: 2 }}>
+      <Card className="counts-breakdown-card">
         <CountsBreakdownFilters fields={filterFields} penParks={penParks} pageContract={pageContract} />
 
         <div
@@ -553,13 +588,17 @@ export async function CountsBreakdownPage({
             noShedLabel={noShedLabel}
             stageLabels={stageLabels}
             empty={
-              <div className="muted small counts-pens-empty" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                {breakdownResult.ok
-                  ? hasFilter
-                    ? copy(pageContract, "empty.breakdown_filtered")
-                    : copy(pageContract, "empty.breakdown")
-                  : copy(pageContract, "state.breakdown_unavailable")}
-              </div>
+              <EmptyContent
+                filled
+                sx={{ py: 8 }}
+                title={
+                  breakdownResult.ok
+                    ? hasFilter
+                      ? copy(pageContract, "empty.breakdown_filtered")
+                      : copy(pageContract, "empty.breakdown")
+                    : copy(pageContract, "state.breakdown_unavailable")
+                }
+              />
             }
             footer={
               breakdown ? (
@@ -569,7 +608,7 @@ export async function CountsBreakdownPage({
                       page. Recomputing it from `rows` would silently report the page subtotal —
                       and reordering the page cannot touch it, because it is not derived from
                       the rows at all. */}
-                  <th style={{ textAlign: "right", color: "var(--brand-d)" }}>{breakdown.total_count}</th>
+                  <th style={{ textAlign: "right" }}>{breakdown.total_count}</th>
                 </tr>
               ) : undefined
             }
@@ -594,46 +633,54 @@ export async function CountsBreakdownPage({
           plainly instead of leaving the operator staring at a uniformly-empty column and chart
           and concluding the screen is broken. Never fabricate values to fill it. */}
       {stageUnrecorded ? (
-        <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "state.stage_unrecorded")}</div>
+        <Alert severity="info" variant="outlined">{copy(pageContract, "state.stage_unrecorded")}</Alert>
       ) : null}
 
-      {/* Full-width charts: one per row. Deliberately NOT the mock's `.charts` masonry wrapper,
-          which is a 340px multi-column layout — that would put these back side by side. */}
-      <section aria-label={copy(pageContract, "section.charts.aria")} className="counts-breakdown-charts">
-        {charts.map((chart) => (
-          <div key={chart.id}>
-          <Card className="chartcard">
-            <CardHeader title={chart.title} />
-            <CardContent>
-            {/* No maxBars: the series must PARTITION the herd, so the chart sums to the same total
-                the KPI above it reports. Truncating here would reintroduce the gap the backend cap
-                just lost (12 of 130 pens showed 560 of 1,670 animals). The scroll window bounds
-                what a reader SEES — ten bars stand, the rest scroll — which is a different job from
-                bounding what the number MEANS. */}
-            {chart.stacked ? (
-              // The chart names every segment it draws in its own template legend, and only those:
-              // a herd with every sex recorded never advertises a third key.
-              <SvgStackedBars
-                data={chart.stacked}
-                emptyLabel={emptyChartLabel}
-                valueNoun={animalsNoun}
-                chartLabel={chart.title}
-                maxBars={chart.stacked.length}
-              />
-            ) : (
-              <BarList
-                rows={(chart.data ?? []).map((bar) => ({ key: bar.key, label: bar.label, value: bar.value }))}
-                emptyLabel={emptyChartLabel}
-                valueNoun={animalsNoun}
-                ariaLabel={chart.title}
-                size={(chart.data ?? []).length > 10 ? "tall" : "auto"}
-              />
-            )}
-            </CardContent>
-          </Card>
-          </div>
-        ))}
-      </section>
-    </div>
+      {/* Charts on template cards: breed share → EcommerceSalesOverview, stage × sex → stacked
+          AnalyticsWebsiteVisits, sheds → AnalyticsConversionRates (horizontal, grows per row).
+          No truncation: the series PARTITION the herd, so each chart sums to the KPI above it. */}
+      <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.charts.aria")}>
+        <Grid size={{ xs: 12, md: 5 }}>
+          <EcommerceSalesOverview
+            title={breedChart.title}
+            aria-label={breedChart.title}
+            data={shareRows(breedChart.data ?? [])}
+            sx={{ height: 1 }}
+          >
+            {(breedChart.data ?? []).length === 0 ? <EmptyContent title={emptyChartLabel} sx={{ py: 3 }} /> : null}
+          </EcommerceSalesOverview>
+        </Grid>
+        <Grid size={{ xs: 12, md: 7 }}>
+          <AnalyticsWebsiteVisits
+            title={stageChart.title}
+            aria-label={stageChart.title}
+            valueNoun={animalsNoun}
+            empty={<EmptyContent title={emptyChartLabel} />}
+            chart={{
+              categories: stageSexData.map((point) => point.label),
+              colors: stackedSegments.map((segment) => segment.colorVar),
+              series: stackedSegments.map((segment) => ({
+                name: segment.label,
+                data: stageSexData.map((point) => point.segments.find((part) => part.key === segment.key)?.value ?? 0),
+              })),
+              options: { chart: { stacked: true }, plotOptions: { bar: { columnWidth: "40%" } } },
+            }}
+            sx={{ height: 1 }}
+          />
+        </Grid>
+        <Grid size={12}>
+          <AnalyticsConversionRates
+            title={shedChart.title}
+            aria-label={shedChart.title}
+            empty={<EmptyContent title={emptyChartLabel} />}
+            chart={{
+              categories: (shedChart.data ?? []).map((bar) => bar.label),
+              unit: animalsNoun,
+              series: [{ name: animalsNoun, data: (shedChart.data ?? []).map((bar) => bar.value) }],
+            }}
+          />
+        </Grid>
+      </Grid>
+    </Stack>
   );
 }
