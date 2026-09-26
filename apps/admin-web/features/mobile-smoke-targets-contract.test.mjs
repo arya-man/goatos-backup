@@ -8,12 +8,12 @@ import test from "node:test";
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 const css = read("../app/mesha-theme.css");
 
-test("health-config feed tables sit inside the shared mobile scroll owner", () => {
+test("health-config tables scroll inside their own template TableContainer", () => {
+  // Template table anatomy: MUI TableContainer (overflow-x auto) owns the sideways scroll, so a
+  // wide protocol table never scrolls the page on a phone.
   const src = read("./health/health-config.tsx");
-  const wrappers = src.match(/className="bd[^"]*"[\s\S]{0,200}?<Table className="feed-table"/g) ?? [];
+  const wrappers = src.match(/<TableContainer[\s\S]{0,200}?<Table sx=\{\{ minWidth: \d+ \}\}/g) ?? [];
   assert.equal(wrappers.length, 2);
-  for (const w of wrappers) assert.match(w, /className="bd[^"]*\btablewrap feed-stock-tablewrap feed-scroll\b/);
-  assert.match(css, /\.main \.feed-stock-tablewrap\{[^}]*overflow-x:auto[^}]*touch-action:pan-x pan-y/);
 });
 
 test("notification-matrix checkboxes are wrapped in a 40px label hit area", () => {

@@ -439,15 +439,6 @@
     .metricseg a{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
     .metricseg button{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
 
-    .feed-packing-page .feed-packing-shell{padding:0;border:0;background:transparent;box-shadow:none}
-    .feed-packing-page .feed-packing-shell .wf-bar>.kit-field-date{flex-basis:100%}
-    .feed-packing-page .feed-packing-for{margin:0 0 10px;padding:12px 14px;border-radius:12px;background:color-mix(in srgb,var(--panel) 82%,transparent);font-size:13px;line-height:1.35}
-    .feed-packing-page .feed-packing-kpis{grid-template-columns:1fr 1fr!important;gap:10px}
-    .feed-packing-page .feed-packing-worklist>.hd{padding:16px 16px 10px}
-    .feed-packing-page .feed-packing-worklist>.hd h2{font-size:20px;line-height:1.15}
-    .feed-packing-page .feed-packing-worklist>.hd p{font-size:13px;line-height:1.4}
-    .feed-packing-page .feed-packing-worklist>.bd:first-of-type{padding:0 16px 14px!important;gap:6px!important}
-    .feed-packing-page .feed-packing-worklist>.bd:first-of-type .tag{min-height:30px;max-width:100%;font-size:11.5px;line-height:1.15;white-space:normal}
     .g4,.g3,.g2,.g5,.g6{grid-template-columns:1fr!important}
     .qgrid{grid-template-columns:1fr}
     .charts{column-width:auto;column-count:1}
@@ -5268,7 +5259,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    page never scrolls sideways. The table stays for laptops; both come from the same rows. */
 .wt-feedband-cards{display:none;list-style:none;margin:0;padding:0 12px 8px}
 @media(max-width:767px){
-  
+
   .wt-feedband-cards{display:grid;gap:8px}
   .wt-feedband-cardrow{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px;display:grid;gap:6px;min-width:0}
   .wt-feedband-cardline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;overflow-wrap:anywhere}
@@ -5305,12 +5296,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   .lt-page .lt-fbar{backdrop-filter:blur(8px)}
 }
 
-@media(max-width:640px){
-  .feed-packing-page .feed-packing-for{
-    border:1px solid var(--line)!important;
-    box-shadow:none!important;
-  }
-}
 /* Feed follow-up (2026-09-22): one flat table, one line per change. It had a
    verdict strip, a range summary and an expanding pen row; the maintainer asked
    for the two facts that matter as columns instead, so all of that is gone and

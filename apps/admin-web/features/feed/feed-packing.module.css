@@ -1,6 +1,0 @@
-/* The lifecycle banner sits inside the packing card with the card's 24px side/bottom inset (20 on
-   phones), as the legacy `.feed-packing-shell>.alert` margin gave it. Spacing lives on the page
-   wrapper, never on the kit Alert. */
-.lifecycle{padding:0 var(--sp-3) var(--sp-3)}
-.lifecycle > *{margin-bottom:0!important}
-@media(max-width:640px){.lifecycle{padding:0 var(--sp-2h) var(--sp-2h)}}

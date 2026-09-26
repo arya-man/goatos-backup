@@ -5,14 +5,21 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { redirect } from "next/navigation";
-import { AlertTriangle, Fence, Package } from "lucide-react";
+import { Package } from "lucide-react";
 
 import Card from "@mui/material/Card";
-import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
+import CardHeader from "@mui/material/CardHeader";
 import { InfoHint } from "@/components/app/info-hint";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import AlertTitle from "@mui/material/AlertTitle";
+import TableContainer from "@mui/material/TableContainer";
+import { Label } from "@/components/minimal/label";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
 import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -32,7 +39,6 @@ import { FeedQuantityCell, FeedWorkflowTag, isBlockedItem } from "./feed-quantit
 import { isNothingToFeed, visibleOperationalFeedItems } from "./feed-quantity-state";
 import { feedHref, feedLimit, feedOffset, resolveFeedPackingScope } from "./feed-scope";
 import Alert from "@mui/material/Alert";
-import fp from "./feed-packing.module.css";
 
 // Feed -> Feed Packing. The same generated day as Feed Direction, collapsed to the line a packer
 // actually works from: one group per pen per session, with the pen's ration grains already summed,
@@ -65,6 +71,8 @@ import fp from "./feed-packing.module.css";
 // presented as the day's truth is what sends a packer out with a fraction of the load.
 
 const PAGE_PATH = "/feed/packing";
+// KPI tiles with no day series: the template widget draws no sparkline under two points.
+const NO_SPARK = { categories: [], series: [] };
 const DEFAULT_PAGE_SIZE = 10;
 
 /** Spans are counted from the VISIBLE items — see the twin note in feed-direction.tsx. */
@@ -72,10 +80,10 @@ function itemLineCount(visibleItems: readonly unknown[]): number {
   return Math.max(1, visibleItems.length);
 }
 
-function statusTone(status: string): string {
-  if (status === "blocked") return "tag t-dng";
-  if (status === "empty") return "tag t-mut";
-  return "tag t-ok";
+function statusColor(status: string): "error" | "default" | "success" {
+  if (status === "blocked") return "error";
+  if (status === "empty") return "default";
+  return "success";
 }
 
 export async function FeedPackingPage({
@@ -152,7 +160,7 @@ export async function FeedPackingPage({
   );
 
   return (
-    <div className="kit-enter screen on feed-packing-page">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <FeedFaroView
         routeId={pageContract.route_id}
         parkId={scope.parkId}
@@ -160,118 +168,104 @@ export async function FeedPackingPage({
         blockedCells={blockedCellsOnPage}
       />
 
-      <div>
-        <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.packing.title") }]} />
-      </div>
+      <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.packing.title") }]} />
 
       {worklistResult && !worklistResult.ok ? (
-        <Alert severity="error" style={{ marginBottom: 16 }}><div>
-            <b>{copy(pageContract, "state.packing_unavailable")}</b>
-            <div className="small muted">
-              {worklistResult.error.code ?? worklistResult.error.kind}&nbsp;{worklistResult.error.message}
-            </div>
-          </div>
+        <Alert severity="error">
+          <AlertTitle>{copy(pageContract, "state.packing_unavailable")}</AlertTitle>
+          {worklistResult.error.code ?? worklistResult.error.kind}&nbsp;{worklistResult.error.message}
         </Alert>
       ) : null}
 
-      <div>
-      {/* The page CSS zeroes this shell's padding; on phones it flattens into the page so the
-          filter/status cluster does not read as a card inside a card. */}
-      <Card className="feed-packing-shell" sx={{ overflow: "visible", "@media (max-width:640px)": { mb: 1.75, p: 0, borderRadius: 0, bgcolor: "transparent", boxShadow: "none" } }}>
-        <FeedFilters
-          basePath={PAGE_PATH}
-          pageParam="fp_offset"
-          fields={filterFields}
-          pageContract={pageContract}
+      {/* Whole-scope KPI tiles: template EcommerceWidgetSummary (invoice-list analytic row). */}
+      {summary && !lifecycleEmpty ? (
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <EcommerceWidgetSummary
+              title={copy(pageContract, "kpi.sheds.label")}
+              total={summary.shed_count}
+              caption={copy(pageContract, "kpi.sheds.sub")}
+              chart={NO_SPARK}
+              sx={{ height: 1 }}
+            />
+          </Grid>
+          {/* The label is "Blocked sheds", so this is the SHED count, not the cell count. */}
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <EcommerceWidgetSummary
+              title={copy(pageContract, "kpi.blocked.label")}
+              total={summary.blocked_shed_count}
+              caption={summary.blocked_shed_count > 0 ? copy(pageContract, "kpi.blocked.sub") : copy(pageContract, "empty.blocked")}
+              chart={NO_SPARK}
+              sx={{ height: 1 }}
+            />
+          </Grid>
+        </Grid>
+      ) : null}
+
+      {/* Template order-list anatomy: one Card with header, filter toolbar, the feed-day caption,
+          the lifecycle banner, the store draw, the worklist table and its pager. */}
+      <Card sx={{ overflow: "visible" }}>
+        <CardHeader
+          title={copy(pageContract, "section.packing.title")}
+          subheader={copy(pageContract, "section.packing.caption")}
+          action={summary && !lifecycleEmpty ? <InfoHint text={copy(pageContract, "section.summary.note")} /> : null}
         />
+        <Box sx={{ px: 1, pt: 1 }}>
+          <FeedFilters
+            basePath={PAGE_PATH}
+            pageParam="fp_offset"
+            fields={filterFields}
+            pageContract={pageContract}
+          />
+        </Box>
 
         {/* The packing day is the picker's axis; this states the FEED day it is for (packing day + 1),
             so the operator reads "packed today, for tomorrow" without doing the arithmetic. The template
             is backend-owned copy; only the date is client-formatted. */}
-        <div className="note feed-packing-for">
+        <Typography variant="body2" sx={{ px: 3, pb: 2, color: "text.secondary" }}>
           {copy(pageContract, "caption.feed_for").replace("{date}", fmtDate(scope.targetDate))}
-        </div>
+        </Typography>
 
         {/* Issue -> amend -> lock status of the served park-day. For a not-yet-issued day the banner
             IS the content — the KPIs/worklist below are suppressed rather than showing an empty bar. */}
         {lifecycle ? (
-          <div className={fp.lifecycle}>
+          <Box sx={{ px: 3, pb: 2 }}>
             <FeedLifecycleBanner lifecycle={lifecycle} feedDay={scope.targetDate} pageContract={pageContract} />
-          </div>
-        ) : null}
-      </Card>
-      </div>
-
-      <div>
-        {summary && !lifecycleEmpty ? (
-          <KpiGrid min={220} className="feed-packing-kpis">
-            <KpiCard tone="primary" icon={<Fence size={22} />} label={copy(pageContract, "kpi.sheds.label")} value={summary.shed_count} hint={copy(pageContract, "kpi.sheds.sub")} />
-            {/* The label is "Blocked sheds", so this is the SHED count, not the cell count. */}
-            <KpiCard
-              tone={summary.blocked_shed_count > 0 ? "error" : "info"}
-              icon={<AlertTriangle size={22} />}
-              label={copy(pageContract, "kpi.blocked.label")}
-              value={summary.blocked_shed_count}
-              hint={summary.blocked_shed_count > 0 ? copy(pageContract, "kpi.blocked.sub") : copy(pageContract, "empty.blocked")}
-            />
-          </KpiGrid>
+          </Box>
         ) : null}
 
-      </div>
-
-      <div>
-      <Card className="feed-packing-worklist">
-        {/* Worklist header: 24px inset over a hairline on desktop; on phones a two-column
-            grid of title block + info glyph with a tighter inset and no hairline. */}
-        <CardHeader
-          title={copy(pageContract, "section.packing.title")}
-          subheader={copy(pageContract, "section.packing.caption")}
-          action={summary && !lifecycleEmpty ? <InfoHint text={copy(pageContract, "section.summary.note")} size={28} /> : null}
-          sx={{
-            alignItems: "flex-start",
-            columnGap: 1.5,
-            pt: { xs: 2.5, sm: 3 },
-            px: { xs: 2.25, sm: 3 },
-            pb: { xs: 1.5, sm: 2 },
-            borderBottom: { xs: 0, sm: 1 },
-            borderColor: { sm: "divider" },
-            [`& .${cardHeaderClasses.content}`]: { minWidth: 0 },
-            [`& .${cardHeaderClasses.action}`]: { m: 0, pt: { xs: 0.25, sm: 0 } },
-          }}
-        />
         {/* The store draw for the WHOLE filtered worklist. Each item carries its own blocked-cell
             count, so a column is never read as complete when part of it could not be resolved. */}
         {summary && !lifecycleEmpty && summary.total_kg_by_feed_item.length > 0 ? (
-          <div className="bd" style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingBottom: 16 }}>
+          <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1, px: 3, pb: 2 }}>
             {summary.total_kg_by_feed_item.map((total) => (
-              <span
+              <Label
                 key={total.feed_item}
-                className={total.blocked_cells > 0 ? "tag t-warn" : "tag t-mut"}
+                variant="soft"
+                color={total.blocked_cells > 0 ? "warning" : "default"}
                 title={total.blocked_cells > 0 ? copy(pageContract, "label.blocked_note") : undefined}
               >
                 {total.feed_item} · {fmtKg(total.quantity_kg)} {copy(pageContract, "label.kg_noun")}
-              </span>
+              </Label>
             ))}
-          </div>
+          </Stack>
         ) : null}
 
         {lifecycleEmpty ? (
-          <div className="bd">
+          <Box sx={{ px: 3, pb: 3 }}>
             {/* One glyph + one line: the card's own caption already names the grain above. */}
             <EmptyState title={copy(pageContract, "empty.packing")} icon={<Package className="ic" />} />
-          </div>
+          </Box>
         ) : null}
 
         {!lifecycleEmpty ? (
         <>
-        <div
-          className="bd tablewrap feed-stock-tablewrap feed-scroll"
-          style={{ padding: 0, overflowX: "auto" }}
+        <TableContainer
           tabIndex={0}
           role="group"
           aria-label={copy(pageContract, "section.packing.aria")}
         >
-          <Table className="feed-table" aria-label={copy(pageContract, "table.packing.aria")}>
+          <Table sx={{ minWidth: 800, "& td": { verticalAlign: "top" } }} aria-label={copy(pageContract, "table.packing.aria")}>
             <TableHead>
               <TableRow>
                 {cols.map((col) => (
@@ -282,12 +276,11 @@ export async function FeedPackingPage({
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={cols.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {!worklistResult || worklistResult.ok
-                        ? copy(pageContract, "empty.packing")
-                        : copy(pageContract, "state.packing_unavailable")}
-                    </div>
+                  <TableCell colSpan={cols.length} sx={{ p: 0 }}>
+                    <EmptyContent
+                      sx={{ py: 5 }}
+                      title={!worklistResult || worklistResult.ok ? copy(pageContract, "empty.packing") : copy(pageContract, "state.packing_unavailable")}
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -310,19 +303,19 @@ export async function FeedPackingPage({
                               a whole extra line per shed group for zero information. The pinned
                               park is named by the Park filter above. */}
                           <TableCell rowSpan={span}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                              <span style={{ fontWeight: 650 }}>
+                            <Stack spacing={0.5} sx={{ alignItems: "flex-start" }}>
+                              <Typography variant="subtitle2">
                                 {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label })}
-                              </span>
+                              </Typography>
                               <FeedWorkflowTag workflow={row.workflow} pageContract={pageContract} />
                               {/* No experiment arm here. A packer's unit of work is the bag: the
                                   Experiment tag already says this shed's quantity is hand-authored
                                   rather than per-head, which is the only part that changes how they
                                   pack. The arm names the trial the shed is enrolled in — authoring
                                   context, shown where it is authored, on /feed/config. */}
-                            </div>
+                            </Stack>
                           </TableCell>
-                          <TableCell className="muted" rowSpan={span}>
+                          <TableCell sx={{ color: "text.secondary" }} rowSpan={span}>
                             {row.session_label}
                           </TableCell>
                         </>
@@ -340,25 +333,26 @@ export async function FeedPackingPage({
                       ) : nothingToFeed ? (
                         /* Every item authored at 0 — stated, not left as two blank dashes that would
                            read as missing data. */
-                        <TableCell className="muted" colSpan={2}>
+                        <TableCell sx={{ color: "text.secondary" }} colSpan={2}>
                           {copy(pageContract, "empty.nothing_to_feed")}
                         </TableCell>
                       ) : (
                         <>
-                          <TableCell className="muted">{copy(pageContract, "label.placeholder")}</TableCell>
-                          <TableCell className="muted">{copy(pageContract, "label.placeholder")}</TableCell>
+                          <TableCell sx={{ color: "text.secondary" }}>{copy(pageContract, "label.placeholder")}</TableCell>
+                          <TableCell sx={{ color: "text.secondary" }}>{copy(pageContract, "label.placeholder")}</TableCell>
                         </>
                       )}
 
                       {index === 0 ? (
                         <TableCell rowSpan={span}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <Stack spacing={0.5} sx={{ alignItems: "flex-start" }}>
                             {/* This line's own status and total. A row IS one pen-session, so a
                                 perfectly packable morning stays OK even when the same pen's evening
                                 is short, and each row prints its own bag's weight rather than the
                                 day's. */}
-                            <span
-                              className={statusTone(row.status)}
+                            <Label
+                              variant="soft"
+                              color={statusColor(row.status)}
                               title={copy(
                                 pageContract,
                                 row.status === "blocked" ? "label.blocked_note" : "label.ok_note",
@@ -367,15 +361,16 @@ export async function FeedPackingPage({
                               {row.status === "blocked"
                                 ? copy(pageContract, "label.blocked")
                                 : copy(pageContract, "label.ok")}
-                            </span>
-                            <span
-                              className="muted"
-                              style={{ fontSize: 11, fontVariantNumeric: "tabular-nums" }}
+                            </Label>
+                            <Typography
+                              variant="caption"
+                              component="span"
+                              sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}
                               title={copy(pageContract, "label.expected_kg_note")}
                             >
                               {fmtKg(row.total_kg)} {copy(pageContract, "label.kg_noun")}
-                            </span>
-                          </div>
+                            </Typography>
+                          </Stack>
                         </TableCell>
                       ) : null}
                     </TableRow>
@@ -384,19 +379,10 @@ export async function FeedPackingPage({
               )}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
 
         {/* Disclosed once, under the table it applies to. */}
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "flex-end",
-            m: 0,
-            px: 3,
-            pb: 2,
-            "@media (max-width: 640px)": { px: 2.5, pb: 1.75 },
-          }}
-        >
+        <Box sx={{ display: "flex", justifyContent: "flex-end", px: 2.5, pt: 1.5 }}>
           <InfoHint text={copy(pageContract, "label.zero_items_omitted")} />
         </Box>
 
@@ -414,8 +400,6 @@ export async function FeedPackingPage({
         </>
         ) : null}
       </Card>
-      </div>
-
-    </div>
+    </Stack>
   );
 }
