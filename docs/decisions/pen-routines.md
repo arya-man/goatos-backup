@@ -16,7 +16,7 @@ CXO as you did for tasks."* Asked, the maintainer chose **"pick people, like Tas
 owes it, *"it is just like tasks, it will go to one only."* This replaces rule 1 of the 2026-09-17
 revision below (assign by role); everything else in that revision stands.
 
-1. **ONE PERSON.** `pen_routine_definitions.assignee_user_id` (migration 000443) names who the
+1. **ONE PERSON.** `pen_routine_definitions.assignee_user_id` (migration 000452) names who the
    routine is for. The web picks them with the Tasks "For" picker (`components/assignee-picker`,
    single mode): one list, each person once as "Name — Titles", park head first and CXO last.
 2. **THE PARK STILL DECIDES WHO CAN BE PICKED.** The catalog lists every holder of an assignable
