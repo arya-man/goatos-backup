@@ -3,6 +3,7 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import { TAP_MIN } from "@/components/minimal/_shared/tap";
 import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 import { BookOpen, FileSpreadsheet, Plus, Search, Settings } from "lucide-react";
 
@@ -592,7 +593,8 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                   <TableBody>
                     {rows.map((row) => (
                       <TableRow key={row.id} className={row.status === "archived" ? "cfg-archived" : undefined}>
-                        <TableCell>
+                        {/* Phone: the row link is a 44px tap target, not a 16px inline word. */}
+                        <TableCell sx={{ "& .cfg-row-link": { display: { xs: "flex", md: "inline" }, alignItems: "center", minHeight: { xs: TAP_MIN, md: 0 } } }}>
                           <LocalOverlayLink href={editHref(row.id)} scroll={false} className="cfg-row-link">
                             <b>{row.display}</b>
                           </LocalOverlayLink>

@@ -1879,7 +1879,7 @@
   .cliptext.inline{display:inline-block;vertical-align:bottom}
   .cliptext.strong{font-weight:700}
   .cliptext.two{display:-webkit-box;white-space:normal;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-  .celllink{display:block;box-sizing:border-box;margin:-11px -12px;padding:11px 12px;color:inherit;text-decoration:none;min-height:42px;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+  .celllink{display:block;box-sizing:border-box;margin:-11px -12px;padding:11px 12px;color:inherit;text-decoration:none;min-height:44px;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
   .celllink:hover{text-decoration:none}
   .celllink .lk{color:var(--info)}
   .evidence-media{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
@@ -2221,7 +2221,7 @@
     .pager{gap:8px}
     .pager a,.pager button,.pager .btn,.pager2 a,.pager2 button,.pager2 .btn{min-width:40px;min-height:40px}
     .celllink{min-width:40px}
-    .main table td .celllink{display:flex;align-items:center;min-height:42px}
+    .main table td .celllink{display:flex;align-items:center;min-height:44px}
     .main table td .celllink.mono{font-size:12px}
     .vr-sortlink{min-width:40px;min-height:40px;padding:0 4px}
     .vr-rowlink{min-height:44px}

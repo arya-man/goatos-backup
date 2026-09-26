@@ -22,7 +22,6 @@ export function PhoneTapStyles() {
             '.MuiButton-root.MuiButton-root',
             '.MuiTab-root.MuiTab-root',
             '.MuiInputBase-root.MuiInputBase-root',
-            '.MuiTableSortLabel-root.MuiTableSortLabel-root',
             '.MuiChip-root.MuiChip-root',
             '.MuiMenuItem-root.MuiMenuItem-root',
             '.MuiSwitch-root.MuiSwitch-root',
@@ -40,7 +39,11 @@ export function PhoneTapStyles() {
             '.MuiPaginationItem-root.MuiPaginationItem-root',
             '.MuiAutocomplete-popupIndicator.MuiAutocomplete-popupIndicator',
             '.MuiAutocomplete-clearIndicator.MuiAutocomplete-clearIndicator',
+            // A short header ("Pen") was a 21px-wide sort target.
+            '.MuiTableSortLabel-root.MuiTableSortLabel-root',
           ].join(', ')]: { minWidth: TAP, minHeight: TAP },
+          // The slider thumb is 14px; its ::after is the touch area (MUI's own hit-slop pattern).
+          '.MuiSlider-thumb.MuiSlider-thumb::after': { width: TAP, height: TAP },
           '.MuiCheckbox-root input, .MuiRadio-root input': { width: '100%', height: '100%', top: 0, left: 0 },
           '.MuiBreadcrumbs-li > a, a.minimal__breadcrumbs__back': {
             minHeight: TAP,
