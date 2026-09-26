@@ -12,6 +12,11 @@ const publicDashboardPrefixes = [
   "/api/auth",
   "/_next",
   "/apple-icon.png",
+  // Template static art from public/ (auth split illustration + background under /assets, template
+  // icons/backgrounds under /minimal). The signed-out /login and /auth/action pages paint them, so
+  // behind the login redirect they rendered as broken images. Static files, no data.
+  "/assets",
+  "/minimal",
   // The push service worker MUST be fetchable without a session. The browser requests
   // /firebase-messaging-sw.js on its own -- on registration, on every update check, and after a
   // restart -- outside any page navigation. Behind the login redirect it resolves to the /login
