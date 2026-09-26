@@ -1,5 +1,15 @@
-import Link from "@/components/no-prefetch-link";
-import { Check, ChevronRight, ClipboardCheck, ShieldPlus } from "lucide-react";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import MuiCardHeader from "@mui/material/CardHeader";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import { Check, ShieldPlus } from "lucide-react";
+import { PageHeader, PageHeaderSkeleton } from "@/components/app/page-header";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
 import { getPCCarePenCoverage, type PCCarePenCoverage } from "@/lib/api/server";
 import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
@@ -28,44 +38,43 @@ function LegendSwatch({ varName, label }: { varName: string; label: string }) {
   );
 }
 
+// Template card header (icon + title, legend in the action slot), as on the vaccination matrix.
 function CardHeader({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
-    <div className="hd">
-      <ShieldPlus className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-      <h3>{copy(pageContract, "section.matrix.title")}</h3>
-      <div className="sp" style={{ flex: 1 }} />
-      <span className="legend">
-        <LegendSwatch varName="--brand" label={copy(pageContract, "legend.done")} />
-        <LegendSwatch varName="--line2" label={copy(pageContract, "legend.not_done")} />
-      </span>
-    </div>
+    <MuiCardHeader
+      title={
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+          <ShieldPlus className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
+          {copy(pageContract, "section.matrix.title")}
+        </Box>
+      }
+      action={
+        <span className="legend">
+          <LegendSwatch varName="--brand" label={copy(pageContract, "legend.done")} />
+          <LegendSwatch varName="--line2" label={copy(pageContract, "legend.not_done")} />
+        </span>
+      }
+      sx={{ alignItems: "center", flexWrap: "wrap", gap: 1 }}
+    />
   );
 }
 
 function PageHead({ pageContract }: { pageContract: AdminUiPageContract }) {
-  return (
-    <div className="phead">
-      <div>
-        <div className="crumb">{copy(pageContract, "crumb")}</div>
-        <h1>{pageContract.title}</h1>
-        <div className="sub">{pageContract.subtitle}</div>
-      </div>
-    </div>
-  );
+  return <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />;
 }
 
 export function CareCoverageSkeleton({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
     <div className="screen on" aria-busy="true">
-      <PageHead pageContract={pageContract} />
-      <section className="card">
+      <PageHeaderSkeleton />
+      <Card>
         <CardHeader pageContract={pageContract} />
-        <div className="bd">
+        <Box sx={{ px: 3, pb: 3, display: "grid", gap: 1 }}>
           {[0, 1, 2, 3, 4, 5].map((row) => (
-            <div key={row} className="skel" style={{ display: "block", width: "100%", height: 34, marginBottom: 8 }} />
+            <Box key={row} className="skel" sx={{ display: "block", width: 1, height: "var(--table-row-h, 44px)" }} />
           ))}
-        </div>
-      </section>
+        </Box>
+      </Card>
     </div>
   );
 }
@@ -138,83 +147,71 @@ export async function CareCoverageBoard({
         clearAllHref={clearAllHref}
         pageContract={pageContract}
       />
-      <section className="card" style={{ marginBottom: 16 }}>
+      <Card sx={{ mb: 2 }}>
         <CardHeader pageContract={pageContract} />
         {rows.length === 0 ? (
-          <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", flexWrap: "wrap" }}>
-            <ClipboardCheck className="ic" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} aria-hidden="true" />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <b style={{ fontSize: 14 }}>{result.ok ? copy(pageContract, "section.matrix.empty") : copy(pageContract, "section.matrix.unavailable")}</b>
-              <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-                {result.ok ? copy(pageContract, "section.matrix.empty_body") : copy(pageContract, "section.matrix.unavailable_body")}
-              </span>
-            </div>
-          </div>
+          <EmptyContent
+            filled
+            title={result.ok ? copy(pageContract, "section.matrix.empty") : copy(pageContract, "section.matrix.unavailable")}
+            description={result.ok ? copy(pageContract, "section.matrix.empty_body") : copy(pageContract, "section.matrix.unavailable_body")}
+            sx={{ m: 3, mt: 0 }}
+          />
         ) : (
-          <div className="bd" style={{ padding: 0 }}>
-            <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.matrix.aria")}>
-              <table className="vaccination-status-matrix-table care-coverage-table">
-                <thead>
-                  <tr>
-                    <th>{labels[0] ?? copy(pageContract, "label.pen")}</th>
+          <>
+            <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.matrix.aria")}>
+              <Table className="vaccination-status-matrix-table care-coverage-table">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{labels[0] ?? copy(pageContract, "label.pen")}</TableCell>
                     {categories.map((category) => (
-                      <th key={category.key}>{category.label}</th>
+                      <TableCell component="th" key={category.key}>{category.label}</TableCell>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {rows.map((row) => {
                     const cells = new Map(row.cells.map((cell) => [cell.category, cell]));
                     return (
-                      <tr key={`${row.park_id}|${row.shed_id}|${row.partition_label}`}>
-                        <td>
+                      <TableRow key={`${row.park_id}|${row.shed_id}|${row.partition_label}`}>
+                        <TableCell>
                           <b>{row.operational_location_display || row.shed_name}</b>
                           <div className="muted small">{row.park_name}</div>
-                        </td>
+                        </TableCell>
                         {categories.map((category) => {
                           const cell = cells.get(category.key);
                           return (
-                            <td key={category.key}>
+                            <TableCell key={category.key}>
                               <DoneCell done={Boolean(cell?.done)} date={cell?.last_done_business_date} label={category.label} pageContract={pageContract} />
-                            </td>
+                            </TableCell>
                           );
                         })}
-                      </tr>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-            <div className="note" style={{ margin: "12px 14px" }}>
+                </TableBody>
+              </Table>
+            </Box>
+            <Box className="note" sx={{ mx: 1.75, my: 1.5 }}>
               {copy(pageContract, "section.matrix.note")}
-            </div>
-            <div className="pager2">
-              <span className="muted small">
-                {from + 1}-{from + rows.length} {copy(pageContract, "pager.of")} {total} {total === 1 ? copy(pageContract, "label.pen").toLowerCase() : copy(pageContract, "label.pens")}
-              </span>
-              <span className="sp" style={{ flex: 1 }} />
-              <span className="muted small">{copy(pageContract, "pager.rows")}</span>
-              <span className="chipset" style={{ gap: 4 }}>
-                {pageSizes.map((size) => (
-                  <Link key={size} href={href({ cc_limit: String(size) })} replace scroll={false} className={`chip pgsize${pageSize === size ? " on" : ""}`}>
-                    {size}
-                  </Link>
-                ))}
-              </span>
-              {cursor ? (
-                <Link href={href({})} replace scroll={false} className="btn sm">
-                  {copy(pageContract, "action.first_page")}
-                </Link>
-              ) : null}
-              {data?.next_cursor ? (
-                <Link href={href({ cc_cursor: data.next_cursor, cc_from: String(from + rows.length) })} replace scroll={false} className="btn sm">
-                  {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
-                </Link>
-              ) : null}
-            </div>
-          </div>
+            </Box>
+            {/* Cursor-paged: the backend never counts pages, so the arrows are "first page" and
+                "next page", and the page size is a link like every other server-paged table. */}
+            <TablePaginationLinks
+              page={cursor ? 1 : 0}
+              rowsPerPage={pageSize}
+              count={-1}
+              rowsPerPageHrefs={pageSizes.map((size) => ({ value: size, href: href({ cc_limit: String(size) }) }))}
+              prevHref={cursor ? href({}) : null}
+              nextHref={data?.next_cursor ? href({ cc_cursor: data.next_cursor, cc_from: String(from + rows.length) }) : null}
+              labelRowsPerPage={copy(pageContract, "pager.rows")}
+              rangeLabel={`${from + 1}-${from + rows.length} ${copy(pageContract, "pager.of")} ${total} ${total === 1 ? copy(pageContract, "label.pen").toLowerCase() : copy(pageContract, "label.pens")}`}
+              prevLabel={copy(pageContract, "action.first_page")}
+              nextLabel={copy(pageContract, "action.next")}
+              replace
+            />
+          </>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

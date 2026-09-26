@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, Layers } from "lucide-react";
+import { usePopover } from "minimal-shared/hooks";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { CustomPopover } from "@/components/minimal/custom-popover";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { PENS_PARAM, encodePens } from "./pen-param";
 
@@ -10,11 +19,11 @@ export type CareCoverageParkChoice = { value: string; label: string; href: strin
 export type CareCoveragePenChoice = { value: string; label: string };
 
 
-// Care Coverage's filter bar, in the Live Drive Tracker's .lt-fbar look. Park is a native single
+// Care Coverage's filter bar, in the Live Drive Tracker's .lt-fbar look. Park is the template MUI
 // select whose destinations the SERVER computed (it writes the shared top-bar `park` key). Pen is
-// a checkbox multi-select: ticks are STAGED in the open dropdown and nothing navigates until
-// Apply, so ticking five pens is one page load, not five. Filtering itself happens server-side on
-// the next render — never client-side row hiding.
+// a checkbox multi-select on the template popover: ticks are STAGED in the open dropdown and
+// nothing navigates until Apply, so ticking five pens is one page load, not five. Filtering itself
+// happens server-side on the next render — never client-side row hiding.
 export function CareCoverageFilters({
   parkChoices,
   parkSelected,
@@ -63,22 +72,25 @@ export function CareCoverageFilters({
   return (
     <div className={`lt-fbar cc-fbar${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
       <span className="lt-fsel">
-        <Layers className="ic" style={{ width: 13, height: 13 }} aria-hidden="true" />
-        <select
-          aria-label={copy(pageContract, "filter.park")}
-          value={selectedParkValue}
-          onChange={(event) => {
-            const next = parkChoices.find((choice) => choice.value === event.target.value);
+        <Layers className="ic" size={13} aria-hidden="true" />
+        <TextField
+          select
+          label={copy(pageContract, "filter.park")}
+          value={parkChoices.some((choice) => choice.value === selectedParkValue) ? selectedParkValue : ""}
+          onChange={({ target: { value } }) => {
+            const next = parkChoices.find((choice) => choice.value === value);
             go(next ? next.href : parkClearHref, next?.value ?? "");
           }}
+          sx={{ minWidth: { xs: 0, sm: 180 }, flexShrink: 0, maxWidth: 1 }}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
         >
-          <option value="">{copy(pageContract, "filter.all_parks")}</option>
+          <MenuItem value="">{copy(pageContract, "filter.all_parks")}</MenuItem>
           {parkChoices.map((choice) => (
-            <option key={choice.value} value={choice.value}>
+            <MenuItem key={choice.value} value={choice.value}>
               {choice.label}
-            </option>
+            </MenuItem>
           ))}
-        </select>
+        </TextField>
       </span>
 
       <PenMultiSelect
@@ -126,9 +138,9 @@ export function CareCoverageFilters({
           );
         })}
         {clearAllHref ? (
-          <button type="button" className="achip clr" onClick={() => go(clearAllHref)}>
+          <Button size="small" color="error" onClick={() => go(clearAllHref)}>
             {copy(pageContract, "filter.clear_all")}
-          </button>
+          </Button>
         ) : null}
       </span>
       <span className="lt-fnote">{copy(pageContract, "filter.apply_note")}</span>
@@ -147,27 +159,10 @@ function PenMultiSelect({
   pageContract: AdminUiPageContract;
   onApply: (pens: string[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Template popover: outside click and Escape close it without applying.
+  const popover = usePopover();
   const [staged, setStaged] = useState<string[]>(selected);
   const [query, setQuery] = useState("");
-  const rootRef = useRef<HTMLSpanElement | null>(null);
-
-  // Outside click / Escape close without applying, wired only while open.
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -190,65 +185,84 @@ function PenMultiSelect({
     // Keep the choice list's own order, so the URL (and the chips) read in pen order.
     const order = new Map(choices.map((choice, index) => [choice.value, index]));
     const next = [...staged].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9));
-    setOpen(false);
+    popover.onClose();
     setQuery("");
     onApply(next);
   }
 
   return (
-    <span className="lt-fsel cc-pensel" ref={rootRef}>
-      <button
-        type="button"
-        className="cc-pensel-btn"
+    <span className="lt-fsel cc-pensel">
+      <Button
+        color="inherit"
         aria-haspopup="listbox"
-        aria-expanded={open}
+        aria-expanded={popover.open}
         aria-label={copy(pageContract, "filter.pen")}
-        onClick={() => {
+        endIcon={<ChevronDown className="ic" size={14} aria-hidden="true" />}
+        onClick={(event) => {
           // Opening seeds the staged ticks from the APPLIED selection, so a chip removed or a
           // park switched since the last Apply is reflected in the boxes.
-          if (!open) setStaged(selected);
-          setOpen(!open);
+          setStaged(selected);
+          popover.onOpen(event);
         }}
+        sx={{ justifyContent: "space-between", minWidth: 150, maxWidth: { xs: 1, sm: 220 }, fontWeight: "fontWeightSemiBold", minHeight: { xs: 44, sm: 36 } }}
       >
-        <span className="cc-pensel-summary">{summary}</span>
-        <ChevronDown className="cc-pensel-caret" aria-hidden="true" />
-      </button>
-      {open ? (
-        <div className="cc-pensel-pop">
-          <input
+        <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left", flex: "1 1 auto" }}>
+          {summary}
+        </Box>
+      </Button>
+      <CustomPopover
+        open={popover.open}
+        anchorEl={popover.anchorEl}
+        onClose={popover.onClose}
+        slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { width: 300, maxWidth: "calc(100vw - var(--sp-4))" } } }}
+      >
+        <Box sx={{ p: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+          <TextField
+            size="small"
             type="search"
-            className="cc-pensel-search"
+            fullWidth
             placeholder={copy(pageContract, "filter.search_pens")}
-            aria-label={copy(pageContract, "filter.search_pens")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            slotProps={{ htmlInput: { "aria-label": copy(pageContract, "filter.search_pens") } }}
           />
-          <div role="listbox" aria-multiselectable="true" aria-label={copy(pageContract, "filter.pen")} className="cc-pensel-list">
-            {visible.length === 0 ? <div className="muted small cc-pensel-empty">{copy(pageContract, "filter.no_pen_match")}</div> : null}
+          <MenuList
+            role="listbox"
+            aria-multiselectable="true"
+            aria-label={copy(pageContract, "filter.pen")}
+            sx={{ maxHeight: { xs: "min(50vh, 320px)", sm: 280 }, overflowY: "auto" }}
+          >
+            {visible.length === 0 ? (
+              <Typography component="li" variant="body2" sx={{ color: "text.secondary", p: 1 }}>
+                {copy(pageContract, "filter.no_pen_match")}
+              </Typography>
+            ) : null}
             {visible.map((choice) => {
               const checked = stagedSet.has(choice.value);
               return (
-                <label key={choice.value} role="option" aria-selected={checked} className="cc-pensel-opt">
-                  <input type="checkbox" checked={checked} onChange={() => toggle(choice.value)} />
-                  <span>{choice.label}</span>
-                </label>
+                <MenuItem key={choice.value} role="option" aria-selected={checked} onClick={() => toggle(choice.value)} sx={{ gap: 1, minHeight: { xs: 44, sm: 36 } }}>
+                  <Checkbox size="small" checked={checked} tabIndex={-1} disableRipple sx={{ p: 0 }} slotProps={{ input: { "aria-label": choice.label } }} />
+                  <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {choice.label}
+                  </Box>
+                </MenuItem>
               );
             })}
-          </div>
-          <div className="cc-pensel-foot">
-            <span className="muted small">
+          </MenuList>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, borderTop: 1, borderColor: "divider", pt: 1 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
               {staged.length} {copy(pageContract, "filter.selected")}
-            </span>
-            <span style={{ flex: 1 }} />
-            <button type="button" className="btn sm" onClick={() => setStaged([])} disabled={staged.length === 0}>
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Button size="small" color="inherit" onClick={() => setStaged([])} disabled={staged.length === 0}>
               {copy(pageContract, "filter.clear")}
-            </button>
-            <button type="button" className="btn sm p" onClick={apply}>
+            </Button>
+            <Button size="small" variant="contained" onClick={apply}>
               {copy(pageContract, "filter.apply")}
-            </button>
-          </div>
-        </div>
-      ) : null}
+            </Button>
+          </Box>
+        </Box>
+      </CustomPopover>
     </span>
   );
 }

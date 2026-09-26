@@ -66,6 +66,7 @@ import L52 from "@/app/(admin)/alerts/loading";
 import L53 from "@/app/(admin)/people/loading";
 import L54 from "@/app/(admin)/tasks/loading";
 import L56 from "@/app/(admin)/leave/loading";
+import L57 from "@/app/(admin)/vaccination/care-coverage/loading";
 
 const ROUTE_SKELETONS: Array<[RegExp, ComponentType]> = [
   [/^\/procurement\/source-entry\/loads\/[^/]+(?:\/|$)/, L0],
@@ -74,6 +75,7 @@ const ROUTE_SKELETONS: Array<[RegExp, ComponentType]> = [
   [/^\/procurement\/feed-purchases(?:\/|$)/, L3],
   [/^\/calendar\/drive\/[^/]+(?:\/|$)/, L4],
   [/^\/vaccination\/live-tracker(?:\/|$)/, L5],
+  [/^\/vaccination\/care-coverage(?:\/|$)/, L57],
   [/^\/procurement\/source-entry(?:\/|$)/, L6],
   [/^\/counts\/milk-preparation(?:\/|$)/, L7],
   [/^\/sales\/market-analytics(?:\/|$)/, L8],
