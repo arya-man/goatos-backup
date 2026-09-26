@@ -40,6 +40,13 @@ import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import Box from "@mui/material/Box";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import { useBackCloses } from "@/components/use-back-closes";
 
 export type HerdAnimalStageOption = {
   code: string;
@@ -163,13 +170,13 @@ function mergeShedCommitResult(preview: ShedImportResponse, committed: ShedImpor
   };
 }
 
-// ---- Modal shell (centered overlay; backdrop + Escape close; focus trap entry; body scroll lock) ----
+// ---- Dialog shell: template MUI Dialog (portal above the FAB, focus trap + restore, Escape/scrim close,
+// body scroll lock). Browser Back closes it too (the open state is component state, not a URL). ----
 export function Drawer({
   open,
   onClose,
   closeLabel,
   title,
-  subtitle,
   maxWidth = 760,
   children,
 }: {
@@ -182,62 +189,29 @@ export function Drawer({
   maxWidth?: number;
   children: React.ReactNode;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const node = panelRef.current;
-    const first = node?.querySelector<HTMLElement>(
-      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])',
-    );
-    (first ?? node)?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
-
+  useBackCloses(open, onClose);
   return (
-    <>
-      <div onClick={onClose} aria-hidden="true" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 210 }} />
-      <div
-        ref={panelRef}
-        className="modal on card"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          width: `min(${maxWidth}px, calc(100vw - 32px))`,
-          maxHeight: "calc(100vh - 48px)",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          outline: "none",
-        }}
-      >
-        <div className="hd" style={{ borderBottom: "1px solid var(--line2)", flex: "0 0 auto" }}>
-          <Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          <div>
-            <h3>{title}</h3>
-          </div>
-          <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="iconbtn" onClick={onClose} aria-label={closeLabel}>
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
-        <div className="bd" style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "18px 22px" }}>{children}</div>
-      </div>
-    </>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth={false}
+      scroll="paper"
+      aria-label={title}
+      slotProps={{ paper: { className: "hr-dialog", sx: { width: 1, maxWidth } } }}
+    >
+      <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 1 }}>
+        <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "primary.main" }}>
+          <Plus className="ic" />
+        </Box>
+        {/* Title only: the page-contract subtitle stays unrendered (no prose under titles), as before. */}
+        <Typography variant="h6" component="h3" sx={{ flexGrow: 1, minWidth: 0 }}>{title}</Typography>
+        <IconButton onClick={onClose} aria-label={closeLabel}>
+          <X className="ic" aria-hidden="true" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers className="hr-dialog-bd">{children}</DialogContent>
+    </Dialog>
   );
 }
 

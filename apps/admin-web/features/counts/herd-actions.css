@@ -1,14 +1,14 @@
 /* Herd register dialogs: the action row stays reachable at any height (sticky over the scrolling body). */
-.modal .bd .hr-modal-actions{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:-18px;margin:8px -22px -18px;padding:12px 22px;background:var(--paper);border-top:1px solid var(--line)}
-.modal .bd .hr-modal-actions .btn{min-height:40px}
+.hr-dialog-bd .hr-modal-actions{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:-24px;margin:8px -24px -24px;padding:12px 24px;background:var(--paper);border-top:1px solid var(--line)}
+.hr-dialog-bd .hr-modal-actions .btn{min-height:40px}
 /* One label anatomy in the herd dialogs: every `.fld` label floats over its outlined control,
    exactly like the MUI select beside it. */
-.modal .bd .fld{position:relative;margin-bottom:16px}
-.modal .bd .fld>label:not(:has(input)){position:absolute;left:10px;top:-8px;z-index:2;margin:0;padding:0 4px;font-size:12px;line-height:16px;font-weight:600;color:var(--fg-muted);background:var(--paper);border-radius:4px;pointer-events:none}
-.modal .bd .fld>input,.modal .bd .fld>textarea{height:40px;padding:0 14px;border:1px solid var(--line-strong);border-radius:8px;background:transparent;font-size:14px;font-weight:500;color:var(--fg)}
-.modal .bd .fld>textarea{height:auto;min-height:72px;padding:10px 14px}
-.modal .bd .fld>input:focus,.modal .bd .fld>textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 20%,transparent)}
-.modal .bd .fld>.pmx-fsel{margin-top:0}
+.hr-dialog-bd .fld{position:relative;margin-bottom:16px}
+.hr-dialog-bd .fld>label:not(:has(input)){position:absolute;left:10px;top:-8px;z-index:2;margin:0;padding:0 4px;font-size:12px;line-height:16px;font-weight:600;color:var(--fg-muted);background:var(--paper);border-radius:4px;pointer-events:none}
+.hr-dialog-bd .fld>input,.hr-dialog-bd .fld>textarea{height:40px;padding:0 14px;border:1px solid var(--line-strong);border-radius:8px;background:transparent;font-size:14px;font-weight:500;color:var(--fg)}
+.hr-dialog-bd .fld>textarea{height:auto;min-height:72px;padding:10px 14px}
+.hr-dialog-bd .fld>input:focus,.hr-dialog-bd .fld>textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 20%,transparent)}
+.hr-dialog-bd .fld>.pmx-fsel{margin-top:0}
 .hr-tbar{overflow:visible!important}
-.modal .bd .fld>label:has(input){display:inline-flex;align-items:center;gap:8px;min-height:40px;font-size:14px;color:var(--fg);font-weight:500}
-.modal .bd .fld>label:has(input) input{width:18px;height:18px;margin:0;accent-color:var(--primary)}
+.hr-dialog-bd .fld>label:has(input){display:inline-flex;align-items:center;gap:8px;min-height:40px;font-size:14px;color:var(--fg);font-weight:500}
+.hr-dialog-bd .fld>label:has(input) input{width:18px;height:18px;margin:0;accent-color:var(--primary)}
