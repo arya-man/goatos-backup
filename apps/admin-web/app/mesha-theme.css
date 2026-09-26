@@ -2404,16 +2404,11 @@ select:disabled { opacity: .45 }
    (daily gain, the number the screen exists to answer), `s1` a muted slate beside it so the
    second series reads as context rather than competing for the eye. A negative bar keeps the
    danger token whichever series it belongs to: a losing pen must look like one. */
-.wgrouped{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+
 /* The "which sheds are behind this bar" note. It hangs off the bar's OWN label, not the legend
    (maintainer, 2026-09-02) — a pen holds one breed, so a per-series list would name mostly other
    breeds' pens. The list is a portalled template Tooltip, so it never reflows the row. */
-.wgrouped .wgl-hint{position:relative;display:inline-flex;margin-left:5px;vertical-align:middle}
-.wgrouped .wgl-i{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid var(--line);color:var(--muted);font-size:10px;font-style:italic;font-weight:700;line-height:1;cursor:help;user-select:none;flex:0 0 auto}
-.wgrouped .wgl-i:hover,.wgrouped .wgl-i:focus-visible{color:var(--ink);border-color:var(--muted);outline:none}
-@media(max-width:760px){
-  .wgrouped .wgl-i{width:40px;height:40px;font-size:12px}
-}
+
 /* A park heading inside the panel, shown only when the list spans more than one park. `i` is
    already the panel's non-semantic inline element here; it carries no emphasis meaning. */
 /* The bar-label column is a flex row whose items are centred; every span inside the panel would
@@ -2422,7 +2417,7 @@ select:disabled { opacity: .45 }
 /* And the card must not clip the panel it now contains. `.card` is `overflow:hidden` so a table or
    chart cannot bleed past the rounded corner; a chart card carrying a legend note opts out, which
    is safe because its scrolling lives on `.wbars`, not on the card. */
-.wchart:has(.wgl-hint){overflow:visible}
+
 /* Phone width cannot hold label + count + bar + value in one row. Keep the value beside the
    label, then put the bar on its own line so grams/kg remain visible instead of clipping past
    the card edge. */
@@ -2431,7 +2426,7 @@ select:disabled { opacity: .45 }
    slab; these are separate figures and want visible air between them. */
 .kpi-row{gap:16px}
 .kpi-row .kpi{padding:14px 16px}
-.kpi-row .kpi .val small.fcr-kpi-unit{color:color-mix(in srgb,var(--muted) 54%,var(--ink))}
+
 @media(max-width:1080px){.kpi-row{gap:12px}}
 .counts-empty-state>.counts-empty-copy{margin:6px 0 0;font-size:14px;line-height:1.55;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
 .sales-loads-page .kpi-row{grid-template-columns:repeat(4,minmax(136px,1fr))}
@@ -2449,7 +2444,7 @@ select:disabled { opacity: .45 }
    metric rows included — sits flush against the next with a literal 0px between
    them. Scoped to this page so the shared container is untouched. */
 .weights-page{display:flex;flex-direction:column;gap:16px}
-.wt-general-metrics{display:flex;flex-direction:column;gap:18px}
+
 .weights-page .wt-export-spin{animation:wt-export-spin 900ms linear infinite}
 @keyframes wt-export-spin{to{transform:rotate(360deg)}}
 /* Assumptions drawer: the stage x sex sale-price grid (2026-09-24). Three columns that fit a
@@ -2480,9 +2475,7 @@ aside.drawer .wt-assume-grid input:focus{border-color:var(--brand);box-shadow:0 
    header row. */
 .wchart{padding:14px 16px}
 .wchart h2,.wchart .h,.wtable h2,.wtable .h{overflow-wrap:anywhere}
-.wt-load-empty{max-width:100%;overflow:visible}
-.wt-load-empty .muted{display:block;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.5}
-@media(max-width:640px){.wt-load-empty{padding:14px 16px;margin-left:0;margin-right:0;border-radius:18px}.wt-load-empty .muted{font-size:13px}}
+
 /* Air between a chart's header block and its bars. The title row (`.h`) and the
    caption under it sat directly on the first bar, so the heading read as part of the
    series rather than above it. Applied to the bar list itself — not to the heading —
@@ -2604,12 +2597,7 @@ aside.drawer .wt-assume-grid input:focus{border-color:var(--brand);box-shadow:0 
    legend's hint trigger (.wgl-hint / .wgl-i + template Tooltip, scoped there to .wgrouped), re-scoped
    to this card's heading; the values are the same so the two affordances read as one. The
    exited note sits under the head count as its own line. */
-.wt-feedband-head .wgl-hint{position:relative;display:inline-flex;margin-left:6px;vertical-align:middle}
-.wt-feedband-head .wgl-i{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid var(--line);color:var(--muted);font-size:10px;font-style:italic;font-weight:700;line-height:1;cursor:help;user-select:none;flex:0 0 auto}
-.wt-feedband-head .wgl-i:hover,.wt-feedband-head .wgl-i:focus-visible{color:var(--ink);border-color:var(--muted);outline:none}
-@media(max-width:760px){
-  .wt-feedband-head .wgl-i{width:40px;height:40px;font-size:12px}
-}
+
 .wt-feedband td{white-space:nowrap;vertical-align:middle;font-size:12.5px;padding-top:8px;padding-bottom:8px}
 .wt-feedband th{font-size:10.5px;white-space:normal;line-height:1.2}
 /* Breed and Feed given are the two columns a reader came for and are NEVER truncated on a
@@ -2642,25 +2630,14 @@ aside.drawer .wt-assume-grid input:focus{border-color:var(--brand);box-shadow:0 
 .wt-bandbar{display:inline-flex;gap:2px;width:26px;flex:0 0 26px}
 .wt-bandbar i{display:block;flex:1;height:6px;border-radius:2px;background:var(--line)}
 .wt-bandbar i.on{background:var(--brand-d)}
-.wt-feedband-search .tsize{min-width:200px}
+
 /* The card's client-side segments are buttons, not links (no navigation, no RSC): same look as
    the mock's .metricseg anchors. */
-.wt-feedband-segments .metricseg button{appearance:none;border:0;background:transparent;font:inherit;cursor:pointer;padding:3px 9px;border-radius:6px;font-size:11.5px;font-weight:650;color:var(--muted);white-space:nowrap;line-height:1.4}
-.wt-feedband-segments .metricseg button:hover{color:var(--brand-d)}
-.wt-feedband-segments .metricseg button.on{background:var(--brand);color:var(--on-brand)}
-@media(max-width:600px){.wt-feedband-segments .metricseg button{min-height:40px}}
+
 .wt-feedband-drawer .wt-feedband-reason{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px}
-.wt-feedband-segments{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:0 16px 4px}
-.wt-feedband-animals{display:inline-flex;align-items:center;gap:8px}
+
 /* The stat tiles under the filters: the General tab's .kpi, one size down. */
-.wt-feedband-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:8px;padding:4px 16px 8px}
-.wt-feedband-stats .kpi{padding:9px 12px;border-radius:10px}
-.wt-feedband-stats .kpi .lab{font-size:10.5px}
-.wt-feedband-stats .kpi .val{font-size:18px;line-height:1.15}
-.wt-feedband-tile-link{text-decoration:none;color:inherit;cursor:pointer}
-.wt-feedband-tile-link:hover,.wt-feedband-tile-link:focus-visible{border-color:var(--brand-d);outline:none}
-.wt-feedband-tile-link .val{color:var(--amber)}
-.wt-feedband-note{padding:0 16px}
+
 /* The sold / dead panel: the record drawer, a touch wider for its eleven-column list. */
 aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .wt-feedband-drawer .wt-feedband-exitgroup h3.h{font-size:13.5px;margin:6px 0 4px}
@@ -2687,10 +2664,7 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .farm-born-breakdown table.tbl th{white-space:normal;line-height:1.2;vertical-align:bottom}
 .farm-born-breakdown table.tbl th.num{max-width:12ch}
 .farm-born-breakdown table.tbl td.num{white-space:nowrap}
-@media(max-width:600px){
-  .wt-feedband-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .wt-feedband-segments{padding:0 12px 4px}
-}
+
 /* THE TABLE OWNS ITS HORIZONTAL SCROLL. `.tablewrap` had no rule at all on this page — it was a
    class name the markup used and the stylesheet never defined — so every table here was
    `overflow-x:visible` inside a card that clips, and the columns past the card's right edge were
@@ -5307,7 +5281,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    page never scrolls sideways. The table stays for laptops; both come from the same rows. */
 .wt-feedband-cards{display:none;list-style:none;margin:0;padding:0 12px 8px}
 @media(max-width:767px){
-  .wt-feedband-card .wt-feedband-tablehost{display:none}
+  
   .wt-feedband-cards{display:grid;gap:8px}
   .wt-feedband-cardrow{border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px;display:grid;gap:6px;min-width:0}
   .wt-feedband-cardline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;overflow-wrap:anywhere}

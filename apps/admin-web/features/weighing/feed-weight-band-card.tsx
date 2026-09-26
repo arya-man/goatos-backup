@@ -2,17 +2,20 @@
 
 import { SearchTextField } from "@/components/minimal/list/search-text-field";
 import { useEffect, useMemo, useState } from "react";
-import { Wheat } from "lucide-react";
 
 import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
+import IconButton from "@mui/material/IconButton";
+import Link from "@mui/material/Link";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
 import { TableFooter } from "@/components/app/table-footer";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { StatStrip } from "@/components/minimal/widgets/stat-strip";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import "./feed-weight-band-card.css";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedWeightBandResponse } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
@@ -334,13 +337,12 @@ export function FeedWeightBandCard({
   const pageNumber = Math.floor(state.offset / state.limit) + 1;
 
   return (
-    <section className="card wtable wt-feedband-card" aria-label={copy(pageContract, "section.feed_band.aria")}>
+    <Card aria-label={copy(pageContract, "section.feed_band.aria")}>
       <CardHeader
-        className="wt-feedband-head wt-feedband-kit-head"
         title={
-          <span className="wt-feedband-title">
-            <Wheat className="ic" size={16} aria-hidden /> {copy(pageContract, "section.feed_band.title")}
-            <span className="wgl-hint">
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+            {copy(pageContract, "section.feed_band.title")}
+            <Box component="span">
               {/* The template Tooltip (hover, focus, tap), portalled so the card cannot clip it. */}
               <Tooltip
                 enterTouchDelay={0}
@@ -368,16 +370,23 @@ export function FeedWeightBandCard({
               </Box>
                 }
               >
-                <span className="wgl-i" tabIndex={0} role="note" aria-label={copy(pageContract, "info.feed_band.hint")}>
-                  i
-                </span>
+                <IconButton size="small" role="note" aria-label={copy(pageContract, "info.feed_band.hint")}>
+                  <Iconify icon="eva:info-outline" width={20} />
+                </IconButton>
               </Tooltip>
-            </span>
-          </span>
+            </Box>
+          </Box>
         }
-        action={recon ? null : <span className="muted small">{copy(pageContract, "error.load.body")}</span>}
+        action={
+          recon ? null : (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {copy(pageContract, "error.load.body")}
+            </Typography>
+          )
+        }
+        sx={{ mb: 2 }}
       />
-      <div className="wt-feedband-segments">
+      <Box sx={{ px: 2.5, pb: 1, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
         <AnimatedTabs
           variant="pill"
           ariaLabel={copy(pageContract, "view.feed_band.aria")}
@@ -389,8 +398,10 @@ export function FeedWeightBandCard({
           ]}
         />
         {view === "matched" ? (
-          <span className="wt-feedband-animals">
-            <span className="muted small">{copy(pageContract, "filter.feed_band.animals")}</span>
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+            <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>
+              {copy(pageContract, "filter.feed_band.animals")}
+            </Typography>
             <AnimatedTabs
               variant="pill"
               ariaLabel={copy(pageContract, "filter.feed_band.animals")}
@@ -401,10 +412,14 @@ export function FeedWeightBandCard({
                 { value: "all", label: copy(pageContract, "value.feed_band.animals.all") },
               ]}
             />
-          </span>
+          </Box>
         ) : null}
-      </div>
-      <div className="tbar wt-feedband-filters" role="group" aria-label={copy(pageContract, "filter.feed_band.aria")}>
+      </Box>
+      <Box
+        role="group"
+        aria-label={copy(pageContract, "filter.feed_band.aria")}
+        sx={{ p: 2.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}
+      >
         {selectField("type", copy(pageContract, "filter.feed_band.feed_type"), state.type, ["normal", "experiment"].map((key) => ({ value: key, label: typeLabel(key) })))}
         {view === "matched"
           ? selectField("source", copy(pageContract, "filter.feed_band.weight_source"), state.source, ["pen_average", "per_animal"].map((key) => ({ value: key, label: sourceLabel(key) })))
@@ -418,7 +433,6 @@ export function FeedWeightBandCard({
           </Button>
         ) : null}
         <SearchTextField
-          className="wt-feedband-search"
           value={draftSearch}
           placeholder={copy(pageContract, "filter.feed_band.search")}
           ariaLabel={copy(pageContract, "filter.feed_band.search_aria")}
@@ -427,21 +441,30 @@ export function FeedWeightBandCard({
           onEnter={() => update({ search: draftSearch.trim() })}
           sx={{ flex: "1 1 220px", width: "auto", minWidth: 0 }}
         />
-      </div>
-      {view === "unmatched" ? <p className="muted small wt-feedband-note">{copy(pageContract, "note.feed_band.unmatched")}</p> : null}
-      <div className="wt-feedband-stats" role="group" aria-label={copy(pageContract, "section.feed_band.aria")}>
-        <KpiGrid min={150} className="wt-feedband-kpis">
-          {tiles.map((tile) =>
-            tile.href ? (
-              <LocalOverlayLink className="wt-feedband-tile-link" key={tile.label} href={tile.href} scroll={false}>
-                <KpiCard label={tile.label} value={tile.value} hint={tile.sub} tone="warning" className="wt-feedband-tile" />
-              </LocalOverlayLink>
-            ) : (
-              <KpiCard key={tile.label} label={tile.label} value={tile.value} hint={tile.sub} tone="neutral" className="wt-feedband-tile" />
-            ),
-          )}
-        </KpiGrid>
-      </div>
+      </Box>
+      {view === "unmatched" ? (
+        <Typography variant="body2" sx={{ px: 2.5, pb: 2, color: "text.secondary" }}>
+          {copy(pageContract, "note.feed_band.unmatched")}
+        </Typography>
+      ) : null}
+      {/* The template invoice-list analytic strip (dashed dividers), not cards inside the card. The
+          exits figure opens the exited-animals drawer in place (hash link, no navigation). */}
+      <StatStrip
+        ariaLabel={copy(pageContract, "section.feed_band.aria")}
+        cells={tiles.map((tile) => ({
+          key: tile.label,
+          label: tile.label,
+          meta: tile.sub,
+          tone: tile.href ? "warning" : "primary",
+          value: tile.href ? (
+            <Link component={LocalOverlayLink} href={tile.href} scroll={false} color="inherit" underline="always">
+              {tile.value}
+            </Link>
+          ) : (
+            tile.value
+          ),
+        }))}
+      />
       {view === "matched" ? (
         <FeedWeightBandTable
           contract={withParkColumn(table(pageContract, "feed-weight-band"))}
@@ -513,7 +536,11 @@ export function FeedWeightBandCard({
         rowsPerPageOptions={[...PAGE_SIZES]}
         onPageChange={(next) => setState((prev) => ({ ...prev, offset: (next - 1) * prev.limit }))}
         onRowsPerPageChange={(size) => update({ limit: size })}
-        left={<span className="small muted">{`${n(pageRows.length)} ${copy(pageContract, "pager.feed_band.noun")}${pageRows.length === 1 ? "" : "s"}`}</span>}
+        left={
+          <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>
+            {`${n(pageRows.length)} ${copy(pageContract, "pager.feed_band.noun")}${pageRows.length === 1 ? "" : "s"}`}
+          </Typography>
+        }
       />
       <FeedWeightBandExitsDrawer
         scopes={exitScopes}
@@ -538,6 +565,6 @@ export function FeedWeightBandCard({
           notWeighed: copy(pageContract, "drawer.feed_band.not_weighed"),
         }}
       />
-    </section>
+    </Card>
   );
 }

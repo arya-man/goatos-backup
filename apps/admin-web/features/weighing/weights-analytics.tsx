@@ -1,11 +1,21 @@
 import { redirect } from "next/navigation";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
-import { LayoutGrid, PackageOpen, Scale, Sprout, Warehouse } from "lucide-react";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 
-import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
+import { Label } from "@/components/minimal/label";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
+import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
+import { EcommerceCurrentBalance } from "@/components/minimal/sections/overview/e-commerce/ecommerce-current-balance";
+import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
 import { LoadComparisonTab } from "./load-comparison-tab";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
-import { Caption } from "@/components/app/caption";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
@@ -16,8 +26,7 @@ import { FCRTab } from "./fcr-tab";
 import { assumptionValue, bandEdgesParam, DEFAULT_SALE_READY_LOWER_KG, fillKg } from "./assumption-copy";
 import { PensTable, type PensTableRow } from "./pens-table";
 import { FeedWeightBandCard } from "./feed-weight-band-card";
-import { GainTrendCard, WeightsKpiDeck, type GainTrendPoint } from "./weights-kpi-deck";
-import { splitParts } from "@/components/minimal/widgets";
+import type { GainTrendPoint } from "./weights-kpi-deck";
 import { PenWeekGainTable, type PenWeekGainPoint } from "./pen-week-gain-table";
 import { LoadWeekGainTable, type LoadWeekGainPoint } from "./load-week-gain-table";
 import { ORIGIN_KEYS, canonicalOriginRedirect, originFromParam } from "@/lib/animal-origin";
@@ -120,6 +129,8 @@ function compareKg(actual: number, op: string, wanted: number): boolean {
   }
 }
 const DEFAULT_LIMIT = 25;
+/** These three figures have no per-week series behind them, so the widget draws no sparkline. */
+const NO_SPARK = { categories: [], series: [] };
 
 const TABS = ["general", "breed", "birth", "shed", "weight", "time", "load", "fcr"] as const;
 
@@ -257,7 +268,7 @@ export async function WeighingWeightsAnalyticsPage({
   // the whole-shed gain figures the Shed-wise tab reads. Only the tab's own extra reads are
   // fetched beside it, so opening Breed-wise does not pay for the Growth queries.
   const growthSections =
-    tab === "general" ? "headline,shed_leaderboard,by_park" : tab === "time" ? "weekly_gain" : "";
+    tab === "general" ? "headline,shed_leaderboard,by_park,weekly_gain" : tab === "time" ? "weekly_gain" : "";
   const wantsGrowth = growthSections !== "";
   const wantsDemographics =
     tab === "breed" || tab === "shed" || tab === "birth" || tab === "weight" || tab === "time";
@@ -466,7 +477,7 @@ export async function WeighingWeightsAnalyticsPage({
     : filterFields;
 
   return (
-    <div className="weights-page">
+    <Stack spacing={3}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb", "Weighing") }, { label: pageContract.title }]}
@@ -511,7 +522,7 @@ export async function WeighingWeightsAnalyticsPage({
         pageContract={pageContract}
       />
 
-      <div>
+      <Box>
         {tabReadFailed ? <WeightsAnalyticsErrorCard pageContract={pageContract} /> : null}
         {!tabReadFailed && tab === "general" ? (
           <GeneralTab
@@ -594,8 +605,8 @@ export async function WeighingWeightsAnalyticsPage({
             }}
           />
         ) : null}
-      </div>
-    </div>
+      </Box>
+    </Stack>
   );
 }
 
@@ -607,23 +618,23 @@ function animalCount(pageContract: AdminUiPageContract, n: number): string {
 
 function WeightsAnalyticsErrorCard({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
-    <section className="card" role="alert">
-      <h2 className="h">{copy(pageContract, "error.load.title")}</h2>
-      <p className="muted small">{copy(pageContract, "error.load.body")}</p>
-    </section>
+    <Alert severity="error" variant="outlined">
+      <AlertTitle>{copy(pageContract, "error.load.title")}</AlertTitle>
+      {copy(pageContract, "error.load.body")}
+    </Alert>
   );
 }
 
 // A whole-page failure still keeps the page's own header, so the reader knows where they are.
 function WeightsAnalyticsLoadError({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
-    <div className="weights-page">
+    <Stack spacing={3}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb", "Weighing") }, { label: pageContract.title }]}
       />
       <WeightsAnalyticsErrorCard pageContract={pageContract} />
-    </div>
+    </Stack>
   );
 }
 
@@ -751,132 +762,177 @@ function GeneralTab({
     gain: Math.round(point.average_adg_g_per_day),
     animals: point.animals,
   }));
-  const weeklyDelta =
-    weeklyGain.length >= 2 ? weeklyGain[weeklyGain.length - 1].gain - weeklyGain[weeklyGain.length - 2].gain : null;
+
+  // Sale-readiness ring (template EcommerceSaleByGender): both sale lines out of every kid the
+  // threshold counts were taken over, so the two rings read against one denominator.
+  const thresholdBasis = summary.threshold_basis_animals;
+  const over30Label = fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG);
+  const over35Label = fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg);
+  const noData = copy(pageContract, "empty.no_data.title");
+  const shareOf = (count: number) => (thresholdBasis > 0 ? Math.round((count / thresholdBasis) * 1000) / 10 : 0);
+  const gainText = (value: number | null) => (value == null ? noData : `${Math.round(value).toLocaleString("en-IN")} g`);
+  // Pens ranked by daily gain (template AnalyticsConversionRates): the same per-pen figure the
+  // table's gain column shows, fastest first, only pens that HAVE a gain (a pen weighed once is
+  // absent, never a zero-length bar).
+  const rankedPens = modeRows
+    .map((row) => ({
+      label: `${row.park_name} · ${row.operational_location_display || row.shed_display_name}`,
+      gain:
+        row.shed_average_gain_g_per_day ?? shedGainByKey.get(shedKey(row.location_id, row.partition_label)) ?? null,
+      animals: row.animals_weighed,
+    }))
+    .filter((row): row is { label: string; gain: number; animals: number } => row.gain != null)
+    .sort((a, b) => b.gain - a.gain);
+  // Two readings, two labels: the contract label names both halves in order ("Individual ·
+  // Lump-sum"), printed as the widget's caption under the whole count.
+  const kidsSplitNames = copy(pageContract, "kpi.kids.split.label").split(" · ");
+  const kidsSplit = [summary.individual_animals_weighed, summary.lump_sum_animals_weighed]
+    .map((value, index) => `${value.toLocaleString("en-IN")} ${kidsSplitNames[index] ?? ""}`.trim())
+    .join(" · ");
 
   return (
-    <>
-      <div className="wt-general-metrics">
-        <WeightsKpiDeck
-          ariaLabel={copy(pageContract, "section.sheds.aria")}
-          items={[
-            {
-              key: "kids",
-              // Two readings, two labels (template split card): the contract label names both halves in
-              // order ("Individual · Lump-sum"); the card title is the whole count.
-              label: `${summary.animals_weighed.toLocaleString("en-IN")} ${copy(pageContract, "kpi.kids.split.total_sub")}`,
-              value: summary.animals_weighed,
-              parts: splitParts(copy(pageContract, "kpi.kids.split.label"), [summary.individual_animals_weighed, summary.lump_sum_animals_weighed]),
-              noDataText: copy(pageContract, "empty.no_data.title"),
-              icon: "kids",
-              tone: "info",
-            },
-            {
-              key: "total",
-              label: copy(pageContract, "kpi.total.label"),
-              value: summary.total_weight_kg,
-              noDataText: copy(pageContract, "empty.no_data.title"),
-              unit: "kg",
-              icon: "total",
-              tone: "primary",
-              hint: copy(pageContract, "kpi.total.sub"),
-            },
-            {
-              // Null average means nothing was weighed: the no-data text renders, never 0.0 kg.
-              key: "average",
-              label: copy(pageContract, "kpi.average.label"),
-              value: summary.average_weight_kg ?? null,
-              noDataText: copy(pageContract, "empty.no_data.title"),
-              digits: 1,
-              unit: "kg",
-              icon: "average",
-              tone: "violet",
-              hint: copy(pageContract, "kpi.average.sub"),
-            },
-            {
-              key: "over30",
-              label: fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG),
-              value: summary.at_or_above_30kg,
-              noDataText: copy(pageContract, "empty.no_data.title"),
-              icon: "over30",
-              tone: "success",
-              hint: `${summary.threshold_basis_animals.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`,
-            },
-            {
-              key: "over35",
-              label: fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg),
-              value: summary.at_or_above_35kg,
-              noDataText: copy(pageContract, "empty.no_data.title"),
-              icon: "over35",
-              tone: "warning",
-              hint: `${summary.threshold_basis_animals.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`,
-            },
-          ]}
+    <Grid container spacing={3}>
+      <Grid size={{ xs: 12, md: 4 }}>
+        <EcommerceWidgetSummary
+          title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
+          total={hasAnyData ? summary.animals_weighed : noData}
+          caption={hasAnyData ? kidsSplit : undefined}
+          chart={NO_SPARK}
+          sx={{ height: 1 }}
         />
+      </Grid>
+      <Grid size={{ xs: 12, md: 4 }}>
+        <EcommerceWidgetSummary
+          title={copy(pageContract, "kpi.total.label")}
+          total={hasAnyData ? `${summary.total_weight_kg.toLocaleString("en-IN", { maximumFractionDigits: 0 })} kg` : noData}
+          caption={copy(pageContract, "kpi.total.sub")}
+          chart={NO_SPARK}
+          sx={{ height: 1 }}
+        />
+      </Grid>
+      <Grid size={{ xs: 12, md: 4 }}>
+        <EcommerceWidgetSummary
+          title={copy(pageContract, "kpi.average.label")}
+          total={
+            summary.average_weight_kg == null
+              ? noData
+              : `${summary.average_weight_kg.toLocaleString("en-IN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg`
+          }
+          caption={copy(pageContract, "kpi.average.sub")}
+          chart={NO_SPARK}
+          sx={{ height: 1 }}
+        />
+      </Grid>
 
+      <Grid size={{ xs: 12, md: 6, lg: 4 }}>
+        <EcommerceSaleByGender
+          aria-label={copy(pageContract, "section.sheds.aria")}
+          title={copy(pageContract, "assumption.sale_ready_threshold_kg.label")}
+          subheader={`${thresholdBasis.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`}
+          total={thresholdBasis.toLocaleString("en-IN")}
+          totalLabel={copy(pageContract, "kpi.kids.label")}
+          chart={{
+            // Each ring is its line's share of the kids the counts were taken over; the legend
+            // prints the head count itself.
+            series: [
+              { label: over30Label, value: shareOf(summary.at_or_above_30kg), display: summary.at_or_above_30kg.toLocaleString("en-IN") },
+              { label: over35Label, value: shareOf(summary.at_or_above_35kg), display: summary.at_or_above_35kg.toLocaleString("en-IN") },
+            ],
+          }}
+          sx={{ height: 1 }}
+        />
+      </Grid>
+      <Grid size={{ xs: 12, md: 6, lg: 8 }}>
+        {/* Columns, not an area: a week nobody weighed has no bar, where a line would draw
+            straight through it as if the kids had grown on schedule. */}
+        <AnalyticsWebsiteVisits
+          aria-label={copy(pageContract, "section.time.aria")}
+          title={copy(pageContract, "section.time.title")}
+          subheader={copy(pageContract, "note.time.gaps")}
+          empty={<EmptyState title={copy(pageContract, "empty.time.body")} />}
+          chart={{
+            categories: weeklyGain.map((point) => point.label),
+            unit: "g",
+            series: [
+              {
+                name: copy(pageContract, "series.gain"),
+                data: weeklyGain.map((point) => point.gain),
+                notes: weeklyGain.map((point) => animalCount(pageContract, point.animals)),
+              },
+            ],
+          }}
+          sx={{ height: 1 }}
+        />
+      </Grid>
+
+      <Grid size={{ xs: 12, md: 6, lg: 8 }}>
+        <AnalyticsConversionRates
+          aria-label={copy(pageContract, "chart.gain.aria")}
+          title={copy(pageContract, "chart.gain.title")}
+          subheader={copy(pageContract, "chart.gain.caption")}
+          empty={<EmptyState title={copy(pageContract, "empty.gain.body")} />}
+          chart={{
+            categories: rankedPens.map((row) => row.label),
+            unit: "g",
+            series: [
+              {
+                name: copy(pageContract, "series.gain"),
+                data: rankedPens.map((row) => Math.round(row.gain)),
+                notes: rankedPens.map((row) => animalCount(pageContract, row.animals)),
+              },
+            ],
+          }}
+          sx={{ height: 1 }}
+        />
+      </Grid>
+      <Grid size={{ xs: 12, md: 6, lg: 4 }}>
         {/* No gain is a real state: a period where nothing was weighed twice HAS no gain, and
             printing 0 g/day would read as a herd that stopped growing. */}
-        <WeightsKpiDeck
-          ariaLabel={copy(pageContract, "section.park_gain.aria")}
-          min={240}
-          items={[
+        <EcommerceCurrentBalance
+          aria-label={copy(pageContract, "section.park_gain.aria")}
+          title={`${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`}
+          total={gainText(headlineGain)}
+          rows={[
             {
-              key: "headline",
-              label: `${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`,
-              value: headlineGain == null ? null : Math.round(headlineGain),
-              noDataText: copy(pageContract, "empty.no_data.title"),
-              unit: "g",
-              tone: "primary",
-              icon: "gain",
-              sparkline: weeklyGain.map((point) => point.gain),
-              trend: headlineGain == null ? null : weeklyDelta,
-              trendSuffix: " g",
-              hint:
-                headlineGain == null
-                  ? copy(pageContract, "kpi.gain.none")
-                  : `${copy(pageContract, "kpi.gain.blended")} · ${headlineAnimals.toLocaleString("en-IN")}`,
+              label: headlineGain == null ? copy(pageContract, "kpi.gain.none") : copy(pageContract, "kpi.gain.blended"),
+              value: headlineAnimals.toLocaleString("en-IN"),
             },
-            ...perParkGain.map((park, index) => ({
-              key: `park-${park.name}`,
-              label: `${park.name} ${copy(pageContract, "kpi.park_gain.suffix")}`,
-              value: park.gain == null ? null : Math.round(park.gain),
-              noDataText: copy(pageContract, "empty.no_data.title"),
-              unit: "g",
-              tone: (["info", "violet", "success", "warning"] as const)[index % 4],
-              icon: "activity" as const,
-              hint:
-                park.gain == null
-                  ? copy(pageContract, "kpi.gain.none")
-                  : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`,
+            ...perParkGain.map((park) => ({
+              label: park.name,
+              value: park.gain == null ? copy(pageContract, "kpi.gain.none") : gainText(park.gain),
             })),
           ]}
+          sx={{ height: 1 }}
         />
+      </Grid>
 
-      </div>
-
-      <section className="card wtable" aria-label={copy(pageContract, "section.sheds.aria")}>
-        <h2 className="h">
-          <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.sheds.title")}
-        </h2>
-        {/* STAGED, not applied per keystroke: the operator and the value are one question, so the
-            bar collects both and a single Apply commits them (deferApply). Scoped to the pens
-            table; the page's own bar above stays as it is. */}
-        <WorklistFilters
-          basePath={PAGE_PATH}
-          pageParam="offset"
-          fields={pensFilterFields}
-          pageContract={pageContract}
-          deferApply
-          telemetry={{ eventPrefix: "weights_analytics_pens_filter_apply", surface: "pens_table", route: PAGE_PATH }}
-        />
-        {slice.length === 0 ? (
-          <EmptyState
-            title={hasAnyData ? copy(pageContract, "empty.filtered.title") : copy(pageContract, "empty.no_data.title")}
-            description={hasAnyData ? copy(pageContract, "empty.filtered.body") : copy(pageContract, "empty.no_data.body")}
+      <Grid size={12}>
+        <Card aria-label={copy(pageContract, "section.sheds.aria")}>
+          <CardHeader
+            title={copy(pageContract, "section.sheds.title")}
+            action={<Label variant="soft">{visibleRows.length.toLocaleString("en-IN")}</Label>}
+            sx={{ mb: 2 }}
           />
-        ) : (
-          <>
-            <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.aria")}>
+          {/* STAGED, not applied per keystroke: the operator and the value are one question, so the
+              bar collects both and a single Apply commits them (deferApply). Scoped to the pens
+              table; the page's own bar above stays as it is. */}
+          <WorklistFilters
+            basePath={PAGE_PATH}
+            pageParam="offset"
+            fields={pensFilterFields}
+            pageContract={pageContract}
+            deferApply
+            telemetry={{ eventPrefix: "weights_analytics_pens_filter_apply", surface: "pens_table", route: PAGE_PATH }}
+          />
+          {slice.length === 0 ? (
+            <Box sx={{ p: 3 }}>
+              <EmptyState
+                title={hasAnyData ? copy(pageContract, "empty.filtered.title") : copy(pageContract, "empty.no_data.title")}
+                description={hasAnyData ? copy(pageContract, "empty.filtered.body") : copy(pageContract, "empty.no_data.body")}
+              />
+            </Box>
+          ) : (
+            <>
               <PensTable
                 contract={table(pageContract, "shed-weights")}
                 rows={slice.map((row): PensTableRow => ({
@@ -907,22 +963,22 @@ function GeneralTab({
                   empty: copy(pageContract, "empty.filtered.title"),
                 }}
               />
-            </div>
-            <WorklistPager
-              pageContract={pageContract}
-              offset={offset}
-              limit={limit}
-              rowCount={slice.length}
-              hasMore={offset + slice.length < visibleRows.length}
-              noun={copy(pageContract, "pager.noun")}
-              pageSizeOptions={PAGE_SIZE_OPTIONS}
-              hrefForOffset={(next) => hrefWith(params, { offset: String(next) })}
-              hrefForLimit={(next) => hrefWith(params, { limit: String(next), offset: null })}
-            />
-          </>
-        )}
-      </section>
-    </>
+              <WorklistPager
+                pageContract={pageContract}
+                offset={offset}
+                limit={limit}
+                rowCount={slice.length}
+                hasMore={offset + slice.length < visibleRows.length}
+                noun={copy(pageContract, "pager.noun")}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                hrefForOffset={(next) => hrefWith(params, { offset: String(next) })}
+                hrefForLimit={(next) => hrefWith(params, { limit: String(next), offset: null })}
+              />
+            </>
+          )}
+        </Card>
+      </Grid>
+    </Grid>
   );
 }
 
@@ -943,46 +999,57 @@ function BreedTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
     a.localeCompare(b, undefined, { numeric: true }),
   );
 
-  const groups: BarGroup[] = breeds.map((breed) => {
-    const gain = gainByBreed.get(breed);
-    const weight = weightByBreed.get(breed);
-    const bars: GroupedBar[] = [];
-    if (gain) {
-      bars.push({
-        key: `${breed}-gain`,
-        label: copy(pageContract, "series.gain"),
-        value: Math.round(gain.median_gain_g_per_day),
-        seriesKey: "gain",
-        noteLabel: `${animalCount(pageContract, gain.animals)}`,
-      });
-    }
-    if (weight) {
-      bars.push({
-        key: `${breed}-weight`,
-        label: copy(pageContract, "series.weight"),
-        value: Number(weight.average_weight_kg.toFixed(1)),
-        seriesKey: "weight",
-        noteLabel: `${animalCount(pageContract, weight.animals)}`,
-      });
-    }
-    return { key: breed, heading: breed, bars };
-  });
-
+  // Two selectable series on the template's balance-statistics card, never one shared axis:
+  // g/day and kg are not comparable lengths, so the select swaps the scale with the measure.
+  // Each bar's own head count rides in its tooltip, because the two measures count different kids.
   return (
-    <section className="card wchart" aria-label={copy(pageContract, "section.breed.aria")}>
-      <h2 className="h">
-        <Sprout className="ic" size={15} aria-hidden /> {copy(pageContract, "section.breed.title")}
-      </h2>
-      <GroupedBars
-        groups={groups}
-        series={[
-          { key: "gain", label: copy(pageContract, "series.gain"), unit: "g", fractionDigits: 0 },
-          { key: "weight", label: copy(pageContract, "series.weight"), unit: "kg", fractionDigits: 1 },
-        ]}
-        emptyLabel={copy(pageContract, "empty.breed.body")}
-        chartLabel={copy(pageContract, "section.breed.aria")}
-      />
-    </section>
+    <BankingBalanceStatistics
+      aria-label={copy(pageContract, "section.breed.aria")}
+      title={copy(pageContract, "section.breed.title")}
+      subheader={copy(pageContract, "section.breed.caption")}
+      empty={<EmptyState title={copy(pageContract, "empty.breed.body")} />}
+      chart={{
+        series: [
+          {
+            name: copy(pageContract, "series.gain"),
+            categories: breeds,
+            unit: "g",
+            data: [
+              {
+                name: copy(pageContract, "series.gain"),
+                data: breeds.map((breed) => {
+                  const gain = gainByBreed.get(breed);
+                  return gain ? Math.round(gain.median_gain_g_per_day) : null;
+                }),
+                notes: breeds.map((breed) => {
+                  const gain = gainByBreed.get(breed);
+                  return gain ? animalCount(pageContract, gain.animals) : null;
+                }),
+              },
+            ],
+          },
+          {
+            name: copy(pageContract, "series.weight"),
+            categories: breeds,
+            unit: "kg",
+            digits: 1,
+            data: [
+              {
+                name: copy(pageContract, "series.weight"),
+                data: breeds.map((breed) => {
+                  const weight = weightByBreed.get(breed);
+                  return weight ? Number(weight.average_weight_kg.toFixed(1)) : null;
+                }),
+                notes: breeds.map((breed) => {
+                  const weight = weightByBreed.get(breed);
+                  return weight ? animalCount(pageContract, weight.animals) : null;
+                }),
+              },
+            ],
+          },
+        ],
+      }}
+    />
   );
 }
 
@@ -1002,38 +1069,36 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
   );
   const breeds = [...new Set(buckets.map((b) => b.label))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-  const groups: BarGroup[] = breeds.map((breed) => {
-    const bars: GroupedBar[] = [];
-    for (const key of ORIGIN_KEYS) {
-      const bucket = byOrigin.get(key)?.get(breed);
-      if (!bucket) continue;
-      bars.push({
-        key: `${breed}-${key}`,
-        label: copy(pageContract, `view.origin.${key}`),
-        value: Math.round(bucket.median_gain_g_per_day),
-        seriesKey: key,
-        noteLabel: animalCount(pageContract, bucket.animals),
-      });
-    }
-    return { key: breed, heading: breed, bars };
-  });
-
+  // All three origins share the g/day scale, unlike Breed-wise: these bars ARE the same measure
+  // over three cohorts, which is the entire comparison. A breed the farm has no such kid of gets
+  // no bar (null), never a zero one.
   return (
-    <section className="card wchart" aria-label={copy(pageContract, "section.birth.aria")}>
-      <h2 className="h">
-        <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.birth.title")}
-      </h2>
-      <GroupedBars
-        groups={groups}
-        // All three share the g/day scale, unlike Breed-wise: these bars ARE the same measure
-        // over three cohorts, which is the entire comparison.
-        series={[
-          ...ORIGIN_KEYS.map((key) => ({ key, scaleKey: "gain", label: copy(pageContract, `view.origin.${key}`), unit: "g", fractionDigits: 0 })),
-        ]}
-        emptyLabel={copy(pageContract, "empty.birth.body")}
-        chartLabel={copy(pageContract, "section.birth.aria")}
-      />
-    </section>
+    <BankingBalanceStatistics
+      aria-label={copy(pageContract, "section.birth.aria")}
+      title={copy(pageContract, "section.birth.title")}
+      subheader={copy(pageContract, "section.birth.caption")}
+      empty={<EmptyState title={copy(pageContract, "empty.birth.body")} />}
+      chart={{
+        series: [
+          {
+            name: copy(pageContract, "series.gain"),
+            categories: breeds,
+            unit: "g",
+            data: ORIGIN_KEYS.map((key) => ({
+              name: copy(pageContract, `view.origin.${key}`),
+              data: breeds.map((breed) => {
+                const bucket = byOrigin.get(key)?.get(breed);
+                return bucket ? Math.round(bucket.median_gain_g_per_day) : null;
+              }),
+              notes: breeds.map((breed) => {
+                const bucket = byOrigin.get(key)?.get(breed);
+                return bucket ? animalCount(pageContract, bucket.animals) : null;
+              }),
+            })),
+          },
+        ],
+      }}
+    />
   );
 }
 
@@ -1110,35 +1175,44 @@ function ShedTab({
     };
   };
 
-  const groups: BarGroup[] = breeds.map((breed) => {
-    const bars: GroupedBar[] = [];
-    for (const type of series) {
-      const bucket = byType.get(type.key)?.get(breed);
-      if (!bucket) continue;
-      bars.push({
-        key: `${breed}-${type.key}`,
-        label: type.label,
-        value: Math.round(bucket.average_gain_g_per_day),
-        seriesKey: type.key,
-        noteLabel: animalCount(pageContract, bucket.animals),
-        hint: hintFor(breed, type.key),
-      });
-    }
-    return { key: breed, heading: breed, bars };
-  });
+  // One series per pen type on the template's balance-statistics card. The pens behind each bar
+  // ride in that bar's tooltip, grouped by park when the list spans more than one.
+  const membersNote = (breed: string, shedType: string, animals: number) => {
+    const hint = hintFor(breed, shedType);
+    const pens = hint.sections
+      .map((section) => (section.heading ? `${section.heading}: ${section.items.join(", ")}` : section.items.join(", ")))
+      .filter((text) => text !== "")
+      .join(" · ");
+    return `${animalCount(pageContract, animals)} · ${hint.title}: ${pens || hint.emptyLabel}`;
+  };
 
   return (
-    <section className="card wchart" aria-label={copy(pageContract, "section.shed.aria")}>
-      <h2 className="h">
-        <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.shed.title")}
-      </h2>
-      <GroupedBars
-        groups={groups}
-        series={series}
-        emptyLabel={copy(pageContract, "empty.shed.body")}
-        chartLabel={copy(pageContract, "section.shed.aria")}
-      />
-    </section>
+    <BankingBalanceStatistics
+      aria-label={copy(pageContract, "section.shed.aria")}
+      title={copy(pageContract, "section.shed.title")}
+      subheader={copy(pageContract, "section.shed.caption")}
+      empty={<EmptyState title={copy(pageContract, "empty.shed.body")} />}
+      chart={{
+        series: [
+          {
+            name: copy(pageContract, "series.gain"),
+            categories: breeds,
+            unit: "g",
+            data: series.map((type) => ({
+              name: type.label,
+              data: breeds.map((breed) => {
+                const bucket = byType.get(type.key)?.get(breed);
+                return bucket ? Math.round(bucket.average_gain_g_per_day) : null;
+              }),
+              notes: breeds.map((breed) => {
+                const bucket = byType.get(type.key)?.get(breed);
+                return bucket ? membersNote(breed, type.key, bucket.animals) : null;
+              }),
+            })),
+          },
+        ],
+      }}
+    />
   );
 }
 
@@ -1168,62 +1242,48 @@ function WeightTab({
   params: RouteSearchParams;
   periodLabel: string;
 }) {
-  const bands = demo?.by_weight_band ?? [];
-  // The backend orders these ascending and owns the band keys; the farm words come from the page
-  // contract, so a bracket the contract cannot name is never drawn with its raw key.
-  const groups: BarGroup[] = bands
-    .filter((band) => band.animals > 0)
-    .map((band) => {
-      const bars: GroupedBar[] = [
-        {
-          key: `${band.band}-animals`,
-          label: copy(pageContract, "series.animals"),
-          value: band.animals,
-          seriesKey: "animals",
-        },
-      ];
-      if (band.average_gain_g_per_day != null) {
-        bars.push({
-          key: `${band.band}-gain`,
-          label: copy(pageContract, "series.gain"),
-          value: Math.round(band.average_gain_g_per_day),
-          seriesKey: "gain",
-          // The gain's own denominator rides on the bar, because it is not the head count beside it.
-          noteLabel: `${animalCount(pageContract, band.gain_animals)}`,
-        });
-      }
-      return {
-        key: band.band,
-        // The farm words come from the backend with the bracket: the edges are the tenant's
-        // assumption, so a page contract cannot carry one label per key any more.
-        heading: band.label,
-        // A bracket with animals but no second weigh says so, rather than leaving the reader to
-        // wonder whether the gain bar failed to render.
-        subheading:
-          band.average_gain_g_per_day == null ? copy(pageContract, "value.weight.no_gain") : undefined,
-        bars,
-      };
-    });
+  // The backend orders these ascending and owns the band keys and their farm words (the edges
+  // are the tenant's assumption). Two selectable series, because a head count and a growth rate
+  // are not comparable lengths -- the same reason Breed-wise keeps weight and gain apart.
+  const bands = (demo?.by_weight_band ?? []).filter((band) => band.animals > 0);
+  const categories = bands.map((band) => band.label);
 
   return (
     <>
-    <section className="card wchart" aria-label={copy(pageContract, "section.weight.aria")}>
-      <h2 className="h">
-        <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.weight.title")}
-      </h2>
-      <GroupedBars
-        groups={groups}
-        // Two scales, because a head count and a growth rate are not comparable lengths -- the same
-        // reason Breed-wise keeps weight and gain apart.
-        series={[
-          { key: "animals", label: copy(pageContract, "series.animals"), unit: "", fractionDigits: 0 },
-          { key: "gain", label: copy(pageContract, "series.gain"), unit: "g", fractionDigits: 0 },
-        ]}
-        emptyLabel={copy(pageContract, "empty.weight.body")}
-        chartLabel={copy(pageContract, "section.weight.aria")}
+      <BankingBalanceStatistics
+        aria-label={copy(pageContract, "section.weight.aria")}
+        title={copy(pageContract, "section.weight.title")}
+        subheader={copy(pageContract, "section.weight.caption")}
+        empty={<EmptyState title={copy(pageContract, "empty.weight.body")} />}
+        chart={{
+          series: [
+            {
+              name: copy(pageContract, "series.animals"),
+              categories,
+              data: [{ name: copy(pageContract, "series.animals"), data: bands.map((band) => band.animals) }],
+            },
+            {
+              name: copy(pageContract, "series.gain"),
+              categories,
+              unit: "g",
+              data: [
+                {
+                  name: copy(pageContract, "series.gain"),
+                  // A bracket with animals but no second weigh has no gain -- no bar, and its
+                  // tooltip says why, rather than 0 g/day.
+                  data: bands.map((band) => (band.average_gain_g_per_day == null ? null : Math.round(band.average_gain_g_per_day))),
+                  notes: bands.map((band) =>
+                    band.average_gain_g_per_day == null
+                      ? copy(pageContract, "value.weight.no_gain")
+                      : animalCount(pageContract, band.gain_animals),
+                  ),
+                },
+              ],
+            },
+          ],
+        }}
       />
-    </section>
-    <FeedWeightBandSection pageContract={pageContract} feedBand={feedBand} params={params} periodLabel={periodLabel} />
+      <FeedWeightBandSection pageContract={pageContract} feedBand={feedBand} params={params} periodLabel={periodLabel} />
     </>
   );
 }
@@ -1357,32 +1417,26 @@ function TimeTab({
     },
   ];
 
-  const bars = (growth?.weekly_gain ?? []).map((point) => ({
-    key: point.week_start,
-    label: fmtDate(point.week_start),
-    value: Math.round(point.average_adg_g_per_day),
-    valueLabel: `${Math.round(point.average_adg_g_per_day).toLocaleString("en-IN")} g`,
-    modeLabel: `${animalCount(pageContract, point.animals)}`,
-    modeTone: "mut" as const,
-  }));
-
-  // One group per breed, its weeks in order. Ordered by breed so a reader finds the same row in the
-  // same place each week; the backend already returns the rows sorted by (breed, week).
-  const breedWeekGroups: BarGroup[] = [];
-  for (const point of demo?.gain_by_breed_week ?? []) {
-    let group = breedWeekGroups.find((entry) => entry.key === point.label);
-    if (!group) {
-      group = { key: point.label, heading: point.label, bars: [] };
-      breedWeekGroups.push(group);
-    }
-    (group.bars as GroupedBar[]).push({
-      key: `${point.label}-${point.week_start}`,
-      label: fmtDate(point.week_start),
-      value: Math.round(point.average_gain_g_per_day),
-      seriesKey: "gain",
-      noteLabel: `${animalCount(pageContract, point.animals)}`,
-    });
-  }
+  // One series per breed, one column per week (template balance statistics). Ordered by breed so
+  // a reader finds the same colour for the same breed each time; a week a breed was not weighed
+  // twice is null -- no bar -- never a zero.
+  const breedWeekPoints = demo?.gain_by_breed_week ?? [];
+  const breedWeeks = [...new Set(breedWeekPoints.map((point) => point.week_start))].sort();
+  const breedNames = [...new Set(breedWeekPoints.map((point) => point.label))];
+  const breedWeekSeries = breedNames.map((breed) => {
+    const byWeek = new Map(breedWeekPoints.filter((point) => point.label === breed).map((point) => [point.week_start, point]));
+    return {
+      name: breed,
+      data: breedWeeks.map((week) => {
+        const point = byWeek.get(week);
+        return point ? Math.round(point.average_gain_g_per_day) : null;
+      }),
+      notes: breedWeeks.map((week) => {
+        const point = byWeek.get(week);
+        return point ? animalCount(pageContract, point.animals) : null;
+      }),
+    };
+  });
 
   // The per-pen grid reads `gain_by_pen_week` as served -- ordered by park, pen, week -- and
   // composes no label of its own: the pen name is the backend's operational location display.
@@ -1407,101 +1461,104 @@ function TimeTab({
   }));
 
   return (
-    <>
-    {/* One bar for the whole tab: both controls govern all four sections below, so a control
-        sitting on any one of them would read as narrower than it is. */}
-    <WorklistFilters
-      basePath={PAGE_PATH}
-      pageParam="offset"
-      fields={timeFilterFields}
-      pageContract={pageContract}
-      /* The page's own filter bar is also on screen; its twin button must not say the same thing. */
-      label={timeFilterFields.map((field) => field.label).join(" · ")}
-      telemetry={{ eventPrefix: "weights_analytics_time_filter_apply", surface: "time_wise", route: PAGE_PATH }}
-    />
-    <Box component="section" aria-label={bucketCopy("section.time.aria")} sx={{ display: "grid", gap: 1.5, mb: 3 }}>
+    <Grid container spacing={3}>
+      {/* One bar for the whole tab: both controls govern all four sections below, so a control
+          sitting on any one of them would read as narrower than it is. */}
+      <Grid size={12}>
+        <WorklistFilters
+          basePath={PAGE_PATH}
+          pageParam="offset"
+          fields={timeFilterFields}
+          pageContract={pageContract}
+          /* The page's own filter bar is also on screen; its twin button must not say the same thing. */
+          label={timeFilterFields.map((field) => field.label).join(" · ")}
+          telemetry={{ eventPrefix: "weights_analytics_time_filter_apply", surface: "time_wise", route: PAGE_PATH }}
+        />
+      </Grid>
       {/* Titled through the bucket pair, so a heading can never describe columns the chart is not
-          showing; the gaps note stays because it explains a hole in the series, not the section. */}
-      <GainTrendCard
-        title={bucketCopy("section.time.title")}
-        subtitle={bucketCopy("section.time.caption")}
-        seriesLabel={copy(pageContract, "kpi.park_gain.suffix")}
-        points={weeklyPoints}
-        emptyLabel={bucketCopy("empty.time.body")}
-      />
-      <Caption>{bucketCopy("note.time.gaps")}</Caption>
-    </Box>
-    {/* The selected period's weeks, one row per breed. A second section rather than more series on
-        the chart above: many weeks across six breeds is dense, and stacking them on one axis
-        answers "which breed" more slowly than six short rows do.
-
-        The breed rows need not add up to the overall trend, and the caption says so -- a shed
-        holding more than one breed counts in the overall series and in no breed here, because one
-        shed average cannot be divided between two cohorts. */}
-    <section className="card wchart" aria-label={bucketCopy("section.time.breed.aria")}>
-      <h2 className="h">
-        <Sprout className="ic" size={15} aria-hidden /> {bucketCopy("section.time.breed.title")}
-      </h2>
-      <Caption>{bucketCopy("section.time.breed.caption")}</Caption>
-      <GroupedBars
-        groups={breedWeekGroups}
-        series={[{ key: "gain", label: copy(pageContract, "series.gain"), unit: "g", fractionDigits: 0 }]}
-        emptyLabel={bucketCopy("empty.time.breed.body")}
-        chartLabel={bucketCopy("section.time.breed.aria")}
-      />
-    </section>
-    {/* Every pen, every week (maintainer request 2026-09-08): the weekly line above cut one pen at
-        a time. A TABLE rather than a third chart: the farm has dozens of pens and the question is
-        "how did THIS pen do THIS week", which a grid answers on sight and a forest of bars does
-        not. Unlike the breed rows a pen needs no single-cohort claim to be itself, so a mixed pen
-        is listed here; only the page's own filters narrow it. */}
-    <section className="card wchart" aria-label={bucketCopy("section.time.pen.aria")}>
-      <h2 className="h">
-        <LayoutGrid className="ic" size={15} aria-hidden /> {bucketCopy("section.time.pen.title")}
-      </h2>
-      {/* Pinned by pen-week-gain.contract.test.mjs (the page must read this backend key). */}
-      <Caption>{bucketCopy("section.time.pen.caption")}</Caption>
-      {/* A long period is many week columns, so the grid scrolls inside its own box rather
-          than pushing the page sideways. */}
-      <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={bucketCopy("section.time.pen.aria")}>
-        <PenWeekGainTable
-          contract={table(pageContract, "pen-week-gain")}
-          points={penWeekPoints}
-          labels={{
-            ariaLabel: bucketCopy("section.time.pen.aria"),
-            blank: copy(pageContract, "value.time.pen.blank"),
-            unit: copy(pageContract, "value.time.pen.unit"),
-            animals: copy(pageContract, "value.time.animals"),
-            empty: bucketCopy("empty.time.pen.body"),
+          showing. Columns, not a line: a week nobody weighed has no bar (the gaps note says so). */}
+      <Grid size={12}>
+        <AnalyticsWebsiteVisits
+          aria-label={bucketCopy("section.time.aria")}
+          title={bucketCopy("section.time.title")}
+          subheader={`${bucketCopy("section.time.caption")} ${bucketCopy("note.time.gaps")}`}
+          empty={<EmptyState title={bucketCopy("empty.time.body")} />}
+          chart={{
+            categories: weeklyPoints.map((point) => point.label),
+            unit: "g",
+            series: [
+              {
+                name: copy(pageContract, "series.gain"),
+                data: weeklyPoints.map((point) => point.gain),
+                notes: weeklyPoints.map((point) => animalCount(pageContract, point.animals)),
+              },
+            ],
           }}
         />
-      </div>
-    </section>
-    {/* Every purchased load, every week (maintainer request 2026-09-14, "Time-wise ADG for each
-        shed/load"): the pen grid above one grain up. A load is its tagged pens -- the SAME
-        attribution the Load-wise tab uses -- so its weekly figure is those pens' gain weighted by
-        animals, and a pen tagged to two loads counts toward neither. The same grid shape, because
-        the question is the same: "how did THIS load do THIS week". */}
-    <section className="card wchart" aria-label={bucketCopy("section.time.load.aria")}>
-      <h2 className="h">
-        <PackageOpen className="ic" size={15} aria-hidden /> {bucketCopy("section.time.load.title")}
-      </h2>
-      {/* Pinned by load-week-gain.contract.test.mjs. */}
-      <Caption>{bucketCopy("section.time.load.caption")}</Caption>
-      <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={bucketCopy("section.time.load.aria")}>
-        <LoadWeekGainTable
-          contract={table(pageContract, "load-week-gain")}
-          points={loadWeekPoints}
-          labels={{
-            ariaLabel: bucketCopy("section.time.load.aria"),
-            blank: copy(pageContract, "value.time.pen.blank"),
-            unit: copy(pageContract, "value.time.pen.unit"),
-            animals: copy(pageContract, "value.time.animals"),
-            empty: bucketCopy("empty.time.load.body"),
+      </Grid>
+      {/* The selected period's weeks, one series per breed. The breed rows need not add up to the
+          overall trend, and the caption says so -- a shed holding more than one breed counts in the
+          overall series and in no breed here, because one shed average cannot be divided. */}
+      <Grid size={12}>
+        <BankingBalanceStatistics
+          aria-label={bucketCopy("section.time.breed.aria")}
+          title={bucketCopy("section.time.breed.title")}
+          subheader={bucketCopy("section.time.breed.caption")}
+          empty={<EmptyState title={bucketCopy("empty.time.breed.body")} />}
+          chart={{
+            series: [
+              {
+                name: copy(pageContract, "series.gain"),
+                categories: breedWeeks.map((week) => fmtDate(week)),
+                unit: "g",
+                data: breedWeekSeries,
+              },
+            ],
           }}
         />
-      </div>
-    </section>
-    </>
+      </Grid>
+      {/* Every pen, every week (maintainer request 2026-09-08). A TABLE rather than a third chart:
+          the farm has dozens of pens and the question is "how did THIS pen do THIS week". A long
+          period is many week columns, so the grid scrolls inside its own box, never the page.
+          Pinned by pen-week-gain.contract.test.mjs (the page must read this backend key). */}
+      <Grid size={12}>
+        <Card aria-label={bucketCopy("section.time.pen.aria")}>
+          <CardHeader title={bucketCopy("section.time.pen.title")} subheader={bucketCopy("section.time.pen.caption")} sx={{ mb: 3 }} />
+          <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={bucketCopy("section.time.pen.aria")}>
+            <PenWeekGainTable
+              contract={table(pageContract, "pen-week-gain")}
+              points={penWeekPoints}
+              labels={{
+                ariaLabel: bucketCopy("section.time.pen.aria"),
+                blank: copy(pageContract, "value.time.pen.blank"),
+                unit: copy(pageContract, "value.time.pen.unit"),
+                animals: copy(pageContract, "value.time.animals"),
+                empty: bucketCopy("empty.time.pen.body"),
+              }}
+            />
+          </Box>
+        </Card>
+      </Grid>
+      {/* Every purchased load, every week (maintainer request 2026-09-14): the pen grid one grain
+          up, same shape, because the question is the same. Pinned by load-week-gain.contract.test.mjs. */}
+      <Grid size={12}>
+        <Card aria-label={bucketCopy("section.time.load.aria")}>
+          <CardHeader title={bucketCopy("section.time.load.title")} subheader={bucketCopy("section.time.load.caption")} sx={{ mb: 3 }} />
+          <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={bucketCopy("section.time.load.aria")}>
+            <LoadWeekGainTable
+              contract={table(pageContract, "load-week-gain")}
+              points={loadWeekPoints}
+              labels={{
+                ariaLabel: bucketCopy("section.time.load.aria"),
+                blank: copy(pageContract, "value.time.pen.blank"),
+                unit: copy(pageContract, "value.time.pen.unit"),
+                animals: copy(pageContract, "value.time.animals"),
+                empty: bucketCopy("empty.time.load.body"),
+              }}
+            />
+          </Box>
+        </Card>
+      </Grid>
+    </Grid>
   );
 }

@@ -17,7 +17,8 @@ test("each load on the comparison chart names the pens its weighed animals sit i
   // chart on the dashboard now uses. They are still VISIBLE rather than hidden behind a hover
   // panel, which was the point of the sub-line and survives the move.
   assert.match(source, /chartHeading: withLoadPens\(heading, pensFromPlacements\(bucket\?\.placements\)\)/);
-  assert.match(source, /heading: row\.chartHeading,/);
+  assert.match(source, /const loadCategories = rows\.map\(\(row\) => row\.chartHeading\);/);
+  assert.match(source, /categories: loadCategories,/);
   // The TABLE keeps the fuller line, head counts and all, because a cell has room the axis does
   // not. Its head count comes from the same placement row the load's own average is weighted by,
   // so the line and the chart cannot disagree about how many animals were weighed where.
@@ -59,21 +60,16 @@ test("the value chart names the same pens as the weight chart beside it", () => 
   assert.match(contract, /no stock to value, and names no pen/);
 });
 
-test("the loads ledger names the pens too, and the card is inset like the Weights tables", () => {
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+test("the loads ledger names the pens too, on the template table card", () => {
   // Maintainer request 2026-09-21: the same pens in the table under the two charts. The table is
   // the ONE place row.pens is rendered now -- the charts carry the shorter bracket -- and both are
   // composed from the same placements, so the surfaces cannot name one load's pens two ways.
-  assert.match(source, /<TableCell component="th" className="pens">\{copy\(pageContract, "table\.loads\.pens"\)\}<\/TableCell>/);
-  assert.match(source, /<TableCell className="pens">\{row\.pens \|\| none\}<\/TableCell>/);
+  assert.match(source, /<TableCell component="th">\{copy\(pageContract, "table\.loads\.pens"\)\}<\/TableCell>/);
+  assert.match(source, /<TableCell>\{row\.pens \|\| none\}<\/TableCell>/);
   assert.ok(contract.includes('"table.loads.pens"'), "the column label is backend copy");
-
-  // Vertical padding on the CARD, horizontal on its children — `.twrap` excluded beside
-  // `.tablewrap`, because insetting the wrapper would pull the table away from its own header rule.
-  assert.match(source, /className="card wtable" style=\{\{ marginTop: 12 \}\}/);
-  assert.match(css, /\.wtable > :not\(\.tablewrap\):not\(\.twrap\)\{padding-left:16px;padding-right:16px\}/);
-  assert.match(css, /\.wtable table\.loadwise-table th:first-child,\s*\n\.wtable table\.loadwise-table td:first-child\{padding-left:16px\}/);
-  // The pens cell is the ONE column allowed to wrap; every other cell in this table is nowrap so a
-  // load number or a park code can never break character-by-character.
-  assert.match(css, /table\.loadwise-table td\.pens\{white-space:normal/);
+  // The ledger is a template table card (Card + CardHeader, the table scrolling sideways in its own
+  // box), never the legacy `.card.wtable` section with hand-set padding.
+  assert.match(source, /<CardHeader title=\{copy\(pageContract, "table\.loads\.title"\)\}/);
+  assert.match(source, /<Box sx=\{\{ overflowX: "auto" \}\}/);
+  assert.doesNotMatch(source, /className="card/);
 });

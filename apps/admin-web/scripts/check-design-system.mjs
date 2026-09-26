@@ -170,6 +170,7 @@ const CHECKS = {
   "route-template-map-missing": { tier: "waivable", why: "every route in scripts/smoke-visual-live.mjs must have an entry in docs/design/route-template-map.json so the MUI Minimal template section it is built on is discoverable" },
   "section-client-boundary": { tier: "p0", why: "a template section under components/minimal/sections/ that uses hooks or a function sx/theme callback must start with 'use client'; a server page rendering it would otherwise pass a function to a client component and crash at render (typecheck cannot see it)" },
   "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not use KpiCard variant tint/gradient or AnalyticsWidgetSummary (pastel in dark); KPI rows are the template Ecommerce/Course/Banking widget summaries" },
+  "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
@@ -353,6 +354,10 @@ function runGuard(root, { themeDiff }) {
       }
     }
   }
+  // ...nor keep the legacy hand-made card shells (`section.card.wchart` + `h2.h`) the template
+  // section cards replaced (R3: "the cards are hand-made"). Styling them lives in frame.css /
+  // mesha-theme.css, which is exactly the legacy CSS a mapped page must stop depending on.
+  for (const hit of pageTemplateLegacyCardFindings(root)) findings.push(finding("page-template-legacy-card", hit.file, hit.line, hit.snippet));
 
   // components/minimal/ holds ONLY template-derived code (verbatim, near-verbatim, or a
   // structural adaptation). Every file must have a source entry in
@@ -698,6 +703,25 @@ function pageTemplatePastelFindings(root) {
   }
   return out;
 }
+const LEGACY_CARD_MARKUP = /className=\{?["'`](?:card|wchart|wtable|kpi|chartcard)(?:[\s"'`]|$)|className=\{?["'`][^"'`]*\b(?:wchart|wtable)\b|<h2 className=["']h["']/;
+function pageTemplateLegacyCardFindings(root) {
+  const local = join(root, "docs", "design", "page-template-map.md");
+  const mapFile = existsSync(local) ? local : resolve(root, "../../docs/design/page-template-map.md");
+  if (!existsSync(mapFile)) return [];
+  const out = [];
+  for (const row of pageTemplateRows(readFileSync(mapFile, "utf8"))) {
+    for (const rel of row.files) {
+      if (!existsSync(join(root, rel))) continue; // a missing file is `page-template-map`'s finding
+      readFileSync(join(root, rel), "utf8").split("\n").forEach((line, index) => {
+        if (/^\s*(\/\/|\*)/.test(line)) return;
+        if (LEGACY_CARD_MARKUP.test(line)) {
+          out.push({ file: rel, line: index + 1, snippet: `${row.route}: legacy hand-made card markup instead of a template section card: ${line.trim()}` });
+        }
+      });
+    }
+  }
+  return out;
+}
 function hasPaletteHex(text) {
   return [...text.matchAll(new RegExp(HEX_COLOUR.source, "g"))].some((m) => !NEUTRAL_HEX.test(m[0]));
 }
@@ -783,7 +807,9 @@ async function selfTest() {
     "|---|---|---|---|",
     "| `/foo` | user list | `features/foo-page.tsx` | `components/minimal/table` |",
     "| `/pastel` | Ecommerce overview | `features/pastel-page.tsx` | `components/minimal/widgets` |",
+    "| `/legacy` | Ecommerce overview | `features/legacy-card-page.tsx` | `components/minimal/widgets` |",
   ].join("\n"));
+  put("features/legacy-card-page.tsx", 'import { EcommerceWidgetSummary } from "@/components/minimal/widgets";\nexport const L = () => <section className="card wchart"><h2 className="h">x</h2><EcommerceWidgetSummary title="x" total={1} /></section>;\n');
   put("features/pastel-page.tsx", 'import { KpiCard } from "@/components/minimal/widgets";\nexport const P = () => <KpiCard variant="tint" label="x" value={1} />;\n');
   put("components/minimal/sections/overview/demo/server-section.tsx", "export const S = () => <LinearProgress sx={[(theme) => ({ height: 8 })]} />;\n");
   const { findings } = runGuard(root, { themeDiff: false });

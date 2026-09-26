@@ -55,7 +55,6 @@
     "prose-under-title|features/preventive-care-vaccination/passport-section.tsx|<p className=\"muted small\">{copy(pageContract, \"vaccination.unavailable_prefix\")}: {res.error.message ?? res.error.code}</p>",
     "prose-under-title|features/procurement/valuation-section.tsx|<p className=\"muted small sales-config-card-copy\">{copy(pageContract, \"section.valuation.sub\")}</p>",
     "prose-under-title|features/weighing/growth-director.tsx|<p className=\"muted small\">{gd(pageContract, \"error.body\")}</p>",
-    "prose-under-title|features/weighing/weights-analytics.tsx|<p className=\"muted small\">{copy(pageContract, \"error.load.body\")}</p>",
     "prose-under-title|features/weighing/weights.tsx|<p className=\"muted small\">{copy(pageContract, \"error.load.body\")}</p>",
     "prose-under-title|features/weighing/weights.tsx|<p className=\"muted small\">{copy(pageContract, \"error.load.body\")}</p>",
     "raw-float-format|features/ceo-ai/ceo-ai-chart-geometry.ts|const value = Number(v.toFixed(6));",
@@ -1698,20 +1697,8 @@
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
-    "raw-px|features/weighing/fcr-tab.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/weighing/feed-weight-band-card.css": {
-      "allowed": 8,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
     "raw-px|features/weighing/feed-weight-band-exits-drawer.tsx": {
       "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/weighing/load-comparison-tab.tsx": {
-      "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/weighing/weights-assumptions.tsx": {

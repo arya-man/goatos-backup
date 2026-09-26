@@ -252,7 +252,7 @@ test("weights page sends the weighing mode through every backend read", () => {
 });
 
 test("weights analytics tabs request only the growth sections they render", () => {
-  assert.match(analyticsSource, /tab === "general" \? "headline,shed_leaderboard,by_park" : tab === "time" \? "weekly_gain" : ""/);
+  assert.match(analyticsSource, /tab === "general" \? "headline,shed_leaderboard,by_park,weekly_gain" : tab === "time" \? "weekly_gain" : ""/);
   assert.match(analyticsSource, /const wantsGrowth = growthSections !== "";/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: growthSections,\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
   assert.doesNotMatch(analyticsSource, /sectioned-aggregate-reads:allow/);
@@ -317,10 +317,13 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   assert.doesNotMatch(source, /"kpi\.gain\.label"/);
   assert.doesNotMatch(contract, /"kpi\.gain\.label":/);
   assert.doesNotMatch(contract, /"kpi\.gain\.sub":/);
-  // The kit KpiGrid is the template Grid (container spacing 3, widgets sized per breakpoint), so the
-  // deck never falls back to one column on desktop; the analytics page keeps its metrics stack.
-  assert.match(analyticsSource, /className="wt-general-metrics"/);
-  assert.match(source, /<WeightsKpiDeck[\s\S]*?<KpiGrid|import \{ WeightsKpiDeck \}/);
+  // The analytics General tab is the template Ecommerce overview: three EcommerceWidgetSummary
+  // figures (kids, total, average), the two sale lines in ONE radial card, and the daily gain
+  // stated once in the current-balance card -- never a sixth card repeating it.
+  assert.doesNotMatch(analyticsSource, /"kpi\.gain\.label"/);
+  assert.equal((analyticsSource.match(/<EcommerceWidgetSummary\b/g) ?? []).length, 3, "three headline widgets");
+  assert.equal((analyticsSource.match(/<EcommerceSaleByGender\b/g) ?? []).length, 1, "the sale lines share one ring card");
+  assert.equal((analyticsSource.match(/<EcommerceCurrentBalance\b/g) ?? []).length, 1, "the gain is stated once");
   assert.match(readFileSync(new URL("./weights-kpi-deck.tsx", import.meta.url), "utf8"), /<KpiGrid min=\{min\}>/);
   const grid = readFileSync(new URL("../../components/minimal/widgets/kpi-grid.tsx", import.meta.url), "utf8");
   assert.match(grid, /<Grid container spacing=\{3\}/);
@@ -501,14 +504,12 @@ test("chart metric switches are local state, not route reloads", () => {
 
 test("full-width shed chart labels fit without overlapping rows", () => {
   // The bar rows are the MUI Minimal template item (components/minimal/progress-list), drawn by
-  // the kit BarList that WeightBars and GroupedBars both render. The label rules that used to live
+  // the kit BarList that WeightBars renders. The label rules that used to live
   // on the `.wbar` grid are asserted on that item now.
   const item = readFileSync(new URL("../../components/minimal/progress-list/progress-item.tsx", import.meta.url), "utf8");
   const barList = readFileSync(new URL("../../components/bar-list.tsx", import.meta.url), "utf8");
   const weightBars = readFileSync(new URL("./weight-bars.tsx", import.meta.url), "utf8");
-  const groupedBars = readFileSync(new URL("./grouped-bars.tsx", import.meta.url), "utf8");
   assert.match(weightBars, /<BarList[\s\S]*wide=\{wide\}/);
-  assert.match(groupedBars, /<BarList[\s\S]*className="wgrouped"/);
   // A long pen label wraps to TWO lines and is then cut, never collapsed to "C..": the clamped text
   // carries display:-webkit-box + line-clamp 2, hides overflow and may break anywhere.
   assert.match(item, /className=\{`\$\{hook\}-label-text`\}[\s\S]*?display: "-webkit-box"/);

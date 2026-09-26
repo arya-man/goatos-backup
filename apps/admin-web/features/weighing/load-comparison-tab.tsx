@@ -3,10 +3,15 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import { Scale } from "lucide-react";
-import { Caption } from "@/components/app/caption";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Typography from "@mui/material/Typography";
+import { EmptyState } from "@/components/app/empty-state";
+import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
 
-import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { pensFromPlacements, withLoadPens } from "@/lib/load-pens";
@@ -92,9 +97,9 @@ export function LoadComparisonTab({
   // render, with a band naming the missing half.
   if (loads === null) {
     return (
-      <section className="card">
-        <p className="muted">{copy(pageContract, "error.load.loads_unavailable")}</p>
-      </section>
+      <Alert severity="error" variant="outlined">
+        {copy(pageContract, "error.load.loads_unavailable")}
+      </Alert>
     );
   }
   const weighingDown = weights === null;
@@ -165,21 +170,11 @@ export function LoadComparisonTab({
       : `${copy(pageContract, "note.load.rates.prefix")} ${defaults
           .map((price) => `${price.species} ${rupees}${price.price_per_kg_inr.toLocaleString("en-IN")}`)
           .join(", ")}${overrideCount > 0 ? ` · ${overrideCount} ${copy(pageContract, "note.load.rates.overrides")}` : ""}`;
-  const valueGroups: BarGroup[] = rows.map((row) => {
-    const bars: GroupedBar[] = [];
+  const valueRows = rows.map((row) => {
     const purchaseValue = priced.get(row.load.load_id)?.purchase_value ?? null;
     const stockAnimals = row.load.remaining;
     const stockValue =
       row.latestAvg !== null && stockAnimals > 0 ? valueHeadMix(prices, row.load.remaining_mix ?? [], row.latestAvg) : null;
-    if (purchaseValue !== null) {
-      bars.push({ key: `${row.load.load_id}-pv`, label: copy(pageContract, "legend.load.purchase_value"), value: Math.round(purchaseValue), seriesKey: "purchase_value" });
-    }
-    if (stockValue !== null) {
-      bars.push({ key: `${row.load.load_id}-sv`, label: copy(pageContract, "legend.load.stock_value"), value: Math.round(stockValue), seriesKey: "stock_value" });
-    }
-    if (purchaseValue !== null && stockValue !== null) {
-      bars.push({ key: `${row.load.load_id}-gain`, label: copy(pageContract, "legend.load.gain"), value: Math.round(stockValue - purchaseValue), seriesKey: "gain" });
-    }
     const basis =
       stockAnimals === 0
         ? copy(pageContract, "load.value.sold_out")
@@ -187,59 +182,23 @@ export function LoadComparisonTab({
           ? copy(pageContract, "load.value.no_cost")
           : `${stockAnimals.toLocaleString("en-IN")} × ${kg(row.latestAvg ?? 0)} ${unit}`;
     // WHERE the money is standing, on the same terms as the weight chart above (maintainer request
-    // 2026-09-21: name the pen on every graph, not only one). A bar saying a load is worth ₹4.2L
-    // names no pen, so a reader cannot walk from it to the pens table below or go and look at the
-    // animals -- and the two charts sitting side by side must label the same load the same way.
-    //
-    // It rides the HEADING in a bracket now (maintainer request 2026-09-22) rather than the
-    // sub-line, which is the shape every other load chart on the dashboard uses.
-    //
-    // A SOLD-OUT load is named WITHOUT its pens: it has no animals standing anywhere, so naming
-    // the pens its animals used to sit in would point a reader at a pen that no longer holds
-    // them. That rule predates the bracket and survives it.
+    // 2026-09-21: name the pen on every graph). It rides the category in a bracket (2026-09-22),
+    // the shape every other load chart on the dashboard uses. A SOLD-OUT load is named WITHOUT its
+    // pens: it has no animals standing anywhere, so naming them would point at an empty pen.
     return {
-      key: `${row.load.load_id}-value`,
       heading: stockAnimals === 0 ? row.heading : row.chartHeading,
-      subheading: basis,
-      bars,
-    };
-  });
-
-  const groups: BarGroup[] = rows.map((row) => {
-    const bars: GroupedBar[] = [];
-    if (row.purchasedAvg !== null) {
-      bars.push({
-        key: `${row.load.load_id}-purchased`,
-        label: copy(pageContract, "legend.load.purchased"),
-        value: Number(row.purchasedAvg.toFixed(1)),
-        seriesKey: "purchased",
-      });
-    }
-    if (row.latestAvg !== null) {
-      bars.push({
-        key: `${row.load.load_id}-latest`,
-        label: copy(pageContract, "legend.load.latest"),
-        value: Number(row.latestAvg.toFixed(1)),
-        seriesKey: "latest",
-      });
-    }
-    // The multiple stays the sub-line; WHERE the load is now rides the heading in a bracket.
-    // A bar saying a supplier's stock grew 1.4x names no pen, so a reader cannot walk from it to
-    // the pens table below or go and look at the animals.
-    const multiple = row.multiple !== null ? `${row.multiple.toFixed(1)}${suffix}` : "";
-    return {
-      key: row.load.load_id,
-      heading: row.chartHeading,
-      subheading: multiple || undefined,
-      bars,
+      purchaseValue: purchaseValue === null ? null : Math.round(purchaseValue),
+      stockValue: stockValue === null ? null : Math.round(stockValue),
+      gain: purchaseValue !== null && stockValue !== null ? Math.round(stockValue - purchaseValue) : null,
+      basis,
     };
   });
 
   if (loads.length === 0) {
     return (
-      <section className="card wt-load-empty">
-        <p className="muted small">{copy(pageContract, "empty.load.body")}</p>
-      </section>
+      <Card>
+        <EmptyState title={copy(pageContract, "empty.load.body")} />
+      </Card>
     );
   }
   // Loads exist but the weighed-only filter kept none: say THAT, not "no purchased loads". The
@@ -247,107 +206,144 @@ export function LoadComparisonTab({
   // read failed and the band below names the missing half instead.
   if (rows.length === 0) {
     return (
-      <section className="card wt-load-empty">
-        <Caption>{copy(pageContract, "note.load.weighed_only")}</Caption>
-        <p className="muted small">{copy(pageContract, "empty.load.unweighed.body")}</p>
-      </section>
+      <Card>
+        <EmptyState title={copy(pageContract, "empty.load.unweighed.body")} description={copy(pageContract, "note.load.weighed_only")} />
+      </Card>
     );
   }
 
+  const loadCategories = rows.map((row) => row.chartHeading);
+  const rupeeUnit = `${rupees}·`;
+
   return (
-    <>
+    <Grid container spacing={3}>
       {weighingDown ? (
-        <section className="card" role="alert">
-          <p className="muted">{copy(pageContract, "error.load.weighing_unavailable")}</p>
-        </section>
+        <Grid size={12}>
+          <Alert severity="warning" variant="outlined">
+            {copy(pageContract, "error.load.weighing_unavailable")}
+          </Alert>
+        </Grid>
       ) : null}
 
-      <section className="card wchart" aria-label={copy(pageContract, "section.load.aria")}>
-        <h2 className="h">
-          <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load.title")}
-        </h2>
-        <GroupedBars
-          groups={groups}
-          // Both sides ARE the same measure (kg per animal) over two moments, so they share
-          // one scale — the entire comparison is the difference in bar length.
-          series={[
-            { key: "purchased", scaleKey: "kg", label: copy(pageContract, "legend.load.purchased"), unit: "kg", fractionDigits: 1 },
-            { key: "latest", scaleKey: "kg", label: copy(pageContract, "legend.load.latest"), unit: "kg", fractionDigits: 1 },
-          ]}
-          emptyLabel={copy(pageContract, "empty.load.unweighed.body")}
-          chartLabel={copy(pageContract, "section.load.aria")}
+      {/* Both sides ARE the same measure (kg per animal) over two moments, so they share one scale:
+          the entire comparison is the difference in bar length. The growth multiple rides each
+          load's tooltip; WHERE the load is now rides its category in a bracket. */}
+      <Grid size={12}>
+        <BankingBalanceStatistics
+          aria-label={copy(pageContract, "section.load.aria")}
+          title={copy(pageContract, "section.load.title")}
+          subheader={copy(pageContract, "section.load.caption")}
+          empty={<EmptyState title={copy(pageContract, "empty.load.unweighed.body")} />}
+          chart={{
+            series: [
+              {
+                name: copy(pageContract, "section.load.title"),
+                categories: loadCategories,
+                unit: "kg",
+                digits: 1,
+                data: [
+                  {
+                    name: copy(pageContract, "legend.load.purchased"),
+                    data: rows.map((row) => (row.purchasedAvg === null ? null : Number(row.purchasedAvg.toFixed(1)))),
+                  },
+                  {
+                    name: copy(pageContract, "legend.load.latest"),
+                    data: rows.map((row) => (row.latestAvg === null ? null : Number(row.latestAvg.toFixed(1)))),
+                    notes: rows.map((row) => (row.multiple === null ? null : `${row.multiple.toFixed(1)}${suffix}`)),
+                  },
+                ],
+              },
+            ],
+          }}
         />
-      </section>
+      </Grid>
 
       {/* VALUE. Three bars per load on ONE rupee scale -- purchased value, current stock value,
           and the gain between them -- so a loss draws below the baseline. The assumed rates are
-          printed here, beside the chart, because a figure priced on an assumption must show it.
+          printed beside the chart, because a figure priced on an assumption must show it.
           GATED: the money comes from the sales-only read, so a principal the contract withholds
           it from (the Growth Director on weighing access alone) sees the backend's reason. */}
-      <section className="card wchart" aria-label={copy(pageContract, "section.load_value.aria")}>
-        <h2 className="h">
-          <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load_value.title")}
-        </h2>
-        <Caption>{copy(pageContract, "section.load_value.caption")}</Caption>
-        {valueChartReason !== "" ? (
-          <p className="muted">{valueChartReason}</p>
-        ) : valueLoads === null ? (
-          <p className="muted">{copy(pageContract, "error.load.loads_unavailable")}</p>
-        ) : (
-        <GroupedBars
-          groups={valueGroups}
-          series={[
-            { key: "purchase_value", scaleKey: "inr", label: copy(pageContract, "legend.load.purchase_value"), unit: rupees, fractionDigits: 0 },
-            { key: "stock_value", scaleKey: "inr", label: copy(pageContract, "legend.load.stock_value"), unit: rupees, fractionDigits: 0 },
-            { key: "gain", scaleKey: "inr", label: copy(pageContract, "legend.load.gain"), unit: rupees, fractionDigits: 0 },
-          ]}
-          emptyLabel={copy(pageContract, "empty.load.unweighed.body")}
-          chartLabel={copy(pageContract, "section.load_value.aria")}
-        />
-        )}
-      </section>
+      <Grid size={12}>
+        <BankingBalanceStatistics
+          aria-label={copy(pageContract, "section.load_value.aria")}
+          title={copy(pageContract, "section.load_value.title")}
+          subheader={copy(pageContract, "section.load_value.caption")}
+          empty={
+            <EmptyState
+              title={
+                valueChartReason !== ""
+                  ? valueChartReason
+                  : valueLoads === null
+                    ? copy(pageContract, "error.load.loads_unavailable")
+                    : copy(pageContract, "empty.load.unweighed.body")
+              }
+            />
+          }
+          chart={{
+            series: [
+              {
+                name: copy(pageContract, "section.load_value.title"),
+                categories: valueChartReason !== "" || valueLoads === null ? [] : valueRows.map((row) => row.heading),
+                unit: rupeeUnit,
+                data: [
+                  { name: copy(pageContract, "legend.load.purchase_value"), data: valueRows.map((row) => row.purchaseValue) },
+                  {
+                    name: copy(pageContract, "legend.load.stock_value"),
+                    data: valueRows.map((row) => row.stockValue),
+                    notes: valueRows.map((row) => row.basis),
+                  },
+                  { name: copy(pageContract, "legend.load.gain"), data: valueRows.map((row) => row.gain) },
+                ],
+              },
+            ],
+          }}
+        >
+          <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
+            {ratesNote}
+          </Typography>
+        </BankingBalanceStatistics>
+      </Grid>
 
-      {/* `wtable`: vertical padding on the CARD, horizontal on its children, and the outer
-          columns lined up with the card's own text -- the treatment the Weights tables already use,
-          so this card stops sitting flush against its frame while its header rule and row
-          separators still reach it. */}
-      <section className="card wtable" style={{ marginTop: 12 }}>
-        <h2 className="h">{copy(pageContract, "table.loads.title")}</h2>
-        <div className="twrap" style={{ marginTop: 8 }} tabIndex={0} role="region" aria-label={copy(pageContract, "table.loads.title")}>
-          <Table className="loadwise-table" aria-label={copy(pageContract, "table.loads.title")}>
-            <TableHead>
-              <TableRow>
-                <TableCell component="th">{copy(pageContract, "table.loads.load")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "table.loads.vendor")}</TableCell>
-                <TableCell component="th" className="num">{copy(pageContract, "table.loads.animals")}</TableCell>
-                <TableCell component="th" className="num">{`${copy(pageContract, "table.loads.purchased_avg")} (${unit})`}</TableCell>
-                <TableCell component="th" className="num">{`${copy(pageContract, "table.loads.latest_avg")} (${unit})`}</TableCell>
-                <TableCell component="th" className="num">{copy(pageContract, "table.loads.multiple")}</TableCell>
-                <TableCell component="th" className="pens">{copy(pageContract, "table.loads.pens")}</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.load.load_id}>
-                  <TableCell>
-                    <b>{row.heading}</b>
-                  </TableCell>
-                  <TableCell>{row.load.vendor_name || none}</TableCell>
-                  <TableCell className="num">{row.load.purchased.toLocaleString("en-IN")}</TableCell>
-                  <TableCell className="num">{row.purchasedAvg !== null ? kg(row.purchasedAvg) : none}</TableCell>
-                  <TableCell className="num">{row.latestAvg !== null ? kg(row.latestAvg) : none}</TableCell>
-                  <TableCell className="num">
-                    {row.multiple !== null ? <b>{`${row.multiple.toFixed(1)}${suffix}`}</b> : none}
-                  </TableCell>
-                  {/* The SAME line both charts carry, so the three surfaces on this tab name one
-                      load's pens identically. A load with no weighed pen reads as absent. */}
-                  <TableCell className="pens">{row.pens || none}</TableCell>
+      <Grid size={12}>
+        <Card>
+          <CardHeader title={copy(pageContract, "table.loads.title")} subheader={copy(pageContract, "note.load.denominator")} sx={{ mb: 3 }} />
+          <Box sx={{ overflowX: "auto" }} tabIndex={0} role="region" aria-label={copy(pageContract, "table.loads.title")}>
+            <Table aria-label={copy(pageContract, "table.loads.title")}>
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{copy(pageContract, "table.loads.load")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "table.loads.vendor")}</TableCell>
+                  <TableCell component="th" align="right">{copy(pageContract, "table.loads.animals")}</TableCell>
+                  <TableCell component="th" align="right">{`${copy(pageContract, "table.loads.purchased_avg")} (${unit})`}</TableCell>
+                  <TableCell component="th" align="right">{`${copy(pageContract, "table.loads.latest_avg")} (${unit})`}</TableCell>
+                  <TableCell component="th" align="right">{copy(pageContract, "table.loads.multiple")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "table.loads.pens")}</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
-    </>
+              </TableHead>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.load.load_id} hover>
+                    <TableCell sx={{ typography: "subtitle2" }}>{row.heading}</TableCell>
+                    <TableCell>{row.load.vendor_name || none}</TableCell>
+                    <TableCell align="right">{row.load.purchased.toLocaleString("en-IN")}</TableCell>
+                    <TableCell align="right">{row.purchasedAvg !== null ? kg(row.purchasedAvg) : none}</TableCell>
+                    <TableCell align="right">{row.latestAvg !== null ? kg(row.latestAvg) : none}</TableCell>
+                    <TableCell align="right" sx={{ typography: "subtitle2" }}>
+                      {row.multiple !== null ? `${row.multiple.toFixed(1)}${suffix}` : none}
+                    </TableCell>
+                    {/* The SAME line both charts carry, so the three surfaces on this tab name one
+                        load's pens identically. A load with no weighed pen reads as absent. */}
+                    <TableCell>{row.pens || none}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+          <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
+            {copy(pageContract, "note.load.filters")}
+          </Typography>
+        </Card>
+      </Grid>
+    </Grid>
   );
 }

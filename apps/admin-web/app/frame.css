@@ -28,7 +28,7 @@
 .card>h2.h,.card>h3.h,section.card>h2{margin:0;padding:var(--card-head-pad);font-size:18px;line-height:28px;font-weight:700;font-family:var(--font-display);letter-spacing:0}
 .card.wchart,.card.wtable{padding:24px}
 .card.wchart>h2.h,.card.wtable>h2.h{padding:0}
-.card.wchart>.wgrouped,.card.wchart>.kit-barlist,.card.wchart>.wbars-empty{margin-top:16px}
+.card.wchart>.kit-barlist,.card.wchart>.wbars-empty{margin-top:16px}
 .card>.tablewrap:last-child,.card>.twrap:last-child{border-radius:0 0 16px 16px}
 .card>.hd .sp{flex:1}
 @media(max-width:640px){.card>.bd{padding:20px}.card>.hd{padding:16px 20px 0}.card.wchart,.card.wtable{padding:20px}}

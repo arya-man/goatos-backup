@@ -1,11 +1,18 @@
-import { Caption } from "@/components/app/caption";
-import { CalendarRange, Scale, Sprout, Warehouse, Wheat } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Typography from "@mui/material/Typography";
 
+import { EmptyState } from "@/components/app/empty-state";
 import { WorklistPager } from "@/components/worklist-pager";
+import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
+import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
 import { FCRPensTable } from "./fcr-pens-table";
 import { cohortWord } from "./fcr-labels";
-import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
-import { WeightBars } from "./weight-bars";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import type { GrowthFCRGroup, GrowthFCRResponse, GrowthFCRPen } from "@/lib/api/server";
@@ -29,17 +36,8 @@ import { weightsSexChoices } from "./sex-filter-contract";
 const num = (value: number, digits = 1) =>
   value.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-function KPI({ label, value, unit, sub, tone }: { label: string; value: string; unit?: string; sub?: React.ReactNode; tone?: "ok" | "warn" }) {
-  return (
-    <div className="kpi">
-      <div className="lab">{label}</div>
-      <div className="val">
-        {value} {unit ? <small className="fcr-kpi-unit" style={{ color: "var(--muted)" }}>{unit}</small> : null}
-      </div>
-      {sub ? <div className={`dl ${tone === "warn" ? "warn" : "muted"}`}>{sub}</div> : null}
-    </div>
-  );
-}
+/** These figures have no series behind them, so the widget draws no sparkline. */
+const NO_SPARK = { categories: [], series: [] };
 
 /** "1 pen", "12 pens": the count and the right word, both from the page contract. */
 function penCount(pageContract: AdminUiPageContract, n: number): string {
@@ -75,69 +73,62 @@ function groupLabel(pageContract: AdminUiPageContract, group: GrowthFCRGroup, id
   }
 }
 
-/** One bar per group, on one FCR scale, with the pen count beside it. */
-function groupBars(pageContract: AdminUiPageContract, groups: GrowthFCRGroup[], id: string): BarGroup[] {
-  return groups
-    .filter((group) => group.fcr != null)
-    .map((group) => ({
-      key: group.key,
-      heading: groupLabel(pageContract, group, id),
-      bars: [
-        {
-          key: `${group.key}-fcr`,
-          label: copy(pageContract, "series.fcr"),
-          value: Number((group.fcr as number).toFixed(2)),
-          seriesKey: "fcr",
-          noteLabel: penCount(pageContract, group.pens),
-        } satisfies GroupedBar,
-      ],
-    }));
-}
-
+/**
+ * One FCR cut (breed, sex, band, park, origin) on the template balance-statistics card: the ratio
+ * and the money made over feed are two selectable series, never one axis (kg/kg and rupees are not
+ * comparable lengths). A group with no honest ratio is left out; a group whose gain or feed is
+ * unpriced has no money bar (null), never a zero one. The pen count rides in each bar's tooltip.
+ */
 function GroupCard({
   pageContract,
   id,
   groups,
-  icon,
   rupee,
 }: {
   pageContract: AdminUiPageContract;
   id: string;
   groups: GrowthFCRGroup[];
-  icon: React.ReactNode;
   rupee: string;
 }) {
+  const measured = (groups ?? []).filter((group): group is GrowthFCRGroup & { fcr: number } => group.fcr != null);
+  const categories = measured.map((group) => groupLabel(pageContract, group, id));
+  const notes = measured.map((group) => penCount(pageContract, group.pens));
   const caption = copy(pageContract, `section.fcr.${id}.caption`, "");
-  const safeGroups = groups ?? [];
-  // Two series on two scales: the ratio, and the money the group made over its feed. A group
-  // whose gain is unpriced or whose feed is unpriced shows the ratio alone.
-  const bars = groupBars(pageContract, safeGroups, id).map((group) => {
-    const src = safeGroups.find((g) => g.key === group.key);
-    if (!src || src.margin_inr == null) return group;
-    return {
-      ...group,
-      bars: [
-        ...group.bars,
-        { key: `${group.key}-margin`, label: copy(pageContract, "legend.fcr.margin"), value: Math.round(src.margin_inr), seriesKey: "margin" } satisfies GroupedBar,
-      ],
-    };
-  });
   return (
-    <section className="card wchart" aria-label={copy(pageContract, `section.fcr.${id}.aria`)}>
-      <h2 className="h">
-        {icon} {copy(pageContract, `section.fcr.${id}.title`)}
-      </h2>
-      {caption ? <Caption>{caption}</Caption> : null}
-      <GroupedBars
-        groups={bars}
-        series={[
-          { key: "fcr", label: copy(pageContract, "series.fcr"), unit: copy(pageContract, "unit.fcr"), fractionDigits: 2 },
-          { key: "margin", scaleKey: "inr", label: copy(pageContract, "legend.fcr.margin"), unit: rupee, fractionDigits: 0 },
-        ]}
-        emptyLabel={copy(pageContract, "empty.fcr.body")}
-        chartLabel={copy(pageContract, `section.fcr.${id}.aria`)}
-      />
-    </section>
+    <BankingBalanceStatistics
+      aria-label={copy(pageContract, `section.fcr.${id}.aria`)}
+      title={copy(pageContract, `section.fcr.${id}.title`)}
+      subheader={caption || undefined}
+      empty={<EmptyState title={copy(pageContract, "empty.fcr.body")} />}
+      chart={{
+        series: [
+          {
+            name: copy(pageContract, "series.fcr"),
+            categories,
+            unit: copy(pageContract, "unit.fcr"),
+            digits: 2,
+            data: [{ name: copy(pageContract, "series.fcr"), data: measured.map((group) => Number(group.fcr.toFixed(2))), notes }],
+          },
+          ...(measured.some((group) => group.margin_inr != null)
+            ? [
+                {
+                  name: copy(pageContract, "legend.fcr.margin"),
+                  categories,
+                  unit: `${rupee}·`,
+                  data: [
+                    {
+                      name: copy(pageContract, "legend.fcr.margin"),
+                      data: measured.map((group) => (group.margin_inr == null ? null : Math.round(group.margin_inr))),
+                      notes,
+                    },
+                  ],
+                },
+              ]
+            : []),
+        ],
+      }}
+      sx={{ height: 1 }}
+    />
   );
 }
 
@@ -153,9 +144,9 @@ export function FCRTab({
 }) {
   if (fcr === null) {
     return (
-      <section className="card" role="alert">
-        <p className="muted">{copy(pageContract, "error.fcr.body")}</p>
-      </section>
+      <Alert severity="error" variant="outlined">
+        {copy(pageContract, "error.fcr.body")}
+      </Alert>
     );
   }
   const none = copy(pageContract, "kpi.fcr.no_value");
@@ -187,73 +178,68 @@ export function FCRTab({
     unpriced: copy(pageContract, "table.fcr.unpriced"),
     wasted: copy(pageContract, "table.fcr.wasted"),
     rupee,
-    empty: <span className="muted small">{copy(pageContract, "empty.fcr.body")}</span>,
+    empty: copy(pageContract, "empty.fcr.body"),
   };
 
   // Pens with a ratio as horizontal bars on one FCR scale, in the contract's own order: park
-  // clusters (CBE, then CPT) and pens A→Z inside each, the backend's order for every All-parks surface.
-  const penBars = fcr.pens
-    .filter((pen): pen is GrowthFCRPen & { fcr: number } => pen.fcr != null)
-    .map((pen) => ({
-      key: `${pen.location_id}|${pen.partition_label}`,
-      label: pen.operational_location_display,
-      value: Number(pen.fcr.toFixed(2)),
-      valueLabel: num(pen.fcr, 2),
-      // The same words the table's cohort column uses, so a chip never shows a raw register key.
-      modeLabel: `${cohortWord(pen.breed, tableLabels, "breed")} · ${cohortWord(pen.sex, tableLabels, "sex")}`,
-      modeTone: (pen.breed === "mixed" ? "info" : "mut") as "info" | "mut",
-    }));
+  // clusters (CBE, then CPT) and pens A→Z inside each, the backend's order for every All-parks
+  // surface. The cohort words ride in the tooltip -- the same words the table's cohort column uses.
+  const ratedPens = fcr.pens.filter((pen): pen is GrowthFCRPen & { fcr: number } => pen.fcr != null);
 
   // Money by pen: gain value, feed cost and money made on ONE rupee scale, so a loss draws below
-  // the baseline. Pens whose gain is unpriced (no species price) or whose feed bill is unpriced
-  // show only the half they have.
-  const moneyGroups: BarGroup[] = fcr.pens
-    .filter((pen) => pen.fcr != null && (pen.gain_value_inr != null || pen.feed_cost_inr != null))
-    .map((pen) => {
-      const bars: GroupedBar[] = [];
-      if (pen.gain_value_inr != null) bars.push({ key: `${pen.location_id}|${pen.partition_label}-gv`, label: copy(pageContract, "legend.fcr.gain_value"), value: Math.round(pen.gain_value_inr), seriesKey: "gain_value" });
-      if (pen.feed_cost_inr != null) bars.push({ key: `${pen.location_id}|${pen.partition_label}-fc`, label: copy(pageContract, "legend.fcr.feed_cost"), value: Math.round(pen.feed_cost_inr), seriesKey: "feed_cost" });
-      if (pen.margin_inr != null) bars.push({ key: `${pen.location_id}|${pen.partition_label}-m`, label: copy(pageContract, "legend.fcr.margin"), value: Math.round(pen.margin_inr), seriesKey: "margin" });
-      return { key: `${pen.location_id}|${pen.partition_label}`, heading: pen.operational_location_display, bars };
-    });
+  // the baseline. Pens whose gain or feed bill is unpriced show only the half they have (null).
+  const moneyPens = ratedPens.filter((pen) => pen.gain_value_inr != null || pen.feed_cost_inr != null);
+  const roundOrNull = (value: number | null | undefined) => (value == null ? null : Math.round(value));
 
-  const weekBars = fcr.weekly
-    .filter((week) => week.fcr != null)
-    .map((week) => ({
-      key: week.week_start,
-      label: fmtDate(week.week_start),
-      value: Number((week.fcr as number).toFixed(2)),
-      valueLabel: num(week.fcr as number, 2),
-      modeLabel: penCount(pageContract, week.pens),
-      modeTone: "mut" as const,
-    }));
+  const weeks = fcr.weekly.filter((week): week is typeof week & { fcr: number } => week.fcr != null);
 
   const fcrTable = table(pageContract, "fcr-pens");
 
+  const kpis = [
+    {
+      key: "farm",
+      title: copy(pageContract, "kpi.fcr.farm.label"),
+      total: s.fcr == null ? none : `${num(s.fcr, 2)} ${copy(pageContract, "kpi.fcr.farm.unit")}`,
+      caption: `${penCount(pageContract, s.pens_with_fcr)} · ${s.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.kids")}`,
+    },
+    {
+      key: "gain",
+      title: copy(pageContract, "kpi.fcr.gain_value.label"),
+      total: money(s.gain_value_inr),
+      caption: `${num(s.gain_kg, 0)} kg · ${copy(pageContract, "kpi.fcr.gain_value.sub")}`,
+    },
+    {
+      key: "feed",
+      title: copy(pageContract, "kpi.fcr.feed_cost.label"),
+      total: money(s.feed_cost_inr),
+      caption: `${num(s.feed_kg, 0)} kg${s.wastage_kg > 0 ? ` (${num(s.wastage_kg, 0)} ${copy(pageContract, "table.fcr.wasted")})` : ""} · ${money(s.feed_cost_per_kg_gain_inr)} ${copy(pageContract, "kpi.fcr.cost_gain.label").toLowerCase()}`,
+    },
+    {
+      key: "margin",
+      title: copy(pageContract, "kpi.fcr.margin.label"),
+      total: money(s.margin_inr),
+      caption: s.margin_inr != null && s.margin_inr < 0 ? copy(pageContract, "kpi.fcr.margin.loss") : copy(pageContract, "kpi.fcr.margin.sub"),
+    },
+    {
+      key: "break_even",
+      title: copy(pageContract, "kpi.fcr.break_even.label"),
+      total: s.break_even_fcr == null ? none : num(s.break_even_fcr, 1),
+      caption: copy(pageContract, "kpi.fcr.break_even.sub"),
+    },
+  ];
+
   return (
-    <>
-      <div className="grid g5 kpi-row">
-        <KPI
-          label={copy(pageContract, "kpi.fcr.farm.label")}
-          value={s.fcr == null ? none : num(s.fcr, 2)}
-          unit={copy(pageContract, "kpi.fcr.farm.unit")}
-          sub={`${penCount(pageContract, s.pens_with_fcr)} · ${s.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.kids")}`}
-        />
-        <KPI label={copy(pageContract, "kpi.fcr.gain_value.label")} value={money(s.gain_value_inr)} sub={`${num(s.gain_kg, 0)} kg · ${copy(pageContract, "kpi.fcr.gain_value.sub")}`} />
-        <KPI label={copy(pageContract, "kpi.fcr.feed_cost.label")} value={money(s.feed_cost_inr)} sub={`${num(s.feed_kg, 0)} kg${s.wastage_kg > 0 ? ` (${num(s.wastage_kg, 0)} ${copy(pageContract, "table.fcr.wasted")})` : ""} · ${money(s.feed_cost_per_kg_gain_inr)} ${copy(pageContract, "kpi.fcr.cost_gain.label").toLowerCase()}`} />
-        <KPI
-          label={copy(pageContract, "kpi.fcr.margin.label")}
-          value={money(s.margin_inr)}
-          sub={s.margin_inr != null && s.margin_inr < 0 ? copy(pageContract, "kpi.fcr.margin.loss") : copy(pageContract, "kpi.fcr.margin.sub")}
-          tone={s.margin_inr != null && s.margin_inr < 0 ? "warn" : undefined}
-        />
-        <KPI label={copy(pageContract, "kpi.fcr.break_even.label")} value={s.break_even_fcr == null ? none : num(s.break_even_fcr, 1)} sub={copy(pageContract, "kpi.fcr.break_even.sub")} />
-      </div>
+    <Grid container spacing={3}>
+      {kpis.map((kpi, index) => (
+        <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: index < 3 ? 4 : 6 }}>
+          <EcommerceWidgetSummary title={kpi.title} total={kpi.total} caption={kpi.caption} chart={NO_SPARK} sx={{ height: 1 }} />
+        </Grid>
+      ))}
 
       {/* The price the gain is valued at: maintainer-edited DATA, printed beside the figures it
           prices, with who set it and when, because a figure priced on an assumption must show it. */}
-      <section className="card" style={{ padding: "10px 16px" }}>
-        <p className="muted small" style={{ margin: 0 }}>
+      <Grid size={12}>
+        <Alert severity="info" variant="outlined">
           {priceDefaults.length === 0 ? (
             copy(pageContract, "fcr.price.missing")
           ) : (
@@ -277,99 +263,138 @@ export function FCRTab({
               {copy(pageContract, "fcr.price.shared")}
             </>
           )}
-        </p>
-      </section>
+        </Alert>
+      </Grid>
 
-      <section className="card wchart" aria-label={copy(pageContract, "section.fcr.pens.aria")}>
-        <h2 className="h">
-          <Wheat className="ic" size={15} aria-hidden /> {copy(pageContract, "section.fcr.pens.title")}
-        </h2>
-        <Caption>{copy(pageContract, "section.fcr.pens.caption")}</Caption>
-        <WeightBars
-          data={penBars}
-          emptyLabel={copy(pageContract, "empty.fcr.body")}
-          unit={copy(pageContract, "unit.fcr")}
-          chartLabel={copy(pageContract, "section.fcr.pens.aria")}
-          size="tall"
-          wide
-          // The caption promises a dashed break-even line; it is drawn on every pen's track, so a pen
-          // past it reads as losing money without comparing two numbers.
-          reference={s.break_even_fcr != null ? { value: s.break_even_fcr, label: copy(pageContract, "label.fcr.break_even") } : undefined}
+      <Grid size={{ xs: 12, lg: 7 }}>
+        <AnalyticsConversionRates
+          aria-label={copy(pageContract, "section.fcr.pens.aria")}
+          title={copy(pageContract, "section.fcr.pens.title")}
+          subheader={copy(pageContract, "section.fcr.pens.caption")}
+          empty={<EmptyState title={copy(pageContract, "empty.fcr.body")} />}
+          chart={{
+            categories: ratedPens.map((pen) => pen.operational_location_display),
+            unit: copy(pageContract, "unit.fcr"),
+            digits: 2,
+            series: [
+              {
+                name: copy(pageContract, "series.fcr"),
+                data: ratedPens.map((pen) => Number(pen.fcr.toFixed(2))),
+                notes: ratedPens.map((pen) => `${cohortWord(pen.breed, tableLabels, "breed")} · ${cohortWord(pen.sex, tableLabels, "sex")}`),
+              },
+            ],
+            // The caption promises a dashed break-even line across every pen's bar, so a pen past it
+            // reads as losing money without comparing two numbers.
+            options:
+              s.break_even_fcr != null
+                ? {
+                    annotations: {
+                      xaxis: [
+                        {
+                          x: s.break_even_fcr,
+                          strokeDashArray: 4,
+                          label: { text: `${copy(pageContract, "label.fcr.break_even")}: ${num(s.break_even_fcr, 1)} ${copy(pageContract, "unit.fcr")}` },
+                        },
+                      ],
+                    },
+                  }
+                : undefined,
+          }}
+          sx={{ height: 1 }}
+        >
+          <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
+            {copy(pageContract, "note.fcr.excluded")}
+          </Typography>
+        </AnalyticsConversionRates>
+      </Grid>
+      <Grid size={{ xs: 12, lg: 5 }}>
+        <AnalyticsWebsiteVisits
+          aria-label={copy(pageContract, "section.fcr.weekly.aria")}
+          title={copy(pageContract, "section.fcr.weekly.title")}
+          subheader={copy(pageContract, "section.fcr.weekly.caption")}
+          empty={<EmptyState title={copy(pageContract, "empty.fcr.body")} />}
+          chart={{
+            categories: weeks.map((week) => fmtDate(week.week_start)),
+            unit: copy(pageContract, "unit.fcr"),
+            digits: 2,
+            series: [
+              {
+                name: copy(pageContract, "series.fcr"),
+                data: weeks.map((week) => Number(week.fcr.toFixed(2))),
+                notes: weeks.map((week) => penCount(pageContract, week.pens)),
+              },
+            ],
+          }}
+          sx={{ height: 1 }}
         />
-        {s.break_even_fcr != null ? (
-          <p className="muted small">
-            {copy(pageContract, "label.fcr.break_even")}: <b>{num(s.break_even_fcr, 1)}</b> {copy(pageContract, "unit.fcr")}
-          </p>
-        ) : null}
-        <Caption>{copy(pageContract, "note.fcr.excluded")}</Caption>
-      </section>
+      </Grid>
 
-      <section className="card wchart" aria-label={copy(pageContract, "section.fcr.money.aria")}>
-        <h2 className="h">
-          <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.fcr.money.title")}
-        </h2>
-        <Caption>{copy(pageContract, "section.fcr.money.caption")}</Caption>
-        <GroupedBars
-          groups={moneyGroups}
-          series={[
-            { key: "gain_value", scaleKey: "inr", label: copy(pageContract, "legend.fcr.gain_value"), unit: rupee, fractionDigits: 0 },
-            { key: "feed_cost", scaleKey: "inr", label: copy(pageContract, "legend.fcr.feed_cost"), unit: rupee, fractionDigits: 0 },
-            { key: "margin", scaleKey: "inr", label: copy(pageContract, "legend.fcr.margin"), unit: rupee, fractionDigits: 0 },
-          ]}
-          emptyLabel={copy(pageContract, "empty.fcr.body")}
-          chartLabel={copy(pageContract, "section.fcr.money.aria")}
+      <Grid size={12}>
+        <BankingBalanceStatistics
+          aria-label={copy(pageContract, "section.fcr.money.aria")}
+          title={copy(pageContract, "section.fcr.money.title")}
+          subheader={copy(pageContract, "section.fcr.money.caption")}
+          empty={<EmptyState title={copy(pageContract, "empty.fcr.body")} />}
+          chart={{
+            series: [
+              {
+                name: copy(pageContract, "section.fcr.money.title"),
+                categories: moneyPens.map((pen) => pen.operational_location_display),
+                unit: `${rupee}·`,
+                data: [
+                  { name: copy(pageContract, "legend.fcr.gain_value"), data: moneyPens.map((pen) => roundOrNull(pen.gain_value_inr)) },
+                  { name: copy(pageContract, "legend.fcr.feed_cost"), data: moneyPens.map((pen) => roundOrNull(pen.feed_cost_inr)) },
+                  { name: copy(pageContract, "legend.fcr.margin"), data: moneyPens.map((pen) => roundOrNull(pen.margin_inr)) },
+                ],
+              },
+            ],
+          }}
         />
-      </section>
+      </Grid>
 
-      <div className="grid g2">
-        <GroupCard pageContract={pageContract} id="breed" groups={fcr.estimated_by_breed ?? fcr.by_breed} icon={<Sprout className="ic" size={15} aria-hidden />} rupee={rupee} />
-        <div style={{ display: "grid", gap: 14, alignSelf: "start" }}>
-          <GroupCard pageContract={pageContract} id="sex" groups={fcr.by_sex} icon={<Sprout className="ic" size={15} aria-hidden />} rupee={rupee} />
-          <section className="card wchart" aria-label={copy(pageContract, "section.fcr.weekly.aria")}>
-            <h2 className="h">
-              <CalendarRange className="ic" size={15} aria-hidden /> {copy(pageContract, "section.fcr.weekly.title")}
-            </h2>
-            <Caption>{copy(pageContract, "section.fcr.weekly.caption")}</Caption>
-            <WeightBars
-              data={weekBars}
-              emptyLabel={copy(pageContract, "empty.fcr.body")}
-              unit={copy(pageContract, "unit.fcr")}
-              chartLabel={copy(pageContract, "section.fcr.weekly.aria")}
-              size="bands"
-              wide
-            />
-          </section>
-        </div>
-      </div>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GroupCard pageContract={pageContract} id="breed" groups={fcr.estimated_by_breed ?? fcr.by_breed} rupee={rupee} />
+      </Grid>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GroupCard pageContract={pageContract} id="sex" groups={fcr.by_sex} rupee={rupee} />
+      </Grid>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GroupCard pageContract={pageContract} id="band" groups={fcr.by_weight_band} rupee={rupee} />
+      </Grid>
+      <Grid size={{ xs: 12, md: 6 }}>
+        <GroupCard pageContract={pageContract} id="park" groups={fcr.by_park} rupee={rupee} />
+      </Grid>
+      <Grid size={12}>
+        <GroupCard pageContract={pageContract} id="origin" groups={fcr.by_origin} rupee={rupee} />
+      </Grid>
 
-      <div className="grid g2">
-        <GroupCard pageContract={pageContract} id="band" groups={fcr.by_weight_band} icon={<Scale className="ic" size={15} aria-hidden />} rupee={rupee} />
-        <GroupCard pageContract={pageContract} id="park" groups={fcr.by_park} icon={<Warehouse className="ic" size={15} aria-hidden />} rupee={rupee} />
-      </div>
-      <GroupCard pageContract={pageContract} id="origin" groups={fcr.by_origin} icon={<Warehouse className="ic" size={15} aria-hidden />} rupee={rupee} />
-
-      <section className="card wtable" aria-label={copy(pageContract, "table.fcr.aria")}>
-        <h2 className="h">{copy(pageContract, "table.fcr.title")}</h2>
-        <Caption>{copy(pageContract, "table.fcr.caption")}</Caption>
-        {/* Paged on the page's shared offset/limit, exactly like the shed table on the Pen-wise tab:
-            the rows are one read, the window is a query param, and the pager is the shared one. */}
-        <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "table.fcr.aria")}>
+      <Grid size={12}>
+        <Card aria-label={copy(pageContract, "table.fcr.aria")}>
+          <CardHeader title={copy(pageContract, "table.fcr.title")} subheader={copy(pageContract, "table.fcr.caption")} sx={{ mb: 3 }} />
+          {/* Paged on the page's shared offset/limit, exactly like the pens table on the General tab:
+              the rows are one read, the window is a query param, and the pager is the shared one. */}
           <FCRPensTable contract={fcrTable} rows={visiblePens} labels={tableLabels} />
-        </div>
-        <WorklistPager
-          pageContract={pageContract}
-          offset={pager.offset}
-          limit={pager.limit}
-          rowCount={visiblePens.length}
-          hasMore={pager.offset + visiblePens.length < fcr.pens.length}
-          noun={copy(pageContract, "pager.noun")}
-          pageSizeOptions={pager.pageSizeOptions}
-          hrefForOffset={pager.hrefForOffset}
-          hrefForLimit={pager.hrefForLimit}
-        />
-        <Caption>{copy(pageContract, "note.fcr.basis")}</Caption>
-        <Caption>{copy(pageContract, "note.fcr.filters")}</Caption>
-      </section>
-    </>
+          <WorklistPager
+            pageContract={pageContract}
+            offset={pager.offset}
+            limit={pager.limit}
+            rowCount={visiblePens.length}
+            hasMore={pager.offset + visiblePens.length < fcr.pens.length}
+            noun={copy(pageContract, "pager.noun")}
+            pageSizeOptions={pager.pageSizeOptions}
+            hrefForOffset={pager.hrefForOffset}
+            hrefForLimit={pager.hrefForLimit}
+          />
+          <Box sx={{ px: 3, pb: 3, display: "flex", flexDirection: "column", gap: 1 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {copy(pageContract, "note.fcr.basis")}
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {copy(pageContract, "note.fcr.filters")}
+            </Typography>
+          </Box>
+        </Card>
+      </Grid>
+    </Grid>
   );
 }
