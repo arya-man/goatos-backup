@@ -52,7 +52,7 @@ const wideTableScrollOwnerSelector =
   // .feed-scroll is Feed Config's own scroll box (overflow-x:auto around each of its tables). Leaving
   // it out made the phone lane report the experiment table as "cannot be horizontally scrolled"
   // while it scrolled correctly inside that box (found 2026-09-24).
-  ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.feed-scroll,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll";
+  ".tablewrap,.twrap,.feed-stock-tablewrap,.feed-scroll,.pa-gridwrap,.lt-tablewrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll,.MuiTableContainer-root";
 const smokeWideWindowTo = new Date().toISOString().slice(0, 10);
 const smokeWideWindowFrom = new Date(Date.now() - 43 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -1741,22 +1741,18 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
   }
 
   if (routeName === "calendar") {
-    const drawerEvent = page.locator(".agenda .ev.celllink").first();
-    const driveEvent = page.locator(".agenda .drivelink").first();
-    if ((await drawerEvent.count()) === 1) {
-      await openAndCloseDrawer(page, drawerEvent, "CALENDAR EVENT", routeName, assertCalendarTargetIdentity);
-    } else if ((await driveEvent.count()) > 0) {
-      await openCalendarDriveDetail(page, driveEvent, routeName);
+    // The calendar is FullCalendar on the template CalendarRoot (features/calendar/calendar-full-view):
+    // events are `.fc-event` nodes with no href. A detail event opens the event drawer via the
+    // `#calendar_event=` fragment; an aggregated drive navigates to /calendar/drive/<id>.
+    await openCalendarEvent(page, page.locator(".fc .fc-event:visible").first(), routeName);
+    // Month view + a month-cell event open: the template toolbar's "Month view" toggle (desktop).
+    const monthToggle = page.getByRole("button", { name: "Month view", exact: true });
+    if ((await monthToggle.count()) === 1 && (await monthToggle.getAttribute("aria-pressed")) !== "true") {
+      await monthToggle.click();
     }
-    // Month view + a month-cell (.mev) event open — exercised in-app so the top-bar scope is carried.
-    const monthTab = page.getByRole("link", { name: "Month", exact: true });
-    if ((await monthTab.count()) === 1) {
-      await monthTab.click();
-      await page.locator(".mcal").first().waitFor({ state: "visible", timeout: 5_000 });
-      const mev = page.locator(".mcal .mev").first();
-      if ((await mev.count()) === 1) {
-        await openAndCloseDrawer(page, mev, "CALENDAR EVENT", routeName, assertCalendarTargetIdentity);
-      }
+    const monthEvent = page.locator(".fc-dayGridMonth-view .fc-daygrid-event:visible").first();
+    if ((await monthEvent.count()) === 1) {
+      await openCalendarEvent(page, monthEvent, routeName);
     }
   }
 
@@ -2127,31 +2123,34 @@ async function clickTopBarParkHref(page, href, routeName) {
 
 async function assertMobileSidebarNavigation(page, routeName) {
   const originalUrl = page.url();
-  const menu = page.locator("button.hamb").first();
+  // Template dashboard layout: the header MenuButton (data-nav-open) opens NavMobile, a MUI Drawer
+  // whose paper carries `.msh-side`; groups and leaves are template nav items
+  // (`.minimal__nav__item__root`: a button for a group, an anchor for a leaf).
+  const menu = page.locator("button[data-nav-open]").first();
   if ((await menu.count()) !== 1) {
     throw new Error(`${routeName} mobile expected one mobile navigation menu button`);
   }
   await menu.click();
-  await page.locator("aside.side.open").waitFor({ state: "visible", timeout: 5_000 });
-  await page.waitForFunction(() => {
-    const sidebar = document.querySelector("aside.side.open");
-    return sidebar instanceof HTMLElement && getComputedStyle(sidebar).transform === "none";
-  }, { timeout: 5_000 });
-  const salesGroup = page.locator("aside.side.open .ggrp", { hasText: "Sales" }).first();
-  if ((await salesGroup.count()) !== 1) {
-    throw new Error(`${routeName} mobile expected the Sales sidebar group to be reachable`);
+  const sidebar = page.locator(".MuiDrawer-paper.msh-side");
+  await sidebar.waitFor({ state: "visible", timeout: 5_000 });
+  const loadsLeaf = sidebar.locator('a.minimal__nav__item__root[href^="/sales/loads"]').first();
+  if (!(await loadsLeaf.isVisible().catch(() => false))) {
+    const salesGroup = sidebar.locator('.minimal__nav__item__root[aria-label="Sales"]:has(.minimal__nav__item__arrow)').first();
+    if ((await salesGroup.count()) !== 1) {
+      throw new Error(`${routeName} mobile expected the Sales sidebar group to be reachable`);
+    }
+    await salesGroup.click();
   }
-  await salesGroup.click();
-  const loadsLeaf = page.locator('aside.side.open a.leaf[href^="/sales/loads"]').first();
   if ((await loadsLeaf.count()) !== 1) {
     throw new Error(`${routeName} mobile expected the Sales / Loads leaf to be reachable after group expansion`);
   }
+  await loadsLeaf.waitFor({ state: "visible", timeout: 5_000 });
   await Promise.all([
     page.waitForURL((url) => url.pathname === "/sales/loads", { timeout: 10_000 }),
     loadsLeaf.click(),
   ]);
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-  if (await page.locator("aside.side.open").count()) {
+  if (await sidebar.isVisible().catch(() => false)) {
     throw new Error(`${routeName} mobile sidebar stayed open after leaf navigation`);
   }
   await gotoWithRetry(page, originalUrl);
@@ -2162,23 +2161,30 @@ function isTransparentBackground(value) {
   return value === "transparent" || value === "rgba(0, 0, 0, 0)";
 }
 
-async function openCalendarDriveDetail(page, trigger, routeName) {
-  await trigger.first().waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
-  const triggerCount = await trigger.count();
-  if (triggerCount !== 1) {
-    throw new Error(`${routeName} drive detail trigger resolved to ${triggerCount} elements`);
-  }
-  const href = await trigger.getAttribute("href");
-  if (!href) throw new Error(`${routeName} drive detail trigger has no href`);
-  const expectedUrl = new URL(href, page.url());
+async function openCalendarEvent(page, trigger, routeName) {
+  if ((await trigger.count()) !== 1) return;
+  const before = page.url();
   await trigger.scrollIntoViewIfNeeded();
-  await Promise.all([
-    page.waitForURL((url) => url.pathname === expectedUrl.pathname && url.search === expectedUrl.search, { timeout: 10_000 }),
-    trigger.click(),
-  ]);
-  if (!page.url().includes("/calendar/drive/")) {
-    throw new Error(`${routeName} drive detail did not navigate to /calendar/drive`);
+  await trigger.click();
+  await page.waitForFunction(
+    (start) => location.href !== start || /calendar_event=/.test(location.hash) || location.pathname.startsWith("/calendar/drive/"),
+    before,
+    { timeout: 10_000 },
+  );
+  if (page.url().includes("/calendar/drive/")) {
+    await assertCalendarDriveDetail(page, routeName);
+    return;
   }
+  // The event drawer: a visible dialog surface (legacy aside[role=dialog].on or the MUI Drawer paper).
+  const drawer = page.locator('aside.drawer.on[role="dialog"], .MuiDrawer-paper, .MuiDialog-paper').filter({ visible: true }).first();
+  await drawer.waitFor({ state: "visible", timeout: 10_000 });
+  await assertCalendarTargetIdentity(drawer, routeName, "CALENDAR EVENT");
+  await page.keyboard.press("Escape");
+  await drawer.waitFor({ state: "hidden", timeout: 10_000 });
+}
+
+/** On /calendar/drive/<id> (reached by clicking a drive event): the roster identity columns. */
+async function assertCalendarDriveDetail(page, routeName) {
   const rosterHeading = page.getByText("Animal roster", { exact: true });
   if ((await rosterHeading.count()) === 0) {
     await page.goBack({ waitUntil: "domcontentloaded", timeout: 30_000 });

@@ -106,7 +106,7 @@ const INTERACTIVE = "a, button, select, input:not([type=hidden]), textarea, [rol
 const SETTLE_MS = 4_000;
 const SCOPE = "team_progress";
 /** The shared people picker's trigger inside a toolbar slot (`components/assignee-picker.tsx`). */
-const PEOPLE_TRIGGER = (slot) => `.lt-fslot[data-slot="${slot}"] .avs button[aria-expanded]`;
+const PEOPLE_TRIGGER = (slot) => `.lt-fslot[data-slot="${slot}"] .lt-people > button[aria-expanded]`;
 /** The one merged Dates disclosure. */
 const DATES_TRIGGER = ".lt-franges .lt-fdrop > button";
 /** The detail drawer's status pill → menu (`TaskStatusMenu`). */
@@ -224,8 +224,8 @@ function stages(viewport, task) {
     { name: "ignored-view-param", url: `${base}&view=list` },
     // The phone filter sheet has to be OPEN for its controls to be in the DOM at all.
     phone ? { name: "filter-sheet-open", url: base, open: [".lt-fmore"] } : null,
-    // The two person slots host the shared Work Board picker (`components/assignee-picker.tsx`,
-    // multi mode): the avatar stack / `+N` chip opens `.avmenu`.
+    // The two person slots host the shared people dropdown (`components/people-dropdown.tsx`):
+    // "Assignee · All" button -> in-place template dropdown paper `.lt-people-pop` of checkboxes.
     { name: "people-assignee-open", url: base, open: openInBar(phone, PEOPLE_TRIGGER("assignee")) },
     { name: "people-raiser-open", url: base, open: openInBar(phone, PEOPLE_TRIGGER("raiser")) },
     // ONE merged Dates disclosure holds both spans (Deadline from/to, Raised from/to) as four
@@ -676,42 +676,36 @@ async function scriptedChecks(page, viewport, task) {
   const phone = viewport.isMobile;
   const base = `/tasks?scope=${SCOPE}`;
   const peopleOpen = (slot) => ({ url: base, open: openInBar(phone, PEOPLE_TRIGGER(slot)) });
-  const peopleMenu = (slot) => page.locator(`.lt-fslot[data-slot="${slot}"] .avmenu`).first();
+  const peopleMenu = (slot) => page.locator(`.lt-fslot[data-slot="${slot}"] .lt-people-pop`).first();
+  // components/people-dropdown.tsx: no search field and no avatar stack any more (CEO, 2026-09-18) --
+  // "All" first, then every person as a MUI Checkbox row (`label.lt-people-row`, name in
+  // `.lt-people-name`, an optional " — title" in `.lt-people-title`). The old type-to-find checks
+  // became "every person is a row"; the keyboard check drives the checkboxes.
 
-  // B1/B2 — the person filter can reach EVERY assignable person by typing their name.
-  await check(page, viewport, "person filter: reaches every assignable person by typing", async () => {
+  // B1/B2 — the person filter lists EVERY assignable person.
+  await check(page, viewport, "person filter: lists every assignable person", async () => {
     await loadStage(page, peopleOpen("assignee"));
     const popup = peopleMenu("assignee");
     await popup.waitFor({ state: "visible", timeout: 8_000 });
-    const search = popup.locator(".avq input");
-    if ((await search.count()) !== 1) throw new Error("the person filter has no search field");
-    const names = await popup.locator('[role="option"]').evaluateAll((nodes) =>
-      nodes.map((node) => [...node.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim()).filter(Boolean),
+    const names = await popup.locator(".lt-people-row").evaluateAll((nodes) =>
+      nodes.map((node) => [...(node.querySelector(".lt-people-name")?.childNodes ?? [])].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim()).filter(Boolean),
     );
-    if (names.length < 7) throw new Error(`expected the multi-person roster, got ${names.length}: ${names.join(", ")}`);
-    for (const name of names) {
-      await search.fill(name);
-      await waitForUi(page, 120);
-      const option = popup.locator('[role="option"]').filter({ hasText: name }).first();
-      if ((await option.count()) === 0) throw new Error(`"${name}" cannot be reached by typing their name`);
-    }
+    // The first row is "All".
+    if (names.length < 8) throw new Error(`expected All + the multi-person roster, got ${names.length}: ${names.join(", ")}`);
     if ((await page.locator(".ltb-person-rest, .lt-person-rest").count()) !== 0) throw new Error("the dead +N overflow chip is still rendered");
-    // Nobody picked: the trigger must SAY so ("Assignee: All"), since every row is ticked.
-    const stack = page.locator('.lt-fslot[data-slot="assignee"] .avs').first();
-    const stackLabel = (await stack.getAttribute("aria-label")) ?? "";
-    if (!/:\s*all$/i.test(stackLabel)) throw new Error(`with nobody picked the trigger must read "<Label>: All", got "${stackLabel}"`);
-    return `${names.length} people reachable by name; trigger reads "${stackLabel}"`;
+    // Nobody picked: the trigger must SAY so ("Assignee · All") and "All" is the ticked row.
+    const stated = ((await page.locator('.lt-fslot[data-slot="assignee"] .lt-people-stated').first().textContent()) ?? "").trim();
+    if (stated !== names[0]) throw new Error(`with nobody picked the trigger must read "${names[0]}", got "${stated}"`);
+    if (!(await popup.locator(".lt-people-row").first().locator('input[type="checkbox"]').isChecked())) throw new Error('"All" is not ticked with nobody picked');
+    return `${names.length - 1} people listed; trigger reads "${stated}"`;
   });
 
-  await check(page, viewport, "person filter: type, pick, chip appears, clear", async () => {
+  await check(page, viewport, "person filter: pick, chip appears, clear", async () => {
     await loadStage(page, peopleOpen("assignee"));
     const popup = peopleMenu("assignee");
-    const search = popup.locator(".avq input");
-    const second = popup.locator('[role="option"]').nth(2);
-    const pickName = await second.evaluate((node) => [...node.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim());
-    await search.fill(pickName.slice(0, 3));
-    await waitForUi(page, 150);
-    await popup.locator('[role="option"]').filter({ hasText: pickName }).first().click();
+    const second = popup.locator(".lt-people-row").nth(2);
+    const pickName = await second.evaluate((node) => [...(node.querySelector(".lt-people-name")?.childNodes ?? [])].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim());
+    await second.locator('input[type="checkbox"]').check();
     await waitForUi(page, SETTLE_MS / 4);
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => undefined);
     const picked = new URL(page.url()).searchParams.get("t_assignee");
@@ -724,9 +718,8 @@ async function scriptedChecks(page, viewport, task) {
     return `picked ${pickName} → t_assignee=${picked} → chip removed it`;
   });
 
-  // KEYBOARD ONLY, proven: the trigger is reached and opened from the keyboard, the search is
-  // focused on open, typing narrows, Tab lands on the first matching row (a real button), Enter
-  // picks it, and the pick is in the URL. Not one pointer event.
+  // KEYBOARD ONLY, proven: the trigger is reached and opened from the keyboard, Tab walks into the
+  // checkbox list, Space ticks a person, and the pick is in the URL. Not one pointer event.
   await check(page, viewport, "person filter: keyboard only, and it lands in the URL", async () => {
     await loadStage(page, { url: base, open: phone ? [".lt-fmore"] : [] });
     const trigger = page.locator(PEOPLE_TRIGGER("raiser")).first();
@@ -734,22 +727,18 @@ async function scriptedChecks(page, viewport, task) {
     await page.keyboard.press("Enter");
     const popup = peopleMenu("raiser");
     await popup.waitFor({ state: "visible", timeout: 5_000 });
-    const focusedOnOpen = await page.evaluate(() => document.activeElement?.closest(".avq") !== null);
-    if (!focusedOnOpen) throw new Error("opening the picker did not focus its search field");
-    await page.keyboard.type("a");
-    await waitForUi(page, 150);
-    const shown = await popup.locator('[role="option"]').count();
-    if (!shown) throw new Error('typing "a" left no matching row');
+    // Tab past "All" onto the first person.
     await page.keyboard.press("Tab");
-    const onRow = await page.evaluate(() => document.activeElement?.getAttribute("role") === "option");
-    if (!onRow) throw new Error("Tab from the search did not land on a person row");
-    const rowName = await page.evaluate(() => [...document.activeElement.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim());
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("Tab");
+    const onRow = await page.evaluate(() => document.activeElement?.matches('.lt-people-pop input[type="checkbox"]') === true);
+    if (!onRow) throw new Error("Tab from the trigger did not land on a person checkbox");
+    const name = await page.evaluate(() => (document.activeElement?.closest(".lt-people-row")?.querySelector(".lt-people-name")?.textContent ?? "").trim());
+    await page.keyboard.press("Space");
     await waitForUi(page, SETTLE_MS / 4);
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => undefined);
     const url = new URL(page.url());
-    if (!url.searchParams.get("t_raiser")) throw new Error(`Enter did not set t_raiser; url=${page.url()}`);
-    return `keyboard: Enter opens → type "a" → Tab → Enter on "${rowName}" → t_raiser=${url.searchParams.get("t_raiser")}`;
+    if (!url.searchParams.get("t_raiser")) throw new Error(`Space did not set t_raiser; url=${page.url()}`);
+    return `keyboard: Enter opens → Tab → Space on "${name}" → t_raiser=${url.searchParams.get("t_raiser")}`;
   });
 
   // ESCAPE, proven: it closes the menu and puts focus back on the trigger that opened it.
@@ -758,10 +747,10 @@ async function scriptedChecks(page, viewport, task) {
     await peopleMenu("assignee").waitFor({ state: "visible", timeout: 5_000 });
     await page.keyboard.press("Escape");
     await waitForUi(page, 200);
-    if ((await page.locator('.lt-fslot[data-slot="assignee"] .avmenu').count()) !== 0) throw new Error("Escape left the popup open");
+    if ((await page.locator('.lt-fslot[data-slot="assignee"] .lt-people-pop').count()) !== 0) throw new Error("Escape left the popup open");
     const focused = await page.evaluate(() => {
       const active = document.activeElement;
-      return { inSlot: Boolean(active?.closest('.lt-fslot[data-slot="assignee"] .avs')), expanded: active?.getAttribute("aria-expanded"), tag: active?.tagName };
+      return { inSlot: Boolean(active?.closest('.lt-fslot[data-slot="assignee"] .lt-people')), expanded: active?.getAttribute("aria-expanded"), tag: active?.tagName };
     });
     if (!focused.inSlot || focused.tag !== "BUTTON") throw new Error(`focus did not return to the trigger; activeElement=${JSON.stringify(focused)}`);
     if (phone && (await page.locator(".lt-fgroup.open").count()) !== 1) throw new Error("Escape closed the whole filter sheet instead of just the menu");
@@ -780,7 +769,7 @@ async function scriptedChecks(page, viewport, task) {
     if (overflow > 1) throw new Error(`opening the popup added ${overflow}px of horizontal page scroll`);
     if (phone) {
       const short = await page.evaluate(
-        (floor) => [...document.querySelectorAll('.lt-fslot[data-slot="assignee"] .avmenu [role="option"]')].filter((node) => node.getBoundingClientRect().height < floor).length,
+        (floor) => [...document.querySelectorAll('.lt-fslot[data-slot="assignee"] .lt-people-pop .lt-people-row')].filter((node) => node.getBoundingClientRect().height < floor).length,
         PHONE_TAP_FLOOR,
       );
       if (short > 0) throw new Error(`${short} option rows are under ${PHONE_TAP_FLOOR}px tall`);
@@ -791,9 +780,11 @@ async function scriptedChecks(page, viewport, task) {
   // status chips are the one way to narrow to a status. Assert it stays gone.
   await check(page, viewport, "board columns carry no per-column status link", async () => {
     await loadStage(page, { url: base });
-    const more = await page.locator(".ltb-colmore").count();
-    if (more > 0) throw new Error(`${more} column(s) still render the removed status link`);
-    return "no .ltb-colmore";
+    // The removed link was `.ltb-colmore`; the column header (task-board-dnd.tsx `.ltb-colhd`) now
+    // holds only the name and the count, so any link inside a header is the regression.
+    const more = await page.locator(".ltb-col .ltb-colhd a").count();
+    if (more > 0) throw new Error(`${more} column header(s) still render a status link`);
+    return "no link in any column header";
   });
 
   // B4 — no combination of parameters produces an empty column under a non-zero count.
@@ -805,7 +796,8 @@ async function scriptedChecks(page, viewport, task) {
         [...document.querySelectorAll(".ltb-col")].map((node) => ({
           key: node.className.match(/ltb-col-(\w+)/)?.[1] ?? "?",
           total: (node.querySelector(".ltb-colcount")?.textContent ?? "").trim(),
-          meta: (node.querySelector(".ltb-colmeta")?.textContent ?? "").trim(),
+          // `.ltb-colmeta` is gone; the column body's own text (its empty state) is the context.
+          meta: (node.querySelector(".ltb-colbd")?.textContent ?? "").trim().slice(0, 80),
           cards: node.querySelectorAll(".ltb-card").length,
         })),
       );
@@ -882,7 +874,8 @@ async function scriptedChecks(page, viewport, task) {
       const picker = deadline.locator(`.lt-fdrop-${field} .move-date-picker`).first();
       await picker.locator(".move-date-button").click();
       await picker.locator(".move-date-popover").waitFor({ state: "visible", timeout: 3_000 });
-      const days = picker.locator(".move-date-day:not(:disabled)");
+      // components/themed-date-picker.tsx: MUI X DateCalendar inside the dropdown paper.
+      const days = picker.locator("button.MuiPickersDay-root:not(:disabled):not(.MuiPickersDay-hiddenDaySpacingFiller)");
       await (which === "first" ? days.first() : days.last()).click();
       await waitForUi(page, 150);
       return picker.locator('input[type="hidden"]').inputValue();
@@ -1060,15 +1053,18 @@ async function scriptedChecks(page, viewport, task) {
     await field.locator(".move-date-button").click();
     const popover = field.locator(".move-date-popover");
     await popover.waitFor({ state: "visible", timeout: 3_000 });
-    const month = await popover.locator(".move-date-head b").innerText();
-    await popover.locator(".move-date-head button").last().click();
-    await waitForUi(page, 100);
-    const nextMonth = await popover.locator(".move-date-head b").innerText();
+    // MUI X DateCalendar header: the month label and the previous/next arrow switcher.
+    const monthLabel = popover.locator(".MuiPickersCalendarHeader-label");
+    const arrows = popover.locator(".MuiPickersArrowSwitcher-button");
+    const month = await monthLabel.innerText();
+    await arrows.last().click();
+    await waitForUi(page, 300);
+    const nextMonth = await monthLabel.innerText();
     if (nextMonth === month) throw new Error("Next month did not move the calendar");
-    await popover.locator(".move-date-head button").first().click();
-    await waitForUi(page, 100);
-    if ((await popover.locator(".move-date-head b").innerText()) !== month) throw new Error("Previous month did not move back");
-    await popover.locator(".move-date-day:not(:disabled)").first().click();
+    await arrows.first().click();
+    await waitForUi(page, 300);
+    if ((await monthLabel.innerText()) !== month) throw new Error("Previous month did not move back");
+    await popover.locator("button.MuiPickersDay-root:not(:disabled):not(.MuiPickersDay-hiddenDaySpacingFiller)").first().click();
     await waitForUi(page, 150);
     const value = await field.locator('input[type="hidden"]').inputValue();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`picking a day did not fill the hidden field: "${value}"`);

@@ -110,9 +110,10 @@ export const overlayJourneys = {
   "counts-breakdown": [
     {
       id: "tag-editor-popover",
-      // features/counts/inline-cell-editor.tsx: button.tagedit-value -> portal .tagedit-pop[role=dialog]. Escape only; never confirm.
+      // features/counts/inline-cell-editor.tsx: button.tagedit-value -> template CustomPopover (portalled
+      // MUI Popover paper, role=dialog). Escape only; never confirm.
       trigger: "button.tagedit-value",
-      overlay: ".tagedit-pop[role=dialog]",
+      overlay: ".MuiPopover-paper[role=dialog]",
       kind: "popover",
       source: "features/counts/inline-cell-editor.tsx",
     },
@@ -130,8 +131,9 @@ export const overlayJourneys = {
   vaccination: [
     {
       id: "closed-no-dose-drawer",
-      // features/preventive-care-vaccination/command-board-view.tsx: .kpi.kpi-clickable[role=button] (Closed, No Dose tile) -> .dscrim.on > aside.drawer.on
-      trigger: '.kpi.kpi-clickable[role="button"]',
+      // features/preventive-care-vaccination/command-board-view.tsx: the Closed, No Dose KpiCard
+      // (components/minimal/widgets/kpi-card.tsx: clickable tile = MUI CardActionArea button) -> closed drawer
+      trigger: ".kit-kpi button.MuiCardActionArea-root",
       triggerText: /closed/i,
       overlay: ".dscrim.on aside.drawer.on[role=dialog]",
       header: ".dh",

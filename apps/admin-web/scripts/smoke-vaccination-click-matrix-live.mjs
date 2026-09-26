@@ -80,13 +80,20 @@ async function step(name, fn) {
 async function verifyShell(page) {
   await goto(page, "/vaccination?scope_mode=company");
 
-  const layout = page.locator(".layout").first();
-  const hamburger = page.locator("button.hamb").first();
-  await expectCount("hamburger", hamburger, 1);
-  await hamburger.click();
-  await expectClass(layout, "rail");
-  await hamburger.click();
-  await expectNoClass(layout, "rail");
+  // Template dashboard layout: the desktop sidebar is NavVertical (`.minimal__layout__nav__vertical`)
+  // and its collapse control is the template NavToggleButton (an IconButton child of the nav) that
+  // switches between the full and the mini width.
+  const nav = page.locator(".minimal__layout__nav__vertical").first();
+  const navToggle = nav.locator(":scope > button.MuiIconButton-root").first();
+  await expectCount("nav collapse toggle", navToggle, 1);
+  const navWidth = async () => (await nav.boundingBox())?.width ?? 0;
+  const fullWidth = await navWidth();
+  await navToggle.click();
+  await page.waitForTimeout(400);
+  if ((await navWidth()) >= fullWidth - 20) throw new Error("nav collapse toggle did not collapse the sidebar to the mini rail");
+  await navToggle.click();
+  await page.waitForTimeout(400);
+  if ((await navWidth()) < fullWidth - 2) throw new Error("nav collapse toggle did not restore the full sidebar");
 
   const parkWise = page.locator(".parkpick a").filter({ hasText: "Park-wise" }).first();
   if ((await parkWise.count()) === 1) {
@@ -127,14 +134,18 @@ async function verifyShell(page) {
     if (!title) throw new Error("disabled notification button has no reason/title");
   }
 
-  const groups = page.locator(".side .ggrp");
+  // Groups are template nav items that carry the collapse arrow; toggling one shows/hides the
+  // leaf links in its own <li>.
+  const groups = page.locator(SIDEBAR_GROUP);
   for (let i = 0; i < await groups.count(); i += 1) {
     const group = groups.nth(i);
-    const before = await group.getAttribute("aria-expanded");
+    const before = await visibleLeaves(group);
     await group.click();
-    const after = await group.getAttribute("aria-expanded");
+    await page.waitForTimeout(350);
+    const after = await visibleLeaves(group);
     if (before === after) throw new Error(`sidebar group ${i} did not toggle`);
     await group.click();
+    await page.waitForTimeout(350);
   }
   await openAllSidebarGroups(page);
 
@@ -158,7 +169,7 @@ async function verifyShell(page) {
   ]) {
     await goto(page, "/vaccination?scope_mode=company");
     await openAllSidebarGroups(page);
-    const link = page.locator(".side a.nav, .side a.leaf").filter({ hasText: label }).first();
+    const link = page.locator(".minimal__layout__nav__vertical a.minimal__nav__item__root").filter({ hasText: label }).first();
     if ((await link.count()) === 0) {
       throw new Error(`sidebar link missing: ${label}`);
     }
@@ -166,12 +177,19 @@ async function verifyShell(page) {
   }
 }
 
+const SIDEBAR_GROUP = ".minimal__layout__nav__vertical .minimal__nav__item__root:has(.minimal__nav__item__arrow)";
+
+async function visibleLeaves(group) {
+  return group.locator("xpath=..").locator("a.minimal__nav__item__root:visible").count();
+}
+
 async function openAllSidebarGroups(page) {
-  const groups = page.locator(".side .ggrp");
+  const groups = page.locator(SIDEBAR_GROUP);
   for (let i = 0; i < await groups.count(); i += 1) {
     const group = groups.nth(i);
-    if ((await group.getAttribute("aria-expanded")) !== "true") {
+    if ((await visibleLeaves(group)) === 0) {
       await group.click();
+      await page.waitForTimeout(350);
     }
   }
 }
@@ -461,18 +479,6 @@ async function expectCount(label, locator, n) {
 async function expectAtLeastOne(label, locator) {
   const count = await locator.count();
   if (count < 1) throw new Error(`${label} expected at least one element, got ${count}`);
-}
-
-async function expectClass(locator, className) {
-  await locator.waitFor({ state: "visible", timeout: 5_000 });
-  const ok = await locator.evaluate((node, c) => node.classList.contains(c), className);
-  if (!ok) throw new Error(`expected class ${className}`);
-}
-
-async function expectNoClass(locator, className) {
-  await locator.waitFor({ state: "visible", timeout: 5_000 });
-  const ok = await locator.evaluate((node, c) => !node.classList.contains(c), className);
-  if (!ok) throw new Error(`did not expect class ${className}`);
 }
 
 function renderMarkdown() {

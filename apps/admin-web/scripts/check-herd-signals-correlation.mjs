@@ -59,29 +59,31 @@ async function main() {
     // a missing grid never stopped the script, and it turns out `[role="grid"]` never existed on
     // this screen at all (the live table uses `tr[role="button"]` rows, not an ARIA grid widget),
     // so this check was not merely soft, it was UNCONDITIONALLY dead: it could never once have
-    // passed and nobody noticed because the failure was swallowed. Fixed to match real markup.
-    const grid = page.locator("tr[role='button']");
+    // passed and nobody noticed because the failure was swallowed. Fixed to match real markup:
+    // since the MUI table migration the rows are `tr.hs-selectable` (herd-signals-table.tsx), a
+    // row click or its Animal-cell link opens the drawer.
+    const grid = page.locator("tr.hs-selectable");
     const gridVisible = await grid
       .first()
       .waitFor({ timeout: 10000, state: "visible" })
       .then(() => true)
       .catch(() => false);
     if (!gridVisible) {
-      fail("Live tag signals table did not render", "at least one tr[role='button'] data row visible within 10s", "no tr[role='button'] element became visible");
+      fail("Live tag signals table did not render", "at least one tr.hs-selectable data row visible within 10s", "no tr.hs-selectable element became visible");
     }
     console.log("✓ Live tag signals table rendered");
 
     // Find and click the fixture tag's full-row hit-target, not "the first row" — most rows have
     // zero activity events (see module note above), so "first row" proved nothing on most runs.
-    const row = page.locator("tr[role='button']", { hasText: TAG_ID }).first();
+    const row = page.locator("tr.hs-selectable", { hasText: TAG_ID }).first();
     const rowFound = await row
       .waitFor({ timeout: 10000, state: "visible" })
       .then(() => true)
       .catch(() => false);
     if (!rowFound) {
-      fail(`Row for tag ${TAG_ID} did not render in the grid`, `a tr[role='button'] containing "${TAG_ID}" visible within 10s`, "no matching row became visible — check the tag is still mapped and present in this tenant's seed");
+      fail(`Row for tag ${TAG_ID} did not render in the grid`, `a tr.hs-selectable containing "${TAG_ID}" visible within 10s`, "no matching row became visible — check the tag is still mapped and present in this tenant's seed");
     }
-    await row.locator(".hs-row-hit").click();
+    await row.locator("td.animcell a").first().click();
     console.log(`Clicked row for ${TAG_ID}, waiting for drawer...`);
 
     // 2) THE DIALOG. Previously: waitForSelector("[role='dialog']").catch(() => console.warn(...))
