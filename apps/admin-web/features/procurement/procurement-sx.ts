@@ -22,7 +22,7 @@ export const cardTableScrollSx: SxProps<Theme> = {
 };
 
 /**
- * Phone: a loads register reads as compact tap cards (template list-card rhythm, ~100px each)
+ * Phone: a loads register reads as compact tap rows (template list rhythm, dashed dividers, ~90px each)
  * showing only the key fields; the rest of a load is one tap away in its drawer / detail. The
  * first cell's link covers the whole card, so the card is the tap target. Laptop keeps the table.
  *
@@ -59,15 +59,13 @@ export function phoneLoadCardsSx(
         alignItems: "center",
         columnGap: 1.5,
         rowGap: 0.5,
-        px: 2,
-        py: 1.75,
-        border: "1px solid",
+        px: 2.5,
+        py: 2,
+        // Divider rows inside the table card (template list rhythm), never a bordered card inside
+        // the card. guard: no-card-in-card (template-fidelity-guards.test.mjs, sx half).
+        borderBottom: "1px dashed",
         borderColor: "divider",
-        borderRadius: "var(--r-xl)",
-        bgcolor: "background.paper",
-        boxShadow: "var(--shadow-card)",
       },
-      [`${t} tr + tr`]: { mt: 1.5 },
       [`${t} td`]: {
         display: "none !important",
         position: "static !important",
@@ -89,7 +87,7 @@ export function phoneLoadCardsSx(
         position: "static !important",
         whiteSpace: "normal !important",
       },
-      [`${t} td:first-of-type .celllink::after`]: { content: '""', position: "absolute", inset: 0, borderRadius: "var(--r-xl)" },
+      [`${t} td:first-of-type .celllink::after`]: { content: '""', position: "absolute", inset: 0 },
       ...placed,
     },
   };

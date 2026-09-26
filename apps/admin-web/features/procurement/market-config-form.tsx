@@ -12,6 +12,9 @@
 //
 // This file composes no copy of its own: every sentence arrives resolved from the page contract.
 import { useActionState, type ReactNode } from "react";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 
 import { addMarketCityAction, type MarketActionState } from "./market-actions";
 
@@ -40,20 +43,24 @@ export function MarketConfigForm({
   const [state, formAction, pending] = useActionState(action, INITIAL);
   const message = state.status === "idle" ? "" : outcomes[state.code] || outcomes.market_save_failed || "";
   return (
-    <div className={className} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      {/* Every market form is one horizontal line of controls; the layout lives in .market-config-line. */}
-      <form action={formAction} className="market-config-line" style={style} aria-busy={pending} {...rest}>
+    <Stack spacing={0.5} className={className} sx={{ minWidth: 0 }}>
+      {/* One wrapping row of template fields: each TextField keeps its own min width and the row
+          wraps on a phone instead of squeezing a name to "Goat" / "Shee" (FJ3 P1-3). */}
+      <Box
+        component="form"
+        action={formAction}
+        aria-busy={pending}
+        style={style}
+        sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5, minWidth: 0 }}
+        {...rest}
+      >
         {children}
-      </form>
+      </Box>
       {message ? (
-        <div
-          className={state.status === "success" ? "market-config-msg ok" : "market-config-msg bad"}
-          role="status"
-          style={{ fontSize: 12, color: state.status === "success" ? "var(--ok)" : "var(--danger)" }}
-        >
+        <Typography role="status" variant="caption" sx={{ color: state.status === "success" ? "success.main" : "error.main" }}>
           {message}
-        </div>
+        </Typography>
       ) : null}
-    </div>
+    </Stack>
   );
 }

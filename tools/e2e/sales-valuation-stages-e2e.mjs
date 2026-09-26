@@ -92,8 +92,11 @@ check("counted over the 58 animals that stood in it", warmup.reduce((t, b) => t 
 
 console.log("\n=== E. AND THE RULES HOLD ===");
 await goConfig();
+// Covers is the template Autocomplete (chips): open its listbox and read what it offers.
 const adultAdd = val().locator('[data-testid="valuation-covers-add-adult"]');
-const offered = await adultAdd.locator("option").allTextContents();
+await adultAdd.click();
+const offered = await page.locator('[role="listbox"] [role="option"]').allTextContents();
+await page.keyboard.press("Escape");
 check("a herd stage already valued is not offered twice", !offered.some((o) => o.includes("Non-Pregnant")), offered.filter((o) => o).slice(0, 4).join(" | "));
 check("and one nothing values still is", offered.some((o) => o.includes("Flushing")));
 // Removing a stage un-values its animals -- visibly, on the not-valued list, never silently.

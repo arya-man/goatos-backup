@@ -1,5 +1,4 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -7,10 +6,19 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import type { ReactNode } from "react";
 
 import { redirect } from "next/navigation";
-import { Banknote, Boxes } from "lucide-react";
 
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { Tag } from "@/components/ui-primitives";
+import { TONE_COLOR } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import ListItemText from "@mui/material/ListItemText";
+import Stack from "@mui/material/Stack";
 import { IdentityCell } from "@/components/data-table";
 import { ProcurementTableFooter } from "./table-footer-links";
 import {
@@ -41,7 +49,7 @@ import Alert from "@mui/material/Alert";
 import { EmptyState } from "@/components/app/empty-state";
 import Button from "@mui/material/Button";
 import { salesErrorText } from "./sales-error";
-import { DEFAULT_LIMIT } from "./sales-config-layout";
+import { DEFAULT_LIMIT, SALES_CONFIG_TABS, type SalesConfigTab } from "./sales-config-layout";
 
 const PAGE_PATH = "/sales/config";
 
@@ -85,6 +93,9 @@ export async function SalesConfigPage({
 }) {
   const sp = searchParams;
 
+  // Template account tabs (`?tab=`): one card per tab instead of one long stack of cards.
+  const rawTab = one(sp, "tab") ?? "";
+  const tab: SalesConfigTab = (SALES_CONFIG_TABS as readonly string[]).includes(rawTab) ? (rawTab as SalesConfigTab) : "sales";
   const dealsTable = table(pageContract, "sales-deals");
   const pageSizes = dealsTable.page_size_options.length > 0 ? dealsTable.page_size_options : [DEFAULT_LIMIT];
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
@@ -112,14 +123,16 @@ export async function SalesConfigPage({
     getSalesOptions(),
     listSellableProducts(),
   ]);
-  // The market survey's cities and questions (maintainer decision 2026-09-14): one bounded
-  // read of the whole authored config.
+  // Fetch = render: the market survey, its reporters and the farm valuation are read only on the
+  // tab that shows them (template account tabs, FJ3 P1-3). The deals, loads and drawer
+  // vocabularies above are read on every tab because the header's Record sale / Tag animals and
+  // the load-cost drawer open from any of them.
   // serial-await: allow one bounded market-config read after prior sales/config reads to avoid request fanout.
-  const marketConfigResult = await getMarketConfig();
+  const marketConfigResult = tab === "market" ? await getMarketConfig() : null;
   // serial-await: allow one bounded market-reporter read stays serialized with sales/config bootstrap to avoid request fanout.
-  const marketReportersResult = await getMarketReporters();
+  const marketReportersResult = tab === "reporters" ? await getMarketReporters() : null;
   // serial-await: allow one bounded valuation read stays serialized with sales/config bootstrap to avoid request fanout.
-  const valuationResult = await getValuationAssumptions();
+  const valuationResult = tab === "valuation" ? await getValuationAssumptions() : null;
 
   if (firstAuthRequiredError(dealsResult, loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
 
@@ -155,6 +168,24 @@ export async function SalesConfigPage({
   const listHref = hrefWithQuery(sp, { deal_id: null, cost_load: null, tag_sale: null });
   const pagerHref = (nextOffset: number) => hrefWithQuery(sp, { offset: nextOffset > 0 ? String(nextOffset) : null });
 
+  const tabLabel: Record<SalesConfigTab, string> = {
+    sales: copy(pageContract, "section.sales_entry.title"),
+    loads: copy(pageContract, "section.load_entry.title"),
+    items: copy(pageContract, "section.sellable_products.title"),
+    market: copy(pageContract, "section.market.title"),
+    reporters: copy(pageContract, "market.reporters.title"),
+    valuation: copy(pageContract, "section.valuation.title"),
+  };
+  const dealHead = dealColumns.map((label, index) => ({ id: `c${index}`, label, align: index >= 5 && index <= 7 ? ("right" as const) : undefined }));
+  const loadHead = [
+    { id: "load", label: copy(pageContract, "column.load") },
+    { id: "farm", label: copy(pageContract, "column.farm") },
+    { id: "purchased", label: copy(pageContract, "column.purchased"), align: "right" as const },
+    { id: "sold", label: copy(pageContract, "column.sold"), align: "right" as const },
+    { id: "remaining", label: copy(pageContract, "column.remaining"), align: "right" as const },
+    { id: "purchase_value", label: copy(pageContract, "column.purchase_value"), align: "right" as const },
+  ];
+
   return (
     <div className="screen on">
       <SalesPageHeader
@@ -168,6 +199,7 @@ export async function SalesConfigPage({
             variant="contained"
             color="primary"
             scroll={false}
+            startIcon={<Iconify icon="mingcute:add-line" />}
           >
             {copy(pageContract, "action.record_sale.label")}
           </Button>
@@ -189,107 +221,117 @@ export async function SalesConfigPage({
         ) : null}
           </>
         }
+        tabs={
+          // Template account view: Tabs above one card per tab (`?tab=`, soft navigation).
+          <Box sx={{ mb: 2 }}>
+            <AnimatedTabs
+              ariaLabel={pageContract.title}
+              value={tab}
+              items={SALES_CONFIG_TABS.map((key) => ({
+                value: key,
+                label: tabLabel[key],
+                href: hrefWithQuery(sp, { tab: key === "sales" ? null : key, offset: null, deal_id: null, cost_load: null, tag_sale: null }),
+                count: key === "sales" && dealsResult.ok ? total : key === "loads" && loadwiseResult.ok ? loads.length : undefined,
+              }))}
+            />
+          </Box>
+        }
       />
 
+      <Stack spacing={3}>
       {/* Write feedback. Without this a save simply closes the drawer, which is
           indistinguishable from the save being dropped. */}
       {actionStatus ? (
-        actionStatus === "success" ? (
-          <div className="note" style={{ marginBottom: 14 }}>
-            {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
-        ) : (
-          <Alert severity="error" style={{ marginBottom: 14 }}>
-            {/* ONE flex child: .alert lays its children out in a row, so a detail sentence beside
-                the headline gets squeezed and clipped at the card edge. Stacked inside a single
-                block, the sentence gets the card's full width and wraps. */}
-            <div style={{ minWidth: 0 }}>
-              {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-              {actionDetail ? <div className="note" style={{ marginTop: 6 }}>{actionDetail}</div> : null}
-            </div>
-          </Alert>
-        )
+        <Alert severity={actionStatus === "success" ? "success" : "error"} sx={{ "& .MuiAlert-message": { minWidth: 0 } }}>
+          {/* ONE block: a detail sentence beside the headline got squeezed and clipped at the card
+              edge; stacked, the sentence gets the full width and wraps. */}
+          {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+          {actionDetail ? <Box sx={{ mt: 0.75 }}>{actionDetail}</Box> : null}
+        </Alert>
       ) : null}
 
       {/* 1 — the sales themselves. The ledger is here as the way IN to a deal's payment and
-          status edits, not as a board: clicking a row opens the same drawer the write uses. */}
-      <section className="card">
-        <div className="hd">
-          <Banknote className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.sales_entry.title")}</h3>
-          {/* The WHOLE-FILTER total from the backend, not deals.length. */}
-          <Tag tone={total ? "info" : "mut"}>
-            {num(total)} {copy(pageContract, "summary.count")}
-          </Tag>
-          <div className="sp" style={{ flex: 1 }} />
-        </div>
+          status edits, not as a board: clicking a row opens the same drawer the write uses.
+          Template order-list card: CardHeader + whole-filter count Label, Scrollbar table under
+          TableHeadCustom, soft status Label, template pagination. */}
+      {tab === "sales" ? (
+      <Card>
+        <CardHeader
+          title={copy(pageContract, "section.sales_entry.title")}
+          subheader={copy(pageContract, "section.sales_entry.subtitle")}
+          action={
+            // The WHOLE-FILTER total from the backend, not deals.length.
+            <Label variant="soft" color={total ? "info" : "default"}>
+              {num(total)} {copy(pageContract, "summary.count")}
+            </Label>
+          }
+        />
 
         {!dealsResult.ok ? (
-          <Alert severity="error" style={{ marginBottom: 14 }}>
-            {salesErrorText(dealsResult.error, copy(pageContract, "error.load"))}
-          </Alert>
+          <Box sx={{ p: 3 }}>
+            <Alert severity="error">{salesErrorText(dealsResult.error, copy(pageContract, "error.load"))}</Alert>
+          </Box>
         ) : null}
 
         {/* A failed read is not an empty ledger: under the error box, "No sales recorded yet.
             Record the first sale" told the desk the opposite of what happened. */}
         {!dealsResult.ok ? null : deals.length === 0 ? (
-          <EmptyState title={copy(pageContract, "empty.deals.unset")} />
+          <Box sx={{ p: 3 }}>
+            <EmptyState sx={{ py: 10 }} title={copy(pageContract, "empty.deals.unset")} />
+          </Box>
         ) : (
-          <div id="sales-config-deals" className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sales_entry.title")}>
+          <Box id="sales-config-deals" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sales_entry.title")} sx={{ mt: 3 }}>
+          <Scrollbar>
             <Table
               className="sales-deals-table"
               aria-label={copy(pageContract, "section.sales_entry.title")}
               sx={{
+                minWidth: 960,
                 // Single-line ledger cells: the global .celllink overflow-wrap:anywhere otherwise splits
-                // "2026-08-11" and "CPT" mid-token. Headers may wrap so a 1-2px overshoot never scrolls the ledger.
+                // "2026-08-11" and "CPT" mid-token.
                 "&& td, && td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
                 "&& td .celllink": { maxWidth: "none", minWidth: "max-content" },
                 "&& th": { whiteSpace: "normal", overflowWrap: "normal", wordBreak: "normal" },
               }}
             >
-              <TableHead>
-                <TableRow>
-                  {dealColumns.map((label) => (
-                    <TableCell component="th" key={label}>{label}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
+              <TableHeadCustom headCells={dealHead} />
               <TableBody>
                 {deals.map((deal) => {
                   const drawerHref = hrefWithQuery(sp, { deal_id: deal.deal_id });
-                  const dealCell = (value: ReactNode, extra?: string) => (
-                    <TableCell className={extra}>
+                  const dealCell = (value: ReactNode, align?: "right") => (
+                    <TableCell align={align}>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         {value}
                       </LocalOverlayLink>
                     </TableCell>
                   );
                   return (
-                    <TableRow key={deal.deal_id}>
+                    <TableRow key={deal.deal_id} hover>
                       {dealCell(humanDate(deal.sale_date))}
                       {dealCell(deal.farm)}
                       {dealCell(<IdentityCell primary={deal.buyer_name} secondary={deal.product_type || undefined} />)}
                       {dealCell(deal.product_type)}
                       {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? "")}
-                      {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "num")}
-                      {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
-                      {dealCell(inr(deal.sales_value), "num")}
-                      {dealCell(<Tag tone={dealStatusTone(deal.status)}>{deal.status}</Tag>)}
+                      {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "right")}
+                      {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "right")}
+                      {dealCell(inr(deal.sales_value), "right")}
+                      {dealCell(<Label variant="soft" color={TONE_COLOR[dealStatusTone(deal.status)]}>{deal.status}</Label>)}
                     </TableRow>
                   );
                 })}
               </TableBody>
             </Table>
-          </div>
+          </Scrollbar>
+          </Box>
         )}
 
-        {pageCount > 1 ? (
+        {dealsResult.ok && deals.length > 0 ? (
           <ProcurementTableFooter
             denseLabel={copy(pageContract, "action.dense", "Dense")}
             rowsLabel={copy(pageContract, "pager.rows", "Rows")}
             page={pageNumber}
             pageCount={pageCount}
-            rangeLabel={`${offset + 1}\u2013${offset + deals.length} ${copy(pageContract, "pager.of")} ${num(total)}`}
+            rangeLabel={`${offset + 1}–${offset + deals.length} ${copy(pageContract, "pager.of")} ${num(total)}`}
             rowsValue={limit}
             rowsOptions={pageSizes.map((size) => ({ size, href: hrefWithQuery(sp, { limit: String(size), offset: null }) }))}
             prevHref={pagerHref(Math.max(0, (pageNumber - 2) * limit))}
@@ -299,113 +341,117 @@ export async function SalesConfigPage({
             denseTargetId="sales-config-deals"
           />
         ) : null}
-      </section>
+      </Card>
+      ) : null}
 
       {/* 3 — Purchase and Born: a load's landed cost. Its own permission, so this section can be
           the only inert one on an otherwise live page. */}
-      <section className="card">
-        <div className="hd">
-          <Boxes className="ic" style={{ color: "var(--ok)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.load_entry.title")}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-        </div>
+      {tab === "loads" ? (
+      <Card>
+        <CardHeader title={copy(pageContract, "section.load_entry.title")} subheader={copy(pageContract, "section.load_entry.subtitle")} />
 
-        {!loadwiseResult.ok ? (
-          <Alert severity="error" style={{ marginBottom: 14 }}>
-            {salesErrorText(loadwiseResult.error, copy(pageContract, "error.load"))}
-          </Alert>
+        {!loadwiseResult.ok || !canRecordCost ? (
+          <Stack spacing={2} sx={{ px: 3, pt: 3 }}>
+            {!loadwiseResult.ok ? <Alert severity="error">{salesErrorText(loadwiseResult.error, copy(pageContract, "error.load"))}</Alert> : null}
+            {!canRecordCost ? <Alert severity="info">{copy(pageContract, "disabled.load_cost")}</Alert> : null}
+          </Stack>
         ) : null}
 
-        {!canRecordCost ? <div className="note">{copy(pageContract, "disabled.load_cost")}</div> : null}
-
         {!loadwiseResult.ok ? null : loads.length === 0 ? (
-          <EmptyState title={copy(pageContract, "empty.loads")} />
+          <Box sx={{ p: 3 }}>
+            <EmptyState sx={{ py: 10 }} title={copy(pageContract, "empty.loads")} />
+          </Box>
         ) : (
-          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.load_entry.title")}>
+          <Box tabIndex={0} role="region" aria-label={copy(pageContract, "section.load_entry.title")} sx={{ mt: 3 }}>
+          <Scrollbar>
             <Table
               aria-label={copy(pageContract, "section.load_entry.title")}
               // Phone-width Load wise cells stay whole (main f864abb22): no wrapping inside a cell,
               // the table pans instead of shredding "L-12" or a farm name across lines.
               sx={{
+                minWidth: 720,
                 "& th, & td, & td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
                 "& td .celllink": { maxWidth: "none", minWidth: "max-content" },
               }}
             >
-              <TableHead>
-                <TableRow>
-                  <TableCell component="th">{copy(pageContract, "column.load")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.farm")}</TableCell>
-                  <TableCell component="th" className="num">{copy(pageContract, "column.purchased")}</TableCell>
-                  <TableCell component="th" className="num">{copy(pageContract, "column.sold")}</TableCell>
-                  <TableCell component="th" className="num">{copy(pageContract, "column.remaining")}</TableCell>
-                  <TableCell component="th" className="num">{copy(pageContract, "column.purchase_value")}</TableCell>
-                </TableRow>
-              </TableHead>
+              <TableHeadCustom headCells={loadHead} />
               <TableBody>
                 {loads.map((load) => {
                   const costHref = hrefWithQuery(sp, { cost_load: load.load_id });
-                  const costCell = (value: ReactNode, extra?: string) => (
-                    <TableCell className={extra}>
+                  const costCell = (value: ReactNode, align?: "right") => (
+                    <TableCell align={align}>
                       <LocalOverlayLink href={costHref} className="celllink" scroll={false}>
                         {value}
                       </LocalOverlayLink>
                     </TableCell>
                   );
                   return (
-                    <TableRow key={load.load_id}>
+                    <TableRow key={load.load_id} hover>
                       {costCell(
-                        <>
-                          <b>{load.load_ref || load.vendor_name}</b>
-                          {load.purchase_date ? (
-                            <span className="muted small"> · {humanDate(load.purchase_date)}</span>
-                          ) : null}
-                        </>,
+                        <ListItemText
+                          primary={load.load_ref || load.vendor_name}
+                          secondary={load.purchase_date ? humanDate(load.purchase_date) : undefined}
+                          slotProps={{ primary: { sx: { typography: "subtitle2" } }, secondary: { sx: { typography: "caption" } } }}
+                          sx={{ m: 0 }}
+                        />,
                       )}
                       {costCell(load.farm || none)}
-                      {costCell(num(load.purchased), "num")}
-                      {costCell(num(load.sold), "num")}
-                      {costCell(num(load.remaining), "num")}
+                      {costCell(num(load.purchased), "right")}
+                      {costCell(num(load.sold), "right")}
+                      {costCell(num(load.remaining), "right")}
                       {/* Absent cost is "not recorded", never ₹0: a load bought with no recorded
                           cost and one that cost nothing are different facts. */}
                       {costCell(
-                        load.purchase_value == null ? copy(pageContract, "value.cost_missing") : inr(load.purchase_value),
-                        "num",
+                        load.purchase_value == null ? (
+                          <Box component="span" sx={{ color: "text.disabled" }}>{copy(pageContract, "value.cost_missing")}</Box>
+                        ) : (
+                          inr(load.purchase_value)
+                        ),
+                        "right",
                       )}
                     </TableRow>
                   );
                 })}
               </TableBody>
             </Table>
-          </div>
+          </Scrollbar>
+          </Box>
         )}
-      </section>
+      </Card>
+      ) : null}
 
       {/* 5 — Market survey: what the morning calls ask. Its own permission (the Sales module's
           Configure level), so like the load-cost section it can be the inert one on a live page. */}
-      <MarketConfigSection
-        pageContract={pageContract}
-        configResult={marketConfigResult}
-        canConfigure={canConfigureMarket}
-      />
-      {/* Who makes the calls (maintainer instruction 2026-09-19): beside the survey it reports. */}
-      <MarketReportersSection pageContract={pageContract} result={marketReportersResult} canConfigure={canConfigureMarket} />
+      {tab === "market" && marketConfigResult ? (
+        <MarketConfigSection
+          pageContract={pageContract}
+          configResult={marketConfigResult}
+          canConfigure={canConfigureMarket}
+        />
+      ) : null}
+      {/* Who makes the calls (maintainer instruction 2026-09-19). */}
+      {tab === "reporters" && marketReportersResult ? (
+        <MarketReportersSection pageContract={pageContract} result={marketReportersResult} canConfigure={canConfigureMarket} />
+      ) : null}
 
       {/* 6 — Farm valuation (maintainer instruction 2026-09-19): the decided figures behind Farm
           value and Load wise. Same gating shape as the market survey. */}
-      <ValuationSection
-        pageContract={pageContract}
-        result={valuationResult}
-        canEdit={canEditValuation}
-        disabledReason={valuationControl?.disabled_reason ?? ""}
-      />
+      {tab === "valuation" && valuationResult ? (
+        <ValuationSection
+          pageContract={pageContract}
+          result={valuationResult}
+          canEdit={canEditValuation}
+          disabledReason={valuationControl?.disabled_reason ?? ""}
+        />
+      ) : null}
 
-      {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
-          gated on a server-read search param would never appear. */}
       {/* 4 — WHAT WE SELL (maintainer instruction 2026-09-23) and the record-sale drawer, as ONE
           client boundary: adding an item here puts it in that drawer's dropdown with no reload.
           The drawer is always mounted -- LocalOverlayLink changes the URL without an RSC request,
-          so an overlay gated on a server-read search param would never appear. */}
+          so an overlay gated on a server-read search param would never appear. The items card
+          shows only on its own tab. */}
       <SalesItemsAndRecordDrawer
+        showProducts={tab === "items"}
         productsPage={sellableProducts}
         salesOptions={salesOptions}
         pageContract={pageContract}
@@ -421,6 +467,7 @@ export async function SalesConfigPage({
         statusStockConfirmNeeded={actionKey === "action.deal_status_feed_stock_confirm"}
         stockConfirmDetail={actionDetail}
       />
+      </Stack>
       {canAllocateAnimals ? (
         <SaleAllocationDrawer
           deals={deals}

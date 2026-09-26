@@ -38,8 +38,11 @@ async function saveRow(row) {
 async function addItem({ name, kind, unit }) {
   const r = addRow();
   await r.locator('input[name="name"]').fill(name);
-  await r.locator('select[name="kind"]').selectOption(kind);
-  await r.locator('select[name="unit"]').selectOption(unit);
+  // Kind and unit are template TextField selects (MUI Select): open the combobox, pick the option.
+  for (const [field, value] of [["kind", kind], ["unit", unit]]) {
+    await r.locator(`#sp-${field}-new`).click();
+    await page.locator(`[role="listbox"] [role="option"][data-value="${value}"]`).click();
+  }
   await saveRow(r);
 }
 

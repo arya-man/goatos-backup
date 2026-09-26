@@ -203,7 +203,6 @@
   :root .main .lt-livebar .livebadge{min-height:44px;min-width:44px}
   :root .main .fbar a.btn{min-height:44px}
   :root .main .cfgchk label,:root .main label.chkline{min-height:44px;display:inline-flex;align-items:center;gap:8px}
-  :root .main .market-config-line input{min-height:44px;min-width:44px;width:auto;flex:1 1 44px}
   :root .main .qcard .ia{min-width:44px}
   :root .main table.wsgtable td.wsg-shed,:root .main table.wsgtable td.wsg-shed b{white-space:normal;overflow-wrap:anywhere;padding-left:12px;padding-right:12px}
   :root .main .cbm-chip{min-height:44px}

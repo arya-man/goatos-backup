@@ -17,7 +17,6 @@ import TableCell from "@mui/material/TableCell";
 // my animals is nothing pricing" before the farm has to ask it.
 //
 // Every sentence is backend copy.
-import { Calculator, Plus, X } from "lucide-react";
 import { useActionState, useMemo, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -27,6 +26,18 @@ import type { StageRegisterEntry, ValuationAssumptions, ValuationBucket, Valuati
 import { saveValuationAction, type ValuationActionState } from "./valuation-actions";
 import { displayStageLabel, fmtValuationSavedAt, storedStageLabel } from "./valuation-display";
 import Alert from "@mui/material/Alert";
+import Autocomplete from "@mui/material/Autocomplete";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
 
 const INITIAL: ValuationActionState = { status: "idle", code: "", message: "", ticket: 0 };
 
@@ -98,15 +109,12 @@ export function ValuationSection({
 
   if (!result.ok || !v) {
     return (
-      <section className="card" aria-label={copy(pageContract, "section.valuation.aria")}>
-        <div className="hd">
-          <Calculator className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.valuation.title")}</h3>
-        </div>
-        <div className="bd">
+      <Card component="section" aria-label={copy(pageContract, "section.valuation.aria")}>
+        <CardHeader title={copy(pageContract, "section.valuation.title")} />
+        <Box sx={{ p: 3 }}>
           <Alert severity="error">{result.ok ? copy(pageContract, "error.load") : salesErrorText(result.error, copy(pageContract, "error.load"))}</Alert>
-        </div>
-      </section>
+        </Box>
+      </Card>
     );
   }
 
@@ -117,16 +125,23 @@ export function ValuationSection({
   };
   const message = state.status === "success" ? copy(pageContract, "valuation.saved") : state.status === "error" ? state.message || copy(pageContract, "valuation.error") : "";
 
+  // The register's own name for an entry ("Warmup (K4)"), and its live head count as a caption.
+  const entryLabel = (code: string): string => {
+    const e = register.find((r) => r.code === code);
+    if (!e) return code;
+    return e.label === e.code ? e.code : `${e.label} (${e.code})`;
+  };
+  const liveOf = (code: string): number => register.find((r) => r.code === code)?.live_animals ?? 0;
+  const numberCellSx = { minWidth: 112 } as const;
+
   return (
-    <section className="card" aria-label={copy(pageContract, "section.valuation.aria")} data-testid="valuation-section">
-      <div className="hd">
-        <Calculator className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.valuation.title")}</h3>
-      </div>
-      <p className="muted small sales-config-card-copy">{copy(pageContract, "section.valuation.sub")}</p>
-      <div className="bd market-config-body">
-        {!canEdit ? <div className="note">{disabledReason}</div> : null}
-        <form action={formAction} aria-busy={pending} className="valuation-form">
+    // Template account-settings card (Card + CardHeader, form body on p: 3, actions row at the foot).
+    <Card component="section" aria-label={copy(pageContract, "section.valuation.aria")} data-testid="valuation-section">
+      <CardHeader title={copy(pageContract, "section.valuation.title")} subheader={copy(pageContract, "section.valuation.sub")} />
+      <Box sx={{ p: 3 }}>
+        <form action={formAction} aria-busy={pending}>
+          <Stack spacing={3}>
+          {!canEdit ? <Alert severity="info">{disabledReason}</Alert> : null}
           <input type="hidden" name="row_version" value={v.row_version} />
           <input
             type="hidden"
@@ -147,31 +162,33 @@ export function ValuationSection({
               })),
             )}
           />
-          <div className="tablewrap sales-valuation-tablewrap">
-            <Table className="tbl">
+          {/* Wide table: scrolls sideways inside the card (template Scrollbar), never clips a cell. */}
+          <Box sx={{ mx: -3 }}>
+          <Scrollbar>
+            <Table size="small" sx={{ minWidth: 960, "& td, & th": { verticalAlign: "top" } }}>
               <TableHead>
                 <TableRow>
-                  <TableCell component="th">{copy(pageContract, "valuation.stage")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "valuation.covers")}</TableCell>
+                  <TableCell>{copy(pageContract, "valuation.stage")}</TableCell>
+                  <TableCell>{copy(pageContract, "valuation.covers")}</TableCell>
                   {GENDERS.map((g) => (
-                    <TableCell component="th" key={g.key} colSpan={2}>
+                    <TableCell key={g.key} colSpan={2}>
                       {copy(pageContract, g.copyKey)}
                     </TableCell>
                   ))}
-                  <TableCell component="th" aria-label={copy(pageContract, "valuation.stage.remove")} />
+                  <TableCell aria-label={copy(pageContract, "valuation.stage.remove")} />
                 </TableRow>
                 <TableRow>
-                  <TableCell component="th" />
-                  <TableCell component="th" />
+                  <TableCell />
+                  <TableCell />
                   {GENDERS.map((g) => [
-                    <TableCell component="th" key={`${g.key}-w`} className="small muted">
+                    <TableCell key={`${g.key}-w`} sx={{ typography: "caption", color: "text.secondary" }}>
                       {copy(pageContract, "valuation.fixed_weight")}
                     </TableCell>,
-                    <TableCell component="th" key={`${g.key}-p`} className="small muted">
+                    <TableCell key={`${g.key}-p`} sx={{ typography: "caption", color: "text.secondary" }}>
                       {copy(pageContract, "valuation.price_per_kg")}
                     </TableCell>,
                   ])}
-                  <TableCell component="th" />
+                  <TableCell />
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -181,101 +198,91 @@ export function ValuationSection({
                   const key = s.stage || s.rid;
                   return (
                     <TableRow key={s.rid} data-stage={key}>
-                      <TableCell>
-                        <input
+                      <TableCell sx={{ minWidth: 180 }}>
+                        <TextField
+                          size="small"
+                          fullWidth
                           value={s.label}
                           onChange={(e) => edit(i, { label: e.target.value })}
                           onBlur={(e) => {
                             if (!s.stage && e.target.value.trim()) edit(i, { stage: stageKeyFromLabel(e.target.value) });
                           }}
-                          maxLength={60}
                           required
                           disabled={!canEdit}
-                          aria-label={copy(pageContract, "valuation.stage")}
-                          data-testid={`valuation-stage-label-${key}`}
+                          slotProps={{ htmlInput: { maxLength: 60, "aria-label": copy(pageContract, "valuation.stage"), "data-testid": `valuation-stage-label-${key}` } }}
                         />
                       </TableCell>
-                      <TableCell>
-                        <div className="valuation-covers">
-                          {s.matches.map((m) => (
-                            <span key={m} className="chip sm valuation-cover-chip">
-                              {m}
-                              {canEdit ? (
-                                <button
-                                  type="button"
-                                  className="btn xs ghost"
-                                  aria-label={`${copy(pageContract, "valuation.covers.remove")} ${m}`}
-                                  onClick={() => edit(i, { matches: s.matches.filter((x) => x !== m) })}
-                                >
-                                  <X className="ic xs" aria-hidden="true" />
-                                </button>
-                              ) : null}
-                            </span>
-                          ))}
-                          {canEdit ? (
-                            <select
-                              value=""
-                              aria-label={copy(pageContract, "valuation.covers.add")}
-                              data-testid={`valuation-covers-add-${key}`}
-                              onChange={(e) => {
-                                if (e.target.value) edit(i, { matches: [...s.matches, e.target.value] });
-                              }}
-                            >
-                              <option value="">{copy(pageContract, "valuation.covers.add")}</option>
-                              {unplaced.map((e) => (
-                                <option key={e.code} value={e.code}>
-                                  {e.label === e.code ? e.code : `${e.label} (${e.code})`}
-                                  {e.live_animals > 0 ? ` · ${e.live_animals}` : ""}
-                                </option>
-                              ))}
-                            </select>
-                          ) : null}
-                        </div>
+                      <TableCell sx={{ minWidth: 260 }}>
+                        {/* Covers: template Autocomplete multiple (chips). A register entry already
+                            placed on another stage is not offered -- the backend would refuse it. */}
+                        <Autocomplete
+                          multiple
+                          size="small"
+                          disableClearable
+                          disabled={!canEdit}
+                          value={s.matches}
+                          options={[...s.matches, ...unplaced.map((e) => e.code)]}
+                          getOptionLabel={(code) => entryLabel(code)}
+                          filterSelectedOptions
+                          onChange={(_, next) => edit(i, { matches: next })}
+                          renderOption={(props, code) => {
+                            const { key: optionKey, ...rest } = props as typeof props & { key: string };
+                            return (
+                              <li key={optionKey} {...rest}>
+                                {entryLabel(code)}
+                                {liveOf(code) > 0 ? ` · ${liveOf(code)}` : ""}
+                              </li>
+                            );
+                          }}
+                          slotProps={{ chip: { size: "small" } }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              placeholder={s.matches.length ? undefined : copy(pageContract, "valuation.covers.add")}
+                              slotProps={{ ...params.slotProps, htmlInput: { ...params.slotProps.htmlInput, "aria-label": copy(pageContract, "valuation.covers.add"), "data-testid": `valuation-covers-add-${key}` } }}
+                            />
+                          )}
+                        />
                       </TableCell>
                       {GENDERS.map((g) => {
                         const bucket = `${key}_${g.key}`;
                         const b = byBucket.get(bucket);
                         return [
-                          <TableCell key={`${bucket}-w`}>
-                            <input
+                          <TableCell key={`${bucket}-w`} sx={numberCellSx}>
+                            <TextField
+                              size="small"
+                              fullWidth
                               name={`weight_${bucket}`}
                               type="number"
-                              step="0.1"
-                              min={v.limits.fixed_weight_kg_min}
-                              max={v.limits.fixed_weight_kg_max}
                               defaultValue={b?.fixed_weight_kg ?? ""}
                               placeholder={copy(pageContract, "valuation.fixed_weight.measured")}
                               disabled={!canEdit}
-                              aria-label={`${copy(pageContract, "valuation.fixed_weight")} · ${s.label} · ${copy(pageContract, g.copyKey)}`}
+                              slotProps={{ htmlInput: { step: "0.1", min: v.limits.fixed_weight_kg_min, max: v.limits.fixed_weight_kg_max, "aria-label": `${copy(pageContract, "valuation.fixed_weight")} · ${s.label} · ${copy(pageContract, g.copyKey)}` } }}
                             />
                           </TableCell>,
-                          <TableCell key={`${bucket}-p`}>
-                            <input
+                          <TableCell key={`${bucket}-p`} sx={numberCellSx}>
+                            <TextField
+                              size="small"
+                              fullWidth
                               name={`price_${bucket}`}
                               type="number"
-                              step="1"
-                              min={v.limits.price_per_kg_min}
-                              max={v.limits.price_per_kg_max}
                               defaultValue={b?.price_per_kg ?? ""}
                               required
                               disabled={!canEdit}
-                              aria-label={`${copy(pageContract, "valuation.price_per_kg")} · ${s.label} · ${copy(pageContract, g.copyKey)}`}
-                              data-testid={`valuation-price-${bucket}`}
+                              slotProps={{ htmlInput: { step: "1", min: v.limits.price_per_kg_min, max: v.limits.price_per_kg_max, "aria-label": `${copy(pageContract, "valuation.price_per_kg")} · ${s.label} · ${copy(pageContract, g.copyKey)}`, "data-testid": `valuation-price-${bucket}` } }}
                             />
                           </TableCell>,
                         ];
                       })}
-                      <TableCell>
+                      <TableCell align="right">
                         {canEdit ? (
-                          <button
-                            type="button"
-                            className="btn xs ghost"
+                          <IconButton
                             aria-label={`${copy(pageContract, "valuation.stage.remove")} ${s.label}`}
                             data-testid={`valuation-stage-remove-${key}`}
                             onClick={() => setStages(rows.filter((_, n) => n !== i))}
                           >
-                            <X className="ic sm" aria-hidden="true" />
-                          </button>
+                            <Iconify icon="mingcute:close-line" />
+                          </IconButton>
                         ) : null}
                       </TableCell>
                     </TableRow>
@@ -283,67 +290,73 @@ export function ValuationSection({
                 })}
               </TableBody>
             </Table>
-          </div>
-          <p className="muted small market-config-hint">{copy(pageContract, "valuation.fixed_weight.hint")}</p>
+          </Scrollbar>
+          </Box>
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "valuation.fixed_weight.hint")}</Typography>
 
           {/* The stages nothing values, with the animals standing in them. This is the screen's own
               answer to the question that made the stage list data in the first place. */}
           {canEdit && unplacedWithAnimals.length > 0 ? (
-            <div className="note valuation-unvalued" data-testid="valuation-unvalued">
-              <span>{copy(pageContract, "valuation.unvalued")}</span>
-              <div className="valuation-covers">
+            <Alert severity="warning" data-testid="valuation-unvalued" sx={{ "& .MuiAlert-message": { minWidth: 0 } }}>
+              <Box sx={{ mb: 1 }}>{copy(pageContract, "valuation.unvalued")}</Box>
+              <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
                 {unplacedWithAnimals.map((e) => (
-                  <button
+                  <Chip
                     key={e.code}
-                    type="button"
-                    className="btn xs"
+                    variant="outlined"
+                    icon={<Iconify icon="mingcute:add-line" />}
+                    label={`${e.label === e.code ? e.code : `${e.label} (${e.code})`} · ${e.live_animals}`}
                     data-testid={`valuation-add-register-${e.code}`}
                     onClick={() => addRow({ stage: stageKeyFromLabel(e.label === e.code ? e.code : e.label), label: e.label === e.code ? e.code : e.label, display_order: rows.length + 1, matches: [e.code] })}
-                  >
-                    <Plus className="ic xs" aria-hidden="true" /> {e.label === e.code ? e.code : `${e.label} (${e.code})`} · {e.live_animals}
-                  </button>
+                  />
                 ))}
-              </div>
-            </div>
+              </Stack>
+            </Alert>
           ) : null}
 
-          <div className="grid g2 market-config-columns">
-            <label className="market-config-column">
-              <span className="market-config-h4">{copy(pageContract, "valuation.unsold_price")}</span>
-              <input name="unsold_stock_price_rupees" type="number" step="1" min={v.limits.unsold_stock_price_min} max={v.limits.unsold_stock_price_max} defaultValue={v.unsold_stock_price_rupees ?? ""} disabled={!canEdit} />
-              <span className="muted small market-config-hint">{copy(pageContract, "valuation.unsold_price.hint")}</span>
-            </label>
-          </div>
-          <div className="market-config-line" style={{ marginTop: 10, alignItems: "center", gap: 12 }}>
+          <TextField
+            name="unsold_stock_price_rupees"
+            type="number"
+            label={copy(pageContract, "valuation.unsold_price")}
+            helperText={copy(pageContract, "valuation.unsold_price.hint")}
+            defaultValue={v.unsold_stock_price_rupees ?? ""}
+            disabled={!canEdit}
+            sx={{ maxWidth: { sm: 360 } }}
+            slotProps={{ htmlInput: { step: "1", min: v.limits.unsold_stock_price_min, max: v.limits.unsold_stock_price_max } }}
+          />
+          <Stack direction="row" sx={{ flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
             {canEdit ? (
               <>
-                <button
+                <Button
                   type="button"
-                  className="btn sm"
+                  variant="outlined"
+                  color="inherit"
+                  startIcon={<Iconify icon="mingcute:add-line" />}
                   data-testid="valuation-stage-add"
                   onClick={() => addRow({ stage: "", label: "", display_order: rows.length + 1, matches: [] })}
                 >
-                  <Plus className="ic sm" aria-hidden="true" /> {copy(pageContract, "valuation.stage.add")}
-                </button>
-                <button type="submit" className="btn sm primary" disabled={pending} data-testid="valuation-save">
+                  {copy(pageContract, "valuation.stage.add")}
+                </Button>
+                <Button type="submit" variant="contained" color="primary" loading={pending} data-testid="valuation-save">
                   {copy(pageContract, "action.valuation.label")}
-                </button>
+                </Button>
               </>
             ) : null}
             {v.updated_at ? (
-              <span className="muted small">
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
                 {copy(pageContract, "valuation.updated")} {fmtValuationSavedAt(v.updated_at)}
                 {v.updated_by_name ? ` · ${v.updated_by_name}` : ""}
-              </span>
+              </Typography>
             ) : null}
             {message ? (
-              <span role="status" className={state.status === "success" ? "market-config-msg ok" : "market-config-msg bad"} style={{ fontSize: 12, color: state.status === "success" ? "var(--ok)" : "var(--danger)" }}>
+              <Typography role="status" variant="body2" sx={{ color: state.status === "success" ? "success.main" : "error.main" }}>
                 {message}
-              </span>
+              </Typography>
             ) : null}
-          </div>
+          </Stack>
+          </Stack>
         </form>
-      </div>
-    </section>
+      </Box>
+    </Card>
   );
 }

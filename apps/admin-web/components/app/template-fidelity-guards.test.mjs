@@ -174,6 +174,15 @@ test("guard: no-card-in-card -- stacked phone rows are divider rows, never borde
   const KNOWN = ["vr-table", "toxin-review-table", "procurement-vendors-table", "full-vaccine-schedule-table", "market-latest-table"];
   const fresh = offenders.filter((line) => !KNOWN.some((cls) => line.includes(`table.${cls} tr`)));
   assert.deepEqual(fresh, [], `phone table rows: border-bottom divider only:\n${fresh.join("\n")}`);
+  // sx half (R3SP 2026-09-27: /procurement/animal-purchases + /source-entry phone loads drew each
+  // row as a bordered rounded card inside the Loads card via procurement-sx.ts phoneLoadCardsSx).
+  const sxFiles = ["features/procurement/procurement-sx.ts"];
+  for (const path of sxFiles) {
+    const source = read(path);
+    for (const match of source.matchAll(/\btr`\]:\s*\{([^}]*)\}/g)) {
+      assert.ok(!(/border:\s*"1px/.test(match[1]) && /borderRadius/.test(match[1])), `${path}: phone table rows are divider rows, not bordered cards`);
+    }
+  }
   const board = read("features/preventive-care-vaccination/command-board-view.tsx");
   const kpiAt = board.indexOf("<KpiGrid");
   const lastCardOpen = board.lastIndexOf('<section className="card', kpiAt);

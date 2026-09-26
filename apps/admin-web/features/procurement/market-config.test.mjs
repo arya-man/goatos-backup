@@ -46,7 +46,31 @@ test("the wrapper composes no copy of its own: outcomes come resolved from the p
 });
 
 test("sales valuation table has a mobile horizontal scroll owner", () => {
-  assert.match(valuation, /className="tablewrap sales-valuation-tablewrap"/);
-  assert.match(css, /\.sales-valuation-tablewrap\{[^}]*overflow-x:auto/);
-  assert.match(css, /\.sales-valuation-tablewrap\{[^}]*-webkit-overflow-scrolling:touch/);
+  // Template Scrollbar owns the sideways scroll; the table keeps a min width so no cell clips
+  // (FJ3 P1-3: stage names cut to "Fattenir" at 1440 and "Milk trainin" at 390).
+  assert.match(valuation, /<Scrollbar>\s*<Table size="small" sx=\{\{ minWidth: 960/);
+  assert.doesNotMatch(valuation, /<select\b|<input(?![^>]*type="hidden")|className="chip|<details\b/, "valuation uses MUI fields, Autocomplete chips, no native controls");
+});
+
+// guard: sales-config-no-legacy-css (R3SP 2026-09-27). The template rebuild of /sales/config kept
+// a few class hooks, and legacy stylesheet rules on them repainted MUI parts: `.sellable-product-row
+// input{box-sizing:border-box}` collapsed the MUI "Item name" input to ~24px and
+// `.market-config-line input` drew a second border inside every TextField. A class a converted
+// Sales Config file still renders must not be styled by a legacy stylesheet.
+test("sales config classes are not styled by the legacy stylesheets", () => {
+  const files = ["./sales-config.tsx", "./valuation-section.tsx", "./market-config-section.tsx", "./market-reporters-section.tsx", "./sellable-products-section.tsx", "./market-config-form.tsx"];
+  const classes = new Set();
+  for (const file of files) {
+    const src = readFileSync(new URL(file, import.meta.url), "utf8");
+    for (const m of src.matchAll(/className="([^"]+)"/g)) for (const c of m[1].split(/\s+/)) if (c) classes.add(c);
+  }
+  // Shared hooks owned elsewhere (page root, cell links, table-scoped nowrap) are allowed.
+  for (const shared of ["celllink", "sales-deals-table", "screen", "on"]) classes.delete(shared);
+  const sheets = ["../../app/mesha-theme.css", "../../app/frame.css", "../../app/minimal-theme.css"].map((p) => readFileSync(new URL(p, import.meta.url), "utf8"));
+  const hits = [];
+  for (const cls of classes) {
+    const re = new RegExp(`\\.${cls.replace(/[-]/g, "\\-")}(?![\\w-])`);
+    if (sheets.some((css) => re.test(css))) hits.push(cls);
+  }
+  assert.deepEqual(hits, [], `legacy CSS still styles: ${hits.join(", ")}`);
 });

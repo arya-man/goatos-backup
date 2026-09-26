@@ -16,6 +16,7 @@ import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SellableProductsSection } from "./sellable-products-section";
 
 export function SalesItemsAndRecordDrawer({
+  showProducts = true,
   productsPage,
   salesOptions,
   pageContract,
@@ -30,6 +31,8 @@ export function SalesItemsAndRecordDrawer({
   stockConfirmDetail,
   children,
 }: {
+  /** The items card shows only on its own Sales Config tab; the list and the drawer stay mounted. */
+  showProducts?: boolean;
   productsPage: SellableProductPage | null;
   salesOptions: SalesOptions | null;
   pageContract: AdminUiPageContract;
@@ -70,13 +73,15 @@ export function SalesItemsAndRecordDrawer({
 
   return (
     <>
-      <SellableProductsSection
-        page={productsPage}
-        pageContract={pageContract}
-        canWrite={canWriteProducts}
-        disabledReason={productsDisabledReason}
-        onProductsChanged={setProducts}
-      />
+      {showProducts ? (
+        <SellableProductsSection
+          page={productsPage}
+          pageContract={pageContract}
+          canWrite={canWriteProducts}
+          disabledReason={productsDisabledReason}
+          onProductsChanged={setProducts}
+        />
+      ) : null}
       {children}
       <SalesRecordDrawer
         deals={deals}
