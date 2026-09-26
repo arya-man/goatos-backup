@@ -178,7 +178,7 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
                 },
               }}
             />
-            <Button variant="contained" type="submit" color="primary" size="large" loading={view.kind === "loading"} startIcon={<Search />} sx={{ minHeight: 56, flex: { xs: "1 1 100%", sm: "0 0 auto" } }}>
+            <Button variant="contained" type="submit" color="primary" size="large" loading={view.kind === "loading"} startIcon={<Search />} sx={{ flex: { xs: "1 1 100%", sm: "0 0 auto" } }}>
               {view.kind === "loading" ? "Looking up…" : "Look up history"}
             </Button>
           </Box>
