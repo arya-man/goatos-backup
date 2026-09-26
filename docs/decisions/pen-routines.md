@@ -9,6 +9,32 @@ video / photo, or any clock-in and clock-out stating some person entered the she
 Status: ACCEPTED, built on `feat/pen-routines`. On screen the module is **Routines**; the word
 is *pen*, never *shed* (`docs/decisions/pen-not-shed-vocabulary.md`).
 
+## 2026-09-26 revision: a routine is for ONE PERSON, picked like a task (SUPERSEDES "assign by role")
+
+Maintainer instruction (chat, 2026-09-26): *"we have two park heads each for one park and divide
+CXO as you did for tasks."* Asked, the maintainer chose **"pick people, like Tasks"** and, on who
+owes it, *"it is just like tasks, it will go to one only."* This replaces rule 1 of the 2026-09-17
+revision below (assign by role); everything else in that revision stands.
+
+1. **ONE PERSON.** `pen_routine_definitions.assignee_user_id` (migration 000443) names who the
+   routine is for. The web picks them with the Tasks "For" picker (`components/assignee-picker`,
+   single mode): one list, each person once as "Name — Titles", park head first and CXO last.
+2. **THE PARK STILL DECIDES WHO CAN BE PICKED.** The catalog lists every holder of an assignable
+   role FOR THE ROUTINE'S PARK, using the same coverage rule as before, so each park's own park
+   head is offered only for that park. On write the server derives `assignee_roles` from the
+   person's grants at the park inside the transaction and refuses anyone holding none there
+   (`not_assignable`); a blank person is `no_assignee`. A client never sends roles.
+3. **ONE OWNER, NO FALLBACK.** Every read that asks "who owes this" (phone list and counts, the
+   submit check, the badge, the kernel digest, the Work Board owner) composes
+   `RoleHoldersFromSQL(..., person)`, so it resolves to that person alone. If the person loses the
+   role, the routine is owed by NOBODY and raises nothing (logged as a routine without an
+   assignee) -- the work does not silently pass to another holder. Choose someone else to resume.
+4. **LEGACY.** A routine with no person (written before this revision) keeps role semantics.
+   goatos-stg held no routines on 2026-09-26, so nothing live changed meaning.
+
+Pinned by `TestPenRoutineOnePersonAssigneeTwoParkHeadsParkScopeRevokedGrantPostgresPaths` and the
+handler/domain/web tests beside it.
+
 ## 2026-09-17 revision: assign by ROLE, general tasks, every N days (SUPERSEDES the parts named)
 
 Maintainer instruction (chat, 2026-09-17): *"in web I need to configure whom the task is for --
