@@ -9,38 +9,21 @@ import (
 	"testing"
 )
 
-func TestNextAndroidVersionFileBumpsPatchAndCode(t *testing.T) {
-	input := `
-val releaseVersionCode = (
-    project.findProperty("goatosVersionCode") as String?
-        ?: System.getenv("GOATOS_ANDROID_VERSION_CODE")
-    )
-    ?.takeIf { it.isNotBlank() }
-    ?.toInt()
-    ?: 22
-val releaseVersionName = (
-    project.findProperty("goatosVersionName") as String?
-        ?: System.getenv("GOATOS_ANDROID_VERSION_NAME")
-    )
-    ?.takeIf { it.isNotBlank() }
-    ?: "1.0.0"
-`
-
-	updated, next, err := nextAndroidVersionFile(input)
-	if err != nil {
-		t.Fatalf("nextAndroidVersionFile returned error: %v", err)
-	}
-	if next.Name != "1.0.1" || next.Code != 23 {
-		t.Fatalf("next version = %s (%d), want 1.0.1 (23)", next.Name, next.Code)
-	}
-	if !strings.Contains(updated, `?: 23`) {
-		t.Fatalf("updated content did not contain bumped versionCode:\n%s", updated)
-	}
-	if !strings.Contains(updated, `?: "1.0.1"`) {
-		t.Fatalf("updated content did not contain bumped versionName:\n%s", updated)
-	}
-	if strings.Contains(updated, "4608d477") {
-		t.Fatalf("updated content contains a commit-derived version name:\n%s", updated)
+// Ruleset main-land-receipt rejects any main commit without a land-main receipt, so no
+// deploy path may commit to main. The Android versionCode is computed at deploy time by
+// stg-mobile-distribution.sh instead of a GitHub contents-API bump commit.
+func TestNoDeployPathCommitsToMain(t *testing.T) {
+	forbidden := []string{"api.github.com/repos", "/contents/", "bump-android-version", "http.MethodPut", "GOATOS_GITHUB_PAT"}
+	for _, path := range []string{"main.go", "../../../cloudbuild.stg.yaml", "../stg-mobile-distribution.sh"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, needle := range forbidden {
+			if strings.Contains(string(raw), needle) {
+				t.Errorf("%s contains %q: deploy paths must not commit to main", path, needle)
+			}
+		}
 	}
 }
 

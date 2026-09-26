@@ -441,7 +441,7 @@ on_exit() {
     if [[ "$rc" -ne 0 ]]; then
       mkdir -p "$(dirname "$mobile_build_marker")"
       printf 'failed %s rc=%s\n' "$commit_sha" "$rc" > "$mobile_build_marker"
-      echo "Android build phase failed (rc=$rc); recorded for the publish step, which will fail after the backend/web rollout." >&2
+      echo "Android release build phase failed (rc=$rc); recorded for the publish step, which will fail after the backend/web rollout." >&2
     fi
     exit 0
   fi
@@ -530,7 +530,7 @@ gradle_cache_save() {
 if [[ "$MOBILE_PHASE" == "publish" ]]; then
   marker="$(cat "$mobile_build_marker" 2>/dev/null || true)"
   [[ "$marker" == "ok $commit_sha" ]] || {
-    echo "Android build phase did not succeed for $commit_sha (marker: ${marker:-missing}); refusing to publish." >&2
+    echo "Android release build phase did not succeed for $commit_sha (marker: ${marker:-missing}); refusing to publish." >&2
     exit 1
   }
 fi
@@ -589,18 +589,18 @@ version_name_for_code() {
 DEFAULT_VERSION_CODE="$(default_android_release_value code)"
 DEFAULT_VERSION_NAME="$(default_android_release_value name)"
 
-checked_in_version_is_release_bump() {
-  [[ "$git_dirty_check" == "true" ]] || return 1
-  git log -1 --format=%s HEAD |
-    grep -Eq '^chore\(android\): bump GoatOS release to [0-9]+\.[0-9]+\.[0-9]+ \([0-9]+\)$'
-}
-
+# No deploy path commits a version bump to main (ruleset main-land-receipt). The next
+# versionCode is max(checked-in releaseVersionCode, highest published Mesha-1.0.N.apk) + 1;
+# the Play preflight below raises it further if Play already holds a higher code.
+# shellcheck source=android-next-version.sh
+source tools/deploy/android-next-version.sh
 if [[ "$DEPLOY_VERSION_CODE_WAS_EXPLICIT" != "true" ]]; then
-  if checked_in_version_is_release_bump; then
-    DEPLOY_VERSION_CODE="$DEFAULT_VERSION_CODE"
-  else
-    DEPLOY_VERSION_CODE="$((DEFAULT_VERSION_CODE + 1))"
-  fi
+  published_release_objects="$(gcloud storage ls "gs://goatos-stg-public-downloads/operator/releases/")" || {
+    echo "Could not list published Android releases; refusing to guess a versionCode." >&2
+    exit 1
+  }
+  DEPLOY_VERSION_CODE="$(android_next_version_code "$DEFAULT_VERSION_CODE" <<<"$published_release_objects")"
+  echo "Android versionCode ${DEPLOY_VERSION_CODE}: checked-in ${DEFAULT_VERSION_CODE}, highest published $(android_published_max_code <<<"$published_release_objects")."
 fi
 
 if play_access_token="$(play_access_token)" &&

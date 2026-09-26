@@ -50,6 +50,29 @@ tools/deploy/stg-clouddeploy-release.sh   # build/create the release
 tools/deploy/stg-clouddeploy-task.sh      # custom-target rollout task
 ```
 
+### Android versionCode (no deploy path commits to main)
+
+Ruleset `main-land-receipt` rejects any `main` commit without a
+`goatos/land-main-receipt` status, so neither the Slack mobile button nor
+`~/bin/goatos-stg-deploy` / `cloudbuild.stg.yaml` commits a version bump.
+`tools/deploy/stg-mobile-distribution.sh` computes the versionCode at deploy
+time (read-only, as the Cloud Build deployer SA):
+
+next = max(checked-in `releaseVersionCode` in
+`apps/goatos-android/app/build.gradle.kts`, highest published code) + 1
+
+The highest published code comes from
+`gs://goatos-stg-public-downloads/operator/releases/Mesha-1.0.N.apk`
+(versionCode = N + 50, e.g. `1.0.42` is 92). If the listing fails the build
+stops rather than guessing. The Play Internal preflight then raises the code
+further if Play already holds a higher one. `versionName` is always
+`1.0.(code - 50)`. `GOATOS_ANDROID_VERSION_CODE` / `_NAME` still override for an
+explicit repair run. The logic and its tests live in
+`tools/deploy/android-next-version.sh` / `android-next-version.test.sh`
+(`make stg-deploy-scripts-test`), which also fails if any deploy path calls the
+GitHub contents API again. Raise the checked-in default through a normal
+landed PR only when you want to jump the floor.
+
 For Codex/Claude, prefer the Cloud Build path:
 
 ```bash
