@@ -53,10 +53,10 @@ export const overlayJourneys = {
       id: "card-detail-drawer",
       // features/leadership-tasks/task-board-card.tsx: <Link className="ltb-card"> ; drawer: task-detail-drawer.tsx
       trigger: "a.ltb-card",
-      overlay: "aside.drawer.on.ltd-drawer",
+      overlay: ".MuiDrawer-paper.ltd-drawer",
       header: ".ltd-head",
       kind: "drawer",
-      close: "button.ltd-scrim",
+      close: ".MuiDrawer-root .MuiBackdrop-root",
       source: "features/leadership-tasks/task-board-card.tsx, task-detail-drawer.tsx, task-detail-panel.tsx",
     },
     {

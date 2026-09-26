@@ -197,8 +197,7 @@ export function Drawer({
       fullWidth
       maxWidth={false}
       scroll="paper"
-      aria-label={title}
-      slotProps={{ paper: { className: "hr-dialog", sx: { width: 1, maxWidth } } }}
+      slotProps={{ paper: { className: "hr-dialog", "aria-label": title, sx: { width: 1, maxWidth } } as object }}
     >
       <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 1 }}>
         <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "primary.main" }}>

@@ -1,12 +1,16 @@
 "use client";
 
 import { FileText, Image, Mic, Paperclip, Pencil, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import Typography from "@mui/material/Typography";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { rfc3339ToFarmDeadlineLocal } from "./deadline";
 import { TaskDeadlineFields } from "./task-write-forms";
-import { useDialogShell } from "./use-dialog-shell";
+import { useBackCloses } from "@/components/use-back-closes";
 import { attachmentKindLabel, type TaskRow } from "./task-row";
 import { useTaskRowVersion, useTaskWriteInFlight } from "./task-row-store";
 import Checkbox from "@mui/material/Checkbox";
@@ -55,7 +59,6 @@ export function EditTaskModal({
   const [added, setAdded] = useState<Record<string, number>>({});
   const openerRef = useRef<HTMLButtonElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const keyRef = useRef<HTMLInputElement>(null);
   const headingId = useId();
 
@@ -81,15 +84,8 @@ export function EditTaskModal({
     openerRef.current?.focus();
   }, []);
 
-  // Escape, the body scroll lock and the focus trap all live in the shared hook, so the modal and
-  // the filter sheet cannot drift apart on a phone.
-  useDialogShell({ open, onClose: closeModal, containerRef: dialogRef });
-
-  useEffect(() => {
-    if (!open) return;
-    mintKey();
-    firstFieldRef.current?.focus();
-  }, [open, mintKey]);
+  // Template MUI Dialog owns Escape, the scroll lock and the focus trap; Back closes it too.
+  useBackCloses(open, closeModal);
 
   const pickers: Array<{ key: string; label: string; accept: string; icon: typeof Mic }> = [
     { key: "voice", label: copy(pageContract, "picker.voice"), accept: "audio/*", icon: Mic },
@@ -119,21 +115,27 @@ export function EditTaskModal({
         <Pencil className="ic" aria-hidden="true" />
         {copy(pageContract, "action.edit")}
       </button>
-      {open ? (
-        <>
-          <button
-            type="button"
-            className="scrim on lt-modal-scrim"
-            aria-label={copy(pageContract, "action.close")}
-            onClick={closeModal}
-          />
-          <div ref={dialogRef} className="lt-modal" role="dialog" aria-modal="true" aria-labelledby={headingId}>
-            <div className="lt-modal-hd">
+      <Dialog
+        open={open}
+        onClose={closeModal}
+        fullWidth
+        maxWidth="sm"
+        scroll="paper"
+        aria-labelledby={headingId}
+        slotProps={{
+          paper: { className: "lt-modal" },
+          // Minted (and the first field focused) once the dialog has mounted its portal content.
+          transition: {
+            onEntering: mintKey,
+            onEntered: () => firstFieldRef.current?.focus(),
+          },
+        }}
+      >
+            <DialogTitle component="div" className="lt-modal-hd">
               <Pencil className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-              <h3 id={headingId}>
+              <Typography variant="h6" component="h3" id={headingId} sx={{ flexGrow: 1 }}>
                 {copy(pageContract, "edit.title")} {task.number}
-              </h3>
-              <div className="sp" style={{ flex: 1 }} />
+              </Typography>
               <button
                 type="button"
                 className="btn"
@@ -142,7 +144,8 @@ export function EditTaskModal({
               >
                 <X className="ic" aria-hidden="true" />
               </button>
-            </div>
+            </DialogTitle>
+            <DialogContent dividers>
             <form action={action} className="lt-modal-bd">
               <input ref={keyRef} type="hidden" name="idempotency_key" />
               <input type="hidden" name="return_to" value={returnTo} />
@@ -253,9 +256,8 @@ export function EditTaskModal({
                 {copy(pageContract, "edit.save")}
               </button>
             </form>
-          </div>
-        </>
-      ) : null}
+            </DialogContent>
+      </Dialog>
     </>
   );
 }

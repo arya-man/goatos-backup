@@ -1,23 +1,28 @@
 "use client";
 
 import { FileText, Image, Mic, Plus, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 
 import { AssigneePicker } from "@/components/assignee-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
+import { useBackCloses } from "@/components/use-back-closes";
 import { TaskDeadlineFields } from "./task-write-forms";
-import { useDialogShell } from "./use-dialog-shell";
 
 /**
  * The "+ New task" entry on the web Tasks desk. Same shape as the phone's New task screen
  * (maintainer request 2026-09-11): For, Title, Brief, three attachment pickers, Send. It opens
  * as a modal from the button rather than sitting beside the list, and the modal is
- * client-local state -- no navigation, no document request, Escape / scrim / X close it and
- * focus returns to the button.
+ * client-local state -- no navigation, no document request. It is the template MUI Dialog
+ * (portalled above the Ask Mesha button, focus trapped, body scroll locked): Escape / scrim / X
+ * and browser Back close it and focus returns to the button.
  *
  * "For" is the Work Board's assignee picker in its form mode (`components/assignee-picker.tsx`,
  * `mode="single"`), not a native `<select>`. The select listed JOB TITLES ONLY -- "CEO / CXO" twice, two people
@@ -50,7 +55,6 @@ export function NewTaskModal({
   const chosen = assignees.find((a) => a.user_id === assigneeId);
   const openerRef = useRef<HTMLButtonElement>(null);
   const forRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const headingId = useId();
   const assigneeErrorId = useId();
   const text = (key: string, fallback: string) =>
@@ -70,14 +74,7 @@ export function NewTaskModal({
     openerRef.current?.focus();
   }, []);
 
-  // Escape, the body scroll lock and the focus trap all live in the shared hook, so the modal and
-  // the filter sheet cannot drift apart on a phone.
-  useDialogShell({ open, onClose: closeModal, containerRef: dialogRef });
-
-  useEffect(() => {
-    if (!open) return;
-    forRef.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
-  }, [open]);
+  useBackCloses(open, closeModal);
 
   const pickers: Array<{
     key: string;
@@ -114,25 +111,22 @@ export function NewTaskModal({
       >
         {text("new.open", "New task")}
       </Button>
-      {open ? (
-        <>
-          <button
-            type="button"
-            className="scrim on lt-modal-scrim"
-            aria-label={text("action.close", "Close")}
-            onClick={closeModal}
-          />
-          <div
-            ref={dialogRef}
-            className="lt-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={headingId}
-          >
-            <div className="lt-modal-hd">
+      <Dialog
+        open={open}
+        onClose={closeModal}
+        fullWidth
+        maxWidth="sm"
+        scroll="paper"
+        aria-labelledby={headingId}
+        slotProps={{
+          paper: { className: "lt-modal" },
+          // The "For" picker is the first field: focus lands on it once the dialog has entered.
+          transition: { onEntered: () => forRef.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus() },
+        }}
+      >
+            <DialogTitle component="div" className="lt-modal-hd">
               <Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-              <h3 id={headingId}>{text("new.title", "New task")}</h3>
-              <div className="sp" style={{ flex: 1 }} />
+              <Typography variant="h6" component="h3" id={headingId} sx={{ flexGrow: 1 }}>{text("new.title", "New task")}</Typography>
               <IconButton
                 type="button"
                 onClick={closeModal}
@@ -140,7 +134,8 @@ export function NewTaskModal({
               >
                 <X className="ic" aria-hidden="true" />
               </IconButton>
-            </div>
+            </DialogTitle>
+            <DialogContent dividers>
             <form
               action={action}
               className="lt-modal-bd"
@@ -271,9 +266,8 @@ export function NewTaskModal({
                 {text("new.send", "Send")}
               </Button>
             </form>
-          </div>
-        </>
-      ) : null}
+            </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -90,37 +90,29 @@ assert.match(
   /\.lt-fgroup\.open\{[^}]*max-height:84vh;max-height:84dvh/,
   "the filter sheet must use dvh with a vh fallback",
 );
-assert.match(
-  css,
-  /\.lt-modal\{[^}]*max-height:92vh;max-height:92dvh/,
-  "the task modal must use dvh with a vh fallback",
-);
-
-// ---- The modal header (and its X) must stay reachable on a short phone: the BOX does not scroll,
-// its body does.
-assert.match(css, /\.lt-modal\{[^}]*overflow:hidden/, "the modal box must not be the scroller");
-assert.match(
-  css,
-  /\.lt-modal \.lt-modal-hd\{[^}]*flex:0 0 auto/,
-  "the modal header must not shrink or scroll away",
-);
-assert.match(
-  css,
-  /\.lt-modal \.lt-modal-bd\{[^}]*min-height:0;overflow-y:auto/,
-  "the modal body must be the scroll container",
-);
+// ---- The task modals are the template MUI Dialog with scroll="paper": the dialog is sized to
+// the visual viewport by MUI, the header (and its X) stays put and only DialogContent scrolls, so
+// a short phone can always reach Close. They portal above the page and the Ask Mesha button.
+for (const [name, source] of [
+  ["the edit modal", editModal],
+  ["the new-task modal", newModal],
+]) {
+  assert.match(source, /<Dialog[\s\S]*?scroll="paper"/, `${name} must be an MUI Dialog that scrolls its content`);
+  assert.match(source, /<DialogTitle[\s\S]*?<DialogContent/, `${name} keeps its header outside the scroller`);
+}
 
 // ---- Every overlay on this page owes a phone reader a body scroll lock and a focus trap:
 // without the lock a drag inside the sheet scrolled the LIST behind it.
 assert.match(dialogShell, /document\.body\.style\.overflow = "hidden"/, "scroll lock");
 assert.match(dialogShell, /previousOverflow/, "the scroll lock must restore the previous value");
 assert.match(dialogShell, /event\.key !== "Tab"/, "focus trap");
+assert.match(filters, /useDialogShell\(\{/, "the filter sheet must use the shared dialog shell");
+// The two modals get the lock and the trap from MUI Dialog (Modal), and Back closes them.
 for (const [name, source] of [
-  ["the filter sheet", filters],
   ["the edit modal", editModal],
   ["the new-task modal", newModal],
 ]) {
-  assert.match(source, /useDialogShell\(\{/, `${name} must use the shared dialog shell`);
+  assert.match(source, /useBackCloses\(open, closeModal\)/, `${name} must close on browser Back`);
 }
 
 // ---- The pending filter bar must NOT dim, because at phone width it CONTAINS the fixed sheet.
