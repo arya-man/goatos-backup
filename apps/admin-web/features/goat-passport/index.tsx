@@ -7,20 +7,15 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import { randomUUID } from "node:crypto";
 import { AlertTriangle, BadgeCheck, FileText, Fingerprint, History, Plus, ShieldCheck } from "lucide-react";
 import { redirect } from "next/navigation";
-import Box from "@mui/material/Box";
 import MuiCard from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import CardContent from "@mui/material/CardContent";
-import Avatar from "@mui/material/Avatar";
-import ListItemText from "@mui/material/ListItemText";
-import Tab from "@mui/material/Tab";
-import Tabs from "@mui/material/Tabs";
-import Link from "@/components/no-prefetch-link";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dateTime, dash, humanizeEnum, joinParts, shortId } from "@/lib/format";
 import { PageHeader } from "@/components/app/page-header";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import "./goat-passport.css";
+import { PassportCover } from "./passport-cover";
 import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import { actionFeedbackCopy, copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -196,70 +191,17 @@ export async function GoatPassportPage({
   const secondaryLine = joinParts([goat.summary.breed, humanizeEnum(goat.summary.sex)]);
 
   const coverCard = (
-    <MuiCard sx={{ height: { xs: 290 }, position: "relative" }}>
-      <Box
-        sx={(theme) => ({
-          position: "absolute",
-          inset: 0,
-          bgcolor: theme.vars.palette.primary.darker,
-          color: "common.white",
-        })}
-      >
-        <Box
-          sx={{
-            display: "flex",
-            left: { md: 24 },
-            bottom: { md: 24 },
-            zIndex: { md: 10 },
-            pt: { xs: 6, md: 0 },
-            position: { md: "absolute" },
-            flexDirection: { xs: "column", md: "row" },
-          }}
-        >
-          <Avatar
-            alt={goat.display_id}
-            sx={(theme) => ({
-              mx: "auto",
-              width: { xs: 64, md: 128 },
-              height: { xs: 64, md: 128 },
-              borderWidth: 2, borderStyle: "solid", borderColor: theme.vars.palette.common.white,
-              bgcolor: theme.vars.palette.primary.dark,
-              typography: "h3",
-            })}
-          >
-            {goat.display_id.slice(0, 2).toUpperCase()}
-          </Avatar>
-          <ListItemText
-            primary={goat.display_id}
-            secondary={secondaryLine || undefined}
-            slotProps={{
-              primary: { sx: { typography: "h4" } },
-              secondary: { sx: { mt: 0.5, opacity: 0.72, color: "inherit" } },
-            }}
-            sx={{ mt: 3, ml: { md: 3 }, textAlign: { xs: "center", md: "unset" } }}
-          />
-        </Box>
-      </Box>
-      <Box
-        sx={{
-          width: 1,
-          bottom: 0,
-          zIndex: 9,
-          px: { md: 3 },
-          display: "flex",
-          position: "absolute",
-          bgcolor: "background.paper",
-          justifyContent: { xs: "center", md: "flex-end" },
-        }}
-      >
-        <Tabs value={selectedTab} variant="scrollable" allowScrollButtonsMobile>
-          <Tab component={Link} value="" href={tabHref(passportPath, searchParams, "")} label={copy(pageContract, "section.summary.title")} />
-          <Tab component={Link} value="identifiers" href={tabHref(passportPath, searchParams, "identifiers")} label={copy(pageContract, "section.identifiers.title")} />
-          <Tab component={Link} value="evidence" href={tabHref(passportPath, searchParams, "evidence")} label={copy(pageContract, "section.evidence.title")} />
-          <Tab component={Link} value="history" href={tabHref(passportPath, searchParams, "history")} label={copy(pageContract, "section.timeline.title")} />
-        </Tabs>
-      </Box>
-    </MuiCard>
+    <PassportCover
+      displayId={goat.display_id}
+      secondaryLine={secondaryLine}
+      selectedTab={selectedTab}
+      tabs={[
+        { value: "", href: tabHref(passportPath, searchParams, ""), label: copy(pageContract, "section.summary.title") },
+        { value: "identifiers", href: tabHref(passportPath, searchParams, "identifiers"), label: copy(pageContract, "section.identifiers.title") },
+        { value: "evidence", href: tabHref(passportPath, searchParams, "evidence"), label: copy(pageContract, "section.evidence.title") },
+        { value: "history", href: tabHref(passportPath, searchParams, "history"), label: copy(pageContract, "section.timeline.title") },
+      ]}
+    />
   );
 
   const summaryBody = (
