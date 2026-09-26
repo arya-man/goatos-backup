@@ -44,12 +44,6 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
     timeout-minutes: 90
     steps:
-      - name: Put Homebrew tools (gcloud, go, gh) on PATH
-        run: |
-          for d in /opt/homebrew/bin /opt/homebrew/share/google-cloud-sdk/bin /usr/local/bin; do
-            [ -d "$d" ] && echo "$d" >> "$GITHUB_PATH"
-          done
-
       - name: Actor allowlist
         env:
           ACTOR: ${{ github.actor }}
