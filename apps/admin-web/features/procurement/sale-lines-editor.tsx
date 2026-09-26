@@ -5,7 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesProductOption } from "@/lib/api/procurement";
 import { newSaleLine, saleLinesTotals, saleLineValue, type SaleLineDraft } from "./sale-lines";
-import { inr, MAX_SALE_LINES, num } from "./sales-format";
+import { countKey, inr, MAX_SALE_LINES, num } from "./sales-format";
 
 /**
  * The "What was sold" block of the record-sale drawer (maintainer decision 2026-09-12): one card
@@ -259,7 +259,7 @@ export function SaleLinesEditor({
           <span className="k">{copy(pageContract, "summary.lines.total")}</span>
           <strong>{inr(totals.value)}</strong>
           <span className="muted small">
-            {num(totals.animals)} {copy(pageContract, "summary.lines.animals")}
+            {num(totals.animals)} {copy(pageContract, countKey(totals.animals, "summary.lines.animal", "summary.lines.animals"))}
             {/* Non-feed weight is dropped only when there is feed weight or counted items to show: an
                 animal-only sale keeps the "0.0 kg" it has always shown, while a feed-only sale
                 stops claiming zero kilograms of animal beside the kilograms it actually sold. */}
@@ -281,10 +281,10 @@ export function SaleLinesEditor({
             {totals.pieces > 0 ? (
               <>
                 {" · "}
-                {num(totals.pieces)} {copy(pageContract, "summary.lines.pieces")}
+                {num(totals.pieces)} {copy(pageContract, countKey(totals.pieces, "summary.lines.piece", "summary.lines.pieces"))}
               </>
             ) : null}{" "}
-            · {lines.length} {copy(pageContract, "summary.lines.lines")}
+            · {lines.length} {copy(pageContract, countKey(lines.length, "summary.lines.line", "summary.lines.lines"))}
           </span>
         </div>
       </div>

@@ -67,9 +67,26 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "kpi.total_meat.detail": "Live herd kg from valuation buckets",
     "value.excluded_animals": "excluded",
     "value.live_animals": "live animals",
+    "value.live_animal": "live animal",
     "value.not_valued": "not valued",
     "value.valued_animals": "valued",
     "value.weighed": "weighed",
+  },
+  // The singular count nouns (2026-09-26: "1 lines", "1 live animals", "about every 1 days").
+  // Kept alive for a frontend that deploys before the backend serving them.
+  "sales-sold": {
+    "summary.lines.line": "line",
+    "summary.lines.animal": "animal",
+    "summary.lines.piece": "item",
+  },
+  "sales-config": {
+    "summary.lines.line": "line",
+    "summary.lines.animal": "animal",
+    "summary.lines.piece": "item",
+  },
+  "sales-buyer-analytics": {
+    "value.every_day": "about every day",
+    "value.day_ago": "1 day ago",
   },
   // SALES > Purchase and Born page. Its ~60 copy keys all arrived in one change, and admin-web and
   // the backend deploy separately: if the frontend lands first, every one of these throws and

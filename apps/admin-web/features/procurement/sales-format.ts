@@ -44,6 +44,15 @@ export function breedBeyondProduct(product: string | null | undefined, breed: st
   return b;
 }
 
+/**
+ * The copy key for a counted noun: the singular key when the count is exactly one, else the plural.
+ * The Sales pages printed "1 lines", "1 live animals" and "about every 1 days" (2026-09-26); the
+ * backend serves both nouns and this picks one, so the words stay the page contract's.
+ */
+export function countKey(count: number, oneKey: string, manyKey: string): string {
+  return count === 1 ? oneKey : manyKey;
+}
+
 /** Indian-grouped, one decimal at most, whole numbers without a fraction: 2000 -> "2,000", 12.5 -> "12.5". */
 function num1(value: number): string {
   return value.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 1 });

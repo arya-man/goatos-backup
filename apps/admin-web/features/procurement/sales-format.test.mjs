@@ -15,6 +15,7 @@ import {
   numCompact,
   numCompactWhole,
   breedBeyondProduct,
+  countKey,
   quantityAtRate,
   resolveFarm,
   trimEmptyMonthlyStart,
@@ -272,4 +273,20 @@ test("a product whose breed is only its own name says it once (Manure, not Manur
   const sold = readFileSync(new URL("./sales-sold.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(drawer, /\{\s*(line|deal)\.breed\s*\}|cell\(field\("breed"\), deal\.breed\)/);
   assert.doesNotMatch(sold, /dealCell\(deal\.breed\)|`\$\{band\.breed\} · /);
+});
+
+test("a count of exactly one reads singular (1 line, 1 live animal, about every day, 1 day ago)", () => {
+  assert.equal(countKey(1, "summary.lines.line", "summary.lines.lines"), "summary.lines.line");
+  assert.equal(countKey(2, "summary.lines.line", "summary.lines.lines"), "summary.lines.lines");
+  assert.equal(countKey(0, "summary.lines.line", "summary.lines.lines"), "summary.lines.lines");
+  assert.equal(countKey(1.5, "x.one", "x.many"), "x.many");
+  // Every place a Sales screen prints a count beside one of these nouns picks through countKey, so
+  // none can print the plural beside a 1 again.
+  const plurals = ["summary.lines.lines", "summary.lines.animals", "summary.lines.pieces", "value.live_animals", "value.every_days", "value.days_ago"];
+  for (const file of ["./sale-lines-editor.tsx", "./sales-farm-value.tsx", "./sales-buyer-analytics.tsx"]) {
+    const src = readFileSync(new URL(file, import.meta.url), "utf8");
+    for (const key of plurals) {
+      assert.doesNotMatch(src, new RegExp(`copy\\(pageContract, "${key.replace(/\./g, "\\.")}"\\)`), `${file} prints ${key} without a singular`);
+    }
+  }
 });

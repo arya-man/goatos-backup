@@ -15,7 +15,7 @@ import { firstAuthRequiredError } from "@/lib/api/server";
 import { getBuyerAnalytics } from "@/lib/api/procurement-server";
 import type { BuyerAnalytics, BuyerAnalyticsRow } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { inr, num } from "./sales-format";
+import { countKey, inr, num } from "./sales-format";
 import {
   SALES_DEFAULT_FARM,
   SalesFarmToggle,
@@ -92,7 +92,7 @@ function BuyerSections({
     ];
     if (row.avg_days_between != null) {
       parts.push(
-        fill(copy(pageContract, "value.every_days"), {
+        fill(copy(pageContract, countKey(Math.round(row.avg_days_between), "value.every_day", "value.every_days")), {
           days: num(row.avg_days_between),
         }),
       );
@@ -102,7 +102,7 @@ function BuyerSections({
   const recency = (row: BuyerAnalyticsRow): string => {
     if (row.days_since_last == null) return "";
     if (row.days_since_last === 0) return copy(pageContract, "value.today");
-    return fill(copy(pageContract, "value.days_ago"), {
+    return fill(copy(pageContract, countKey(row.days_since_last, "value.day_ago", "value.days_ago")), {
       days: num(row.days_since_last),
     });
   };

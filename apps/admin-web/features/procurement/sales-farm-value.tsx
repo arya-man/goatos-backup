@@ -9,7 +9,7 @@ import { istDayPlus, todayIso } from "@/lib/format";
 import { getSalesOverview } from "@/lib/api/procurement-server";
 import type { SalesOverview } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { inr, num } from "./sales-format";
+import { countKey, inr, num } from "./sales-format";
 import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
 import { Over35Kpi } from "./over35-kpi";
 import { OVER35_MAX_TOLERANCE_G, OVER35_WINDOW_DAYS } from "./over35-window";
@@ -138,7 +138,8 @@ function FarmValueSections({
                 {num(overview.farm_valuation.valued_animals)} {copy(pageContract, "value.valued_animals")}
                 {notValuedLabel ? ` · ${notValuedLabel}` : ""}
                 {" · "}
-                {num(overview.farm_valuation.total_animals)} {copy(pageContract, "value.live_animals")}
+                {num(overview.farm_valuation.total_animals)}{" "}
+                {copy(pageContract, countKey(overview.farm_valuation.total_animals, "value.live_animal", "value.live_animals"))}
               </Tag>
             </div>
             <div className="grid g4">
@@ -158,7 +159,7 @@ function FarmValueSections({
                   <div className="val">{inr(bucket.value_rupees)}</div>
                   <div className="dl">
                     {num(bucket.meat_kg, 1)} {kgSuffix} · {num(bucket.animal_count)}{" "}
-                    {copy(pageContract, "value.live_animals")}
+                    {copy(pageContract, countKey(bucket.animal_count, "value.live_animal", "value.live_animals"))}
                     {/* The "N weighed" count behind the fattening average is deliberately not
                         printed (maintainer instruction 2026-09-11). */}
                   </div>

@@ -4926,10 +4926,14 @@ func pageSpecificCopy(id string) map[string]string {
 			// a missing fixed key, taking the whole page down for that window. They stay served
 			// until every deployed frontend is past that build; pinned by
 			// TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends.
-			"chip.not_in_register":   "Not in register",
-			"hint.not_in_register":   "Known only by the name typed on the sale. Add them on Vendors to keep their number here.",
-			"value.every_days":       "about every {days} days",
-			"value.days_ago":         "{days} days ago",
+			"chip.not_in_register": "Not in register",
+			"hint.not_in_register": "Known only by the name typed on the sale. Add them on Vendors to keep their number here.",
+			"value.every_days":     "about every {days} days",
+			"value.days_ago":       "{days} days ago",
+			// The singulars the renderer picks when the count is exactly 1 (2026-09-26: the page
+			// read "about every 1 days" and "1 days ago").
+			"value.every_day":        "about every day",
+			"value.day_ago":          "1 day ago",
 			"value.today":            "today",
 			"value.repeat_purchases": "{count} more after the first",
 			"value.settled":          "Nothing owed",
@@ -5082,6 +5086,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.kg_suffix":        "kg",
 			"value.excluded_animals": "excluded",
 			"value.live_animals":     "live animals",
+			"value.live_animal":      "live animal", // one animal: "1 live animal", never "1 live animals"
 			"value.not_valued":       "not valued",
 			"value.valued_animals":   "valued",
 			// The fattening and kid cards' sex split (maintainer request 2026-09-11): male and
@@ -5325,13 +5330,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"hint.line_feed_value":     "Value is the quantity times the rate.",
 			"summary.lines.total":      "Sale total",
 			"summary.lines.animals":    "animals",
+			"summary.lines.animal":     "animal", // the singulars are picked when the count is exactly 1
 			"summary.lines.weight":     "kg",
 			// Feed's kilograms are a DIFFERENT fact from live weight and get their own term: a
 			// 250kg feed sale reading "0.0 kg" in the same footer is a sale that looks like it
 			// moved nothing.
 			"summary.lines.feed_kg": "kg feed",
 			"summary.lines.pieces":  "items",
+			"summary.lines.piece":   "item",
 			"summary.lines.lines":   "lines",
+			"summary.lines.line":    "line",
 			// The ledger row's product/breed cells for a deal whose lines disagree.
 			"value.mixed":        "Mixed",
 			"detail.lines.empty": "This sale has no product lines.",
