@@ -53,7 +53,7 @@
 .tablewrap,.twrap{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;position:relative;min-width:0;max-width:100%}
 .card>.tablewrap,.card>.twrap,.kit-tablecard>.tablewrap,.kit-tablecard>.twrap,.kit-tablecard>.main{margin:0;border-radius:0}
 .tablewrap table,.twrap table,.kit-tablecard table{width:100%;border-collapse:separate;border-spacing:0;min-width:640px}
-.wrap thead th{background:var(--paper-2);color:var(--fg-muted);font-weight:600;padding:14px 16px;border-bottom:0;white-space:nowrap;text-align:left;position:sticky;top:0;z-index:1}
+.wrap thead th:not(.MuiTableCell-root){background:var(--paper-2);color:var(--fg-muted)}.wrap thead th{font-weight:600;padding:14px 16px;border-bottom:0;white-space:nowrap;text-align:left;position:sticky;top:0;z-index:1}
 .wrap thead th.num,.wrap th.num,.wrap td.num{text-align:right;font-variant-numeric:tabular-nums}
 .wrap tbody td:not(.MuiTableCell-root){height:54px;padding:11px 16px;border-bottom:1px dashed var(--line);vertical-align:middle;font-size:14px}
 .wrap tbody tr:last-child td{border-bottom:0}

@@ -199,7 +199,7 @@ select option{background:var(--paper);color:var(--fg)}
 .kit-donut-wrap{display:grid;gap:16px}
 
 /* ---------- Tables ---------- */
-.screen th,.main th{background:rgb(var(--g500-rgb)/.08);color:var(--fg-muted);font-size:14px;font-weight:600;padding:16px}
+.screen th:not(.MuiTableCell-root),.main th:not(.MuiTableCell-root){background:rgb(var(--g500-rgb)/.08);color:var(--fg-muted);font-size:14px;font-weight:600;padding:16px}
 :root:not(.light) .screen th:not(.MuiTableCell-root),:root:not(.light) .main th:not(.MuiTableCell-root){background:rgb(var(--g500-rgb)/.16)}
 .screen th:first-child,.main thead th:first-child,.screen th:last-child,.main thead th:last-child{border-radius:0}
 .screen td:not(.MuiTableCell-root),.main td:not(.MuiTableCell-root){height:56px;padding:12px 16px;font-weight:400;border-bottom:1px dashed var(--line)}
@@ -310,7 +310,7 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 .tablewrap th{font-weight:600}
 .tablewrap td{font-weight:400}
 /* Minimal TableCell: dashed divider (grey-500 .2); the last row has none. */
-.tablewrap tbody tr td{border-bottom:1px dashed var(--line)!important}
+.tablewrap tbody tr td:not(.MuiTableCell-root){border-bottom:1px dashed var(--line)!important}
 .tablewrap tbody tr:last-child td{border-bottom:0!important}
 .tablewrap tbody tr{transition:background-color .2s var(--ease)}
 .tablewrap tbody tr:hover{background:rgb(var(--g500-rgb)/.08)}
@@ -363,7 +363,7 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
 .drawer .dh{padding-top:calc(16px + env(safe-area-inset-top))}
 
 /* -- Table: opaque sticky header, touch feedback, scrollable wrapper -- */
-.tablewrap thead th{background:var(--paper-2);background-clip:padding-box}
+.tablewrap thead th:not(.MuiTableCell-root){background:var(--paper-2);background-clip:padding-box}
 :root:not(.light) .tablewrap thead th:not(.MuiTableCell-root){background:var(--paper-2)}
 @media(hover:none){
   .tablewrap tbody tr:active>td{background:color-mix(in srgb,var(--fg) 8%,transparent)}
@@ -435,7 +435,7 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
 
 /* -- tables: sticky header needs an opaque band and a scroll box ----- */
 /* Head band = Minimal background.neutral (opaque, so sticky heads still cover rows). */
-.tablewrap thead th{background:var(--paper-2)}
+.tablewrap thead th:not(.MuiTableCell-root){background:var(--paper-2)}
 .kit-tablecard .tablewrap thead th:not(.MuiTableCell-root){background:var(--paper-2)!important}
 @media(max-width:640px){
   /* No vertical scroll box on phones (56b3da919 / 89a0c2f62): a scroll region inside the page
@@ -589,7 +589,7 @@ td.kit-rowactions,td.kit-check{position:relative;z-index:3}
 
 /* Kit tables outside .main (stories, drawers, cards): MUI Minimal header -- 14px/600, sentence
    case, background.neutral fill, no rule under it. */
-.tablewrap thead th,.twrap thead th,.kit-tablecard thead th{background:var(--paper-2);color:var(--fg-muted);font-size:14px;line-height:24px;font-weight:600;letter-spacing:0;text-transform:none;border-bottom:0}
+.tablewrap thead th:not(.MuiTableCell-root),.twrap thead th:not(.MuiTableCell-root),.kit-tablecard thead th:not(.MuiTableCell-root){background:var(--paper-2);color:var(--fg-muted);font-size:14px;line-height:24px;font-weight:600;letter-spacing:0;text-transform:none;border-bottom:0}
 /* Native radios/checkboxes everywhere follow the brand, not the browser blue, at the 18px kit size. */
 input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
 /* Toolbar search = MUI Minimal outlined search (spec §7/§9): 56px tall, 8px radius, 14px side padding.

@@ -725,7 +725,7 @@
   .main table.counts-breakdown-table th:nth-child(4),.main table.counts-breakdown-table td:nth-child(4){min-width:90px}
   .main table.counts-breakdown-table th:nth-child(6),.main table.counts-breakdown-table td:nth-child(6){min-width:80px}
   /* Total row reads as a summary band, not another data row. */
-  .main table.counts-breakdown-table tfoot th{border-top:1px solid var(--line);background:var(--panel-2);font-weight:700}
+  .main table.counts-breakdown-table tfoot th:not(.MuiTableCell-root){border-top:1px solid var(--line);background:var(--panel-2);font-weight:700}
   /* Counts Breakdown PEN table (7 cols: Farm · Pen · Stage · Breed · Gender · Kids·Adults · Count).
      One line per pen; the line is the affordance that opens the exact split beneath it. Column
      widths are its own, so the nth-child rules above (the 6-col combination layout) are reset. */
@@ -1043,7 +1043,7 @@
   .cbm-loading,.cbm-unavailable{padding:26px;text-align:center;color:var(--muted);font-size:12.5px}
   /* A shed's item lines are one visual block: the shed-level cells span them, so the group needs a
      boundary rule rather than a rule between every item line. */
-  .main table.feed-table td[rowspan]{border-right:1px solid var(--line2)}
+  .main table.feed-table td:not(.MuiTableCell-root)[rowspan]{border-right:1px solid var(--line2)}
   .main table.feed-table .tag{margin:0}
   /* An editor opens inline in its cell; keep the row from collapsing the form to one line. */
   .main table.feed-table form{white-space:normal}
