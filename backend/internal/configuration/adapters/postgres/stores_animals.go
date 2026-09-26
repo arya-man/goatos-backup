@@ -563,9 +563,9 @@ WHERE g.tenant_id = $1 AND g.lifecycle_status = 'alive'
   AND (g.breed_id = $2::uuid OR lower(g.breed) = lower((SELECT canonical_name FROM breeds WHERE breed_id = $2::uuid AND tenant_id = $1::uuid)))`
 	sqlBreedSpeciesExists = `SELECT 1 FROM species_lookup WHERE tenant_id = $1 AND species_code = $2 AND status = 'active'`
 	// scale-guard:plan-proof-exempt: breeds is a per-farm catalogue of tens of rows; the goats statements here (usage count, rename) are rare Configuration writes/deletes already scoped to (tenant_id, breed_id) and only gain a tenant_id equality -- no serving read's access path changes.
-	sqlBreedInsert      = `INSERT INTO breeds (tenant_id, species, canonical_name, status, review_notes) VALUES ($1, $2, $3, 'active', $4) RETURNING breed_id::text`
-	sqlBreedName        = `SELECT canonical_name FROM breeds WHERE tenant_id = $1 AND breed_id = $2::uuid`
-	sqlBreedRenameGoats = `UPDATE goats SET breed = $3 WHERE tenant_id = $1 AND (breed_id = $2::uuid OR (breed_id IS NULL AND lower(btrim(breed)) = lower(btrim($4))))`
+	sqlBreedInsert            = `INSERT INTO breeds (tenant_id, species, canonical_name, status, review_notes) VALUES ($1, $2, $3, 'active', $4) RETURNING breed_id::text`
+	sqlBreedName              = `SELECT canonical_name FROM breeds WHERE tenant_id = $1 AND breed_id = $2::uuid`
+	sqlBreedRenameGoats       = `UPDATE goats SET breed = $3 WHERE tenant_id = $1 AND (breed_id = $2::uuid OR (breed_id IS NULL AND lower(btrim(breed)) = lower(btrim($4))))`
 	sqlBreedRenameRationGroup = `
 UPDATE feed_ration_groups g SET breed_label = $3, updated_at = now()
 WHERE g.tenant_id = $1::uuid AND g.breed_key = feed_config_norm($2)
