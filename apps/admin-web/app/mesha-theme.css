@@ -3348,18 +3348,9 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .chart-slots-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
 @media(max-width:680px){.chart-slots-plot{min-width:calc(var(--chart-slots,1) * 56px)}}
 
-.sales-kpi-row .kpi .dl{color:var(--muted)}
 @media(max-width:760px){
   .sales-ready-tolerance{grid-template-columns:1fr}
   .sales-ready-tolerance-head{justify-content:space-between}
-  .sales-kpi-row{display:grid;grid-template-columns:minmax(0,1fr)!important;width:100%}
-  .sales-kpi-row .kpi{min-width:0;width:100%;max-width:100%;overflow:hidden}
-  .sales-kpi-row .kpi .val{font-size:clamp(22px,7vw,28px);white-space:normal;overflow-wrap:anywhere;word-break:normal;line-height:1.08}
-  .sales-kpi-row .kpi .dl{white-space:normal;overflow-wrap:anywhere}
-}
-@media(max-width:760px){
-  .sales-kpi-row{gap:12px!important}
-  .sales-kpi-row .kit-iconbadge{width:38px!important;height:38px!important;border-radius:12px!important;top:14px!important;right:14px!important}
 }
 @media(max-width:640px){
   .main table.market-latest-table{min-width:0;width:100%;border-collapse:separate;border-spacing:0 10px}

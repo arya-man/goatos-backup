@@ -12,8 +12,6 @@ import type { SxProps, Theme } from "@mui/material/styles";
  */
 export const PHONE = "@media (max-width:599.95px)";
 
-/** Sales KPI decks: the shared KpiGrid (MUI Grid) already stacks one widget per row at xs. */
-export const salesKpiRowSx: SxProps<Theme> = {};
 
 /** Wide table inside a card: scrolls sideways inside the card, never past its edge (template Scrollbar box). */
 export const cardTableScrollSx: SxProps<Theme> = {

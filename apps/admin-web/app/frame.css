@@ -129,8 +129,6 @@
   .feed-packing-page .feed-packing-worklist>.bd:first-of-type{display:flex!important;flex-wrap:wrap!important;align-items:flex-start!important;gap:8px!important;padding:10px 18px 18px!important;border-top:0!important}
   .feed-packing-page .feed-packing-worklist>.bd:first-of-type .tag{min-height:28px!important;max-width:100%!important;padding:6px 11px!important;border-radius:14px!important;font-size:10.5px!important;line-height:14px!important;font-weight:700!important;background:color-mix(in srgb,var(--paper-2) 72%,transparent)!important;color:var(--fg-muted)!important;box-shadow:none!important}
 
-  /* Sales: keep tone in the small icon badge; labels stay calm like the template cards. */
-  .sales-kpi-row .kit-iconbadge{width:36px!important;height:36px!important;border-radius:12px!important;opacity:.9}
 }
 
 /* ---- Drawer / Sheet ---- */

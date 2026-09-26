@@ -8,7 +8,10 @@ import { IndianRupee } from "lucide-react";
 
 import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { KpiCard } from "@/components/minimal/widgets";
+import { Label } from "@/components/minimal/label";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 import { GoatGlyph } from "@/components/goat-glyph";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { copy, optionGroup, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -31,7 +34,7 @@ import { salesErrorText } from "./sales-error";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import Typography from "@mui/material/Typography";
-import { cardTableScrollSx, salesKpiRowSx } from "./procurement-sx";
+import { cardTableScrollSx } from "./procurement-sx";
 
 // Breakdown table (template analytics table anatomy): the label column keeps a readable floor so
 // words never break per letter; on a laptop the table fits its half-width card, on a phone it
@@ -127,11 +130,11 @@ function BreakdownCard({
   const tableId = `farm-born-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div>
-    <Card component="section" className="sales-card" aria-label={title} sx={{ minWidth: 0 }}>
+    <Card component="section" aria-label={title} sx={{ minWidth: 0 }}>
       <CardHeader
         title={title}
-        action={pager && pageCount > 1 ? <span className="muted small">{num(rows.length)} {pager.noun}</span> : null}
-        sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", alignItems: "center", [`& .${cardHeaderClasses.action}`]: { alignSelf: "center", m: 0 } }}
+        action={pager && pageCount > 1 ? <Label variant="soft" color="default">{num(rows.length)} {pager.noun}</Label> : null}
+        sx={{ mb: 2, [`& .${cardHeaderClasses.action}`]: { alignSelf: "center" } }}
       />
       <Box id={tableId} tabIndex={0} role="region" aria-label={title} sx={cardTableScrollSx}>
         <Table sx={FB_TABLE_SX}>
@@ -160,8 +163,8 @@ function BreakdownCard({
                 return (
                 <TableRow key={row.key}>
                   <TableCell>
-                    <b>{row.label}</b>
-                    {row.detail ? <div className="muted small">{row.detail}</div> : null}
+                    <Typography variant="subtitle2" component="div">{row.label}</Typography>
+                    {row.detail ? <Typography variant="caption" component="div" color="text.secondary">{row.detail}</Typography> : null}
                   </TableCell>
                   <TableCell className="num">{num(row.on_farm)}</TableCell>
                   <TableCell className="num">{num(row.tagged_not_closed)}</TableCell>
@@ -233,105 +236,100 @@ function FarmBornSections({
 
   return (
     <>
-      <div>
-        <Box component="section" aria-label={copy(pageContract, "section.headline.aria")} sx={salesKpiRowSx}>
-          <KpiGrid className="sales-kpi-row">
-            <KpiCard
-              variant="gradient"
-              tone="primary"
-              label={copy(pageContract, "kpi.on_farm")}
-              value={<KpiValue value={s.on_farm} />}
-              watermark={<GoatGlyph aria-hidden="true" />}
-            />
-            <KpiCard
-              variant="tint"
-              tone="info"
-              label={copy(pageContract, "kpi.sold")}
-              value={<KpiValue value={s.sold} />}
-              watermark={<GoatGlyph aria-hidden="true" />}
-              // Tagged to a sale that has not closed: out of the herd, not yet sold (main 054918241).
-              hint={
-                <>
-                  {humanDate(s.from)} {copy(pageContract, "filter.period.range_separator")} {humanDate(s.to)}
-                  {s.tagged_not_closed > 0 ? (
-                    <span title={copy(pageContract, "value.tagged_not_closed.hint")}>
-                      {" · "}
-                      {num(s.tagged_not_closed)} {copy(pageContract, "kpi.tagged_not_closed")}
-                    </span>
-                  ) : null}
-                </>
-              }
-            />
-            <KpiCard
-              variant="tint"
-              tone="success"
-              label={copy(pageContract, "kpi.revenue")}
-              value={<KpiValue value={s.revenue} kind="inr" />}
-              watermark={<IndianRupee aria-hidden="true" />}
-              hint={unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined}
-            />
-            <KpiCard
-              variant="tint"
-              tone="violet"
-              label={copy(pageContract, "kpi.avg_price")}
-              value={s.sold_priced > 0 ? <KpiValue value={s.avg_price} kind="inr" /> : "—"}
-              watermark={<IndianRupee aria-hidden="true" />}
-            />
-          </KpiGrid>
-        </Box>
-      </div>
+      {/* Headline figures: plain KpiCards (template CourseWidgetSummary anatomy -- figure, title,
+          tone icon), never the pastel AnalyticsWidgetSummary in dark. */}
+      <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.headline.aria")}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiCard
+            tone="primary"
+            label={copy(pageContract, "kpi.on_farm")}
+            value={<KpiValue value={s.on_farm} />}
+            icon={<GoatGlyph aria-hidden="true" />}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiCard
+            tone="info"
+            label={copy(pageContract, "kpi.sold")}
+            value={<KpiValue value={s.sold} />}
+            icon={<GoatGlyph aria-hidden="true" />}
+            // Tagged to a sale that has not closed: out of the herd, not yet sold (main 054918241).
+            hint={
+              <>
+                {humanDate(s.from)} {copy(pageContract, "filter.period.range_separator")} {humanDate(s.to)}
+                {s.tagged_not_closed > 0 ? (
+                  <span title={copy(pageContract, "value.tagged_not_closed.hint")}>
+                    {" · "}
+                    {num(s.tagged_not_closed)} {copy(pageContract, "kpi.tagged_not_closed")}
+                  </span>
+                ) : null}
+              </>
+            }
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiCard
+            tone="success"
+            label={copy(pageContract, "kpi.revenue")}
+            value={<KpiValue value={s.revenue} kind="inr" />}
+            icon={<IndianRupee aria-hidden="true" />}
+            hint={unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <KpiCard
+            tone="violet"
+            label={copy(pageContract, "kpi.avg_price")}
+            value={s.sold_priced > 0 ? <KpiValue value={s.avg_price} kind="inr" /> : "—"}
+            icon={<IndianRupee aria-hidden="true" />}
+          />
+        </Grid>
+      </Grid>
 
-      <div>
-        {/* Section title between blocks: the template CardHeader title scale (h6). */}
-        <Typography variant="h6" component="h3" sx={{ mt: 2.75 }}>
-          {copy(pageContract, "section.breakdowns.title")}
-        </Typography>
-      </div>
       {/* Breed on the left; Sex and Stage stacked on the right (both short). Pen gets its own
           full-width card below: a farm has dozens of pens, and beside a two-row sex table it left
           the right column mostly blank. */}
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2,minmax(0,1fr))" },
-          gap: 2,
-          mt: 1.75,
-          alignItems: "start",
-          "& > *": { minWidth: 0, maxWidth: "100%" },
-        }}
-      >
-        <BreakdownCard title={copy(pageContract, "section.by_breed.title")} rows={data.by_breed} totalSold={s.sold} pageContract={pageContract} />
-        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 2, alignContent: "start", minWidth: 0, "& > *": { minWidth: 0 } }}>
+      <Grid container spacing={3} sx={{ mt: 3 }}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <BreakdownCard title={copy(pageContract, "section.by_breed.title")} rows={data.by_breed} totalSold={s.sold} pageContract={pageContract} />
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Stack spacing={3}>
+            <BreakdownCard
+              title={copy(pageContract, "section.by_sex.title")}
+              rows={data.by_sex.map((row) => ({ ...row, label: sexLabel(row.key) === row.key ? row.label : sexLabel(row.key) }))}
+              totalSold={s.sold}
+              pageContract={pageContract}
+            />
+            <BreakdownCard
+              title={copy(pageContract, "section.by_stage.title")}
+              rows={data.by_stage.map((row) => ({ ...row, label: stageVocabularyLabel(row.label, stageNames) }))}
+              totalSold={s.sold}
+              pageContract={pageContract}
+            />
+          </Stack>
+        </Grid>
+        <Grid size={12}>
           <BreakdownCard
-            title={copy(pageContract, "section.by_sex.title")}
-            rows={data.by_sex.map((row) => ({ ...row, label: sexLabel(row.key) === row.key ? row.label : sexLabel(row.key) }))}
+            title={copy(pageContract, "section.by_pen.title")}
+            rows={data.by_pen}
             totalSold={s.sold}
             pageContract={pageContract}
+            pager={{ offset: penOffset, limit: PEN_PAGE_SIZE, noun: copy(pageContract, "pager.pens"), href: penHref }}
           />
-          <BreakdownCard
-            title={copy(pageContract, "section.by_stage.title")}
-            rows={data.by_stage.map((row) => ({ ...row, label: stageVocabularyLabel(row.label, stageNames) }))}
-            totalSold={s.sold}
-            pageContract={pageContract}
-          />
-        </Box>
-      </Box>
-      <Box sx={{ mt: 2, "& > *": { minWidth: 0, maxWidth: "100%" } }}>
-        <BreakdownCard
-          title={copy(pageContract, "section.by_pen.title")}
-          rows={data.by_pen}
-          totalSold={s.sold}
-          pageContract={pageContract}
-          pager={{ offset: penOffset, limit: PEN_PAGE_SIZE, noun: copy(pageContract, "pager.pens"), href: penHref }}
-        />
-      </Box>
+        </Grid>
+      </Grid>
 
       <div>
-      <Card component="section" className="sales-card" aria-label={copy(pageContract, "section.sold.aria")} sx={{ minWidth: 0, mt: 2 }}>
+      <Card component="section" aria-label={copy(pageContract, "section.sold.aria")} sx={{ minWidth: 0, mt: 3 }}>
         <CardHeader
           title={copy(pageContract, "section.sold.title")}
-          action={<span className="muted small">{num(data.total_sold)} {copy(pageContract, "pager.noun")}</span>}
-          sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", alignItems: "center", [`& .${cardHeaderClasses.action}`]: { alignSelf: "center", m: 0 } }}
+          action={
+            <Label variant="soft" color={data.total_sold ? "info" : "default"}>
+              {num(data.total_sold)} {copy(pageContract, "pager.noun")}
+            </Label>
+          }
+          sx={{ mb: 2, [`& .${cardHeaderClasses.action}`]: { alignSelf: "center" } }}
         />
         <Box id="farm-born-sold" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sold.aria")} sx={cardTableScrollSx}>
           <FarmBornSoldTable
