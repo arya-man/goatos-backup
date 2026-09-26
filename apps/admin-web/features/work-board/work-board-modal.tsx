@@ -108,7 +108,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
         <DialogContent dividers className="mb" sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", md: "minmax(0,1fr) 380px" }, gap: 3 }}>
           <div>
             <h2>{row.title}</h2>
-            <div className="sec" style={{ marginTop: 6 }}>
+            <div className="sec">
               <h4>{copy(pageContract, "drawer.description")}</h4>
               <div className="desc">
                 {row.subtitle ? <div>{row.subtitle}</div> : null}
