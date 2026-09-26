@@ -349,6 +349,14 @@ submit — is a write path and inherits the repo idempotency contract. Check:
 - [ ] URL-driven tabs/segments go through `useUrlTabNav` (AnimatedTabs / SegmentTabs / SegmentedLinks):
       pressed tab selected at once, page chrome and old panel stay mounted; no same-route skeleton swap
 
+## Theme colours (admin-web checklist)
+
+- [ ] No surface literal `common.white` / `#fff` / `grey.50-200` in sx (P0 `light-surface-literal`):
+  a KPI/widget card is `KpiCard` (template Ecommerce/Course widget summary on the theme paper).
+- [ ] No legacy stylesheet rule selecting `.Mui*` that sets colour/background/border
+  (P0 `legacy-css-mui-colour`); legacy CSS only shrinks.
+- [ ] Changed pages checked at 1440 dark, 1440 light and 390 dark next to the template page.
+
 ## Error, Loading, and Accessibility
 
 A swallowed API/backend failure rendered as an empty array (or a collapsed page

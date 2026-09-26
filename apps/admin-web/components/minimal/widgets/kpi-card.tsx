@@ -1,7 +1,7 @@
 "use client";
 
 // Composed from the licensed MUI Minimal template widget summaries (sections/overview: e-commerce,
-// banking, analytics, booking check-in); see KpiCard below for which card maps to which source.
+// course, analytics, booking check-in); see KpiCard below for which card maps to which source.
 
 import type { ReactNode } from "react";
 import { varAlpha } from "minimal-shared/utils";
@@ -10,7 +10,7 @@ import Card from "@mui/material/Card";
 import CardActionArea from "@mui/material/CardActionArea";
 import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
-import type { Theme } from "@mui/material/styles";
+import { useTheme, type Theme } from "@mui/material/styles";
 import Link from "@/components/no-prefetch-link";
 import { WidgetSparkChart } from "@/components/minimal/widgets/widget-spark-chart";
 import { Iconify } from "@/components/minimal/iconify";
@@ -18,7 +18,7 @@ import { SvgColor } from "@/components/minimal/svg-color";
 import { MINIMAL_ASSETS } from "@/components/minimal/_shared/config";
 import type { PaletteColorKey } from "@/theme/core";
 import { CountUp } from "@/components/app/count-up";
-import { cx, toneVars, type KitTone } from "@/lib/tone";
+import { cx, type KitTone } from "@/lib/tone";
 
 type TrendReading = {
   value: number | null | undefined;
@@ -53,13 +53,13 @@ export type KpiCardProps = {
    */
   parts?: KpiPart[];
   /**
-   * - "plain" (default) — template EcommerceWidgetSummary (chart right) / BankingWidgetSummary badge.
+   * - "plain" (default) — template EcommerceWidgetSummary (chart right) / CourseWidgetSummary (icon corner).
    * - "tint" / "gradient" — template AnalyticsWidgetSummary (tone gradient, icon on top).
    */
   variant?: "plain" | "tint" | "gradient";
   /** Kept for call-site compatibility; the AnalyticsWidgetSummary shape art replaces it. */
   watermark?: ReactNode;
-  /** Mini chart shape. Bars are the default: a KPI is a count per period, not a sampled curve. */
+  /** Mini chart shape: the EcommerceWidgetSummary gradient line (default) or AppWidgetSummary bars. */
   sparkVariant?: "bar" | "line";
   onClick?: () => void;
   href?: string;
@@ -120,7 +120,7 @@ function Trending({ trend }: { trend: NonNullable<KpiCardProps["trend"]> }) {
 function Figure({ value, format, digits, unit, variant }: Pick<KpiCardProps, "value" | "format" | "digits" | "unit"> & { variant: "h3" | "h4" }) {
   return (
     // Phone two-up decks (390px) step the figure down one size so a lakh-grouped number fits.
-    <Box className="kit-kpi-value" sx={{ typography: { xs: "h4", sm: variant }, display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 0.5, minWidth: 0, "& > span": { minWidth: 0, overflowWrap: "anywhere" } }}>
+    <Box sx={{ typography: { xs: "h4", sm: variant }, display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 0.5, minWidth: 0, overflowWrap: "anywhere" }}>
       {typeof value === "number" ? <CountUp value={value} format={format} digits={digits} /> : value}
       {unit ? (
         <Box component="span" sx={{ typography: "subtitle2", color: "text.secondary" }}>
@@ -141,15 +141,24 @@ function Hint({ hint }: { hint: ReactNode }) {
 
 /**
  * THE KPI card, built from the template widget summaries (never a local design):
- * - plain + series: EcommerceWidgetSummary (title, h3 figure, trending row, mini chart right);
- * - plain + icon: the same body with BankingWidgetSummary's 48px round badge;
- * - tint / gradient: AnalyticsWidgetSummary (icon on top, tone gradient + shape art, h4 figure);
+ * - plain (default): EcommerceWidgetSummary: paper Card, subtitle2 title, h3 figure, trending row,
+ *   gradient mini line chart on the right (tone light -> main);
+ * - plain + icon, no series: CourseWidgetSummary: h3 figure over a text.secondary title, 36px tone
+ *   icon in the top-right corner over the rotated tone gradient tile;
+ * - tint / gradient: AnalyticsWidgetSummary (icon on top, tone gradient + shape art, h4 figure). The
+ *   template keeps this card pastel in dark mode too, so its contents read the light scheme;
  * - two readings (`parts`): BookingCheckInWidgets split (h5 figure + body2 label, dashed divider).
  */
-export function KpiCard({ label, value, format, digits, unit, icon, tone = "primary", trend, sparkline, hint, parts, variant = "plain", sparkVariant = "bar", onClick, href, className, footer }: KpiCardProps) {
+export function KpiCard({ label, value, format, digits, unit, icon, tone = "primary", trend, sparkline, hint, parts, variant = "plain", sparkVariant = "line", onClick, href, className, footer }: KpiCardProps) {
+  const theme = useTheme();
   const color = paletteOf(tone);
   const hasChart = Boolean(sparkline && sparkline.length > 1);
   const hero = variant !== "plain";
+  const course = !hero && !hasChart && Boolean(icon);
+  // Template charts take palette values (ApexCharts cannot read CSS variables in gradient stops).
+  const chartColors: [string, string] = color
+    ? [theme.palette[color].light, theme.palette[color].main]
+    : [theme.palette.grey[500], theme.palette.grey[600]];
 
   const splitBody = parts && parts.length > 1 ? (
     // Side by side when the card has room; a phone two-up card wraps the halves under each other.
@@ -160,7 +169,7 @@ export function KpiCard({ label, value, format, digits, unit, icon, tone = "prim
     >
       {parts.map((part, index) => (
         <Box key={index} sx={{ minWidth: { xs: 96, sm: 0 }, flex: "1 1 0" }}>
-          <Box className="kit-kpi-value" sx={{ mb: 0.5, typography: "h5" }}>
+          <Box sx={{ mb: 0.5, typography: "h5" }}>
             {typeof part.value === "number" ? <CountUp value={part.value} format={format} digits={digits} /> : part.value}
           </Box>
           <Box sx={{ typography: "body2", color: "text.secondary" }}>{part.label}</Box>
@@ -169,71 +178,105 @@ export function KpiCard({ label, value, format, digits, unit, icon, tone = "prim
     </Stack>
   ) : null;
 
-  const body = hero ? (
-    <>
-      {icon ? <Box sx={{ width: 48, height: 48, mb: { xs: 1.5, sm: 3 }, display: "flex", alignItems: "center", "& svg": { width: 32, height: 32 } }}>{icon}</Box> : null}
-      <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "flex-end" }}>
-        <Box sx={{ flexGrow: 1, minWidth: 112 }}>
-          <Box sx={{ mb: 1, typography: "subtitle2" }}>{label}</Box>
-          {splitBody ?? <Figure value={value} format={format} digits={digits} unit={unit} variant="h4" />}
+  let body: ReactNode;
+  if (hero) {
+    const heroColors: [string, string] = color ? [theme.palette[color].dark, theme.palette[color].dark] : chartColors;
+    body = (
+      <>
+        {icon ? <Box sx={{ width: 48, height: 48, mb: { xs: 1.5, sm: 3 }, display: "flex", alignItems: "center", "& svg": { width: 32, height: 32 } }}>{icon}</Box> : null}
+        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "flex-end" }}>
+          <Box sx={{ flexGrow: 1, minWidth: 112 }}>
+            <Box sx={{ mb: 1, typography: "subtitle2" }}>{label}</Box>
+            {splitBody ?? <Figure value={value} format={format} digits={digits} unit={unit} variant="h4" />}
+            {trend ? <Box sx={{ mt: 1 }}><Trending trend={trend} /></Box> : null}
+            {hint ? <Hint hint={hint} /> : null}
+          </Box>
+          {hasChart ? <WidgetSparkChart data={sparkline!} variant="analytics" colors={heroColors} /> : null}
+        </Box>
+        {color ? (
+          <SvgColor
+            src={`${MINIMAL_ASSETS}/background/shape-square.svg`}
+            sx={{ top: 0, left: -20, width: 240, zIndex: -1, height: 240, opacity: 0.24, position: "absolute", color: `${color}.main` }}
+          />
+        ) : null}
+        {footer}
+      </>
+    );
+  } else if (course) {
+    const key = color ?? "grey";
+    body = (
+      <>
+        {/* Right padding keeps the figure and title clear of the 36px corner icon. */}
+        <Box sx={{ flexGrow: 1, minWidth: 0, pr: 5 }}>
+          {splitBody ? <Box sx={{ typography: "subtitle2", color: "text.secondary" }}>{label}</Box> : null}
+          {splitBody ?? <Figure value={value} format={format} digits={digits} unit={unit} variant="h3" />}
+          {splitBody ? null : (
+            <Box sx={{ typography: "subtitle2", color: "text.secondary", overflowWrap: "anywhere" }}>{label}</Box>
+          )}
           {trend ? <Box sx={{ mt: 1 }}><Trending trend={trend} /></Box> : null}
           {hint ? <Hint hint={hint} /> : null}
         </Box>
-        {hasChart ? <WidgetSparkChart data={sparkline!} variant="line" color={toneVars(tone).solid} /> : null}
-      </Box>
-      {color ? (
-        <SvgColor
-          src={`${MINIMAL_ASSETS}/background/shape-square.svg`}
-          sx={{ top: 0, left: -20, width: 240, zIndex: -1, height: 240, opacity: 0.24, position: "absolute", color: `${color}.main` }}
-        />
-      ) : null}
-      {footer}
-    </>
-  ) : (
-    <>
-      {/* Mini chart sits right of the figure; in a narrow phone two-up card it wraps under it. */}
-      <Box sx={{ display: "flex", flexWrap: hasChart ? "wrap" : "nowrap", alignItems: "center", gap: 2 }}>
-        <Box sx={{ flex: hasChart ? "1 1 140px" : "1 1 auto", minWidth: 0 }}>
-          <Box sx={{ typography: "subtitle2" }}>{label}</Box>
-          {splitBody ?? (
-            <Box sx={{ my: 1.5 }}>
-              <Figure value={value} format={format} digits={digits} unit={unit} variant="h3" />
-            </Box>
-          )}
-          {trend ? <Trending trend={trend} /> : null}
-          {hint ? <Hint hint={hint} /> : null}
+        <Box
+          component="span"
+          sx={{
+            top: 24,
+            right: 20,
+            width: 36,
+            height: 36,
+            position: "absolute",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: color ? `${color}.main` : "text.secondary",
+            "& svg": { width: 32, height: 32 },
+          }}
+        >
+          {icon}
         </Box>
-        {hasChart ? (
-          <WidgetSparkChart data={sparkline!} variant={sparkVariant} color={toneVars(tone).solid} />
-        ) : icon ? (
-          <Box
-            component="span"
-            sx={(theme: Theme) => ({
-              width: 48,
-              height: 48,
-              flexShrink: 0,
-              alignSelf: "flex-start",
-              borderRadius: "50%",
-              // KpiGrid stacks one widget per row at xs, so the badge always shows (template widgets).
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: color ? `${color}.main` : "text.secondary",
-              bgcolor: varAlpha(color ? theme.vars.palette[color].mainChannel : theme.vars.palette.grey["500Channel"], 0.16),
-              "& svg": { width: 24, height: 24 },
-            })}
-          >
-            {icon}
+        <Box
+          sx={(t: Theme) => ({
+            top: -44,
+            width: 160,
+            zIndex: -1,
+            height: 160,
+            right: -104,
+            opacity: 0.12,
+            borderRadius: 3,
+            position: "absolute",
+            transform: "rotate(40deg)",
+            pointerEvents: "none",
+            background: `linear-gradient(to right, ${key === "grey" ? t.vars.palette.grey[500] : t.vars.palette[key].main}, transparent)`,
+          })}
+        />
+        {footer}
+      </>
+    );
+  } else {
+    body = (
+      <>
+        {/* Mini chart sits right of the figure; in a narrow phone two-up card it wraps under it. */}
+        <Box sx={{ display: "flex", flexWrap: hasChart ? "wrap" : "nowrap", alignItems: "center", gap: 2 }}>
+          <Box sx={{ flex: hasChart ? "1 1 140px" : "1 1 auto", minWidth: 0 }}>
+            <Box sx={{ typography: "subtitle2" }}>{label}</Box>
+            {splitBody ?? (
+              <Box sx={{ my: 1.5 }}>
+                <Figure value={value} format={format} digits={digits} unit={unit} variant="h3" />
+              </Box>
+            )}
+            {trend ? <Trending trend={trend} /> : null}
+            {hint ? <Hint hint={hint} /> : null}
           </Box>
-        ) : null}
-      </Box>
-      {footer}
-    </>
-  );
+          {hasChart ? <WidgetSparkChart data={sparkline!} variant={sparkVariant} colors={chartColors} /> : null}
+        </Box>
+        {footer}
+      </>
+    );
+  }
 
+  const pad = course ? { py: { xs: 2, sm: 3 }, pl: { xs: 2, sm: 3 }, pr: { xs: 2, sm: 2.5 } } : { p: { xs: 2, sm: 3 } };
   const cardSx = hero
-    ? (theme: Theme) => ({
-        p: { xs: 2, sm: 3 },
+    ? (t: Theme) => ({
+        ...pad,
         height: 1,
         boxShadow: "none",
         position: "relative" as const,
@@ -242,23 +285,23 @@ export function KpiCard({ label, value, format, digits, unit, icon, tone = "prim
           ? {
               color: `${color}.darker`,
               backgroundColor: "common.white",
-              backgroundImage: `linear-gradient(135deg, ${varAlpha(theme.vars.palette[color].lighterChannel, 0.48)}, ${varAlpha(theme.vars.palette[color].lightChannel, 0.48)})`,
+              backgroundImage: `linear-gradient(135deg, ${varAlpha(t.vars.palette[color].lighterChannel, 0.48)}, ${varAlpha(t.vars.palette[color].lightChannel, 0.48)})`,
             }
           : {}),
       })
-    : { p: { xs: 2, sm: 3 }, height: 1 };
+    : { ...pad, height: 1, position: "relative" as const, isolation: "isolate" as const };
 
   // The template's AnalyticsWidgetSummary stays pastel in dark mode: its contents (hint, footer
   // controls) read the light scheme so they keep contrast on the light card.
-  const rootClass = cx("kit-kpi", hero && color && "kit-scheme-light", className);
+  const rootClass = cx(hero && color && "kit-scheme-light", className);
   const scheme = hero && color ? { "data-theme": "light" } : {};
   if (href || onClick) {
     return (
-      <Card className={rootClass} {...scheme} sx={hero ? [cardSx as never, { p: 0 }] : { height: 1 }}>
+      <Card className={rootClass} {...scheme} sx={[cardSx as never, { p: 0 }]}>
         <CardActionArea
           {...(href ? { component: Link, href } : { onClick })}
           // A button centres its content vertically; KPI content starts at the top like the static card.
-          sx={{ p: { xs: 2, sm: 3 }, height: 1, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "flex-start", textAlign: "left", position: "relative", isolation: "isolate" }}
+          sx={{ ...pad, height: 1, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "flex-start", textAlign: "left", position: "relative", isolation: "isolate" }}
         >
           {body}
         </CardActionArea>

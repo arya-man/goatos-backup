@@ -158,7 +158,16 @@ chapters below; do not review from the summary.
   refuses recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts — charts are Apex (via
   `components/minimal/chart` or `components/kit`) or the two inline helpers (`svg-bars`, `svg-series`).
   Full pattern → guard table: `docs/design/README.md` §5b.
-- MUI Minimal template is the reference. Every non-dynamic route in `scripts/smoke-visual-live.mjs`
+- Pastel/white KPI boxes in dark mode and legacy CSS recolouring MUI parts (R2). KPI/widget cards are the template
+  widget summaries: `KpiCard` = EcommerceWidgetSummary (paper Card, chart right) by default and
+  CourseWidgetSummary (icon corner) with an icon; AnalyticsWidgetSummary (pastel in dark too, exactly
+  as the template ships it) only where a page truly maps to the analytics overview. Never paint a
+  surface `common.white` / `#fff` / `grey.50-200` (P0 `light-surface-literal`; the dark shell shows a
+  light box) and never select a `.Mui*` class in the legacy stylesheets to set a colour, background
+  or border (P0 `legacy-css-mui-colour`; frame/minimal-theme/mesha-theme/menu-surface/globals.css
+  only shrink). Tints are `varAlpha(theme.vars.palette.<c>.<x>Channel, a)` over the paper.
+  Source test: `components/kpi-card-anatomy.test.mjs`.
+ in `scripts/smoke-visual-live.mjs`
   matches a `route_prefixes` entry in `docs/design/route-template-map.json`; a NEW page must add its
   area in the same change or fail `route-template-map-missing`. Template lives at
   `~/mesha/mui/Minimal_TypeScript_v7.7.0` (Ravi laptop; licensed, NOT in the repo). Palette is

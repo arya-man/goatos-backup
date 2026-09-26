@@ -91,6 +91,34 @@ const RAW_CHART_LIB = /from\s+["'](?:recharts|d3|d3-[a-z-]+|chart\.js|chartjs-[a
 // template with no formatter in it, is the static signature of the runtime `raw-float` finding.
 const RAW_FLOAT_FIXED = /\.toFixed\(\s*(?:[3-9]|[1-9]\d)\s*\)/;
 const RAW_UNIT_TEMPLATE = /\$\{(?![^}]*(?:fmt|format|Format|dash|num\(|kg\(|toLocaleString|toFixed|Intl|round|Math))[^}]*\}\s*(?:kg|g\/day|g|₹|INR)`/;
+// A white / near-white surface literal paints a light box inside the dark shell (the pastel KPI
+// cards Ravi flagged on /sales/sold). Surfaces come from the theme (Card = background.paper). Only
+// the template's AnalyticsWidgetSummary (pastel in both modes, contents on the light scheme) may.
+const LIGHT_SURFACE = /(?:bgcolor|backgroundColor|background)\s*:\s*["'`](?:common\.white|#fff(?:fff)?|white|grey\.(?:50|100|200))["'`]/;
+const LIGHT_SURFACE_ALLOWED = new Set(["components/minimal/widgets/analytics-widget-summary.tsx", "components/minimal/widgets/kpi-card.tsx"]);
+// Legacy stylesheets only shrink; a rule there that selects a MUI class and sets a colour fights the
+// theme in one of the two modes. MUI colours come from the theme palette (theme/core).
+const LEGACY_CSS = new Set(["app/frame.css", "app/minimal-theme.css", "app/mesha-theme.css", "app/menu-surface.css", "app/globals.css"]);
+const COLOUR_DECL = /(?:^|[;{\s])(?:color|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left))?(?:-color)?|fill|stroke|outline(?:-color)?)\s*:/;
+function legacyMuiColourFindings(text) {
+  const out = [];
+  const src = text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const selector = m[1].trim();
+    if (selector.startsWith("@")) continue;
+    // `:not(.Mui…)` / `:where(:not(.Mui…))` EXCLUDE MUI parts; only a positive MUI selector counts.
+    const positive = selector.replace(/:(?:where|is)\(\s*:not\([^()]*\)\s*\)|:not\([^()]*\)/g, "");
+    if (!/\.Mui[A-Z]/.test(positive)) continue;
+    // A reset that only clears legacy paint (transparent / none / 0 / inherit) is not a colour.
+    const paints = m[2].split(";").filter((decl) => COLOUR_DECL.test(` ${decl}`) && !/:\s*(?:transparent|none|0|0px|inherit|initial|unset|currentcolor)\s*(?:!important)?\s*$/i.test(decl));
+    if (!paints.length) continue;
+    const line = src.slice(0, m.index + m[0].indexOf(selector)).split("\n").length;
+    out.push({ line, snippet: selector.slice(0, 160) });
+  }
+  return out;
+}
 // Pure black/white are mask/opacity helpers, not palette colours.
 const NEUTRAL_HEX = /^#(?:000|fff|000000|ffffff)$/i;
 
@@ -119,6 +147,8 @@ const CHECKS = {
   "brand-lock": { tier: "p0", why: "a locked Mesha brand/neutral token (dark or light) changed or is missing in app/mesha-theme.css" },
   "non-brand-selected": { tier: "p0", why: "a primary/selected/active state must fill with var(--brand)/var(--primary) and use var(--on-brand) text" },
   "minimal-grey-literal": { tier: "p0", why: "Minimal cool greys are banned everywhere (token file and inline SVG data URIs included): use var(--grey-N) / rgb(var(--gN-rgb)/a), which map to the locked Mesha neutrals" },
+  "light-surface-literal": { tier: "p0", why: "a white/near-white surface literal (common.white, #fff, grey.50-200) is a light box in dark mode; use the theme surface (Card/Paper = background.paper) or a varAlpha tint of a palette channel. Only the template AnalyticsWidgetSummary may" },
+  "legacy-css-mui-colour": { tier: "p0", why: "a legacy stylesheet (frame/minimal-theme/mesha-theme/menu-surface/globals.css) selects a .Mui* class and sets a colour/background/border; MUI colours come from the theme palette only" },
   "google-fonts-link": { tier: "p0", why: "fonts are self-hosted via next/font; no Google Fonts link" },
   "native-select": { tier: "waivable", why: "use MUI TextField select / LinkSelect / template CustomPopover + MenuList" },
   "native-date-input": { tier: "waivable", why: "use kit DateRangeField" },
@@ -170,6 +200,7 @@ function runGuard(root, { themeDiff }) {
     }
 
     if (STYLE_EXT.has(ext)) {
+      if (LEGACY_CSS.has(file.rel)) for (const hit of legacyMuiColourFindings(text)) findings.push(finding("legacy-css-mui-colour", file.rel, hit.line, hit.snippet));
       if (isTheme) continue;
       lines.forEach((line, index) => {
         if (isComment(line)) return;
@@ -207,6 +238,7 @@ function runGuard(root, { themeDiff }) {
       if (NATIVE_DATE.test(code)) findings.push(finding("native-date-input", file.rel, lineNo, raw));
       if (WINDOW_CONFIRM.test(code)) findings.push(finding("window-confirm", file.rel, lineNo, raw));
       if (hasPaletteHex(stripUrls(code))) findings.push(finding("hex-colour-in-code", file.rel, lineNo, raw));
+      if (LIGHT_SURFACE.test(code) && !LIGHT_SURFACE_ALLOWED.has(file.rel)) findings.push(finding("light-surface-literal", file.rel, lineNo, raw));
       if (TAILWIND_PALETTE.test(code)) findings.push(finding("tailwind-palette-class", file.rel, lineNo, raw));
       if (F2_LITERAL.test(code) && !F2_ALLOWED.has(file.rel)) findings.push(finding("f2-literal", file.rel, lineNo, raw));
       if (FIXED_PX_WIDTH.test(code) && !/max-?[wW]idth|overflow/.test(code)) findings.push(finding("fixed-px-width", file.rel, lineNo, raw));
@@ -658,7 +690,9 @@ async function selfTest() {
     '<div style={{ position: "fixed", inset: 0 }} />',
     '<div className="parkmenu" role="menu" />',
     'import { LineChart } from "recharts";',
+    '<Card sx={{ backgroundColor: "common.white" }} />',
   ].join("\n"));
+  put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n");
   put("components/bad.css", ".x { color: #abcdef; }\n.g{background:rgb(244 246 248)}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");
   // Template code: ratchet-tier sizes are exempt, a foreign palette is still P0.
   put("components/minimal/tpl.tsx", 'const t = <div style={{ fontSize: 13, borderRadius: 10, padding: 12 }} />;\n');
@@ -675,6 +709,11 @@ async function selfTest() {
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
   const missing = expected.filter((c) => !got.has(c));
   const okPageFlagged = findings.some((f) => f.file === "app/(admin)/ok/page.tsx");
+  // A `:where(:not(.Mui…))` selector excludes MUI parts: it must not count as a MUI colour rule.
+  if (findings.some((f) => f.check === "legacy-css-mui-colour" && f.line !== 1)) {
+    console.error("design_system_self_test=FAIL legacy-css-mui-colour flagged a :not(.Mui…) exclusion or a transparent reset");
+    process.exit(1);
+  }
   const tplRatchet = findings.filter((f) => f.file === "components/minimal/tpl.tsx" && CHECKS[f.check].tier === "ratchet");
   if (tplRatchet.length) {
     console.error(`design_system_self_test=FAIL template-code ratchet not exempt: ${tplRatchet.map((f) => f.check).join(",")}`);

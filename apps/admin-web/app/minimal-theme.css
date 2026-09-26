@@ -111,7 +111,6 @@ select option{background:var(--paper);color:var(--fg)}
 .kit-iconbadge-sm{width:36px;height:36px;border-radius:10px}.kit-iconbadge-md{width:48px;height:48px}.kit-iconbadge-lg{width:56px;height:56px;border-radius:14px}
 .kit-iconbadge.kit-round{border-radius:50%}
 
-@media(max-width:640px){.kit-kpi .kit-iconbadge-md{width:36px;height:36px;border-radius:10px}}
 .kit-kpi-wrap{min-width:0}
 /* The grey rule is a background layer, not an inset box-shadow: an inset shadow on an overflow-x
    scroller broke at the GPU raster tile seam (~640px in), which read as a gap in the rule. */
@@ -260,7 +259,6 @@ body:has(aside.drawer.on) [class*="fab"]{opacity:0;pointer-events:none}
 
 /* ---------- Counts / KPI mobile ---------- */
 /* Two-up on a phone (reference: KPI cards pair up at 390), single column only under 360. Long figures wrap rather than clip. */
-@media(max-width:640px){.kit-kpi-value>.muted{display:block;max-width:100%;font-size:clamp(18px,5.1vw,22px);line-height:1.18;white-space:normal;overflow-wrap:anywhere}}
 .ha-kit-stack>p.muted{font-size:14px;color:var(--fg-muted)}
 @media(max-width:640px){.top-date-picker .date-scope-value{max-width:150px;overflow:hidden;text-overflow:ellipsis}}
 
@@ -325,8 +323,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 .tablewrap tbody tr{transition:background-color .2s var(--ease)}
 .tablewrap tbody tr:hover{background:rgb(var(--g500-rgb)/.08)}
 .tablewrap thead th{position:sticky;top:0;z-index:1}
-.kit-kpi [class*="icon-badge"]{width:40px;height:40px}
-.kit-kpi svg path{filter:none!important}
 [aria-label*="theme" i].iconbtn{width:40px;height:40px;border-radius:50%;display:inline-grid;place-items:center;transition:background-color .2s var(--ease)}
 [aria-label*="theme" i].iconbtn:hover{background:rgb(var(--g500-rgb)/.08)}
 /* drawer: flat sections, no boxes */

@@ -116,6 +116,7 @@
     "components/minimal/widgets/analytics-widget-summary.tsx": "src/sections/overview/analytics/analytics-widget-summary.tsx",
     "components/minimal/widgets/app-widget-summary.tsx": "src/sections/overview/app/app-widget-summary.tsx",
     "components/minimal/widgets/banking-widget-summary.tsx": "src/sections/overview/banking/banking-overview.tsx",
+    "components/minimal/widgets/course-widget-summary.tsx": "src/sections/overview/course/course-widget-summary.tsx",
     "components/minimal/widgets/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
     "components/minimal/widgets/index.ts": "src/sections/overview/index.ts",
     "components/minimal/widgets/kpi-card.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",

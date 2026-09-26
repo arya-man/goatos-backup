@@ -15,18 +15,6 @@
 .wrap>.screen>:empty:not(.kit-skeleton):not(.skel):not(i):not(hr){display:none}
 
 /* Description prose is deleted at its call sites, never hidden by CSS (a blanket display:none also killed real empty states). */
-/* KPI hints stay: one short muted line (units, denominators), never a paragraph */
-/* KPI figure never wraps: one line, ellipsis if the card is really too narrow. Overrides the ≤640 "overflow-wrap:anywhere" rule
-   in minimal-theme that broke "1,248" into one digit per line inside a 2-column phone grid. */
-.kit-kpi-value>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
-/* An empty-state sentence ("No data available") is words, not a figure: it wraps instead of being ellipsis-clipped. */
-.kit-kpi-value>span.muted{white-space:normal;overflow:visible;text-overflow:clip;font-size:20px;line-height:26px}
-/* A 4-up desktop card (~200px of content) keeps its tinted icon square, one step smaller, so every
-   KPI deck reads like /counts; only a really narrow card (phone 2-up) drops it for the figure. */
-@container (max-width:230px){
-  .kit-kpi-value>span:first-child{overflow:visible;text-overflow:clip}
-}
-
 .kit-pagehead{align-items:flex-start;gap:16px 24px}
 .kit-pagehead h1{font-size:24px;line-height:36px;font-weight:700}
 

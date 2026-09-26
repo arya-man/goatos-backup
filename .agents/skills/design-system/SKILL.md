@@ -158,6 +158,18 @@ Minimal greys (`--grey-50…900`, `#F4F6F8` = `--grey-200`) are tokens written o
   panel kept on screen (dimmed at most) until the new page is ready. Never hide the live panel or
   swap the page for a skeleton on a same-route param change; `loading.tsx` is for the first entry.
 
+## Theme surfaces in both modes (R2, 2026-09-27)
+
+- **Surfaces and colours come from the theme, in BOTH modes.** KPI/widget cards are the template
+  widget summaries: `KpiCard` = EcommerceWidgetSummary (paper Card, chart right) by default and
+  CourseWidgetSummary (icon corner) with an icon; AnalyticsWidgetSummary (pastel in dark too, exactly
+  as the template ships it) only where a page truly maps to the analytics overview. Never paint a
+  surface `common.white` / `#fff` / `grey.50-200` (P0 `light-surface-literal`; the dark shell shows a
+  light box) and never select a `.Mui*` class in the legacy stylesheets to set a colour, background
+  or border (P0 `legacy-css-mui-colour`; frame/minimal-theme/mesha-theme/menu-surface/globals.css
+  only shrink). Tints are `varAlpha(theme.vars.palette.<c>.<x>Channel, a)` over the paper.
+  Source test: `components/kpi-card-anatomy.test.mjs`.
+
 ## Production bug CLASSES as guards (2026-09-26)
 
 `scripts/lib/visual-pattern-guards.mjs` codifies six recurring visible defect classes as automated

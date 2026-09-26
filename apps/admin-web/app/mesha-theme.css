@@ -5471,7 +5471,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    Width: wide enough for the Jira two-column body (`@container (min-width:540px)` above), so the
    Details box sits beside Description/Activity exactly as it did in the rail. The `.drawer`
    default is 498px, which would collapse it to one column. On a phone the drawer is the screen. */
-.MuiDrawer-paper.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavior:contain;outline:none;background:var(--panel)}
+.MuiDrawer-paper.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavior:contain;outline:none}
 .ltd-drawer>.ltd-panel{flex:none;border:0;border-radius:0;background:transparent}
 /* The header (breadcrumb + Edit + Close) is PINNED to the top of the drawer while the body
    scrolls: the content runs to ~1150px on a phone, and Close scrolled away with it, so a reader

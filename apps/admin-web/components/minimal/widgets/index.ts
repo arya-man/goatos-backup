@@ -3,6 +3,7 @@ export * from './app-widget-summary';
 export * from './analytics-widget-summary';
 export * from './ecommerce-widget-summary';
 export * from './banking-widget-summary';
+export * from './course-widget-summary';
 export * from './widget-spark-chart';
 export { KpiCard, type KpiCardProps } from './kpi-card';
 export { KpiGrid } from './kpi-grid';

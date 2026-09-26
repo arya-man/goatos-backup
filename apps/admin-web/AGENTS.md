@@ -170,6 +170,15 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   AnalyticsWidgetSummary tint in dark); lists use the template table anatomy (Card, Tabs + Label counts,
   toolbar, TableHeadCustom, pagination). `design:guard` rule `page-template-map` fails when a mapped page
   stops importing one of its listed template modules or a mapped file disappears.
+- **Surfaces and colours come from the theme, in BOTH modes.** KPI/widget cards are the template
+  widget summaries: `KpiCard` = EcommerceWidgetSummary (paper Card, chart right) by default and
+  CourseWidgetSummary (icon corner) with an icon; AnalyticsWidgetSummary (pastel in dark too, exactly
+  as the template ships it) only where a page truly maps to the analytics overview. Never paint a
+  surface `common.white` / `#fff` / `grey.50-200` (P0 `light-surface-literal`; the dark shell shows a
+  light box) and never select a `.Mui*` class in the legacy stylesheets to set a colour, background
+  or border (P0 `legacy-css-mui-colour`; frame/minimal-theme/mesha-theme/menu-surface/globals.css
+  only shrink). Tints are `varAlpha(theme.vars.palette.<c>.<x>Channel, a)` over the paper.
+  Source test: `components/kpi-card-anatomy.test.mjs`.
 - **Production bug CLASSES are automated guards.** `scripts/lib/visual-pattern-guards.mjs` (route
   visual lane) adds `P-text-icon-overlap`, `P-wide-table-no-wrapper`, `P-chart-axis-tiny` (<11px),
   `P-pinned-bar-blur-flicker`, `P-drawer-filter-mismatch` and `P-chart-hover-remount`. `raw-chart-lib`
