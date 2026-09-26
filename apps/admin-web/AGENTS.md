@@ -137,6 +137,16 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   with default/hover/focus/disabled/error/empty/loading and a 390px variant; the lane captures light and
   dark) → baseline (`npm run visual:stories:update-baseline -- --only <story>`, PNGs opened). A kit file
   with no story fails `kit-missing-story`.
+- **Tab / filter / pager clicks are soft navigations (guard: `soft-navigation`,
+  `components/app/soft-navigation-guard.test.mjs`).** Links come from `next/link` or
+  `@/components/no-prefetch-link`, never `next/dist/client/link` (the Pages Router Link: in `app/` it
+  has no router and the browser reloads the whole document, painting the route skeleton on every
+  click). GET filter/search forms use `<Form>` from `next/form`, never a native `<form method="get">`.
+  URL-driven tab strips navigate through `useUrlTabNav` (`components/app/use-url-tab-nav.ts`,
+  already inside `AnimatedTabs`, `SegmentTabs`, `SegmentedLinks`): `router.push(href,{scroll:false})`
+  in a transition, the pressed tab selected at once, the header / crumbs / tabs / filters and the old
+  panel kept on screen (dimmed at most) until the new page is ready. Never hide the live panel or
+  swap the page for a skeleton on a same-route param change; `loading.tsx` is for the first entry.
 - **A restyle never introduces new UI behaviour.** Changing how something looks must not change what it
   does (clicks, routes, fetches, copy, which fields show). Behaviour changes are separate PRs.
 - **Never reopen a regression-guard item.** The invariants in `docs/design/redesign-regression-guard.md` (tooltips

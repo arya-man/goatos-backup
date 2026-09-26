@@ -1,3 +1,4 @@
+import Form from "next/form";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -125,7 +126,7 @@ export async function ClockScreen({
 
       {/* Native GET form: filters round-trip through the URL. tab=clock is
           preserved so submitting stays on this tab. */}
-      <form method="get" action={pathname} className="card people-filter-card">
+      <Form action={pathname} prefetch={false} className="card people-filter-card">
         <input type="hidden" name="tab" value="clock" />
         {bucket ? <input type="hidden" name="bucket" value={bucket} /> : null}
         <div className="people-filter-grid">
@@ -177,7 +178,7 @@ export async function ClockScreen({
             </button>
           </div>
         </div>
-      </form>
+      </Form>
 
       <section className="card">
         <div className="hd">

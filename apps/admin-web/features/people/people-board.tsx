@@ -1,3 +1,4 @@
+import Form from "next/form";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -153,14 +154,11 @@ export async function PeopleBoard({
           sx={{ "& .MuiCardHeader-action": { alignSelf: "center" } }}
         />
 
-        {/* Native GET form: every filter round-trips through the URL, so the rendered
+        {/* GET form (next/form, a soft navigation): every filter round-trips through the URL, so the rendered
             page always matches the address bar and the server-read window. Template
             UserTableToolbar: search + selects + Apply, one height (56px). */}
+        <Form id="people-filter-form" action={pathname} prefetch={false}>
         <Box
-          component="form"
-          id="people-filter-form"
-          method="get"
-          action={pathname}
           sx={{
             p: 2.5,
             gap: 2,
@@ -229,6 +227,7 @@ export async function PeopleBoard({
             </Button>
           </PeopleFilterFold>
         </Box>
+        </Form>
 
         {people.length === 0 ? (
           <EmptyState title={hasAnyFilter ? copy(pageContract, "empty.people") : copy(pageContract, "empty.people.unset")} />

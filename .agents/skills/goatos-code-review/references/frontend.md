@@ -341,6 +341,14 @@ submit — is a write path and inherits the repo idempotency contract. Check:
       request surface: validate untrusted input and independently re-check auth
       and authorization; page-level auth and hidden/disabled UI do not carry over
 
+## Soft navigation (guard: `soft-navigation`)
+
+- [ ] No import from `next/dist/client/link` (Pages Router Link = document reload in `app/`); links use
+      `next/link` / `@/components/no-prefetch-link`
+- [ ] No native `<form method="get">`; GET filter/search forms use `next/form` `<Form>`
+- [ ] URL-driven tabs/segments go through `useUrlTabNav` (AnimatedTabs / SegmentTabs / SegmentedLinks):
+      pressed tab selected at once, page chrome and old panel stay mounted; no same-route skeleton swap
+
 ## Error, Loading, and Accessibility
 
 A swallowed API/backend failure rendered as an empty array (or a collapsed page

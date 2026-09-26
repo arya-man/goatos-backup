@@ -145,6 +145,19 @@ page without `loading.tsx`, a page outside `PageShell`.
 
 Minimal greys (`--grey-50…900`, `#F4F6F8` = `--grey-200`) are tokens written only in `app/minimal-tokens.css`; anywhere else use `var(--grey-N)` / `rgb(var(--gN-rgb)/a)` (P0 `minimal-grey-literal`).
 
+## Tab, filter and pager clicks never reload the page
+
+- **Tab / filter / pager clicks are soft navigations (guard: `soft-navigation`,
+  `components/app/soft-navigation-guard.test.mjs`).** Links come from `next/link` or
+  `@/components/no-prefetch-link`, never `next/dist/client/link` (the Pages Router Link: in `app/` it
+  has no router and the browser reloads the whole document, painting the route skeleton on every
+  click). GET filter/search forms use `<Form>` from `next/form`, never a native `<form method="get">`.
+  URL-driven tab strips navigate through `useUrlTabNav` (`components/app/use-url-tab-nav.ts`,
+  already inside `AnimatedTabs`, `SegmentTabs`, `SegmentedLinks`): `router.push(href,{scroll:false})`
+  in a transition, the pressed tab selected at once, the header / crumbs / tabs / filters and the old
+  panel kept on screen (dimmed at most) until the new page is ready. Never hide the live panel or
+  swap the page for a skeleton on a same-route param change; `loading.tsx` is for the first entry.
+
 ## Production bug CLASSES as guards (2026-09-26)
 
 `scripts/lib/visual-pattern-guards.mjs` codifies six recurring visible defect classes as automated
