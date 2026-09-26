@@ -14,6 +14,9 @@ import { logoClasses } from './classes';
 
 // ----------------------------------------------------------------------
 
+/** The Mesha wordmark tile text, same as the backend bootstrap `top_bar.logo_text`. */
+const MESHA_LOGO_TEXT = 'मे';
+
 export type LogoProps = LinkProps & {
   isSingle?: boolean;
   disabled?: boolean;
@@ -29,7 +32,7 @@ export function Logo({
   className,
   href = '/',
   isSingle = true,
-  text = 'M',
+  text = MESHA_LOGO_TEXT,
   ...other
 }: LogoProps) {
   const theme = useTheme();

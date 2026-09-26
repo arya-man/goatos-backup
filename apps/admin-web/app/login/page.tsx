@@ -50,7 +50,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
       : "Use the local dashboard shortcut on this machine.";
 
   return (
-    <AuthSplitLayout logoText="M">
+    <AuthSplitLayout>
       <FormHead
         title={completingGoogleRedirect ? "Signing you in" : "Sign in"}
         description={loginInstruction}

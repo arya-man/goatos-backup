@@ -7,6 +7,7 @@ import "./minimal-tokens.css";
 import "./mesha-theme.css";
 import "./minimal-theme.css";
 import "./frame.css";
+import "@/theme/fonts.css";
 
 import { RotateCcw } from "lucide-react";
 import Box from "@mui/material/Box";
@@ -16,12 +17,19 @@ import Typography from "@mui/material/Typography";
 
 import { Logo } from "@/layouts/template/logo";
 import { AppThemeProvider } from "@/theme/app-theme-provider";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 
 // Template pattern: Minimal_TypeScript_v7.7.0 next-ts src/sections/error/500-view.tsx inside the
-// SimpleLayout compact content (centred column, logo on top). The illustration is left out.
+// SimpleLayout compact content (centred column, logo on top). The illustration is left out. The logo
+// is the Mesha मे tile the shell and auth pages show (Logo default = top_bar.logo_text).
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
+    // No forced theme: the same boot script as app/layout.tsx applies the user's stored light/dark
+    // choice before paint, so a light-theme user does not get a dark error page.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <AppThemeProvider>
           <Box

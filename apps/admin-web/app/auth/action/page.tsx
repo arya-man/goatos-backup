@@ -12,7 +12,6 @@ export default async function FirebaseAuthActionPage({ searchParams }: { searchP
 
   return (
     <AuthSplitLayout
-      logoText="M"
       slotProps={{
         section: {
           title: "Reset access for herd operations.",
