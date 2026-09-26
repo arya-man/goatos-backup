@@ -349,7 +349,6 @@ export function SlotCard({
             onChange={(next) => onChange({ kind: next as RemovalProofKind })}
           />
         </span>
-        {slot.key ? <code className="muted small">{slot.key}</code> : null}
         <span className="sp" style={{ flex: 1 }} />
         <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
           <ChevronUp className="ic" />
@@ -362,9 +361,7 @@ export function SlotCard({
         </IconButton>
       </div>
       <div className="qbody">
-        <label className="numfield">
-          <span className="numlbl">{copy(pc, "fsop.proof.title")}</span>
-          <MuiTextField
+        <MuiTextField label={copy(pc, "fsop.proof.title")}
             fullWidth
             size="small"
             className="qtext"
@@ -376,16 +373,9 @@ export function SlotCard({
               onChange({ title, key: keyForTitle(title, slot.key, savedKeys, takenKeys, "capture") });
             }}
           />
-        </label>
-        <label className="numfield">
-          <span className="numlbl">{copy(pc, "fsop.proof.hint")}</span>
-          <MuiTextField fullWidth size="small" value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
-        </label>
+        <MuiTextField label={copy(pc, "fsop.proof.hint")} fullWidth size="small" value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
         {!slot.key ? (
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-            <MuiTextField fullWidth size="small" value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
-          </label>
+          <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
         ) : null}
         <div className="qfoot">
           <FormControlLabel className="chkline" control={<Checkbox checked={slot.required} onChange={(e) => onChange({ required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />

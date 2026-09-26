@@ -64,6 +64,8 @@ import Switch from "@mui/material/Switch";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import type { Theme } from "@mui/material/styles";
 import Chip from "@mui/material/Chip";
 import MuiCard from "@mui/material/Card";
@@ -488,11 +490,11 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
   if (facets.domain) facts.push({ key: "domain", label: view.domainLabel, icon: <Iconify width={16} icon="solar:tag-horizontal-bold-duotone" sx={{ flexShrink: 0 }} /> });
   if (facets.trigger && view.trigger) facts.push({ key: "trigger", label: view.trigger, icon: <Iconify width={16} icon="solar:clock-circle-bold" sx={{ flexShrink: 0 }} /> });
   if (facets.counts && view.stepCount !== null)
-    facts.push({ key: "steps", label: `${view.stepCount} ${copy(pageContract, "label.steps")}`, icon: <Iconify width={16} icon="solar:list-bold" sx={{ flexShrink: 0 }} /> });
+    facts.push({ key: "steps", label: `${view.stepCount} ${view.stepCount === 1 ? copy(pageContract, "label.step", copy(pageContract, "label.steps")) : copy(pageContract, "label.steps")}`, icon: <Iconify width={16} icon="solar:list-bold" sx={{ flexShrink: 0 }} /> });
   if (facets.counts && view.inspectionQuestionCount > 0)
     facts.push({ key: "questions", label: `${view.inspectionQuestionCount} ${copy(pageContract, "label.inspection_questions")}`, icon: <Iconify width={16} icon="solar:bill-list-bold" sx={{ flexShrink: 0 }} /> });
   if (facets.counts && view.followUpStepCount > 0)
-    facts.push({ key: "operator", label: `${view.followUpStepCount} ${copy(pageContract, "label.operator_steps")}`, icon: <Iconify width={16} icon="solar:user-rounded-bold" sx={{ flexShrink: 0 }} /> });
+    facts.push({ key: "operator", label: `${view.followUpStepCount} ${view.followUpStepCount === 1 ? copy(pageContract, "label.operator_step", copy(pageContract, "label.operator_steps")) : copy(pageContract, "label.operator_steps")}`, icon: <Iconify width={16} icon="solar:user-rounded-bold" sx={{ flexShrink: 0 }} /> });
   const gates = view.gates.length > 0 ? view.gates.slice(0, 3).join(" · ") : view.hasVersion ? copy(pageContract, "label.no_proof_gates") : copy(pageContract, "label.no_published_version");
 
   return (
@@ -564,10 +566,20 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
   );
 }
 
+/** An open key space (form field types come from the SOP's own DSL): a missing copy key reads as
+ *  words ("animal id scan"), never as the raw code "animal_id_scan" (FJ3 P1-13). */
+function humanizeKey(key: string): string {
+  const words = key.replace(/[_.]+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
+
 function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, editPending = false }: { view: SopCardView; pageContract: AdminUiPageContract; onClose: () => void; onEdit: () => void; onEditCapture?: () => void; editPending?: boolean }) {
   // MUI Dialog (template dialog pattern) owns the portal, Escape, the backdrop and the focus trap.
+  // Full screen on a phone: at 390/412 the md dialog clipped its right column and gate chips
+  // (FJ3 P1-26). guard: sop-no-internal-codes (features/sops/sop-internal-codes.test.mjs).
+  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"));
   return (
-      <Dialog fullWidth maxWidth="md" open onClose={onClose} slotProps={{ paper: { "aria-label": `${copy(pageContract, "modal.detail.aria")} ${view.name}` } }}>
+      <Dialog fullWidth fullScreen={fullScreen} maxWidth="md" open onClose={onClose} slotProps={{ paper: { "aria-label": `${copy(pageContract, "modal.detail.aria")} ${view.name}` } }}>
         <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
             <BookText className="ic" />
@@ -594,38 +606,33 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
                 {copy(pageContract, "action.edit", "Edit")}
               </Button>
             </Box>
-          <div className="metagrid">
-            <div>
-              <div className="k">{copy(pageContract, "label.domain")}</div>
-              <div className="v">{view.domainLabel}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.trigger")}</div>
-              <div className="v">{view.trigger ?? copy(pageContract, "label.placeholder")}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.code")}</div>
-              <div className="v mono">{view.code}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.version_status")}</div>
-              <div className="v">
-                {view.versionLabel ?? copy(pageContract, "label.placeholder")} · {view.versionStatus ?? view.status}
-              </div>
-            </div>
+          {/* Record facts on the template order-details rhythm: caption key over body2 value, one
+              column on a phone. The SOP's internal code is not shown (FJ3 P1-13): the name and
+              version identify it to a person. */}
+          <Box sx={{ p: 1.75, display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" } }}>
+            {[
+              [copy(pageContract, "label.domain"), view.domainLabel],
+              [copy(pageContract, "label.trigger"), view.trigger ?? copy(pageContract, "label.placeholder")],
+              [copy(pageContract, "label.version_status"), `${view.versionLabel ?? copy(pageContract, "label.placeholder")} · ${view.versionStatus ?? view.status}`],
+            ].map(([k, v]) => (
+              <Box key={k} sx={{ minWidth: 0 }}>
+                <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{k}</Typography>
+                <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{v}</Typography>
+              </Box>
+            ))}
             {view.gates.length > 0 ? (
-              <div style={{ gridColumn: "1/3" }}>
-                <div className="k">{copy(pageContract, "label.gates")}</div>
-                <div className="v" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <Box sx={{ gridColumn: "1 / -1", minWidth: 0 }}>
+                <Typography variant="caption" component="div" sx={{ color: "text.secondary", mb: 0.5 }}>{copy(pageContract, "label.gates")}</Typography>
+                <Stack direction="row" sx={{ flexWrap: "wrap", gap: 0.75 }}>
                   {view.gates.map((g) => (
-                    <span key={g} className="tag t-pur">
+                    <Label key={g} variant="soft" color="secondary">
                       {g}
-                    </span>
+                    </Label>
                   ))}
-                </div>
-              </div>
+                </Stack>
+              </Box>
             ) : null}
-          </div>
+          </Box>
           </Paper>
 
           {view.description ? (
@@ -657,7 +664,7 @@ function SopDetailModal({ view, pageContract, onClose, onEdit, onEditCapture, ed
                         {i + 1}. {f.label}
                       </b>
                       <div className="hmeta muted small">
-                        {copy(pageContract, "label.type")}: {f.type}
+                        {copy(pageContract, "label.type")}: {copy(pageContract, `field_type.${f.type}`, humanizeKey(f.type))}
                         {f.required ? ` · ${copy(pageContract, "label.required")}` : ""}
                       </div>
                     </div>

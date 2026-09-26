@@ -178,7 +178,11 @@ function FarmValueSections({
                 component="section"
                 aria-label={copy(pageContract, "section.farm_value.aria")}
                 title={copy(pageContract, "section.farm_value.title")}
-                chart={{ series: valued.map((bucket) => ({ label: bucket.display, value: bucket.value_rupees, display: inr(bucket.value_rupees) })) }}
+                chart={{
+                  series: valued.map((bucket) => ({ label: bucket.display, value: bucket.value_rupees, display: inr(bucket.value_rupees) })),
+                  // The rings carry no raw rupee ticks (400000...): the legend names every figure.
+                  options: { yaxis: { labels: { show: false } } },
+                }}
                 footer={[
                   { label: copy(pageContract, "value.valued_animals"), value: num(overview.farm_valuation.valued_animals) },
                   { label: copy(pageContract, "kpi.farm_value"), value: inr(total) },

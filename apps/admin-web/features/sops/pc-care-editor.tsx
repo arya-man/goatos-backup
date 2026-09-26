@@ -157,9 +157,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
         />
         {capture ? (
           <div className="qcfg pcsop-capture-seconds">
-            <label className="numfield">
-              <span className="numlbl">{copy(pc, "pcsop.capture.min_seconds")}</span>
-              <MuiTextField
+            <MuiTextField label={copy(pc, "pcsop.capture.min_seconds")}
                 fullWidth
                 size="small"
                 type="number"
@@ -168,7 +166,6 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                 disabled={capture.kind === "photo"}
                 onChange={(e) => patchSection(section, (s) => ({ proofs: s.proofs.map((x) => (x.id === p.id ? ({ ...x, minSeconds: e.target.value } as RemovalProofRow) : x)) }))}
               />
-            </label>
             <span className="muted small">{capture.kind === "photo" ? copy(pc, "pcsop.capture.min_seconds.photo") : copy(pc, "pcsop.capture.min_seconds.hint")}</span>
           </div>
         ) : null}
@@ -328,10 +325,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                   </div>
 
                   <div className="qcfg" style={{ marginTop: 10 }}>
-                    <label className="numfield">
-                      <span className="numlbl">{copy(pc, "pcsop.removal.cutoff")}</span>
-                      <MuiTextField fullWidth size="small" value={rows.removal.cutoffTime} placeholder={copy(pc, "pcsop.removal.cutoff.farm")} onChange={(e) => patchRemoval((r) => ({ ...r, cutoffTime: e.target.value }))} />
-                    </label>
+                    <MuiTextField label={copy(pc, "pcsop.removal.cutoff")} fullWidth size="small" value={rows.removal.cutoffTime} placeholder={copy(pc, "pcsop.removal.cutoff.farm")} onChange={(e) => patchRemoval((r) => ({ ...r, cutoffTime: e.target.value }))} />
                     <span className="muted small">{copy(pc, "pcsop.removal.cutoff.hint")}</span>
                   </div>
 

@@ -171,7 +171,7 @@ function SoldSections({
     <Grid container spacing={3}>
       {/* Headline figures: template EcommerceWidgetSummary, two by two beside sold-by-weight. */}
       <Grid size={{ xs: 12, lg: 8 }}>
-        <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.sold.aria")}>
+        <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.sold.aria")} sx={{ height: 1 }}>
           <Grid size={{ xs: 12, sm: 6 }}>
             <EcommerceWidgetSummary
               title={copy(pageContract, "kpi.revenue")}

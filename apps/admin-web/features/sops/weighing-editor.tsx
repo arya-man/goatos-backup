@@ -260,7 +260,6 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               onChange={(next) => updateSlot(list, p.id, { kind: next as RemovalProofKind })}
             />
           </span>
-          {p.key ? <code className="muted small">{p.key}</code> : null}
           <span className="sp" style={{ flex: 1 }} />
           <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={i === 0} onClick={() => moveSlot(list, p.id, -1)}>
             <ChevronUp className="ic" />
@@ -273,9 +272,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           </IconButton>
         </div>
         <div className="qbody">
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, labels.title)}</span>
-            <MuiTextField
+          <MuiTextField label={copy(pc, labels.title)}
               fullWidth
               size="small"
               className="qtext"
@@ -285,16 +282,9 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
                 updateSlot(list, p.id, { title, key: keyForTitle(title, p.key, savedKeys, new Set(slots.map((x) => x.key)), "capture") });
               }}
             />
-          </label>
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, labels.hint)}</span>
-            <MuiTextField fullWidth size="small" value={p.hint} onChange={(e) => updateSlot(list, p.id, { hint: e.target.value })} />
-          </label>
+          <MuiTextField label={copy(pc, labels.hint)} fullWidth size="small" value={p.hint} onChange={(e) => updateSlot(list, p.id, { hint: e.target.value })} />
           {!p.key ? (
-            <label className="numfield">
-              <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-              <MuiTextField fullWidth size="small" value={p.key} onChange={(e) => updateSlot(list, p.id, { key: e.target.value })} />
-            </label>
+            <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={p.key} onChange={(e) => updateSlot(list, p.id, { key: e.target.value })} />
           ) : null}
           <div className="qfoot">
             <FormControlLabel className="chkline" control={<Checkbox checked={p.required} onChange={(e) => updateSlot(list, p.id, { required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />
@@ -320,7 +310,6 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               onChange={(next) => updateCounted(p.id, { kind: next as RemovalProofKind })}
             />
           </span>
-          {p.key ? <code className="muted small">{p.key}</code> : null}
           <span className="sp" style={{ flex: 1 }} />
           <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={i === 0} onClick={() => moveCounted(p.id, -1)}>
             <ChevronUp className="ic" />
@@ -333,9 +322,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           </IconButton>
         </div>
         <div className="qbody">
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, "wsop.capture.proof.title")}</span>
-            <MuiTextField
+          <MuiTextField label={copy(pc, "wsop.capture.proof.title")}
               fullWidth
               size="small"
               className="qtext"
@@ -345,22 +332,12 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
                 updateCounted(p.id, { title, key: keyForTitle(title, p.key, savedKeys, new Set(rows.lumpSumProofs.map((x) => x.key)), "capture") });
               }}
             />
-          </label>
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, "wsop.capture.proof.hint")}</span>
-            <MuiTextField fullWidth size="small" value={p.hint} onChange={(e) => updateCounted(p.id, { hint: e.target.value })} />
-          </label>
+          <MuiTextField label={copy(pc, "wsop.capture.proof.hint")} fullWidth size="small" value={p.hint} onChange={(e) => updateCounted(p.id, { hint: e.target.value })} />
           {!p.key ? (
-            <label className="numfield">
-              <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-              <MuiTextField fullWidth size="small" value={p.key} onChange={(e) => updateCounted(p.id, { key: e.target.value })} />
-            </label>
+            <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={p.key} onChange={(e) => updateCounted(p.id, { key: e.target.value })} />
           ) : null}
           <div className="rowf">
-            <label className="numfield">
-              <span className="numlbl">{copy(pc, "wsop.capture.lump_sum.slot_min")}</span>
-              <MuiTextField size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={p.min} onChange={(e) => updateCounted(p.id, { min: e.target.value })} />
-            </label>
+            <MuiTextField label={copy(pc, "wsop.capture.lump_sum.slot_min")} size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={p.min} onChange={(e) => updateCounted(p.id, { min: e.target.value })} />
             <label className="numfield">
               <span className="numlbl">
                 {copy(pc, "wsop.capture.lump_sum.slot_max")} (≤ {LUMP_SUM_VIDEO_CEILING})
@@ -442,10 +419,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               <FormControlLabel key={mode} className="chkline" control={<Checkbox checked={rows.modes.includes(mode)} onChange={(e) => toggleMode(mode, e.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, `wsop.planning.mode.${mode}`)}</>} />
             ))}
             <div className="rowf" style={{ marginTop: 8 }}>
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "wsop.planning.default_cap")}</span>
-                <MuiTextField size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={rows.defaultCapPerDay} onChange={(e) => setRows((r) => ({ ...r, defaultCapPerDay: e.target.value }))} />
-              </label>
+              <MuiTextField label={copy(pc, "wsop.planning.default_cap")} size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={rows.defaultCapPerDay} onChange={(e) => setRows((r) => ({ ...r, defaultCapPerDay: e.target.value }))} />
             </div>
           </div>
         </div>
@@ -679,9 +653,7 @@ export function QuestionCard({
         </IconButton>
       </div>
       <div className="qbody">
-        <label className="numfield">
-          <span className="numlbl">{copy(pc, "wsop.question.title")}</span>
-          <MuiTextField
+        <MuiTextField label={copy(pc, "wsop.question.title")}
             fullWidth
             size="small"
             className="qtext"
@@ -691,16 +663,12 @@ export function QuestionCard({
               onChange({ title, key: keyForTitle(title, q.key, savedKeys, takenKeys) });
             }}
           />
-        </label>
         <label className="numfield">
           <span className="numlbl">{copy(pc, "inspection.question.hint")}</span>
           <textarea className="qhelp" rows={2} value={q.hint} onChange={(e) => onChange({ hint: e.target.value })} />
         </label>
         {!q.key ? (
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-            <MuiTextField fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
-          </label>
+          <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
         ) : null}
 
         {q.kind === "choice" || q.kind === "multi" ? (
@@ -729,7 +697,6 @@ export function QuestionCard({
                     if (o.value && o.value !== value) onOptionRenamed(o.value, value);
                   }}
                 />
-                <code className="muted small">{o.value}</code>
                 <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "wsop.question.remove_choice")} onClick={() => onChange({ options: q.options.filter((_, j) => j !== i) })}>
                   <X className="ic" />
                 </IconButton>
@@ -744,18 +711,9 @@ export function QuestionCard({
         {q.kind === "number" ? (
           <div className="qcfg">
             <div className="rowf">
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "inspection.question.min")}</span>
-                <MuiTextField size="small" value={q.min} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ min: e.target.value })} />
-              </label>
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "inspection.question.max")}</span>
-                <MuiTextField size="small" value={q.max} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ max: e.target.value })} />
-              </label>
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "inspection.question.unit")}</span>
-                <MuiTextField size="small" value={q.unit} onChange={(e) => onChange({ unit: e.target.value })} />
-              </label>
+              <MuiTextField label={copy(pc, "inspection.question.min")} size="small" value={q.min} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ min: e.target.value })} />
+              <MuiTextField label={copy(pc, "inspection.question.max")} size="small" value={q.max} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ max: e.target.value })} />
+              <MuiTextField label={copy(pc, "inspection.question.unit")} size="small" value={q.unit} onChange={(e) => onChange({ unit: e.target.value })} />
             </div>
           </div>
         ) : null}

@@ -162,19 +162,13 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
           </IconButton>
         </div>
         <div className="qbody">
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, "tsop.step.title")}</span>
-            <MuiTextField fullWidth size="small" className="qtext" value={step.title} onChange={(e) => patchStep(step.id, { title: e.target.value })} />
-          </label>
+          <MuiTextField label={copy(pc, "tsop.step.title")} fullWidth size="small" className="qtext" value={step.title} onChange={(e) => patchStep(step.id, { title: e.target.value })} />
           <label className="numfield">
             <span className="numlbl">{copy(pc, "tsop.step.instruction")}</span>
             <textarea className="qhelp" rows={2} value={step.instruction} onChange={(e) => patchStep(step.id, { instruction: e.target.value })} />
           </label>
           {step.kind === "wait" ? (
-            <label className="numfield">
-              <span className="numlbl">{copy(pc, "tsop.step.wait_minutes")}</span>
-              <MuiTextField fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.waitMinutes} onChange={(e) => patchStep(step.id, { waitMinutes: Number(e.target.value) || 0 })} />
-            </label>
+            <MuiTextField label={copy(pc, "tsop.step.wait_minutes")} fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.waitMinutes} onChange={(e) => patchStep(step.id, { waitMinutes: Number(e.target.value) || 0 })} />
           ) : (
             <div className="qcfg">
               <div className="qcfg-head">
@@ -199,10 +193,7 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
                 </select>
               </label>
               {step.gateAfterStep > 0 ? (
-                <label className="numfield">
-                  <span className="numlbl">{copy(pc, "tsop.gate.minutes")}</span>
-                  <MuiTextField fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.gateMinutes} onChange={(e) => patchStep(step.id, { gateMinutes: Number(e.target.value) || 0 })} />
-                </label>
+                <MuiTextField label={copy(pc, "tsop.gate.minutes")} fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.gateMinutes} onChange={(e) => patchStep(step.id, { gateMinutes: Number(e.target.value) || 0 })} />
               ) : null}
             </div>
           )}

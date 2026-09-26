@@ -1803,8 +1803,8 @@
   .qnum{width:22px;height:22px;border-radius:50%;background:var(--brand);color:var(--on-brand);font-weight:700;font-size:12px;display:grid;place-items:center;flex:none}
   .qtype{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
   .qbody{display:flex;flex-direction:column;gap:8px;padding-top:9px}
-  .qcard input,.qcard select,.qcard textarea{width:100%;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;color:var(--ink);outline:0}
-  .qcard input:focus,.qcard select:focus,.qcard textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .qcard input:not(.MuiInputBase-input),.qcard select,.qcard textarea:not(.MuiInputBase-input){width:100%;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;color:var(--ink);outline:0}
+  .qcard input:not(.MuiInputBase-input):focus,.qcard select:focus,.qcard textarea:not(.MuiInputBase-input):focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
   .qcard .qtext{font-size:14px;font-weight:600}
   .qcard .qhelp{font-size:12.5px;color:var(--muted)}
   .qtype select{width:auto;min-width:150px;font-weight:600}

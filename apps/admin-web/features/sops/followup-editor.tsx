@@ -261,7 +261,7 @@ export function FollowUpEditor({
               <span className="qtype">{copy(pc, "followup.track")}</span>
               <strong>{track.label || track.key}</strong>
               <span className="muted small">
-                {track.steps.length} {copy(pc, "label.steps")}
+                {track.steps.length} {track.steps.length === 1 ? copy(pc, "label.step", copy(pc, "label.steps")) : copy(pc, "label.steps")}
               </span>
               {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
@@ -334,7 +334,7 @@ export function FollowUpEditor({
                 {/* Spec §7 totals block: what this track actually runs. */}
                 <Box sx={TOTALS_SX}>
                   <span>
-                    <b>{track.steps.length}</b> {copy(pc, "label.steps")}
+                    <b>{track.steps.length}</b> {track.steps.length === 1 ? copy(pc, "label.step", copy(pc, "label.steps")) : copy(pc, "label.steps")}
                   </span>
                   <span>
                     <b>{track.steps.filter((s) => s.scheduleKind === "series").length}</b>{" "}
@@ -498,14 +498,8 @@ function StepCard({
       ) : null}
 
       <div className="qcfg followup-proof">
-        <label className="numlbl">
-          {copy(pc, "followup.step.proof_videos")}
-          <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0, max: 10 } }} value={step.proofVideos} onChange={(e) => onChange({ proofVideos: Math.max(0, Number(e.target.value) || 0) })} />
-        </label>
-        <label className="numlbl">
-          {copy(pc, "followup.step.proof_photos")}
-          <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0, max: 10 } }} value={step.proofPhotos} onChange={(e) => onChange({ proofPhotos: Math.max(0, Number(e.target.value) || 0) })} />
-        </label>
+        <MuiTextField label={copy(pc, "followup.step.proof_videos")} size="small" type="number" slotProps={{ htmlInput: { min: 0, max: 10 } }} value={step.proofVideos} onChange={(e) => onChange({ proofVideos: Math.max(0, Number(e.target.value) || 0) })} />
+        <MuiTextField label={copy(pc, "followup.step.proof_photos")} size="small" type="number" slotProps={{ htmlInput: { min: 0, max: 10 } }} value={step.proofPhotos} onChange={(e) => onChange({ proofPhotos: Math.max(0, Number(e.target.value) || 0) })} />
       </div>
 
       {owners.length > 0 ? (
@@ -532,21 +526,12 @@ function StepCard({
           onChange={(next) => onChange({ scheduleKind: next as ScheduleKind })}
         />
         {step.scheduleKind === "after_event" ? (
-          <label className="numlbl">
-            {copy(pc, "followup.step.offset_minutes")}
-            <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.offsetMinutes} onChange={(e) => onChange({ offsetMinutes: Number(e.target.value) || 0 })} />
-          </label>
+          <MuiTextField label={copy(pc, "followup.step.offset_minutes")} size="small" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.offsetMinutes} onChange={(e) => onChange({ offsetMinutes: Number(e.target.value) || 0 })} />
         ) : null}
         {step.scheduleKind === "at_fixed_time" ? (
           <>
-            <label className="numlbl">
-              {copy(pc, "followup.step.day_offset")}
-              <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.dayOffset} onChange={(e) => onChange({ dayOffset: Number(e.target.value) || 0 })} />
-            </label>
-            <label className="numlbl">
-              {copy(pc, "followup.step.time")}
-              <MuiTextField size="small" className="numfield" value={step.time} placeholder="07:00" onChange={(e) => onChange({ time: e.target.value })} />
-            </label>
+            <MuiTextField label={copy(pc, "followup.step.day_offset")} size="small" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.dayOffset} onChange={(e) => onChange({ dayOffset: Number(e.target.value) || 0 })} />
+            <MuiTextField label={copy(pc, "followup.step.time")} size="small" value={step.time} placeholder="07:00" onChange={(e) => onChange({ time: e.target.value })} />
           </>
         ) : null}
         {step.scheduleKind === "series" ? (
@@ -564,14 +549,8 @@ function StepCard({
             />
             {step.basis === "from_event" ? (
               <>
-                <label className="numlbl">
-                  {copy(pc, "followup.step.interval_minutes")}
-                  <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.intervalMinutes} onChange={(e) => onChange({ intervalMinutes: Math.max(1, Number(e.target.value) || 1) })} />
-                </label>
-                <label className="numlbl">
-                  {copy(pc, "followup.step.count")}
-                  <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1, max: 100 } }} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
-                </label>
+                <MuiTextField label={copy(pc, "followup.step.interval_minutes")} size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.intervalMinutes} onChange={(e) => onChange({ intervalMinutes: Math.max(1, Number(e.target.value) || 1) })} />
+                <MuiTextField label={copy(pc, "followup.step.count")} size="small" type="number" slotProps={{ htmlInput: { min: 1, max: 100 } }} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
               </>
             ) : (
               <>
@@ -580,20 +559,11 @@ function StepCard({
                   <MuiTextField fullWidth size="small" value={step.times} placeholder="07:00, 11:00, 15:00" onChange={(e) => onChange({ times: e.target.value })} />
                 </label>
                 {step.basis === "next_sessions" ? (
-                  <label className="numlbl">
-                    {copy(pc, "followup.step.count")}
-                    <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1, max: 100 } }} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
-                  </label>
+                  <MuiTextField label={copy(pc, "followup.step.count")} size="small" type="number" slotProps={{ htmlInput: { min: 1, max: 100 } }} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
                 ) : (
-                  <label className="numlbl">
-                    {copy(pc, "followup.step.days")}
-                    <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.days} onChange={(e) => onChange({ days: Math.max(1, Number(e.target.value) || 1) })} />
-                  </label>
+                  <MuiTextField label={copy(pc, "followup.step.days")} size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.days} onChange={(e) => onChange({ days: Math.max(1, Number(e.target.value) || 1) })} />
                 )}
-                <label className="numlbl">
-                  {copy(pc, "followup.step.pre_notify")}
-                  <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.preNotifyMinutes} onChange={(e) => onChange({ preNotifyMinutes: Number(e.target.value) || 0 })} />
-                </label>
+                <MuiTextField label={copy(pc, "followup.step.pre_notify")} size="small" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.preNotifyMinutes} onChange={(e) => onChange({ preNotifyMinutes: Number(e.target.value) || 0 })} />
               </>
             )}
             <div className="followup-series-preview muted small">
@@ -624,10 +594,7 @@ function StepCard({
               options={[{ value: "", label: "—" }, ...earlier.map((s) => ({ value: s.key, label: s.title || s.key }))]}
               onChange={(next) => onChange({ afterStep: next })}
             />
-            <label className="numlbl">
-              {copy(pc, "followup.step.offset_minutes")}
-              <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.offsetMinutes} onChange={(e) => onChange({ offsetMinutes: Number(e.target.value) || 0 })} />
-            </label>
+            <MuiTextField label={copy(pc, "followup.step.offset_minutes")} size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.offsetMinutes} onChange={(e) => onChange({ offsetMinutes: Number(e.target.value) || 0 })} />
           </>
         ) : null}
       </div>

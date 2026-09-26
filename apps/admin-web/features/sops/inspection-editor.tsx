@@ -304,9 +304,7 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, v
                       </span>
                     </div>
                     <div className="rowf">
-                      <label className="numfield">
-                        <span className="numlbl">{copy(pc, "inspection.page.title")}</span>
-                        <MuiTextField
+                      <MuiTextField label={copy(pc, "inspection.page.title")}
                           fullWidth
                           size="small"
                           value={page.title}
@@ -316,17 +314,10 @@ export function InspectionEditor({ pageContract: pc, basePath, sopId, sopName, v
                             updatePage(page.id, { title, key: keyForTitle(title, page.key, savedKeys, new Set(rows.pages.map((p) => p.key)), `page_${pi + 1}`) });
                           }}
                         />
-                      </label>
-                      <label className="numfield">
-                        <span className="numlbl">{copy(pc, "inspection.page.hint")}</span>
-                        <MuiTextField fullWidth size="small" value={page.hint} onChange={(e) => updatePage(page.id, { hint: e.target.value })} />
-                      </label>
+                      <MuiTextField label={copy(pc, "inspection.page.hint")} fullWidth size="small" value={page.hint} onChange={(e) => updatePage(page.id, { hint: e.target.value })} />
                     </div>
                     {!page.key ? (
-                      <label className="numfield">
-                        <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-                        <MuiTextField fullWidth size="small" value={page.key} onChange={(e) => updatePage(page.id, { key: e.target.value })} placeholder="page_key" />
-                      </label>
+                      <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={page.key} onChange={(e) => updatePage(page.id, { key: e.target.value })} placeholder="page_key" />
                     ) : null}
                   </div>
                   <div className="qlist" style={{ marginTop: 10 }}>
@@ -489,10 +480,7 @@ function QuestionCard({
           <textarea className="qhelp" rows={2} value={q.hint} onChange={(e) => onChange({ hint: e.target.value })} />
         </label>
         {!q.key && !locked ? (
-          <label className="numfield">
-            <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-            <MuiTextField fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
-          </label>
+          <MuiTextField label={copy(pc, "inspection.question.key")} fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
         ) : null}
 
         {q.catalog ? (
@@ -532,7 +520,6 @@ function QuestionCard({
                     if (o.value && o.value !== value) onOptionRenamed(o.value, value);
                   }}
                 />
-                <code className="muted small">{o.value}</code>
                 {!optionsLocked ? (
                   <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "inspection.question.remove")} onClick={() => onChange({ options: q.options.filter((_, j) => j !== i) })}>
                     <X className="ic" />
@@ -558,10 +545,7 @@ function QuestionCard({
                   onChange={(next) => onChange({ accepts: next as CaptureKind })}
                 />
               </label>
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "inspection.question.max_files")}</span>
-                <MuiTextField size="small" type="number" slotProps={{ htmlInput: { min: 1, max: 10 } }} value={q.maxFiles} onChange={(e) => onChange({ maxFiles: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} />
-              </label>
+              <MuiTextField label={copy(pc, "inspection.question.max_files")} size="small" type="number" slotProps={{ htmlInput: { min: 1, max: 10 } }} value={q.maxFiles} onChange={(e) => onChange({ maxFiles: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} />
             </div>
           </div>
         ) : null}
@@ -569,18 +553,9 @@ function QuestionCard({
         {q.kind === "number" ? (
           <div className="qcfg">
             <div className="rowf">
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "inspection.question.min")}</span>
-                <MuiTextField size="small" value={q.min} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ min: e.target.value })} />
-              </label>
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "inspection.question.max")}</span>
-                <MuiTextField size="small" value={q.max} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ max: e.target.value })} />
-              </label>
-              <label className="numfield">
-                <span className="numlbl">{copy(pc, "inspection.question.unit")}</span>
-                <MuiTextField size="small" value={q.unit} onChange={(e) => onChange({ unit: e.target.value })} />
-              </label>
+              <MuiTextField label={copy(pc, "inspection.question.min")} size="small" value={q.min} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ min: e.target.value })} />
+              <MuiTextField label={copy(pc, "inspection.question.max")} size="small" value={q.max} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ max: e.target.value })} />
+              <MuiTextField label={copy(pc, "inspection.question.unit")} size="small" value={q.unit} onChange={(e) => onChange({ unit: e.target.value })} />
             </div>
           </div>
         ) : null}

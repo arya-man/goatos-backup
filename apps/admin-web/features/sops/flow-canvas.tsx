@@ -57,7 +57,10 @@ export function FlowCanvas<T, I>({
     const el = canvasRef.current;
     if (!el) return;
     const scale = Math.min(1, (el.clientWidth - 24) / layout.width);
-    setZoom(Math.max(0.35, Math.round(scale * 100) / 100));
+    // On a phone a fit below ~70% made the nodes unreadable (FJ3 P1-17): keep 70% and let the
+    // canvas pan sideways instead.
+    const floor = el.clientWidth < 600 ? 0.7 : 0.35;
+    setZoom(Math.max(floor, Math.round(scale * 100) / 100));
   };
   useEffect(() => {
     fit();
@@ -87,6 +90,9 @@ export function FlowCanvas<T, I>({
         <span className="muted small studio-flow-hint">{hint ?? copy(pc, "studio.flow.select_hint")}</span>
       </div>
       <div className="studio-flow-canvas" ref={canvasRef}>
+        {/* The sizer takes the SCALED size and is centred, so a fitted flow sits in the middle of
+            the canvas instead of leaving the unscaled width as empty space beside it. */}
+        <div style={{ width: layout.width * zoom, height: layout.height * zoom, margin: "0 auto", position: "relative" }}>
         <div
           className="studio-flow-scale"
           style={{
@@ -171,6 +177,7 @@ export function FlowCanvas<T, I>({
               </div>
             );
           })}
+        </div>
         </div>
       </div>
     </div>

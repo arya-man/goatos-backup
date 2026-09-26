@@ -158,7 +158,7 @@ function BuyerSections({
       {/* Headline figures: plain KpiCards (template CourseWidgetSummary anatomy), two by two
           beside the repeat-share radial -- the Ecommerce overview's widget + Sale-by-gender row. */}
       <Grid size={{ xs: 12, lg: 8 }}>
-        <Grid container spacing={3}>
+        <Grid container spacing={3} sx={{ height: 1 }}>
           <Grid size={{ xs: 12, sm: 6 }}>
             <KpiCard
               tone="primary"
