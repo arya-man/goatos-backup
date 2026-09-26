@@ -52,8 +52,9 @@ test("execution variance filters reset the variance table offset", () => {
 test("the difference tag is red beyond the packing tolerance and green within it", () => {
   // Two tones only. `t-info` was the old no-judgement blue; a bag now either matches the sheet
   // closely enough or it does not.
-  assert.match(source, /row\.exceeds_tolerance \? "tag t-dng" : "tag t-ok"/);
-  assert.doesNotMatch(source, /variance_kg\) === 0 \? "tag t-ok" : "tag t-info"/);
+  // Template soft Label, error / success on the backend's judgement.
+  assert.match(source, /color=\{row\.exceeds_tolerance \? "error" : "success"\}/);
+  assert.doesNotMatch(source, /variance_kg\) === 0 \? "success" : "info"/);
 });
 
 test("the renderer never applies the tolerance itself", () => {
@@ -109,7 +110,7 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   // The module strip is the page's one kit AnimatedTabs (href mode), the window is a filter-chip row
   // and the Consumption view is main's local (no-reload) LocalViewToggle; all three sit inside the same
   // !stockOnly gate as the banner.
-  assert.match(source, /\{!stockOnly \? \(\s*<>\s*<div[\s\S]*?<AnimatedTabs[\s\S]*?className="kit-chiprow"[\s\S]*?<LocalViewToggle[\s\S]*?<\/>\s*\) : null\}/);
+  assert.match(source, /\{!stockOnly \? \(\s*<>\s*<Stack[\s\S]*?<AnimatedTabs[\s\S]*?role="group" aria-label=\{fa\(pageContract, "range\.aria"\)\}[\s\S]*?<LocalViewToggle[\s\S]*?<\/>\s*\) : null\}/);
   // The DIRECTED-not-consumed caveat is an info hint beside the window, never prose under the title.
   assert.match(source, /<InfoHint text=\{fa\(pageContract, "banner\.basis"\)\} \/>/);
   assert.doesNotMatch(source, /<p className="muted small"[^>]*>\s*\{fa\(pageContract, "banner\.basis"\)\}/);
@@ -131,7 +132,7 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   assert.match(source, /const spendShareSlices: PieSlice\[\] = distinctSliceColors\(\s*rankItemCards\(view\.itemSeries, itemMoney\)[\s\S]*?money\.rupeesTotal \/ money\.pricedDays/);
   // Gated on the FILTERED slices: when the feed rule leaves nothing priced, the pie is hidden rather
   // than captioned with the directed-feed empty copy (review on PR #187).
-  assert.match(source, /\{tab === "overview" && spendShareSlices\.length > 0 \? \([\s\S]*?<FeedSpendPie[\s\S]*?slices=\{spendShareSlices\}/);
+  assert.match(source, /\{spendShareSlices\.length > 0 \? \([\s\S]*?<FeedSpendPie[\s\S]*?slices=\{spendShareSlices\}/);
 });
 
 test("the KPI tiles name the settled day rather than the last day drawn", () => {

@@ -99,6 +99,7 @@
     "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx": "src/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-sales-overview.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
+    "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": "src/sections/overview/analytics/analytics-conversion-rates.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": "src/sections/overview/e-commerce/ecommerce-yearly-sales.tsx",
 

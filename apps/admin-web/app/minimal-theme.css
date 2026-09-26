@@ -190,12 +190,6 @@ select option{background:var(--paper);color:var(--fg)}
 @media(max-width:640px){.wf-bar>.kit-field-date{flex-basis:100%}}
 
 /* ---------- Tabs as underline strip (left aligned, sliding feel) ---------- */
-.feed-tabbar{display:flex;justify-content:flex-start!important;margin:0 0 24px!important}
-.feed-tabbar .metricseg a{position:relative;display:inline-flex;align-items:center;height:48px;padding:0;border-radius:0;background:transparent!important;box-shadow:none!important;font-size:14px;font-weight:500;color:var(--fg-muted);white-space:nowrap}
-.feed-tabbar .metricseg a::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;border-radius:2px;background:var(--brand);transform:scaleX(0);transition:transform 300ms cubic-bezier(.4,0,.2,1)}
-.feed-tabbar .metricseg a.on{background:transparent;color:var(--fg);font-weight:600}
-.feed-tabbar .metricseg a.on::after{transform:scaleX(1)}
-.feed-tabbar .metricseg a:hover{color:var(--fg)}
 
 /* Captions and section headings on analytics pages. */
 .weights-page>p.muted.small{font-size:14px!important;font-weight:600;color:var(--fg-muted);margin:0 0 16px!important}
@@ -215,7 +209,6 @@ select option{background:var(--paper);color:var(--fg)}
 .feed-purchases-table td:first-child,.feed-purchases-table td:first-child b{font-weight:600}
 .tag{height:24px;min-height:24px;display:inline-flex;align-items:center;padding:0 6px;border-radius:6px;font-size:12px;font-weight:700;line-height:1}
 img.thumb,.proof img{width:40px;height:40px;border-radius:8px;object-fit:cover}
-
 
 /* ---------- Drawer: full-height, flush right, flat grouped key/values ---------- */
 /* 1202: above the template nav (--layout-nav-zIndex = drawer + 1 = 1201) so a scrim dims the sidebar too. */
@@ -618,11 +611,9 @@ td.kit-rowactions,td.kit-check{position:relative;z-index:3}
 
 /* Feed Analytics: every card heading is the Minimal card title (18/28, 600), whether it sits
    directly in the card or beside a control; sub-section h3s inside a card step down to 16/24. */
-.feed-analytics-page .card h2.h{font-size:18px;line-height:28px;font-weight:600;margin:0}
-.feed-analytics-page .card h3{font-size:16px;line-height:24px;font-weight:600}
+
 /* The view toggle closes the window-chip row on the right; on a phone it wraps under the chips. */
-.feed-analytics-page .feed-tabbar .kit-chiprow{flex:1 1 100%;align-items:center}
-.feed-analytics-page .feed-toolbar-view{margin-left:auto}
+
 /* Herd Analytics KPI widgets get the Minimal widget breathing room (desktop only; the phone
    2-up grid keeps its compact tiles so nothing crowds at 390px). */
 /* Feed Analytics tiles carry a mini bar chart and a basis chip; at phone width they stack one per

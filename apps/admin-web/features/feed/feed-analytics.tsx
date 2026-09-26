@@ -4,18 +4,25 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import { Tag } from "@/components/ui-primitives";
+import TableContainer from "@mui/material/TableContainer";
+import { Label } from "@/components/minimal/label";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { IndianRupee, Package, Route, Scale, ShieldCheck, Timer, Truck, Wallet, Wheat } from "lucide-react";
 
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
-import { Caption } from "@/components/app/caption";
 import { InfoHint } from "@/components/app/info-hint";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import Grid from "@mui/material/Grid";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { FeedMixCard } from "./feed-mix-card";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
-import { GoatGlyph } from "@/components/goat-glyph";
 
 import { copy, optionGroup, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -51,7 +58,6 @@ import { FeedShedFeedCharts } from "./feed-shed-feed-charts";
 import { feedHref, feedLimit, feedOffset } from "./feed-scope";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { LocalViewPane, LocalViewToggle } from "@/components/local-view-switch";
-import { SvgBars } from "@/components/svg-bars";
 import {
   FEED_SERIES_VARS,
   FeedChartLegend,
@@ -87,6 +93,8 @@ import { stageLabel } from "@/lib/stage-labels";
 // both as URL params so a view survives reload and pastes as a link.
 
 const PAGE_PATH = "/feed/analytics";
+// A reading with no day series: the template widget draws no sparkline under two points.
+const NO_SPARK = { categories: [], series: [] };
 
 // Follow-up lines are one per (pen, change day); counted here, on the server, because the tab that
 // sorts and slices them is a client module and cannot be called from this one.
@@ -532,39 +540,35 @@ export async function FeedAnalyticsPage({
     : [];
 
   return (
-    <div className="kit-enter pagegrid feed-analytics-page">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <FeedFaroView routeId={pageContract.route_id} parkId={parkId} />
 
-      <div>
+      <Box>
         <PageHeader
           title={pageContract.title}
           crumbs={[{ label: fa(pageContract, "crumb") }, { label: fa(pageContract, "section.analytics.title") }]}
           actions={<FeedAnalyticsExport rows={exportRows} filename={`${pageContract.route_id}-${range}`} label={fa(pageContract, "action.export")} />}
         />
-      </div>
+      </Box>
 
       {/* Stock-only callers (the page narrowed to its Stock tab) still need a way between the
           tabs they are allowed; the full page carries its strip inside the !stockOnly block. */}
       {stockOnly && allowedTabs.length > 1 ? (
-        <div>
-          <div className="kit-chiprow feed-tabbar">
-            <SegmentedLinks
-              current={tab}
-              options={allowedTabs.map((t) => ({
-                value: t,
-                label: fa(pageContract, `tab.${t}`),
-                href: hrefWith(searchParams, { tab: t === allowedTabs[0] ? undefined : t }),
-              }))}
-            />
-          </div>
-        </div>
+        <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
+          <SegmentedLinks
+            current={tab}
+            options={allowedTabs.map((t) => ({
+              value: t,
+              label: fa(pageContract, `tab.${t}`),
+              href: hrefWith(searchParams, { tab: t === allowedTabs[0] ? undefined : t }),
+            }))}
+          />
+        </Stack>
       ) : null}
 
       {!stockOnly ? (
         <>
-          <div className="feed-tabbar"
-            style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}
-          >
+          <Stack spacing={2}>
             {/* URL-driven tabs: each tab is a distinct server read, so the segment is a real link
                 (AnimatedTabs' `href` mode) rather than client state. The sliding underline and the
                 count chip are the kit's; the count is shown only for the tab whose payload this
@@ -581,7 +585,7 @@ export async function FeedAnalyticsPage({
               }))}
             />
             {/* Window as filter chips: the module strip above is the page's ONE tab component. */}
-            <div className="kit-chiprow" role="group" aria-label={fa(pageContract, "range.aria")}>
+            <Stack direction="row" role="group" aria-label={fa(pageContract, "range.aria")} sx={{ flexWrap: "wrap", gap: 1, alignItems: "center" }}>
               {RANGES.map((r) => (
                 <FilterChip key={r} href={hrefWith(searchParams, { range: r === "30" ? undefined : r })} on={range === r} label={fa(pageContract, `range.${r}`)} />
               ))}
@@ -591,7 +595,7 @@ export async function FeedAnalyticsPage({
               {/* One toolbar under the tabs (MUI): the Consumption view toggle rides the same row
                   as the window chips instead of a third stacked row. */}
               {tab === "overview" ? (
-                <span className="feed-toolbar-view">
+                <Box sx={{ ml: { sm: "auto" } }}>
                   <LocalViewToggle
                     param="fc_view"
                     current={consumptionView}
@@ -599,18 +603,18 @@ export async function FeedAnalyticsPage({
                     ariaLabel={fa(pageContract, "consumption.view.aria")}
                     options={CONSUMPTION_VIEWS.map((v) => ({ value: v, label: fa(pageContract, `consumption.view.${v}`) }))}
                   />
-                </span>
+                </Box>
               ) : null}
-            </div>
-          </div>
+            </Stack>
+          </Stack>
         </>
       ) : null}
 
       {failed ? (
-        <section className="card">
-          <h2 className="h">{fa(pageContract, "error.title")}</h2>
-          <p className="muted small">{failedError?.message || fa(pageContract, "error.body")}</p>
-        </section>
+        <Alert severity="error" variant="outlined">
+          <AlertTitle>{fa(pageContract, "error.title")}</AlertTitle>
+          {failedError?.message || fa(pageContract, "error.body")}
+        </Alert>
       ) : null}
 
       {tab === "items" && !failed ? (
@@ -731,7 +735,7 @@ export async function FeedAnalyticsPage({
           filters={{ farm: loadsFarm, item: loadsItem, limit: loadsLimit, offset: loadsOffset, pageSizes: loadsPageSizes }}
         />
       ) : null}
-    </div>
+    </Stack>
   );
 }
 
@@ -740,6 +744,39 @@ export async function FeedAnalyticsPage({
 // Every figure is the backend's. Mixed-tag pens ("F2-Male + K3") are left out on the backend's
 // flag: the maintainer asked for the single-status categories only (2026-09-17).
 // ---------------------------------------------------------------------------
+
+// Template chart-card anatomy (AnalyticsWebsiteVisits / BankingBalanceStatistics): Card, CardHeader
+// with title + subheader, the reading figures as the template ChartLegends value row, then the chart.
+function ChartCard({
+  title,
+  subheader,
+  figures,
+  children,
+}: {
+  title: string;
+  subheader?: string;
+  figures: { value: string; label?: string }[];
+  children: React.ReactNode;
+}) {
+  return (
+    <Card sx={{ height: 1 }}>
+      <CardHeader title={title} subheader={subheader} />
+      <Stack direction="row" sx={{ px: 3, pt: 2, gap: 3, flexWrap: "wrap" }}>
+        {figures.map((figure, index) => (
+          <Box key={index}>
+            <Typography variant="h6">{figure.value}</Typography>
+            {figure.label ? (
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                {figure.label}
+              </Typography>
+            ) : null}
+          </Box>
+        ))}
+      </Stack>
+      <Box sx={{ pl: 1, py: 2.5, pr: 2.5 }}>{children}</Box>
+    </Card>
+  );
+}
 
 function FeedStatusWise({
   data,
@@ -751,10 +788,9 @@ function FeedStatusWise({
   const single = data.pen_tags.filter((t) => !t.mixed);
   if (single.length === 0) {
     return (
-      <section className="card">
-        <h2 className="h">{fa(pageContract, "empty.title")}</h2>
-        <Caption>{fa(pageContract, "status.empty")}</Caption>
-      </section>
+      <Card>
+        <EmptyContent title={fa(pageContract, "empty.title")} description={fa(pageContract, "status.empty")} />
+      </Card>
     );
   }
   // The shared day axis is the served window, so every card's line starts and ends on the same
@@ -767,7 +803,7 @@ function FeedStatusWise({
     <>
       {/* One card per stage in the Feed Items card anatomy (maintainer request 2026-09-17): the two
           figures on top, and the line below shows how the stage has run across the range. */}
-      <div className="feed-status-cards">
+      <Grid container spacing={3}>
         {single.map((row, index) => {
           const byDay = new Map(row.days.map((d) => [d.feed_day, d]));
           const priced = row.days.some((d) => d.rupees !== "");
@@ -782,19 +818,15 @@ function FeedStatusWise({
           };
           const animals = row.avg_animals === "" ? "—" : nf(num(row.avg_animals));
           return (
-            <div className="chartcard" key={row.pen_tag_key}>
-              <h4>{stageLabel(row.pen_tag_label)}</h4>
-              <div className="cap">{fa(pageContract, "status.chart.cap").replace("{count}", animals)}</div>
-              <div className="feed-item-strip">
-                <div>
-                  <div className="val">{row.rupees_per_day === "" ? "—" : `₹${money(num(row.rupees_per_day))}`}</div>
-                  <div className="muted small">{fa(pageContract, "status.spend_per_day")}</div>
-                </div>
-                <div>
-                  <div className="val">{row.per_head_kg === "" ? "—" : rate(num(row.per_head_kg))}</div>
-                  <div className="muted small">{kgNoun}</div>
-                </div>
-              </div>
+            <Grid key={row.pen_tag_key} size={{ xs: 12, md: 6 }}>
+            <ChartCard
+              title={stageLabel(row.pen_tag_label)}
+              subheader={fa(pageContract, "status.chart.cap").replace("{count}", animals)}
+              figures={[
+                { value: row.rupees_per_day === "" ? "—" : `₹${money(num(row.rupees_per_day))}`, label: fa(pageContract, "status.spend_per_day") },
+                { value: row.per_head_kg === "" ? "—" : rate(num(row.per_head_kg)), label: kgNoun },
+              ]}
+            >
               {priced ? (
                 <FeedLines
                   hideZeroInTip
@@ -824,10 +856,11 @@ function FeedStatusWise({
                   emptyLabel={fa(pageContract, "status.empty")}
                 />
               )}
-            </div>
+            </ChartCard>
+            </Grid>
           );
         })}
-      </div>
+      </Grid>
     </>
   );
 }
@@ -967,10 +1000,9 @@ function DirectedTabs({
 
   if (empty) {
     return (
-      <section className="card feed-empty-state">
-        <h2 className="h">{noData}</h2>
-        <p className="muted small">{fa(pageContract, "empty.body")}</p>
-      </section>
+      <Card>
+        <EmptyContent title={noData} description={fa(pageContract, "empty.body")} />
+      </Card>
     );
   }
 
@@ -1021,17 +1053,17 @@ function DirectedTabs({
     const prev = i > 0 ? pick(data.days[i - 1]) : null;
     const cur = pick(latest);
     if (prev === null || cur === null || prev === 0) return undefined;
-    return { value: ((cur - prev) / prev) * 100, digits: 1 };
+    return Math.round(((cur - prev) / prev) * 1000) / 10;
   };
   const directedOf = (d: (typeof data.days)[number]) => num(d.directed_kg);
   const headOf = (d: (typeof data.days)[number]) => d.head_days;
   const perHeadOf = (d: (typeof data.days)[number]) => (d.per_head_grams === "" ? null : num(d.per_head_grams));
-  const sparkHint = (key: string) => (
-    <>
-      {fa(pageContract, key)}
-      <span className="feed-kpi-spark-caption">14 days</span>
-    </>
-  );
+  // Template widget colours: [light, main] of the palette key (EcommerceWidgetSummary default).
+  const sparkChart = (series: number[] | null | undefined, color: string) => ({
+    categories: [],
+    series: series ?? [],
+    colors: [`var(--palette-${color}-light)`, `var(--palette-${color}-main)`],
+  });
 
   return (
     <>
@@ -1039,57 +1071,79 @@ function DirectedTabs({
         <RangeCoverageNote key={`${range}-${coveredDays}`} message={coverageNote} />
       ) : null}
       {tab === "overview" ? (
-        <section aria-label={fa(pageContract, "chart.daily.title")}>
-          <KpiGrid>
-          <KpiCard tone="primary" icon={<Scale size={22} />} label={fa(pageContract, "kpi.directed.label")} value={latest ? num(latest.directed_kg) : "—"} digits={1} unit={latest ? fa(pageContract, "unit.kg") : undefined} sparkline={daySpark(directedOf)} sparkVariant="line" trend={dayTrend(directedOf)} hint={sparkHint("kpi.directed.sub")} />
-          <KpiCard tone="info" icon={<GoatGlyph size={22} />} label={fa(pageContract, "kpi.head_days.label")} value={latest ? latest.head_days : "—"} digits={0} sparkline={daySpark(headOf)} sparkVariant="line" trend={dayTrend(headOf)} hint={sparkHint("kpi.head_days.sub")} />
-          <KpiCard tone="success" icon={<Wheat size={22} />} label={fa(pageContract, "kpi.per_head.label")} value={latest && latest.per_head_grams !== "" ? num(latest.per_head_grams) : "—"} digits={0} unit={latest && latest.per_head_grams !== "" ? "g" : undefined} sparkline={daySpark(perHeadOf)} sparkVariant="line" trend={dayTrend(perHeadOf)} hint={sparkHint("kpi.per_head.sub")} />
-          <KpiCard tone="violet" icon={<ShieldCheck size={22} />} label={fa(pageContract, "kpi.adherence.label")} value={adherence ?? "—"} hint={fa(pageContract, "kpi.adherence.sub")} />
-          <KpiCard tone="warning" icon={<IndianRupee size={22} />} label={fa(pageContract, "kpi.cost_per_animal.label")} value={costPerAnimal ?? "—"} hint={fa(pageContract, "kpi.cost_per_animal.sub")} />
-          </KpiGrid>
-        </section>
+        // KPI row: template EcommerceWidgetSummary (overview/e-commerce), three per row.
+        <Grid container spacing={3} component="section" aria-label={fa(pageContract, "chart.daily.title")}>
+          {[
+            { key: "directed", total: latest ? `${nf(num(latest.directed_kg))} ${fa(pageContract, "unit.kg")}` : "—", pick: directedOf, color: "primary" },
+            { key: "head_days", total: latest ? nf(latest.head_days) : "—", pick: headOf, color: "info" },
+            { key: "per_head", total: latest && latest.per_head_grams !== "" ? `${nf(num(latest.per_head_grams))} g` : "—", pick: perHeadOf, color: "warning" },
+          ].map((kpi) => (
+            <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 4 }}>
+              <EcommerceWidgetSummary
+                title={fa(pageContract, `kpi.${kpi.key}.label`)}
+                total={kpi.total}
+                percent={dayTrend(kpi.pick)}
+                caption={fa(pageContract, `kpi.${kpi.key}.sub`)}
+                chart={sparkChart(daySpark(kpi.pick), kpi.color)}
+                sx={{ height: 1 }}
+              />
+            </Grid>
+          ))}
+          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+            <EcommerceWidgetSummary title={fa(pageContract, "kpi.adherence.label")} total={adherence ?? "—"} caption={fa(pageContract, "kpi.adherence.sub")} chart={NO_SPARK} sx={{ height: 1 }} />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+            <EcommerceWidgetSummary title={fa(pageContract, "kpi.cost_per_animal.label")} total={costPerAnimal ?? "—"} caption={fa(pageContract, "kpi.cost_per_animal.sub")} chart={NO_SPARK} sx={{ height: 1 }} />
+          </Grid>
+        </Grid>
       ) : null}
 
-
       {tab === "overview" ? (
-        <section className="card wchart" aria-label={fa(pageContract, "chart.daily.title")}>
-          <h2 className="h">{fa(pageContract, "chart.daily.title")}</h2>
-          <FeedChartLegend
-            entries={view.itemLabels.map((label, s) => ({
-              label,
-              colorVar: seriesColorVar(s),
-            }))}
-          />
-          <FeedStackedColumns
-            hideZeroInTip
-            days={view.stacked}
-            seriesLabels={view.itemLabels}
-            valueNoun={fa(pageContract, "unit.kg")}
-            chartLabel={fa(pageContract, "chart.daily.title")}
-            emptyLabel={fa(pageContract, "empty.body")}
-          />
-        </section>
+        // Stacked columns in the template chart card anatomy (Card + CardHeader + legend + chart,
+        // BankingBalanceStatistics); the Apex marks are the shared series chart.
+        <Card component="section" aria-label={fa(pageContract, "chart.daily.title")}>
+          <CardHeader title={fa(pageContract, "chart.daily.title")} sx={{ mb: 3 }} />
+          <Box sx={{ px: 3 }}>
+            <FeedChartLegend
+              entries={view.itemLabels.map((label, s) => ({
+                label,
+                colorVar: seriesColorVar(s),
+              }))}
+            />
+          </Box>
+          <Box sx={{ pl: 1, py: 2.5, pr: 2.5 }}>
+            <FeedStackedColumns
+              hideZeroInTip
+              days={view.stacked}
+              seriesLabels={view.itemLabels}
+              valueNoun={fa(pageContract, "unit.kg")}
+              chartLabel={fa(pageContract, "chart.daily.title")}
+              emptyLabel={fa(pageContract, "empty.body")}
+            />
+          </Box>
+        </Card>
       ) : null}
 
       {tab === "overview" && stock && stock.expenditure.length > 0 ? (
-        <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "chart.spend.title")}>
-          <StatStrip
-            ariaLabel={fa(pageContract, "chart.spend.title")}
-            cells={([
-              ["week", stock.spend.last_7_days],
-              ["month", stock.spend.this_month],
-              ["quarter", stock.spend.three_months],
-              ["year", stock.spend.this_year],
-            ] as const).map(([period, rupees]) => ({
-              key: period,
-              tone: "success" as const,
-              icon: <Wallet size={18} />,
-              label: fa(pageContract, `spend.${period}.label`),
-              value: `₹${nf(num(rupees))}`,
-              meta: fa(pageContract, `spend.${period}.sub`),
-            }))}
-          />
-        </section>
+        // Spend by period: four template EcommerceWidgetSummary tiles.
+        <Grid container spacing={3} component="section" aria-label={fa(pageContract, "chart.spend.title")}>
+          {([
+            ["week", stock.spend.last_7_days],
+            ["month", stock.spend.this_month],
+            ["quarter", stock.spend.three_months],
+            ["year", stock.spend.this_year],
+          ] as const).map(([period, rupees]) => (
+            <Grid key={period} size={{ xs: 12, sm: 6, md: 3 }}>
+              <EcommerceWidgetSummary
+                title={fa(pageContract, `spend.${period}.label`)}
+                total={`₹${nf(num(rupees))}`}
+                caption={fa(pageContract, `spend.${period}.sub`)}
+                chart={NO_SPARK}
+                sx={{ height: 1 }}
+              />
+            </Grid>
+          ))}
+        </Grid>
       ) : null}
 
       {tab === "overview" && stock && stock.expenditure.length > 0 ? (
@@ -1099,26 +1153,27 @@ function DirectedTabs({
         // series and the directed days can start on different dates. A day whose sheet has
         // no animals has no per-animal figure and breaks the line rather than reading ₹0;
         // the tile above divides the same two halves for yesterday alone.
-        <section className="card wchart" aria-label={fa(pageContract, "chart.spend.title")}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-start", justifyContent: "space-between" }}>
-            <div>
-              <h2 className="h">{fa(pageContract, "chart.spend.title")}</h2>
-              {SPEND_MODES.map((mode) => (
-                <LocalViewPane key={mode} param="spend" value={mode} current={spendMode}>
-                  <p className="muted small">
-                    {fa(pageContract, mode === "per_animal" ? "chart.spend.per_animal.hint" : "chart.spend.hint")}
-                  </p>
-                </LocalViewPane>
-              ))}
-            </div>
-            <LocalViewToggle
-              param="spend"
-              current={spendMode}
-              defaultValue="overall"
-              ariaLabel={fa(pageContract, "chart.spend.mode.aria")}
-              options={SPEND_MODES.map((m) => ({ value: m, label: fa(pageContract, `chart.spend.mode.${m}`) }))}
-            />
-          </div>
+        // Template EcommerceYearlySales anatomy: CardHeader with the reading picker as its action.
+        <Card component="section" aria-label={fa(pageContract, "chart.spend.title")}>
+          <CardHeader
+            title={fa(pageContract, "chart.spend.title")}
+            subheader={SPEND_MODES.map((mode) => (
+              <LocalViewPane key={mode} param="spend" value={mode} current={spendMode}>
+                {fa(pageContract, mode === "per_animal" ? "chart.spend.per_animal.hint" : "chart.spend.hint")}
+              </LocalViewPane>
+            ))}
+            action={
+              <LocalViewToggle
+                param="spend"
+                current={spendMode}
+                defaultValue="overall"
+                ariaLabel={fa(pageContract, "chart.spend.mode.aria")}
+                options={SPEND_MODES.map((m) => ({ value: m, label: fa(pageContract, `chart.spend.mode.${m}`) }))}
+              />
+            }
+            sx={{ mb: 3 }}
+          />
+          <Box sx={{ pl: 1, py: 2.5, pr: 2.5 }}>
           {SPEND_MODES.map((mode) => (
             <LocalViewPane key={mode} param="spend" value={mode} current={spendMode}>
             <FeedLines
@@ -1146,24 +1201,45 @@ function DirectedTabs({
             />
             </LocalViewPane>
           ))}
-        </section>
+          </Box>
+        </Card>
       ) : null}
 
-      {tab === "overview" && spendShareSlices.length > 0 ? (
-        // Where the money goes: one slice per feed at its AVERAGE ₹ per priced day, the same
-        // figure the strip on each card below leads with, in each feed's own colour. Ranked by
-        // spend so the biggest slice starts at twelve o'clock; an unpriced feed has no rupees
-        // and so no slice — the cards below still show its kg.
-        <section className="card wchart" aria-label={fa(pageContract, "chart.spend_share.title")}>
-          <h2 className="h">{fa(pageContract, "chart.spend_share.title")}</h2>
-          <FeedSpendPie
-            slices={spendShareSlices}
-            valueNoun={fa(pageContract, "chart.spend_share.unit")}
-            formatValue={(v) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
-            chartLabel={fa(pageContract, "chart.spend_share.title")}
-            emptyLabel={fa(pageContract, "empty.body")}
-          />
-        </section>
+      {tab === "overview" ? (
+        // Template e-commerce row: the share donut (EcommerceSaleByGender slot, lg 4) beside the
+        // feed mix bars (AnalyticsConversionRates, lg 8).
+        <Grid container spacing={3}>
+          {spendShareSlices.length > 0 ? (
+            // Where the money goes: one slice per feed at its AVERAGE ₹ per priced day, the same
+            // figure the strip on each card below leads with, in each feed's own colour. Ranked by
+            // spend so the biggest slice starts at twelve o'clock; an unpriced feed has no rupees
+            // and so no slice — the cards below still show its kg.
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Card component="section" aria-label={fa(pageContract, "chart.spend_share.title")} sx={{ height: 1 }}>
+                <CardHeader title={fa(pageContract, "chart.spend_share.title")} />
+                <Box sx={{ p: 3 }}>
+                  <FeedSpendPie
+                    slices={spendShareSlices}
+                    valueNoun={fa(pageContract, "chart.spend_share.unit")}
+                    formatValue={(v) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+                    chartLabel={fa(pageContract, "chart.spend_share.title")}
+                    emptyLabel={fa(pageContract, "empty.body")}
+                  />
+                </Box>
+              </Card>
+            </Grid>
+          ) : null}
+          <Grid size={{ xs: 12, md: spendShareSlices.length > 0 ? 6 : 12 }}>
+            {view.mix.length > 0 ? (
+              <FeedMixCard title={fa(pageContract, "chart.mix.title")} unit={fa(pageContract, "unit.kg")} rows={view.mix} />
+            ) : (
+              <Card component="section" aria-label={fa(pageContract, "chart.mix.title")} sx={{ height: 1 }}>
+                <CardHeader title={fa(pageContract, "chart.mix.title")} />
+                <EmptyContent title={fa(pageContract, "empty.body")} />
+              </Card>
+            )}
+          </Grid>
+        </Grid>
       ) : null}
 
       {tab === "overview" ? (
@@ -1174,10 +1250,7 @@ function DirectedTabs({
         // strip above the chart carries the per-day figures. Cards are ordered by what
         // each feed cost; a feed with no load rate yet falls to the end and
         // keeps its kg line, so it is never hidden for lack of a price.
-        <div
-          className="grid"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 14, marginTop: 14 }}
-        >
+        <Grid container spacing={3}>
           {rankItemCards(view.itemSeries, itemMoney)
             // The retired split concentrates are hidden here (maintainer request 2026-09-14): the
             // farm feeds the two merged Mesha concentrates now, and four cards of sacks running
@@ -1191,72 +1264,46 @@ function DirectedTabs({
             const rupeeNoun = fa(pageContract, "unit.rupees");
             const fedSeries: LineSeries = { label: fa(pageContract, "item.series.fed"), colorVar: series.colorVar, points: series.points };
             return (
-              <div className="chartcard" key={series.key}>
-                <h4>{series.label}</h4>
-                <div className="cap">{fa(pageContract, "chart.item.hint")}</div>
-                <div className="feed-item-strip">
+              <Grid key={series.key} size={{ xs: 12, md: 6 }}>
+                <ChartCard
+                  title={series.label}
+                  subheader={fa(pageContract, "chart.item.hint")}
+                  figures={[
+                    money
+                      ? {
+                          value: money.pricedDays > 0 ? `₹${(money.rupeesTotal / money.pricedDays).toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : "—",
+                          label: fa(pageContract, "item.spend.per_day"),
+                        }
+                      : { value: "—", label: fa(pageContract, "item.unpriced") },
+                    { value: fedDays > 0 ? nf(fedKg / fedDays) : "—", label: fa(pageContract, "item.kg.per_day") },
+                    ...(money && money.pricedKg > 0 ? [{ value: `₹${rate(money.rupeesTotal / money.pricedKg)}`, label: fa(pageContract, "item.rate") }] : []),
+                  ]}
+                >
                   {money ? (
-                    <div>
-                      <div className="val">
-                        {money.pricedDays > 0
-                          ? `₹${(money.rupeesTotal / money.pricedDays).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
-                          : "—"}
-                      </div>
-                      <div className="muted small">{fa(pageContract, "item.spend.per_day")}</div>
-                    </div>
+                    <FeedLines
+                      hideZeroInTip
+                      series={[{ label: fa(pageContract, "item.series.spend"), colorVar: series.colorVar, points: money.rupees }]}
+                      secondary={{ series: fedSeries, valueNoun: kgNoun }}
+                      dayLabels={view.dayLabels}
+                      valueNoun={rupeeNoun}
+                      chartLabel={series.label}
+                      emptyLabel={fa(pageContract, "empty.body")}
+                    />
                   ) : (
-                    <div>
-                      <div className="val">—</div>
-                      <div className="muted small">{fa(pageContract, "item.unpriced")}</div>
-                    </div>
+                    <FeedLines
+                      hideZeroInTip
+                      series={[fedSeries]}
+                      dayLabels={view.dayLabels}
+                      valueNoun={kgNoun}
+                      chartLabel={series.label}
+                      emptyLabel={fa(pageContract, "empty.body")}
+                    />
                   )}
-                  <div>
-                    <div className="val">{fedDays > 0 ? nf(fedKg / fedDays) : "—"}</div>
-                    <div className="muted small">{fa(pageContract, "item.kg.per_day")}</div>
-                  </div>
-                  {money && money.pricedKg > 0 ? (
-                    <div>
-                      <div className="val">{`₹${rate(money.rupeesTotal / money.pricedKg)}`}</div>
-                      <div className="muted small">{fa(pageContract, "item.rate")}</div>
-                    </div>
-                  ) : null}
-                </div>
-                {money ? (
-                  <FeedLines
-                    hideZeroInTip
-                    series={[{ label: fa(pageContract, "item.series.spend"), colorVar: series.colorVar, points: money.rupees }]}
-                    secondary={{ series: fedSeries, valueNoun: kgNoun }}
-                    dayLabels={view.dayLabels}
-                    valueNoun={rupeeNoun}
-                    chartLabel={series.label}
-                    emptyLabel={fa(pageContract, "empty.body")}
-                  />
-                ) : (
-                  <FeedLines
-                    hideZeroInTip
-                    series={[fedSeries]}
-                    dayLabels={view.dayLabels}
-                    valueNoun={kgNoun}
-                    chartLabel={series.label}
-                    emptyLabel={fa(pageContract, "empty.body")}
-                  />
-                )}
-              </div>
+                </ChartCard>
+              </Grid>
             );
           })}
-        </div>
-      ) : null}
-
-      {tab === "overview" ? (
-        <section className="card wchart" aria-label={fa(pageContract, "chart.mix.title")}>
-          <h2 className="h">{fa(pageContract, "chart.mix.title")}</h2>
-          <SvgBars
-            data={view.mix}
-            valueNoun={fa(pageContract, "unit.kg")}
-            chartLabel={fa(pageContract, "chart.mix.title")}
-            emptyLabel={fa(pageContract, "empty.body")}
-          />
-        </section>
+        </Grid>
       ) : null}
 
       {tab === "peranimal" ? (
@@ -1264,32 +1311,30 @@ function DirectedTabs({
         // asks for ("how many grams is each animal getting?") big, with the
         // item's own trend on its own scale — a shared-scale multi-line let the
         // 950 g Masoor line flatten every concentrate into the baseline.
-        <div
-          className="grid"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 14, marginTop: 14 }}
-        >
+        <Grid container spacing={3}>
           {view.perHead.map((series) => {
             const lastIdx = series.points.reduce<number>((acc, point, index) => (point === null ? acc : index), -1);
             const latest = lastIdx >= 0 ? (series.points[lastIdx] as number) : null;
             return (
-              <div className="chartcard" key={series.label}>
-                <h4>{series.label}</h4>
-                <div className="cap">{fa(pageContract, "chart.perhead.hint")}</div>
-                <div className="val" style={{ fontSize: 26, fontWeight: 700, margin: "2px 0 6px" }}>
-                  {latest === null ? "—" : `${nf(latest)} ${fa(pageContract, "unit.g_per_head")}`}
-                </div>
-                <FeedLines
-                  hideZeroInTip
-                  series={[series]}
-                  dayLabels={view.dayLabels}
-                  valueNoun={fa(pageContract, "unit.g_per_head")}
-                  chartLabel={series.label}
-                  emptyLabel={fa(pageContract, "empty.body")}
-                />
-              </div>
+              <Grid key={series.label} size={{ xs: 12, md: 6 }}>
+                <ChartCard
+                  title={series.label}
+                  subheader={fa(pageContract, "chart.perhead.hint")}
+                  figures={[{ value: latest === null ? "—" : `${nf(latest)} ${fa(pageContract, "unit.g_per_head")}` }]}
+                >
+                  <FeedLines
+                    hideZeroInTip
+                    series={[series]}
+                    dayLabels={view.dayLabels}
+                    valueNoun={fa(pageContract, "unit.g_per_head")}
+                    chartLabel={series.label}
+                    emptyLabel={fa(pageContract, "empty.body")}
+                  />
+                </ChartCard>
+              </Grid>
             );
           })}
-        </div>
+        </Grid>
       ) : null}
     </>
   );
@@ -1351,13 +1396,12 @@ function ExecutionTab({
   // and hiding it behind the charts' empty card would answer the question with a blank screen.
   if (data.days.length === 0) {
     return (
-      <div className="grid" style={{ gap: 14 }}>
-        <section className="card feed-empty-state">
-          <h2 className="h">{fa(pageContract, "empty.title")}</h2>
-          <p className="muted small">{fa(pageContract, "empty.execution.body")}</p>
-        </section>
+      <Stack spacing={3}>
+        <Card>
+          <EmptyContent title={fa(pageContract, "empty.title")} description={fa(pageContract, "empty.execution.body")} />
+        </Card>
         {completionTable}
-      </div>
+      </Stack>
     );
   }
   // Farm/item narrowing is applied by the backend before LIMIT/OFFSET; applying it here after
@@ -1397,28 +1441,32 @@ function ExecutionTab({
   // slot, awaiting the amber slot, rework the danger slot.
   return (
     <>
-      <section aria-label={fa(pageContract, "chart.execution.title")}>
-        <KpiGrid>
-        <KpiCard tone="primary" icon={<Package size={22} />} label={fa(pageContract, "kpi.packing.label")} value={pct(packingDone, packingAll)} hint={`${nf(packingDone)} / ${nf(packingAll)} · ${fa(pageContract, "kpi.packing.sub")}`} />
-        <KpiCard tone="info" icon={<Truck size={22} />} label={fa(pageContract, "kpi.distribution.label")} value={pct(distDone, distAll)} hint={`${nf(distDone)} / ${nf(distAll)} · ${fa(pageContract, "kpi.distribution.sub")}`} />
-        <KpiCard tone="violet" icon={<Route size={22} />} label={fa(pageContract, "kpi.transport.label")} value={pct(transDone, transAll)} hint={`${nf(transDone)} / ${nf(transAll)} · ${fa(pageContract, "kpi.transport.sub")}`} />
-        <KpiCard tone="warning" icon={<Timer size={22} />} label={fa(pageContract, "kpi.latency.label")} value={latestLatency === null ? "—" : `${nf(latestLatency)} ${fa(pageContract, "unit.minutes")}`} hint={fa(pageContract, "kpi.latency.sub")} />
-        </KpiGrid>
-      </section>
-      <section className="card wchart" aria-label={fa(pageContract, "chart.execution.title")}>
-        <h2 className="h">{fa(pageContract, "chart.execution.title")}</h2>
-        <ExecutionStacked stacked={stacked} statuses={statuses} pageContract={pageContract} />
-      </section>
+      <Grid container spacing={3} component="section" aria-label={fa(pageContract, "chart.execution.title")}>
+        {[
+          { key: "packing", total: pct(packingDone, packingAll), caption: `${nf(packingDone)} / ${nf(packingAll)} · ${fa(pageContract, "kpi.packing.sub")}` },
+          { key: "distribution", total: pct(distDone, distAll), caption: `${nf(distDone)} / ${nf(distAll)} · ${fa(pageContract, "kpi.distribution.sub")}` },
+          { key: "transport", total: pct(transDone, transAll), caption: `${nf(transDone)} / ${nf(transAll)} · ${fa(pageContract, "kpi.transport.sub")}` },
+          { key: "latency", total: latestLatency === null ? "—" : `${nf(latestLatency)} ${fa(pageContract, "unit.minutes")}`, caption: fa(pageContract, "kpi.latency.sub") },
+        ].map((kpi) => (
+          <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
+            <EcommerceWidgetSummary title={fa(pageContract, `kpi.${kpi.key}.label`)} total={kpi.total} caption={kpi.caption} chart={NO_SPARK} sx={{ height: 1 }} />
+          </Grid>
+        ))}
+      </Grid>
+      <Card component="section" aria-label={fa(pageContract, "chart.execution.title")}>
+        <CardHeader title={fa(pageContract, "chart.execution.title")} sx={{ mb: 3 }} />
+        <Box sx={{ pl: 1, py: 2.5, pr: 2.5 }}>
+          <ExecutionStacked stacked={stacked} statuses={statuses} pageContract={pageContract} />
+        </Box>
+      </Card>
       {/* Intended-vs-entered packing mismatches (maintainer decision 2026-08-21). The verifier
           enters her per-item readings BLIND -- this comparison exists only on this leadership
           page, never on any verifier surface. Every measured bag is listed, biggest difference
           first. The bar narrows by farm and feed item over the served rows, and the calendar
           re-reads the endpoint pinned to one business day so older values than the page window
           stay reachable. */}
-      <section className="card" aria-label={fa(pageContract, "variance.title")}>
-        <div className="hd">
-          <h3>{fa(pageContract, "variance.title")}</h3>
-        </div>
+      <Card component="section" aria-label={fa(pageContract, "variance.title")}>
+        <CardHeader title={fa(pageContract, "variance.title")} sx={{ mb: 1 }} />
         <FeedFilters
           basePath={PAGE_PATH}
           pageParam="fav_offset"
@@ -1468,10 +1516,10 @@ function ExecutionTab({
           pageContract={pageContract}
         />
         {varianceRows.length === 0 ? (
-          <Caption>{fa(pageContract, "variance.empty")}</Caption>
+          <EmptyContent title={fa(pageContract, "variance.empty")} sx={{ py: 5 }} />
         ) : (
-          <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "variance.title")}>
-            <Table className="tbl feed-mismatch-table">
+          <TableContainer tabIndex={0} role="group" aria-label={fa(pageContract, "variance.title")}>
+            <Table sx={{ minWidth: 960 }}>
               <TableHead>
                 <TableRow>
                   <TableCell component="th">{fa(pageContract, "col.variance.day")}</TableCell>
@@ -1512,24 +1560,25 @@ function ExecutionTab({
                           renderer cannot drift from the trend beside it. Over and under are the
                           same breach: a bag packed heavy does not match the sheet either, and the
                           arrow is what says which way it went. */}
-                      <span
-                        className={`${row.exceeds_tolerance ? "tag t-dng" : "tag t-ok"} feed-stock-check-tag`}
+                      <Label
+                        variant="soft"
+                        color={row.exceeds_tolerance ? "error" : "success"}
                         title={fa(
                           pageContract,
                           row.exceeds_tolerance ? "variance.beyond_tolerance" : "variance.within_tolerance",
                         )}
-                      >
-                        {num(row.variance_kg) === 0 ? null : (
+                        startIcon={num(row.variance_kg) === 0 ? undefined : (
                           <span aria-hidden="true">{num(row.variance_kg) > 0 ? "↑" : "↓"}</span>
                         )}
-                        <span>{`${nf(Math.abs(num(row.variance_kg)))} ${fa(pageContract, "unit.kg")}`}</span>
-                      </span>
+                      >
+                        {`${nf(Math.abs(num(row.variance_kg)))} ${fa(pageContract, "unit.kg")}`}
+                      </Label>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </TableContainer>
         )}
         {/* The pager sits between the rows and the trend: it belongs to the TABLE, and the graph
             below it is a whole-window aggregate that paging must never appear to move. */}
@@ -1551,7 +1600,7 @@ function ExecutionTab({
         {/* The packed-vs-given trend that sat here was removed (maintainer request 2026-09-24):
             it compared the whole sheet with only the bags a verifier weighed and read as feed going
             missing. The table above answers the day; nothing below it re-plots the window. */}
-      </section>
+      </Card>
       {/* The completion table sits UNDER everything else on this tab (maintainer ask): the charts
           answer "how is adherence trending", this answers "who did not upload yesterday". */}
       {completionTable}
@@ -1631,30 +1680,31 @@ function ExperimentTab({
   };
 
   return (
-    <div className="grid" style={{ gap: 14 }}>
+    <Stack spacing={3}>
       {data.items.length === 0 ? (
-        <section className="card feed-empty-state">
-          <h2 className="h">{fa(pageContract, "empty.title")}</h2>
-          <p className="muted small">{fa(pageContract, "empty.experiment.body")}</p>
-        </section>
+        <Card>
+          <EmptyContent title={fa(pageContract, "empty.title")} description={fa(pageContract, "empty.experiment.body")} />
+        </Card>
       ) : (
-        <section className="card wchart" aria-label={fa(pageContract, "chart.experiment.title")}>
-          <h2 className="h">{fa(pageContract, "chart.experiment.title")}</h2>
-          <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
-          <FeedLines
-            hideZeroInTip
-            series={series}
-            dayLabels={dayKeys}
-            valueNoun={fa(pageContract, "unit.kg")}
-            chartLabel={fa(pageContract, "chart.experiment.title")}
-            emptyLabel={fa(pageContract, "empty.experiment.body")}
-          />
-        </section>
+        <Card component="section" aria-label={fa(pageContract, "chart.experiment.title")}>
+          <CardHeader title={fa(pageContract, "chart.experiment.title")} sx={{ mb: 3 }} />
+          <Box sx={{ px: 3 }}>
+            <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
+          </Box>
+          <Box sx={{ pl: 1, py: 2.5, pr: 2.5 }}>
+            <FeedLines
+              hideZeroInTip
+              series={series}
+              dayLabels={dayKeys}
+              valueNoun={fa(pageContract, "unit.kg")}
+              chartLabel={fa(pageContract, "chart.experiment.title")}
+              emptyLabel={fa(pageContract, "empty.experiment.body")}
+            />
+          </Box>
+        </Card>
       )}
-      <section className="card" aria-label={fa(pageContract, "wastage.title")}>
-        <div className="hd">
-          <h3>{fa(pageContract, "wastage.title")}</h3>
-        </div>
+      <Card component="section" aria-label={fa(pageContract, "wastage.title")}>
+        <CardHeader title={fa(pageContract, "wastage.title")} sx={{ mb: 1 }} />
         <FeedFilters
           basePath={PAGE_PATH}
           pageParam="fa_offset"
@@ -1683,10 +1733,10 @@ function ExperimentTab({
           pageContract={pageContract}
         />
         {data.wastage_pens.length === 0 ? (
-          <Caption>{fa(pageContract, "wastage.empty")}</Caption>
+          <EmptyContent title={fa(pageContract, "wastage.empty")} sx={{ py: 5 }} />
         ) : (
-          <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "wastage.title")}>
-            <Table className="tbl">
+          <TableContainer tabIndex={0} role="group" aria-label={fa(pageContract, "wastage.title")}>
+            <Table>
               <TableHead>
                 <TableRow>
                   <TableCell component="th">{fa(pageContract, "col.wastage.park")}</TableCell>
@@ -1706,10 +1756,10 @@ function ExperimentTab({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </TableContainer>
         )}
-      </section>
-    </div>
+      </Card>
+    </Stack>
   );
 }
 
@@ -1796,53 +1846,52 @@ function StockCards({
   return (
     <>
       {!stock || active.length === 0 ? (
-        <section className="card" style={{ marginTop: 14 }}>
-          <h2 className="h">{fa(pageContract, "stock.title")}</h2>
-          <Caption>{fa(pageContract, "stock.empty")}</Caption>
-        </section>
+        <Card>
+          <CardHeader title={fa(pageContract, "stock.title")} />
+          <EmptyContent title={fa(pageContract, "stock.empty")} sx={{ py: 5 }} />
+        </Card>
       ) : (
-        <section style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.title")}>
-          <h2 className="h">{fa(pageContract, "stock.title")}</h2>
-          <div className="card" style={{ marginTop: 8 }}>
-            <StatStrip
-              ariaLabel={fa(pageContract, "stock.title")}
-              cells={active.map((item) => ({
-                key: `${item.farm_label}|${item.feed_item_key}`,
-                tone: item.low_stock ? ("error" as const) : item.not_started ? ("success" as const) : ("primary" as const),
-                icon: <Package size={18} />,
-                label: <span title={`${item.farm_label} · ${item.feed_item_label}`}>{`${item.farm_label} · ${item.feed_item_label}`}</span>,
-                value: item.not_started
-                  ? `${nf(num(item.balance_kg))} ${fa(pageContract, "unit.kg")}`
-                  : item.days_left === null || item.days_left === undefined
-                    ? fa(pageContract, "stock.never_directed")
-                    : `${nf(Math.max(item.days_left, 0))} ${fa(pageContract, "stock.days_left")}`,
-                meta: (
-                  <>
-                    {item.not_started ? <Tag tone="ok">{fa(pageContract, "stock.not_started")}</Tag> : null}
-                    {item.low_stock ? <Tag tone="dng">{fa(pageContract, "stock.low")}</Tag> : null}{" "}
-                    {item.not_started
-                      ? `${fa(pageContract, "stock.not_started_sub")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`
-                      : `${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
-                          item.avg_daily_kg ? ` · ${nf(num(item.avg_daily_kg))} ${fa(pageContract, "stock.per_day")}` : ""
-                        } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
-                  </>
-                ),
-              }))}
-            />
-          </div>
-        </section>
+        // One template EcommerceWidgetSummary per farm × feed: days left big, balance + batch below.
+        <Box component="section" aria-label={fa(pageContract, "stock.title")}>
+          <Typography variant="h6" sx={{ mb: 2 }}>{fa(pageContract, "stock.title")}</Typography>
+          <Grid container spacing={3}>
+            {active.map((item) => (
+              <Grid key={`${item.farm_label}|${item.feed_item_key}`} size={{ xs: 12, sm: 6, md: 4 }}>
+                <EcommerceWidgetSummary
+                  title={`${item.farm_label} · ${item.feed_item_label}`}
+                  total={
+                    item.not_started
+                      ? `${nf(num(item.balance_kg))} ${fa(pageContract, "unit.kg")}`
+                      : item.days_left === null || item.days_left === undefined
+                        ? fa(pageContract, "stock.never_directed")
+                        : `${nf(Math.max(item.days_left, 0))} ${fa(pageContract, "stock.days_left")}`
+                  }
+                  caption={
+                    <>
+                      {item.not_started ? <Label variant="soft" color="success" sx={{ mr: 0.5 }}>{fa(pageContract, "stock.not_started")}</Label> : null}
+                      {item.low_stock ? <Label variant="soft" color="error" sx={{ mr: 0.5 }}>{fa(pageContract, "stock.low")}</Label> : null}
+                      {item.not_started
+                        ? `${fa(pageContract, "stock.not_started_sub")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`
+                        : `${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
+                            item.avg_daily_kg ? ` · ${nf(num(item.avg_daily_kg))} ${fa(pageContract, "stock.per_day")}` : ""
+                          } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
+                    </>
+                  }
+                  chart={NO_SPARK}
+                  sx={{ height: 1 }}
+                />
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
       )}
-      <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.farms.title")}>
-        <div className="hd">
-          <h3>{fa(pageContract, "stock.farms.title")}</h3>
-        </div>
+      <Card component="section" aria-label={fa(pageContract, "stock.farms.title")}>
+        <CardHeader title={fa(pageContract, "stock.farms.title")} sx={{ mb: 2 }} />
         {farmItems.length === 0 ? (
-          <div className="bd">
-            <Caption>{fa(pageContract, "stock.farms.empty")}</Caption>
-          </div>
+          <EmptyContent title={fa(pageContract, "stock.farms.empty")} sx={{ py: 5 }} />
         ) : (
-          <div className="tablewrap feed-stock-tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "stock.farms.title")}>
-            <Table className="tbl feed-stock-table">
+          <TableContainer tabIndex={0} role="group" aria-label={fa(pageContract, "stock.farms.title")}>
+            <Table sx={{ minWidth: 1080 }}>
               <TableHead>
                 <TableRow>
                   <TableCell component="th">{fa(pageContract, "stock.farms.col.item")}</TableCell>
@@ -1850,48 +1899,28 @@ function StockCards({
                   <TableCell component="th">{fa(pageContract, "stock.farms.col.directed_since")}</TableCell>
                   <TableCell component="th">{fa(pageContract, "stock.farms.col.last_load")}</TableCell>
                   <TableCell component="th">
-                    <span className="feed-stock-check-head">
+                    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
                       {fa(pageContract, "stock.farms.col.avg")}
-                      <span className="feed-stock-info" tabIndex={0} aria-label="How average per day is calculated">
-                        i
-                        <span className="feed-stock-info-pop" role="tooltip">
-                          Avg / Day is the average kg from the latest 3 locked feed days for this farm and feed. A feed that replaced older ones is counted as one feed here, so a day the farm fed the old sack counts once, not twice. The top card days-left uses Ledger stock divided by this same average.
-                        </span>
-                      </span>
-                    </span>
+                      <InfoHint size={20} text="Avg / Day is the average kg from the latest 3 locked feed days for this farm and feed. A feed that replaced older ones is counted as one feed here, so a day the farm fed the old sack counts once, not twice. The top card days-left uses Ledger stock divided by this same average." />
+                    </Box>
                   </TableCell>
                   <TableCell component="th">
-                    <span className="feed-stock-check-head">
+                    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
                       {fa(pageContract, "stock.farms.col.week")}
-                      <span className="feed-stock-info" tabIndex={0} aria-label="How weekly requirement is calculated">
-                        i
-                        <span className="feed-stock-info-pop" role="tooltip">
-                          Week need = Avg / Day times 7, using the latest 3 locked feed days for this farm and feed.
-                        </span>
-                      </span>
-                    </span>
+                      <InfoHint size={20} text="Week need = Avg / Day times 7, using the latest 3 locked feed days for this farm and feed." />
+                    </Box>
                   </TableCell>
                   <TableCell component="th">
-                    <span className="feed-stock-check-head">
+                    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
                       {fa(pageContract, "stock.farms.col.stock")}
-                      <span className="feed-stock-info" tabIndex={0} aria-label="How stock is calculated">
-                        i
-                        <span className="feed-stock-info-pop" role="tooltip">
-                          Ledger = purchased kg minus consumed-at-import kg, minus locked directed kg from the purchase depletion date onward. A feed that replaced older ones also carries whatever is left of their sacks.
-                        </span>
-                      </span>
-                    </span>
+                      <InfoHint size={20} text="Ledger = purchased kg minus consumed-at-import kg, minus locked directed kg from the purchase depletion date onward. A feed that replaced older ones also carries whatever is left of their sacks." />
+                    </Box>
                   </TableCell>
                   <TableCell component="th">
-                    <span className="feed-stock-check-head">
+                    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
                       {fa(pageContract, "stock.farms.col.days_left")}
-                      <span className="feed-stock-info" tabIndex={0} aria-label="How days left is calculated">
-                        i
-                        <span className="feed-stock-info-pop" role="tooltip">
-                          Days left = ledger stock divided by Avg / Day. Avg / Day uses the latest 3 locked feed days for this farm and feed.
-                        </span>
-                      </span>
-                    </span>
+                      <InfoHint size={20} text="Days left = ledger stock divided by Avg / Day. Avg / Day uses the latest 3 locked feed days for this farm and feed." />
+                    </Box>
                   </TableCell>
                 </TableRow>
               </TableHead>
@@ -1908,18 +1937,18 @@ function StockCards({
                           : fa(pageContract, "stock.never_directed")}
                     </TableCell>
                     <TableCell>
-                      <div className="feed-stock-load">
+                      <Typography variant="body2">
                         {[
                           `${fa(pageContract, "stock.farms.batch")} ${row.last_load_batch_no}`,
                           fmtDate(row.last_load_date),
                           `${nf(num(row.last_load_quantity_kg))} ${fa(pageContract, "unit.kg")}`,
                         ].join(" · ")}
-                      </div>
+                      </Typography>
                       {row.last_load_vendor !== "" ? (
-                        <div className="muted small">{row.last_load_vendor}</div>
+                        <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{row.last_load_vendor}</Typography>
                       ) : null}
                       {row.last_load_total_cost !== "" ? (
-                        <div className="muted small">{`₹${money(num(row.last_load_total_cost))} · ₹${rate(num(row.last_load_per_kg_cost))}/kg`}</div>
+                        <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{`₹${money(num(row.last_load_total_cost))} · ₹${rate(num(row.last_load_per_kg_cost))}/kg`}</Typography>
                       ) : null}
                     </TableCell>
                     <TableCell>
@@ -1933,7 +1962,7 @@ function StockCards({
                         : `${nf(num(row.weekly_required_kg))} ${fa(pageContract, "unit.kg")}`}
                     </TableCell>
                     <TableCell>
-                      <div className="feed-stock-qty">{`${nf(num(row.ledger_stock_kg))} ${fa(pageContract, "unit.kg")}`}</div>
+                      <Typography variant="subtitle2">{`${nf(num(row.ledger_stock_kg))} ${fa(pageContract, "unit.kg")}`}</Typography>
                     </TableCell>
                     <TableCell>
                       <DaysLeftText row={row} pageContract={pageContract} />
@@ -1942,9 +1971,9 @@ function StockCards({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </TableContainer>
         )}
-      </section>
+      </Card>
       <ForecastTable rows={forecast} pageContract={pageContract} />
     </>
   );
@@ -1970,15 +1999,13 @@ function ForecastTable({
     }
   });
   return (
-    <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "forecast.title")}>
-      <div className="hd">
-        <h3>{fa(pageContract, "forecast.title")}</h3>
-      </div>
+    <Card component="section" aria-label={fa(pageContract, "forecast.title")}>
+      <CardHeader title={fa(pageContract, "forecast.title")} sx={{ mb: 2 }} />
       {rows.length === 0 ? (
-        <Caption>{fa(pageContract, "forecast.empty")}</Caption>
+        <EmptyContent title={fa(pageContract, "forecast.empty")} sx={{ py: 5 }} />
       ) : (
-        <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "forecast.title")}>
-          <Table className="tbl feed-forecast-table">
+        <TableContainer tabIndex={0} role="group" aria-label={fa(pageContract, "forecast.title")}>
+          <Table sx={{ minWidth: 960 }}>
             <TableHead>
               <TableRow>
                 <TableCell component="th">{fa(pageContract, "forecast.col.farm")}</TableCell>
@@ -2008,13 +2035,9 @@ function ForecastTable({
                       {row.shortfall_kg === "" ? (
                         "—"
                       ) : short > 0 ? (
-                        <span className="tag t-dng feed-stock-check-tag">
-                          <span>{`${nf(short)} ${kg}`}</span>
-                        </span>
+                        <Label variant="soft" color="error">{`${nf(short)} ${kg}`}</Label>
                       ) : (
-                        <span className="tag t-ok feed-stock-check-tag">
-                          <span>{fa(pageContract, "forecast.covered")}</span>
-                        </span>
+                        <Label variant="soft" color="success">{fa(pageContract, "forecast.covered")}</Label>
                       )}
                     </TableCell>
                     <TableCell>
@@ -2027,7 +2050,7 @@ function ForecastTable({
                 );
               })}
               {anyPriced ? (
-                <TableRow className="feed-forecast-total">
+                <TableRow>
                   <TableCell colSpan={7}>
                     <strong>{fa(pageContract, "forecast.total")}</strong>
                   </TableCell>
@@ -2038,9 +2061,9 @@ function ForecastTable({
               ) : null}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
       )}
-    </section>
+    </Card>
   );
 }
 

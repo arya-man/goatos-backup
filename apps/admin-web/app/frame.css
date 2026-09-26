@@ -453,20 +453,6 @@ body aside.drawer .dc .k,body aside.drawer .dc .lbl,body aside.drawer .dc .fld>l
   }
 }
 
-.feed-analytics-page .card>h2.h+p.muted.small{
-  padding:0 24px 20px;
-  margin:4px 0 0;
-  white-space:normal;
-  overflow:visible;
-  text-overflow:clip;
-}
-@media(max-width:640px){
-  .feed-analytics-page .card>h2.h+p.muted.small{
-    padding:0 16px 16px;
-  }
-}
-
-
 /* Vaccination plan: the page frame (.wrap) owns the gutter; the plan's legacy own padding doubled
    it (26px at 390px against 14px on every other route). */
 .wrap>.vplan{padding:0}

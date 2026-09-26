@@ -206,25 +206,17 @@
   /* This page's tab strip is its primary navigation -- five verticals of the feed day -- so it
      carries more weight than the inline metric toggles `.metricseg` was sized for elsewhere.
      Scoped to this row so the Weights and Counts strips keep their own density. */
-  .main .feed-tabbar{margin-top:8px;margin-bottom:6px}
-  .main .feed-tabbar .metricseg a{padding:6px 12px;font-size:12.5px;min-width:0}
-  .main .feed-tabbar .metricseg a,
+
   .wt-tabbar .metricseg a{white-space:nowrap;overflow:visible;text-overflow:clip;flex:0 0 auto;width:max-content}
   /* Ten columns since breed and age group joined: at the default 12px each side the row needed
      more width than a laptop viewport gives, so Difference -- the column the reader came for --
      fell off the right edge behind a horizontal scroll. Tighter gutters fit the row instead of
      hiding its point. The kg figures stay on one line; only the wordy columns may wrap. */
-  .main table.feed-mismatch-table th,.main table.feed-mismatch-table td{padding-left:7px;padding-right:7px}
-  .main table.feed-mismatch-table th:first-child,.main table.feed-mismatch-table td:first-child{padding-left:14px}
-  .main table.feed-mismatch-table th:last-child,.main table.feed-mismatch-table td:last-child{padding-right:14px}
+
   /* Only the columns that CONTAIN SPACES may wrap, and only at those spaces: a shed, a feed name
      and a breed read fine over two lines, which is what buys the numeric columns their width.
      Everything else holds one line -- breaking mid-word gave "Channapat/na" and "SESSIO/N". */
-  .main table.feed-mismatch-table th,.main table.feed-mismatch-table td{white-space:nowrap}
-  .main table.feed-mismatch-table th:nth-child(3),.main table.feed-mismatch-table td:nth-child(3),
-  .main table.feed-mismatch-table th:nth-child(5),.main table.feed-mismatch-table td:nth-child(5),
-  .main table.feed-mismatch-table th:nth-child(6),.main table.feed-mismatch-table td:nth-child(6),
-  .main table.feed-mismatch-table th:nth-child(7){white-space:normal;overflow-wrap:normal;word-break:normal}
+
   /* Interior days of a selected span. Deliberately weaker than .on so the two ENDS stay the thing
      the eye lands on — those are the dates the verifier actually chose. */
   .top-date-day.in-range{border-color:transparent;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand-d);border-radius:4px}
@@ -242,13 +234,9 @@
   .chartcard .cap{color:var(--muted);font-size:11.5px;margin-bottom:8px}
   .chartcard h4,.chartcard .cap{overflow-wrap:anywhere}
   /* Feed Items cards: the per-day money/quantity strip above each item's chart. */
-  .chartcard .feed-item-strip{display:flex;flex-wrap:wrap;gap:6px 22px;margin:0 0 10px;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+
   /* Feed Analytics > Consumption > Status-wise: one Feed Items-style card per status, no chart. */
-  .feed-status-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-top:10px}
-  .feed-status-cards .chartcard{cursor:default}
-  @media(max-width:600px){.feed-status-cards{grid-template-columns:1fr}}
-  .chartcard .feed-item-strip .val{font-size:16px;font-weight:600;letter-spacing:-.01em;line-height:1.2}
-  .feed-kpi-spark-caption{display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--brand) 10%,transparent);color:var(--brand-d);font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;line-height:1.4;white-space:nowrap}
+
   .chartcard .lg,.wchart .lg{display:flex;gap:14px 18px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:8px}
   .chartcard .lg span,.wchart .lg span{display:inline-flex;align-items:center;gap:5px;min-width:0}
   .chartcard svg{display:block}
@@ -455,7 +443,7 @@
     .kpi .lab,.kpi .dl,.kpi .muted.small{line-height:1.25}
     .metricseg a{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
     .metricseg button{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
-    .main .feed-tabbar{display:grid!important;grid-template-columns:1fr;align-items:stretch!important;gap:8px!important}
+
     .feed-packing-page .feed-packing-shell{padding:0;border:0;background:transparent;box-shadow:none}
     .feed-packing-page .feed-packing-shell .wf-bar>.kit-field-date{flex-basis:100%}
     .feed-packing-page .feed-packing-for{margin:0 0 10px;padding:12px 14px;border-radius:12px;background:color-mix(in srgb,var(--panel) 82%,transparent);font-size:13px;line-height:1.35}
@@ -469,7 +457,7 @@
     .qgrid{grid-template-columns:1fr}
     .charts{column-width:auto;column-count:1}
     .chartcard{padding:12px}
-    .chartcard .feed-item-strip{gap:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
+
     .wchart{padding:12px 13px;overflow:hidden}
     .wchart svg,.chartcard svg{max-width:100%;height:auto}
     .wchart .lg,.chartcard .lg{gap:8px 10px}
@@ -482,7 +470,7 @@
       scrollbar-gutter:stable
     }
     .main .feed-stock-tablewrap{padding-right:0}
-    .main table.feed-stock-table{min-width:1120px}
+
     .top-date-popover{right:auto;left:0;width:min(306px,calc(100vw - 24px))}
   }
 
@@ -843,35 +831,7 @@
   .main .penbars-legend>span{display:flex;align-items:center;gap:6px}
   .main .penbars-legend i{width:8px;height:8px;border-radius:2px;display:block;flex:none;background:var(--brand)}
   .main .penbars-legend i.verified{background:var(--info)}
-  .main table.feed-stock-table{width:100%;min-width:0;table-layout:fixed}
-  .main table.feed-stock-table th,.main table.feed-stock-table td{padding-left:9px;padding-right:9px;white-space:normal;overflow-wrap:anywhere;vertical-align:middle}
-  .main table.feed-stock-table th{font-size:10px;letter-spacing:.08em;line-height:1.25}
-  .main table.feed-stock-table th:nth-child(1),.main table.feed-stock-table td:nth-child(1){width:20%}
-  .main table.feed-stock-table th:nth-child(2),.main table.feed-stock-table td:nth-child(2){width:5%}
-  .main table.feed-stock-table th:nth-child(3),.main table.feed-stock-table td:nth-child(3){width:13%}
-  .main table.feed-stock-table th:nth-child(4),.main table.feed-stock-table td:nth-child(4){width:30%}
-  .main table.feed-stock-table th:nth-child(5),.main table.feed-stock-table td:nth-child(5){width:8%}
-  .main table.feed-stock-table th:nth-child(6),.main table.feed-stock-table td:nth-child(6){width:8%}
-  .main table.feed-stock-table th:nth-child(7),.main table.feed-stock-table td:nth-child(7){width:8%}
-  .main table.feed-stock-table th:nth-child(8),.main table.feed-stock-table td:nth-child(8){width:8%}
-  .main table.feed-forecast-table td:nth-child(n+3),.main table.feed-forecast-table th:nth-child(n+3){text-align:right}
-  .main table.feed-forecast-table tr.feed-forecast-total td{border-top:2px solid var(--line);text-align:right}
-  .main table.feed-forecast-table tr.feed-forecast-total td:first-child{text-align:left}
-  .main table.feed-stock-table .feed-stock-load{white-space:nowrap;overflow:visible;text-overflow:clip}
-  .main table.feed-stock-table .tag{max-width:100%;white-space:normal;line-height:1.25;justify-content:center;text-align:center}
-  .main table.feed-stock-table .feed-stock-check-tag{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:4px 8px;letter-spacing:0;white-space:nowrap}
-  .main table.feed-stock-table .feed-stock-check-tag span{min-width:0;overflow-wrap:normal;word-break:normal}
-  .main table.feed-stock-table th:last-child,.main table.feed-stock-table td:last-child{padding-right:18px}
-  .main .feed-stock-check-head{display:inline-flex;align-items:center;gap:7px;position:relative}
-  .main .feed-stock-info{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border:1px solid var(--line);border-radius:50%;background:var(--panel-2);color:var(--muted);font-size:10px;font-weight:850;line-height:1;text-transform:none;letter-spacing:0;cursor:help}
-  .main .feed-stock-info:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-  .main .feed-stock-info-pop{position:absolute;right:0;top:22px;z-index:20;display:none;width:280px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);font-size:11.5px;font-weight:600;line-height:1.35;letter-spacing:0;text-transform:none;white-space:normal}
-  .main .feed-stock-info:hover .feed-stock-info-pop,.main .feed-stock-info:focus .feed-stock-info-pop{display:block}
-  @media(max-width:1350px){
-    .main table.feed-stock-table{min-width:1480px}
-    .main table.feed-stock-table th,.main table.feed-stock-table td{white-space:nowrap;overflow-wrap:normal}
-    .main table.feed-stock-table .tag{white-space:nowrap}
-  }
+
   /* Sortable column header. The mock has no sortable table, so this is a deliberate, minimal
      addition rather than a ported element: the header keeps its exact resting typography and the
      button is a bare inline trigger, so an unsorted table looks identical to the mock. The
@@ -1834,8 +1794,7 @@
     .tsearch input,.fld input,select,input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]){min-height:40px;box-sizing:border-box}
     label:has(> input[type="checkbox"]),label:has(> input[type="radio"]){min-height:40px}
     .chip{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px}
-    .main .feed-stock-info{width:40px;height:40px;font-size:12px}
-    .main .feed-stock-info-pop{top:42px;right:-4px;max-width:min(280px,calc(100vw - 32px))}
+
     .g4{grid-template-columns:repeat(2,1fr)}
     .g3,.g2{grid-template-columns:1fr}
     .kpi .val{font-size:21px}
@@ -2256,7 +2215,7 @@ button.scrim{
   border:0;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) max(1px,env(safe-area-inset-bottom)) env(safe-area-inset-left);
   background:rgba(6,12,9,.42);
-  
+
   opacity:0;
   pointer-events:none;
   cursor:default
@@ -2474,7 +2433,6 @@ select:disabled { opacity: .45 }
 .kpi-row .kpi{padding:14px 16px}
 .kpi-row .kpi .val small.fcr-kpi-unit{color:color-mix(in srgb,var(--muted) 54%,var(--ink))}
 @media(max-width:1080px){.kpi-row{gap:12px}}
-.feed-empty-state>p.muted.small,
 .counts-empty-state>.counts-empty-copy{margin:6px 0 0;font-size:14px;line-height:1.55;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
 .sales-loads-page .kpi-row{grid-template-columns:repeat(4,minmax(136px,1fr))}
 .sales-loads-page .kpi .val{overflow-wrap:normal;word-break:normal;white-space:nowrap;font-size:clamp(21px,4.8vw,26px)}
@@ -3817,9 +3775,6 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
 /* Post-write confirmation. Sits between the action bar and the card so the outcome is next to the
    control that produced it, and it is a status region rather than a toast that can be missed. */
 .herd-signals-page .hs-flash{display:block;margin:0 0 14px;padding:9px 13px;border-radius:10px;font-size:12.5px;background:var(--okx,var(--panel-2));border:1px solid color-mix(in srgb,var(--ok) 42%,var(--line));color:var(--ok)}
-
-
-
 
 /* Ported from mock/herd-signals-mock.html. The app-wide `.banner` (mesha-theme.css
    "Config safety" block) is a left-accent BLOCK with `margin-top` and no icon row, so the
