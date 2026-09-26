@@ -43,7 +43,7 @@ func TestFeedPurchaseValidateRejectsEachBadField(t *testing.T) {
 		{"zero quantity", func(w *FeedPurchaseWrite) { w.QuantityKg = 0 }, "quantity_kg"},
 		{"negative quantity", func(w *FeedPurchaseWrite) { w.QuantityKg = -1 }, "quantity_kg"},
 		// THE LOAD NUMBER IS AUTOMATIC (maintainer decision 2026-09-26): the ledger assigns the next
-		// number for the farm and feed; any number a client supplies is refused, not honoured.
+		// running load number (one count across farms and feeds); a supplied number is refused.
 		{"a supplied load number", func(w *FeedPurchaseWrite) { n := 5; w.BatchNo = &n }, "batch_no"},
 		{"a supplied load number of zero", func(w *FeedPurchaseWrite) { n := 0; w.BatchNo = &n }, "batch_no"},
 		{"negative feed cost", func(w *FeedPurchaseWrite) { w.FeedCost = f(-1) }, "feed_cost"},
