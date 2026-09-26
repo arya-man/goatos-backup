@@ -48,7 +48,7 @@ export const DRAWERS = [
   { id: "source-entry-load", path: "/procurement/source-entry", open: { css: "a[href*='source_load=']" } },
   { id: "approvals-row", path: "/approvals", open: { css: "a[href*='ap_row=']" } },
   { id: "action-center-row", path: "/action-center", open: { css: "a[href*='ac_row=']" } },
-  { id: "control-tower-alert", path: "/", open: { css: "a[href*='ct_alert=']" } },
+  { id: "control-tower-alert", path: "/?lens=control-tower", open: { css: "a[href*='ct_alert=']" } },
   { id: "protocol-adherence-row", path: "/protocol-adherence", open: { css: "a[href*='adh_row=']" } },
   { id: "audit-row", path: "/operations/audit", open: { css: "a[href*='audit_id=']" } },
   { id: "dlq-row", path: "/operations/dlq", open: { css: "a[href*='dlq_id=']" } },
@@ -66,14 +66,14 @@ export const DRAWERS = [
   { id: "people-add", path: "/people?person=new" },
   { id: "people-filters", path: "/people", open: { role: "button", name: /^filters/i } },
   { id: "weights-export", path: "/weighing/weights?wt_export=1" },
-  { id: "weights-assumptions", path: "/weighing/analytics?wt_assumptions=1" },
+  { id: "weights-assumptions", path: "/weighing/weights?wt_assumptions=1" },
   { id: "weights-band-exits", path: "/weighing/analytics", open: { css: "a[href*='fb_exit=']" } },
   { id: "feed-completion-row", path: "/feed/analytics", open: { css: "a[href*='fdc_row=']" } },
   { id: "verify-analytics", path: "/verify", open: { css: "a[href*='vi_analytics=']" } },
   { id: "verify-video-log", path: "/verify", open: { css: "a[href*='vi_video_log=']" } },
   { id: "verify-randomization", path: "/verify", open: { css: "a[href*='vi_randomization=']" } },
   { id: "notifications", path: "/action-center", open: { css: "button[aria-label*='otification' i]" } },
-  { id: "configuration-row", path: "/configuration", open: { css: "a[href*='edit=']" } },
+  { id: "configuration-row", path: "/configuration/items", open: { css: "a[href*='edit=']" } },
   { id: "routines-row", path: "/routines", open: { css: "a[href*='edit=']" } },
   { id: "alerts-configure", path: "/alerts?configure=1" },
 ];
@@ -100,9 +100,11 @@ function parseArgs(argv) {
 export async function probeOpenDrawer(page, viewportWidth) {
   return page.evaluate(({ widths, vw }) => {
     const findings = [];
-    const papers = [...document.querySelectorAll(".MuiDrawer-paperAnchorRight")].filter((p) => {
+    // Right drawer paper: an MUI Drawer paper flush with the viewport's right edge (MUI v7 no longer
+    // guarantees the paperAnchorRight class).
+    const papers = [...document.querySelectorAll(".MuiDrawer-paper")].filter((p) => {
       const r = p.getBoundingClientRect();
-      return r.width > 0 && r.right > 0 && r.left < window.innerWidth;
+      return r.width > 0 && Math.abs(r.right - document.documentElement.clientWidth) <= 2 && r.left > -1;
     });
     const paper = papers.at(-1);
     if (!paper) return { findings: [{ rule: "drawer-missing", detail: "no visible right-anchored MUI Drawer paper" }] };
@@ -179,7 +181,9 @@ export async function probeOpenDrawer(page, viewportWidth) {
 async function openDrawer(page, spec) {
   if (!spec.open) return true;
   const { css, role, name } = spec.open;
-  const target = css ? page.locator(css).first() : page.getByRole(role, { name }).first();
+  // Server pages stream; wait for the first VISIBLE opener (tables render phone/laptop twins).
+  const target = css ? page.locator(`${css} >> visible=true`).first() : page.getByRole(role, { name }).first();
+  await target.waitFor({ state: "visible", timeout: 15_000 }).catch(() => {});
   if (!(await target.count())) return false;
   await target.scrollIntoViewIfNeeded().catch(() => {});
   await target.click({ timeout: 5_000 });
@@ -198,6 +202,13 @@ async function captureTemplate(browser, templateBase, vp, theme, file) {
   const page = await context.newPage();
   try {
     await page.goto(`${templateBase}/dashboard/kanban`, { waitUntil: "networkidle", timeout: 45_000 });
+    // The hosted demo (minimals.cc) signs in with its published demo account first.
+    const signIn = page.getByRole("button", { name: /^sign in$/i });
+    if (await signIn.count()) {
+      await signIn.click();
+      await page.waitForURL(/dashboard/, { timeout: 30_000 }).catch(() => {});
+      await page.goto(`${templateBase}/dashboard/kanban`, { waitUntil: "networkidle", timeout: 45_000 });
+    }
     await page.locator("[data-rfd-draggable-id], .kanban-task, [class*='task'] ").first().click({ timeout: 10_000 }).catch(() => {});
     await page.getByText(/./).first().waitFor({ timeout: 2_000 }).catch(() => {});
     await page.waitForTimeout(800);
@@ -242,7 +253,7 @@ async function main() {
             if (!opened) {
               entry.skipped = "no opener on the page (no data?)";
             } else {
-              await page.waitForSelector(".MuiDrawer-paperAnchorRight", { timeout: 8_000 }).catch(() => {});
+              await page.waitForSelector(".MuiDrawer-paper", { timeout: 8_000 }).catch(() => {});
               await page.waitForTimeout(700);
               const probe = await probeOpenDrawer(page, VIEWPORTS[vp].width);
               entry.width = probe.width;

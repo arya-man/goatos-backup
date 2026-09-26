@@ -1,5 +1,13 @@
 "use client";
 
+import Box from "@mui/material/Box";
+import Paper from "@mui/material/Paper";
+import Stack from "@mui/material/Stack";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import FormHelperText from "@mui/material/FormHelperText";
 import { Plus, Trash2 } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -56,9 +64,13 @@ export function SaleLinesEditor({
     onChange([...lines, newSaleLine(nextId, lines[lines.length - 1]?.product ?? products[0]?.name ?? "")]);
   };
 
+  // Template form grid (user-quick-edit): one column on a phone, two/three from sm up.
+  const grid2 = { display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))" } } as const;
+  const grid3 = { display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(3, minmax(0,1fr))" } } as const;
+
   return (
-    <div className="sales-lines">
-      <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
+    <Stack spacing={2} sx={{ minWidth: 0 }}>
+      <Typography variant="subtitle2">{copy(pageContract, "section.lines.title")}</Typography>
 
       {lines.map((line, index) => {
         const product = products.find((candidate) => candidate.name === line.product);
@@ -75,31 +87,38 @@ export function SaleLinesEditor({
         const variantValid = variantOptions.includes(line.breed);
         const computed = saleLineValue(line);
         return (
-          <fieldset className="sales-line" key={line.id} data-testid="sale-line" data-kind={product?.kind ?? ""}>
-            <div className="sales-line-hd">
-              <span className="mt">
-                {copy(pageContract, "label.line")} {index + 1}
-              </span>
-              <span className="sp" style={{ flex: 1 }} />
-              {lines.length > 1 ? (
-                <button
-                  type="button"
-                  className="btn sm"
-                  onClick={() => remove(line.id)}
-                  aria-label={`${copy(pageContract, "action.remove_line")} ${index + 1}`}
-                >
-                  <Trash2 className="ic" aria-hidden="true" />
-                  {copy(pageContract, "action.remove_line")}
-                </button>
-              ) : null}
-            </div>
-            <div className="sales-line-grid">
-              <div className="fld">
+          <Paper
+            variant="outlined"
+            component="fieldset"
+            key={line.id}
+            data-testid="sale-line"
+            data-kind={product?.kind ?? ""}
+            sx={{ m: 0, p: 2, minWidth: 0 }}
+          >
+            <Stack spacing={2}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Typography variant="subtitle2" sx={{ flex: 1, minWidth: 0 }}>
+                  {copy(pageContract, "label.line")} {index + 1}
+                </Typography>
+                {lines.length > 1 ? (
+                  <IconButton
+                    size="small"
+                    onClick={() => remove(line.id)}
+                    aria-label={`${copy(pageContract, "action.remove_line")} ${index + 1}`}
+                    title={copy(pageContract, "action.remove_line")}
+                    sx={{ minWidth: { xs: "var(--tap-min)", sm: 0 }, minHeight: { xs: "var(--tap-min)", sm: 0 } }}
+                  >
+                    <Trash2 size={18} aria-hidden="true" />
+                  </IconButton>
+                ) : null}
+              </Box>
+              <Box sx={grid2}>
                 <FormSelect
                   label={copy(pageContract, "field.product_type")}
                   id={`s-line-product-${line.id}`}
                   name={`line_product_type_${index}`}
                   required
+                  fullWidth
                   value={line.product}
                   // Changing the product empties everything it decided the shape of: a breed from
                   // the previous product's vocabulary, or kilograms typed against a feed, must
@@ -117,134 +136,118 @@ export function SaleLinesEditor({
                   }
                   options={listOptions(products, (option) => option.name, (option) => option.name)}
                 />
-              </div>
-              {variantIsItself ? (
-                <input type="hidden" name={`line_breed_${index}`} value={line.product} />
-              ) : (
-              <div className="fld">
-                <FormSelect
-                  label={copy(pageContract, isFeed ? "field.line_feed_item" : "field.breed")}
-                  id={`s-line-breed-${line.id}`}
-                  name={`line_breed_${index}`}
-                  required
-                  value={variantValid ? line.breed : ""}
-                  onValueChange={(next) => update(line.id, { breed: next })}
-                  options={listOptions(variantOptions, (option) => option, (option) => option, "—")}
-                />
-              </div>
-              )}
-            </div>
-            {pricedPerUnit ? (
-              // A feed sale is kilograms at a rate. The value is a READOUT, not an input: it is
-              // computed here exactly as the backend computes it, so the figure the operator
-              // watches is the figure that gets recorded.
-              <div className="sales-line-grid sales-line-grid-3">
-                <div className="fld">
-                  <label htmlFor={`s-line-quantity-${line.id}`}>
-                    {copy(pageContract, product?.unit === "number" ? "field.line_count" : "field.line_quantity")}
-                  </label>
-                  <input
+                {variantIsItself ? (
+                  <input type="hidden" name={`line_breed_${index}`} value={line.product} />
+                ) : (
+                  <FormSelect
+                    label={copy(pageContract, isFeed ? "field.line_feed_item" : "field.breed")}
+                    id={`s-line-breed-${line.id}`}
+                    name={`line_breed_${index}`}
+                    required
+                    fullWidth
+                    value={variantValid ? line.breed : ""}
+                    onValueChange={(next) => update(line.id, { breed: next })}
+                    options={listOptions(variantOptions, (option) => option, (option) => option, "—")}
+                  />
+                )}
+              </Box>
+              {pricedPerUnit ? (
+                // A feed sale is kilograms at a rate. The value is a READOUT, not an input: it is
+                // computed here exactly as the backend computes it, so the figure the operator
+                // watches is the figure that gets recorded.
+                <Box sx={grid3}>
+                  <TextField
+                    fullWidth
                     id={`s-line-quantity-${line.id}`}
                     name={`line_quantity_${index}`}
+                    label={copy(pageContract, product?.unit === "number" ? "field.line_count" : "field.line_quantity")}
                     type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step={product?.unit === "number" ? 1 : 0.001}
                     required
                     value={line.quantity}
                     onChange={(event) => update(line.id, { quantity: event.target.value })}
+                    slotProps={{ htmlInput: { inputMode: "decimal", min: 0, step: product?.unit === "number" ? 1 : 0.001 } }}
                   />
-                </div>
-                <div className="fld">
-                  <label htmlFor={`s-line-rate-${line.id}`}>
-                    {copy(pageContract, product?.unit === "number" ? "field.line_rate_each" : "field.line_rate_per_unit")}
-                  </label>
-                  <input
+                  <TextField
+                    fullWidth
                     id={`s-line-rate-${line.id}`}
                     name={`line_rate_per_unit_${index}`}
+                    label={copy(pageContract, product?.unit === "number" ? "field.line_rate_each" : "field.line_rate_per_unit")}
                     type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="0.01"
                     required
                     value={line.rate}
                     onChange={(event) => update(line.id, { rate: event.target.value })}
+                    slotProps={{ htmlInput: { inputMode: "decimal", min: 0, step: "0.01" } }}
                   />
-                </div>
-                <div className="fld">
-                  <label htmlFor={`s-line-value-readout-${line.id}`}>
-                    {copy(pageContract, "field.line_sales_value")}
-                  </label>
-                  <output
-                    id={`s-line-value-readout-${line.id}`}
-                    className="sales-line-value"
-                    data-testid="sale-line-computed-value"
-                  >
-                    {inr(computed)}
-                  </output>
-                  <div className="note">{copy(pageContract, "hint.line_feed_value")}</div>
-                </div>
-              </div>
-            ) : (
-              <div className="sales-line-grid sales-line-grid-3">
-                <div className="fld">
-                  <label htmlFor={`s-line-animals-${line.id}`}>{copy(pageContract, "field.line_animal_count")}</label>
-                  <input
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="caption" component="label" htmlFor={`s-line-value-readout-${line.id}`} sx={{ color: "text.secondary", display: "block" }}>
+                      {copy(pageContract, "field.line_sales_value")}
+                    </Typography>
+                    <Typography variant="subtitle1" component="output" id={`s-line-value-readout-${line.id}`} data-testid="sale-line-computed-value" sx={{ display: "block" }}>
+                      {inr(computed)}
+                    </Typography>
+                    <FormHelperText sx={{ mx: 0 }}>{copy(pageContract, "hint.line_feed_value")}</FormHelperText>
+                  </Box>
+                </Box>
+              ) : (
+                <Box sx={grid3}>
+                  <TextField
+                    fullWidth
                     id={`s-line-animals-${line.id}`}
                     name={`line_animal_count_${index}`}
+                    label={copy(pageContract, "field.line_animal_count")}
                     type="number"
-                    inputMode="numeric"
-                    min={0}
-                    step={1}
                     value={line.animals}
                     onChange={(event) => update(line.id, { animals: event.target.value })}
+                    slotProps={{ htmlInput: { inputMode: "numeric", min: 0, step: 1 } }}
                   />
-                </div>
-                <div className="fld">
-                  <label htmlFor={`s-line-weight-${line.id}`}>
-                    {copy(pageContract, "field.line_total_weight_kg")}
-                  </label>
-                  <input
+                  <TextField
+                    fullWidth
                     id={`s-line-weight-${line.id}`}
                     name={`line_total_weight_kg_${index}`}
+                    label={copy(pageContract, "field.line_total_weight_kg")}
                     type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="0.01"
                     value={line.weightKg}
                     onChange={(event) => update(line.id, { weightKg: event.target.value })}
+                    slotProps={{ htmlInput: { inputMode: "decimal", min: 0, step: "0.01" } }}
                   />
-                </div>
-                <div className="fld">
-                  <label htmlFor={`s-line-value-${line.id}`}>{copy(pageContract, "field.line_sales_value")}</label>
-                  <input
+                  <TextField
+                    fullWidth
                     id={`s-line-value-${line.id}`}
                     name={`line_sales_value_${index}`}
+                    label={copy(pageContract, "field.line_sales_value")}
                     type="number"
-                    inputMode="decimal"
-                    min={1}
-                    step="0.01"
                     required
                     value={line.value}
                     onChange={(event) => update(line.id, { value: event.target.value })}
+                    slotProps={{ htmlInput: { inputMode: "decimal", min: 1, step: "0.01" } }}
                   />
-                </div>
-              </div>
-            )}
-          </fieldset>
+                </Box>
+              )}
+            </Stack>
+          </Paper>
         );
       })}
 
-      <div className="sales-line-foot">
-        <button type="button" className="btn sm" onClick={add} disabled={!canAdd} aria-disabled={!canAdd}>
-          <Plus className="ic" aria-hidden="true" />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+        <Button
+          variant="outlined"
+          color="inherit"
+          size="small"
+          startIcon={<Plus size={16} aria-hidden="true" />}
+          onClick={add}
+          disabled={!canAdd}
+          aria-disabled={!canAdd}
+        >
           {copy(pageContract, "action.add_line")}
-        </button>
-        <span className="sp" style={{ flex: 1 }} />
-        <div className="sales-line-total" data-testid="sale-lines-total" aria-live="polite">
-          <span className="k">{copy(pageContract, "summary.lines.total")}</span>
-          <strong>{inr(totals.value)}</strong>
-          <span className="muted small">
+        </Button>
+        <Box
+          data-testid="sale-lines-total"
+          aria-live="polite"
+          sx={{ ml: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", textAlign: "right", minWidth: 0 }}
+        >
+          <Typography variant="overline" sx={{ color: "text.secondary" }}>{copy(pageContract, "summary.lines.total")}</Typography>
+          <Typography variant="h6" component="strong">{inr(totals.value)}</Typography>
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
             {num(totals.animals)} {copy(pageContract, countKey(totals.animals, "summary.lines.animal", "summary.lines.animals"))}
             {/* Non-feed weight is dropped only when there is feed weight or counted items to show: an
                 animal-only sale keeps the "0.0 kg" it has always shown, while a feed-only sale
@@ -271,9 +274,9 @@ export function SaleLinesEditor({
               </>
             ) : null}{" "}
             · {lines.length} {copy(pageContract, countKey(lines.length, "summary.lines.line", "summary.lines.lines"))}
-          </span>
-        </div>
-      </div>
-    </div>
+          </Typography>
+        </Box>
+      </Box>
+    </Stack>
   );
 }

@@ -4283,28 +4283,10 @@ input[type="checkbox"]:not(.lt-people-row input):not(.PrivateSwitchBase-input):d
 .wb-dialog .pgnav .more:disabled{opacity:.4;cursor:default}
 /* issue view at phone width: 40px tap targets (placed after the base rules so they win on equal specificity) */
 @media (max-width:560px){.wb-dialog .it{min-height:40px}.wb-dialog .pgnav .more{min-height:40px}}
-/* ---------- Sales: record-sale drawer, one card per product line (maintainer decision 2026-09-12)
-   A mixed sale -- sheep and goats, several breeds, one buyer -- is entered as stacked line cards,
-   each carrying its own animals, weight and value, with a running total pinned under them. The
-   cards are the same .fld inputs the rest of the drawer uses; only the grouping is new. */
-.sales-lines{display:flex;flex-direction:column;gap:10px}
-.sales-line{margin:0;padding:10px 12px 4px;border:1px solid var(--line);border-radius:var(--r,10px);background:var(--bg-soft,transparent);min-width:0}
-.sales-line-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.sales-line-hd .btn .ic{width:13px;height:13px}
-.sales-line-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.sales-line-grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
-.sales-line-grid .fld{margin-bottom:9px;min-width:0}
-.sales-line-grid input,.sales-line-grid select{width:100%;min-width:0}
-.sales-line-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:2px}
-.sales-line-foot .btn .ic{width:13px;height:13px}
-.sales-line-total{display:flex;flex-direction:column;align-items:flex-end;gap:1px;text-align:right}
-.sales-line-total .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
-.sales-line-total strong{font-size:16px;letter-spacing:-.01em}
 /* A card's bare empty line ("No sales match this view.", "No buyers on the board yet.") had no
    rule at all, so it sat flush against the card's left border in body ink while the chart
    empties beside it were padded and muted. Zero specificity: every page-scoped .empty wins. */
 :where(.card)>:where(.empty){padding:14px 16px;color:var(--muted);font-size:12.5px;line-height:1.5}
-@media (max-width:480px){.sales-line-grid,.sales-line-grid-3{grid-template-columns:1fr}}
 /* per-column pager (each column pages its own lane): range + chevron iconbtns. */
 /* Animal purchases: captures open big in a client-local lightbox (maintainer decision 2026-09-14). */
 .ap-lightbox{position:fixed;inset:0;z-index:1200;display:grid;place-items:center}

@@ -89,7 +89,9 @@ export function DetailDrawer({
           {subtitle}
         </Typography>
       ) : null}
-      <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, minWidth: 0, ...bodySx }}>{children}</Box>
+      {/* Template drawer forms run their fields full width (kanban-details, user-quick-edit): a select
+          sized to its value ("—") read as a stray chip at the drawer's left edge. */}
+      <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, minWidth: 0, "& .MuiFormControl-root": { width: 1 }, ...bodySx }}>{children}</Box>
     </MinimalDrawer>
   );
 }
