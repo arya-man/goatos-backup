@@ -1170,4 +1170,3 @@ var allowedOriginType = map[string]bool{
 	"procured": true,
 	"imported": true,
 }
-
