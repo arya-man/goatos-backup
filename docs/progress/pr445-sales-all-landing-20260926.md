@@ -6,8 +6,9 @@ Land PR #445, "Sales: end-to-end audit fixes (web, phone, backend) and nine main
 
 ## Current SHA
 
-- Candidate before landing gate: `dba03c2601aba7c5f8b8c4c72bd3ea20642bd499`
+- Candidate before first landing gate: `dba03c2601aba7c5f8b8c4c72bd3ea20642bd499`
 - `origin/main` before landing gate: `6343becb458d4205eab8f72ee2b25eae6fdda9f7`
+- Rebased candidate after conflict resolution: `d7e1a6dbf6db9221499650a8137029e6a950ce35`
 
 ## Done
 
@@ -17,6 +18,20 @@ Land PR #445, "Sales: end-to-end audit fixes (web, phone, backend) and nine main
   - `git diff --check origin/main...HEAD`
   - `go test ./internal/workforce/app -run 'TestSalesWriteFlag|TestSalesTagFlag'`
   - `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew -q :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.ui.SalesWriteGateTest'`
+- First `make land-main` attempt stopped safely during rebase on conflicts with current `origin/main`.
+- Rebase conflicts resolved by preserving current `main` contracts while keeping PR behavior:
+  - Sales farm filters kept dynamic tenant park validation while PR sorted buyer/farm-born rows server-side.
+  - Sales service kept current UUID/farm validation plus PR close-date/date-window behavior.
+  - Admin-web write marker kept exact read-only POST allowlist plus 4xx no-stamp behavior.
+  - Sales drawer kept product-kind empty/dash semantics plus manure breed de-duplication.
+  - Admin shell kept slim shell contract plus user-safe unavailable copy/telemetry.
+  - Android bootstrap kept concurrent bootstrap flow plus primary role label.
+- Focused post-rebase checks passed:
+  - `git diff --check`
+  - `go test ./internal/procurement/app ./internal/procurement/domain ./internal/sales/app ./internal/workforce/app`
+  - `node --test --experimental-strip-types lib/api/write-marker.test.mjs lib/api/backend-write-marker-contract.test.mjs components/admin-shell-unavailable.test.mjs features/procurement/sales-format.test.mjs` from `apps/admin-web`
+  - `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew -q :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.ui.SalesWriteGateTest' --tests 'sg.mesha.goatos.viewmodel.ProfileViewModelLogoutTest'`
+- `features/procurement/buyer-table.test.mjs` could not run directly in this worktree because `typescript` was not present in `apps/admin-web/node_modules`; the full landing gate remains the required authority.
 
 ## Pending
 
