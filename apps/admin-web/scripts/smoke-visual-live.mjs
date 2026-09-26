@@ -2102,7 +2102,7 @@ async function assertTopBarScopePreservesPageWindow(page, routeName) {
 }
 
 async function firstTopBarParkHref(page, routeName) {
-  const selector = '.parksel a[href*="scope_mode=park"], .parksel a[href*="park="]';
+  const selector = 'a[role="option"][href*="scope_mode=park"], a[role="option"][href*="park="]';
   const hrefs = await page.locator(selector).evaluateAll((links) =>
     links.map((link) => link.getAttribute("href")).filter(Boolean),
   );
@@ -2112,8 +2112,8 @@ async function firstTopBarParkHref(page, routeName) {
 }
 
 async function clickTopBarParkHref(page, href, routeName) {
-  await page.locator(".parksel .pscope").first().click({ timeout: 5_000 });
-  const link = page.locator(`.parksel a[href="${cssString(href)}"]`).first();
+  await page.locator("[data-park-scope-trigger]").first().click({ timeout: 5_000 });
+  const link = page.locator(`a[role="option"][href="${cssString(href)}"]`).first();
   if ((await link.count()) !== 1) throw new Error(`${routeName} expected exactly one top-bar park link for ${href}`);
   await Promise.all([
     page.waitForURL((url) => url.searchParams.get("scope_mode") === "park", { timeout: 10_000 }),

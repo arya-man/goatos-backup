@@ -316,8 +316,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 .tablewrap tbody tr{transition:background-color .2s var(--ease)}
 .tablewrap tbody tr:hover{background:rgb(var(--g500-rgb)/.08)}
 .tablewrap thead th{position:sticky;top:0;z-index:1}
-[aria-label*="theme" i].iconbtn{width:40px;height:40px;border-radius:50%;display:inline-grid;place-items:center;transition:background-color .2s var(--ease)}
-[aria-label*="theme" i].iconbtn:hover{background:rgb(var(--g500-rgb)/.08)}
 /* drawer: flat sections, no boxes */
 .drawer .metagrid{background:none!important;border:0!important;padding:0!important;gap:16px 24px;box-shadow:none!important}
 .drawer .metagrid>div{background:none!important;border:0!important;padding:0!important}

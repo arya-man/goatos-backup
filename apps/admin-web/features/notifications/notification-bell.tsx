@@ -28,7 +28,11 @@
  */
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell } from "lucide-react";
+import { m } from "motion/react";
+import Badge from "@mui/material/Badge";
+import IconButton from "@mui/material/IconButton";
+import { Iconify } from "@/layouts/template/iconify";
+import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
 import Drawer from "@mui/material/Drawer";
 import { NotificationSkeleton } from "./notification-skeleton";
 import { markNotificationsReadAction, type NotificationFeedActionResult } from "./notification-actions";
@@ -265,10 +269,14 @@ export function NotificationBell({
       // top-bar control moves.
       style={{ position: "relative", flex: "none" }}
     >
-      <button
+      {/* Template notifications-drawer trigger (layouts/components/notifications-drawer): IconButton
+          with the tap/hover motion, MUI Badge (error) and the 24px solar bell. */}
+      <IconButton
         ref={buttonRef}
-        type="button"
-        className="iconbtn"
+        component={m.button}
+        whileTap={varTap(0.96)}
+        whileHover={varHover(1.04)}
+        transition={transitionTap()}
         title={centreCopy.open}
         aria-label={centreCopy.open}
         aria-expanded={open}
@@ -285,18 +293,10 @@ export function NotificationBell({
           void refresh();
         }}
       >
-        <Bell className="ic" />
-        {badge > 0 ? (
-          // The unread badge. `.badge-def` is the existing brand pill; only its placement over the
-          // bell corner is inline, because no shared class positions a badge on an icon button.
-          <span
-            className="badge-def"
-            style={{ position: "absolute", top: 2, right: 0, margin: 0, pointerEvents: "none" }}
-          >
-            {badgeText}
-          </span>
-        ) : null}
-      </button>
+        <Badge badgeContent={badge > 0 ? badgeText : null} color="error">
+          <Iconify width={24} icon="solar:bell-bing-bold-duotone" />
+        </Badge>
+      </IconButton>
       {/* The template notifications drawer (layouts/components/notifications-drawer): a right MUI
           Drawer at EVERY width, 420px max (the whole width on a phone). MUI portals it to <body>
           (`.top`'s backdrop-filter would otherwise pin a fixed sheet inside the bar) and owns

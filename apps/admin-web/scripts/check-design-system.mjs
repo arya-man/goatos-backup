@@ -200,6 +200,7 @@ const CHECKS = {
   "section-client-boundary": { tier: "p0", why: "a template section under components/minimal/sections/ that uses hooks or a function sx/theme callback must start with 'use client'; a server page rendering it would otherwise pass a function to a client component and crash at render (typecheck cannot see it)" },
   "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not use KpiCard variant tint/gradient or AnalyticsWidgetSummary (pastel in dark); KPI rows are the template Ecommerce/Course/Banking widget summaries" },
   "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
+  "shell-nav-template": { tier: "p0", why: "the sidebar is the template NavSectionVertical/NavSectionMini inside layouts/dashboard nav-vertical/nav-mobile (whole nav in the template Scrollbar, template 288px mobile drawer over the template backdrop); no custom footer (navBottom / msh-foot / navigation.footer), no default-open subtrees, no full-width/opaque phone menu or extra close button" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
   "section-server-fn-sx": { tier: "p0", why: "a template section under components/minimal/sections/ that styles with a function sx ((theme) => …) must start with 'use client': a Server Component page renders it, and a function prop cannot cross to the client MUI part (\"Functions cannot be passed directly to Client Components\", the whole page falls back to client rendering or 500s)" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
@@ -390,6 +391,9 @@ function runGuard(root, { themeDiff }) {
   // section cards replaced (R3: "the cards are hand-made"). Styling them lives in frame.css /
   // mesha-theme.css, which is exactly the legacy CSS a mapped page must stop depending on.
   for (const hit of pageTemplateLegacyCardFindings(root)) findings.push(finding("page-template-legacy-card", hit.file, hit.line, hit.snippet));
+
+  // R2 item 5: the sidebar must stay the template NavSection (see shellNavTemplateFindings).
+  for (const hit of shellNavTemplateFindings(root)) findings.push(finding("shell-nav-template", hit.file, hit.line, hit.snippet));
 
   // components/minimal/ holds ONLY template-derived code (verbatim, near-verbatim, or a
   // structural adaptation). Every file must have a source entry in
@@ -773,6 +777,44 @@ function pageTemplateLegacyCardFindings(root) {
   }
   return out;
 }
+// R2 item 5 (Ravi): the sidebar drifted from the template (custom "Mesha · goat operating system"
+// footer, every default_open subtree expanded, full-width opaque phone menu with its own close
+// button). layouts/dashboard nav-vertical / nav-mobile must render the template NavSectionVertical
+// (and NavSectionMini) inside the template Scrollbar, and none of the shell deviations may return.
+function shellNavTemplateFindings(root) {
+  const dash = join(root, "layouts", "dashboard");
+  if (!existsSync(dash)) return [];
+  const out = [];
+  const read = (rel) => (existsSync(join(root, rel)) ? readFileSync(join(root, rel), "utf8") : null);
+  const requireIn = (rel, pattern, what) => {
+    const text = read(rel);
+    if (text !== null && !pattern.test(text)) out.push({ file: rel, line: 1, snippet: `must render the template ${what}` });
+  };
+  requireIn("layouts/dashboard/nav-vertical.tsx", /<NavSectionVertical\b/, "NavSectionVertical");
+  requireIn("layouts/dashboard/nav-vertical.tsx", /<NavSectionMini\b/, "NavSectionMini");
+  requireIn("layouts/dashboard/nav-vertical.tsx", /<Scrollbar fillContent>/, "Scrollbar (the whole nav scrolls, logo fixed)");
+  requireIn("layouts/dashboard/nav-mobile.tsx", /<NavSectionVertical\b/, "NavSectionVertical");
+  requireIn("layouts/dashboard/nav-mobile.tsx", /<Scrollbar fillContent>/, "Scrollbar");
+  const banned = [
+    [/\bnavBottom\b|msh-foot|navigation\.footer/, "custom nav footer (the template has only the optional NavUpgrade card, which we do not use)"],
+    [/\bdefaultOpen\b|default_open/, "default-open nav subtree (template opens only the active group)"],
+    [/data-nav-close/, "extra close button in the phone nav drawer (template drawer closes on backdrop / Escape / Back)"],
+    [/100vw/, "full-width phone nav drawer (template width is var(--layout-nav-mobile-width))"],
+    [/backdrop:\s*\{\s*sx:/, "custom phone nav backdrop (template backdrop)"],
+  ];
+  const files = ["components/mesha-shell.tsx", ...["layout.tsx", "nav-vertical.tsx", "nav-mobile.tsx"].map((f) => `layouts/dashboard/${f}`)];
+  const navSection = join(root, "layouts", "template", "nav-section");
+  if (existsSync(navSection)) files.push(...walk(navSection).map((abs) => toRel(root, abs)));
+  for (const rel of files) {
+    const text = read(rel);
+    if (text === null) continue;
+    text.split("\n").forEach((line, index) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+      for (const [pattern, what] of banned) if (pattern.test(line)) out.push({ file: rel, line: index + 1, snippet: `${what}: ${line.trim()}` });
+    });
+  }
+  return out;
+}
 function hasPaletteHex(text) {
   return [...text.matchAll(new RegExp(HEX_COLOUR.source, "g"))].some((m) => !NEUTRAL_HEX.test(m[0]));
 }
@@ -865,6 +907,9 @@ async function selfTest() {
   put("features/legacy-card-page.tsx", 'import { EcommerceWidgetSummary } from "@/components/minimal/widgets";\nexport const L = () => <section className="card wchart"><h2 className="h">x</h2><EcommerceWidgetSummary title="x" total={1} /></section>;\n');
   put("features/pastel-page.tsx", 'import { KpiCard } from "@/components/minimal/widgets";\nexport const P = () => <KpiCard variant="tint" label="x" value={1} />;\n');
   put("components/minimal/sections/overview/demo/server-section.tsx", "export const S = () => <LinearProgress sx={[(theme) => ({ height: 8 })]} />;\n");
+  put("layouts/dashboard/nav-vertical.tsx", "export const V = () => <Scrollbar fillContent><NavSectionVertical data={d} /></Scrollbar>;\n");
+  put("layouts/dashboard/nav-mobile.tsx", "export const M = () => <Drawer slotProps={{ backdrop: { sx: { bgcolor: 'var(--bg)' } }, paper: { sx: { width: '100vw' } } }}><NavSectionVertical data={d} /></Drawer>;\n");
+  put("layouts/dashboard/layout.tsx", 'export const L = () => <NavMobile slots={{ bottomArea: navBottom }} />;\n');
   const { findings } = runGuard(root, { themeDiff: false });
   const got = new Set(findings.map((f) => f.check));
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");

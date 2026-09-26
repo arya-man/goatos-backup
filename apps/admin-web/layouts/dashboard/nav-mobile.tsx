@@ -55,9 +55,6 @@ export function NavMobile({
       open={open}
       onClose={onClose}
       slotProps={{
-        // Mesha invariant (bc8864617): while the phone menu is open no page content shows. The scrim is
-        // the opaque page colour (no tint, no blur) and at phone width the menu itself is full-width.
-        backdrop: { sx: { bgcolor: 'var(--bg)', backdropFilter: 'none' } },
         paper: {
           className: mergeClasses([layoutClasses.nav.root, layoutClasses.nav.vertical, className]),
           sx: [
@@ -65,7 +62,6 @@ export function NavMobile({
               overflow: 'unset',
               bgcolor: 'var(--layout-nav-bg)',
               width: 'var(--layout-nav-mobile-width)',
-              '@media (max-width: 860px)': { width: '100vw', maxWidth: '100vw', boxShadow: 'none' },
               // Mesha WebView: keep the drawer clear of notches / gesture bars (viewport-fit=cover).
               pt: 'env(safe-area-inset-top, 0px)',
               pb: 'env(safe-area-inset-bottom, 0px)',
@@ -89,8 +85,9 @@ export function NavMobile({
           sx={{ px: 2, flex: '1 1 auto' }}
           {...other}
         />
-        {slots?.bottomArea}
       </Scrollbar>
+
+      {slots?.bottomArea}
     </Drawer>
   );
 }

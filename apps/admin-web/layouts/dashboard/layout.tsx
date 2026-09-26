@@ -8,11 +8,9 @@ import { merge } from 'es-toolkit';
 import { useBoolean } from 'minimal-shared/hooks';
 
 import Box from '@mui/material/Box';
-import IconButton from '@mui/material/IconButton';
 import { useTheme } from '@mui/material/styles';
 
 import { Logo } from '@/layouts/template/logo';
-import { Iconify } from '@/layouts/template/iconify';
 import { useSettingsContext } from '@/layouts/template/settings';
 
 import { NavMobile } from './nav-mobile';
@@ -24,9 +22,9 @@ import { MainSection, layoutClasses, HeaderSection, LayoutSection } from '../cor
 // ----------------------------------------------------------------------
 
 // Minimal v7.7.0 next-ts DashboardLayout, adapted for admin-web:
-// - nav data, logo text, header right area and nav footer come from the shell (backend bootstrap contract)
+// - nav data, logo text and header right area come from the shell (backend bootstrap contract)
 //   instead of the template's mocks (_notifications, _contacts, _workspaces, useMockedUser);
-// - the horizontal nav layout, searchbar, language/contacts/settings popovers are not carried;
+// - the horizontal nav layout, searchbar, language/contacts/settings popovers and the NavUpgrade card are not carried;
 // - `showNav=false` (contract nav_chrome "minimal") drops the sidebar and shows the logo in the header.
 // Structure, breakpoints (layoutQuery lg), css vars, header/nav/main sections are template-exact.
 
@@ -40,9 +38,8 @@ export type DashboardLayoutProps = LayoutBaseProps & {
   logoHref?: string;
   navLabel?: string;
   menuLabel?: string;
-  closeLabel?: string;
+  headerLeft?: React.ReactNode;
   headerRight?: React.ReactNode;
-  navBottom?: React.ReactNode;
   slotProps?: {
     header?: HeaderSectionProps;
     main?: MainSectionProps;
@@ -60,9 +57,8 @@ export function DashboardLayout({
   logoHref = '/',
   navLabel,
   menuLabel,
-  closeLabel,
+  headerLeft,
   headerRight,
-  navBottom,
   layoutQuery = 'lg',
 }: DashboardLayoutProps) {
   const theme = useTheme();
@@ -104,22 +100,19 @@ export function DashboardLayout({
             className="msh-side"
             aria-label={navLabel}
             slots={{
-              // Mesha rule: the phone menu keeps a visible close control (Escape and a backdrop tap
-              // are not discoverable once the menu covers the whole page). Template drawer close pattern.
               topArea: (
-                <Box sx={{ pl: 3.5, pr: 1.5, pt: 2.5, pb: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  {renderLogo()}
-                  <IconButton onClick={onClose} aria-label={closeLabel} data-nav-close>
-                    <Iconify icon="mingcute:close-line" />
-                  </IconButton>
-                </Box>
+                <Box sx={{ pl: 3.5, pt: 2.5, pb: 1 }}>{renderLogo()}</Box>
               ),
-              bottomArea: navBottom,
             }}
           />
+          {/** @slot Workspace popover (Mesha: park scope switcher) */}
+          {headerLeft}
         </>
       ) : (
-        renderLogo()
+        <>
+          {renderLogo()}
+          {headerLeft}
+        </>
       ),
       rightArea: (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0, sm: 0.75 } }}>{headerRight}</Box>
@@ -156,7 +149,6 @@ export function DashboardLayout({
         ) : (
           <Box sx={{ pl: 3.5, pt: 2.5, pb: 1 }}>{renderLogo()}</Box>
         ),
-        bottomArea: isNavMini ? null : navBottom,
       }}
       onToggleNav={() => settings.setField('navLayout', isNavMini ? 'vertical' : 'mini')}
     />

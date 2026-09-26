@@ -1,6 +1,8 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, m, motion, useReducedMotion } from "motion/react";
+import IconButton from "@mui/material/IconButton";
+import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
 import { Moon, Sun } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { applyTheme, readTheme, type ThemeMode } from "@/lib/theme";
@@ -20,15 +22,20 @@ export type ThemeToggleProps = {
   onChange?: (mode: ThemeMode) => void;
 };
 
-export function ThemeToggle({ labelToLight, labelToDark, className = "iconbtn", onChange }: ThemeToggleProps) {
+export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: ThemeToggleProps) {
   const mode = useSyncExternalStore(subscribeTheme, readTheme, serverTheme);
   const reduce = useReducedMotion();
   const isLight = mode === "light";
   const label = isLight ? labelToDark : labelToLight;
+  // Template header IconButton idiom (layouts/components/settings-button: tap/hover motion, 24px icon);
+  // it sits where the template header has its Settings button.
   return (
-    <button
-      type="button"
-      className={`${className} kit-press`}
+    <IconButton
+      component={m.button}
+      whileTap={varTap(0.96)}
+      whileHover={varHover(1.04)}
+      transition={transitionTap()}
+      className={className}
       title={label}
       aria-label={label}
       onClick={() => {
@@ -46,9 +53,9 @@ export function ThemeToggle({ labelToLight, labelToDark, className = "iconbtn", 
           exit={reduce ? undefined : { rotate: 90, opacity: 0, scale: 0.8 }}
           transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
         >
-          {isLight ? <Moon className="ic" /> : <Sun className="ic" />}
+          {isLight ? <Moon width={24} height={24} /> : <Sun width={24} height={24} />}
         </motion.span>
       </AnimatePresence>
-    </button>
+    </IconButton>
   );
 }

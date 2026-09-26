@@ -144,8 +144,6 @@
   .parkpick a[aria-disabled="true"]{opacity:.45;cursor:not-allowed;pointer-events:none}
   .parkpick button:disabled{opacity:.55;cursor:not-allowed}
   .parkpick button:disabled.on{opacity:.75}
-  /* park selector (scales to many parks) */
-  .parksel{position:relative}
   .pm-hint{font-size:11px;color:var(--faint);padding:8px 10px 3px;border-top:1px solid var(--line2);margin-top:5px}
   /* contextual help (ℹ) + in-screen park filter */
   .ihelp{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);color:var(--muted);font-size:10px;font-weight:800;cursor:pointer;margin-left:6px;vertical-align:middle;font-style:normal;line-height:1}
@@ -1760,7 +1758,6 @@
     /* Narrow topbar must fit ~390px without compressing controls (no clipping) and keep >=40px tap
        targets. Keep the park scope visible: it is the only global park filter on pages that do not
        own a local park/farm control. Collapse the optional "all sheds" suffix instead. */
-    .top .parksel{flex:0 1 auto;min-width:0}
     .top .iconbtn[disabled]{display:none}
     .iconbtn{flex:none;width:40px;height:40px}
     /* Top-bar scope controls that stay visible on touch widths are real controls — >=40px tap targets.

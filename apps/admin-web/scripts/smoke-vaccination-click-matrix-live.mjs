@@ -106,8 +106,8 @@ async function verifyShell(page) {
   const companyWide = page.locator(".parkpick a").filter({ hasText: "Company-wide" }).first();
   await clickAndExpectPath(page, companyWide, "/vaccination", "Company-wide scope toggle");
 
-  await openMenuAndDismiss(page, page.locator(".parksel button.pscope").nth(0), "park selector");
-  await openMenuAndDismiss(page, page.locator(".parksel button.pscope").nth(1), "date selector");
+  await openMenuAndDismiss(page, page.locator("[data-park-scope-trigger]").first(), "park selector");
+  await openMenuAndDismiss(page, page.locator(".pscope.date-scope").first(), "date selector");
 
   const themeButton = page.locator('button[aria-label*="light"], button[aria-label*="dark"]').first();
   if ((await themeButton.count()) === 1) {

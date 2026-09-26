@@ -16,9 +16,6 @@
 /* Page frame rules (frame.css) hang off `.wrap`; the template DashboardContent owns the gutters. */
 .msh-wrap.wrap{padding:0;max-width:none;margin:0;width:100%;min-width:0}
 
-/* Nav footer copy (backend nav contract `navigation.footer`) under the vertical nav. */
-.msh-foot{padding:var(--sp-2, 16px) var(--sp-3, 24px);font-size:var(--fs-caption, 12px);line-height:1.5;color:var(--layout-nav-text-disabled-color)}
-
 /* Route progress bar sits under the template header (64px phone / 72px desktop). */
 .routebar{top:calc(var(--layout-header-mobile-height, 64px) - 2px)}
 @media (min-width:1200px){.routebar{top:calc(var(--layout-header-desktop-height, 72px) - 2px)}}
@@ -26,8 +23,7 @@
 /* Webview rule: header controls and the phone drawer items stay >= 44px taps at phone width. */
 @media (max-width:1199px){
   .MuiAppBar-root .MuiIconButton-root{min-width:var(--tap-min, 44px);min-height:var(--tap-min, 44px)}
-  /* Legacy header controls (theme toggle, bell = .iconbtn; Ask Mesha dock) held 40px from 900 to 1199. */
-  .MuiAppBar-root .iconbtn,.MuiAppBar-root .mzai-bubble-dock{min-width:var(--tap-min, 44px);min-height:var(--tap-min, 44px)}
+  /* The Ask Mesha dock held 40px from 900 to 1199. */
+  .MuiAppBar-root .mzai-bubble-dock{min-width:var(--tap-min, 44px);min-height:var(--tap-min, 44px)}
   .msh-side .MuiButtonBase-root{min-height:var(--tap-min, 44px)}
-  .msh-side [data-nav-close]{min-width:var(--tap-min, 44px)}
 }

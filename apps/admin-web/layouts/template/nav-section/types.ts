@@ -54,8 +54,6 @@ export type NavItemDataProps = Pick<NavItemStateProps, 'disabled'> & {
   deepMatch?: boolean;
   /** Mesha: explicit active state from the shell (overrides the pathname rule). */
   active?: boolean;
-  /** Mesha: open by default (backend nav contract `default_open`). */
-  defaultOpen?: boolean;
   allowedRoles?: string | string[];
   children?: NavItemDataProps[];
 };

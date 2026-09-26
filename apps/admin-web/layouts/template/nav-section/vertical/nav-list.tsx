@@ -28,7 +28,7 @@ export function NavList({
   // Mesha: the shell owns active state (query-discriminated shared routes); fall back to the template rule.
   const isActive = data.active ?? isActiveLink(pathname, data.path, data.deepMatch ?? !!data.children);
 
-  const { value: open, onFalse: onClose, onToggle } = useBoolean(isActive || !!data.defaultOpen);
+  const { value: open, onFalse: onClose, onToggle } = useBoolean(isActive);
 
   useEffect(() => {
     if (!isActive) {

@@ -3,7 +3,6 @@ import type { SettingsState } from '@/layouts/template/settings';
 
 import { varAlpha } from 'minimal-shared/utils';
 
-import { themeConfig } from '@/theme/theme-config';
 import { bulletColor } from '@/layouts/template/nav-section';
 
 // ----------------------------------------------------------------------
@@ -36,15 +35,13 @@ export function dashboardNavColorVars(
     case 'integrate':
       return {
         layout: {
-          // Mesha: the locked palette gives the nav its own sidebar surface (template: background.default).
-          '--layout-nav-bg': themeConfig.surfaces.light.sidebar,
+          '--layout-nav-bg': palette.background.default,
           '--layout-nav-horizontal-bg': varAlpha(palette.background.defaultChannel, 0.8),
           '--layout-nav-border-color': varAlpha(palette.grey['500Channel'], 0.12),
           '--layout-nav-text-primary-color': palette.text.primary,
           '--layout-nav-text-secondary-color': palette.text.secondary,
           '--layout-nav-text-disabled-color': palette.text.disabled,
           ...theme.applyStyles('dark', {
-            '--layout-nav-bg': themeConfig.surfaces.dark.sidebar,
             '--layout-nav-border-color': varAlpha(palette.grey['500Channel'], 0.08),
             '--layout-nav-horizontal-bg': varAlpha(palette.background.defaultChannel, 0.96),
           }),

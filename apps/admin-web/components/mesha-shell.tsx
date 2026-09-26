@@ -5,10 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LinkNavPending } from "@/components/app/link-nav-pending";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, MapPin } from "lucide-react";
 import { usePopover } from "minimal-shared/hooks";
 import Box from "@mui/material/Box";
-import ButtonBase from "@mui/material/ButtonBase";
 import Divider from "@mui/material/Divider";
 import ListSubheader from "@mui/material/ListSubheader";
 import MenuItem from "@mui/material/MenuItem";
@@ -44,6 +42,7 @@ import {
 import type { NavSectionProps } from "@/layouts/template/nav-section";
 import { DashboardContent, DashboardLayout } from "@/layouts/dashboard";
 import { AccountButton } from "@/layouts/components/account-button";
+import { WorkspacesButton } from "@/layouts/components/workspaces-button";
 import "@/layouts/mesha-layout.css";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import Alert from "@mui/material/Alert";
@@ -797,7 +796,6 @@ export function MeshaShell({
         path: groupFirstHref(g),
         icon: navIcon(g.icon),
         active: g.leaves.some((l) => l.enabled && navActive(l)),
-        defaultOpen: Boolean(g.default_open),
         children: g.leaves.map((l) => ({
           title: l.label,
           path: l.enabled ? navHref(l) : l.href,
@@ -808,34 +806,32 @@ export function MeshaShell({
     });
   }
 
-  const headerRight = (
+  // Park / shed scope switcher: the template header's WorkspacesPopover (layouts/components/
+  // workspaces-popover.tsx) -- same slot (header left, after the menu button), same ButtonBase trigger
+  // (24px mark, subtitle2 name + Label from sm, carbon chevron-sort) and CustomPopover list. park_id is
+  // backend-honored; per-shed scope is NOT wired in this slice, so the Label reads "all sheds" -- never
+  // a faked shed filter. Links write the backend-safe ?park=uuid. Pages that own the park in their own
+  // filter bar HIDE it (maintainer decision 2026-08-18, 7be3a816e).
+  const headerLeft = (
     <>
-      {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
-          this slice, so the label reads "· all sheds" -- never a faked shed filter. The UI shows the human
-          label; links write the backend-safe ?park=uuid. Pages that own the park in their own filter bar
-          HIDE the top-bar chip (maintainer decision 2026-08-18, 7be3a816e). */}
       {lockTopBarParkSelector ? null : (
-        <div className="parksel">
-          <ButtonBase
-            className="pscope"
+        <Box data-park-scope sx={{ display: "flex", alignItems: "center" }}>
+          <WorkspacesButton
+            data-park-scope-trigger
+            open={scopeMenu.open}
+            name={activeParkLabel}
+            plan={activeParkId ? shellCopy(contract, "scope.all_sheds") : null}
             onClick={scopeMenu.onOpen}
             aria-expanded={scopeMenu.open}
             aria-haspopup="listbox"
+            aria-label={`${contract.top_bar.park_selector.label}: ${activeParkLabel}`}
             title={contract.top_bar.park_selector.label}
-            sx={{ minHeight: { xs: TAP_MIN, md: 40 } }}
-          >
-            <MapPin className="ic" aria-hidden="true" />
-            <b>{activeParkLabel}</b>
-            {activeParkId ? (
-              <span className="muted msh-scope-sub">· {shellCopy(contract, "scope.all_sheds")}</span>
-            ) : null}
-            <ChevronDown className="ic" aria-hidden="true" />
-          </ButtonBase>
+          />
           <CustomPopover
             open={scopeMenu.open}
             anchorEl={scopeMenu.anchorEl}
             onClose={scopeMenu.onClose}
-            slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { width: 280 } } }}
+            slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { mt: 0.5, ml: -1.55, width: 280 } } }}
           >
             <MenuList
               role="listbox"
@@ -889,15 +885,16 @@ export function MeshaShell({
               ) : null}
             </MenuList>
           </CustomPopover>
-        </div>
+        </Box>
       )}
+    </>
+  );
+
+  const headerRight = (
+    <>
       {/* Dock for the CEO assistant launcher (features/ceo-ai): a slot in the bar, so the closed bubble
           never floats over a table's last column or a footer pager. */}
       <span id="topbar-ai-slot" className="topbar-ai-slot" />
-      <ThemeToggle
-        labelToLight={shellCopy(contract, "theme.switch_to_light")}
-        labelToDark={shellCopy(contract, "theme.switch_to_dark")}
-      />
       {/* The in-app notification centre (owns its popover, reads and failures). Browser web push rides
           the same bell; the permission ask is an explicit click inside the panel. */}
       <NotificationBell
@@ -907,6 +904,12 @@ export function MeshaShell({
             : contract.top_bar.notifications.disabled_reason
         }
         contractCopy={contract.copy}
+      />
+      {/* Theme toggle sits where the template header has its Settings button: after notifications,
+          before the account avatar (layouts/dashboard/layout.tsx in Minimal v7.7.0). */}
+      <ThemeToggle
+        labelToLight={shellCopy(contract, "theme.switch_to_light")}
+        labelToDark={shellCopy(contract, "theme.switch_to_dark")}
       />
       {/* Renders nothing: keeps an already-granted browser's FCM token registered on mount. */}
       <PushRegistrationSync />
@@ -935,7 +938,7 @@ export function MeshaShell({
           {parkScopeOption ? (
             <MenuList sx={{ p: 1, my: 1 }} aria-label={shellCopy(contract, "account.open_menu")}>
               <MenuItem component={Link} href={scopeHref(pathname, renderedScope)} onClick={roleMenu.onClose} sx={menuRowSx}>
-                <MapPin className="ic" aria-hidden="true" />
+                <Iconify width={24} icon="mingcute:location-fill" sx={{ color: "text.secondary" }} />
                 <Box component="span" sx={{ flexGrow: 1 }}>{contract.top_bar.park_selector.label}</Box>
                 <Typography variant="caption" sx={{ color: "text.secondary" }}>{activeParkLabel}</Typography>
               </MenuItem>
@@ -958,8 +961,7 @@ export function MeshaShell({
         logoText={contract.top_bar.logo_text}
         navLabel={contract.top_bar.product_name}
         menuLabel={shellCopy(contract, "nav.expand")}
-        closeLabel={shellCopy(contract, "nav.collapse")}
-        navBottom={contract.navigation.footer ? <div className="msh-foot">{contract.navigation.footer}</div> : null}
+        headerLeft={headerLeft}
         headerRight={headerRight}
         sx={routePending ? { "--msh-route-pending": 1 } : undefined}
       >
