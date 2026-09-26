@@ -1160,7 +1160,8 @@ function CompareFilter({
           // because it clears and there is nothing left to assemble.
           if (deferApply || nextOp === "") commit(nextOp, valueDraft);
         }}
-        sx={{ minWidth: { xs: 0, sm: 120 }, flexShrink: 0, maxWidth: 1 }}
+        // Wide enough for the metric name ("Average weight") -- at 120px the label was cut mid-word.
+        sx={{ minWidth: { xs: 0, sm: 180 }, flexShrink: 0, maxWidth: 1 }}
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         <MenuItem value="">{allLabel}</MenuItem>
@@ -1171,13 +1172,15 @@ function CompareFilter({
         ))}
       </TextField>
       <TextField
-        sx={{ width: 96 }}
+        // A labelled template field like its operator select, never a bare unlabeled box.
+        label={field.valueAriaLabel}
+        sx={{ width: { xs: 1, sm: 200 } }}
         // text + inputMode, not type="number": a number input reports an out-of-range or malformed
         // value as "" in some browsers, which would turn a typo into a cleared filter. The same
         // reasoning as the authoring inputs on this screen.
         type="text"
         value={valueDraft}
-        slotProps={{ htmlInput: { "aria-label": field.valueAriaLabel, inputMode: "decimal" } }}
+        slotProps={{ inputLabel: { shrink: true }, htmlInput: { inputMode: "decimal" } }}
         disabled={disabled}
         onChange={(event) => {
           setValueDraft(event.target.value);

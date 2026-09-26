@@ -369,6 +369,7 @@ submit — is a write path and inherits the repo idempotency contract. Check:
 - [ ] Chart ramp: 7 distinct hues, no error red (`chart-ramp-distinct`)
 - [ ] No stylesheet rule on a `PageHeader` className (`page-header-action-slot`)
 - [ ] Phone stacked rows are dividers, not cards in a card; no KPI deck inside a card (`no-card-in-card`)
+- [ ] Worklist filter fields each carry a visible, uncut label (`labelled-filter-fields`)
 - [ ] Filter bars: outlined selects + MUI Chips, one rows-per-page in the pager (`template-filter-toolbar`)
 
 ## Error, Loading, and Accessibility

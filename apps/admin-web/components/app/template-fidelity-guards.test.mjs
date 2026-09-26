@@ -210,3 +210,15 @@ test("guard: kanban-card-raised -- work-board cards stay raised in dark with the
   assert.match(board, /HOT_CARD_SX[\s\S]*borderColor: t\.vars\.palette\.warning\.main/);
   assert.match(board, /<KanbanItemRoot sx=\{hot \? HOT_CARD_SX : CARD_ROOT_SX\}/);
 });
+
+test("guard: labelled-filter-fields -- every worklist filter field shows its own label", () => {
+  // /weighing/analytics Pens: the compare value box was a bare 96px input beside a 120px select whose
+  // label was cut mid-word ("Average weigh…"), AUDIT1 P1-15. Template toolbar fields carry labels.
+  const source = read("components/worklist-filters.tsx");
+  const compare = source.slice(source.indexOf("const staged = opDraft !== field.op"), source.indexOf("The toolbar's search box"));
+  // Each field's own props: from its `<TextField` to its first child/next field (handlers nest deeply).
+  const fields = compare.split("<TextField").slice(1).map((chunk) => chunk.split(/<MenuItem|<TextField|\n\s*\/>/)[0]);
+  assert.ok(fields.length >= 2, "operator select + value field");
+  for (const props of fields) assert.match(props, /\blabel=/, "each compare TextField has a visible label");
+  assert.doesNotMatch(compare, /width: 96\b|sm: 120\b/, "no fixed widths that cut the label");
+});

@@ -221,6 +221,8 @@ audit defect on PR #294:
   are a shrinking list in the test).
 - `template-filter-toolbar`: filter bars are the template list toolbar (outlined TextField selects,
   MUI Chips with Clear); rows per page lives only in the table pager.
+- `labelled-filter-fields`: every WorklistFilters field (compare operator and value) shows its own
+  label at a width that does not cut it.
 - `routine-drawer-template`, `dark-alert-tint`, `kanban-card-raised`: the routine drawer renders only
   MUI form parts; dark standard Alerts are a 16% main tint (the locked dark `darker` steps are mid
   tones); work-board cards are raised paper with the amber needs-attention border.
