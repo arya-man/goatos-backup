@@ -1,12 +1,18 @@
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Link from "@mui/material/Link";
+import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
-import TableBody from "@mui/material/TableBody";
+import Alert from "@mui/material/Alert";
+import Avatar from "@mui/material/Avatar";
+import Button from "@mui/material/Button";
 import TableRow from "@mui/material/TableRow";
+import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
+import IconButton from "@mui/material/IconButton";
+import { redirect } from "next/navigation";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { redirect } from "next/navigation";
-import { Building2 } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import {
   firstAuthRequiredError,
@@ -17,37 +23,44 @@ import {
   type ProcurementVendorCatalog,
 } from "@/lib/api/server";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { Tag, type Tone } from "@/components/ui-primitives";
 import { actionFeedbackCopy, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { IdentityCell } from "@/components/data-table";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { ProcurementTableFooter } from "./table-footer-links";
-import { ProcurementTableToolbar } from "./table-toolbar";
+import { ProcurementFiltersResult, type ToolbarChip } from "./table-toolbar";
 import { VendorFilterBar, type VendorFilterKey } from "./vendor-filter-bar";
 import { VendorLocalDrawer } from "./vendor-local-drawer";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import Alert from "@mui/material/Alert";
 import { salesErrorText } from "./sales-error";
 
 const PAGE_SIZE = 25;
 
 /**
- * Status tone for the register's chip.
+ * Status colour for the register's Label.
  *
  * The LABEL comes from the backend (`status_label`), never from here -- this maps only the visual
- * tone, which is presentation and therefore the frontend's to own.
+ * colour, which is presentation and therefore the frontend's to own.
  */
-function statusTone(status: string): Tone {
+function statusColor(status: string): LabelColor {
   switch (status) {
     case "active":
-      return "ok";
+      return "success";
     case "negotiating":
-      return "warn";
+      return "warning";
     case "banned":
-      return "dng";
+      return "error";
     default:
-      return "mut";
+      return "default";
   }
+}
+
+/** The catalog's label for an applied facet value (the chip shows "Tamil Nadu", not "tn"). */
+function catalogLabel(catalog: ProcurementVendorCatalog | null, key: VendorFilterKey, value: string): string {
+  return catalog?.[VENDOR_CATALOG_KEY[key]]?.find((entry) => entry.value === value)?.label ?? value;
 }
 
 function hrefWithQuery(pathname: string, sp: RouteSearchParams, patch: Record<string, string | null>): string {
@@ -165,161 +178,167 @@ export async function VendorBoardPage({
 
   const hasAnyFilter = Boolean(search) || Object.keys(activeFilters).length > 0;
 
+  const statusValue = activeFilters.status ?? "";
+  const statusTabs = [
+    { value: "", label: copy(pageContract, "filter.all") },
+    ...(catalog?.statuses ?? []).filter((entry) => entry.is_active || entry.value === statusValue).map((entry) => ({ value: entry.value, label: entry.label })),
+  ];
+  const headCells = [
+    { id: "business_name", label: copy(pageContract, "column.business_name"), sortable: false },
+    { id: "record_type", label: copy(pageContract, "column.record_type"), sortable: false },
+    { id: "phone_number", label: copy(pageContract, "column.phone_number"), sortable: false },
+    { id: "location_display", label: copy(pageContract, "column.location_display"), sortable: false },
+    { id: "status", label: copy(pageContract, "column.status"), sortable: false },
+    { id: "", width: 64, sortable: false },
+  ];
+  const chips: ToolbarChip[] = [
+    ...(search ? [{ id: "search", group: copy(pageContract, "filter.search", "Search"), label: search, href: hrefWithQuery(pathname, sp, { search: null, offset: null }) }] : []),
+    ...FILTER_KEYS.filter((key) => key !== "status" && activeFilters[key]).map((key) => ({
+      id: key,
+      group: copy(pageContract, `filter.${key}`, key),
+      label: catalogLabel(catalog, key, activeFilters[key] ?? ""),
+      href: hrefWithQuery(pathname, sp, { [key]: null, offset: null }),
+    })),
+  ];
+
   return (
     <div className="screen on">
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
         actions={
-          <LocalOverlayLink href={hrefWithQuery(pathname, sp, { vendor: "new" })} className="btn primary" scroll={false}>
+          <Button
+            component={LocalOverlayLink}
+            href={hrefWithQuery(pathname, sp, { vendor: "new" })}
+            scroll={false}
+            variant="contained"
+            color="primary"
+            startIcon={<Iconify icon="mingcute:add-line" />}
+          >
             {copy(pageContract, "action.add")}
-          </LocalOverlayLink>
+          </Button>
         }
       />
 
       {/* Write feedback. Without this the operator saves a vendor and the drawer simply closes,
           which is indistinguishable from the save being dropped. */}
       {actionStatus ? (
-        actionStatus === "success" ? (
-          <div className="note" style={{ marginBottom: 14 }}>
-            {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
-        ) : (
-          <Alert severity="error" style={{ marginBottom: 14 }}>
-            {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </Alert>
-        )
+        <Alert severity={actionStatus === "success" ? "success" : "error"} sx={{ mb: 3 }}>
+          {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+        </Alert>
       ) : null}
 
       {!result.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           {salesErrorText(result.error, copy(pageContract, "error.load"))}
         </Alert>
       ) : null}
 
-      <ProcurementTableToolbar
-        clearLabel={copy(pageContract, "action.clear_all", "Clear all")}
-        columnsLabel={copy(pageContract, "action.columns", "Columns")}
-        exportLabel={copy(pageContract, "action.export", "Export")}
-        moreLabel={copy(pageContract, "action.more", "More")}
-        ariaLabel={copy(pageContract, "section.vendors.title")}
-        tableId="procurement-vendors"
-        exportName="vendors"
-        chips={[
-          ...(search ? [{ id: "search", label: `${copy(pageContract, "filter.search", "Search")}: ${search}`, href: hrefWithQuery(pathname, sp, { search: null, offset: null }) }] : []),
-          ...FILTER_KEYS.filter((key) => activeFilters[key]).map((key) => ({
-            id: key,
-            label: `${copy(pageContract, `filter.${key}`, key)}: ${activeFilters[key]}`,
-            href: hrefWithQuery(pathname, sp, { [key]: null, offset: null }),
-          })),
-        ]}
-        clearHref={
-          search || FILTER_KEYS.some((key) => activeFilters[key])
-            ? hrefWithQuery(pathname, sp, {
-                search: null,
-                offset: null,
-                ...Object.fromEntries(FILTER_KEYS.map((key) => [key, null])),
-              })
-            : undefined
-        }
-      >
+      {/* Template user list: Card > status Tabs with Label counts > toolbar > filters result >
+          table > pagination. The status tab is the `?status=` filter; only the shown tab has a
+          count (the backend counts the whole filter, never every status at once). */}
+      <Card>
+        <AnimatedTabs
+          ariaLabel={copy(pageContract, "filter.status")}
+          value={statusValue}
+          items={statusTabs.map((tab) => ({
+            value: tab.value,
+            label: tab.label,
+            href: hrefWithQuery(pathname, sp, { status: tab.value || null, offset: null }),
+            count: tab.value === statusValue ? total : undefined,
+          }))}
+          sx={{ px: { md: 2.5 } }}
+        />
+
         <VendorFilterBar
           pageContract={pageContract}
           pathname={pathname}
           catalog={catalog}
           search={search}
           filters={activeFilters}
+          tableId="procurement-vendors"
+          exportName="vendors"
         />
-      </ProcurementTableToolbar>
 
-      <section className="card">
-        <div className="hd">
-          <Building2 className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.vendors.title")}</h3>
-          {/* The WHOLE-FILTER total from the backend, not vendors.length -- this must keep reading
-              "306 vendors" while the table shows 25 of them. */}
-          <Tag tone={total ? "info" : "mut"}>
-            {total} {copy(pageContract, "summary.count")}
-          </Tag>
-        </div>
+        <ProcurementFiltersResult
+          chips={chips}
+          totalResults={total}
+          clearHref={hrefWithQuery(pathname, sp, {
+            search: null,
+            offset: null,
+            ...Object.fromEntries(FILTER_KEYS.filter((key) => key !== "status").map((key) => [key, null])),
+          })}
+        />
 
-        {vendors.length === 0 ? (
-          <EmptyState title={hasAnyFilter ? copy(pageContract, "empty.vendors") : copy(pageContract, "empty.vendors.unset")} />
-        ) : (
-          <div id="procurement-vendors" className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.vendors.aria")}>
-            <Table className="procurement-vendors-table" aria-label={copy(pageContract, "section.vendors.aria")}>
-              <TableHead>
-                <TableRow>
-                  <TableCell component="th">{copy(pageContract, "column.business_name")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.record_type")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.phone_number")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.location_display")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.status")}</TableCell>
-                </TableRow>
-              </TableHead>
+        <Box id="procurement-vendors" tabIndex={0} role="region" aria-label={copy(pageContract, "section.vendors.aria")}>
+          <Scrollbar>
+            <Table sx={{ minWidth: 800 }} aria-label={copy(pageContract, "section.vendors.aria")}>
+              <TableHeadCustom headCells={headCells} />
               <TableBody>
                 {vendors.map((vendor) => {
                   const drawerHref = hrefWithQuery(pathname, sp, { vendor: vendor.vendor_id });
                   return (
-                    <TableRow key={vendor.vendor_id}>
+                    <TableRow key={vendor.vendor_id} hover>
                       <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <IdentityCell
-                            primary={vendor.business_name}
-                            secondary={vendor.contact_person_name || vendor.location_display || undefined}
-                            lead={<span className="kit-idcell-tile" aria-hidden="true">{vendor.business_name.slice(0, 1).toUpperCase()}</span>}
-                          />
-                        </LocalOverlayLink>
+                        <Box sx={{ gap: 2, display: "flex", alignItems: "center" }}>
+                          <Avatar alt={vendor.business_name}>{vendor.business_name.slice(0, 1).toUpperCase()}</Avatar>
+                          <Stack sx={{ typography: "body2", flex: "1 1 auto", alignItems: "flex-start", minWidth: 0 }}>
+                            <Link component={LocalOverlayLink} href={drawerHref} scroll={false} color="inherit" sx={{ cursor: "pointer" }}>
+                              {vendor.business_name}
+                            </Link>
+                            <Box component="span" sx={{ color: "text.disabled" }}>
+                              {vendor.contact_person_name || vendor.location_display || copy(pageContract, "value.none")}
+                            </Box>
+                          </Stack>
+                        </Box>
                       </TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{vendor.record_type}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{vendor.phone_number ?? copy(pageContract, "value.none")}</TableCell>
+                      <TableCell>{vendor.location_display}</TableCell>
                       <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {vendor.record_type}
-                        </LocalOverlayLink>
+                        {/* Backend-owned label; the frontend chooses only the colour. */}
+                        <Label variant="soft" color={statusColor(vendor.status)}>
+                          {vendor.status_label}
+                        </Label>
                       </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {vendor.phone_number ?? copy(pageContract, "value.none")}
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {vendor.location_display}
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {/* Backend-owned label; the frontend chooses only the tone. */}
-                          <Tag tone={statusTone(vendor.status)}>{vendor.status_label}</Tag>
-                        </LocalOverlayLink>
+                      <TableCell align="right">
+                        <IconButton component={LocalOverlayLink} href={drawerHref} scroll={false} aria-label={`${copy(pageContract, "action.edit", "Edit")} ${vendor.business_name}`}>
+                          <Iconify icon="solar:pen-bold" />
+                        </IconButton>
                       </TableCell>
                     </TableRow>
                   );
                 })}
+                {vendors.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={headCells.length}>
+                      <EmptyState sx={{ py: 10 }} title={hasAnyFilter ? copy(pageContract, "empty.vendors") : copy(pageContract, "empty.vendors.unset")} />
+                    </TableCell>
+                  </TableRow>
+                ) : null}
               </TableBody>
             </Table>
-          </div>
-        )}
+          </Scrollbar>
+        </Box>
 
-        {pageCount > 1 ? (
-          <ProcurementTableFooter
-            denseLabel={copy(pageContract, "action.dense", "Dense")}
-            rowsLabel={copy(pageContract, "pager.rows", "Rows")}
-            page={pageNumber}
-            pageCount={pageCount}
-            rangeLabel={`${offset + 1}\u2013${offset + vendors.length} ${copy(pageContract, "pager.of")} ${total}`}
-            rowsValue={limit}
-            rowsOptions={[10, 25, 50, 100].map((size) => ({
-              size,
-              href: hrefWithQuery(pathname, sp, { limit: String(size), offset: null }),
-            }))}
-            prevHref={hrefWithQuery(pathname, sp, { offset: String(Math.max(0, (pageNumber - 2) * limit)) })}
-            nextHref={hrefWithQuery(pathname, sp, { offset: String(pageNumber * limit) })}
-            prevLabel={copy(pageContract, "action.prev_page")}
-            nextLabel={copy(pageContract, "action.next_page")}
-            denseTargetId="procurement-vendors"
-          />
-        ) : null}
-      </section>
+        <ProcurementTableFooter
+          denseLabel={copy(pageContract, "action.dense", "Dense")}
+          rowsLabel={copy(pageContract, "pager.rows", "Rows")}
+          page={pageNumber}
+          pageCount={pageCount}
+          rangeLabel={total ? `${offset + 1}–${offset + vendors.length} ${copy(pageContract, "pager.of")} ${total}` : `0 ${copy(pageContract, "summary.count")}`}
+          rowsValue={limit}
+          rowsOptions={[10, 25, 50, 100].map((size) => ({
+            size,
+            href: hrefWithQuery(pathname, sp, { limit: String(size), offset: null }),
+          }))}
+          prevHref={hrefWithQuery(pathname, sp, { offset: String(Math.max(0, (pageNumber - 2) * limit)) })}
+          nextHref={hrefWithQuery(pathname, sp, { offset: String(pageNumber * limit) })}
+          prevLabel={copy(pageContract, "action.prev_page")}
+          nextLabel={copy(pageContract, "action.next_page")}
+          denseTargetId="procurement-vendors"
+        />
+      </Card>
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
           gated on a server-read search param would never appear. */}

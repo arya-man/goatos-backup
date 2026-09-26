@@ -1,23 +1,25 @@
 "use client";
 
-import { Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import Button from "@mui/material/Button";
-import Card from "@mui/material/Card";
 import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { Iconify } from "@/components/minimal/iconify";
 import { worklistFilterIsStaged } from "@/lib/worklist-filter-draft";
 import type { ProcurementVendorCatalog } from "@/lib/api/server";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { useTableColumnsMenu } from "./table-toolbar";
 
 export type VendorFilterKey = "record_type" | "status" | "state" | "city" | "breed";
 
-const FILTERS: { key: VendorFilterKey; catalogKey: keyof ProcurementVendorCatalog; copyKey: string }[] = [
+// Status is not a select here: it is the template list's Tabs row above this toolbar
+// (vendor-board.tsx), which writes the same `?status=` param.
+const FILTERS: { key: Exclude<VendorFilterKey, "status">; catalogKey: keyof ProcurementVendorCatalog; copyKey: string }[] = [
   { key: "record_type", catalogKey: "record_types", copyKey: "filter.record_type" },
-  { key: "status", catalogKey: "statuses", copyKey: "filter.status" },
   { key: "state", catalogKey: "states", copyKey: "filter.state" },
   { key: "city", catalogKey: "cities", copyKey: "filter.city" },
   { key: "breed", catalogKey: "breeds", copyKey: "filter.breed" },
@@ -49,6 +51,8 @@ export function VendorFilterBar({
   catalog,
   search,
   filters,
+  tableId,
+  exportName,
 }: {
   pageContract: AdminUiPageContract;
   /**
@@ -61,10 +65,19 @@ export function VendorFilterBar({
   /** What the server last rendered -- the APPLIED state the draft is compared against. */
   search: string;
   filters: Partial<Record<VendorFilterKey, string>>;
+  /** Id of the table's scroll region, for the ⋮ Columns / Export actions. */
+  tableId: string;
+  exportName: string;
 }) {
   const router = useRouter();
   const params = useSearchParams();
   const [pending, startTransition] = useTransition();
+  const columns = useTableColumnsMenu({
+    tableId,
+    exportName,
+    columnsLabel: copy(pageContract, "action.columns", "Columns"),
+    exportLabel: copy(pageContract, "action.export", "Export"),
+  });
 
   const applied: Record<string, string | undefined> = { search, ...filters };
   const [draft, setDraft] = useState<Record<string, string>>(() => toDraft(applied));
@@ -105,96 +118,88 @@ export function VendorFilterBar({
 
   const hasAnyApplied = Boolean(search) || FILTERS.some((f) => filters[f.key]);
 
-  return (
-    // Template table toolbar (ecommerce ProductTableToolbar / invoice InvoiceTableToolbar): search
-    // TextField with a start adornment, the facet selects, then the apply / clear actions, on the
-    // Card surface. On a phone the search takes its own row and the facets pair up two per row.
-    <Card
-      sx={(theme) => ({
-        display: "flex",
-        flexWrap: "wrap",
-        alignItems: "center",
-        gap: 1.25,
-        p: 1.5,
-        mb: 1.5,
-        width: "100%",
-        "& > .vendor-filter-select": { flex: "0 1 10rem", minWidth: "8.75rem" },
-        [theme.breakpoints.down("sm")]: {
-          p: 1.25,
-          "& > .vendor-filter-select, & > .MuiButton-root": { flex: "1 1 calc(50% - 5px)", minWidth: 0 },
+  const searchField = (
+    <TextField
+      type="search"
+      fullWidth
+      value={effectiveSelection.search ?? ""}
+      onChange={(event) => setDraft({ ...draft, search: event.target.value })}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          apply(draft);
+        }
+      }}
+      placeholder={copy(pageContract, "filter.search_placeholder")}
+      slotProps={{
+        htmlInput: { "aria-label": copy(pageContract, "filter.search_label") },
+        input: {
+          startAdornment: (
+            <InputAdornment position="start">
+              <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+            </InputAdornment>
+          ),
         },
-      })}
+      }}
+    />
+  );
+
+  // MUI TextField selects (never native <select>), one per facet, in the template toolbar's
+  // fixed-width leading slot. The select reports the chosen value as `event.target.value`, so the
+  // staged-draft logic above is unchanged.
+  const selects = FILTERS.map((filter) => (
+    <TextField
+      key={filter.key}
+      select
+      className="order-toolbar-filter"
+      label={copy(pageContract, filter.copyKey)}
+      value={(catalog?.[filter.catalogKey] ?? []).some((entry) => entry.value === effectiveSelection[filter.key]) ? effectiveSelection[filter.key] : ""}
+      disabled={!catalog}
+      onChange={({ target: { value } }) => setDraft({ ...draft, [filter.key]: value })}
+      slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
     >
-      <TextField
-        type="search"
-        size="small"
-        value={effectiveSelection.search ?? ""}
-        onChange={(event) => setDraft({ ...draft, search: event.target.value })}
-        onKeyDown={(event) => {
-          // Enter applies the WHOLE staged bar, not just the search term -- otherwise typing a term
-          // and pressing Enter would silently discard a facet the operator had just picked.
-          if (event.key === "Enter") {
-            event.preventDefault();
-            apply(draft);
-          }
-        }}
-        placeholder={copy(pageContract, "filter.search_placeholder")}
-        slotProps={{
-          htmlInput: { "aria-label": copy(pageContract, "filter.search_label") },
-          input: {
-            startAdornment: (
-              <InputAdornment position="start">
-                <Search className="ic" aria-hidden="true" />
-              </InputAdornment>
-            ),
-          },
-        }}
-        sx={{ flex: { xs: "1 1 100%", sm: "1 1 16rem" }, minWidth: { xs: 0, sm: "12rem" }, maxWidth: { xs: "none", sm: "20rem" } }}
-      />
-
-      {/* MUI TextField select, not a native <select>: five OS dropdowns sat in this bar with their own
-          height, font and chevron, so the register's filter row read as a different design system
-          from the page it filtered. The select reports the chosen value as
-          `event.target.value`, so the staged-draft logic below is unchanged. */}
-      {FILTERS.map((filter) => (
-        <TextField
-          key={filter.key}
-          select
-          className="vendor-filter-select"
-          label={copy(pageContract, filter.copyKey)}
-          value={(catalog?.[filter.catalogKey] ?? []).some((entry) => entry.value === effectiveSelection[filter.key]) ? effectiveSelection[filter.key] : ""}
-          disabled={!catalog}
-          onChange={({ target: { value } }) => setDraft({ ...draft, [filter.key]: value })}
-          sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
-          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-        >
-          <MenuItem value="">{copy(pageContract, "filter.all")}</MenuItem>
-          {(catalog?.[filter.catalogKey] ?? []).map((entry) => (
-            <MenuItem key={entry.value} value={entry.value}>
-              {entry.label}
-            </MenuItem>
-          ))}
-        </TextField>
+      <MenuItem value="">{copy(pageContract, "filter.all")}</MenuItem>
+      {(catalog?.[filter.catalogKey] ?? []).map((entry) => (
+        <MenuItem key={entry.value} value={entry.value}>
+          {entry.label}
+        </MenuItem>
       ))}
+    </TextField>
+  ));
 
-      {/* Disabled with nothing staged, so the control tells the truth about whether pressing it
-          would change anything. */}
-      <Button
-        variant="contained" color="primary"
-        onClick={() => apply(draft)}
-        disabled={pending || !staged}
-        aria-disabled={pending || !staged}
-        title={staged ? undefined : copy(pageContract, "filter.apply.nothing_staged")}
-      >
-        {pending ? copy(pageContract, "filter.applying") : copy(pageContract, "filter.apply")}
-      </Button>
-
-      {hasAnyApplied || staged ? (
-        <Button variant="outlined" color="inherit" onClick={() => apply({})} disabled={pending}>
-          {copy(pageContract, "filter.clear")}
-        </Button>
-      ) : null}
-    </Card>
+  return (
+    <>
+      <OrderTableToolbar
+        filters={selects}
+        search={searchField}
+        menuActions={columns.menuActions}
+        menuLabel={copy(pageContract, "action.more", "More")}
+        trailing={
+          <>
+            {/* Disabled with nothing staged, so the control tells the truth about whether pressing it
+                would change anything. */}
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              onClick={() => apply(draft)}
+              disabled={pending || !staged}
+              aria-disabled={pending || !staged}
+              title={staged ? undefined : copy(pageContract, "filter.apply.nothing_staged")}
+              sx={{ flexShrink: 0, minHeight: "var(--input-h)" }}
+            >
+              {pending ? copy(pageContract, "filter.applying") : copy(pageContract, "filter.apply")}
+            </Button>
+            {hasAnyApplied || staged ? (
+              <Button variant="outlined" color="inherit" size="large" onClick={() => apply({})} disabled={pending} sx={{ flexShrink: 0, minHeight: "var(--input-h)" }}>
+                {copy(pageContract, "filter.clear")}
+              </Button>
+            ) : null}
+          </>
+        }
+      />
+      {columns.popover}
+    </>
   );
 }
 

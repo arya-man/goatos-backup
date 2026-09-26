@@ -203,6 +203,9 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   AnalyticsWidgetSummary tint in dark); lists use the template table anatomy (Card, Tabs + Label counts,
   toolbar, TableHeadCustom, pagination). `design:guard` rule `page-template-map` fails when a mapped page
   stops importing one of its listed template modules or a mapped file disappears.
+- **Template sections with a function sx are client modules (guard `section-server-fn-sx`, p0).** Pages render
+  `components/minimal/sections/**` from Server Components; a section using `sx={(theme) => …}` without `'use client'`
+  throws "Functions cannot be passed directly to Client Components" at render. Put `'use client'` at the top.
 - **Neutrals are the template's, brand is Mesha (Ravi 2026-09-27).** Grey scale, surfaces, text,
   divider and action values are exactly the MUI Minimal template's (dark bg `#141A21`, paper `#1C252E`);
   primary/status hues stay Mesha. P0 `template-neutrals` pins `theme/theme-config.ts` +

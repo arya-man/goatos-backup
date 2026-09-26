@@ -16,6 +16,13 @@
   ],
   "template_root": "~/mesha/mui/Minimal_TypeScript_v7.7.0/next-ts",
   "sources": {
+    "components/minimal/sections/order/order-details-toolbar.tsx": "src/sections/order/order-details-toolbar.tsx",
+    "components/minimal/sections/order/order-details-history.tsx": "src/sections/order/order-details-history.tsx",
+    "components/minimal/sections/order/order-details-delivery.tsx": "src/sections/order/order-details-delivery.tsx",
+    "components/minimal/sections/order/order-details-customer.tsx": "src/sections/order/order-details-customer.tsx",
+    "components/minimal/sections/order/order-details-items.tsx": "src/sections/order/order-details-items.tsx",
+    "components/minimal/sections/order/order-table-toolbar.tsx": "src/sections/order/order-table-toolbar.tsx",
+
     "components/minimal/index.ts": "src/components/index.ts",
     "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
     "components/minimal/sections/invoice/invoice-analytic.tsx": "src/sections/invoice/invoice-analytic.tsx",

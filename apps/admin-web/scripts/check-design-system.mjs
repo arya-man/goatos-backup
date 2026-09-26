@@ -172,6 +172,7 @@ const CHECKS = {
   "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not use KpiCard variant tint/gradient or AnalyticsWidgetSummary (pastel in dark); KPI rows are the template Ecommerce/Course/Banking widget summaries" },
   "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
+  "section-server-fn-sx": { tier: "p0", why: "a template section under components/minimal/sections/ that styles with a function sx ((theme) => …) must start with 'use client': a Server Component page renders it, and a function prop cannot cross to the client MUI part (\"Functions cannot be passed directly to Client Components\", the whole page falls back to client rendering or 500s)" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
   "client-api-without-use-client": { tier: "p0", why: "a module that calls a client-only React/Next API (useState/useEffect/useRef/useTransition/useRouter/useSearchParams/usePathname/useLinkStatus …) or wires a JSX event handler (onClick={…}) must start with \"use client\"; otherwise a server component that imports it breaks `next build` (typecheck does not catch it)" },
@@ -380,6 +381,25 @@ function runGuard(root, { themeDiff }) {
       }
     } else if (!existsSync(manifestFile)) {
       findings.push(finding("unsourced-minimal-file", "docs/design/template-sources.json", 1, "template-sources.json is missing"));
+    }
+  }
+
+  // Template sections are rendered straight from Server Component pages. A function sx
+  // ((theme) => …) inside a section that is not a client module is serialized as a prop to the
+  // client MUI part and throws at render ("Functions cannot be passed directly to Client
+  // Components"), so such a section must be 'use client'.
+  {
+    const sectionsDir = join(root, "components", "minimal", "sections");
+    if (existsSync(sectionsDir)) {
+      for (const abs of walk(sectionsDir)) {
+        const rel = toRel(root, abs);
+        if (!/\.tsx$/.test(rel)) continue;
+        const text = readFileSync(abs, "utf8");
+        if (/^\s*['"]use client['"]/.test(text)) continue;
+        const lines = text.split("\n");
+        const at = lines.findIndex((line) => /\(\s*\{?\s*theme\s*\}?\s*\)\s*=>/.test(line));
+        if (at >= 0) findings.push(finding("section-server-fn-sx", rel, at + 1, lines[at]));
+      }
     }
   }
 
@@ -791,6 +811,7 @@ async function selfTest() {
   put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n");
   put("components/bad.css", ".x { color: #abcdef; }\n.g{background:#0E1512}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");
   // Template code: ratchet-tier sizes are exempt, a foreign palette is still P0.
+  put("components/minimal/sections/order/server-fn-sx.tsx", 'import Box from "@mui/material/Box";\nexport const X = () => <Box sx={(theme) => ({ color: theme.palette.text.primary })} />;\n');
   put("components/minimal/tpl.tsx", 'const t = <div style={{ fontSize: 13, borderRadius: 10, padding: 12 }} />;\n');
   put("components/app/bad.tsx", 'import styles from "./bad.module.css";\nexport function Bad() { return <div className={styles.x} />; }\n');
   put("components/server-hook.ts", 'export { useLinkStatus } from "next/link";\n');

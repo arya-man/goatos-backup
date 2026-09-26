@@ -549,16 +549,10 @@ td.kit-rowactions,td.kit-check{position:relative;z-index:3}
 /* Height is desktop-only: phones keep the 44px tap target set in the <=640px block. */
 
 /* Shared sales/procurement table toolbar (features/procurement/table-toolbar.tsx). Tokens only. */
-.proc-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;margin:0 0 12px}
-.proc-toolbar-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;min-width:0}
-.proc-toolbar-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
-.proc-toolbar-columns{position:relative}
 .proc-chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 6px 0 10px;border:1px solid var(--line);border-radius:999px;background:var(--paper);font-size:13px;font-weight:600;color:var(--fg);text-decoration:none;transition:background .15s ease,border-color .15s ease}
 .proc-chip:hover{background:var(--hover);border-color:var(--fg-muted)}
 .proc-chip svg{width:14px;height:14px;color:var(--fg-muted)}
-.kit-col-hidden{display:none}
 @media(max-width:640px){
-  .proc-toolbar-actions{margin-left:0;flex:1 0 100%;justify-content:flex-end}
   .proc-chip{height:34px}
 }
 

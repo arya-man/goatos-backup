@@ -231,3 +231,4 @@ Apply the review-only rows (PP-7..PP-21) by hand when reviewing a hot read.
   TableHeadCustom, TablePaginationCustom/Links). Use EcommerceWidgetSummary/CourseWidgetSummary/BankingWidgetSummary.
 - Review check: a changed page that drops a mapped template import, or a new page with no map row, is a
   blocker; `design:guard` (`page-template-map`, p0) enforces the listed imports.
+- **Server-rendered sections need 'use client' for function sx (guard `section-server-fn-sx`, p0).** A template section under `components/minimal/sections/` is rendered straight from Server Component pages; if it styles with `sx={(theme) => …}` / `sx={[(theme) => …]}` it must start with `'use client'`, or the function crosses the server/client boundary and the page throws "Functions cannot be passed directly to Client Components" (whole route falls back to client rendering or 500s).
