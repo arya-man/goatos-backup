@@ -449,7 +449,7 @@ func TestPenCoverageEmptyPensAreHiddenFromBoardFilterAndTotal(t *testing.T) {
 
 // OCCUPANCY, ONE-TO-MANY: a pen holding many animals is still ONE row (the occupancy check is a
 // semi-join, never a join that multiplies the pen by its residents), and a resident whose pen label
-// differs only in case and spacing still counts.
+// differs only in case, spacing, or the "Part " prefix still counts.
 func TestPenCoverageOccupiedPenWithManyResidentsOneToManyListsOnce(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupPCCareDB(t, ctx)
@@ -457,7 +457,7 @@ func TestPenCoverageOccupiedPenWithManyResidentsOneToManyListsOnce(t *testing.T)
 	for i := 0; i < 5; i++ {
 		coverageResidents(t, ctx, repo, pcPark, covShedGodel+"|Part 1")
 	}
-	coverageResidents(t, ctx, repo, pcPark, covShedGodel+"| part 2 ")
+	coverageResidents(t, ctx, repo, pcPark, covShedGodel+"|2")
 	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
 	if page.Total != 2 || len(page.Rows) != 2 || len(page.PenOptions) != 2 {
 		t.Fatalf("total %d rows %d options %d, want 2/2/2 (Part 1 once despite five animals; Part 2 by its normalised label)", page.Total, len(page.Rows), len(page.PenOptions))

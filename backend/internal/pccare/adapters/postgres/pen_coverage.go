@@ -93,7 +93,11 @@ var penCoverageScopedPensSQL = `  SELECT park.location_id AS park_id, park.name 
       WHERE g.tenant_id = shed.tenant_id
         AND g.shed_id = shed.location_id
         AND g.lifecycle_status = 'alive'
-        AND (sp.partition_label IS NULL OR LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) = LOWER(BTRIM(sp.partition_label)))
+        AND (
+          sp.partition_label IS NULL
+          OR regexp_replace(LOWER(BTRIM(COALESCE(gsp.partition_label, ''))), '^part[[:space:]]+', '') =
+             regexp_replace(LOWER(BTRIM(sp.partition_label)), '^part[[:space:]]+', '')
+        )
     )
 `
 
