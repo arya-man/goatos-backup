@@ -1070,7 +1070,6 @@
     .main .counts-breakdown-card .hd{align-items:flex-start;flex-direction:column;gap:4px}
     .main .counts-breakdown-card .hd .small{margin-left:0!important;line-height:1.35}
   }
-  /* Full-width distribution charts, one per row — not the mock's 340px masonry columns. */
   /* Herd Analytics window filter row: the shared calendar plus the note pointing at
      the top bar for park scope. Space BELOW it so the KPI cards do not sit flush against
      the control, and the popover has room to open over the page rather than the cards. */
@@ -1094,14 +1093,7 @@
      whose 340px columns squeeze a full-width bar chart's pen labels into a sliver.
      Both Counts read screens share this ONE rule so they cannot drift apart. */
   .main .counts-breakdown-charts{display:flex;flex-direction:column;gap:14px}
-  /* Herd Analytics stacks five full-width cards, so they need more air between them than the
-     three-card breakdown does — at 14px they read as one long panel with rules across it.
-     The SAME value sits above the first card: its wrapper is a bare section rather than a
-     `.card` (the band heading is gone), so it inherits none of `.card`'s own 16px top margin
-     and "Breed mix" would otherwise butt straight up against the chart above it. */
-  .main .herd-analytics-charts{display:flex;flex-direction:column;gap:22px;margin-top:22px}
-  .main .counts-breakdown-charts .chartcard,
-  .main .herd-analytics-charts .chartcard{width:100%}
+  .main .counts-breakdown-charts .chartcard{width:100%}
   /* Mortality: rate and cross-tab cards two to a row on a wide screen, one below ~1100px, so a
      ten-row breed table does not stretch across the whole page with a bar on the far right. The
      cross tabs get the full width because their column count is data-driven. */

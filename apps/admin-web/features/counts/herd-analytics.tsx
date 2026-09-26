@@ -1,19 +1,23 @@
 import { redirect } from "next/navigation";
 
-import { ArrowUpDown, Baby, HeartOff, HeartPulse } from "lucide-react";
-
-import { TrendChart } from "@/components/app/trend-chart";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
-import CardHeader from "@mui/material/CardHeader";
-import CardContent from "@mui/material/CardContent";
-import { BarList, type BarListRow } from "@/components/bar-list";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { splitParts } from "@/components/minimal/widgets";
-import { GoatGlyph } from "@/components/goat-glyph";
+import { KpiGrid, splitParts } from "@/components/minimal/widgets";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
+import {
+  EcommerceSalesOverview,
+  type EcommerceSalesOverviewItem,
+} from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import type { SvgBarDatum } from "@/components/svg-bars";
-import { type LineSeries } from "@/components/svg-series";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -111,16 +115,6 @@ const SERIES_COLOR = {
 
 const nf = (value: number) => value.toLocaleString("en-IN");
 
-/** Composition rows: value plus its share of the whole, in the value column ("312 · 41%"). */
-function shareRows(bars: SvgBarDatum[]): BarListRow[] {
-  const total = bars.reduce((sum, bar) => sum + Math.max(bar.value, 0), 0);
-  return bars.map((bar) => ({
-    key: bar.key,
-    label: bar.label,
-    value: bar.value,
-    display: total > 0 ? `${nf(bar.value)} \u00b7 ${Math.round((bar.value / total) * 100)}%` : nf(bar.value),
-  }));
-}
 /** Net change is the one figure that can be negative, and the sign is the point. */
 const signed = (value: number) => (value > 0 ? `+${nf(value)}` : nf(value));
 
@@ -161,18 +155,25 @@ function toBars(points: HerdAnalyticsSeriesPoint[], unassignedLabel: string): Sv
   }));
 }
 
-function ChartCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+/** Composition rows as template EcommerceSalesOverview progress rows: count + share of the whole. */
+const ROW_COLORS = ["primary", "info", "warning", "success", "secondary", "error"] as const;
+function overviewRows(bars: SvgBarDatum[]): EcommerceSalesOverviewItem[] {
+  const total = bars.reduce((sum, bar) => sum + Math.max(bar.value, 0), 0);
+  return bars.map((bar, i) => ({
+    key: bar.key,
+    label: bar.label,
+    value: total > 0 ? Math.round((Math.max(bar.value, 0) / total) * 1000) / 10 : 0,
+    display: nf(bar.value),
+    color: ROW_COLORS[i % ROW_COLORS.length],
+  }));
+}
+
+/** One composition card: template EcommerceSalesOverview, or its empty state inside the same card. */
+function MixCard({ title, bars, emptyLabel }: { title: string; bars: SvgBarDatum[]; emptyLabel: string }) {
   return (
-    <Card className="herd-mix-card">
-      <CardHeader title={title} />
-      <CardContent>{children}</CardContent>
-    </Card>
+    <EcommerceSalesOverview title={title} data={overviewRows(bars)} aria-label={title} sx={{ height: 1 }}>
+      {bars.length === 0 ? <EmptyContent title={emptyLabel} sx={{ py: 3 }} /> : null}
+    </EcommerceSalesOverview>
   );
 }
 
@@ -213,48 +214,43 @@ export async function HerdAnalyticsPage({
   const animalsNoun = ha(pageContract, "label.animals_noun");
   const emptyChart = ha(pageContract, "chart.empty");
 
+  const header = (rows: (string | number)[][]) => (
+    <PageHeader
+      title={pageContract.title}
+      crumbs={[{ label: ha(pageContract, "crumb") }, { label: ha(pageContract, "section.analytics.title") }]}
+      actions={<HerdAnalyticsExport rows={rows} filename={pageContract.route_id} label={ha(pageContract, "action.export")} />}
+    />
+  );
+
   if (!data) {
     // A failed read still gets the page's own chrome. Without it the reader lands on a headerless
     // card and cannot tell which screen failed, or navigate from it.
     return (
-      <div className="kit-enter pagegrid ha-kit-stack">
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
         <HerdAnalyticsTelemetry routeId={pageContract.route_id} parkId={parkId} months={0} />
-      <div>
-        <PageHeader
-          title={pageContract.title}
-          crumbs={[{ label: ha(pageContract, "crumb") }, { label: ha(pageContract, "section.analytics.title") }]}
-          actions={<HerdAnalyticsExport rows={[]} filename={pageContract.route_id} label={ha(pageContract, "action.export")} />}
-        />
-      </div>
-        <div>
-          <Card>
-            <CardHeader title={ha(pageContract, "error.title")} subheader={ha(pageContract, "error.body")} sx={{ pb: 3 }} />
-          </Card>
-        </div>
-      </div>
+        {header([])}
+        <Alert severity="error" variant="outlined">
+          <AlertTitle>{ha(pageContract, "error.title")}</AlertTitle>
+          {ha(pageContract, "error.body")}
+        </Alert>
+      </Stack>
     );
   }
 
   const totals = data.totals;
   const monthLabels = data.months.map((month) => month.label);
-  const flowSeries: LineSeries[] = [
-    { label: ha(pageContract, "series.births"), colorVar: SERIES_COLOR.births, points: data.months.map((m) => m.births) },
-    { label: ha(pageContract, "series.deaths"), colorVar: SERIES_COLOR.deaths, points: data.months.map((m) => m.deaths) },
-    { label: ha(pageContract, "series.sold"), colorVar: SERIES_COLOR.sold, points: data.months.map((m) => m.sold) },
-    {
-      label: ha(pageContract, "series.other_exits"),
-      colorVar: SERIES_COLOR.other_exits,
-      points: data.months.map((m) => m.other_exits),
-    },
-  ];
-  // Same backend month rows, re-shaped for the shared chart wrapper (no arithmetic).
+  // Colour follows the SERIES (births green, deaths red) on the flow chart and the KPI sparklines.
   const flowKeys = ["births", "deaths", "sold", "other_exits"] as const;
-  const flowRows = data.months.map((m) => ({ month: m.label, births: m.births, deaths: m.deaths, sold: m.sold, other_exits: m.other_exits }));
-  // KPI sparklines are the SAME monthly series the flow chart draws (one bar per served month), so
-  // the card and the chart can never disagree. Fewer than four months is not a shape, it is two
-  // stubs, so a short window shows the icon instead and no trend chip is invented from it.
-  const spark = (key: "births" | "deaths" | "sold") => (flowRows.length >= 4 ? flowRows.map((r) => r[key]) : undefined);
-  const flowChartSeries = flowKeys.map((key, i) => ({ key, label: flowSeries[i].label, color: SERIES_COLOR[key] }));
+  const flowSeries = flowKeys.map((key) => ({ name: ha(pageContract, `series.${key}`), data: data.months.map((m) => m[key]) }));
+  // KPI sparklines are the SAME monthly series the flow chart draws (one point per served month), so
+  // the card and the chart can never disagree. Fewer than four months is not a shape, so a short
+  // window shows the figure alone and no trend chip is invented from it.
+  const spark = (key: "births" | "deaths" | "sold", color: string) => ({
+    categories: monthLabels,
+    series: data.months.length >= 4 ? data.months.map((m) => m[key]) : [],
+    colors: [`var(--palette-${color}-light)`, `var(--palette-${color}-main)`],
+  });
+  const NO_SPARK = { categories: [], series: [] };
   // The window the BACKEND served, not the one the URL asked for. When the request
   // carried no bounds the backend chose the default, and the filter must show that
   // choice rather than two empty boxes — otherwise the reader cannot tell what they
@@ -263,6 +259,8 @@ export async function HerdAnalyticsPage({
   const servedTo = data.window_to;
 
   const ageBars = toBars(data.age_band, ha(pageContract, "label.unassigned_stage"));
+  const sexBars = toBars(data.sex, ha(pageContract, "label.unassigned_sex"));
+  const sexTotal = sexBars.reduce((sum, bar) => sum + Math.max(bar.value, 0), 0);
   const showParks = data.park.length > 1;
   // The month rows exactly as the backend served them — the same figures the flow chart draws.
   const exportRows: (string | number)[][] = [
@@ -276,19 +274,14 @@ export async function HerdAnalyticsPage({
     ...data.months.map((m) => [m.label, m.births, m.deaths, m.sold, m.other_exits]),
   ];
   const nothingRecorded = totals.live_animals === 0 && data.months.every((month) => month.births + month.deaths + month.sold + month.other_exits + month.movements === 0);
+  const mixSize = showParks ? { xs: 12, md: 6 } : { xs: 12, md: 6, lg: 4 };
 
   return (
-    <div className="kit-enter pagegrid ha-kit-stack">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <HerdAnalyticsTelemetry routeId={pageContract.route_id} parkId={parkId} months={data.months.length} />
-      <div>
-        <PageHeader
-          title={pageContract.title}
-          crumbs={[{ label: ha(pageContract, "crumb") }, { label: ha(pageContract, "section.analytics.title") }]}
-          actions={<HerdAnalyticsExport rows={exportRows} filename={pageContract.route_id} label={ha(pageContract, "action.export")} />}
-        />
-      </div>
+      {header(exportRows)}
 
-      <div className="ha-filter">
+      <Box>
         <HerdAnalyticsDateFilter
           labels={pickerLabels}
           basePath={PAGE_PATH}
@@ -298,102 +291,87 @@ export async function HerdAnalyticsPage({
           defaultFrom={fallback.from}
           defaultTo={fallback.to}
         />
-      </div>
+      </Box>
 
       {nothingRecorded ? (
-        <Card className="counts-empty-state" sx={{ p: { xs: 2, sm: 3 } }}>
-          <CardHeader title={ha(pageContract, "empty.title")} sx={{ p: 0 }} />
-          <div className="counts-empty-copy muted small">{ha(pageContract, "empty.body")}</div>
+        <Card>
+          <EmptyContent filled title={ha(pageContract, "empty.title")} description={ha(pageContract, "empty.body")} sx={{ py: 6 }} />
         </Card>
       ) : null}
 
-      <div>
-        <section aria-label={ha(pageContract, "section.kpi.aria")}>
-        <KpiGrid min={200}>
-          <KpiCard tone="primary" icon={<GoatGlyph size={22} />} label={ha(pageContract, "kpi.live.label")} value={totals.live_animals} />
-          <KpiCard tone="info" icon={<Baby size={22} />} label={ha(pageContract, "kpi.age.label")} value={totals.kids + totals.adults} parts={splitParts(ha(pageContract, "kpi.age.label"), [totals.kids, totals.adults])} />
-          <KpiCard tone="success" icon={<HeartPulse size={22} />} sparkline={spark("births")} label={ha(pageContract, "kpi.births.label")} value={totals.births} />
-          <KpiCard tone="error" icon={<HeartOff size={22} />} sparkline={spark("deaths")} label={ha(pageContract, "kpi.deaths.label")} value={totals.deaths} />
-          <KpiCard tone="violet" icon={<GoatGlyph size={22} />} sparkline={spark("sold")} label={ha(pageContract, "kpi.sold.label")} value={totals.sold} />
-          <KpiCard
-            tone={totals.net_change < 0 ? "warning" : "success"}
-            icon={<ArrowUpDown size={22} />}
-            label={ha(pageContract, "kpi.net.label")}
-            value={signed(totals.net_change)}
-           
+      {/* KPI row: template EcommerceWidgetSummary (overview/e-commerce), backend window totals. */}
+      <Box component="section" aria-label={ha(pageContract, "section.kpi.aria")}>
+        <KpiGrid>
+          <EcommerceWidgetSummary title={ha(pageContract, "kpi.live.label")} total={totals.live_animals} chart={NO_SPARK} sx={{ height: 1 }} />
+          <EcommerceWidgetSummary
+            title={ha(pageContract, "kpi.age.label")}
+            total={totals.kids + totals.adults}
+            caption={splitParts(ha(pageContract, "kpi.age.label"), [totals.kids, totals.adults])
+              .map((part) => `${nf(Number(part.value))} ${part.label}`)
+              .join(" \u00b7 ")}
+            chart={NO_SPARK}
+            sx={{ height: 1 }}
           />
+          <EcommerceWidgetSummary title={ha(pageContract, "kpi.births.label")} total={totals.births} chart={spark("births", "success")} sx={{ height: 1 }} />
+          <EcommerceWidgetSummary title={ha(pageContract, "kpi.deaths.label")} total={totals.deaths} chart={spark("deaths", "error")} sx={{ height: 1 }} />
+          <EcommerceWidgetSummary title={ha(pageContract, "kpi.sold.label")} total={totals.sold} chart={spark("sold", "info")} sx={{ height: 1 }} />
+          <EcommerceWidgetSummary title={ha(pageContract, "kpi.net.label")} total={signed(totals.net_change)} chart={NO_SPARK} sx={{ height: 1 }} />
         </KpiGrid>
-        </section>
-      </div>
+      </Box>
 
-      <div>
-      <Card aria-label={ha(pageContract, "chart.flow.title")}>
-        <CardHeader title={ha(pageContract, "chart.flow.title")} />
-        <CardContent>
-          {flowRows.length === 0 ? (
-            <p className="muted small">{emptyChart}</p>
-          ) : (
-            <TrendChart data={flowRows} xKey="month" kind="bar" integerY series={flowChartSeries} height={300} />
-          )}
-        </CardContent>
-      </Card>
-      </div>
+      <Grid container spacing={3}>
+        {/* Flow by month: template AnalyticsWebsiteVisits (grouped columns, legend, tooltip). */}
+        <Grid size={{ xs: 12, lg: 8 }}>
+          <AnalyticsWebsiteVisits
+            aria-label={ha(pageContract, "chart.flow.title")}
+            title={ha(pageContract, "chart.flow.title")}
+            empty={<EmptyContent title={emptyChart} />}
+            valueNoun={animalsNoun}
+            chart={{
+              categories: monthLabels,
+              colors: flowKeys.map((key) => SERIES_COLOR[key]),
+              series: flowSeries,
+            }}
+            sx={{ height: 1 }}
+          />
+        </Grid>
+        {/* Sex split: template EcommerceSaleByGender radial (share of the live herd). */}
+        <Grid size={{ xs: 12, lg: 4 }}>
+          <EcommerceSaleByGender
+            aria-label={ha(pageContract, "chart.sex.title")}
+            title={ha(pageContract, "chart.sex.title")}
+            total={nf(sexTotal)}
+            totalLabel={animalsNoun}
+            chart={{
+              series: sexBars.map((bar) => ({
+                label: bar.label,
+                value: sexTotal > 0 ? Math.round((Math.max(bar.value, 0) / sexTotal) * 100) : 0,
+                display: nf(bar.value),
+              })),
+            }}
+            sx={{ height: 1 }}
+          />
+        </Grid>
+      </Grid>
 
-      {/* No section heading: each chart card already names what it shows, and a band title
-          above five self-describing cards was one heading the reader had to skip. The section
-          keeps its accessible name so the grouping is still announced. */}
-      <div>
-        <section aria-label={ha(pageContract, "section.mix.aria")}>
-        <div className="herd-analytics-charts">
-          <ChartCard title={ha(pageContract, "chart.breed.title")}>
-            <BarList
-              rows={shareRows(toBars(data.breed, ha(pageContract, "label.unassigned_breed")))}
-              ariaLabel={ha(pageContract, "chart.breed.title")}
-              valueNoun={animalsNoun}
-              emptyLabel={emptyChart}
-            />
-          </ChartCard>
-
-          <ChartCard title={ha(pageContract, "chart.stage.title")}>
-            <BarList
-              rows={shareRows(toBars(data.stage, ha(pageContract, "label.unassigned_stage")))}
-              ariaLabel={ha(pageContract, "chart.stage.title")}
-              valueNoun={animalsNoun}
-              emptyLabel={emptyChart}
-            />
-          </ChartCard>
-
-          <ChartCard title={ha(pageContract, "chart.age.title")}>
-            <BarList
-              rows={shareRows(ageBars)}
-              ariaLabel={ha(pageContract, "chart.age.title")}
-              valueNoun={animalsNoun}
-              emptyLabel={emptyChart}
-            />
-          </ChartCard>
-
-          <ChartCard title={ha(pageContract, "chart.sex.title")}>
-            <BarList
-              rows={shareRows(toBars(data.sex, ha(pageContract, "label.unassigned_sex")))}
-              ariaLabel={ha(pageContract, "chart.sex.title")}
-              valueNoun={animalsNoun}
-              emptyLabel={emptyChart}
-            />
-          </ChartCard>
-
-          {showParks ? (
-            <ChartCard title={ha(pageContract, "chart.park.title")}>
-              <BarList
-                rows={shareRows(toBars(data.park, ha(pageContract, "label.unassigned_park")))}
-                ariaLabel={ha(pageContract, "chart.park.title")}
-                valueNoun={animalsNoun}
-                emptyLabel={emptyChart}
-              />
-            </ChartCard>
-          ) : null}
-        </div>
-        </section>
-      </div>
-    </div>
+      {/* Composition now: template EcommerceSalesOverview progress rows (count + share). The
+          section keeps its accessible name so the grouping is still announced. */}
+      <Grid container spacing={3} component="section" aria-label={ha(pageContract, "section.mix.aria")}>
+        <Grid size={mixSize}>
+          <MixCard title={ha(pageContract, "chart.breed.title")} bars={toBars(data.breed, ha(pageContract, "label.unassigned_breed"))} emptyLabel={emptyChart} />
+        </Grid>
+        <Grid size={mixSize}>
+          <MixCard title={ha(pageContract, "chart.stage.title")} bars={toBars(data.stage, ha(pageContract, "label.unassigned_stage"))} emptyLabel={emptyChart} />
+        </Grid>
+        <Grid size={mixSize}>
+          <MixCard title={ha(pageContract, "chart.age.title")} bars={ageBars} emptyLabel={emptyChart} />
+        </Grid>
+        {showParks ? (
+          <Grid size={mixSize}>
+            <MixCard title={ha(pageContract, "chart.park.title")} bars={toBars(data.park, ha(pageContract, "label.unassigned_park"))} emptyLabel={emptyChart} />
+          </Grid>
+        ) : null}
+      </Grid>
+    </Stack>
   );
 }
