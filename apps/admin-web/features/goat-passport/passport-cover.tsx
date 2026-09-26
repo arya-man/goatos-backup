@@ -2,6 +2,8 @@
 
 // Template profile cover (sections/user/profile-cover.tsx + user-profile-view tabs) as a client
 // component: function `sx` and the Link `component` cannot cross the server/client boundary.
+// Cover image: template public/assets/images/mock/cover/cover-4.webp (the profile view's _userAbout.coverUrl).
+import { varAlpha } from "minimal-shared/utils";
 import Box from "@mui/material/Box";
 import MuiCard from "@mui/material/Card";
 import Avatar from "@mui/material/Avatar";
@@ -9,6 +11,8 @@ import ListItemText from "@mui/material/ListItemText";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Link from "@/components/no-prefetch-link";
+import { Iconify } from "@/components/minimal/iconify";
+import { MINIMAL_ASSETS } from "@/components/minimal/_shared/config";
 import { shownTabValue } from "@/components/app/url-tab-nav";
 import { useUrlTabNav } from "@/components/app/use-url-tab-nav";
 
@@ -27,12 +31,20 @@ export function PassportCover({
 }) {
   const { pendingValue, navigate } = useUrlTabNav();
   return (
-    <MuiCard sx={{ height: { xs: 290 }, position: "relative" }}>
+    <MuiCard sx={{ mb: 3, height: { xs: 290 }, position: "relative" }}>
+      {/* Template ProfileCover: the cover image under an 80% primary.darker veil, white type. */}
       <Box
         sx={(theme) => ({
-          position: "absolute",
-          inset: 0,
-          bgcolor: theme.vars.palette.primary.darker,
+          ...theme.mixins.bgGradient({
+            // The Mesha `darker` step is a mid green (the template's is near-black teal), so a neutral
+            // grey.900 veil goes over it to keep the template's dark cover and white-on-dark contrast.
+            images: [
+              `linear-gradient(0deg, ${varAlpha(theme.vars.palette.grey["900Channel"], 0.64)}, ${varAlpha(theme.vars.palette.grey["900Channel"], 0.64)})`,
+              `linear-gradient(0deg, ${varAlpha(theme.vars.palette.primary.darkerChannel, 0.8)}, ${varAlpha(theme.vars.palette.primary.darkerChannel, 0.8)})`,
+              `url(${MINIMAL_ASSETS}/background/cover-4.webp)`,
+            ],
+          }),
+          height: 1,
           color: "common.white",
         })}
       >
@@ -53,21 +65,19 @@ export function PassportCover({
               mx: "auto",
               width: { xs: 64, md: 128 },
               height: { xs: 64, md: 128 },
-              borderWidth: 2,
-              borderStyle: "solid",
-              borderColor: theme.vars.palette.common.white,
-              bgcolor: theme.vars.palette.primary.dark,
-              typography: "h3",
+              border: `solid 2px ${theme.vars.palette.common.white}`,
+              bgcolor: "primary.darker",
+              color: "common.white",
             })}
           >
-            {displayId.slice(0, 2).toUpperCase()}
+            <Iconify icon="solar:user-id-bold" sx={{ width: { xs: 32, md: 56 }, height: { xs: 32, md: 56 } }} />
           </Avatar>
           <ListItemText
             primary={displayId}
             secondary={secondaryLine || undefined}
             slotProps={{
               primary: { sx: { typography: "h4" } },
-              secondary: { sx: { mt: 0.5, opacity: 0.72, color: "inherit" } },
+              secondary: { sx: { mt: 0.5, opacity: 0.48, color: "inherit" } },
             }}
             sx={{ mt: 3, ml: { md: 3 }, textAlign: { xs: "center", md: "unset" } }}
           />

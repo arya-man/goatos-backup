@@ -1,18 +1,26 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import Link from "@/components/no-prefetch-link";
-import { Caption } from "@/components/app/caption";
-import { Syringe } from "lucide-react";
+import { LinkButton } from "@/components/minimal/link-button";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Divider from "@mui/material/Divider";
+import Paper from "@mui/material/Paper";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table";
 import {
   getGoatVaccinationPassport,
   type VaccinationPassport,
   type VaccinationPassportHistoryItem,
 } from "@/lib/api/server";
 import { Tag } from "@/components/ui-primitives";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, humanizeEnum } from "@/lib/format";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 type Tone = "ok" | "warn" | "dng" | "info" | "mut";
@@ -26,7 +34,7 @@ function proofLabel(item: VaccinationPassportHistoryItem, pageContract: AdminUiP
   if (item.status === "accepted") return <Tag tone="ok">{copy(pageContract, "vaccination.proof_verified")}</Tag>;
   if (item.status === "recorded") return <Tag tone="warn">{copy(pageContract, "vaccination.awaiting_verify")}</Tag>;
   if (item.status === "rejected") return <Tag tone="dng">{copy(pageContract, "vaccination.rework_rejected")}</Tag>;
-  return <Tag tone="mut">{item.status}</Tag>;
+  return <Tag tone="mut">{humanizeEnum(item.status)}</Tag>;
 }
 function workflowHref(rowId: string): string {
   return `/workflows/${encodeURIComponent(rowId)}`;
@@ -52,192 +60,167 @@ function sameDate(left?: string, right?: string): boolean {
 }
 
 // VaccinationPassportSection renders a goat's vaccination passport: next due, open obligations, last
-// accepted, and the administered/verified history with proof status. Read-only. Wrapped in `.screen`
-// so its table inherits the canonical table styling regardless of the host passport page.
+// accepted, and the administered/verified history with proof status. Read-only. Template anatomy:
+// Card + CardHeader (count Label), the invoice-list analytic strip (dashed dividers), then two
+// titled table blocks (TableHeadCustom in a Scrollbar).
 export async function VaccinationPassportSection({ goatId, pageContract }: { goatId: string; pageContract: AdminUiPageContract }) {
   const res = await getGoatVaccinationPassport(goatId);
   if (!res.ok) {
     // Soft-fail: the rest of the identity passport still renders.
     return (
-      <div className="screen on">
-        <section className="card">
-          <div className="hd">
-            <Syringe className="ic" aria-hidden="true" />
-	            <h3>{copy(pageContract, "section.vaccination.title")}</h3>
-          </div>
-          <div className="bd">
-            <p className="muted small">{copy(pageContract, "vaccination.unavailable_prefix")}: {res.error.message ?? res.error.code}</p>
-          </div>
-        </section>
-      </div>
+      <Card>
+        <CardHeader title={copy(pageContract, "section.vaccination.title")} />
+        <Box sx={{ p: 3 }}>
+          <Alert severity="error">
+            {copy(pageContract, "vaccination.unavailable_prefix")}: {res.error.message ?? res.error.code}
+          </Alert>
+        </Box>
+      </Card>
     );
   }
   const p: VaccinationPassport = res.data;
   const history = p.vaccination_history ?? [];
   const open = p.open_obligations ?? [];
+  const placeholder = copy(pageContract, "label.placeholder");
+  const openHead = tableLabels(pageContract, "vaccination-open-obligations").map((label, index) => ({ id: `o${index}`, label }));
+  const historyHead = tableLabels(pageContract, "vaccination-history").map((label, index) => ({ id: `h${index}`, label }));
+  const stats = [
+    {
+      key: "next",
+      label: copy(pageContract, "vaccination.next_due"),
+      value: p.next_due ? fmtDate(p.next_due.scheduled_for || p.next_due.due_at) : placeholder,
+      extra: p.next_due ? <Tag tone="warn">{humanizeEnum(p.next_due.status)}</Tag> : null,
+    },
+    { key: "open", label: copy(pageContract, "vaccination.open_obligations"), value: String(open.length), extra: null },
+    { key: "last", label: copy(pageContract, "vaccination.last_accepted"), value: p.last_accepted ? fmtDate(p.last_accepted.administered_at) : placeholder, extra: null },
+  ];
+  const blockTitle = (text: string) => (
+    <Typography variant="overline" component="h3" sx={{ display: "block", px: 3, pt: 3, pb: 1.5, color: "text.secondary" }}>
+      {text}
+    </Typography>
+  );
 
   return (
-    <div className="screen on">
-      <section className="card">
-        <div className="hd">
-          <Syringe className="ic" aria-hidden="true" />
-	          <h3>{copy(pageContract, "section.vaccination.title")}</h3>
-          <Tag tone="mut">
-            {history.length} {copy(pageContract, history.length === 1 ? "vaccination.dose_singular" : "vaccination.dose_plural")}
-          </Tag>
-          <div className="sp" />
-          {p.next_due ? (
-            <span className="muted small">
-              {copy(pageContract, "vaccination.next_due_inline")} <b>{fmtDate(p.next_due.scheduled_for || p.next_due.due_at)}</b> · {vaccineRowLabel(p.next_due)}
-            </span>
-          ) : (
-            <span className="muted small">{copy(pageContract, "vaccination.no_upcoming")}</span>
-          )}
-        </div>
+    <Card aria-label={copy(pageContract, "section.vaccination.title")}>
+      <CardHeader
+        title={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            {copy(pageContract, "section.vaccination.title")}
+            <Label variant="soft">
+              {history.length} {copy(pageContract, history.length === 1 ? "vaccination.dose_singular" : "vaccination.dose_plural")}
+            </Label>
+          </Box>
+        }
+        subheader={
+          p.next_due
+            ? `${copy(pageContract, "vaccination.next_due_inline")} ${fmtDate(p.next_due.scheduled_for || p.next_due.due_at)} · ${vaccineRowLabel(p.next_due)}`
+            : copy(pageContract, "vaccination.no_upcoming")
+        }
+      />
 
-        <div className="bd">
-          <div className="metagrid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.next_due")}</div>
-              <div className="v">
-                {p.next_due ? (
-                  <>
-                    {fmtDate(p.next_due.scheduled_for || p.next_due.due_at)} <Tag tone="warn">{p.next_due.status}</Tag>
-                  </>
-                ) : (
-                  copy(pageContract, "label.placeholder")
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.open_obligations")}</div>
-              <div className="v">{open.length}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.last_accepted")}</div>
-              <div className="v">{p.last_accepted ? fmtDate(p.last_accepted.administered_at) : copy(pageContract, "label.placeholder")}</div>
-            </div>
-          </div>
-        </div>
+      <Paper variant="outlined" sx={{ mx: 3, mt: 3, py: 2, borderStyle: "dashed" }}>
+      <Stack direction={{ xs: "column", sm: "row" }} divider={<Divider flexItem orientation="vertical" sx={{ borderStyle: "dashed" }} />}>
+        {stats.map((stat) => (
+          <Box key={stat.key} sx={{ flex: "1 1 0", px: 2.5, py: { xs: 1, sm: 0 }, minWidth: 0 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary", mb: 0.5 }}>
+              {stat.label}
+            </Typography>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+              <Typography variant="h5">{stat.value}</Typography>
+              {stat.extra}
+            </Box>
+          </Box>
+        ))}
+      </Stack>
+      </Paper>
 
-        <div
-          className="muted small"
-          style={{
-            padding: "10px 16px",
-            borderTop: "1px solid var(--line2)",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: ".4px",
-          }}
-        >
-          {copy(pageContract, "vaccination.open_due_rows")}
-        </div>
-        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
-          {open.length === 0 ? (
-            <div className="bd">
-              <Caption>{copy(pageContract, "vaccination.empty_open")}</Caption>
-            </div>
-          ) : (
-            <Table>
-              <TableHead>
-                <TableRow>
-                  {tableLabels(pageContract, "vaccination-open-obligations").map((label) => (
-                    <TableCell component="th" key={label}>{label}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {open.map((due) => {
-                  const rowId = realWorkflowRowId(due.workflow_row_id);
-                  return (
-                    <TableRow key={due.obligation_id}>
-                      <TableCell>
-                        <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
-                        {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
-                          <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
-                        ) : null}
-                      </TableCell>
-                      <TableCell>{vaccineRowLabel(due)}</TableCell>
-                      <TableCell>
-                        <Tag tone={statusTone(due.status)}>{due.status}</Tag>
-                      </TableCell>
-                      <TableCell>
-                        {rowId ? (
-                          <Link href={workflowHref(rowId)} className="lk small">
-                            {copy(pageContract, "action.open_workflow")} →
-                          </Link>
-                        ) : (
-                          <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {rowId ? (
-                          <Link href={actionCenterHref(rowId)} className="lk small">
-                            {copy(pageContract, "action.open_action_center")} →
-                          </Link>
-                        ) : (
-                          <span className="muted small">—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-
-        <div
-          className="muted small"
-          style={{
-            padding: "10px 16px",
-            borderTop: "1px solid var(--line2)",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: ".4px",
-          }}
-        >
-          {copy(pageContract, "vaccination.history")}
-        </div>
-	        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
-          {history.length === 0 ? (
-            <div className="bd">
-              <p className="muted small">
-                {copy(pageContract, "vaccination.empty_history")}
-              </p>
-            </div>
-          ) : (
-            <Table>
-              <TableHead>
-                <TableRow>
-	                  {tableLabels(pageContract, "vaccination-history").map((label) => (
-	                    <TableCell component="th" key={label}>{label}</TableCell>
-	                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {history.map((h) => (
-                  <TableRow key={h.completion_id}>
-                    <TableCell>{fmtDate(h.administered_at)}</TableCell>
-                    <TableCell>{vaccineRowLabel(h)}</TableCell>
-                    <TableCell className="muted">{h.route_site || copy(pageContract, "label.placeholder")}</TableCell>
-                    <TableCell>
-                      <Tag tone={statusTone(h.status)}>{h.status}</Tag>
+      {blockTitle(copy(pageContract, "vaccination.open_due_rows"))}
+      {open.length === 0 ? (
+        <Typography variant="body2" sx={{ px: 3, pb: 2, color: "text.secondary" }}>
+          {copy(pageContract, "vaccination.empty_open")}
+        </Typography>
+      ) : (
+        <Scrollbar>
+          <Table sx={{ minWidth: 640 }} aria-label={copy(pageContract, "vaccination.open_due_rows")}>
+            <TableHeadCustom headCells={openHead} />
+            <TableBody>
+              {open.map((due) => {
+                const rowId = realWorkflowRowId(due.workflow_row_id);
+                return (
+                  <TableRow hover key={due.obligation_id}>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
+                      {fmtDate(due.scheduled_for || due.due_at)}
+                      {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
+                        <Box component="span" sx={{ display: "block", typography: "caption", color: "text.secondary" }}>
+                          {copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}
+                        </Box>
+                      ) : null}
                     </TableCell>
-                    <TableCell>{proofLabel(h, pageContract)}</TableCell>
+                    <TableCell>{vaccineRowLabel(due)}</TableCell>
                     <TableCell>
-                      <span className="gid">{h.obligation_id.slice(0, 8)}</span>
+                      <Tag tone={statusTone(due.status)}>{humanizeEnum(due.status)}</Tag>
                     </TableCell>
                     <TableCell>
-                      <span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span>
+                      {rowId ? (
+                        <LinkButton href={workflowHref(rowId)} size="small" color="primary" variant="text" sx={{ px: 0.5, minWidth: 0 }}>
+                          {copy(pageContract, "action.open_workflow")} →
+                        </LinkButton>
+                      ) : (
+                        <Box component="span" sx={{ fontFamily: "monospace" }} title={due.obligation_id}>
+                          {sourceObligationLabel(due.obligation_id)}
+                        </Box>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {rowId ? (
+                        <LinkButton href={actionCenterHref(rowId)} size="small" color="primary" variant="text" sx={{ px: 0.5, minWidth: 0 }}>
+                          {copy(pageContract, "action.open_action_center")} →
+                        </LinkButton>
+                      ) : (
+                        <Box component="span" sx={{ color: "text.disabled" }}>—</Box>
+                      )}
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-      </section>
-    </div>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Scrollbar>
+      )}
+
+      {blockTitle(copy(pageContract, "vaccination.history"))}
+      {history.length === 0 ? (
+        <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
+          {copy(pageContract, "vaccination.empty_history")}
+        </Typography>
+      ) : (
+        <Scrollbar>
+          <Table sx={{ minWidth: 760 }} aria-label={copy(pageContract, "table.vaccination.aria")}>
+            <TableHeadCustom headCells={historyHead} />
+            <TableBody>
+              {history.map((h) => (
+                <TableRow hover key={h.completion_id}>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(h.administered_at)}</TableCell>
+                  <TableCell>{vaccineRowLabel(h)}</TableCell>
+                  <TableCell sx={{ color: "text.secondary" }}>{h.route_site || placeholder}</TableCell>
+                  <TableCell>
+                    <Tag tone={statusTone(h.status)}>{humanizeEnum(h.status)}</Tag>
+                  </TableCell>
+                  <TableCell>{proofLabel(h, pageContract)}</TableCell>
+                  <TableCell>
+                    <Box component="span" sx={{ fontFamily: "monospace" }}>{h.obligation_id.slice(0, 8)}</Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box component="span" sx={{ fontFamily: "monospace" }} title={h.obligation_id}>
+                      {sourceObligationLabel(h.obligation_id)}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Scrollbar>
+      )}
+    </Card>
   );
 }

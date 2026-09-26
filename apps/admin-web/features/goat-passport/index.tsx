@@ -1,20 +1,30 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { randomUUID } from "node:crypto";
-import { AlertTriangle, BadgeCheck, FileText, Fingerprint, History, Plus, ShieldCheck } from "lucide-react";
 import { redirect } from "next/navigation";
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import MuiCard from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
-import CardContent from "@mui/material/CardContent";
+import Divider from "@mui/material/Divider";
+import Grid from "@mui/material/Grid";
+import ListItemText from "@mui/material/ListItemText";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dateTime, dash, humanizeEnum, joinParts, shortId } from "@/lib/format";
 import { PageHeader } from "@/components/app/page-header";
 import { Tag, type Tone } from "@/components/ui-primitives";
-import "./goat-passport.css";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
+import { OrderDetailsHistory } from "@/components/minimal/sections/order/order-details-history";
 import { PassportCover } from "./passport-cover";
 import { firstAuthRequiredError, getGoatPassport, getGoatTimeline } from "@/lib/api/server";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
@@ -29,17 +39,9 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 function identifierTypeLabel(type: string, pageContract: AdminUiPageContract): string {
   if (type === "animal_identifier_1") return copy(pageContract, "label.tag_1");
   if (type === "animal_identifier_2") return copy(pageContract, "label.tag_2");
-  return type;
+  return humanizeEnum(type);
 }
 
-function MiniMetric({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="gp-def">
-      <dt className="gp-def-k">{label}</dt>
-      <dd className="gp-def-v">{value}</dd>
-    </div>
-  );
-}
 
 function lifecycleTone(value: string | null | undefined): Tone {
   const v = String(value ?? "").toLowerCase();
@@ -62,13 +64,14 @@ function Notice({ status, actionKey, pageContract }: { status?: string; actionKe
   if (!status) return null;
   if (status === "success") {
     return (
-      <div className="note" style={{ marginBottom: 14 }}>
-        <Tag tone="ok">{copy(pageContract, "action.done")}</Tag> {actionFeedbackCopy(pageContract, status, actionKey)}
-      </div>
+      <Alert severity="success" sx={{ mb: 3 }}>
+        {actionFeedbackCopy(pageContract, status, actionKey)}
+      </Alert>
     );
   }
   return (
-    <Alert severity="error" style={{ marginBottom: 14 }}><div>{actionFeedbackCopy(pageContract, status, actionKey)}</div>
+    <Alert severity="error" sx={{ mb: 3 }}>
+      {actionFeedbackCopy(pageContract, status, actionKey)}
     </Alert>
   );
 }
@@ -116,7 +119,6 @@ function FormField({
   return (
     <TextField
       fullWidth
-      size="small"
       name={name}
       label={label}
       defaultValue={defaultValue}
@@ -152,10 +154,13 @@ export async function GoatPassportPage({
   goatId,
   searchParams = {},
   pageContract,
+  vaccination,
 }: {
   goatId: string;
   searchParams?: RouteSearchParams;
   pageContract: AdminUiPageContract;
+  /** The goat's vaccination passport card (streamed by the route). Right column of the summary tab, full width below the other tabs. */
+  vaccination?: React.ReactNode;
 }) {
   const [result, timeline] = await Promise.all([getGoatPassport(goatId), getGoatTimeline({ goatId, limit: 20 })]);
   const returnTo = hrefWithoutAction(`/goats/${encodeURIComponent(goatId)}`, searchParams);
@@ -168,16 +173,13 @@ export async function GoatPassportPage({
 
   if (!result.ok) {
     return (
-      <div className="screen on">
+      <Box className="screen on">
         <PageHeader title={pageContract.title || copy(pageContract, "fallback.title")} crumbs={[{ label: copy(pageContract, "fallback.title") }]} />
-        <Alert severity="error"><div>
-            <b>{result.error.code}</b>
-            <div className="muted small" style={{ marginTop: 4 }}>
-              {result.error.message}
-            </div>
-          </div>
+        <Alert severity="error">
+          <b>{result.error.code}</b>
+          <Box sx={{ mt: 0.5, typography: "body2" }}>{result.error.message}</Box>
         </Alert>
-      </div>
+      </Box>
     );
   }
 
@@ -189,6 +191,8 @@ export async function GoatPassportPage({
   const selectedTab = normalizeTab(one(searchParams, TAB_PARAM));
   const passportPath = `/goats/${encodeURIComponent(goatId)}`;
   const secondaryLine = joinParts([goat.summary.breed, humanizeEnum(goat.summary.sex)]);
+  const placeholder = dash(null);
+  const mono = { fontFamily: "monospace" } as const;
 
   const coverCard = (
     <PassportCover
@@ -204,128 +208,122 @@ export async function GoatPassportPage({
     />
   );
 
-  const summaryBody = (
-    <>
-      <MuiCard className="gp-summary" aria-label={copy(pageContract, "section.summary.title")}>
-        <CardHeader
-          title={
-            <span className="gp-card-title">
-              <BadgeCheck className="ic" aria-hidden="true" />
-              {copy(pageContract, "section.summary.title")}
-            </span>
-          }
-        />
-        <CardContent>
-        <div className="gp-def-cols">
-          <dl className="gp-def-block">
-            <MiniMetric label={copy(pageContract, "label.display_id")} value={<span className="gid">{goat.display_id}</span>} />
-            <MiniMetric label={copy(pageContract, "label.tag_1")} value={<span className="mono">{dash(goat.summary.animal_identifier_1)}</span>} />
-            <MiniMetric label={copy(pageContract, "label.tag_2")} value={<span className="mono">{dash(goat.summary.animal_identifier_2)}</span>} />
-            <MiniMetric label={copy(pageContract, "label.breed_sex")} value={joinParts([goat.summary.breed, humanizeEnum(goat.summary.sex)])} />
-            <MiniMetric
-              label={copy(pageContract, "label.location")}
-              value={
-                <>
-                  <b>{dash(goat.summary.location_path.operational_location_display)}</b>
-                  {goat.merged_into_goat_id ? (
-                    <>
-                      {" "}
-                      · {copy(pageContract, "label.merged_into")} <span className="gid">{shortId(goat.merged_into_goat_id)}</span>
-                    </>
-                  ) : null}
-                </>
-              }
-            />
-          </dl>
-          <dl className="gp-def-block">
-            <MiniMetric label={copy(pageContract, "label.lifecycle")} value={<Tag tone={lifecycleTone(lifecycle)}>{humanizeEnum(lifecycle)}</Tag>} />
-            <MiniMetric label={copy(pageContract, "label.health")} value={health ? <Tag tone={healthTone(health)}>{humanizeEnum(health)}</Tag> : dash(null)} />
-            <MiniMetric label={copy(pageContract, "label.reproductive")} value={goat.summary.reproductive_status ? humanizeEnum(goat.summary.reproductive_status) : dash(null)} />
-            <MiniMetric label={copy(pageContract, "label.growth_cohort")} value={dash(goat.summary.growth_cohort_tag)} />
-            <MiniMetric label={copy(pageContract, "label.management")} value={dash(goat.summary.management_stage)} />
-          </dl>
-        </div>
-        </CardContent>
-      </MuiCard>
-
-      {allWarnings.length > 0 ? (
-        <MuiCard className="gp-warnings">
-          <CardHeader
-            title={
-              <span className="gp-card-title">
-                <ShieldCheck className="ic" aria-hidden="true" />
-                {copy(pageContract, "section.warnings.title")}
-              </span>
-            }
-            action={<Tag tone="warn">{allWarnings.length}</Tag>}
-          />
-          <CardContent>
-          <div className="feed">
-            {allWarnings.map((warning, index) => (
-              <div key={`${warning.code}-${index}`} className="fitem">
-                <span className="fic" style={{ background: "var(--warnx)", color: "var(--amber)" }}>
-                  <AlertTriangle className="ic" />
-                </span>
-                <div className="tx">
-                  <b>{warning.code}</b>
-                  <div className="mt">{warning.message}</div>
-                  {warning.original_goat_id || warning.redirect_goat_id ? (
-                    <div className="mono" style={{ marginTop: 5 }}>
-                      {shortId(warning.original_goat_id)} -&gt; {shortId(warning.redirect_goat_id)}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-          </CardContent>
-        </MuiCard>
-      ) : null}
-    </>
+  // Template order details: label / value rows under a CardHeader (OrderDetailsDelivery anatomy).
+  const summaryCard = (
+    <MuiCard aria-label={copy(pageContract, "section.summary.title")}>
+      <OrderDetailsDelivery
+        title={copy(pageContract, "section.summary.title")}
+        labelWidth={132}
+        rows={[
+          { key: "display", label: copy(pageContract, "label.display_id"), value: <Label variant="soft" color="primary">{goat.display_id}</Label> },
+          { key: "tag1", label: copy(pageContract, "label.tag_1"), value: <Box component="span" sx={mono}>{dash(goat.summary.animal_identifier_1)}</Box> },
+          { key: "tag2", label: copy(pageContract, "label.tag_2"), value: <Box component="span" sx={mono}>{dash(goat.summary.animal_identifier_2)}</Box> },
+          { key: "breed", label: copy(pageContract, "label.breed_sex"), value: secondaryLine || placeholder },
+          {
+            key: "location",
+            label: copy(pageContract, "label.location"),
+            value: (
+              <>
+                <Box component="span" sx={{ fontWeight: "fontWeightSemiBold" }}>{dash(goat.summary.location_path.operational_location_display)}</Box>
+                {goat.merged_into_goat_id ? (
+                  <>
+                    {" "}
+                    · {copy(pageContract, "label.merged_into")} <Box component="span" sx={mono}>{shortId(goat.merged_into_goat_id)}</Box>
+                  </>
+                ) : null}
+              </>
+            ),
+          },
+        ]}
+      />
+      <Divider sx={{ borderStyle: "dashed" }} />
+      <Stack spacing={1.5} sx={{ p: 3, typography: "body2" }}>
+        {[
+          { key: "lifecycle", label: copy(pageContract, "label.lifecycle"), value: <Tag tone={lifecycleTone(lifecycle)}>{humanizeEnum(lifecycle)}</Tag> },
+          { key: "health", label: copy(pageContract, "label.health"), value: health ? <Tag tone={healthTone(health)}>{humanizeEnum(health)}</Tag> : placeholder },
+          { key: "repro", label: copy(pageContract, "label.reproductive"), value: goat.summary.reproductive_status ? humanizeEnum(goat.summary.reproductive_status) : placeholder },
+          { key: "cohort", label: copy(pageContract, "label.growth_cohort"), value: dash(goat.summary.growth_cohort_tag) },
+          { key: "management", label: copy(pageContract, "label.management"), value: dash(goat.summary.management_stage) },
+        ].map((row) => (
+          <Box key={row.key} sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+            <Box component="span" sx={{ color: "text.secondary", width: 132, flexShrink: 0 }}>
+              {row.label}
+            </Box>
+            <Box component="span" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
+              {row.value}
+            </Box>
+          </Box>
+        ))}
+      </Stack>
+    </MuiCard>
   );
 
+  const warningsCard =
+    allWarnings.length > 0 ? (
+      <MuiCard>
+        <CardHeader
+          title={copy(pageContract, "section.warnings.title")}
+          action={
+            <Label variant="soft" color="warning">
+              {allWarnings.length}
+            </Label>
+          }
+        />
+        <Stack spacing={2} sx={{ p: 3 }}>
+          {allWarnings.map((warning, index) => (
+            <Alert key={`${warning.code}-${index}`} severity="warning">
+              <b>{warning.code}</b>
+              <Box sx={{ typography: "body2" }}>{warning.message}</Box>
+              {warning.original_goat_id || warning.redirect_goat_id ? (
+                <Box sx={{ ...mono, mt: 0.5, typography: "caption" }}>
+                  {shortId(warning.original_goat_id)} -&gt; {shortId(warning.redirect_goat_id)}
+                </Box>
+              ) : null}
+            </Alert>
+          ))}
+        </Stack>
+      </MuiCard>
+    ) : null;
+
+  const identifierHead = [
+    copy(pageContract, "label.type"),
+    copy(pageContract, "label.value"),
+    copy(pageContract, "label.scope"),
+    copy(pageContract, "label.status"),
+    copy(pageContract, "label.primary"),
+    copy(pageContract, "label.valid_from"),
+    copy(pageContract, "label.action"),
+  ].map((label, index) => ({ id: `c${index}`, label }));
+
   const identifiersBody = (
-    <MuiCard className="kit-tablecard gp-identifiers" aria-label={copy(pageContract, "section.identifiers.title")}>
+    <MuiCard aria-label={copy(pageContract, "section.identifiers.title")}>
       <CardHeader
-        className="gp-tablecard-head"
-        title={
-          <span className="gp-card-title">
-            <Fingerprint className="ic" aria-hidden="true" />
-            {copy(pageContract, "section.identifiers.title")}
-          </span>
-        }
-        action={<Tag tone="mut">{goat.identifiers.length}</Tag>}
+        title={copy(pageContract, "section.identifiers.title")}
+        action={<Label variant="soft">{goat.identifiers.length}</Label>}
+        sx={{ mb: 3 }}
       />
       {goat.identifiers.length === 0 ? (
-        <div className="gp-empty muted small">{copy(pageContract, "empty.identifiers")}</div>
+        <Typography variant="body2" sx={{ px: 3, pb: 3, color: "text.secondary" }}>
+          {copy(pageContract, "empty.identifiers")}
+        </Typography>
       ) : (
-        <div className="tablewrap gp-tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "table.identifiers.aria")}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell component="th">{copy(pageContract, "label.type")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "label.value")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "label.scope")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "label.status")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "label.primary")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "label.valid_from")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "label.action")}</TableCell>
-              </TableRow>
-            </TableHead>
+        <Scrollbar>
+          <Table sx={{ minWidth: 760 }} aria-label={copy(pageContract, "table.identifiers.aria")}>
+            <TableHeadCustom headCells={identifierHead} />
             <TableBody>
               {goat.identifiers.map((identifier) => (
-                <TableRow key={identifier.identifier_id}>
-                  <TableCell>{identifierTypeLabel(identifier.identifier_type, pageContract)}</TableCell>
-                  <TableCell className="mono">{identifier.identifier_value}</TableCell>
+                <TableRow hover key={identifier.identifier_id}>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{identifierTypeLabel(identifier.identifier_type, pageContract)}</TableCell>
+                  <TableCell sx={{ ...mono, whiteSpace: "nowrap" }}>{identifier.identifier_value}</TableCell>
                   <TableCell>{humanizeEnum(identifier.scope_key)}</TableCell>
                   <TableCell>
                     <Tag tone={identifier.status === "active" ? "ok" : "mut"}>{humanizeEnum(identifier.status)}</Tag>
                   </TableCell>
                   <TableCell>{humanizeEnum(identifier.is_primary_for_goat ? copy(pageContract, "label.yes") : copy(pageContract, "label.no"))}</TableCell>
-                  <TableCell>{dateTime(identifier.valid_from)}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{dateTime(identifier.valid_from)}</TableCell>
                   <TableCell>
                     {identifier.status === "active" ? (
-                      <form action={retireIdentifierAction} style={{ display: "inline" }}>
+                      <form action={retireIdentifierAction}>
                         <input type="hidden" name="goat_id" value={goat.goat_id} />
                         <input type="hidden" name="identifier_id" value={identifier.identifier_id} />
                         <input type="hidden" name="row_version" value={goat.row_version} />
@@ -338,160 +336,148 @@ export async function GoatPassportPage({
                           message={`${copy(pageContract, "confirm.retire_identifier")} ${identifier.identifier_type} ${identifier.identifier_value}`}
                           confirmLabel={copy(pageContract, "action.retire_identifier")}
                           cancelLabel={copy(pageContract, "action.cancel", "Cancel")}
-                          className="btn sm"
                         >
                           {copy(pageContract, "action.retire_identifier")}
                         </PassportConfirmSubmitButton>
                       </form>
                     ) : (
-                      <span className="muted small">-</span>
+                      <Box component="span" sx={{ color: "text.disabled" }}>-</Box>
                     )}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </Scrollbar>
       )}
 
-      <div className="bd gp-addform">
-        <form action={addIdentifierAction} className="cfgform">
-          <input type="hidden" name="goat_id" value={goat.goat_id} />
-          <input type="hidden" name="row_version" value={goat.row_version} />
-          <input type="hidden" name="idempotency_key" value={randomUUID()} />
-          <input type="hidden" name="return_to" value={returnTo} />
-          <div className="hd" style={{ padding: 0, borderBottom: 0, marginBottom: 2 }}>
-            <Plus className="ic" />
-            <h3>{copy(pageContract, "section.add_identifier.title")}</h3>
-          </div>
-          <div
-            className="grid goat-identifier-grid"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}
-          >
-            <FormSelect name="identifier_type" label={copy(pageContract, "field.identifier_type")} options={optionGroup(pageContract, "identifier_types")} required emptyLabel={copy(pageContract, "label.select")} />
-            <FormField name="identifier_value" label={copy(pageContract, "field.identifier_value")} required />
-            <FormField name="scope_key" label={copy(pageContract, "field.scope_key")} required placeholder={copy(pageContract, "placeholder.scope_key")} />
-            <FormControlLabel className="kit-check gp-check" control={<Checkbox name="is_primary_for_goat" sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<><span>{copy(pageContract, "label.primary")}</span></>} />
-          </div>
-          <div className="grid g3" style={{ marginTop: 8 }}>
-            <EvidenceFields defaultType="goat" defaultID={goat.goat_id} pageContract={pageContract} />
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-            <button className="btn p">{copy(pageContract, "action.add_identifier")}</button>
-          </div>
+      <Divider sx={{ borderStyle: "dashed" }} />
+      {/* Template new/edit form section: subtitle, a responsive grid of outlined fields, submit bottom right. */}
+      <Box sx={{ p: 3 }}>
+        <form action={addIdentifierAction}>
+        <input type="hidden" name="goat_id" value={goat.goat_id} />
+        <input type="hidden" name="row_version" value={goat.row_version} />
+        <input type="hidden" name="idempotency_key" value={randomUUID()} />
+        <input type="hidden" name="return_to" value={returnTo} />
+        <Typography variant="subtitle1" sx={{ mb: 3, display: "flex", alignItems: "center", gap: 1 }}>
+          <Iconify icon="mingcute:add-line" />
+          {copy(pageContract, "section.add_identifier.title")}
+        </Typography>
+        <Box sx={{ display: "grid", gap: 3, gridTemplateColumns: { xs: "repeat(1, 1fr)", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" }, alignItems: "center" }}>
+          <FormSelect name="identifier_type" label={copy(pageContract, "field.identifier_type")} options={optionGroup(pageContract, "identifier_types")} required emptyLabel={copy(pageContract, "label.select")} />
+          <FormField name="identifier_value" label={copy(pageContract, "field.identifier_value")} required />
+          <FormField name="scope_key" label={copy(pageContract, "field.scope_key")} required placeholder={copy(pageContract, "placeholder.scope_key")} />
+          <EvidenceFields defaultType="goat" defaultID={goat.goat_id} pageContract={pageContract} />
+          <FormControlLabel control={<Checkbox name="is_primary_for_goat" />} label={copy(pageContract, "label.primary")} sx={{ minHeight: 44 }} />
+        </Box>
+        <Box sx={{ mt: 3, display: "flex", justifyContent: "flex-end" }}>
+          <Button type="submit" variant="contained" color="primary">
+            {copy(pageContract, "action.add_identifier")}
+          </Button>
+        </Box>
         </form>
-      </div>
+      </Box>
     </MuiCard>
   );
 
+  // Template list rows (ProfileFollowers / file list anatomy): rounded avatar, primary + secondary text.
   const evidenceBody = (
-    <MuiCard className="gp-evidence" aria-label={copy(pageContract, "section.evidence.title")}>
-      <CardHeader
-        title={
-          <span className="gp-card-title">
-            <FileText className="ic" aria-hidden="true" />
-            {copy(pageContract, "section.evidence.title")}
-          </span>
-        }
-        action={<Tag tone="mut">{goat.evidence_refs.length}</Tag>}
-      />
-      <CardContent>
+    <MuiCard aria-label={copy(pageContract, "section.evidence.title")}>
+      <CardHeader title={copy(pageContract, "section.evidence.title")} action={<Label variant="soft">{goat.evidence_refs.length}</Label>} />
+      <Stack spacing={2.5} divider={<Divider sx={{ borderStyle: "dashed" }} />} sx={{ p: 3 }}>
         {goat.evidence_refs.length === 0 ? (
-          <p className="muted small" style={{ margin: 0 }}>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "empty.evidence")}
-          </p>
+          </Typography>
         ) : (
-          <div className="feed">
-            {goat.evidence_refs.map((evidence) => (
-              <div key={`${evidence.evidence_type}-${evidence.evidence_id}`} className="fitem">
-                <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-                  <FileText className="ic" />
-                </span>
-                <div className="tx">
-                  <b>{evidence.evidence_type}</b>
-                  <div className="mono">{evidence.evidence_id}</div>
-                  <div className="mt">{dash(evidence.description ?? evidence.source_system)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+          goat.evidence_refs.map((evidence) => (
+            <Box key={`${evidence.evidence_type}-${evidence.evidence_id}`} sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+              <Avatar variant="rounded" sx={{ bgcolor: "background.neutral", color: "primary.main", width: 48, height: 48 }}>
+                <Iconify icon="solar:file-text-bold" width={24} />
+              </Avatar>
+              <ListItemText
+                primary={humanizeEnum(evidence.evidence_type)}
+                secondary={
+                  <>
+                    <Box component="span" sx={{ ...mono, display: "block", overflowWrap: "anywhere" }}>{evidence.evidence_id}</Box>
+                    {dash(evidence.description ?? evidence.source_system)}
+                  </>
+                }
+                slotProps={{ primary: { sx: { typography: "subtitle2" } }, secondary: { component: "span", sx: { typography: "body2" } } }}
+                sx={{ minWidth: 0 }}
+              />
+            </Box>
+          ))
         )}
-      </CardContent>
+      </Stack>
     </MuiCard>
   );
 
-  const historyBody = (
-    <MuiCard className="gp-timeline" aria-label={copy(pageContract, "section.timeline.title")}>
-      <CardHeader
-        title={
-          <span className="gp-card-title">
-            <History className="ic" aria-hidden="true" />
-            {copy(pageContract, "section.timeline.title")}
-          </span>
-        }
-        action={<Tag tone="mut">{copy(pageContract, "label.identity_events_table")}</Tag>}
-      />
-      <CardContent>
-        {!timeline.ok ? (
-          <Alert severity="error"><div>
-              <b>{timeline.error.code}</b>
-              <div className="muted small" style={{ marginTop: 4 }}>
-                {timeline.error.message}
-              </div>
-            </div>
-          </Alert>
-        ) : listOrEmpty(timeline.data.items).length === 0 ? (
-          <p className="muted small" style={{ margin: 0 }}>
-            {copy(pageContract, "empty.timeline")}
-          </p>
-        ) : (
-          <div className="htl">
-            {listOrEmpty(timeline.data.items).map((event) => (
-              <div key={event.event_id} className="hrow">
-                <span className="hdot t-info" />
-                <div className="htx">
-                  <b>{humanizeEnum(event.event_type)}</b>
-                  <div className="hmeta">
-                    {copy(pageContract, "label.occurred")} {dateTime(event.occurred_at)} · {copy(pageContract, "label.recorded")} {dateTime(event.recorded_at)} · {copy(pageContract, "label.evidence")}{" "}
-                    {event.evidence_refs.length}
-                  </div>
-                  <div className="hmeta">{event.decision_id ? `${copy(pageContract, "label.decision")} ${shortId(event.decision_id)}` : copy(pageContract, "label.no_decision")}</div>
-                </div>
-                <span className="tag t-mut">{humanizeEnum(event.actor_type)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
+  const timelineItems = timeline.ok ? listOrEmpty(timeline.data.items) : [];
+  const historyBody = !timeline.ok ? (
+    <Alert severity="error">
+      <b>{timeline.error.code}</b>
+      <Box sx={{ mt: 0.5, typography: "body2" }}>{timeline.error.message}</Box>
+    </Alert>
+  ) : timelineItems.length === 0 ? (
+    <MuiCard aria-label={copy(pageContract, "section.timeline.title")}>
+      <CardHeader title={copy(pageContract, "section.timeline.title")} subheader={copy(pageContract, "label.identity_events_table")} />
+      <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
+        {copy(pageContract, "empty.timeline")}
+      </Typography>
     </MuiCard>
+  ) : (
+    <OrderDetailsHistory
+      aria-label={copy(pageContract, "section.timeline.title")}
+      title={copy(pageContract, "section.timeline.title")}
+      action={<Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "label.identity_events_table")}</Typography>}
+      timeline={timelineItems.map((event, index) => ({
+        key: event.event_id,
+        tone: index === 0 ? "primary" : "grey",
+        title: `${humanizeEnum(event.event_type)} · ${humanizeEnum(event.actor_type)}`,
+        time: `${copy(pageContract, "label.occurred")} ${dateTime(event.occurred_at)} · ${copy(pageContract, "label.recorded")} ${dateTime(event.recorded_at)}`,
+        body: `${copy(pageContract, "label.evidence")} ${event.evidence_refs.length} · ${event.decision_id ? `${copy(pageContract, "label.decision")} ${shortId(event.decision_id)}` : copy(pageContract, "label.no_decision")}`,
+      }))}
+    />
   );
 
   return (
-    <div className="kit-enter screen on gp-page">
-      <div>
-        <PageHeader
-          title={goat.display_id}
-          crumbs={[{ label: copy(pageContract, "fallback.title") }, { label: goat.display_id }]}
-          actions={
-            <div className="gp-status">
-              <Tag tone={lifecycleTone(lifecycle)}>{humanizeEnum(lifecycle)}</Tag>
-              {health ? <Tag tone={healthTone(health)}>{humanizeEnum(health)}</Tag> : null}
-            </div>
-          }
-        />
-      </div>
+    <Box className="screen on">
+      <PageHeader
+        title={goat.display_id}
+        crumbs={[{ label: copy(pageContract, "fallback.title") }, { label: goat.display_id }]}
+        actions={
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+            <Tag tone={lifecycleTone(lifecycle)}>{humanizeEnum(lifecycle)}</Tag>
+            {health ? <Tag tone={healthTone(health)}>{humanizeEnum(health)}</Tag> : null}
+          </Stack>
+        }
+      />
 
       <Notice status={actionStatus} actionKey={actionKey} pageContract={pageContract} />
 
-      <div>{coverCard}</div>
+      {coverCard}
 
-      <div>
-        {selectedTab === "" && summaryBody}
-        {selectedTab === "identifiers" && identifiersBody}
-        {selectedTab === "evidence" && evidenceBody}
-        {selectedTab === "history" && historyBody}
-      </div>
-    </div>
+      {selectedTab === "" ? (
+        // Template user profile: About column (md 4) beside the main column (md 8).
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, md: 5, lg: 4 }}>
+            <Stack spacing={3}>
+              {summaryCard}
+              {warningsCard}
+            </Stack>
+          </Grid>
+          <Grid size={{ xs: 12, md: 7, lg: 8 }}>{vaccination}</Grid>
+        </Grid>
+      ) : (
+        <Stack spacing={3}>
+          {selectedTab === "identifiers" && identifiersBody}
+          {selectedTab === "evidence" && evidenceBody}
+          {selectedTab === "history" && historyBody}
+          {vaccination}
+        </Stack>
+      )}
+    </Box>
   );
 }
 

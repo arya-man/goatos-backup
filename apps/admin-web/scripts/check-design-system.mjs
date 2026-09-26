@@ -206,6 +206,7 @@ const CHECKS = {
   "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
   "shell-nav-template": { tier: "p0", why: "the sidebar is the template NavSectionVertical/NavSectionMini inside layouts/dashboard nav-vertical/nav-mobile (whole nav in the template Scrollbar, template 288px mobile drawer over the template backdrop); no custom footer (navBottom / msh-foot / navigation.footer), no default-open subtrees, no full-width/opaque phone menu or extra close button" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
+  "feature-server-fn-sx": { tier: "p0", why: "a feature/app module without 'use client' passes a function sx ((theme) => …) to an MUI part: as a Server Component the function cannot cross to the client part (\"Functions cannot be passed directly to Client Components\") and the route crashes to \"Something went wrong\" (/goats/[id], FJ1 P0-1). Move the themed block into a 'use client' file or use an object sx with theme vars" },
   "section-server-fn-sx": { tier: "p0", why: "a template section under components/minimal/sections/ that styles with a function sx ((theme) => …) must start with 'use client': a Server Component page renders it, and a function prop cannot cross to the client MUI part (\"Functions cannot be passed directly to Client Components\", the whole page falls back to client rendering or 500s)" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
@@ -452,6 +453,23 @@ function runGuard(root, { themeDiff }) {
         const at = lines.findIndex((line) => /\(\s*\{?\s*theme\s*\}?\s*\)\s*=>/.test(line));
         if (at >= 0) findings.push(finding("section-server-fn-sx", rel, at + 1, lines[at]));
       }
+    }
+  }
+
+  // Feature / app modules without 'use client' are Server Components when a page renders them; a
+  // function sx there crashes the route at render (the /goats/[id] P0). Same test as the section
+  // rule, applied to features/** and app/**.
+  for (const dir of ["features", "app"]) {
+    const base = join(root, dir);
+    if (!existsSync(base)) continue;
+    for (const abs of walk(base)) {
+      const rel = toRel(root, abs);
+      if (!/\.tsx$/.test(rel)) continue;
+      const text = readFileSync(abs, "utf8");
+      if (/^\s*(\/\/[^\n]*\n\s*)*['"]use client['"]/.test(text)) continue;
+      const lines = text.split("\n");
+      const at = lines.findIndex((line) => /sx=\{\s*\[?\s*\(\s*\{?\s*(theme|t)\s*\}?(\s*:\s*Theme)?\s*\)\s*=>/.test(line));
+      if (at >= 0) findings.push(finding("feature-server-fn-sx", rel, at + 1, lines[at]));
     }
   }
 
@@ -955,6 +973,7 @@ async function selfTest() {
     'export const h = <aside className={`drawer${open ? " on" : ""}`} aria-label="Tag detail" />;',
   ].join("\n"));
   // Template code: ratchet-tier sizes are exempt, a foreign palette is still P0.
+  put("features/server-fn-sx-page.tsx", 'import Box from "@mui/material/Box";\nexport function P() { return <Box sx={(theme) => ({ color: theme.palette.text.primary })} />; }\n');
   put("components/minimal/sections/order/server-fn-sx.tsx", 'import Box from "@mui/material/Box";\nexport const X = () => <Box sx={(theme) => ({ color: theme.palette.text.primary })} />;\n');
   put("components/minimal/tpl.tsx", 'const t = <div style={{ fontSize: 13, borderRadius: 10, padding: 12 }} />;\n');
   put("components/app/bad.tsx", 'import styles from "./bad.module.css";\nexport function Bad() { return <div className={styles.x} />; }\n');

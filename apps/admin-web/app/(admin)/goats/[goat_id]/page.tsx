@@ -8,11 +8,11 @@ export const dynamic = "force-dynamic";
 export default async function Page({ params, searchParams }: { params: Promise<{ goat_id: string }>; searchParams: Promise<RouteSearchParams> }) {
   const [{ goat_id }, sp, pageContract] = await Promise.all([params, searchParams, requireAdminWebPageContract("goat-passport")]);
   return (
-    <>
-      <GoatPassportPage goatId={goat_id} searchParams={sp} pageContract={pageContract} />
-      <div className="mt-4">
-        <VaccinationPassportSection goatId={goat_id} pageContract={pageContract} />
-      </div>
-    </>
+    <GoatPassportPage
+      goatId={goat_id}
+      searchParams={sp}
+      pageContract={pageContract}
+      vaccination={<VaccinationPassportSection goatId={goat_id} pageContract={pageContract} />}
+    />
   );
 }

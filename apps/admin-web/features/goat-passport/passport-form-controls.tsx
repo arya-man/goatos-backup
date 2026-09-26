@@ -34,14 +34,14 @@ export function PassportFormSelect({
   const [value, setValue] = useState(defaultValue ?? "");
   const all = emptyLabel ? [{ value: "", label: emptyLabel }, ...options] : [...options];
   return (
-    <div className="fld">
+    <>
       <input type="hidden" name={name} value={value} required={required} />
       <TextField
         select
         label={label}
         value={all.some((option) => option.value === value) ? value : ""}
         onChange={(event) => setValue(event.target.value)}
-        sx={{ flexShrink: 0, maxWidth: 1 }}
+        fullWidth
         slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
       >
         {all.map((option) => (
@@ -50,7 +50,7 @@ export function PassportFormSelect({
           </MenuItem>
         ))}
       </TextField>
-    </div>
+    </>
   );
 }
 
@@ -80,9 +80,12 @@ export function PassportConfirmSubmitButton({
   const trigger = useRef<HTMLButtonElement | null>(null);
   return (
     <>
-      <button
+      <Button
         ref={trigger}
         type="button"
+        size="small"
+        variant="outlined"
+        color="inherit"
         className={className}
         disabled={disabled}
         title={title}
@@ -91,7 +94,7 @@ export function PassportConfirmSubmitButton({
         }}
       >
         {children}
-      </button>
+      </Button>
       <Dialog fullWidth maxWidth="xs" open={open} onClose={() => setOpen(false)} slotProps={{ paper: { "aria-label": message } }}>
         <DialogContent sx={{ typography: "body2", pt: 3 }}>{message}</DialogContent>
         <DialogActions>
