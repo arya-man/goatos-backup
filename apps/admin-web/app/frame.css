@@ -38,7 +38,7 @@
 .card>.bd{padding:24px}
 .card>.hd+.bd{padding-top:0}
 .card>h2.h,.card>h3.h,section.card>h2{margin:0;padding:var(--card-head-pad);font-size:18px;line-height:28px;font-weight:700;font-family:var(--font-display);letter-spacing:0}
-.card.wchart,.card.wtable,.card.vr-board{padding:24px}
+.card.wchart,.card.wtable{padding:24px}
 .card.wchart>h2.h,.card.wtable>h2.h{padding:0}
 .card.wchart>.wgrouped,.card.wchart>.kit-barlist,.card.wchart>.wbars-empty{margin-top:16px}
 .card>.tablewrap:last-child,.card>.twrap:last-child{border-radius:0 0 16px 16px}
@@ -108,8 +108,6 @@
 @media(max-width:640px){
 
   /* Verification: make the queue reachable on first scroll and keep the tabs readable. */
-  .vr-board{padding:16px!important;border-radius:16px!important}
-  .vr-board>.bt{font-size:20px!important;line-height:26px!important;margin-bottom:10px!important}
   .vr-module-legend{margin-inline:0;padding:0;mask-image:none}
   .vr-frow{gap:12px!important;margin:16px 0!important}
   .screen .vr-fld>label,.screen .vr-fld-spacer{font-size:11px!important;line-height:14px!important;min-height:0!important}
@@ -119,8 +117,6 @@
   .vr-frow .lk{min-height:48px!important;border-radius:14px!important;font-size:13px!important}
   .vr-selbtn,.vr-frow .btn,.vr-frow .lk{width:100%!important;max-width:none!important}
   .vr-frow .lk{min-height:44px!important;font-size:12px!important}
-  .vr-status-chips{gap:8px!important;margin-bottom:10px!important}
-  .vr-secthd{margin-top:10px!important}
 
   /* Counts: KPI tiles should scan like compact dashboard stats, with the table/farm section sooner. */
   .counts-breakdown-page .counts-breakdown-kpi-deck,
@@ -214,15 +210,6 @@
 /* skeleton tables sit in a card like the real table */
 .wrap>.screen>.kit-sk-rows,.kit-page>.kit-sk-rows,.wrap>.screen>div>.kit-sk-rows{background:var(--paper);border-radius:16px;box-shadow:var(--shadow-card);padding:8px 24px}
 
-/* ---- Verify board: card padding, module chips, table bleeds to the card edge ---- */
-.card.vr-board{padding:24px 0 0;overflow:hidden}
-.card.vr-board>.bt{padding:0 24px;margin:0 0 16px;font-size:18px;line-height:28px;font-weight:700;font-family:var(--font-display)}
-.card.vr-board>.vr-module-legend,.card.vr-board>.vr-filter-form,.card.vr-board>.vr-frow,.card.vr-board>.vr-legend,.card.vr-board>.vr-secthd,.card.vr-board>.vr-results-zone>.vr-legend,.card.vr-board>.vr-results-zone>.vr-secthd,.card.vr-board>.pager,.card.vr-board>.vr-results-zone>.pager{margin-left:24px;margin-right:24px}
-.card.vr-board .vr-secthd{margin:16px 24px 12px}
-.card.vr-board .vr-secthd h2{font-size:16px;font-weight:700}
-.card.vr-board .twrap.tablewrap{margin:0;border-radius:0}
-.card.vr-board .vr-table th:first-child,.card.vr-board .vr-table td:first-child{padding-left:24px}
-.card.vr-board .vr-table th:last-child,.card.vr-board .vr-table td:last-child{padding-right:24px}
 /* table toolbars inside cards keep the card gutter */
 .card>.tbar{padding:0 24px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .card>.hd+.tbar{margin-top:16px}
@@ -540,16 +527,6 @@ body aside.drawer .dc .k,body aside.drawer .dc .lbl,body aside.drawer .dc .fld>l
   }
 }
 
-/* Verify header actions at phone width: three content-sized buttons that wrap as a row, never a
-   full-width stack or a lone orphan on a grid row. */
-@media(max-width:640px){
-  /* Verification Board: one 16px content inset. The card padding (16px) and each child's own
-     24px inset stacked, so the title/filters sat at 40px while the status rows sat at 16px. */
-  .card.vr-board{padding:16px 0 0!important}
-  .card.vr-board>.bt{padding:0 16px!important}
-  .card.vr-board>.vr-module-legend,.card.vr-board>.vr-filter-form{margin-left:16px!important;margin-right:16px!important}
-  .card.vr-board>.vr-results-zone{padding:0 16px 16px}
-}
 
 /* Vaccination plan: the page frame (.wrap) owns the gutter; the plan's legacy own padding doubled
    it (26px at 390px against 14px on every other route). */
@@ -630,23 +607,10 @@ body aside.drawer .dc .k,body aside.drawer .dc .lbl,body aside.drawer .dc .fld>l
   .wb .parkpick{height:auto!important;min-height:44px}
 }
 
-/* Verification, phone: status chips and the filter link meet the 44px touch floor (the 640px
-   compaction above had pulled them to 34px / 32px). The Video Log drawer runs to the bottom edge,
-   so its scroll body keeps the home-indicator inset clear, its date/field controls meet 44px, and
-   the page-header Video Log button (behind the open drawer) is hidden so it cannot sit under the
-   drawer's CSV button. */
-/* At every width the Video Log drawer (fixed to the bottom edge) clears the home-indicator inset.
-   env() resolves to 0 on a laptop, so desktop layout is unchanged; the phone rule below keeps its
-   8px floor. */
-aside.drawer.vr-videolog-drawer{padding-bottom:env(safe-area-inset-bottom,0px)}
+/* Verification, phone: the filter link meets the 44px touch floor (the 640px compaction above had
+   pulled it to 32px). */
 @media(max-width:767px){
   .vr-frow .lk{min-height:44px!important}
-  aside.drawer.vr-videolog-drawer{padding-bottom:max(env(safe-area-inset-bottom,0px),8px)}
-  aside.drawer.vr-videolog-drawer .vl-head summary.date-scope{min-height:44px}
-  /* The search caption is a label[for] (a tap target). Its hit area grows to 44px through padding
-     cancelled by an equal negative margin, so the layout does not move; the input paints above
-     the overlap, so a tap there still lands in the field. */
-  aside.drawer.vr-videolog-drawer .vl-frow .vr-fld>label[for]{padding-block:14px;margin-block:-14px;box-sizing:content-box}
 }
 
 /* Weighing SOP assumptions drawer, phone: the "prices by stage" disclosure summary sits outside

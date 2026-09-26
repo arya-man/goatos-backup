@@ -13,7 +13,7 @@ import { redirect } from "next/navigation";
 import { ArrowDown, ArrowUp, Filter, PlayCircle } from "lucide-react";
 
 import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { firstAuthRequiredError, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
+import { firstAuthRequiredError, getAdminWebBootstrap, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDateTime, humanizeDurationMs, todayIso } from "@/lib/format";
 import { all, one, type RouteSearchParams } from "@/lib/search-params";
@@ -48,7 +48,14 @@ import {
 } from "./video-log-params";
 import { VideoLog } from "./video-log";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
-import { QueueEmptyState, StatusChip, reviewQueueStyles as rq } from "@/components/review-queue/review-queue-ui";
+import { StatusChip, reviewQueueStyles as rq } from "@/components/review-queue/review-queue-ui";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import Box from "@mui/material/Box";
+import { LinkButton } from "@/components/minimal/link-button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 import { ToxinReviewScreen, toxinTabLabel } from "./toxin-review-section";
 import Alert from "@mui/material/Alert";
@@ -223,6 +230,7 @@ export async function VerificationReviewPage({
   // not. Keeping it a distinct control is what lets her have this panel without the oversight
   // chrome. See compileVerificationReviewControls's video_log doc comment.
   const videoLogEnabled = controlEnabled(pageContract, "video_log", false);
+  const scopeParkLabel = videoLogEnabled && scope.parkId ? await bootstrapParkLabel(scope.parkId) : undefined;
   // Gates the CEO-only RANDOMIZATION section: per module, the share of proof the verifier must
   // review (maintainer decision 2026-08-26). Its own control, on permissions.VerificationSampling
   // -- NARROWER than the oversight capability above, which the PC Director also holds. See
@@ -249,7 +257,8 @@ export async function VerificationReviewPage({
           title={pageContract.title}
           crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
           actions={
-            <>
+            // One row of same-size template Buttons (FJ1-P1-6); wraps on a phone.
+            <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: "wrap" }}>
             {oversightAnalyticsEnabled ? (
               <AnalyticsPanel
                 pageContract={pageContract}
@@ -310,7 +319,10 @@ export async function VerificationReviewPage({
                   businessDate={one(sp, VIDEO_LOG_DATE_KEY) || undefined}
                   parkId={scope.parkId || undefined}
                   selectedShedKey={one(sp, VIDEO_LOG_SHED_KEY) || undefined}
-                  parkFilter={one(sp, VIDEO_LOG_PARK_KEY) || undefined}
+                  // The page's park scope is the default park filter inside the panel (filters carry
+                  // into drawers and downloads); the CSV already follows parkFilter || parkId.
+                  parkFilter={one(sp, VIDEO_LOG_PARK_KEY) || scope.parkId || undefined}
+                  scopeParkLabel={scopeParkLabel}
                   query={one(sp, VIDEO_LOG_QUERY_KEY) || undefined}
                   filterAction={PATHNAME}
                   // The filter form REPLACES the panel's own three params and keeps everything else --
@@ -397,7 +409,7 @@ export async function VerificationReviewPage({
                 />
               </RandomizationPanel>
             ) : null}
-            </>
+            </Stack>
           }
         />
       </div>
@@ -421,8 +433,11 @@ export async function VerificationReviewPage({
         status={status}
         enabled={controlEnabled(pageContract, "record_verdict", false)}
       >
-        <section className="card vr-board" style={{ minWidth: 0 }}>
-        <div className="bt">{copy(pageContract, "board.title")}</div>
+        <Card className="vr-board" sx={{ minWidth: 0 }}>
+        <CardHeader title={copy(pageContract, "board.title")} />
+        {/* Template card rhythm: every control sits inside the 24px CardContent gutter; only the
+            table bleeds to the card edge (FJ1-P1-6). */}
+        <Box sx={{ px: 3, pt: 2 }}>
 
         {/* Module filter — the same grouping the phone's verifier drawer uses (Vaccination,
             Weighing, Feed, Counts, Milk, Health). The vocabulary, the labels and the order are the
@@ -577,6 +592,7 @@ export async function VerificationReviewPage({
           ) : null}
         </div>
         </form>
+        </Box>
 
         <div className="vr-results-zone" aria-live="polite" aria-busy="false">
           <div className="vr-results-loading" aria-hidden="true">
@@ -586,7 +602,7 @@ export async function VerificationReviewPage({
             <span />
           </div>
           {statuses.length ? (
-            <div className="kit-chiprow vr-status-chips" role="group">
+            <Stack direction="row" spacing={1} useFlexGap className="vr-status-chips" role="group" sx={{ flexWrap: "wrap", px: 3, pt: 2 }}>
               {statusOptionsWithStatus.map((option) => (
                 <FilterChip
                   key={option.key}
@@ -597,14 +613,14 @@ export async function VerificationReviewPage({
                   label={<>{option.label} <Label variant={status === option.status ? "filled" : "soft"}>{statusCounts[option.status] ?? 0}</Label></>}
                 />
               ))}
-            </div>
+            </Stack>
           ) : null}
 
-          <div className="vr-secthd">
-            <h2>{tableContract.title}</h2>
-          </div>
+          <Typography variant="h6" component="h2" className="vr-secthd" sx={{ px: 3, pt: 3, pb: 2 }}>
+            {tableContract.title}
+          </Typography>
 
-          <div className="twrap tablewrap" tabIndex={0} role="group">
+          <Box className="twrap tablewrap" tabIndex={0} role="group" sx={{ px: { xs: 2, sm: 0 } }}>
             <Table data-enh="1" className="vr-table">
               <TableHead>
                 <TableRow>
@@ -632,9 +648,12 @@ export async function VerificationReviewPage({
                 {items.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columns.length}>
-                      <QueueEmptyState
-                        ok={queue.ok}
+                      {/* Template TableNoData: EmptyContent straight in the table body. */}
+                      <EmptyContent
+                        filled
+                        role="status"
                         title={queue.ok ? copy(pageContract, "state.empty") : copy(pageContract, "state.queue_unavailable")}
+                        sx={{ py: 10 }}
                       />
                     </TableCell>
                   </TableRow>
@@ -652,7 +671,7 @@ export async function VerificationReviewPage({
                 )}
               </TableBody>
             </Table>
-          </div>
+          </Box>
 
           {/* Keyset pagination. The queue read is cursor-based (OFFSET is banned on this path), so
               there is no page number to jump to and no way to read backwards from a cursor alone.
@@ -665,9 +684,9 @@ export async function VerificationReviewPage({
               page, with nothing saying which 20 these were. Every label here stays backend-owned
               (pagination.previous / pagination.position / pagination.next). */}
           {queue.ok && (queue.data.next_cursor || trail.length) ? (
-            <div className="pager" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
+            <Box className="pager" sx={{ px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
               {trail.length ? (
-                <Link
+                <LinkButton
                   href={hrefWith(sp, {
                     vi_cursor: trail[trail.length - 1] || null,
                     vi_trail: encodeTrail(trail.slice(0, -1)),
@@ -677,18 +696,20 @@ export async function VerificationReviewPage({
                     va_fields: null,
                     va_entries: null,
                   })}
-                  className="btn sm"
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
                   replace
                   scroll={false}
                 >
                   {copy(pageContract, "pagination.previous")}
-                </Link>
+                </LinkButton>
               ) : null}
               <span className="small muted">
                 {copy(pageContract, "pagination.position")} {trail.length + 1}
               </span>
               {queue.data.next_cursor ? (
-                <Link
+                <LinkButton
                   href={hrefWith(sp, {
                     vi_cursor: queue.data.next_cursor,
                     // The cursor that produced THIS page becomes the way back to it. "" is a real
@@ -700,17 +721,19 @@ export async function VerificationReviewPage({
                     va_fields: null,
                     va_entries: null,
                   })}
-                  className="btn sm"
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
                   replace
                   scroll={false}
                 >
                   {copy(pageContract, "pagination.next")}
-                </Link>
+                </LinkButton>
               ) : null}
-            </div>
+            </Box>
           ) : null}
         </div>
-        </section>
+        </Card>
       </VerificationQueueTelemetry>
 
       <VerificationReviewDrawer
@@ -981,6 +1004,13 @@ function childActionTypeLabel(label: string, moduleLabel: string): string {
     return cleanLabel.slice(prefix.length).trim();
   }
   return cleanLabel;
+}
+
+async function bootstrapParkLabel(parkId: string): Promise<string | undefined> {
+  const bootstrap = await getAdminWebBootstrap();
+  if (!bootstrap.ok) return undefined;
+  const option = bootstrap.data.top_bar.park_selector.options.find((item) => item.key === parkId);
+  return option ? option.title || option.label : undefined;
 }
 
 function hrefWith(params: RouteSearchParams, updates: Record<string, string | string[] | null | undefined>): string {

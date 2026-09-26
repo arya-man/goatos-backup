@@ -24,6 +24,20 @@ import { fmtDateTime } from "@/lib/format";
 import { loadToxinTaskDetailAction, recordToxinVerdictAction, type ToxinDetailLoad } from "./toxin-actions";
 import { toxinReviewRows, type ToxinReviewRow } from "./toxin-rows";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import MuiLink from "@mui/material/Link";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import type { Theme } from "@mui/material/styles";
+import { X } from "lucide-react";
+import { DrawerBlock } from "@/components/app/detail-drawer";
 
 export function ToxinReviewList({
   tasks,
@@ -86,16 +100,7 @@ export function ToxinReviewList({
     setDetail(undefined);
   }, []);
 
-  useEffect(() => {
-    if (!selectedId) return;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeDrawer();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId, closeDrawer]);
+  // Escape, the backdrop and X close through the MUI Dialog's onClose (ToxinDrawer).
 
   const feedbackText = feedback.status
     ? feedback.status === "success"
@@ -201,122 +206,125 @@ function ToxinDrawer({
 }) {
   const text = useCallback((key: string) => copy(pageContract, key), [pageContract]);
   const [reason, setReason] = useState("");
+  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"));
   if (!open || !row) return null;
 
   const loaded = detail?.ok ? detail : undefined;
   const task = loaded?.detail;
+  // Template Dialog (DialogTitle / DialogContent / DialogActions); full screen below sm.
   return (
-    <div className={`vr-modal-scrim${open ? " on" : ""}`} onClick={onClose}>
-      <div
-        className={`vr-modal${open ? " on" : ""}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={text("toxin.drawer.title")}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="vr-modal-hd">
-          <div>
-            {/* The headline is the backend-composed context line, never a client-assembled one. */}
-            <h2>{row.contextLine}</h2>
-            <div className="sb">{row.statusChip}</div>
-          </div>
-          <button type="button" className="x" aria-label={copy(pageContract, "drawer.close_label")} onClick={onClose}>
-            &times;
-          </button>
-        </div>
-        <div className="vr-modal-bd">
-          {loading || !detail ? (
-            <div className="muted small">…</div>
-          ) : !detail.ok ? (
-            <Alert severity="error">
-              <b>{copy(pageContract, "feedback.failed")}</b>
-            </Alert>
-          ) : task ? (
-            <>
-              <div>
-                <div className="bt">{text("toxin.drawer.steps")}</div>
-                <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 8 }}>
-                  {task.steps.map((step) => {
-                    const proofUrl = step.proof_ref ? (loaded?.proofUrls[step.proof_ref] ?? null) : null;
-                    return (
-                      <li key={step.step_no}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                          <b>{step.title}</b>
-                          <span className="muted small">{step.instruction}</span>
-                        </div>
-                        <div className="muted small" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                          {step.completed_by ? <span>{step.completed_by}</span> : null}
-                          {step.completed_at ? <span>{fmtDateTime(step.completed_at)}</span> : null}
-                          {/* A resolvable proof gets a backend proof route; an unresolved one
-                              honestly shows only who did the step and when — see
-                              loadToxinTaskDetailAction's bounded resolver and its limitation note. */}
-                          {proofUrl ? (
-                            <a className="lk" href={proofUrl} target="_blank" rel="noreferrer">
-                              {copy(pageContract, "drawer.media.open")}
-                            </a>
-                          ) : null}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth="sm"
+      fullScreen={fullScreen}
+      scroll="paper"
+      aria-label={text("toxin.drawer.title")}
+    >
+      <DialogTitle component="div" sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {/* The headline is the backend-composed context line, never a client-assembled one. */}
+          <Typography variant="h6" component="h2">{row.contextLine}</Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>{row.statusChip}</Typography>
+        </Box>
+        <IconButton aria-label={copy(pageContract, "drawer.close_label")} onClick={onClose} sx={{ mt: -0.5, mr: -1 }}>
+          <X size={20} aria-hidden="true" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        {loading || !detail ? (
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>…</Typography>
+        ) : !detail.ok ? (
+          <Alert severity="error">
+            <b>{copy(pageContract, "feedback.failed")}</b>
+          </Alert>
+        ) : task ? (
+          <>
+            <DrawerBlock title={text("toxin.drawer.steps")}>
+              <Box component="ol" sx={{ m: 0, pl: 2.25, display: "flex", flexDirection: "column", gap: 1 }}>
+                {task.steps.map((step) => {
+                  const proofUrl = step.proof_ref ? (loaded?.proofUrls[step.proof_ref] ?? null) : null;
+                  return (
+                    <li key={step.step_no}>
+                      <Box sx={{ display: "flex", gap: 1, alignItems: "baseline", flexWrap: "wrap" }}>
+                        <Typography variant="subtitle2" component="b">{step.title}</Typography>
+                        <Typography variant="caption" sx={{ color: "text.secondary" }}>{step.instruction}</Typography>
+                      </Box>
+                      <Box sx={{ display: "flex", gap: 1.25, flexWrap: "wrap", typography: "caption", color: "text.secondary" }}>
+                        {step.completed_by ? <span>{step.completed_by}</span> : null}
+                        {step.completed_at ? <span>{fmtDateTime(step.completed_at)}</span> : null}
+                        {/* A resolvable proof gets a backend proof route; an unresolved one
+                            honestly shows only who did the step and when — see
+                            loadToxinTaskDetailAction's bounded resolver and its limitation note. */}
+                        {proofUrl ? (
+                          <MuiLink href={proofUrl} target="_blank" rel="noreferrer">
+                            {copy(pageContract, "drawer.media.open")}
+                          </MuiLink>
+                        ) : null}
+                      </Box>
+                    </li>
+                  );
+                })}
+              </Box>
+            </DrawerBlock>
 
-              {task.strip_photo_ref ? (
-                <div>
-                  <div className="bt">{text("toxin.drawer.strip_photo")}</div>
-                  {loaded?.proofUrls[task.strip_photo_ref] ? (
-                    <a className="lk" href={loaded.proofUrls[task.strip_photo_ref] ?? undefined} target="_blank" rel="noreferrer">
-                      {copy(pageContract, "drawer.media.open")}
-                    </a>
-                  ) : (
-                    <div className="muted small">{copy(pageContract, "drawer.media.empty")}</div>
-                  )}
-                </div>
-              ) : null}
+            {task.strip_photo_ref ? (
+              <DrawerBlock title={text("toxin.drawer.strip_photo")}>
+                {loaded?.proofUrls[task.strip_photo_ref] ? (
+                  <MuiLink href={loaded.proofUrls[task.strip_photo_ref] ?? undefined} target="_blank" rel="noreferrer" variant="body2">
+                    {copy(pageContract, "drawer.media.open")}
+                  </MuiLink>
+                ) : (
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "drawer.media.empty")}</Typography>
+                )}
+              </DrawerBlock>
+            ) : null}
 
-              <div>
-                <div className="bt">{text("toxin.drawer.reading")}</div>
-                <div>{task.outcome_label || "—"}</div>
-                {task.cancel_reason ? <div className="muted small">{task.cancel_reason}</div> : null}
-              </div>
+            <DrawerBlock title={text("toxin.drawer.reading")}>
+              <Typography variant="body2">{task.outcome_label || "—"}</Typography>
+              {task.cancel_reason ? <Typography variant="caption" sx={{ color: "text.secondary" }}>{task.cancel_reason}</Typography> : null}
+            </DrawerBlock>
 
-              {task.status === "pending_review" ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {/* Accept is ONE click; Reject requires a reason before its button enables — the
-                      backend enforces the same rule (400 reject_reason_required). Both are one
-                      Server Action with a derived idempotency key, redirect-feedback on tx_status/
-                      tx_code, and the loaded row_version as the optimistic-concurrency fence. */}
-                  <form action={recordToxinVerdictAction} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <input type="hidden" name="task_id" value={task.task_id} />
-                    <input type="hidden" name="row_version" value={String(task.row_version)} />
-                    <input type="hidden" name="return_to" value={returnTo} />
-                    <div className="fld" style={{ marginBottom: 0 }}>
-                      <label htmlFor="toxin-reject-reason">{text("toxin.drawer.reject_reason")}</label>
-                      <textarea
-                        id="toxin-reject-reason"
-                        name="reason"
-                        rows={2}
-                        value={reason}
-                        onChange={(event) => setReason(event.target.value)}
-                        placeholder={text("toxin.drawer.reject_reason_hint")}
-                      />
-                    </div>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <button type="submit" name="decision" value="accept" className="btn primary">
-                        {text("toxin.action.accept")}
-                      </button>
-                      <button type="submit" name="decision" value="reject" className="btn" disabled={!reason.trim()} title={!reason.trim() ? text("toxin.drawer.reject_reason_hint") : undefined}>
-                        {text("toxin.action.reject")}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-      </div>
-    </div>
+            {task.status === "pending_review" ? (
+              // Accept is ONE click; Reject requires a reason before its button enables — the
+              // backend enforces the same rule (400 reject_reason_required). Both are one Server
+              // Action with a derived idempotency key, redirect-feedback on tx_status/tx_code, and
+              // the loaded row_version as the optimistic-concurrency fence. The buttons live in
+              // DialogActions and submit this form through the `form` attribute.
+              <Box component="form" id={VERDICT_FORM_ID} action={recordToxinVerdictAction}>
+                <input type="hidden" name="task_id" value={task.task_id} />
+                <input type="hidden" name="row_version" value={String(task.row_version)} />
+                <input type="hidden" name="return_to" value={returnTo} />
+                <TextField
+                  id="toxin-reject-reason"
+                  name="reason"
+                  label={text("toxin.drawer.reject_reason")}
+                  placeholder={text("toxin.drawer.reject_reason_hint")}
+                  multiline
+                  rows={2}
+                  fullWidth
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+              </Box>
+            ) : null}
+          </>
+        ) : null}
+      </DialogContent>
+      {task?.status === "pending_review" ? (
+        <DialogActions>
+          <Button type="submit" form={VERDICT_FORM_ID} name="decision" value="reject" variant="outlined" color="inherit" disabled={!reason.trim()} title={!reason.trim() ? text("toxin.drawer.reject_reason_hint") : undefined}>
+            {text("toxin.action.reject")}
+          </Button>
+          <Button type="submit" form={VERDICT_FORM_ID} name="decision" value="accept" variant="contained">
+            {text("toxin.action.accept")}
+          </Button>
+        </DialogActions>
+      ) : null}
+    </Dialog>
   );
 }
+
+const VERDICT_FORM_ID = "toxin-verdict-form";

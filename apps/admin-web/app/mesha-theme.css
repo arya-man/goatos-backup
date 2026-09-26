@@ -225,14 +225,6 @@
   .main table.feed-mismatch-table th:nth-child(5),.main table.feed-mismatch-table td:nth-child(5),
   .main table.feed-mismatch-table th:nth-child(6),.main table.feed-mismatch-table td:nth-child(6),
   .main table.feed-mismatch-table th:nth-child(7){white-space:normal;overflow-wrap:normal;word-break:normal}
-  /* Undoes the generic `.card{overflow:hidden}` for THIS card only. That clip keeps table corners
-     inside the radius, but it also amputated the capture-date popover: with an empty board the card
-     is ~350px tall and the calendar ~416px, so the last two weeks and the Today button were cut off
-     at the card's edge. Two class names on purpose — `.card` and `.vr-board` are equally specific
-     and `.card` is declared LATER in this file, so a single-class rule loses and the clip survives
-     (which is exactly how the first attempt at this fix failed). Nothing else in the board needs the
-     clip; the wide table scrolls inside its own overflow-x container. */
-  .card.vr-board{overflow:visible}
   /* Interior days of a selected span. Deliberately weaker than .on so the two ENDS stay the thing
      the eye lands on — those are the dates the verifier actually chose. */
   .top-date-day.in-range{border-color:transparent;background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand-d);border-radius:4px}
@@ -498,13 +490,6 @@
      .board/.bt/.frow/.fld/.sel/.selbtn/.legend/.lg/.secthd) — layout/CSS only, no visible copy.
      th/td values below are the mock's real tokens, confirmed against the live console at
      127.0.0.1:13300: th 12px/700, NO uppercase, NO letter-spacing; td 11.5px, padding 11px 12px. ===== */
-  /* overflow:visible undoes the generic `.card{overflow:hidden}` for THIS card only. That clip is
-     there to keep table corners inside the radius, but it also amputated the capture-date popover:
-     with an empty board the card is ~350px tall and the calendar is ~416px, so the bottom third —
-     the last two weeks and the Today button — was cut off at the card's edge. Nothing else in this
-     board relies on the clip; the wide table scrolls inside its own overflow-x container. */
-  .vr-board{padding:13px 16px;margin-bottom:16px}
-  .vr-board>.bt{font-size:14px;font-weight:400;margin:0 0 14px}
   .vr-frow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin:16px 0 14px}
   /* Clear filters is a SECONDARY action beside a primary button. It inherited `.lk`'s blue
      --info, off-palette in this green system and louder than the control next to it. */
@@ -556,57 +541,6 @@
      inline-styled divs into a padding-less `.card`, which is why every label sat flush on the card
      edge with no breathing room. Spacing rhythm below is one scale: 18px between blocks, 10px
      between a block heading and its content. */
-  /* The analytics drawer is wider than the record drawer (498px): it carries a KPI strip, a module
-     grid and a six-column table, and squeezing those into a record-sized panel is what made the
-     numbers unreadable in the first place. */
-  aside.drawer.vr-analytics-drawer{width:min(940px,96vw)}
-  aside.drawer.vr-analytics-drawer,
-  aside.drawer.vr-videolog-drawer{
-    top:0!important;
-    right:0!important;
-    bottom:0!important;
-    height:100dvh!important;
-    max-height:100dvh!important;
-    margin:0!important;
-    display:flex;
-    flex-direction:column;
-    overflow:hidden;
-    background:var(--paper)!important;
-    background-image:none!important;
-    border-left:1px solid var(--line)!important;
-    box-shadow:var(--shadow-dialog)!important;
-    z-index:2147483000!important;
-    isolation:isolate;
-  }
-  body:has(aside.drawer.vr-analytics-drawer.on) button.scrim.on,
-  body:has(aside.drawer.vr-videolog-drawer.on) button.scrim.on{z-index:2147482999!important}
-  body:has(aside.drawer.vr-analytics-drawer.on) .vr-board,
-  body:has(aside.drawer.vr-videolog-drawer.on) .vr-board{visibility:hidden}
-  aside.drawer.vr-analytics-drawer .dh,
-  aside.drawer.vr-videolog-drawer .dh{
-    position:relative;
-    z-index:2;
-    flex:none;
-    background:var(--paper);
-    border-bottom:1px solid var(--line)!important;
-  }
-  aside.drawer.vr-analytics-drawer .dc,
-  aside.drawer.vr-videolog-drawer .dc{
-    position:relative;
-    z-index:1;
-    flex:1 1 auto;
-    min-height:0;
-    overflow:auto;
-    overscroll-behavior:contain;
-    background:var(--paper);
-  }
-  /* Analytics and Video Log are a matched PAIR in the page header (maintainer, 2026-08-15): same
-     primary treatment, same size, side by side. Styled through one selector rather than two copies
-     of the same values, so a later tweak to one cannot silently leave the other behind. */
-  .vr-analytics-btn,
-  .vr-videolog-btn{align-self:flex-start;gap:8px;font-weight:700;padding:9px 16px;box-shadow:var(--shadow)}
-  .vr-analytics-btn .ic,
-  .vr-videolog-btn .ic{width:16px;height:16px}
   .vr-oversight{margin:0}
   /* Auto-fit rather than the viewport-based .g5: this grid lives inside a fixed-width drawer, so a
      viewport media query would keep five columns in a 900px panel. */
@@ -665,9 +599,6 @@
   .vr-owatch span b{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
   .vr-owatch span.bad{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
   .vr-owatch span.bad b{color:var(--danger)}
-  .vr-secthd{display:flex;align-items:baseline;gap:12px;margin:4px 0 10px}
-  .vr-secthd h2{font-size:14px;font-weight:650;margin:0}
-  .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:color-mix(in srgb,var(--muted) 78%,var(--ink))}
   /* `.screen th` (line ~1091) has the SAME specificity as a bare `.vr-table th` and is declared
      LATER, so it silently won: the verifier's column headers rendered 11px UPPERCASE with +0.4px
      letter-spacing instead of the 12px, normal-case, normal-tracking headers the locked spec
@@ -694,8 +625,6 @@
   .vr-age-red{color:var(--danger);font-weight:650}
 
   @media(max-width:640px){
-    .vr-board{padding:16px;border-radius:18px;overflow:visible!important}
-    .vr-board>.bt{font-size:18px;font-weight:750;margin:0 0 16px}
     .vr-module-legend{max-width:100%;overflow:visible;padding-bottom:0}
     .vr-frow{display:grid;grid-template-columns:1fr;gap:12px;margin:16px 0}
     .screen .vr-fld,.screen .vr-date-fld .date-scope,.screen .vr-date-fld .date-scope>button,.vr-frow .btn,.vr-frow .lk{width:100%;min-width:0}
@@ -703,8 +632,6 @@
     .screen .vr-date-fld .date-scope>button,.screen .vr-fld .vr-selbtn,.vr-frow .btn,.vr-frow .lk{min-height:48px;border-radius:14px}
     .vr-frow .btn{max-width:none;justify-content:center}
     .vr-frow .lk{display:inline-flex;align-items:center;justify-content:center;padding:0 14px;border:1px solid var(--line);background:transparent;text-decoration:none;color:var(--muted);font-weight:700}
-    .vr-status-chips{display:grid;grid-template-columns:1fr 1fr;gap:10px;overflow:visible;padding:0;margin:16px 0 18px}
-    .vr-secthd{margin:18px 0 12px}
     .vr-board .tablewrap{overflow:visible!important}
     .vr-board table.vr-table{min-width:0!important;border-spacing:0 10px}
     .vr-board table.vr-table thead{display:none!important}
@@ -771,9 +698,6 @@
 
   /* ===== Video Log (maintainer decision 2026-08-14): one business day, per shed, when each proof
      arrived. Sibling drawer to the analytics panel, gated on a different capability. ===== */
-  /* Narrower than the analytics drawer (940px): this is a three-column table, not a KPI strip plus
-     a module grid, and a 940px panel would leave the arrival times floating far from their work. */
-  aside.drawer.vr-videolog-drawer{width:min(720px,96vw)}
   /* Ghost, not primary: Analytics already owns the header's one primary action, and two competing
      primaries side by side read as a toolbar rather than a hierarchy. */
   .vr-videolog{margin:0}
@@ -819,16 +743,6 @@
   .vr-videolog .vl-frow .vl-fbtns{display:flex;gap:8px;flex:0 0 auto}
   .vr-videolog .vl-frow .btn{flex:0 0 auto}
   @media(max-width:640px){
-    aside.drawer.vr-analytics-drawer,
-    aside.drawer.vr-videolog-drawer{
-      width:100vw!important;
-      max-width:100vw!important;
-      border-radius:16px 16px 0 0!important;
-    }
-    aside.drawer.vr-analytics-drawer .dh,
-    aside.drawer.vr-videolog-drawer .dh{padding:16px 20px!important}
-    aside.drawer.vr-analytics-drawer .dc,
-    aside.drawer.vr-videolog-drawer .dc{padding:18px 20px 24px!important}
     .vr-videolog .vl-head{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch}
     .vr-videolog .vl-head .sp{display:none}
     .vr-videolog .vl-csv-wrap,.vr-videolog .vl-csv-btn{width:100%;justify-content:center}

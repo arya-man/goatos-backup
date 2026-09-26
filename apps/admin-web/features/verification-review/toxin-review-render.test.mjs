@@ -105,7 +105,7 @@ test("the strip photo is an explicit open link, not an auto-fetching image", () 
   const anchor = listSource.indexOf("toxin.drawer.strip_photo");
   assert.ok(anchor > 0, "strip photo section must still render");
   const stripSection = listSource.slice(Math.max(0, anchor - 400), anchor + 700);
-  assert.match(stripSection, /<a className="lk"/);
+  assert.match(stripSection, /<MuiLink href=/);
   assert.match(stripSection, /drawer\.media\.open/);
   assert.doesNotMatch(stripSection, /<img\b/);
   assert.doesNotMatch(stripSection, /vr-image-proof/);

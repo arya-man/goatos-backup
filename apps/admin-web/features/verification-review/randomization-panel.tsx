@@ -2,8 +2,9 @@
 
 import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { BodyPortal } from "@/components/app/body-portal";
-import { Shuffle, X } from "lucide-react";
+import Button from "@mui/material/Button";
+import { DetailDrawer } from "@/components/app/detail-drawer";
+import { Shuffle } from "lucide-react";
 import type { ReactNode } from "react";
 import { RANDOMIZATION_PANEL_ID, RANDOMIZATION_PANEL_SELECTION_KEY } from "./randomization-panel-params";
 
@@ -32,7 +33,7 @@ export function RandomizationPanel({
   initialOpen?: boolean;
   children: ReactNode;
 }) {
-  const { drawerOpen, displayedItem, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { drawerOpen, displayedItem, closeDrawer } = useLocalOverlaySelection({
     items: PANEL_ITEMS,
     itemId: (item) => item.id,
     selectionKey: RANDOMIZATION_PANEL_SELECTION_KEY,
@@ -44,46 +45,30 @@ export function RandomizationPanel({
 
   return (
     <>
-      <LocalOverlayLink
+      <Button
+        component={LocalOverlayLink}
         href={`#${RANDOMIZATION_PANEL_SELECTION_KEY}=${RANDOMIZATION_PANEL_ID}`}
-        className="btn sm"
         replace
         scroll={false}
+        variant="outlined" color="inherit"
+        startIcon={<Shuffle size={18} aria-hidden="true" />}
+        className="vr-randomization-btn"
       >
-        <Shuffle className="ic" aria-hidden="true" />
         {copy(pageContract, "randomization.open")}
-      </LocalOverlayLink>
+      </Button>
 
       {displayedItem ? (
-        // BodyPortal anchors the drawer + scrim to the viewport rather than a transformed ancestor.
-        <BodyPortal>
-          <button
-            type="button"
-            className={`scrim${drawerOpen ? " on" : ""}`}
-            aria-label={closeLabel}
-            aria-hidden={!drawerOpen}
-            tabIndex={drawerOpen ? 0 : -1}
-            onClick={closeDrawer}
-          />
-          <aside
-            className={`drawer vr-analytics-drawer${drawerOpen ? " on" : ""}`}
-            aria-label={title}
-            aria-hidden={!drawerOpen}
-            inert={!drawerOpen}
-          >
-            <div className="dh">
-              <div>
-                <h2>{title}</h2>
-                <div className="sb">{copy(pageContract, "randomization.hint")}</div>
-              </div>
-              <span className="sp" style={{ flex: 1 }} />
-              <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={closeLabel} onClick={closeDrawer}>
-                <X className="ic" />
-              </button>
-            </div>
-            <div className="dc">{children}</div>
-          </aside>
-        </BodyPortal>
+        <DetailDrawer
+          open={drawerOpen}
+          onClose={closeDrawer}
+          title={title}
+          subtitle={copy(pageContract, "randomization.hint")}
+          ariaLabel={title}
+          closeLabel={closeLabel}
+          size="xl"
+        >
+          {children}
+        </DetailDrawer>
       ) : null}
     </>
   );

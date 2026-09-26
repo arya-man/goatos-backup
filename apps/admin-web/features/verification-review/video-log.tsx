@@ -6,6 +6,9 @@ import TableCell from "@mui/material/TableCell";
 import type { ReactNode } from "react";
 
 import Link from "@/components/no-prefetch-link";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import { LinkButton } from "@/components/minimal/link-button";
 import { VrFormSelect } from "./vr-form-select";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -52,8 +55,11 @@ export async function VideoLog({
   dateLabels,
   basePath,
   today,
+  scopeParkLabel,
 }: {
   pageContract: AdminUiPageContract;
+  /** Label of the page's top-bar park (the seed for parkFilter), from the bootstrap park list. */
+  scopeParkLabel?: string;
   /** Calendar copy, from the page contract's existing filter.date.* keys. */
   dateLabels: DateRangePickerLabels;
   /** Route the day picker rewrites, so the panel's own URL contract stays on /verify. */
@@ -111,6 +117,11 @@ export async function VideoLog({
   // Park options come from the day itself, so a park with no arrivals is never offered. Labels are
   // the backend's own; this composes none of them.
   const parkOptions = dedupeParks(sheds);
+  // The page's park scope seeds the panel's park filter; a day with no arrivals from that park still
+  // shows it as the selected value rather than reading "All parks".
+  if (parkFilter && scopeParkLabel && !parkOptions.some((park) => park.id === parkFilter)) {
+    parkOptions.unshift({ id: parkFilter, label: scopeParkLabel });
+  }
 
   return (
     <div className="vr-videolog">
@@ -244,26 +255,24 @@ function VideoLogFilters({
             .flatMap(([park, group]) => group.map((shed) => ({ value: shed.shed_key, label: shed.operational_location_display, group: park }))),
         ]}
       />
-      <div className="vr-fld fld vl-search" style={{ marginBottom: 0 }}>
-        <label htmlFor="vl-q">{copy(pageContract, "video_log.filter.search")}</label>
-        <input
-          id="vl-q"
-          name={VIDEO_LOG_QUERY_KEY}
-          className="vr-selbtn"
-          type="search"
-          defaultValue={query}
-          placeholder={copy(pageContract, "video_log.filter.search_hint")}
-        />
-      </div>
+      <TextField
+        className="vl-search"
+        name={VIDEO_LOG_QUERY_KEY}
+        type="search"
+        label={copy(pageContract, "video_log.filter.search")}
+        defaultValue={query}
+        placeholder={copy(pageContract, "video_log.filter.search_hint")}
+        slotProps={{ inputLabel: { shrink: true }, htmlInput: { id: "vl-q" } }}
+      />
       {/* Grouped so the pair wraps TOGETHER: at the drawer's width the three fields fill the first
           line and Clear was landing alone on a second one, reading as an unrelated control. */}
       <div className="vl-fbtns">
-        <button type="submit" className="btn sm">
+        <Button type="submit" variant="contained">
           {copy(pageContract, "video_log.filter.apply")}
-        </button>
-        <Link href={clearHref} className="btn sm">
+        </Button>
+        <LinkButton href={clearHref} variant="outlined" color="inherit">
           {copy(pageContract, "video_log.filter.clear")}
-        </Link>
+        </LinkButton>
       </div>
     </form>
   );

@@ -3,7 +3,10 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import { DateRangePicker, type DateRangePickerLabels } from "@/components/date-range-picker";
+import dayjs from "dayjs";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+
+import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import { VIDEO_LOG_DATE_KEY, VIDEO_LOG_PANEL_ID, VIDEO_LOG_PANEL_SELECTION_KEY } from "./video-log-params";
 
 /**
@@ -69,17 +72,24 @@ export function VideoLogDateFilter({
     });
   }
 
+  // Template date field (MUI X DatePicker, as in the template's CustomDateRangePicker): one
+  // outlined TextField with the label shrunk onto the border and the calendar icon as its end
+  // adornment. Future days stay unpickable (the read rejects a future business date).
   return (
-    <DateRangePicker
-      labels={labels}
-      from={selected}
-      to={selected}
-      today={today}
-      busy={pending}
-      // Hides the single/range tabs outright rather than accepting a span and quietly keeping only
-      // its start — a control that does not do what it offers is worse than one that is absent.
-      singleDayOnly
-      onChange={(nextFrom) => apply(nextFrom)}
+    <DatePicker
+      label={labels.field}
+      value={dayjs(selected)}
+      format="DD/MM/YYYY"
+      maxDate={dayjs(today)}
+      disabled={pending}
+      onAccept={(next) => {
+        if (next?.isValid()) apply(next.format("YYYY-MM-DD"));
+      }}
+      slotProps={{
+        textField: { sx: { minWidth: { sm: 220 } } },
+        previousIconButton: { "aria-label": labels.previousMonth } as never,
+        nextIconButton: { "aria-label": labels.nextMonth } as never,
+      }}
     />
   );
 }

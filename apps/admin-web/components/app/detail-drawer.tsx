@@ -19,13 +19,14 @@ export function DetailDrawer({
   open,
   onClose,
   title,
+  subtitle,
   eyebrow,
   icon,
   iconColors,
   closeLabel,
   ariaLabel,
   footer,
-  width = 480,
+  size = "md",
   bodySx,
   paperTestId,
   children,
@@ -33,6 +34,8 @@ export function DetailDrawer({
   open: boolean;
   onClose: () => void;
   title: ReactNode;
+  /** One muted line under the template header (a panel hint). */
+  subtitle?: ReactNode;
   eyebrow?: ReactNode;
   icon?: ReactNode;
   /** Tile fill/ink from the Mesha palette tokens (e.g. `var(--dangerx)` / `var(--danger)`). */
@@ -40,7 +43,8 @@ export function DetailDrawer({
   closeLabel: string;
   ariaLabel?: string;
   footer?: ReactNode;
-  width?: number;
+  /** Paper width from sm up (phones are always full width): md record, lg panel, xl analytics. */
+  size?: keyof typeof DRAWER_SIZES;
   bodySx?: object;
   paperTestId?: string;
   children: ReactNode;
@@ -51,7 +55,7 @@ export function DetailDrawer({
       onClose={onClose}
       title={title}
       closeLabel={closeLabel}
-      width={width}
+      width={DRAWER_SIZES[size]}
       aria-label={ariaLabel}
       slotProps={{ paper: { "aria-label": ariaLabel, role: "dialog", ...(paperTestId ? { "data-testid": paperTestId } : {}) } as object }}
       footer={
@@ -79,10 +83,18 @@ export function DetailDrawer({
           ) : null}
         </Box>
       ) : null}
+      {subtitle ? (
+        <Typography variant="body2" sx={{ color: "text.secondary", px: 2.5, pt: 2 }}>
+          {subtitle}
+        </Typography>
+      ) : null}
       <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, minWidth: 0, ...bodySx }}>{children}</Box>
     </MinimalDrawer>
   );
 }
+
+// Template drawer paper widths (MinimalDrawer caps them at 100vw below sm).
+const DRAWER_SIZES = { md: 480, lg: 720, xl: 940 } as const;
 
 /** Two-column label/value grid (template details-info rows). */
 export function DrawerMetaGrid({ children, columns = 2 }: { children: ReactNode; columns?: 1 | 2 }) {

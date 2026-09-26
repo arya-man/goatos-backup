@@ -2,8 +2,9 @@
 
 import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { BodyPortal } from "@/components/app/body-portal";
-import { Clock, X } from "lucide-react";
+import Button from "@mui/material/Button";
+import { DetailDrawer } from "@/components/app/detail-drawer";
+import { Clock } from "lucide-react";
 import type { ReactNode } from "react";
 import { VIDEO_LOG_PANEL_ID, VIDEO_LOG_PANEL_SELECTION_KEY } from "./video-log-params";
 
@@ -40,7 +41,7 @@ export function VideoLogPanel({
   initialOpen?: boolean;
   children: ReactNode;
 }) {
-  const { drawerOpen, displayedItem, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { drawerOpen, displayedItem, closeDrawer } = useLocalOverlaySelection({
     items: PANEL_ITEMS,
     itemId: (item) => item.id,
     selectionKey: VIDEO_LOG_PANEL_SELECTION_KEY,
@@ -52,51 +53,30 @@ export function VideoLogPanel({
 
   return (
     <>
-      {/* Matched to Analytics: same primary treatment, same size, sitting beside it (maintainer,
-          2026-08-15). These are two peer entry points into the same evidence — one to the backlog
-          numbers, one to the day's arrivals — so ranking one above the other by weight made the
-          Video Log read as secondary chrome rather than the sibling it is. Both share ONE style
-          rule in mesha-theme.css; do not give either its own size or weight. */}
-      <LocalOverlayLink
+      <Button
+        component={LocalOverlayLink}
         href={`#${VIDEO_LOG_PANEL_SELECTION_KEY}=${VIDEO_LOG_PANEL_ID}`}
-        className="btn vr-videolog-btn"
         replace
         scroll={false}
+        variant="contained"
+        startIcon={<Clock size={18} aria-hidden="true" />}
+        className="vr-videolog-btn"
       >
-        <Clock className="ic" aria-hidden="true" />
         {copy(pageContract, "video_log.open")}
-      </LocalOverlayLink>
+      </Button>
 
       {displayedItem ? (
-        // BodyPortal anchors the drawer + scrim to the viewport rather than a transformed ancestor.
-        <BodyPortal>
-          <button
-            type="button"
-            className={`scrim${drawerOpen ? " on" : ""}`}
-            aria-label={closeLabel}
-            aria-hidden={!drawerOpen}
-            tabIndex={drawerOpen ? 0 : -1}
-            onClick={closeDrawer}
-          />
-          <aside
-            className={`drawer vr-videolog-drawer${drawerOpen ? " on" : ""}`}
-            aria-label={title}
-            aria-hidden={!drawerOpen}
-            inert={!drawerOpen}
-          >
-            <div className="dh">
-              <div>
-                <h2>{title}</h2>
-                <div className="sb">{copy(pageContract, "video_log.hint")}</div>
-              </div>
-              <span className="sp" style={{ flex: 1 }} />
-              <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={closeLabel} onClick={closeDrawer}>
-                <X className="ic" />
-              </button>
-            </div>
-            <div className="dc">{children}</div>
-          </aside>
-        </BodyPortal>
+        <DetailDrawer
+          open={drawerOpen}
+          onClose={closeDrawer}
+          title={title}
+          subtitle={copy(pageContract, "video_log.hint")}
+          ariaLabel={title}
+          closeLabel={closeLabel}
+          size="lg"
+        >
+          {children}
+        </DetailDrawer>
       ) : null}
     </>
   );

@@ -51,6 +51,10 @@
   .root :global(table[data-enh="1"] td>*){min-width:0}
   .root :global(table[data-enh="1"] td .btn){justify-self:start}
   .root :global(table[data-enh="1"] tr:hover>td:first-child){box-shadow:none}
+  /* The no-rows row holds the template EmptyContent across every column: no row card, no label column. */
+  .root :global(table[data-enh="1"] tr:has(>td[colspan])){border:0;box-shadow:none;background:none}
+  .root :global(table[data-enh="1"] td[colspan]){display:block;padding:0}
+  .root :global(table[data-enh="1"] td[colspan]::before){content:none}
 }
 
 @media (prefers-reduced-motion: reduce){

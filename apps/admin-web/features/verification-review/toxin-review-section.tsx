@@ -18,6 +18,10 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ToxinReviewList } from "./toxin-review-list";
 import Alert from "@mui/material/Alert";
 import { PageHeader } from "@/components/app/page-header";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import { LinkButton } from "@/components/minimal/link-button";
 
 const PATHNAME = "/verify";
 
@@ -54,37 +58,37 @@ export async function ToxinReviewScreen({
         </Alert>
       )}
 
-      <section className="card vr-board" style={{ minWidth: 0 }}>
-        <div className="bt">{copy(pageContract, "board.title")}</div>
+      <Card className="vr-board" sx={{ minWidth: 0 }}>
+        <CardHeader title={copy(pageContract, "board.title")} />
 
         {/* The way back to the verification queue plus the active Toxin chip — the same .vr-lg
             vocabulary as the queue's module chip row, so the toggle reads as one chip family. */}
-        <div className="vr-legend" role="group" aria-label={toxinLabel}>
+        <Box className="vr-legend" role="group" aria-label={toxinLabel} sx={{ px: 3, pt: 2 }}>
           <Link href={hrefWith(sp, { toxin: null, tx_cursor: null, tx_status: null, tx_code: null })} replace scroll={false} className="vr-lg">
             {copy(pageContract, "filter.all_modules")}
           </Link>
           <span className="vr-lg on">{toxinLabel}</span>
-        </div>
+        </Box>
 
         <ToxinReviewList tasks={tasks} pageContract={pageContract} returnTo={returnTo} feedback={feedback} />
 
         {nextCursor || cursor ? (
-          <div className="pager" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
+          <Box className="pager" sx={{ px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
             {cursor ? (
               // Keyset cursors only read forward; "back" returns to the first page rather than
               // growing a trail — the review backlog is expected to stay shallow.
-              <Link href={hrefWith(sp, { tx_cursor: null, tx_status: null, tx_code: null })} className="btn sm" replace scroll={false}>
+              <LinkButton href={hrefWith(sp, { tx_cursor: null, tx_status: null, tx_code: null })} size="small" variant="outlined" color="inherit" replace scroll={false}>
                 {copy(pageContract, "pagination.previous")}
-              </Link>
+              </LinkButton>
             ) : null}
             {nextCursor ? (
-              <Link href={hrefWith(sp, { tx_cursor: nextCursor, tx_status: null, tx_code: null })} className="btn sm" replace scroll={false}>
+              <LinkButton href={hrefWith(sp, { tx_cursor: nextCursor, tx_status: null, tx_code: null })} size="small" variant="outlined" color="inherit" replace scroll={false}>
                 {copy(pageContract, "pagination.next")}
-              </Link>
+              </LinkButton>
             ) : null}
-          </div>
+          </Box>
         ) : null}
-      </section>
+      </Card>
     </div>
   );
 }

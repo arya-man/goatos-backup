@@ -2,8 +2,9 @@
 
 import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { BodyPortal } from "@/components/app/body-portal";
-import { BarChart3, X } from "lucide-react";
+import Button from "@mui/material/Button";
+import { DetailDrawer } from "@/components/app/detail-drawer";
+import { BarChart3 } from "lucide-react";
 import type { ReactNode } from "react";
 import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY } from "./analytics-panel-params";
 
@@ -35,7 +36,7 @@ export function AnalyticsPanel({
   initialOpen?: boolean;
   children: ReactNode;
 }) {
-  const { drawerOpen, displayedItem, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { drawerOpen, displayedItem, closeDrawer } = useLocalOverlaySelection({
     items: PANEL_ITEMS,
     itemId: (item) => item.id,
     selectionKey: ANALYTICS_PANEL_SELECTION_KEY,
@@ -47,44 +48,30 @@ export function AnalyticsPanel({
 
   return (
     <>
-      {/* Primary-styled on purpose: as a ghost `btn sm` it read as page furniture next to the crumb
-          and the maintainer missed it. This is the only entry to the oversight numbers, so it gets
-          the page's one primary action. */}
-      <LocalOverlayLink href={`#${ANALYTICS_PANEL_SELECTION_KEY}=${ANALYTICS_PANEL_ID}`} className="btn p vr-analytics-btn" replace scroll={false}>
-        <BarChart3 className="ic" aria-hidden="true" />
+      <Button
+        component={LocalOverlayLink}
+        href={`#${ANALYTICS_PANEL_SELECTION_KEY}=${ANALYTICS_PANEL_ID}`}
+        replace
+        scroll={false}
+        variant="contained"
+        startIcon={<BarChart3 size={18} aria-hidden="true" />}
+        className="vr-analytics-btn"
+      >
         {copy(pageContract, "oversight_analytics.open")}
-      </LocalOverlayLink>
+      </Button>
 
       {displayedItem ? (
-        // BodyPortal anchors the drawer + scrim to the viewport rather than a transformed ancestor.
-        <BodyPortal>
-          <button
-            type="button"
-            className={`scrim${drawerOpen ? " on" : ""}`}
-            aria-label={closeLabel}
-            aria-hidden={!drawerOpen}
-            tabIndex={drawerOpen ? 0 : -1}
-            onClick={closeDrawer}
-          />
-          <aside
-            className={`drawer vr-analytics-drawer${drawerOpen ? " on" : ""}`}
-            aria-label={title}
-            aria-hidden={!drawerOpen}
-            inert={!drawerOpen}
-          >
-            <div className="dh">
-              <div>
-                <h2>{title}</h2>
-                <div className="sb">{copy(pageContract, "oversight_analytics.hint")}</div>
-              </div>
-              <span className="sp" style={{ flex: 1 }} />
-              <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={closeLabel} onClick={closeDrawer}>
-                <X className="ic" />
-              </button>
-            </div>
-            <div className="dc">{children}</div>
-          </aside>
-        </BodyPortal>
+        <DetailDrawer
+          open={drawerOpen}
+          onClose={closeDrawer}
+          title={title}
+          subtitle={copy(pageContract, "oversight_analytics.hint")}
+          ariaLabel={title}
+          closeLabel={closeLabel}
+          size="xl"
+        >
+          {children}
+        </DetailDrawer>
       ) : null}
     </>
   );

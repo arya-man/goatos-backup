@@ -80,7 +80,7 @@ test("status chips and the shed filter are not gated behind oversightFiltersEnab
   // between the status chip block and the results table heading -- it is optional additive
   // chrome, not part of this filter row, so the regex tolerates it sitting in between.
   const statusBlock = source.match(
-    /\{statuses\.length \? \(([\s\S]*?)\) : null\}\s*\n[\s\S]{0,600}?<div className="vr-secthd">/,
+    /\{statuses\.length \? \(([\s\S]*?)\) : null\}\s*\n[\s\S]{0,600}?className="vr-secthd"/,
   );
   assert.ok(statusBlock, "expected the status chip block ahead of the results table heading");
   assert.ok(
@@ -284,7 +284,9 @@ test("the video log day filter defaults to today and writes today as an absent p
     "selecting today must DELETE the day param, so a bookmark keeps meaning 'today'",
   );
   // A single day, never a range: arrival times would otherwise be ambiguous about their day.
-  assert.match(filter, /from=\{selected\}\s*\n\s*to=\{selected\}/, "the video log picker must select ONE day (from === to)");
+  // Template MUI X DatePicker: one day by construction (no range slot), value = the selected day.
+  assert.match(filter, /<DatePicker[\s\S]*value=\{dayjs\(selected\)\}/, "the video log picker must select ONE day");
+  assert.doesNotMatch(filter, /<DateRangePicker\b/, "the video log day is not a range picker");
   // The rendered day comes from the backend response, never a client guess that could drift from
   // the rows below it.
   const videoLog = readFileSync(fileURLToPath(new URL("./video-log.tsx", import.meta.url)), "utf8");
