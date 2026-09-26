@@ -1,10 +1,13 @@
 "use client";
 
-import { UserPlus, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useId, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+
+import { MinimalDrawer } from "@/components/minimal/drawer";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -47,10 +50,26 @@ function statusTone(status: string): Tone {
   }
 }
 
+/** A label / value cell of the RECORD grid (template drawer detail rows: caption over value). */
+function MetaCell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" component="div" sx={{ color: "text.secondary", fontWeight: "fontWeightSemiBold" }}>
+        {label}
+      </Typography>
+      <Typography variant="subtitle1" component="div" sx={{ overflowWrap: "anywhere" }}>
+        {children}
+      </Typography>
+    </Box>
+  );
+}
+
+const metaGridSx = { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 2 } as const;
+
 /**
  * The directory's record / add overlay. Client state driven by the URL (the
- * LocalOverlayLink contract) with the mock's drawer anatomy: `.scrim`, `.dh`,
- * `.dc`, `.df`, and a `.metagrid` RECORD body for an existing person.
+ * LocalOverlayLink contract, so Back closes it) on the template MinimalDrawer: it portals to
+ * <body>, traps focus, closes on Escape / scrim / X and returns focus to the opener.
  */
 export function PersonAddDrawer({
   people,
@@ -64,7 +83,7 @@ export function PersonAddDrawer({
   pageContract: AdminUiPageContract;
   listHref: string;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const addFormId = useId();
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readPersonParam, () => "");
 
   const isAdding = selection === "new";
@@ -111,75 +130,83 @@ export function PersonAddDrawer({
     replaceLocalOverlayUrl(listHref);
   }, [listHref]);
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
-
   const none = copy(pageContract, "value.none");
   const field = (key: string) => copy(pageContract, `field.${key}`);
   const title = isAdding ? copy(pageContract, "drawer.add.title") : (person?.display_name ?? "");
 
   const cell = (label: string, value: string | null | undefined) => (
-    <div key={label}>
-      <div className="k">{label}</div>
-      <div className="v">{value === null || value === undefined || value === "" ? none : value}</div>
-    </div>
+    <MetaCell key={label} label={label}>
+      {value === null || value === undefined || value === "" ? none : value}
+    </MetaCell>
   );
 
-  return (
+  const footer = isAdding ? (
     <>
-      <div
-        className={`scrim${open ? " on" : ""}`}
-        aria-label={copy(pageContract, "action.close")}
-        aria-hidden={!open}
-        tabIndex={open ? 0 : -1}
-        onClick={close}
-      />
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--info)" }}>
-            <UserPlus className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "crumb")}</div>
-            <h2>{title}</h2>
-            {isAdding ? (
-              <div className="muted small" style={{ marginTop: 3 }}>
-                {copy(pageContract, "drawer.add.subtitle")}
-              </div>
-            ) : person ? (
-              <div className="muted small" style={{ marginTop: 3 }}>
-                {person.park_label ?? none} · {person.department_label ?? none}
-              </div>
-            ) : null}
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <IconButton
-            ref={closeButtonRef}
-            type="button"
-            aria-label={copy(pageContract, "action.close")}
-            onClick={close}
-          >
-            <X className="ic" aria-hidden="true" />
-          </IconButton>
-        </div>
+      <Button type="submit" form={addFormId} variant="contained" disabled={incomplete}>
+        {copy(pageContract, "action.save")}
+      </Button>
+      <Button type="button" variant="outlined" onClick={close}>
+        {copy(pageContract, "action.cancel")}
+      </Button>
+    </>
+  ) : person ? (
+    confirmingStatus ? (
+      <form action={changePersonStatusAction} style={{ display: "contents" }}>
+        <input type="hidden" name="return_to" value={listHref} />
+        <input type="hidden" name="person_id" value={person.person_id} />
+        <input type="hidden" name="row_version" value={person.row_version} />
+        <input type="hidden" name="target_status" value={person.status === "active" ? "deactivate" : "activate"} />
+        <Button type="submit" variant="contained" color={person.status === "active" ? "error" : "primary"}>
+          {copy(pageContract, "action.confirm")}
+        </Button>
+        <Button type="button" variant="outlined" onClick={() => setConfirmingStatus(false)}>
+          {copy(pageContract, "action.cancel")}
+        </Button>
+      </form>
+    ) : (
+      <Button
+        type="button"
+        variant="contained"
+        color={person.status === "active" ? "error" : "primary"}
+        onClick={() => setConfirmingStatus(true)}
+      >
+        {copy(pageContract, person.status === "active" ? "action.deactivate" : "action.activate")}
+      </Button>
+    )
+  ) : null;
 
+  return (
+    <MinimalDrawer
+      open={open}
+      onClose={close}
+      title={title}
+      width={380}
+      closeLabel={copy(pageContract, "action.close")}
+      footer={footer}
+      aria-label={title}
+    >
+      <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5 }}>
+        <Box>
+          <Typography variant="caption" component="div" sx={{ color: "text.secondary", fontWeight: "fontWeightSemiBold" }}>
+            {copy(pageContract, "crumb")}
+          </Typography>
+          {isAdding ? (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {copy(pageContract, "drawer.add.subtitle")}
+            </Typography>
+          ) : person ? (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {person.park_label ?? none} · {person.department_label ?? none}
+            </Typography>
+          ) : null}
+        </Box>
         {isAdding ? (
-          <form action={createPersonAction} style={{ display: "contents" }}>
-            <div className="dc">
+          <form id={addFormId} action={createPersonAction} style={{ display: "contents" }}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
               <input type="hidden" name="return_to" value={listHref} />
               <input type="hidden" name="idempotency_key" value={idempotencyKey} />
 
-              <div className="note">{copy(pageContract, "required.hint")}</div>
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "required.hint")}</Typography>
 
               <div className="fld">
                 <TextField
@@ -266,21 +293,13 @@ export function PersonAddDrawer({
                 options={[{ value: "", label: "—" }, ...grades.map((grade) => ({ value: grade.key, label: grade.label }))]}
               />
 
-              <div className="note">{copy(pageContract, "password.note")}</div>
-            </div>
-            <div className="df">
-              <Button type="submit" variant="contained" disabled={incomplete}>
-                {copy(pageContract, "action.save")}
-              </Button>
-              <Button type="button" variant="outlined" onClick={close}>
-                {copy(pageContract, "action.cancel")}
-              </Button>
-            </div>
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "password.note")}</Typography>
+            </Box>
           </form>
         ) : person ? (
           <>
-            <div className="dc">
-              <div className="metagrid">
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <Box sx={metaGridSx}>
                 {cell(field("first_name"), person.first_name)}
                 {cell(field("last_name"), person.last_name)}
                 {cell(field("email"), person.email)}
@@ -288,17 +307,14 @@ export function PersonAddDrawer({
                 {cell(field("department"), person.department_label)}
                 {cell(field("designation"), person.designation_grade ?? person.role_hint)}
                 {cell(copy(pageContract, "column.title"), person.title)}
-                <div>
-                  <div className="k">{copy(pageContract, "column.status")}</div>
-                  <div className="v">
-                    <Tag tone={statusTone(person.status)}>{person.status}</Tag>
-                  </div>
-                </div>
-              </div>
+                <MetaCell label={copy(pageContract, "column.status")}>
+                  <Tag tone={statusTone(person.status)}>{person.status}</Tag>
+                </MetaCell>
+              </Box>
 
               {/* Business title (maintainer request 2026-09-11): what the Tasks assignee picker
                   shows in place of the name. Edited here, on the person, never on the picker. */}
-              <form action={setPersonTitleAction} className="fld" style={{ marginTop: 16 }}>
+              <form action={setPersonTitleAction}>
                 <input type="hidden" name="return_to" value={listHref} />
                 <input type="hidden" name="person_id" value={person.person_id} />
                 <input type="hidden" name="row_version" value={person.row_version} />
@@ -316,18 +332,18 @@ export function PersonAddDrawer({
                     {copy(pageContract, "action.save_title")}
                   </Button>
                 </div>
-                <div className="muted small" style={{ marginTop: 4 }}>
+                <Typography variant="caption" component="div" sx={{ color: "text.secondary", mt: 0.5 }}>
                   {copy(pageContract, "title.hint")}
-                </div>
+                </Typography>
               </form>
 
               {/* Proof-work statistics: one verification item = one submitted
                   proof set; withdrawn/superseded items are excluded backend-side. */}
-              <div className="hd" style={{ marginTop: 16 }}>
-                <h3>{copy(pageContract, "stats.title")}</h3>
-              </div>
+              <Typography variant="h6" component="h3">
+                {copy(pageContract, "stats.title")}
+              </Typography>
               {person.proof_uploads > 0 ? (
-                <div className="metagrid">
+                <Box sx={metaGridSx}>
                   {cell(copy(pageContract, "stats.uploaded"), String(person.proof_uploads))}
                   {cell(copy(pageContract, "stats.approved"), String(person.proof_approved))}
                   {cell(copy(pageContract, "stats.rejected"), String(person.proof_rejected))}
@@ -338,68 +354,40 @@ export function PersonAddDrawer({
                   {person.proof_not_reviewed > 0
                     ? cell(copy(pageContract, "stats.not_reviewed"), String(person.proof_not_reviewed))
                     : null}
-                  <div>
-                    <div className="k">{copy(pageContract, "stats.rejection_rate")}</div>
-                    <div className="v">
+                  <MetaCell label={copy(pageContract, "stats.rejection_rate")}>
                       {person.proof_rejection_pct === null || person.proof_rejection_pct === undefined ? (
-                        <span className="muted">{copy(pageContract, "stats.no_reviews")}</span>
+                        <Box component="span" sx={{ color: "text.secondary" }}>{copy(pageContract, "stats.no_reviews")}</Box>
                       ) : (
                         <Tag tone={person.proof_rejection_pct >= 20 ? "dng" : person.proof_rejection_pct > 0 ? "warn" : "ok"}>
                           {person.proof_rejection_pct}%
                         </Tag>
                       )}
-                    </div>
-                  </div>
-                </div>
+                  </MetaCell>
+                </Box>
               ) : (
-                <div className="muted small">{copy(pageContract, "stats.none")}</div>
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "stats.none")}</Typography>
               )}
 
               {confirmingStatus ? (
-                <div className="note" style={{ marginTop: 16 }}>
+                <Alert severity="warning">
                   <b>
                     {copy(
                       pageContract,
                       person.status === "active" ? "confirm.deactivate.title" : "confirm.activate.title",
                     )}
                   </b>
-                  <div style={{ marginTop: 4 }}>
+                  <Box sx={{ mt: 0.5 }}>
                     {copy(
                       pageContract,
                       person.status === "active" ? "confirm.deactivate.body" : "confirm.activate.body",
                     )}
-                  </div>
-                </div>
+                  </Box>
+                </Alert>
               ) : null}
-            </div>
-            <div className="df">
-              {confirmingStatus ? (
-                <form action={changePersonStatusAction} style={{ display: "contents" }}>
-                  <input type="hidden" name="return_to" value={listHref} />
-                  <input type="hidden" name="person_id" value={person.person_id} />
-                  <input type="hidden" name="row_version" value={person.row_version} />
-                  <input type="hidden" name="target_status" value={person.status === "active" ? "deactivate" : "activate"} />
-                  <Button type="submit" variant="contained" color={person.status === "active" ? "error" : "primary"}>
-                    {copy(pageContract, "action.confirm")}
-                  </Button>
-                  <Button type="button" variant="outlined" onClick={() => setConfirmingStatus(false)}>
-                    {copy(pageContract, "action.cancel")}
-                  </Button>
-                </form>
-              ) : (
-                <Button
-                  type="button"
-                  variant="contained"
-                  color={person.status === "active" ? "error" : "primary"}
-                  onClick={() => setConfirmingStatus(true)}
-                >
-                  {copy(pageContract, person.status === "active" ? "action.deactivate" : "action.activate")}
-                </Button>
-              )}
-            </div>
+            </Box>
           </>
         ) : null}
-      </aside>
-    </>
+      </Box>
+    </MinimalDrawer>
   );
 }

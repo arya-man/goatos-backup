@@ -1,8 +1,11 @@
 "use client";
 
-import { Clock, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
-import IconButton from "@mui/material/IconButton";
+import { useCallback, useEffect, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+
+import { MinimalDrawer } from "@/components/minimal/drawer";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -43,12 +46,29 @@ function flagTone(key: string): Tone {
   }
 }
 
+/** A label / value cell of the record grid (template drawer detail rows: caption over value). */
+function MetaCell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" component="div" sx={{ color: "text.secondary", fontWeight: "fontWeightSemiBold" }}>
+        {label}
+      </Typography>
+      <Typography variant="subtitle2" component="div" sx={{ overflowWrap: "anywhere" }}>
+        {children}
+      </Typography>
+    </Box>
+  );
+}
+
+const metaGridSx = { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 2 } as const;
+
 /**
  * The Clock In / Out record drawer: one clocking in full — both punches with
  * device time vs server time, location (with a map link), device identity,
  * connection, and battery. Client state driven by the URL (the
- * LocalOverlayLink contract); the detail is fetched INSIDE the drawer through
- * an authenticated Server Action, never pre-loaded for every list row.
+ * LocalOverlayLink contract, so Back closes it); the detail is fetched INSIDE the drawer through
+ * an authenticated Server Action, never pre-loaded for every list row. Shell: the template
+ * MinimalDrawer (portal, focus trap, Escape / scrim / X close, focus back on the opener).
  */
 export function ClockEntryDrawer({
   pageContract,
@@ -57,7 +77,6 @@ export function ClockEntryDrawer({
   pageContract: AdminUiPageContract;
   listHref: string;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readClockingParam, () => "");
   const open = selection !== "";
 
@@ -98,29 +117,15 @@ export function ClockEntryDrawer({
     replaceLocalOverlayUrl(listHref);
   }, [listHref]);
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
-
   const none = copy(pageContract, "clock.value.none");
   const k = (key: string) => copy(pageContract, `clock.drawer.${key}`);
   const entry = detail?.entry;
   const title = entry ? entry.person_name : copy(pageContract, "clock.drawer.title");
 
   const cell = (label: string, value: string | null | undefined) => (
-    <div key={label}>
-      <div className="k">{label}</div>
-      <div className="v">{value === null || value === undefined || value === "" ? none : value}</div>
-    </div>
+    <MetaCell key={label} label={label}>
+      {value === null || value === undefined || value === "" ? none : value}
+    </MetaCell>
   );
 
   const eventBlock = (event: ClockEventDetail) => {
@@ -129,11 +134,11 @@ export function ClockEntryDrawer({
         ? `${event.latitude!.toFixed(5)}, ${event.longitude!.toFixed(5)}`
         : "";
     return (
-      <div key={event.clock_event_id} style={{ marginBottom: 16 }}>
-        <h4 style={{ margin: "10px 0 6px" }}>
+      <Box key={event.clock_event_id} sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+        <Typography variant="subtitle1" component="h4">
           {event.event_type === "clock_in" ? k("event.clock_in") : k("event.clock_out")}
-        </h4>
-        <div className="metagrid">
+        </Typography>
+        <Box sx={metaGridSx}>
           {cell(k("captured_at"), fmtDateTime(event.captured_at))}
           {cell(k("recorded_at"), fmtDateTime(event.recorded_at))}
           {cell(
@@ -147,82 +152,75 @@ export function ClockEntryDrawer({
           {cell(k("os"), event.os_version ?? "")}
           {cell(k("network"), copy(pageContract, `clock.drawer.network.${event.network_type}`, event.network_type))}
           {cell(k("battery"), event.battery_pct !== undefined ? `${event.battery_pct}%` : "")}
-        </div>
+        </Box>
         {coords ? (
-          <a
-            className="btn sm ghost"
-            style={{ marginTop: 8, display: "inline-flex" }}
-            href={`https://maps.google.com/?q=${event.latitude},${event.longitude}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {k("map_link")}
-          </a>
+          <Box>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              href={`https://maps.google.com/?q=${event.latitude},${event.longitude}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {k("map_link")}
+            </Button>
+          </Box>
         ) : null}
-      </div>
+      </Box>
     );
   };
 
   return (
-    <>
-      <div
-        className={`scrim${open ? " on" : ""}`}
-        aria-label={copy(pageContract, "action.close")}
-        aria-hidden={!open}
-        tabIndex={open ? 0 : -1}
-        onClick={close}
-      />
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--info)" }}>
-            <Clock className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "clock.tab.title")}</div>
-            <h2>{title}</h2>
-            {entry ? (
-              <div className="muted small" style={{ marginTop: 3 }}>
-                {fmtDate(entry.business_date)}
-                {entry.designation ? ` · ${entry.designation}` : ""}
-                {entry.park_label ? ` · ${entry.park_label}` : ""}
-              </div>
-            ) : null}
-          </div>
-          <div className="sp" style={{ flex: 1 }} />
-          <IconButton ref={closeButtonRef} type="button" onClick={close} aria-label={copy(pageContract, "action.close")}>
-            <X className="ic" aria-hidden="true" />
-          </IconButton>
-        </div>
-
-        <div className="dc">
-          {error ? (
-            <Alert severity="error" role="alert">
-              {error}
-            </Alert>
-          ) : null}
-
+    <MinimalDrawer
+      open={open}
+      onClose={close}
+      title={title}
+      width={380}
+      closeLabel={copy(pageContract, "action.close")}
+      aria-label={title}
+    >
+      <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5 }}>
+        <Box>
+          <Typography variant="caption" component="div" sx={{ color: "text.secondary", fontWeight: "fontWeightSemiBold" }}>
+            {copy(pageContract, "clock.tab.title")}
+          </Typography>
           {entry ? (
-            <>
-              <div className="metagrid" style={{ marginBottom: 8 }}>
-                {cell(copy(pageContract, "clock.column.clock_in"), entry.clock_in_label)}
-                {cell(copy(pageContract, "clock.column.clock_out"), entry.clock_out_label ?? "")}
-                {cell(copy(pageContract, "clock.column.hours"), entry.hours_label ?? "")}
-              </div>
-              {entry.flags.length > 0 ? (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                  {entry.flags.map((flag) => (
-                    <Tag key={flag.key} tone={flagTone(flag.key)}>
-                      {flag.label}
-                    </Tag>
-                  ))}
-                </div>
-              ) : null}
-              <h3 style={{ margin: "14px 0 4px" }}>{k("punches")}</h3>
-              {detail?.events.map(eventBlock)}
-            </>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {fmtDate(entry.business_date)}
+              {entry.designation ? ` · ${entry.designation}` : ""}
+              {entry.park_label ? ` · ${entry.park_label}` : ""}
+            </Typography>
           ) : null}
-        </div>
-      </aside>
-    </>
+        </Box>
+
+        {error ? (
+          <Alert severity="error" role="alert">
+            {error}
+          </Alert>
+        ) : null}
+
+        {entry ? (
+          <>
+            <Box sx={{ ...metaGridSx, gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+              {cell(copy(pageContract, "clock.column.clock_in"), entry.clock_in_label)}
+              {cell(copy(pageContract, "clock.column.clock_out"), entry.clock_out_label ?? "")}
+              {cell(copy(pageContract, "clock.column.hours"), entry.hours_label ?? "")}
+            </Box>
+            {entry.flags.length > 0 ? (
+              <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+                {entry.flags.map((flag) => (
+                  <Tag key={flag.key} tone={flagTone(flag.key)}>
+                    {flag.label}
+                  </Tag>
+                ))}
+              </Box>
+            ) : null}
+            <Typography variant="h6" component="h3">{k("punches")}</Typography>
+            {detail?.events.map(eventBlock)}
+          </>
+        ) : null}
+      </Box>
+    </MinimalDrawer>
   );
 }
