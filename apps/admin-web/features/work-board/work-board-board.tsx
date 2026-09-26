@@ -1,6 +1,8 @@
 "use client";
 
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, Info, Search } from "lucide-react";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { varAlpha } from "minimal-shared/utils";
@@ -136,7 +138,8 @@ const BOARD_SX = {
   overscrollBehaviorX: "contain",
   scrollSnapType: { xs: "x mandatory", md: "none" },
   "& > section": { scrollSnapAlign: "start" },
-  "& > section > ul": { maxHeight: "60dvh", overflowY: "auto" },
+  // Columns grow with their cards (template KanbanColumn): no lane scroller -- the per-column
+  // pager does the paging, so a phone never gets a scroll trap inside the board.
 } as const;
 const CARD_SX = {
   display: "flex",
@@ -361,11 +364,20 @@ export function WorkBoardBoard({
           <Link href={nextDayHref} aria-label={copy(pageContract, "action.next")}>›</Link>
         </div>
         <ModuleMenu pageContract={pageContract} options={visibleModules} selected={selectedModules} none={noneSelected} onChange={(next) => write((p) => setParam(p, pageContract, PARAM_MODULE, next.length ? next.join(",") : undefined))} />
-      </div>
-      {/* Board legend (cd3972443): how a card's column is chosen and what amber means. */}
-      <div className="rule">
-        <span>{copy(pageContract, "board.rule")}</span>
-        <span>{copy(pageContract, "board.attention")}</span>
+        {/* Board legend (cd3972443): how a card's column is chosen and what amber means -- an info
+            Tooltip beside the toolbar, not prose under it (FJ1-P2-1). */}
+        <Tooltip
+          title={
+            <>
+              <Box component="span" sx={{ display: "block" }}>{copy(pageContract, "board.rule")}</Box>
+              <Box component="span" sx={{ display: "block", mt: 1 }}>{copy(pageContract, "board.attention")}</Box>
+            </>
+          }
+        >
+          <IconButton aria-label={`${copy(pageContract, "board.rule")} ${copy(pageContract, "board.attention")}`} sx={{ color: "text.secondary" }}>
+            <Info size={20} aria-hidden="true" />
+          </IconButton>
+        </Tooltip>
       </div>
       {/* Template sections/kanban: KanbanBoard track + KanbanColumn (count Label, h6 title) + item shells. */}
       <KanbanBoard role="group" tabIndex={0} aria-label={copy(pageContract, "section.board.aria")} sx={BOARD_SX}>
@@ -397,8 +409,8 @@ export function WorkBoardBoard({
                 )}
               {paged && !searching ? (
                 // Each column pages on its own: the header stays the whole count, the footer
-                // says which slice of it this is. It stays pinned at the foot of the lane's scroll.
-                <Box component="li" sx={{ listStyle: "none", position: "sticky", bottom: "calc(var(--kanban-column-pb) * -1)", zIndex: 1, pb: "var(--kanban-column-pb)", mb: "calc(var(--kanban-column-pb) * -1)", bgcolor: "background.neutral" }}>
+                // says which slice of it this is, as the last item of the lane.
+                <Box component="li" sx={{ listStyle: "none" }}>
                 <Box
                   component="nav"
                   className="colpager"

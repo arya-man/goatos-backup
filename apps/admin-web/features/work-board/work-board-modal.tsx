@@ -3,9 +3,16 @@
 import { Tag } from "@/components/ui-primitives";
 
 import { Settings, X } from "lucide-react";
-import Link from "@/components/no-prefetch-link";
+import { LinkButton } from "@/components/minimal/link-button";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import type { Theme } from "@mui/material/styles";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
-import { useEffect, useRef } from "react";
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow } from "@/lib/api/work-board-server";
 import { flagParkHeadAction } from "./actions";
@@ -40,9 +47,9 @@ function FlagForm({ pageContract, row, returnTo, hot }: { pageContract: AdminUiP
         slotProps={{ inputLabel: { shrink: true }, htmlInput: { maxLength: 1000 } }}
       />
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <button type="submit" className={`btn sm${hot ? " b" : ""}`} disabled={!enabled} aria-disabled={!enabled || undefined} title={enabled ? copy(pageContract, "flag.hint") : ctl.disabled_reason}>
+        <Button type="submit" size="small" variant={hot ? "contained" : "outlined"} color={hot ? "primary" : "inherit"} disabled={!enabled} title={enabled ? copy(pageContract, "flag.hint") : ctl.disabled_reason}>
           {ctl.label}
-        </button>
+        </Button>
         {enabled ? null : <span className="muted small">{ctl.disabled_reason}</span>}
       </div>
     </form>
@@ -50,41 +57,14 @@ function FlagForm({ pageContract, row, returnTo, hot }: { pageContract: AdminUiP
 }
 
 export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, closeHref, returnToByRow, selectedOwner }: { pageContract: AdminUiPageContract; rows: WorkBoardRow[]; initialSelectedRowKey?: string; closeHref: string; returnToByRow: Record<string, string>; selectedOwner?: string }) {
-  const { displayedItem: row, drawerOpen: open, closeDrawer: close, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem: row, drawerOpen: open, closeDrawer: close } = useLocalOverlaySelection({
     items: rows,
     itemId: (r) => r.row_key,
     selectionKey: PARAM_ROW,
     initialSelectedId: initialSelectedRowKey,
     closeHref,
   });
-  const dialogRef = useRef<HTMLDivElement>(null);
-  // Opening moves focus into the dialog (the close button) and keeps Tab inside it; the page
-  // behind is aria-hidden by the scrim, so focus must not walk out to the sidebar. The shared
-  // hook restores focus to the card on close.
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "tab" || !dialogRef.current) return;
-      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex='-1'])")].filter((el) => el.offsetParent !== null);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const inside = dialogRef.current.contains(document.activeElement);
-      if (event.shiftKey && (document.activeElement === first || !inside)) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last || !inside)) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, closeButtonRef]);
+  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"));
   if (!row) return null;
   const moduleOpt = findOption(moduleOptions(pageContract), row.module);
   const stateOpt = findOption(stateOptions(pageContract), row.work_state);
@@ -102,22 +82,30 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
     </div>
   );
   return (
-    <>
-      <button type="button" className={`wb-scrim${open ? " on" : ""}`} aria-label={closeLabel} aria-hidden={!open} tabIndex={open ? 0 : -1} onClick={close} />
-      <div ref={dialogRef} className={`wb wb-modal${open ? " on" : ""}`} role="dialog" aria-modal="true" aria-label={row.title} aria-hidden={!open} inert={!open}>
-        <div className="mh">
+    // Template MUI Dialog (portal, theme backdrop, focus trap and return; full screen below sm).
+    // URL/Back/Escape stay with useLocalOverlaySelection through `close`.
+    <Dialog
+      open={open}
+      onClose={close}
+      fullWidth
+      maxWidth="lg"
+      fullScreen={fullScreen}
+      scroll="paper"
+      slotProps={{ paper: { className: "wb wb-dialog", "aria-label": row.title } as object }}
+    >
+        <DialogTitle component="div" className="mh" sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
           <div className="bc">
             <span className={moduleClass(row.module)}>{moduleOpt?.label ?? row.module}</span>
             <span>/</span>
             <span className={`ti${row.module === "counts" ? " p" : ""}`} aria-hidden="true">▣</span>
             <b>{row.pen.operational_location_display || parkLabel(parkOptions(pageContract), row)}</b>
           </div>
-          <span className="sp" />
-          <button ref={closeButtonRef} type="button" className="ib" aria-label={closeLabel} onClick={close}>
-            <X className="ic" />
-          </button>
-        </div>
-        <div className="mb">
+          <Box sx={{ flex: 1 }} />
+          <IconButton aria-label={closeLabel} onClick={close}>
+            <X size={20} aria-hidden="true" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers className="mb" sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", md: "minmax(0,1fr) 380px" }, gap: 3 }}>
           <div>
             <h2>{row.title}</h2>
             <div className="sec" style={{ marginTop: 6 }}>
@@ -173,9 +161,9 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
                 {laneOpt?.label ?? row.lane} · {copy(pageContract, "drawer.status_auto")}
               </span>
               {row.href ? (
-                <Link href={row.href} className="btn sm ghost">
+                <LinkButton href={row.href} size="small" variant="outlined" color="inherit">
                   {copy(pageContract, "drawer.open_module")} →
-                </Link>
+                </LinkButton>
               ) : null}
             </div>
             <div className="dets">
@@ -194,8 +182,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
             </div>
             <FlagForm pageContract={pageContract} row={row} returnTo={returnToByRow[row.row_key] ?? closeHref} hot={hot} />
           </div>
-        </div>
-      </div>
-    </>
+        </DialogContent>
+    </Dialog>
   );
 }

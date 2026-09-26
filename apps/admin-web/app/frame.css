@@ -397,9 +397,6 @@ aside.drawer{border-radius:16px 0 0 16px;box-shadow:var(--shadow-dialog);border:
 .vp-sheet .vp-head{padding:0 0 16px;border-bottom:1px solid var(--line);margin-bottom:16px}
 .vp-sheet .vp-head h2{font-family:var(--font-display);font-size:20px;line-height:28px;font-weight:700}
 .vp-sheet label>span,.vp-sheet .lbl{font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--fg-muted)}
-.wb-modal{inset:auto;top:50%;left:50%;transform:translate(-50%,-50%);width:min(960px,calc(100vw - 48px));max-height:calc(100dvh - 48px);border-radius:16px;border:0;box-shadow:var(--shadow-dialog)}
-.wb-modal .mh{padding:20px 24px;border-bottom:1px solid var(--line)}
-.wb-modal .mb{padding:24px}
 
 /* ---- Shell: user menu, sidebar hover, rail, mobile drawer ---- */
 /* Section eyebrows scroll with the list (Minimal subheaders are not sticky). The sticky top:-16px
@@ -436,10 +433,10 @@ aside.drawer{border-radius:16px 0 0 16px;box-shadow:var(--shadow-dialog);border:
 /* Native time input on the kit field anatomy. */
 .drawer input[type="time"]{appearance:none;-webkit-appearance:none;height:40px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:transparent;color:var(--fg);font:inherit;color-scheme:dark}
 :root.light .drawer input[type="time"]{color-scheme:light}
-.wb-modal .sec{margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}
-.wb-modal .sec h4{font-family:var(--font-display);font-size:16px;line-height:24px;font-weight:700;margin:0 0 12px}
-.wb-modal .l{font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--fg-muted)}
-.wb-modal .v{font-size:14px;font-weight:600}
+.wb-dialog .sec{margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}
+.wb-dialog .sec h4{font-family:var(--font-display);font-size:16px;line-height:24px;font-weight:700;margin:0 0 12px}
+.wb-dialog .l{font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--fg-muted)}
+.wb-dialog .v{font-size:14px;font-weight:600}
 
 /* ---- Feed Packing: reduce nested operational panels to the shared card language ---- */
 .feed-packing-page .feed-packing-shell,
