@@ -507,10 +507,6 @@
       "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
     },
-    "raw-dialog|features/ceo-ai/ceo-ai-attachments.tsx": {
-      "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
-    },
     "raw-dialog|features/people/vaccination-operators-screen.tsx": {
       "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"

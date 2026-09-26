@@ -209,7 +209,7 @@ export function CeoAiStyles(): ReactElement {
   background:var(--panel);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .mzai-msg-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .mzai-msg.user .mzai-thumb-open{border-color:rgba(255,255,255,.35);background:rgba(0,0,0,.12);color:#fff}
-.mzai-lb{position:fixed;inset:0;z-index:2000;background:rgba(6,10,8,.92);display:flex;flex-direction:column}
+.MuiDialog-paper.mzai-lb{background:rgba(6,10,8,.92);display:flex;flex-direction:column}
 .mzai-lb-top{display:flex;align-items:center;gap:12px;padding:12px 16px;color:#fff;font-size:13px}
 .mzai-lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mzai-lb-count{opacity:.7}

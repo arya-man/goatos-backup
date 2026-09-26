@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FileText, X } from "lucide-react";
+import Dialog from "@mui/material/Dialog";
 
 // A file shown in the composer tray or on a sent message. `url` is an object URL
 // (images/PDFs preview inline); other types show a file card.
@@ -73,18 +74,15 @@ export function Thumb({ file, onOpen, onRemove }: { file: PreviewFile; onOpen: (
   );
 }
 
-// Full-screen viewer with prev/next for several files. Arrow keys slide, Esc closes.
+// Full-screen viewer with prev/next for several files. Arrow keys slide, Esc closes. The template
+// MUI Dialog (fullScreen) portals it out of the chat panel, traps focus and gives it back to the
+// thumbnail that opened it; Escape stays on the capture listener below so it never also reaches
+// the panel's own Escape (which would shrink the panel under the viewer).
 export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; start: number; onClose: () => void }) {
   const [i, setI] = useState(start);
   const n = files.length;
   const file = files[i];
   const closeRef = useRef<HTMLButtonElement>(null);
-  // Modal focus: move focus in on open, give it back to the opener on close.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    return () => opener?.focus?.();
-  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -125,7 +123,18 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
   }, [file]);
   if (!file) return null;
   return (
-    <div className="mzai-lb" role="dialog" aria-modal="true" aria-label={file.name} onClick={onClose}>
+    <Dialog
+      open
+      fullScreen
+      // Escape is handled by the capture listener above (so it never reaches the panel).
+      onClose={(_event, reason) => {
+        if (reason !== "escapeKeyDown") onClose();
+      }}
+      slotProps={{
+        paper: { className: "mzai-lb", "aria-label": file.name, onClick: onClose } as object,
+        transition: { onEntered: () => closeRef.current?.focus() },
+      }}
+    >
       <div className="mzai-lb-top" onClick={(e) => e.stopPropagation()}>
         <span className="mzai-lb-name">{file.name}</span>
         {n > 1 ? <span className="mzai-lb-count">{i + 1} / {n}</span> : null}
@@ -146,6 +155,6 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
           </button>
         </>
       ) : null}
-    </div>
+    </Dialog>
   );
 }
