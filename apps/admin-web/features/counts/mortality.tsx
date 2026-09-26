@@ -6,17 +6,25 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { redirect } from "next/navigation";
 
-import { Activity, Baby, HeartOff, HeartPulse, Stethoscope } from "lucide-react";
 
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import Card from "@mui/material/Card";
-import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
-import type { KitTone } from "@/lib/tone";
+import CardHeader from "@mui/material/CardHeader";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Grid from "@mui/material/Grid";
+import LinearProgress from "@mui/material/LinearProgress";
+import Stack from "@mui/material/Stack";
+import { varAlpha } from "minimal-shared/utils";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { GoatGlyph } from "@/components/goat-glyph";
-import { SeriesLegend, StackedColumns, seriesColorVar, type StackedDay } from "@/components/svg-series";
-import { Tag } from "@/components/ui-primitives";
+import { KpiGrid } from "@/components/minimal/widgets";
+import { seriesColorVar, type StackedDay } from "@/components/svg-series";
 import { copy, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -35,8 +43,6 @@ import { VaccinationTablePager } from "@/features/preventive-care-vaccination";
 import { HerdAnalyticsDateFilter } from "./herd-analytics-date-filter";
 import { RecentDeathsTable } from "./mortality-tables";
 import { MortalityTelemetry } from "./mortality-telemetry";
-import "./mortality.css";
-import { ProgressBar } from "@/components/app/progress-bar";
 
 // Counts -> Mortality. One question — which animals died, and what did they have in common —
 // asked from every angle the farm can ask it.
@@ -101,14 +107,36 @@ function withStageNames(buckets: MortalityBucket[], names: StageNameMap): Mortal
   return buckets.map((bucket) => ({ ...bucket, label: stageDisplayLabel(bucket.label, names) }));
 }
 
-function ChartCard({ title, hint, children, className }: { title: string; hint?: string; children: React.ReactNode; className?: string }) {
+/** A breakdown block: template Card + CardHeader (title, optional subheader) around its table. */
+function ChartCard({ title, hint, children, wide }: { title: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
+  // Two to a row from lg; the cross tabs take the full width because their column count is data-driven.
   return (
-    <div className="mortality-cell">
-      <Card className={`kit-tablecard mortality-card${className ? ` ${className}` : ""}`}>
-        <CardHeader title={title} subheader={hint} className="mortality-card-head" slotProps={{ title: { variant: "subtitle1" } }} />
+    <Grid size={wide ? 12 : { xs: 12, lg: 6 }} sx={{ minWidth: 0 }}>
+      <Card sx={{ height: 1 }}>
+        <CardHeader title={title} subheader={hint} sx={{ mb: 2 }} />
         {children}
       </Card>
-    </div>
+    </Grid>
+  );
+}
+
+/** Template list table head: `background.neutral` band, secondary text (TableHeadCustom look). */
+const HEAD_SX = { "& th": { color: "text.secondary", bgcolor: "background.neutral", fontWeight: 600, whiteSpace: "nowrap" } } as const;
+
+function EmptyBlock({ label }: { label: string }) {
+  return <EmptyContent title={label} sx={{ py: 4 }} />;
+}
+
+/** The template progress bar (EcommerceSalesOverview row bar): 8px LinearProgress on a grey track. */
+function RateBar({ value, muted }: { value: number; muted?: boolean }) {
+  return (
+    <LinearProgress
+      variant="determinate"
+      value={Math.max(0, Math.min(100, value))}
+      color={muted ? "inherit" : "error"}
+      aria-hidden="true"
+      sx={(theme) => ({ height: 8, minWidth: 80, bgcolor: varAlpha(theme.vars.palette.grey["500Channel"], 0.16), ...(muted ? { color: "text.disabled" } : {}) })}
+    />
   );
 }
 
@@ -136,28 +164,24 @@ function RateTable({
   emptyLabel: string;
   ariaLabel: string;
 }) {
-  if (buckets.length === 0) {
-    return (
-      <div className="muted small mortality-empty">{emptyLabel}</div>
-    );
-  }
+  if (buckets.length === 0) return <EmptyBlock label={emptyLabel} />;
   const maxRate = Math.max(0, ...buckets.map((b) => b.rate_pct ?? 0));
   return (
-    <div className="tablewrap mortality-tablewrap" tabIndex={0} role="group" aria-label={ariaLabel}>
-    <Table className="mortality-rate-table" aria-label={ariaLabel}>
-      <TableHead>
+    <Scrollbar tabIndex={0} role="group" aria-label={ariaLabel}>
+    <Table aria-label={ariaLabel}>
+      <TableHead sx={HEAD_SX}>
         <TableRow>
           <TableCell component="th" scope="col" />
-          <TableCell component="th" scope="col" className="num">
+          <TableCell component="th" scope="col" align="right">
             {deathsLabel}
           </TableCell>
-          <TableCell component="th" scope="col" className="num">
+          <TableCell component="th" scope="col" align="right">
             {animalsLabel}
           </TableCell>
-          <TableCell component="th" scope="col" className="num">
+          <TableCell component="th" scope="col" align="right">
             {rateLabel}
           </TableCell>
-          <TableCell component="th" scope="col" className="bar" />
+          <TableCell component="th" scope="col" sx={{ width: "32%", display: { xs: "none", sm: "table-cell" } }} />
         </TableRow>
       </TableHead>
       <TableBody>
@@ -165,20 +189,20 @@ function RateTable({
           const rate = bucket.rate_pct ?? null;
           const width = rate == null || maxRate <= 0 ? 0 : Math.max(rate > 0 ? 2 : 0, (rate / maxRate) * 100);
           return (
-            <TableRow key={bucket.key || "__unassigned"}>
-              <TableCell component="th" scope="row">{bucket.label || unassignedLabel}</TableCell>
-              <TableCell className="num">{bucket.deaths > 0 ? <strong>{nf(bucket.deaths)}</strong> : nf(bucket.deaths)}</TableCell>
-              <TableCell className="num muted">{nf(bucket.animals)}</TableCell>
-              <TableCell className="num">{rate == null ? <span className="muted" title={noRateLabel}>—</span> : pct(rate)}</TableCell>
-              <TableCell className="bar">
-                <ProgressBar value={width} color="var(--error)" className="mortality-rate-track" fillClassName="mortality-rate-bar" />
+            <TableRow hover key={bucket.key || "__unassigned"}>
+              <TableCell component="th" scope="row" sx={{ typography: "subtitle2" }}>{bucket.label || unassignedLabel}</TableCell>
+              <TableCell align="right" sx={{ typography: bucket.deaths > 0 ? "subtitle2" : "body2" }}>{nf(bucket.deaths)}</TableCell>
+              <TableCell align="right" sx={{ color: "text.secondary" }}>{nf(bucket.animals)}</TableCell>
+              <TableCell align="right">{rate == null ? <Box component="span" sx={{ color: "text.secondary" }} title={noRateLabel}>—</Box> : pct(rate)}</TableCell>
+              <TableCell sx={{ display: { xs: "none", sm: "table-cell" } }}>
+                <RateBar value={width} />
               </TableCell>
             </TableRow>
           );
         })}
       </TableBody>
     </Table>
-    </div>
+    </Scrollbar>
   );
 }
 
@@ -198,11 +222,7 @@ function CrossTable({
   emptyLabel: string;
   ariaLabel: string;
 }) {
-  if (cells.length === 0) {
-    return (
-      <div className="muted small mortality-empty">{emptyLabel}</div>
-    );
-  }
+  if (cells.length === 0) return <EmptyBlock label={emptyLabel} />;
   const rows: { key: string; label: string }[] = [];
   const cols: { key: string; label: string }[] = [];
   const seenRow = new Set<string>();
@@ -229,25 +249,25 @@ function CrossTable({
   const max = Math.max(1, ...grid.values());
   const grand = [...rowTotals.values()].reduce((a, b) => a + b, 0);
   return (
-    <div className="tablewrap mortality-tablewrap" tabIndex={0} role="region" aria-label={ariaLabel}>
-      <Table className="mortality-cross-table" aria-label={ariaLabel}>
-        <TableHead>
+    <Scrollbar tabIndex={0} role="region" aria-label={ariaLabel}>
+      <Table aria-label={ariaLabel}>
+        <TableHead sx={HEAD_SX}>
           <TableRow>
             <TableCell component="th" scope="col" />
             {cols.map((col) => (
-              <TableCell component="th" key={col.key || "__none"} scope="col" className="num">
+              <TableCell component="th" key={col.key || "__none"} scope="col" align="right">
                 {col.label}
               </TableCell>
             ))}
-            <TableCell component="th" scope="col" className="num total">
+            <TableCell component="th" scope="col" align="right">
               {totalLabel}
             </TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={row.key || "__none"}>
-              <TableCell component="th" scope="row">{row.label}</TableCell>
+            <TableRow hover key={row.key || "__none"}>
+              <TableCell component="th" scope="row" sx={{ typography: "subtitle2", whiteSpace: "nowrap" }}>{row.label}</TableCell>
               {cols.map((col) => {
                 const value = grid.get(`${row.key}\t${col.key}`) ?? 0;
                 // Heat: the cell's share of the largest cell, as an alpha on the brand colour.
@@ -255,30 +275,30 @@ function CrossTable({
                 return (
                   <TableCell
                     key={col.key || "__none"}
-                    className={`num${value === 0 ? " zero" : ""}`}
-                    style={value === 0 ? undefined : { background: `color-mix(in srgb, var(--danger) ${Math.round(alpha * 100)}%, transparent)` }}
+                    align="right"
+                    sx={value === 0 ? { color: "text.disabled" } : { bgcolor: `color-mix(in srgb, var(--danger) ${Math.round(alpha * 100)}%, transparent)` }}
                   >
                     {value === 0 ? "·" : nf(value)}
                   </TableCell>
                 );
               })}
-              <TableCell className="num total">{nf(rowTotals.get(row.key) ?? 0)}</TableCell>
+              <TableCell align="right" sx={{ typography: "subtitle2" }}>{nf(rowTotals.get(row.key) ?? 0)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
-        <TableFooter>
+        <TableFooter sx={{ "& td, & th": { typography: "subtitle2", color: "text.primary", bgcolor: "background.neutral", borderBottom: 0 } }}>
           <TableRow>
             <TableCell component="th" scope="row">{totalLabel}</TableCell>
             {cols.map((col) => (
-              <TableCell key={col.key || "__none"} className="num total">
+              <TableCell key={col.key || "__none"} align="right">
                 {nf(colTotals.get(col.key) ?? 0)}
               </TableCell>
             ))}
-            <TableCell className="num total">{nf(grand)}</TableCell>
+            <TableCell align="right">{nf(grand)}</TableCell>
           </TableRow>
         </TableFooter>
       </Table>
-    </div>
+    </Scrollbar>
   );
 }
 
@@ -306,26 +326,22 @@ function ShareTable({
   ariaLabel: string;
   unassignedLabel?: string;
 }) {
-  if (buckets.length === 0 || totalDeaths === 0) {
-    return (
-      <div className="muted small mortality-empty">{emptyLabel}</div>
-    );
-  }
+  if (buckets.length === 0 || totalDeaths === 0) return <EmptyBlock label={emptyLabel} />;
   const max = Math.max(1, ...buckets.map((b) => b.deaths));
   return (
-    <div className="tablewrap mortality-tablewrap" tabIndex={0} role="group" aria-label={ariaLabel}>
-    <Table className="mortality-rate-table" aria-label={ariaLabel}>
-      <TableHead>
+    <Scrollbar tabIndex={0} role="group" aria-label={ariaLabel}>
+    <Table aria-label={ariaLabel}>
+      <TableHead sx={HEAD_SX}>
         <TableRow>
           <TableCell component="th" scope="col" />
           {basisLabels ? <TableCell component="th" scope="col" /> : null}
-          <TableCell component="th" scope="col" className="num">
+          <TableCell component="th" scope="col" align="right">
             {deathsLabel}
           </TableCell>
-          <TableCell component="th" scope="col" className="num">
+          <TableCell component="th" scope="col" align="right">
             {shareLabel}
           </TableCell>
-          <TableCell component="th" scope="col" className="bar" />
+          <TableCell component="th" scope="col" sx={{ width: "32%", display: { xs: "none", sm: "table-cell" } }} />
         </TableRow>
       </TableHead>
       <TableBody>
@@ -334,24 +350,24 @@ function ShareTable({
           const share = (bucket.deaths / totalDeaths) * 100;
           const muted = basisLabels ? basis === "none" : false;
           return (
-            <TableRow key={`${bucket.basis ?? ""}:${bucket.key}`}>
-              <TableCell component="th" scope="row">{bucket.label || unassignedLabel || bucket.key}</TableCell>
+            <TableRow hover key={`${bucket.basis ?? ""}:${bucket.key}`}>
+              <TableCell component="th" scope="row" sx={{ typography: "subtitle2" }}>{bucket.label || unassignedLabel || bucket.key}</TableCell>
               {basisLabels ? (
                 <TableCell>
-                  <Tag tone={basis === "recorded" ? "teal" : basis === "inferred" ? "info" : "mut"}>{basisLabels[basis]}</Tag>
+                  <Label variant="soft" color={basis === "recorded" ? "success" : basis === "inferred" ? "info" : "default"}>{basisLabels[basis]}</Label>
                 </TableCell>
               ) : null}
-              <TableCell className="num">{bucket.deaths > 0 ? <strong>{nf(bucket.deaths)}</strong> : <span className="muted">{nf(bucket.deaths)}</span>}</TableCell>
-              <TableCell className="num muted">{bucket.deaths === 0 ? "—" : share < 1 ? "<1%" : pct(Math.round(share * 10) / 10)}</TableCell>
-              <TableCell className="bar">
-                <ProgressBar value={(bucket.deaths / max) * 100} color={muted ? "var(--muted)" : "var(--error)"} className="mortality-rate-track" fillClassName="mortality-rate-bar" />
+              <TableCell align="right" sx={bucket.deaths > 0 ? { typography: "subtitle2" } : { color: "text.secondary" }}>{nf(bucket.deaths)}</TableCell>
+              <TableCell align="right" sx={{ color: "text.secondary" }}>{bucket.deaths === 0 ? "—" : share < 1 ? "<1%" : pct(Math.round(share * 10) / 10)}</TableCell>
+              <TableCell sx={{ display: { xs: "none", sm: "table-cell" } }}>
+                <RateBar value={(bucket.deaths / max) * 100} muted={muted} />
               </TableCell>
             </TableRow>
           );
         })}
       </TableBody>
     </Table>
-    </div>
+    </Scrollbar>
   );
 }
 
@@ -408,17 +424,14 @@ export async function MortalityPage({
 
   if (!data) {
     return (
-      <div className="kit-enter pagegrid mortality-page">
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
         <MortalityTelemetry routeId={pageContract.route_id} parkId={parkId} months={0} deaths={0} />
-        <div>
-          <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb", "Counts"), href: "/counts/herd" }, { label: pageContract.title }]} />
-        </div>
-        <div>
-          <Card>
-            <CardHeader title={mc(pageContract, "error.title")} subheader={mc(pageContract, "error.body")} sx={{ pb: 3 }} />
-          </Card>
-        </div>
-      </div>
+        <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb", "Counts"), href: "/counts/herd" }, { label: pageContract.title }]} />
+        <Alert severity="error" variant="outlined">
+          <AlertTitle>{mc(pageContract, "error.title")}</AlertTitle>
+          {mc(pageContract, "error.body")}
+        </Alert>
+      </Stack>
     );
   }
 
@@ -479,23 +492,21 @@ export async function MortalityPage({
   const sparkAdults = data.months.map((m) => m.adults);
   // A two-point spark reads as two sticks, not a trend; the deck grows one once the window spans a quarter.
   const hasSpark = data.months.length >= 4;
-  const kpis: { key: string; tone: KitTone; icon: React.ReactNode; label: string; value: string; hint: string; spark?: number[] }[] = [
-    { key: "deaths", tone: "error", icon: <HeartOff size={22} />, label: mc(pageContract, "kpi.deaths.label"), value: nf(totals.deaths), hint: "", spark: sparkDeaths },
+  const kpis: { key: string; tone: string; icon?: React.ReactNode; label: string; value: string; hint: string; spark?: number[] }[] = [
+    { key: "deaths", tone: "error", label: mc(pageContract, "kpi.deaths.label"), value: nf(totals.deaths), hint: "", spark: sparkDeaths },
     {
       key: "rate",
       tone: "primary",
-      icon: <Activity size={22} />,
       label: mc(pageContract, "kpi.rate.label"),
       value: pct(totals.rate_pct) ?? "—",
       hint: totals.rate_pct == null ? noRate : `${nf(totals.animals)} ${animalsWord} · ${mc(pageContract, "kpi.rate.sub")}`,
     },
-    { key: "kids", tone: "warning", icon: <Baby size={22} />, label: mc(pageContract, "kpi.kids.label"), value: nf(totals.kid_deaths), hint: rateWithAnimals(totals.kid_rate_pct, totals.kid_animals), spark: sparkKids },
-    { key: "adults", tone: "violet", icon: <GoatGlyph size={22} />, label: mc(pageContract, "kpi.adults.label"), value: nf(totals.adult_deaths), hint: rateWithAnimals(totals.adult_rate_pct, totals.adult_animals), spark: sparkAdults },
-    { key: "first_week", tone: "info", icon: <HeartPulse size={22} />, label: mc(pageContract, "kpi.first_week.label"), value: nf(totals.first_week_deaths), hint: "" },
+    { key: "kids", tone: "warning", label: mc(pageContract, "kpi.kids.label"), value: nf(totals.kid_deaths), hint: rateWithAnimals(totals.kid_rate_pct, totals.kid_animals), spark: sparkKids },
+    { key: "adults", tone: "secondary", label: mc(pageContract, "kpi.adults.label"), value: nf(totals.adult_deaths), hint: rateWithAnimals(totals.adult_rate_pct, totals.adult_animals), spark: sparkAdults },
+    { key: "first_week", tone: "info", label: mc(pageContract, "kpi.first_week.label"), value: nf(totals.first_week_deaths), hint: "" },
     {
       key: "cause",
       tone: "success",
-      icon: <Stethoscope size={22} />,
       label: mc(pageContract, "kpi.cause.label"),
       value: totals.deaths === 0 ? "—" : `${nf(causeEstablished)} / ${nf(totals.deaths)}`,
       hint: "",
@@ -503,17 +514,15 @@ export async function MortalityPage({
   ];
 
   return (
-    <div className="kit-enter pagegrid mortality-page">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <MortalityTelemetry routeId={pageContract.route_id} parkId={parkId} months={data.months.length} deaths={totals.deaths} />
 
-      <div>
-        <PageHeader
-          title={pageContract.title}
-          crumbs={[{ label: copy(pageContract, "crumb", "Counts"), href: "/counts/herd" }, { label: pageContract.title }]}
-        />
-      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb", "Counts"), href: "/counts/herd" }, { label: pageContract.title }]}
+      />
 
-      <div className="ha-filter">
+      <Box>
         <HerdAnalyticsDateFilter
           labels={pickerLabels}
           basePath={PAGE_PATH}
@@ -523,53 +532,44 @@ export async function MortalityPage({
           defaultFrom={fallback.from}
           defaultTo={fallback.to}
         />
-      </div>
+      </Box>
 
-      <div>
-        <section aria-label={mc(pageContract, "section.kpi.aria")}>
-          <KpiGrid min={200} className="mortality-kpis">
-            {kpis.map((kpi) => (
-              <KpiCard
-                key={kpi.key}
-                tone={kpi.tone}
-                icon={kpi.icon}
-                label={kpi.label}
-                value={kpi.value}
-                hint={kpi.hint || undefined}
-                sparkline={hasSpark ? kpi.spark : undefined}
-              />
-            ))}
-          </KpiGrid>
-        </section>
-      </div>
+      {/* KPI row: template EcommerceWidgetSummary; deaths / kids / adults carry the monthly series. */}
+      <Box component="section" aria-label={mc(pageContract, "section.kpi.aria")}>
+        <KpiGrid>
+          {kpis.map((kpi) => (
+            <EcommerceWidgetSummary
+              key={kpi.key}
+              title={kpi.label}
+              total={kpi.value}
+              caption={kpi.hint || undefined}
+              chart={{
+                categories: data.months.map((m) => m.label),
+                series: hasSpark && kpi.spark ? kpi.spark : [],
+                colors: [`var(--palette-${kpi.tone}-light)`, `var(--palette-${kpi.tone}-main)`],
+              }}
+              sx={{ height: 1 }}
+            />
+          ))}
+        </KpiGrid>
+      </Box>
 
-      <div>
-        <Card className="wchart mortality-months" aria-label={mc(pageContract, "chart.months.title")} sx={{ p: { xs: 2, sm: 3 } }}>
-          <CardHeader
-            title={mc(pageContract, "chart.months.title")}
-            action={<SeriesLegend entries={monthSeries} />}
-            sx={{
-              p: 0,
-              mb: 2,
-              alignItems: "center",
-              flexWrap: "wrap",
-              rowGap: 1.5,
-              [`& .${cardHeaderClasses.action}`]: { m: 0, display: "flex", alignItems: "center", flex: { xs: "1 1 100%", sm: "0 0 auto" }, minWidth: 0, maxWidth: "100%" },
-            }}
-          />
-          <StackedColumns
-            days={monthDays}
-            seriesLabels={monthSeries.map((s) => s.label)}
-            valueNoun={deathsNoun}
-            chartLabel={mc(pageContract, "chart.months.title")}
-            emptyLabel={emptyChart}
-          />
-        </Card>
-      </div>
+      {/* Deaths by month, kids over adults: template AnalyticsWebsiteVisits stacked. */}
+      <AnalyticsWebsiteVisits
+        aria-label={mc(pageContract, "chart.months.title")}
+        title={mc(pageContract, "chart.months.title")}
+        valueNoun={deathsNoun}
+        empty={<EmptyContent title={emptyChart} />}
+        chart={{
+          categories: monthDays.map((d) => d.label),
+          colors: monthSeries.map((series) => series.colorVar),
+          series: monthSeries.map((series, i) => ({ name: series.label, data: monthDays.map((d) => d.segments[i] ?? 0) })),
+          options: { chart: { stacked: true }, plotOptions: { bar: { columnWidth: "36%" } } },
+        }}
+      />
 
       {/* RATE series. Each card names what it divides by. */}
-      <section aria-label={mc(pageContract, "section.rates.aria")}>
-        <div className="mortality-grid">
+      <Grid container spacing={3} component="section" aria-label={mc(pageContract, "section.rates.aria")}>
           <ChartCard title={mc(pageContract, "chart.stage.title")}>
             <RateTable buckets={stageBuckets} unassignedLabel={mc(pageContract, "label.unassigned_stage")} ariaLabel={mc(pageContract, "chart.stage.title")} {...rateLabels} />
           </ChartCard>
@@ -601,12 +601,10 @@ export async function MortalityPage({
               <RateTable buckets={data.park} unassignedLabel={mc(pageContract, "label.unassigned_park")} ariaLabel={mc(pageContract, "chart.park.title")} {...rateLabels} />
             </ChartCard>
           ) : null}
-        </div>
-      </section>
+      </Grid>
 
       {/* COUNT series: facts about the death alone. */}
-      <section aria-label={mc(pageContract, "section.counts.aria")}>
-        <div className="mortality-grid">
+      <Grid container spacing={3} component="section" aria-label={mc(pageContract, "section.counts.aria")}>
           <ChartCard title={mc(pageContract, "chart.cause.title")}>
             <ShareTable
               buckets={data.cause}
@@ -658,35 +656,31 @@ export async function MortalityPage({
               ariaLabel={mc(pageContract, "chart.vaccine.title")}
             />
           </ChartCard>
-        </div>
-      </section>
+      </Grid>
 
       {/* Cross tabs. */}
-      <section aria-label={mc(pageContract, "section.cross.aria")}>
-        <div className="mortality-grid mortality-grid-wide">
-          <ChartCard title={mc(pageContract, "cross.season_stage.title")}>
+      <Grid container spacing={3} component="section" aria-label={mc(pageContract, "section.cross.aria")}>
+          <ChartCard wide title={mc(pageContract, "cross.season_stage.title")}>
             <CrossTable cells={seasonByStage} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.season_stage.title")} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "cross.load_cause.title")}>
+          <ChartCard wide title={mc(pageContract, "cross.load_cause.title")}>
             <CrossTable cells={data.load_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.load_cause.title")} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "cross.vendor_cause.title")} hint={mc(pageContract, "cross.vendor_cause.hint")}>
+          <ChartCard wide title={mc(pageContract, "cross.vendor_cause.title")} hint={mc(pageContract, "cross.vendor_cause.hint")}>
             <CrossTable cells={data.vendor_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.vendor_cause.title")} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "cross.breed_cause.title")} hint={mc(pageContract, "cross.breed_cause.hint")}>
+          <ChartCard wide title={mc(pageContract, "cross.breed_cause.title")} hint={mc(pageContract, "cross.breed_cause.hint")}>
             <CrossTable cells={data.breed_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.breed_cause.title")} />
           </ChartCard>
-        </div>
-      </section>
+      </Grid>
 
       <div>
-        <Card className="kit-tablecard mortality-card mortality-recent" aria-label={mc(pageContract, "table.recent.title")}>
+        <Card aria-label={mc(pageContract, "table.recent.title")}>
           <CardHeader
-            className="mortality-card-head"
-            slotProps={{ title: { variant: "subtitle1" } }}
             title={mc(pageContract, "table.recent.title")}
             subheader={mc(pageContract, "table.recent.hint")}
-            action={<Tag tone="mut">{nf(totals.deaths)}</Tag>}
+            action={<Label variant="soft" color="default">{nf(totals.deaths)}</Label>}
+            sx={{ mb: 2 }}
           />
           <RecentDeathsTable
             contract={table(pageContract, "recent-deaths")}
@@ -734,6 +728,6 @@ export async function MortalityPage({
           />
         </Card>
       </div>
-    </div>
+    </Stack>
   );
 }
