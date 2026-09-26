@@ -27,6 +27,8 @@
     --infox:rgba(91,155,232,.16); --purple:#A78BF5; --purplex:rgba(167,139,245,.16); --teal:#34C2A6; --tealx:rgba(52,194,166,.16);
     --gain-hi:#C6ECA3; --gain-mid:#8FD65A; --gain-lo:#4E8F27; --gain-under:#F0A19E;
     --amber:#E0A53A; --danger-tag-ink:#FFC9C6; --danger-badge-ink:#08130B;
+    /* video-proof thumbnail placeholder gradient (kept as tokens after .vr-thumb moved to MUI) */
+    --media-thumb-a:#1b2b1e; --media-thumb-b:#233a4d; --media-thumb-c:#12211a;
     --shadow-rgb:0 0 0;
     /* Minimal customShadows (dark: c = black). */
     --shadow-card:0 0 2px 0 rgb(0 0 0/.2),0 12px 24px -4px rgb(0 0 0/.12);
@@ -1957,7 +1959,7 @@ button.scrim{
   border:0;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) max(1px,env(safe-area-inset-bottom)) env(safe-area-inset-left);
   background:rgba(6,12,9,.42);
-
+  -webkit-backdrop-filter:none;backdrop-filter:none;
   opacity:0;
   pointer-events:none;
   cursor:default
@@ -4092,10 +4094,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 @supports
   ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
   .vplan .ab-in{backdrop-filter: saturate(1.25) blur(10px)}
-}
-@supports
-((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .lt-page .lt-fbar{backdrop-filter:blur(8px)}
 }
 
 /* Feed follow-up (2026-09-22): one flat table, one line per change. It had a
