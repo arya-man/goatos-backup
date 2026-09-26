@@ -122,6 +122,8 @@ type ReferenceOption struct {
 	Code string
 	// Group is a breed's species code where the family is AllBreeds; empty elsewhere.
 	Group string
+	// Carried is true when a live animal of that species carries the breed (AllBreeds only).
+	Carried bool
 }
 
 type ConfigEntry struct {
@@ -1117,7 +1119,11 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			// vocabularies are. Contract code declares the group; the values are tenant rows.
 			// A correction writes a breed, so an archived (review) breed is not offered; the write
 			// refuses it anyway.
-			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "counts_breed", optionsFromReferences(activeReferences(families.Breeds), ""))
+			// Breeds the farm's live animals carry today, every species (maintainer instruction
+			// 2026-09-26: "breeds in which we have animals only"): the correction fixes a wrongly
+			// recorded breed among the ones on the farm. An archived (review) breed is not offered;
+			// the write refuses it anyway, and refuses a breed the row's species does not carry.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "counts_breed", optionsFromReferences(carriedBreeds(families.AllBreeds), ""))
 		}
 	}
 	return out
@@ -2258,6 +2264,17 @@ func uniqueReferenceKeys(refs []ReferenceOption) []ReferenceOption {
 		out = append(out, r)
 	}
 	return out
+}
+
+// carriedBreeds is the active breeds a live animal carries today, one choice per breed name.
+func carriedBreeds(refs []ReferenceOption) []ReferenceOption {
+	out := make([]ReferenceOption, 0, len(refs))
+	for _, r := range activeReferences(refs) {
+		if r.Carried {
+			out = append(out, r)
+		}
+	}
+	return uniqueReferenceKeys(out)
 }
 
 // activeReferences drops the archived rows of a register family (listed with tone "warn").

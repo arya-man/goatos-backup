@@ -298,12 +298,24 @@ func (r *Repository) listFeedItems(ctx context.Context, q querier, tenantID stri
 }
 
 // allBreedsSQL is every species' breeds from the farm's own breed list (breeds.tenant_id, 000442).
+//
+// `carried` says whether a live animal of that species carries the breed today, which is what the
+// Counts breed correction offers (maintainer instruction 2026-09-26: "breeds in which we have
+// animals only"). It is an index probe per breed on goats_tenant_breed_display_idx
+// (tenant_id, breed) over a list of tens of breeds, and it names the breed exactly as goats.breed
+// stores it -- every writer (Register animal, birth, census correction, breed rename) writes the
+// register's canonical name.
+// scale-guard:plan-proof-exempt: one EXISTS probe per breed row (tens per farm) on the (tenant_id, breed) prefix of goats_tenant_breed_display_idx; no scan of goats.
 const allBreedsSQL = `
-SELECT canonical_name, species, status, updated_at::text
-FROM breeds
-WHERE tenant_id = $1::uuid
-  AND status IN ('active', 'review')
-ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, canonical_name
+SELECT b.canonical_name, b.species, b.status, b.updated_at::text,
+       EXISTS (SELECT 1 FROM goats g
+               WHERE g.tenant_id = $1::uuid AND g.merged_into_goat_id IS NULL
+                 AND g.breed = b.canonical_name AND g.species = b.species
+                 AND g.lifecycle_status = 'alive') AS carried
+FROM breeds b
+WHERE b.tenant_id = $1::uuid
+  AND b.status IN ('active', 'review')
+ORDER BY CASE b.status WHEN 'active' THEN 0 ELSE 1 END, b.canonical_name
 LIMIT 500`
 
 // listAllBreeds is every species' breeds (the herd filter covers sheep as well as goats), each
@@ -319,10 +331,11 @@ func (r *Repository) listAllBreeds(ctx context.Context, q querier, tenantID stri
 	seen := map[string]bool{}
 	for rows.Next() {
 		var name, species, status, updated string
-		if err := rows.Scan(&name, &species, &status, &updated); err != nil {
+		var carried bool
+		if err := rows.Scan(&name, &species, &status, &updated, &carried); err != nil {
 			return nil, "", err
 		}
-		rev.WriteString(name + "|" + species + "|" + status + "|" + updated + "\n")
+		rev.WriteString(fmt.Sprintf("%s|%s|%s|%s|%t\n", name, species, status, updated, carried))
 		// One option per (breed, species), not per name: a farm may keep the same breed name
 		// under two species, and Register animal offers only the chosen species' breeds, so
 		// dropping the second copy hid it from that species entirely. Species-less lists dedupe
@@ -335,7 +348,7 @@ func (r *Repository) listAllBreeds(ctx context.Context, q querier, tenantID stri
 		if status == "review" {
 			tone = "warn"
 		}
-		out = append(out, app.ReferenceOption{Key: name, Label: name, Tone: tone, Group: species})
+		out = append(out, app.ReferenceOption{Key: name, Label: name, Tone: tone, Group: species, Carried: carried})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err
