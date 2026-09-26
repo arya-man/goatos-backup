@@ -37,6 +37,13 @@ func decodePenCoverageCursor(cursor string) (parkKey, shedName, shedID, partitio
 // parks, $4 optional park): shed x active catalog partition, an undivided shed contributing one
 // 'whole' row, legacy partition-alias shed rows suppressed. Shared by the board page and the
 // filter vocabulary so the two can never disagree about which pens exist.
+//
+// ONLY OCCUPIED PENS (maintainer decision 2026-09-26): a pen with no live animal today is not
+// listed at all -- not on the board, not in the Pen filter, not in the total. Occupancy is the PC
+// Care roster's own rule (animals.go ListPenRoster): a live goat on the shed whose
+// goat_shed_partitions label matches the pen by lower(btrim()), and for an undivided shed ('whole')
+// any live goat on it. A pen that fills up again comes back with its history intact. This is a
+// READ board filter only: write pickers keep offering empty pens, which is where animals go.
 // naturalSortKeySQL returns a SQL expression that sorts expr the way the farm reads pen names:
 // every run of digits is zero-padded, so "Part 2" sorts before "Part 10" and "Yashoda 9" before
 // "Yashoda 10". Letters are lower-cased. A NULL or blank input yields ”. Compare the result
@@ -79,6 +86,15 @@ var penCoverageScopedPensSQL = `  SELECT park.location_id AS park_id, park.name 
     AND ($2::bool OR park.location_id = ANY($3::uuid[]))
     AND ($4::text = '' OR park.location_id = nullif($4::text, '')::uuid)
     AND ` + oploc.PartitionAliasExclusionSQL("shed") + `
+    AND EXISTS (
+      SELECT 1
+      FROM goats g
+      LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+      WHERE g.tenant_id = shed.tenant_id
+        AND g.shed_id = shed.location_id
+        AND g.lifecycle_status = 'alive'
+        AND (sp.partition_label IS NULL OR LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) = LOWER(BTRIM(sp.partition_label)))
+    )
 `
 
 // penKeys normalises the Pen filter values to the "<shed_id>|<partition_key>" form the SQL
@@ -116,16 +132,17 @@ func (r *Repository) PenCareCoverage(ctx context.Context, q ports.PenCareCoverag
 		parkIDs = []string{}
 	}
 
-	// projection-review: membership=the active pens of the caller's parks (locations sheds x
+	// projection-review: membership=the OCCUPIED active pens of the caller's parks (locations sheds x
 	// active shed_partitions, an undivided shed contributing one 'whole' row, legacy alias rows
-	// suppressed by oploc.PartitionAliasExclusionSQL); group_key=(park_id, shed_id,
+	// suppressed by oploc.PartitionAliasExclusionSQL, a pen kept only while an EXISTS finds a live
+	// goat in it -- a semi-join, so residents never multiply a pen row); group_key=(park_id, shed_id,
 	// partition_key) on BOTH the pen side and the task side — pc_care_tasks.partition_key is the
 	// same lower(btrim(label))/'whole' expression; join_cardinality=the lateral side is
 	// pre-aggregated to at most one row per category per pen (GROUP BY category), so a pen never
 	// fans out, and total counts the whole scoped pen set independent of the page;
 	// pagination=keyset on the ORDER BY tuple; scope=tenant_id + authorized parks + optional park +
 	// optional pen set (shed_id, partition_key).
-	// scale-guard:ignore: one keyset page (<=100) of the caller's pen catalog (physical infrastructure, never herd-sized); each pen's lateral aggregate hits pc_care_tasks_natural_uq (tenant, category, park, shed, partition_key, ...).
+	// scale-guard:ignore: one keyset page (<=100) of the caller's pen catalog (physical infrastructure, never herd-sized); each pen's lateral aggregate hits pc_care_tasks_natural_uq (tenant, category, park, shed, partition_key, ...); the occupancy EXISTS stops at the first live goat on goats(tenant_id, shed_id).
 	bound := sqlbind.MustBind(`
 WITH scoped AS (
 `+penCoverageScopedPensSQL+`),
