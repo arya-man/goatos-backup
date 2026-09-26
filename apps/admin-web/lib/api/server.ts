@@ -860,8 +860,8 @@ async function timedBackendFetch(
     // pre-write answer, then stamp the cross-instance marker from the completed write. A 4xx
     // refusal wrote nothing, so it is not stamped (see responseStatus); a 5xx or a network error
     // still is, because the write may have landed before the failure.
-    if (isWrite && writeMayHaveLanded(responseStatus)) await noteBackendWrite();
-    else if (isWrite) clearBackendReadCaches();
+    if (method.toUpperCase() !== "GET" && !isReadOnlyPost(url.pathname) && writeMayHaveLanded(responseStatus)) await noteBackendWrite();
+    else if (method.toUpperCase() !== "GET") clearBackendReadCaches();
   }
 }
 
