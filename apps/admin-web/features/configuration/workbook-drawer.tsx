@@ -216,6 +216,7 @@ export function WorkbookDrawer({ pageContract, canWrite, registerLabels }: { pag
             <Button
               type="button"
               variant="contained"
+              color="primary"
               disabled={busy || !fileName}
               onClick={() => void upload()}
               data-testid="workbook-upload"

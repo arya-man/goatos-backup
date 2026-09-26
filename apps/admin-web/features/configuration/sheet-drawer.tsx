@@ -232,6 +232,7 @@ export function SheetDrawer({
             <Button
               type="button"
               variant="contained"
+              color="primary"
               disabled={busy || !fileName}
               onClick={() => void upload()}
               data-testid="sheet-upload"
