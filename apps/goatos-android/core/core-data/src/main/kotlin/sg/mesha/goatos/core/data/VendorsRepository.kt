@@ -165,8 +165,6 @@ interface VendorsRepository {
 
     val feedPurchaseTotals: StateFlow<FeedPurchaseTotals>
 
-    suspend fun invalidateFeedPurchases(farm: String, delivery: String)
-
     fun observeFeedPurchase(purchaseId: String): Flow<FeedPurchaseDto?>
 
     /** Room-first record form vocabulary (farms, feeds, payment words, vendors seen). */
@@ -301,19 +299,21 @@ class DefaultVendorsRepository(
     override fun feedPurchases(farm: String, delivery: String): Flow<PagingData<FeedPurchaseDto>> {
         val key = purchaseScopeKey(farm, delivery)
         return Pager(
-            config = pagingConfig(),
-            remoteMediator = FeedPurchaseRemoteMediator(farm, delivery, key, api, database, json, clock) { totals ->
-                _feedPurchaseTotals.value = totals
-            },
+            // Keeps the person's place across a refresh (see ledgerPagingConfig).
+            config = ledgerPagingConfig(),
+            remoteMediator = feedPurchaseMediator(farm, delivery),
             pagingSourceFactory = { database.feedPurchaseItemDao().pagingSource(key) },
         ).flow
             .map { page -> page.map { entity -> json.decodeFromString<FeedPurchaseDto>(entity.dtoJson) } }
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun invalidateFeedPurchases(farm: String, delivery: String) {
-        database.feedPurchaseRemoteKeyDao().delete(purchaseScopeKey(farm, delivery))
-    }
+    /** The ledger's mediator for one scope; the Pager's, exposed for the cache tests. */
+    @OptIn(ExperimentalPagingApi::class)
+    internal fun feedPurchaseMediator(farm: String, delivery: String): RemoteMediator<Int, FeedPurchaseItemEntity> =
+        FeedPurchaseRemoteMediator(farm, delivery, purchaseScopeKey(farm, delivery), api, database, json, clock) { totals ->
+            _feedPurchaseTotals.value = totals
+        }
 
     override fun observeFeedPurchase(purchaseId: String): Flow<FeedPurchaseDto?> = observeBlob(PURCHASE_KEY_PREFIX + purchaseId)
 
@@ -336,7 +336,9 @@ class DefaultVendorsRepository(
         database.withTransaction {
             database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(PURCHASE_KEY_PREFIX + purchase.feedPurchaseId, rowJson, now))
             itemDao.upsertAll(itemDao.rowsForPurchase(purchase.feedPurchaseId).map { it.copy(dtoJson = rowJson, updatedAt = now) })
-            database.feedPurchaseRemoteKeyDao().deleteAll()
+            // The paging cursors are NOT dropped: that made the next page read as the end of the
+            // ledger, so a person who edited a load at row 50 came back to a list that would not
+            // scroll past it. The list's own refresh puts a new load where the server orders it.
         }
         database.vendorsBlobCacheDao().enforceCacheBounds()
     }
@@ -480,22 +482,28 @@ private class FeedPurchaseRemoteMediator(
             }
         }
         return try {
-            val response = api.getFeedPurchases(
-                farm = farm.ifBlank { null },
-                delivery = delivery.ifBlank { null },
-                limit = VENDORS_PAGE_SIZE,
-                offset = offset,
+            // A REFRESH re-reads every page up to where the person is (see readOffsetWindow), so a
+            // pull-to-refresh or coming back from a load returns to the same row.
+            val window = readOffsetWindow(
+                loadType, state.anchorPosition, offset,
+                fetch = { at ->
+                    api.getFeedPurchases(farm = farm.ifBlank { null }, delivery = delivery.ifBlank { null }, limit = VENDORS_PAGE_SIZE, offset = at)
+                },
+                rowsOf = { it.purchases },
+                totalOf = { it.total },
             )
+            val response = window.lastPage
             onTotals(FeedPurchaseTotals(response.total, response.quantityKg, response.spendRupees))
+            val purchases = window.rows.distinctBy { it.feedPurchaseId }
             val now = clock()
-            val nextOffset = offset + response.purchases.size
-            val endReached = response.purchases.isEmpty() || nextOffset >= response.total
+            val nextOffset = window.nextOffset
+            val endReached = window.endReached
             database.withTransaction {
                 val itemDao = database.feedPurchaseItemDao()
                 if (loadType == LoadType.REFRESH) itemDao.deleteQuery(queryKey)
                 val base = if (loadType == LoadType.REFRESH) 0 else itemDao.countForQuery(queryKey)
                 itemDao.upsertAll(
-                    response.purchases.mapIndexed { index, purchase ->
+                    purchases.mapIndexed { index, purchase ->
                         FeedPurchaseItemEntity(
                             queryKey = queryKey,
                             grainKey = purchase.feedPurchaseId,
@@ -507,7 +515,7 @@ private class FeedPurchaseRemoteMediator(
                 )
                 // Every row also lands in the detail blob: the backend has no per-purchase read, so
                 // the purchase screen opens from the row the ledger page carried.
-                response.purchases.forEach { purchase ->
+                purchases.forEach { purchase ->
                     database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(PURCHASE_KEY_PREFIX + purchase.feedPurchaseId, json.encodeToString(purchase), now))
                 }
                 database.feedPurchaseRemoteKeyDao().upsert(

@@ -622,3 +622,18 @@ internal fun rememberStepListState(step: Int): LazyListState {
     LaunchedEffect(step) { if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) listState.scrollToItem(0) }
     return listState
 }
+
+/**
+ * The scroll state for a paged ledger (Sales, Feed Purchases) that keeps the person's place when
+ * they come back to it. Coming back (from a row's detail, or the app) the pager presents NO rows
+ * for a frame or two before its cached pages arrive, and a list bound to the saved scroll position
+ * during those frames clamps it to the top (Sales phone E2E 2026-09-26). Until rows are presented
+ * the list binds a throwaway state, so the saved position is only applied once there are rows to
+ * hold it.
+ */
+@Composable
+internal fun rememberLedgerListState(hasRows: Boolean): LazyListState {
+    val saved = rememberLazyListState()
+    val empty = remember { LazyListState() }
+    return if (hasRows) saved else empty
+}

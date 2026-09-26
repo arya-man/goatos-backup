@@ -99,7 +99,7 @@ class FeedPurchasesListViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
-    private data class Scope(val delivery: String = "", val title: String = "", val refreshNonce: Int = 0)
+    private data class Scope(val delivery: String = "", val title: String = "")
 
     private val scope = MutableStateFlow(Scope())
     private val _isRefreshing = MutableStateFlow(false)
@@ -133,8 +133,13 @@ class FeedPurchasesListViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedPurchasesListUiState())
 
     @OptIn(ExperimentalCoroutinesApi::class)
+    // ONE Pager per delivery filter. A refresh reloads THIS pager (the screen calls rows.refresh()),
+    // which keeps the person's place; building a new pager per refresh -- as a refresh counter in
+    // this key used to -- started the ledger again from row 0, the Sales ledger's 2026-09-26 defect.
     val rows: Flow<PagingData<FeedPurchaseCardUi>> = scope
-        .flatMapLatest { current -> repository.feedPurchases("", current.delivery).map { page -> page.map { it.toCardUi() } } }
+        .map { it.delivery }
+        .distinctUntilChanged()
+        .flatMapLatest { delivery -> repository.feedPurchases("", delivery).map { page -> page.map { it.toCardUi() } } }
         .cachedIn(viewModelScope)
 
     fun onEvent(event: FeedPurchasesListEvent) {
@@ -160,10 +165,10 @@ class FeedPurchasesListViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
-                // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
-                runCatching { repository.invalidateFeedPurchases("", scope.value.delivery) }
+                // The rows themselves are reloaded in place by the screen's rows.refresh(). Deleting
+                // the scope's paging cursor here as well raced that reload and left the ledger
+                // reading "end of list".
                 repository.refreshFeedPurchaseOptions()
-                scope.value = scope.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
             } finally {
                 _isRefreshing.value = false
             }
@@ -539,8 +544,8 @@ class FeedPurchaseDetailViewModel @Inject constructor(
             local.update { it.copy(refreshing = true) }
             try {
                 // The ledger row is cached from the list page; there is no per-purchase read on the
-                // backend, so refreshing here means refreshing the list page it came from.
-                repository.invalidateFeedPurchases("", "")
+                // backend, so the row refreshes when the ledger does. Dropping the ledger's paging
+                // cursor from here only stranded the list at "end of list" on the way back.
                 // The load's SOP steps, keyed on the purchase. Blank = not opened yet (the recorded
                 // event still in flight); failure = offline, the cached detail stays visible.
                 workflows.refreshDetailBySubject(FEED_PURCHASE_WORKFLOW_TEMPLATE_KEY, purchaseId)

@@ -150,18 +150,8 @@ class DefaultSalesRepository(
     override fun deals(farm: String): Flow<PagingData<SalesDealDto>> {
         val key = dealScopeKey(farm)
         return Pager(
-            config = PagingConfig(
-                pageSize = VENDORS_PAGE_SIZE,
-                initialLoadSize = VENDORS_PAGE_SIZE,
-                prefetchDistance = 3,
-                // Placeholders keep every position ABSOLUTE. Without them, once the 60-row window
-                // dropped its first page the pager counted the person's place from the first row
-                // it still held, so a refresh at the bottom reloaded the wrong rows and the list
-                // jumped towards the top (Sales phone E2E 2026-09-26). The rows themselves stay
-                // bounded by maxSize; a placeholder is only a count.
-                enablePlaceholders = true,
-                maxSize = VENDORS_PAGE_SIZE * 3,
-            ),
+            // Keeps the person's place across a refresh (see ledgerPagingConfig).
+            config = ledgerPagingConfig(),
             remoteMediator = SalesDealRemoteMediator(farm, key, api, database, json, clock),
             pagingSourceFactory = { database.salesDealItemDao().pagingSource(key) },
         ).flow
@@ -396,9 +386,6 @@ class DefaultSalesRepository(
         const val LOG_TAG = "GoatOsSales"
         const val SALES_CACHE_SHAPE = "sales-v1"
         const val SALES_CACHED_QUERIES = 4
-
-        /** A ledger refresh re-reads at most this many pages (see SalesDealRemoteMediator). */
-        const val REFRESH_MAX_PAGES = 10
         const val DEAL_KEY_PREFIX = "sale:"
         fun dealScopeMetaKey(scopeKey: String) = "sales-deal-scope:" + scopeKey
         const val OPTIONS_KEY = "sales-options"
@@ -508,29 +495,19 @@ class DefaultSalesRepository(
                 }
             }
             return try {
-                // A REFRESH re-reads every page up to where the person is, one ordinary page per
-                // request. Re-reading page one alone wiped the rows below it, so a refresh at the
-                // bottom of the ledger threw the person back to the top (Sales phone E2E
-                // 2026-09-26). The Room source reloads around the anchor, so the window it needs
-                // is the anchor plus half a page; bounded so a refresh never walks the whole ledger.
-                val rowsWanted = if (loadType == LoadType.REFRESH) {
-                    ((state.anchorPosition ?: 0) + VENDORS_PAGE_SIZE / 2 + 1)
-                        .coerceAtMost(VENDORS_PAGE_SIZE * REFRESH_MAX_PAGES)
-                } else {
-                    1
-                }
-                val deals = mutableListOf<SalesDealDto>() // mobile-guard:ignore: local to one mediator load, at most REFRESH_MAX_PAGES pages of 20
-                var nextOffset = offset
-                var total: Int
-                do {
-                    val response = api.getSalesDeals(farm = farm.ifBlank { null }, limit = VENDORS_PAGE_SIZE, offset = nextOffset)
-                    deals += response.deals
-                    nextOffset += response.deals.size
-                    total = response.total
-                    val pageEnded = response.deals.isEmpty() || nextOffset >= total
-                } while (!pageEnded && nextOffset - offset < rowsWanted)
+                // A REFRESH re-reads every page up to where the person is (see readOffsetWindow),
+                // so a refresh at the bottom of the ledger returns to the same row.
+                val window = readOffsetWindow(
+                    loadType, state.anchorPosition, offset,
+                    fetch = { at -> api.getSalesDeals(farm = farm.ifBlank { null }, limit = VENDORS_PAGE_SIZE, offset = at) },
+                    rowsOf = { it.deals },
+                    totalOf = { it.total },
+                )
+                val deals = window.rows
+                val nextOffset = window.nextOffset
+                val total = window.total
                 val now = clock()
-                val endReached = deals.isEmpty() || nextOffset >= total
+                val endReached = window.endReached
                 database.withTransaction {
                     val itemDao = database.salesDealItemDao()
                     if (loadType == LoadType.REFRESH) itemDao.deleteQuery(queryKey)

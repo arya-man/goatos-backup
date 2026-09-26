@@ -19,9 +19,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -74,14 +71,7 @@ fun SalesListScreen(
             // A refresh that inserts rows ABOVE the first visible one (a sale recorded a moment
             // ago) keeps the old row anchored; snap to the top so the new row is seen, but only
             // when the person is already near the top -- never yank a deliberate scroll.
-            val savedListState = rememberLazyListState()
-            // Coming back to the ledger (from a sale, or the app) the pager presents NO rows for a
-            // frame or two before its cached pages arrive. A list bound to the saved scroll
-            // position during those frames clamps it to the top, and the person lost their place
-            // (Sales phone E2E 2026-09-26). Until rows are presented the list binds a throwaway
-            // state, so the saved position is only applied once there are rows to hold it.
-            val emptyListState = remember { LazyListState() }
-            val listState = if (rows.itemCount > 0) savedListState else emptyListState
+            val listState = rememberLedgerListState(hasRows = rows.itemCount > 0)
             val firstKey = if (rows.itemCount > 0) rows.peek(0)?.listKey else null
             LaunchedEffect(firstKey) {
                 if (firstKey != null && listState.firstVisibleItemIndex in 1..3) listState.scrollToItem(0)
