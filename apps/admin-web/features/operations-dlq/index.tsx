@@ -1,6 +1,7 @@
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
 import TextField from "@mui/material/TextField";
 import { Iconify } from "@/components/minimal/iconify";
 import { LinkButton } from "@/components/minimal/link-button";
@@ -73,7 +74,7 @@ export async function OperationsDLQPage({
   const actionStatus = one(sp, "action_status");
 
   return (
-    <div className="kit-enter screen on">
+    <div className="screen on">
       <div>
         <PageHeader
           title={pageContract.title}
@@ -88,13 +89,13 @@ export async function OperationsDLQPage({
       </div>
 
       {result.ok ? null : (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error">
           <b>{result.error.code ?? copy(pageContract, "error.dlq_unavailable")}</b>&nbsp;{result.error.message}
         </Alert>
       )}
 
       {actionStatus && actionKey ? (
-        <Alert severity={actionStatus === "success" ? "success" : "warning"} style={{ marginBottom: 14 }}>
+        <Alert severity={actionStatus === "success" ? "success" : "warning"}>
           <b>{copy(pageContract, actionKey)}</b>
           {one(sp, "action_code") ? <span>&nbsp;{one(sp, "action_code")}</span> : null}
         </Alert>
@@ -109,7 +110,9 @@ export async function OperationsDLQPage({
       </KpiGrid>
       </div>
 
-      <div style={{ margin: "14px 0 12px" }}>
+      {/* Template list card: status Tabs (Label counts), then the toolbar (search + event-type / topic). */}
+      <Card sx={{ overflow: "visible" }}>
+        <Box sx={{ px: 2.5 }}>
         <AnimatedTabs
           value={status}
           ariaLabel={copy(pageContract, "filter.search_label")}
@@ -121,19 +124,16 @@ export async function OperationsDLQPage({
             href: hrefWithUpdates(sp, { status: key, dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null }),
           }))}
         />
-      </div>
-
-      {/* Template list toolbar on a Card: keyword search, then the event-type / topic filters. */}
-      <div style={{ marginBottom: 14 }}>
-        <Card sx={{ p: 2.5, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", overflow: "visible" }}>
+        </Box>
+        <Box sx={{ p: 2.5, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
           <Box component="form" action={PATHNAME} title={copy(pageContract, "filter.search_label")} sx={{ flex: "1 1 280px", minWidth: 0 }}>
             {hiddenInputs(sp, ["q", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
             <SearchTextField name="q" defaultValue={one(sp, "q") ?? ""} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
           </Box>
           <Box component="form" action={PATHNAME} sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
             {hiddenInputs(sp, ["event_type", "topic", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
-            <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} defaultValue={eventType ?? ""} placeholder={copy(pageContract, "filter.event_type_placeholder")} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} defaultValue={topic ?? ""} placeholder={copy(pageContract, "filter.topic_placeholder")} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} defaultValue={eventType ?? ""} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} defaultValue={topic ?? ""} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
             <Button type="submit" variant="contained">
               {copy(pageContract, "filter.apply")}
             </Button>
@@ -141,18 +141,19 @@ export async function OperationsDLQPage({
           <LinkButton href={PATHNAME} replace scroll={false} color="error" startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
             {copy(pageContract, "filter.clear_all")}
           </LinkButton>
-        </Card>
-      </div>
+        </Box>
+      </Card>
 
       <div>
       <TabPanel tabKey={status}>
-      <section className="card kit-tablecard" style={{ minWidth: 0 }}>
-        <div className="hd">
-          <DatabaseZap className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.events.title")}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="pill">{copy(pageContract, "pager.fixed_reason")}</span>
-        </div>
+      <Card component="section" className="kit-tablecard" sx={{ minWidth: 0 }}>
+        <CardHeader
+          avatar={<DatabaseZap className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
+          title={copy(pageContract, "section.events.title")}
+        />
+        <Alert severity="info" sx={{ mx: 3, mt: 2, mb: 2 }}>
+          {copy(pageContract, "pager.fixed_reason")}
+        </Alert>
         <div className="bd twrap tablewrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.events.aria")}>
           <Table data-enh="1" className="operations-dlq-table">
             <TableHead>
@@ -177,7 +178,7 @@ export async function OperationsDLQPage({
             </TableBody>
           </Table>
         </div>
-      </section>
+      </Card>
       </TabPanel>
       </div>
 

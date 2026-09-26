@@ -203,6 +203,7 @@
 /* ---- Tabs: single measured indicator + crossfade panels ---- */
 .kit-tabpanel{position:relative;min-width:0}
 .kit-tabpanel-inner{display:grid;gap:24px;min-width:0}
+.kit-tabpanel-item{min-width:0}
 .kit-tabpanel-in .kit-tabpanel-item{animation:kit-tab-item-in 260ms var(--ease-out) backwards;animation-delay:var(--kit-tab-delay,0ms)}
 .kit-tabpanel-out{position:absolute;inset:0 0 auto 0;pointer-events:none;animation:kit-tab-out 180ms var(--ease) both}
 /* Opacity only: a transform (even a finished one kept by fill-mode) makes the item the containing block
@@ -299,7 +300,7 @@
   :root .main table.wsgtable td.wsg-shed,:root .main table.wsgtable td.wsg-shed b{white-space:normal;overflow-wrap:anywhere;padding-left:12px;padding-right:12px}
   :root .main .cbm-chip{min-height:44px}
   :root .main a.lk,:root .main .lk.small{min-height:44px;display:inline-flex;align-items:center;padding:0 6px}
-  :root .main .fld>label[for],:root .main label[for]{min-height:44px;display:flex;align-items:center}
+  :root .main .fld>label[for],:root .main label[for]:not(.MuiFormLabel-root){min-height:44px;display:flex;align-items:center}
   :root .main .pager2 a.btn,:root .main .pager2 .btn,:root .main .pager2 button{min-height:44px;height:44px}
 }
 /* A closed date picker's popover is not rendered at all (it was laid out at opacity 0 behind the page — 42
@@ -419,7 +420,7 @@ aside.drawer{border-radius:16px 0 0 16px;box-shadow:var(--shadow-dialog);border:
 .kit-row-edit{width:32px;height:32px}
 .kit-th-actions{width:56px}
 /* Every form label on the kit label anatomy (12px/600 sentence case), whatever the legacy screen styled. */
-.wrap label:not(.kit-check):not(.pen-routine-check):not(.kit-chip):not(.btn){text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;color:var(--fg-muted)}
+.wrap label:not(.kit-check):not(.pen-routine-check):not(.kit-chip):not(.btn):not(.MuiFormLabel-root):not(.MuiFormControlLabel-root){text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;color:var(--fg-muted)}
 /* Legacy `.pager2` table footers take the kit footer anatomy. */
 .wrap .pager2 .btn{min-height:36px}
 /* An empty chart card collapses to its content: no fixed chart-height box around the empty state. */
