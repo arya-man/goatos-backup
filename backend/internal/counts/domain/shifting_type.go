@@ -70,12 +70,12 @@ const NewbornStageCode = "K0"
 //
 // Keys and values are canonical stage codes; comparison is case-insensitive via growthEdgeExists.
 var growthForwardEdges = map[string][]string{
-	"K0":           {"K1"},
-	"K1":           {"K2"},
-	"K2":           {"K3"},
-	"K3":           {"F2", "F2-Male", "F2-Female"},
-	"F2":           {"F2-Male", "F2-Female"},
-	"F2-Male":      {"Buck"},
+	"K0":      {"K1"},
+	"K1":      {"K2"},
+	"K2":      {"K3"},
+	"K3":      {"F2", "F2-Male", "F2-Female"},
+	"F2":      {"F2-Male", "F2-Female"},
+	"F2-Male": {"Buck"},
 	// F2-Female -> Mother (maintainer decision 2026-09-26): a fattening female that kids joins the
 	// mothers by a growth shift, and takes Mother's adult band in the same write. Non-Pregnant stays
 	// FIRST: into an empty pen whose Stage is not Mother it is still the rung she takes.
