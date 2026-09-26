@@ -5,8 +5,17 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
-import { AlertTriangle, ShieldCheck, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { AlertTriangle, ShieldCheck } from "lucide-react";
+import { useCallback, useMemo, useState, useTransition } from "react";
+
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
 
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -26,6 +35,10 @@ import Alert from "@mui/material/Alert";
  *
  * Local state only until Save. Toggling a chip must not navigate or re-render the
  * page beneath (the local-overlay contract), so every control here is a button.
+ *
+ * This renders the BODY of the launcher's MUI Dialog (template custom-dialog layout:
+ * DialogTitle / DialogContent / DialogActions). The Dialog owns the portal, the focus trap,
+ * Escape / scrim close and focus return to the Access button.
  */
 
 type Draft = {
@@ -81,25 +94,11 @@ export function PersonAccessModal({
   const [draft, setDraft] = useState<Draft>(() => draftFrom(access));
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
-  const closeRef = useRef<HTMLButtonElement>(null);
 
   // No re-seed effect: the launcher mounts this only once it has the record and
   // discards the record on close, so the useState initialiser above is the only seed
   // that can run. A successful save closes the editor, and a failed one deliberately
   // keeps what the admin typed so they can correct one tick rather than start again.
-
-  useEffect(() => {
-    closeRef.current?.focus();
-  }, []);
-
-  // Escape closes, matching every other overlay in this system.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const setPage = useCallback((moduleKey: string, pageKey: string) => {
     setDraft((current) => {
@@ -208,33 +207,26 @@ export function PersonAccessModal({
   }, [access.modules, access.person_id, access.row_version, draft, onClose]);
 
   return (
-    <div className="vr-modal-scrim on" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div
-        className="vr-modal on"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Access for ${access.display_name}`}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="vr-modal-hd">
-          <ShieldCheck size={20} aria-hidden />
-          <div>
-            <h2>
+    <>
+        <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 1.5 }}>
+          <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "primary.main" }}><ShieldCheck size={20} /></Box>
+          <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+            <Typography variant="h6" component="h2">
               {t("access.title")} · {access.display_name}
-            </h2>
-            <div className="sb">
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {access.email ? `${access.email} · ` : ""}
               {grantedCount === 0
                 ? t("access.summary.none")
                 : `${grantedCount} ${t("access.summary.count").replace("{total}", String(access.modules.length))}`}
-            </div>
-          </div>
-          <button ref={closeRef} type="button" className="x" onClick={onClose} aria-label={t("action.close")}>
-            <X size={18} aria-hidden />
-          </button>
-        </div>
+            </Typography>
+          </Box>
+          <IconButton onClick={onClose} aria-label={t("action.close")}>
+            <Iconify icon="mingcute:close-line" />
+          </IconButton>
+        </DialogTitle>
 
-        <div className="vr-modal-bd">
+        <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {error ? (
             <Alert severity="error" role="alert">
               {error}
@@ -446,24 +438,24 @@ export function PersonAccessModal({
               </TableBody>
             </Table>
           </div>
-        </div>
+        </DialogContent>
 
-        <div className="df" style={{ display: "flex", gap: 9, justifyContent: "flex-end" }}>
-          <button type="button" className="btn ghost" onClick={onClose} disabled={pending}>
+        <DialogActions>
+          <Button variant="outlined" color="inherit" onClick={onClose} disabled={pending}>
             {t("action.cancel")}
-          </button>
-          <button
-            type="button"
-            className="btn b"
-            onClick={submit}
-            disabled={pending || !mayEdit}
-            title={mayEdit ? undefined : cannotEditReason}
-            aria-disabled={!mayEdit}
-          >
-            {pending ? t("access.action.saving") : t("access.action.save")}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+          {/* A disabled button swallows its title, so the reason rides on a wrapping span. */}
+          <Box component="span" title={mayEdit ? undefined : cannotEditReason}>
+            <Button
+              variant="contained"
+              onClick={submit}
+              disabled={pending || !mayEdit}
+              aria-disabled={!mayEdit}
+            >
+              {pending ? t("access.action.saving") : t("access.action.save")}
+            </Button>
+          </Box>
+        </DialogActions>
+    </>
   );
 }

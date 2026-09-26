@@ -8,6 +8,9 @@ import type { PersonAccess } from "@/lib/api/server";
 import { loadPersonAccessAction } from "./access-actions";
 import { PersonAccessModal } from "./person-access-modal";
 import Alert from "@mui/material/Alert";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import Typography from "@mui/material/Typography";
 
 /**
  * Opens the access editor for one directory row.
@@ -67,27 +70,33 @@ export function PersonAccessLauncher({
         {copy(pageContract, "access.open")}
       </button>
 
-      {open && access ? (
-        <PersonAccessModal access={access} pageContract={pageContract} onClose={close} />
-      ) : null}
-
-      {open && !access ? (
-        <div className="vr-modal-scrim on" onMouseDown={close}>
-          <div className="vr-modal on" role="dialog" aria-modal="true" aria-label={personName}>
-            <div className="vr-modal-bd">
-              {error ? (
-                <Alert severity="error" role="alert">
-                  {error}
-                </Alert>
-              ) : (
-                <div className="bd" aria-live="polite">
-                  {pending ? copy(pageContract, "access.loading") : copy(pageContract, "access.error.load")}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {/* One template MUI Dialog for the loading state and the editor: it portals to <body> (a
+          transformed tab panel can no longer capture it), traps focus, closes on Escape / scrim
+          and returns focus to this Access button. */}
+      <Dialog
+        open={open}
+        onClose={close}
+        fullWidth
+        maxWidth="md"
+        scroll="paper"
+        slotProps={{ paper: { "aria-label": access ? `Access for ${access.display_name}` : personName } }}
+      >
+        {access ? (
+          <PersonAccessModal access={access} pageContract={pageContract} onClose={close} />
+        ) : (
+          <DialogContent>
+            {error ? (
+              <Alert severity="error" role="alert">
+                {error}
+              </Alert>
+            ) : (
+              <Typography variant="body2" aria-live="polite" sx={{ py: 2 }}>
+                {pending ? copy(pageContract, "access.loading") : copy(pageContract, "access.error.load")}
+              </Typography>
+            )}
+          </DialogContent>
+        )}
+      </Dialog>
     </>
   );
 }

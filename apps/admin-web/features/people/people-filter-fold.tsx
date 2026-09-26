@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 
 import { MinimalDrawer } from "@/components/minimal/drawer";
 import { Iconify } from "@/components/minimal/iconify";
+import { useBackCloses } from "@/components/use-back-closes";
 import pf from "./people-filter-fold.module.css";
 
 /**
@@ -29,6 +30,9 @@ export function PeopleFilterFold({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  // Android Back closes the drawer instead of leaving the page (house drawer rule).
+  useBackCloses(open, close);
 
   return (
     <>
@@ -50,7 +54,7 @@ export function PeopleFilterFold({
           {activeCount > 0 ? ` (${activeCount})` : null}
         </Button>
       </div>
-      <MinimalDrawer open={open} onClose={() => setOpen(false)} title={filtersLabel} aria-label={filtersLabel} closeLabel={closeLabel}>
+      <MinimalDrawer open={open} onClose={close} title={filtersLabel} aria-label={filtersLabel} closeLabel={closeLabel}>
         <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, "& > *": { width: 1, minWidth: "0 !important" } }}>{children}</Box>
       </MinimalDrawer>
       {open ? null : <div className={pf.rest}>{children}</div>}
