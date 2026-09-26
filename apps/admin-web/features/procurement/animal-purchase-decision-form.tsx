@@ -14,6 +14,10 @@
 // server data without moving the scroll position.
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 
 import { decideAnimalPurchaseAction, type AnimalPurchaseDecisionState } from "./animal-purchase-actions";
 
@@ -57,43 +61,48 @@ export function AnimalPurchaseDecisionForm({
   const decided = state.status === "success";
 
   return (
-    <form action={formAction} className="ap-decision" aria-busy={pending}>
+    <Stack component="form" action={formAction} aria-busy={pending} spacing={1}>
       <input type="hidden" name="candidate_id" value={candidateId} />
       <input type="hidden" name="row_version" value={String(rowVersion)} />
-      <div className="ap-decision-row">
-        <label htmlFor={noteId} className="sr-only">
-          {labels.note}
-        </label>
-        <input
+      {/* Template form row: a multiline outlined note (the hint wraps instead of clipping on a
+          phone, FJ3 P1-24) with Accept / Reject beside it, stacked at xs. */}
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ alignItems: { sm: "flex-start" } }}>
+        <TextField
           id={noteId}
           name="note"
-          type="text"
-          className="ap-decision-note"
+          size="small"
+          fullWidth
+          multiline
+          maxRows={4}
+          label={labels.note}
           value={note}
           onChange={(event) => setNote(event.target.value)}
           placeholder={labels.noteHint}
           disabled={pending || decided}
           autoComplete="off"
         />
-        <button type="submit" name="decision" value="accept" className="btn primary" disabled={pending || decided}>
-          {pending ? labels.deciding : labels.accept}
-        </button>
-        <button
-          type="submit"
-          name="decision"
-          value="reject"
-          className="btn"
-          disabled={pending || decided || !note.trim()}
-          title={!note.trim() ? labels.note : undefined}
-        >
-          {labels.reject}
-        </button>
-      </div>
+        <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+          <Button type="submit" name="decision" value="accept" variant="contained" color="primary" disabled={pending || decided}>
+            {pending ? labels.deciding : labels.accept}
+          </Button>
+          <Button
+            type="submit"
+            name="decision"
+            value="reject"
+            variant="outlined"
+            color="error"
+            disabled={pending || decided || !note.trim()}
+            title={!note.trim() ? labels.note : undefined}
+          >
+            {labels.reject}
+          </Button>
+        </Stack>
+      </Stack>
       {message ? (
-        <div className={state.status === "success" ? "ap-decision-msg ok" : "ap-decision-msg bad"} role="status">
+        <Typography role="status" variant="caption" sx={{ color: state.status === "success" ? "success.main" : "error.main" }}>
           {message}
-        </div>
+        </Typography>
       ) : null}
-    </form>
+    </Stack>
   );
 }

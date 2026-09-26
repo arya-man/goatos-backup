@@ -475,7 +475,6 @@
   .vr-media-open:hover{background:linear-gradient(135deg,#0d1711,#1a2d22 54%,#13211a)}
   /* Animal purchases -- a card recorded under the Procurement SOP questionnaire. Media column
      fixed, answers fill the rest in two flowing columns so up to thirty rows fit one screen. */
-  .ap-sop{display:flex;flex-direction:column;gap:12px;padding:14px 16px}
   /* Captures: one strip of uniform tiles in recorded order, a caption under each. */
   .ap-sop-media{min-width:0}
 .ap-tiles{display:flex;flex-wrap:wrap;gap:12px 14px}
@@ -504,16 +503,6 @@
   .ap-sop-row dd{margin:0;font-weight:650;text-align:right;overflow-wrap:anywhere}
   .ap-sop-row.attention dt,.ap-sop-row.attention dd{color:var(--warn)}
   .ap-sop-row.attention{background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:6px}
-  .ap-facts{margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:0 24px}
-  /* Decision: the card's last line; in place, never a page reload. */
-  .ap-sop-decision{border-top:1px solid var(--line);padding-top:10px}
-  .ap-decision{display:flex;flex-direction:column;gap:6px}
-  .ap-decision-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .ap-decision-note{flex:1 1 320px;min-width:0;height:36px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font:inherit;font-size:13px}
-  .ap-decision-note:focus{outline:none;border-color:var(--brand-l)}
-  .ap-decision-msg{font-size:12.5px}
-  .ap-decision-msg.ok{color:var(--ok)}
-  .ap-decision-msg.bad{color:var(--danger)}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .vr-media-open:disabled{cursor:wait;opacity:.78}
   .vr-media-open-mark{width:54px;height:54px;border-radius:999px;background:rgba(156,213,88,.18);border:1px solid rgba(156,213,88,.48);display:grid;place-items:center}

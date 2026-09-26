@@ -1,15 +1,27 @@
-import { ChartCardSkeleton, HeadingSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StatStripSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { ChartCardSkeleton, DetailCardSkeleton, GridSkeleton, KpiCardSkeleton, ListCardSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TableSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
-/** /sales/sold: header, farm toggle, the Sold heading, the KPI deck, the weight-band strip, the monthly charts. */
+function Kpi2x2Skeleton({ spark }: { spark: boolean }) {
+  return <GridSkeleton items={Array.from({ length: 4 }, () => ({ size: { xs: 12, sm: 6 }, node: <KpiCardSkeleton spark={spark} trend={spark} /> }))} />;
+}
+
+/** /sales/sold: header, farm chips, then the page's template grid 1:1 (same Grid sizes, cards, order). */
 export default function Loading() {
   return (
     <PageSkeleton>
       <PageHeaderSkeleton />
-      <ToolbarSkeleton left={<TabsSkeleton count={2} variant="pill" />} />
-      <HeadingSkeleton />
-      <KpiRowSkeleton count={4} hero spark hint />
-      <StatStripSkeleton count={4} meta />
-      <ChartCardSkeleton height={{ xs: 780, md: 960 }} />
+      <ToolbarSkeleton left={<TabsSkeleton count={3} variant="pill" />} />
+      <StackSkeleton>
+        <GridSkeleton
+          items={[
+            { size: { xs: 12, lg: 8 }, node: <Kpi2x2Skeleton spark /> },
+            { size: { xs: 12, lg: 4 }, node: <DetailCardSkeleton rows={4} /> },
+            { size: { xs: 12, lg: 8 }, node: <ChartCardSkeleton height={320} action legend /> },
+            { size: { xs: 12, lg: 4 }, node: <ListCardSkeleton rows={6} /> },
+          ]}
+        />
+        <TableSkeleton columns={7} rows={10} />
+        <TableSkeleton columns={9} rows={10} />
+      </StackSkeleton>
     </PageSkeleton>
   );
 }

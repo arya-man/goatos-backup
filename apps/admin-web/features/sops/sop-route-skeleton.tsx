@@ -12,7 +12,7 @@ import {
   StackSkeleton,
   BlockSkeleton,
 } from "@/components/app/skeletons";
-import { CARDS_PER_PAGE, SOP_STAT_CELLS } from "./sop-library-layout";
+import { SOP_SKELETON_CARDS, SOP_STAT_CELLS } from "./sop-library-layout";
 
 /**
  * The module SOP libraries' loading shape (all SOP routes share `sop-library.tsx`, so they share
@@ -25,7 +25,9 @@ export function SopLibrarySkeleton() {
       <PageHeaderSkeleton actions={1} />
       <StatStripSkeleton count={SOP_STAT_CELLS} />
       <FilterCardSkeleton fields={[160, 160, "search"]} actions={3} />
-      <CardGridSkeleton count={CARDS_PER_PAGE} />
+      {/* One row of the 1/2/3 grid: most module libraries hold one to three SOPs, so a full page
+          of twelve placeholder cards was three rows taller than the page it stands in for. */}
+      <CardGridSkeleton count={SOP_SKELETON_CARDS} />
     </PageSkeleton>
   );
 }

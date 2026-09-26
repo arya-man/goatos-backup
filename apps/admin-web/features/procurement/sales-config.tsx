@@ -15,7 +15,7 @@ import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
 import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { SalesConfigTabs } from "./sales-config-tabs";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
@@ -226,7 +226,7 @@ export async function SalesConfigPage({
         tabs={
           // Template account view: Tabs above one card per tab (`?tab=`, soft navigation).
           <Box sx={{ mb: 2 }}>
-            <AnimatedTabs
+            <SalesConfigTabs
               ariaLabel={pageContract.title}
               value={tab}
               items={SALES_CONFIG_TABS.map((key) => ({

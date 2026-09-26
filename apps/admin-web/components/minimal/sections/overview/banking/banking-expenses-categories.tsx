@@ -7,9 +7,7 @@
 //    tooltip shows the same figure;
 //  - the two footer cells take the page's label/value pairs (the template shows demo constants);
 //  - the default colours are the locked Mesha categorical ramp (no error red for an ordinary
-//    category), passed as scheme-aware CSS variables the chart resolves at draw time;
-//  - legend columns are minmax(0, 1fr) so a long category name wraps inside its column instead of
-//    running into the next legend item (the template's demo labels are one short word).
+//    category), passed as scheme-aware CSS variables the chart resolves at draw time.
 
 import type { CardProps } from '@mui/material/Card';
 import type { ChartOptions } from '@/components/minimal/chart';
@@ -101,7 +99,7 @@ export function BankingExpensesCategories({ title, subheader, footer, chart, sx,
           labels={chartOptions?.labels}
           icons={chart.icons}
           sublabels={chart.series.map((item) => item.display)}
-          sx={{ gap: 2.5, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', '& > *': { minWidth: 0 } }}
+          sx={{ gap: 2.5, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)' }}
         />
       </Box>
 

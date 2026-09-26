@@ -5,6 +5,7 @@ import Link from "@/components/no-prefetch-link";
 import { TimeField } from "@/components/app/time-field";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
+import Paper from "@mui/material/Paper";
 import CardHeader from "@mui/material/CardHeader";
 import Divider from "@mui/material/Divider";
 import Grid from "@mui/material/Grid";
@@ -97,7 +98,7 @@ export function MarketConfigSection({
       {/* The ONE time each morning the cards appear on the phone and the reminder goes out. */}
       {/* Maintainer decision 2026-09-14: the value posted is "HH:MM" IST — unchanged; the kit
           TimeField posts exactly that through its hidden input, so behaviour is the same. */}
-      <Box sx={{ p: 2, borderRadius: 1.5, border: "1px dashed", borderColor: "divider", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
+      <Paper variant="outlined" sx={{ p: 2, borderStyle: "dashed", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
         <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>{copy(pageContract, "market.call_time.title")}</Typography>
         {canConfigure ? (
           <MarketConfigForm action={setMarketCallTimeAction} outcomes={outcomes} data-market-call-time="">
@@ -116,7 +117,7 @@ export function MarketConfigSection({
         ) : (
           <Label variant="soft" color="info">{config.call_time}</Label>
         )}
-      </Box>
+      </Paper>
 
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, md: 6 }} sx={{ minWidth: 0 }}>

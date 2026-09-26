@@ -283,7 +283,7 @@ export function StatStripSkeleton({ count, meta = false, card = true }: { count:
       </Box>
     ) : (
       <Box sx={{ minHeight: "calc(var(--sp-6) * 2.25)", overflow: "hidden" }}>
-        <Stack divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2, flexDirection: "row" }}>
+        <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
           {Array.from({ length: count }, (_, i) => cell(i))}
         </Stack>
       </Box>

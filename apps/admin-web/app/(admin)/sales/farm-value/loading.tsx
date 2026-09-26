@@ -1,16 +1,21 @@
-import { HeadingSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, StatStripSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { ChartCardSkeleton, DetailCardSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
-/** /sales/farm-value: header, farm toggle, the valuation block (heading + three KPI cards), the by-category breakdown card. */
+/** /sales/farm-value: header, farm chips, then the page's template grid 1:1 (same Grid sizes, cards, order). */
 export default function Loading() {
   return (
     <PageSkeleton>
       <PageHeaderSkeleton />
-      <ToolbarSkeleton left={<TabsSkeleton count={2} variant="pill" />} />
-      <StackSkeleton spacing={2}>
-        <HeadingSkeleton />
-        <KpiRowSkeleton count={3} hero icon hint />
+      <ToolbarSkeleton left={<TabsSkeleton count={3} variant="pill" />} />
+      <StackSkeleton>
+        <KpiRowSkeleton count={3} icon />
+        <GridSkeleton
+          items={[
+            { size: { xs: 12, md: 6, lg: 5 }, node: <ChartCardSkeleton height={460} legend /> },
+            { size: { xs: 12, md: 6, lg: 7 }, node: <DetailCardSkeleton rows={8} /> },
+          ]}
+        />
       </StackSkeleton>
-      <StatStripSkeleton count={5} meta />
+  
     </PageSkeleton>
   );
 }

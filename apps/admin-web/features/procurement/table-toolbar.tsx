@@ -32,6 +32,16 @@ export type ToolbarChip = {
  * scroll region, a hidden column is `display:none` on the nth cell of every row, and Export
  * serialises exactly the visible cells. Both are read-only — nothing is submitted.
  */
+/** One exported cell: each rendered line of the cell, trimmed, joined with " · ". */
+export function exportCellText(cell: HTMLElement): string {
+  const text = cell.innerText ?? cell.textContent ?? "";
+  return text
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function useTableColumnsMenu({
   tableId,
   exportName,
@@ -84,7 +94,9 @@ export function useTableColumnsMenu({
     const lines = Array.from(el.rows).map((row) =>
       Array.from(row.cells)
         .filter((c) => c.dataset.colHidden !== "1")
-        .map((c) => cell((c.textContent ?? "").replace(/\s+/g, " ").trim()))
+        // innerText keeps the cell's line breaks ("Dry Masoor Bhusa" / "Kaveri Agro Traders");
+        // textContent glued the two lines into one word (FJ3 P1-15). Lines join with " · ".
+        .map((c) => cell(exportCellText(c)))
         .join(","),
     );
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });

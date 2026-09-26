@@ -187,7 +187,10 @@ function FarmValueSections({
                   { label: copy(pageContract, "value.valued_animals"), value: num(overview.farm_valuation.valued_animals) },
                   { label: copy(pageContract, "kpi.farm_value"), value: inr(total) },
                 ]}
-                sx={{ height: 1 }}
+                // Our category names are long ("Fattening animals · Female"); the template legend's
+                // two 1fr columns let one run into the next. minmax(0, 1fr) lets a name wrap in its
+                // column. Styled from here: components/minimal stays verbatim.
+                sx={{ height: 1, "& .minimal__chart__legends__root": { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }, "& .minimal__chart__legends__root > *": { minWidth: 0 } }}
               />
             </Grid>
             <Grid size={{ xs: 12, md: 6, lg: 7 }}>
