@@ -293,6 +293,8 @@ grafana-provisioning-guard:
 
 stg-deploy-scripts-test:
 	bash -n tools/deploy/stg-clouddeploy-task.sh tools/deploy/stg-cloudbuild-release.sh tools/deploy/stg-clouddeploy-release.sh
+	bash -n tools/deploy/stg-mobile-distribution.sh
+	bash tools/deploy/stg-mobile-distribution-phase-vars.test.sh
 	node --test tools/deploy/stg-admin-web-traffic-order.test.mjs
 
 domain-event-architecture-guard:

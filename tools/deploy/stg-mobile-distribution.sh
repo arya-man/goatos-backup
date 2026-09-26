@@ -7,6 +7,9 @@ REGION="${REGION:-asia-south1}"
 PLAY_QUOTA_PROJECT="${PLAY_QUOTA_PROJECT:-$PROJECT_ID}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
 GOOGLE_PLAY_PACKAGE="${GOOGLE_PLAY_PACKAGE:-sg.mesha.goatos}"
+# Both the build and the publish phase call the Play API; the publish phase runs in its own step,
+# so the base URL must be set before any phase branch.
+play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
 FIREBASE_APP_ID="${FIREBASE_APP_ID:-}"
 CONSOLE_AUTHUSER="${CONSOLE_AUTHUSER:-ravi@mesha.sg}"
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/workspace/android-sdk}"
@@ -600,7 +603,6 @@ if [[ "$DEPLOY_VERSION_CODE_WAS_EXPLICIT" != "true" ]]; then
   fi
 fi
 
-play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
 if play_access_token="$(play_access_token)" &&
   edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" "${play_base}/edits")"; then
   edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
