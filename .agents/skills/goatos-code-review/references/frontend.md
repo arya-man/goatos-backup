@@ -401,3 +401,7 @@ style nit — it lies to an operator about herd state. Require explicit states.
       modal/drawer states. Axe output is reviewed, and keyboard/focus behavior is
       checked manually because automated accessibility covers only part of the
       surface
+
+## Admin-web page fidelity checklist
+
+- [ ] **No pastel fallback on mapped pages (guard `page-template-no-pastel`, p0).** A page with a row in `docs/design/page-template-map.md` must not render `KpiCard variant="tint"/"gradient"` or `AnalyticsWidgetSummary`; KPI rows are `EcommerceWidgetSummary` / `CourseWidgetSummary` / `BankingWidgetSummary`, charts are template chart cards (CardHeader + select), lists use the template table anatomy.

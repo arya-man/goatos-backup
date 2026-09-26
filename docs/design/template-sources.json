@@ -91,6 +91,12 @@
 
     "components/minimal/progress-list/progress-item.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
 
+    "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": "src/sections/overview/e-commerce/ecommerce-best-salesman.tsx",
+    "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
+    "components/minimal/sections/overview/e-commerce/ecommerce-sales-overview.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
+    "components/minimal/sections/overview/e-commerce/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
+    "components/minimal/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": "src/sections/overview/e-commerce/ecommerce-yearly-sales.tsx",
+
     "components/minimal/scrollbar/index.ts": "src/components/scrollbar/index.ts",
 
     "components/minimal/search-not-found/search-not-found.tsx": "src/components/search-not-found/search-not-found.tsx",

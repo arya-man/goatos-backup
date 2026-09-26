@@ -1,25 +1,26 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
 import { listOrEmpty } from "@/lib/list-or-empty";
-import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { GoatGlyph } from "@/components/goat-glyph";
+import { Label } from "@/components/minimal/label";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { EcommerceBestSalesman } from "@/components/minimal/sections/overview/e-commerce/ecommerce-best-salesman";
+import { EcommerceLatestProducts } from "@/components/minimal/sections/overview/e-commerce/ecommerce-latest-products";
 import { KpiValue } from "./kpi-value";
-import { IdentityCell } from "@/components/data-table";
+import { SalesSoldMonthly } from "./sales-sold-monthly";
+import ListItemText from "@mui/material/ListItemText";
 import type { ReactNode } from "react";
 
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { Banknote, IndianRupee, Package, Weight } from "lucide-react";
 
-import { HBarList } from "@/components/hbar-list";
-import { StackedColumns } from "@/components/svg-series";
-import { Tag } from "@/components/ui-primitives";
 import {
   controlEnabled,
   copy,
@@ -38,14 +39,12 @@ import {
   dealStatusTone,
   humanDate,
   inr,
-  inrAxisTick,
   inrCompact,
   monthLabel,
   monthlyAnimalRevenueTotal,
   monthlyAnimalsTotal,
   monthlyRevenueTotal,
   num,
-  numAxisTick,
   numCompactWhole,
   trimEmptyMonthlyStart,
   breedBeyondProduct,
@@ -57,19 +56,30 @@ import { salesErrorText } from "./sales-error";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { salesKpiRowSx } from "./procurement-sx";
 
 const PAGE_PATH = "/sales/sold";
 const DEFAULT_LIMIT = 25;
 /** Only used when an older backend contract has no buyer board table; the contract page size wins. */
 const BUYERS_PAGE_SIZE = 10;
 
+// Template widget / chart colours from the locked palette (scheme-aware CSS variables the chart
+// resolves at draw time), in the template Ecommerce overview's light→main gradient pairs.
+const tone = (key: "primary" | "info" | "warning" | "secondary") => [`var(--palette-${key}-light)`, `var(--palette-${key}-main)`];
+/** Template Label colour for a deal status (the old Tag tones). */
+const STATUS_LABEL = { ok: "success", info: "info", warn: "warning", dng: "error", mut: "default" } as const;
+/** Template rank-chip colours by position (EcommerceBestSalesman: Top 1..4, then the rest). */
+const RANK_LABEL = ["primary", "secondary", "info", "warning"] as const;
+const BAND_BAR = ["primary", "info", "secondary", "warning"] as const;
+/** Ledger columns (contract order: date, farm, buyer, product, breed, animals, weight, value, status) that are figures. */
+const NUMERIC_DEAL_COLUMNS = new Set([5, 6, 7]);
+
 /**
  * Sold — what has already left the farm (the retired Sales board divided in two, maintainer
- * decision 2026-09-11): the headline figures, sold animals by weight, month by month, price per
- * kg by breed, the buyer board, and LAST the deals
- * ledger with its read-only deal drawer. These are the board's own blocks, moved here verbatim;
- * Farm value keeps the live-herd valuation and /sales redirects here.
+ * decision 2026-09-11), laid out as the MUI Minimal Ecommerce overview
+ * (docs/design/page-template-map.md): the headline figures as template widget summaries beside
+ * sold animals by weight, month by month (Yearly sales card) beside price per kg by breed (Latest
+ * products list), the buyer board (Best salesman table) and LAST the deals ledger with its
+ * read-only deal drawer. Farm value keeps the live-herd valuation and /sales redirects here.
  *
  * READ-ONLY BY CONTRACT: the backend page contract declares no write control, so nothing here can
  * open a form. Recording, editing and tagging live on /sales/config.
@@ -92,15 +102,18 @@ function SoldSections({
 }) {
   const summary = overview.summary;
   // Last twelve months of the same monthly series the Month-by-month card charts, as the KPI
-  // widgets' sparklines (Minimal widget anatomy). No trend chip: the current month is partial, so a
-  // month-on-month % would compare a part month with a whole one.
+  // widgets' sparklines (template EcommerceWidgetSummary). No trend chip: the current month is
+  // partial, so a month-on-month % would compare a part month with a whole one; the trend row
+  // carries the widget's own detail line instead.
   const sparkMonths = overview.monthly.slice(-12);
+  const sparkLabels = sparkMonths.map((month) => monthLabel(month.month));
   const revenueSpark = sparkMonths.map(monthlyRevenueTotal);
   const animalsSpark = sparkMonths.map(monthlyAnimalsTotal);
   const manureSpark = sparkMonths.map((month) => month.manure_revenue);
   // Months with no priced live line carry 0 (no price, not a free animal); they are left out so
   // the line joins the months that really have a realized price.
-  const priceSpark = sparkMonths.map((month) => month.realized_price_per_kg).filter((price) => price > 0);
+  const pricedMonths = sparkMonths.filter((month) => month.realized_price_per_kg > 0);
+  const priceSpark = pricedMonths.map((month) => month.realized_price_per_kg);
   const none = copy(pageContract, "value.none");
   const kgSuffix = copy(pageContract, "value.kg_suffix");
   const perKgSuffix = copy(pageContract, "value.per_kg_suffix");
@@ -113,260 +126,235 @@ function SoldSections({
   const buyersPageNumber = Math.min(Math.max(buyersPage, 1), buyersPageCount);
   const buyersStart = (buyersPageNumber - 1) * buyersPageSize;
   const buyersRows = overview.buyers.slice(buyersStart, buyersStart + buyersPageSize);
+  const showFeed = summary.feed_kg > 0 || summary.feed_revenue > 0;
+
+  // Month by month: one template Yearly sales card whose select switches between rupees, heads and
+  // kg. Each series drops its own leading empty months and draws on its own scale.
+  const revenueMonths = trimEmptyMonthlyStart(overview.monthly, monthlyRevenueTotal);
+  const animalMonths = trimEmptyMonthlyStart(overview.monthly, monthlyAnimalsTotal);
+  const manureMonths = trimEmptyMonthlyStart(overview.monthly, (month) => month.manure_kg);
+  const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+  const monthlySeries = [
+    {
+      name: copy(pageContract, "chart.monthly_revenue.value"),
+      categories: revenueMonths.map((month) => monthLabel(month.month)),
+      format: "inr" as const,
+      totals: [inrCompact(sum(revenueMonths.map(monthlyRevenueTotal)))],
+      data: [{ name: copy(pageContract, "chart.monthly_revenue.title"), data: revenueMonths.map(monthlyRevenueTotal) }],
+      empty: copy(pageContract, "chart.monthly_revenue.empty"),
+    },
+    {
+      name: copy(pageContract, "chart.monthly_animals.value"),
+      categories: animalMonths.map((month) => monthLabel(month.month)),
+      format: "number" as const,
+      totals: [num(sum(animalMonths.map(monthlyAnimalsTotal)))],
+      data: [{ name: copy(pageContract, "chart.monthly_animals.title"), data: animalMonths.map(monthlyAnimalsTotal) }],
+      // Head count owns the line; the rupees it earned ride in the tooltip as their own figure so
+      // the two units are read separately and never share the axis.
+      notes: animalMonths.map((month) => `${copy(pageContract, "chart.monthly_animals.sub")} ${inrCompact(monthlyAnimalRevenueTotal(month))}`),
+      empty: copy(pageContract, "chart.monthly_animals.empty"),
+    },
+    {
+      name: copy(pageContract, "chart.monthly_manure.value"),
+      categories: manureMonths.map((month) => monthLabel(month.month)),
+      format: "number" as const,
+      totals: [numCompactWhole(sum(manureMonths.map((month) => month.manure_kg)))],
+      data: [{ name: copy(pageContract, "chart.monthly_manure.title"), data: manureMonths.map((month) => month.manure_kg) }],
+      notes: manureMonths.map((month) => `${copy(pageContract, "chart.monthly_manure.sub")} ${inrCompact(month.manure_revenue)}`),
+      empty: copy(pageContract, "chart.monthly_manure.empty"),
+    },
+  ];
+
   return (
-    <>
-          {/* SOLD — what has already left the farm. Same tiles as before, minus the two valuation
-              ones that moved up into their own block. */}
-          <Typography variant="h6" component="h3" sx={{ mt: 2.75, mb: 1 }}>
-            {copy(pageContract, "section.sold.title")}
-          </Typography>
-          <Box sx={salesKpiRowSx}>
-          <KpiGrid className="sales-kpi-row">
-            <KpiCard
-              variant="gradient"
-              tone="primary"
-              label={copy(pageContract, "kpi.revenue")}
-              value={<KpiValue value={summary.revenue} kind="inr" />}
-              icon={<Banknote aria-hidden="true" />}
-              sparkline={revenueSpark}
-              hint={`${num(summary.deals)} ${copy(pageContract, "kpi.deals")}`}
+    <Grid container spacing={3}>
+      {/* Headline figures: template EcommerceWidgetSummary, two by two beside sold-by-weight. */}
+      <Grid size={{ xs: 12, lg: 8 }}>
+        <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.sold.aria")}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <EcommerceWidgetSummary
+              title={copy(pageContract, "kpi.revenue")}
+              total={<KpiValue value={summary.revenue} kind="inr" />}
+              caption={`${num(summary.deals)} ${copy(pageContract, "kpi.deals")}`}
+              chart={{ categories: sparkLabels, series: revenueSpark, format: "inr" }}
+              sx={{ height: 1 }}
             />
-            <KpiCard
-              variant="tint"
-              tone="info"
-              label={copy(pageContract, "kpi.animals")}
-              value={<KpiValue value={summary.animals} />}
-              icon={<GoatGlyph aria-hidden="true" />}
-              sparkline={animalsSpark}
-              hint={`${num(summary.sheep)} ${seriesLabel("sheep")} · ${num(summary.goats)} ${seriesLabel("goat")}`}
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <EcommerceWidgetSummary
+              title={copy(pageContract, "kpi.animals")}
+              total={<KpiValue value={summary.animals} />}
+              caption={`${num(summary.sheep)} ${seriesLabel("sheep")} · ${num(summary.goats)} ${seriesLabel("goat")}`}
+              chart={{ colors: tone("info"), categories: sparkLabels, series: animalsSpark }}
+              sx={{ height: 1 }}
             />
-            <KpiCard
-              variant="tint"
-              tone="success"
-              label={copy(pageContract, "kpi.realized_price")}
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <EcommerceWidgetSummary
+              title={copy(pageContract, "kpi.realized_price")}
               // Zero means no weighed live sale exists — printing ₹0 per kg would claim we give
               // animals away.
-              value={summary.realized_price_per_kg > 0 ? <KpiValue value={summary.realized_price_per_kg} kind="inr" suffix={perKgSuffix} /> : none}
-              icon={<IndianRupee aria-hidden="true" />}
-              sparkline={priceSpark}
-              sparkVariant="line"
+              total={summary.realized_price_per_kg > 0 ? <KpiValue value={summary.realized_price_per_kg} kind="inr" suffix={perKgSuffix} /> : none}
+              chart={{ colors: tone("secondary"), categories: pricedMonths.map((month) => monthLabel(month.month)), series: priceSpark, format: "inr" }}
+              sx={{ height: 1 }}
             />
-            <KpiCard
-              variant="tint"
-              tone="violet"
-              label={copy(pageContract, "kpi.manure")}
-              value={<KpiValue value={summary.manure_kg} suffix={kgSuffix} />}
-              icon={<Package aria-hidden="true" />}
-              sparkline={manureSpark}
-              hint={`${inr(summary.manure_revenue)} · ${copy(pageContract, "kpi.manure.detail")}`}
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <EcommerceWidgetSummary
+              title={copy(pageContract, "kpi.manure")}
+              total={<KpiValue value={summary.manure_kg} suffix={kgSuffix} />}
+              caption={`${inr(summary.manure_revenue)} · ${copy(pageContract, "kpi.manure.detail")}`}
+              chart={{ colors: tone("warning"), categories: sparkLabels, series: manureSpark, format: "inr" }}
+              sx={{ height: 1 }}
             />
-            {/* Feed sold off the store is in the revenue above; without its own tile the headline
-                could not be read back into what was sold. Shown only when some was sold (main
-                d35d4db8d). */}
-            {summary.feed_kg > 0 || summary.feed_revenue > 0 ? (
-              <KpiCard
-                variant="tint"
-                tone="warning"
-                label={copy(pageContract, "kpi.feed")}
-                value={<KpiValue value={summary.feed_kg} suffix={kgSuffix} />}
-                icon={<Package aria-hidden="true" />}
-                hint={`${inr(summary.feed_revenue)} · ${copy(pageContract, "kpi.feed.detail")}`}
+          </Grid>
+          {/* Feed sold off the store is in the revenue above; without its own figure the headline
+              could not be read back into what was sold. Shown only when some was sold (main
+              d35d4db8d). */}
+          {showFeed ? (
+            <Grid size={12}>
+              <EcommerceWidgetSummary
+                title={copy(pageContract, "kpi.feed")}
+                total={<KpiValue value={summary.feed_kg} suffix={kgSuffix} />}
+                caption={`${inr(summary.feed_revenue)} · ${copy(pageContract, "kpi.feed.detail")}`}
+                chart={{ categories: [], series: [] }}
               />
-            ) : null}
-          </KpiGrid>
-          </Box>
+            </Grid>
+          ) : null}
+        </Grid>
+      </Grid>
 
-          {/* Sold animals by weight (maintainer decisions 2026-09-08 and 2026-09-21; placed ABOVE the
-              monthly charts at the maintainer's request): every animal sold on a closed deal, in the
-              maintainer's four bands, whole register. Each tile names where its weights came from,
-              because a scale reading and a load average are not the same evidence and the reader is
-              owed the difference. The unweighed remainder is named beside the total rather than
-              hidden in a band. Backend owns every count and every word here. */}
-          <section className="card sales-card" aria-label={copy(pageContract, "section.sold_weight.aria")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "section.sold_weight.title")}</h3>
-            </div>
-            {overview.sold_weight_bands.total === 0 ? (
-              <EmptyState title={copy(pageContract, "empty.sold_weight")} />
-            ) : (
-              <>
-                <StatStrip
-                  ariaLabel={copy(pageContract, "section.sold_weight.aria")}
-                  cells={overview.sold_weight_bands.bands.map((band, i) => ({
-                    key: band.band,
-                    label: copy(pageContract, `sold_weight.band.${band.band}`),
-                    value: band.total,
-                    tone: (["primary", "success", "info", "warning"] as const)[i] ?? "primary",
-                    icon: <Weight aria-hidden="true" />,
-                    // Where this band's weights came from -- the three are not the same kind of
-                    // evidence, so a band whose animals were all weighed one way says nothing extra.
-                    meta:
-                      [
-                        band.measured > 0 ? `${num(band.measured)} ${copy(pageContract, "sold_weight.source.measured")}` : "",
-                        band.load_average > 0 ? `${num(band.load_average)} ${copy(pageContract, "sold_weight.source.load_average")}` : "",
-                        band.estimated > 0 ? `${num(band.estimated)} ${copy(pageContract, "sold_weight.source.estimated")}` : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || copy(pageContract, "sold_weight.total"),
-                    share: overview.sold_weight_bands.total > 0 ? (band.total / overview.sold_weight_bands.total) * 100 : 0,
-                  }))}
-                />
-                {overview.sold_weight_bands.estimated > 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mx: { xs: 2, sm: 3 }, mb: { xs: 2, sm: 3 } }}>
-                    {copy(pageContract, "sold_weight.estimated.note")}
-                  </Typography>
-                ) : null}
-              </>
-            )}
-          </section>
-
-          {/* 2 — month by month. Three separate charts: rupees, heads and kg never share an axis.
-              Stacked full-width so every column carries its month label and value. */}
-          <section className="card sales-card" aria-label={copy(pageContract, "section.monthly.aria")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "section.monthly.title")}</h3>
-            </div>
-            <Typography variant="overline" component="div" color="text.secondary" className="mt" sx={{ mt: 0.5 }}>
-              {copy(pageContract, "chart.monthly_revenue.title")}
+      {/* Sold animals by weight (maintainer decisions 2026-09-08 and 2026-09-21): every animal sold
+          on a closed deal, in the maintainer's four bands, whole register -- template Sales
+          overview progress rows. Each band names where its weights came from, because a scale
+          reading and a load average are not the same evidence; the unweighed remainder is named
+          beside the total rather than hidden in a band. Backend owns every count and word. */}
+      <Grid size={{ xs: 12, lg: 4 }}>
+        <EcommerceSalesOverview
+          component="section"
+          aria-label={copy(pageContract, "section.sold_weight.aria")}
+          title={copy(pageContract, "section.sold_weight.title")}
+          subheader={[
+            `${num(overview.sold_weight_bands.total)} ${copy(pageContract, "sold_weight.total")}`,
+            overview.sold_weight_bands.unweighed > 0 ? `${num(overview.sold_weight_bands.unweighed)} ${copy(pageContract, "sold_weight.unweighed")}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          data={
+            overview.sold_weight_bands.total === 0
+              ? []
+              : overview.sold_weight_bands.bands.map((band, i) => ({
+                  label: copy(pageContract, `sold_weight.band.${band.band}`),
+                  value: overview.sold_weight_bands.total > 0 ? (band.total / overview.sold_weight_bands.total) * 100 : 0,
+                  display: num(band.total),
+                  color: BAND_BAR[i] ?? "primary",
+                  // Where this band's weights came from -- the three are not the same kind of
+                  // evidence, so a band whose animals were all weighed one way says nothing extra.
+                  caption: [
+                    band.measured > 0 ? `${num(band.measured)} ${copy(pageContract, "sold_weight.source.measured")}` : "",
+                    band.load_average > 0 ? `${num(band.load_average)} ${copy(pageContract, "sold_weight.source.load_average")}` : "",
+                    band.estimated > 0 ? `${num(band.estimated)} ${copy(pageContract, "sold_weight.source.estimated")}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+                }))
+          }
+          sx={{ height: 1 }}
+        >
+          {overview.sold_weight_bands.total === 0 ? <EmptyState title={copy(pageContract, "empty.sold_weight")} /> : null}
+          {overview.sold_weight_bands.estimated > 0 ? (
+            <Typography variant="caption" component="p" color="text.secondary" sx={{ m: 0 }}>
+              {copy(pageContract, "sold_weight.estimated.note")}
             </Typography>
-            {/* Template column chart: every month labelled with its figure on the column (a phone
-                scrolls the strip sideways), round rupee ticks on the axis. Keyed by farm so a
-                filter change remounts the chart and it draws in again with the new figures. */}
-            <StackedColumns
-              key={`rev-${chartKey}`}
-              days={trimEmptyMonthlyStart(overview.monthly, monthlyRevenueTotal).map((month) => ({
-                key: month.month,
-                label: monthLabel(month.month),
-                segments: [monthlyRevenueTotal(month)],
-              }))}
-              seriesLabels={[copy(pageContract, "chart.monthly_revenue.value")]}
-              valueNoun={copy(pageContract, "chart.monthly_revenue.value")}
-              chartLabel={copy(pageContract, "chart.monthly_revenue.title")}
-              emptyLabel={copy(pageContract, "chart.monthly_revenue.empty")}
-              formatValue={inrCompact}
-              formatTick={inrAxisTick}
-              columnFigures
-            />
-            <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.monthly_animals.title")}</Typography>
-            {/* Head count owns the bar; the rupees it earned ride in the hover card as their own
-                row so the two units are read separately and never share the axis. */}
-            <StackedColumns
-              key={`animals-${chartKey}`}
-              days={trimEmptyMonthlyStart(overview.monthly, monthlyAnimalsTotal).map((month) => ({
-                key: month.month,
-                label: monthLabel(month.month),
-                segments: [monthlyAnimalsTotal(month)],
-                // Every month carries its rupee row, a measured ₹0 included, so no hover card
-                // is missing a line.
-                extra: [{ label: copy(pageContract, "chart.monthly_animals.sub"), value: inrCompact(monthlyAnimalRevenueTotal(month)) }],
-              }))}
-              seriesLabels={[copy(pageContract, "chart.monthly_animals.value")]}
-              valueNoun={copy(pageContract, "chart.monthly_animals.value")}
-              chartLabel={copy(pageContract, "chart.monthly_animals.title")}
-              emptyLabel={copy(pageContract, "chart.monthly_animals.empty")}
-              formatValue={num}
-              columnFigures
-            />
-            <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.monthly_manure.title")}</Typography>
-            <StackedColumns
-              key={`manure-${chartKey}`}
-              days={trimEmptyMonthlyStart(overview.monthly, (month) => month.manure_kg).map((month) => ({
-                key: month.month,
-                label: monthLabel(month.month),
-                segments: [month.manure_kg],
-                extra: [{ label: copy(pageContract, "chart.monthly_manure.sub"), value: inrCompact(month.manure_revenue) }],
-              }))}
-              seriesLabels={[copy(pageContract, "chart.monthly_manure.value")]}
-              valueNoun={copy(pageContract, "chart.monthly_manure.value")}
-              chartLabel={copy(pageContract, "chart.monthly_manure.title")}
-              emptyLabel={copy(pageContract, "chart.monthly_manure.empty")}
-              formatValue={numCompactWhole}
-              formatTick={numAxisTick}
-              columnFigures
-            />
-          </section>
+          ) : null}
+        </EcommerceSalesOverview>
+      </Grid>
 
-          {/* 3 — realized price per kg by breed, ordered as served (highest first). */}
-          <section className="card sales-card" aria-label={copy(pageContract, "section.price_bands.aria")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "section.price_bands.title")}</h3>
-            </div>
-            <HBarList
-              data={overview.price_bands.map((band) => ({
-                key: `${band.product_type}|${band.breed}`,
-                label: [breedBeyondProduct(band.product_type, band.breed), seriesLabel(band.product_type)]
-                  .filter(Boolean)
-                  .join(" · "),
-                value: Math.round(band.avg_price_per_kg),
-                display: inr(Math.round(band.avg_price_per_kg)),
-              }))}
-              emptyLabel={copy(pageContract, "chart.price_bands.empty")}
-              valueNoun={copy(pageContract, "chart.price_bands.value")}
-              chartLabel={copy(pageContract, "chart.price_bands.title")}
-              maxBars={12}
-            />
-          </section>
+      {/* Month by month (template Yearly sales): rupees, heads and kg, one at a time. Keyed by farm
+          so a filter change remounts the chart and it draws in again with the new figures. */}
+      <Grid size={{ xs: 12, lg: 8 }}>
+        <SalesSoldMonthly
+          key={`monthly-${chartKey}`}
+          title={copy(pageContract, "section.monthly.title")}
+          ariaLabel={copy(pageContract, "section.monthly.aria")}
+          series={monthlySeries}
+        />
+      </Grid>
 
-          {/* The market benchmark table was removed from this board (maintainer request
-              2026-09-03); the quotes are still entered and kept on /sales/config. */}
+      {/* Realized price per kg by breed, ordered as served (highest first) -- template Latest
+          products list. */}
+      <Grid size={{ xs: 12, lg: 4 }}>
+        <EcommerceLatestProducts
+          component="section"
+          aria-label={copy(pageContract, "section.price_bands.aria")}
+          title={copy(pageContract, "section.price_bands.title")}
+          empty={<EmptyState title={copy(pageContract, "chart.price_bands.empty")} />}
+          list={overview.price_bands.slice(0, 12).map((band) => ({
+            id: `${band.product_type}|${band.breed}`,
+            name: [breedBeyondProduct(band.product_type, band.breed), seriesLabel(band.product_type)].filter(Boolean).join(" · "),
+            display: inr(Math.round(band.avg_price_per_kg)),
+          }))}
+          sx={{ height: 1 }}
+        />
+      </Grid>
 
-          {/* 5 — buyers. */}
-          <section className="card" aria-label={copy(pageContract, "section.buyers.title")}>
-            <CardHeader
-              title={copy(pageContract, "section.buyers.title")}
-              action={<Tag tone="mut">{num(overview.buyers.length)} {copy(pageContract, "summary.buyers")}</Tag>}
-              sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", alignItems: "center", [`& .${cardHeaderClasses.action}`]: { alignSelf: "center", m: 0 } }}
+      {/* The market benchmark table was removed from this board (maintainer request
+          2026-09-03); the quotes are still entered and kept on /sales/config. */}
+
+      {/* Buyers -- template Best salesman table, the share of revenue as its rank chip. */}
+      <Grid size={12}>
+        <EcommerceBestSalesman
+          component="section"
+          aria-label={copy(pageContract, "section.buyers.title")}
+          title={copy(pageContract, "section.buyers.title")}
+          action={
+            <Label variant="soft" color="default">
+              {num(overview.buyers.length)} {copy(pageContract, "summary.buyers")}
+            </Label>
+          }
+          tableLabel={copy(pageContract, "section.buyers.title")}
+          regionId="sales-sold-buyers"
+          headCells={[
+            { id: "buyer", label: copy(pageContract, "column.buyer_name") },
+            { id: "place", label: copy(pageContract, "column.buyer_place") },
+            { id: "buys", label: copy(pageContract, "column.product_types") },
+            { id: "deals", label: copy(pageContract, "column.deals"), align: "right" },
+            { id: "animals", label: copy(pageContract, "column.animals"), align: "right" },
+            { id: "revenue", label: copy(pageContract, "column.revenue"), align: "right" },
+            { id: "share", label: copy(pageContract, "column.share_pct"), align: "right" },
+          ]}
+          tableData={buyersRows.map((buyer, i) => ({
+            id: `${buyer.buyer_name}|${buyer.buyer_place}`,
+            name: buyer.buyer_name,
+            secondary: buyer.buyer_place || undefined,
+            cells: [
+              { value: buyer.buyer_place || none },
+              { value: buyer.product_types.join(" · ") },
+              { value: num(buyer.deals), align: "right" },
+              { value: num(buyer.animals), align: "right" },
+              { value: inr(buyer.revenue), align: "right" },
+            ],
+            rank: { label: `${num(buyer.share_pct, 1)}%`, color: RANK_LABEL[buyersStart + i] ?? "default" },
+          }))}
+          sx={{ "& .MuiCardHeader-action": { alignSelf: "center" } }}
+        >
+          {overview.buyers.length === 0 ? <EmptyState title={copy(pageContract, "empty.buyers")} /> : null}
+          {buyersPageCount > 1 ? (
+            <ProcurementTableFooter
+              denseLabel={copy(pageContract, "action.dense", "Dense")}
+              rowsLabel={copy(pageContract, "pager.rows", "Rows")}
+              page={buyersPageNumber}
+              pageCount={buyersPageCount}
+              rangeLabel={`${buyersStart + 1}\u2013${buyersStart + buyersRows.length} ${copy(pageContract, "pager.of")} ${num(overview.buyers.length)} ${copy(pageContract, "summary.buyers")}`}
+              prevHref={buyersHref(buyersPageNumber - 1)}
+              nextHref={buyersHref(buyersPageNumber + 1)}
+              prevLabel={copy(pageContract, "action.prev_page")}
+              nextLabel={copy(pageContract, "action.next_page")}
+              denseTargetId="sales-sold-buyers"
             />
-            {overview.buyers.length === 0 ? (
-              <EmptyState title={copy(pageContract, "empty.buyers")} />
-            ) : (
-              <div id="sales-sold-buyers" className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.buyers.title")}>
-                <Table aria-label={copy(pageContract, "section.buyers.title")}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell component="th">{copy(pageContract, "column.buyer_name")}</TableCell>
-                      <TableCell component="th">{copy(pageContract, "column.buyer_place")}</TableCell>
-                      <TableCell component="th">{copy(pageContract, "column.product_types")}</TableCell>
-                      <TableCell component="th">{copy(pageContract, "column.deals")}</TableCell>
-                      <TableCell component="th">{copy(pageContract, "column.animals")}</TableCell>
-                      <TableCell component="th">{copy(pageContract, "column.revenue")}</TableCell>
-                      <TableCell component="th">{copy(pageContract, "column.share_pct")}</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {buyersRows.map((buyer) => (
-                      <TableRow key={`${buyer.buyer_name}|${buyer.buyer_place}`}>
-                        <TableCell>
-                          <IdentityCell primary={buyer.buyer_name} secondary={buyer.buyer_place || undefined} />
-                        </TableCell>
-                        <TableCell>{buyer.buyer_place || none}</TableCell>
-                        <TableCell>{buyer.product_types.join(" · ")}</TableCell>
-                        <TableCell className="num">{num(buyer.deals)}</TableCell>
-                        <TableCell className="num">{num(buyer.animals)}</TableCell>
-                        <TableCell className="num">{inr(buyer.revenue)}</TableCell>
-                        <TableCell className="num">{num(buyer.share_pct, 1)}%</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-            {buyersPageCount > 1 ? (
-              <ProcurementTableFooter
-                denseLabel={copy(pageContract, "action.dense", "Dense")}
-                rowsLabel={copy(pageContract, "pager.rows", "Rows")}
-                page={buyersPageNumber}
-                pageCount={buyersPageCount}
-                rangeLabel={`${buyersStart + 1}\u2013${buyersStart + buyersRows.length} ${copy(pageContract, "pager.of")} ${num(overview.buyers.length)} ${copy(pageContract, "summary.buyers")}`}
-                prevHref={buyersHref(buyersPageNumber - 1)}
-                nextHref={buyersHref(buyersPageNumber + 1)}
-                prevLabel={copy(pageContract, "action.prev_page")}
-                nextLabel={copy(pageContract, "action.next_page")}
-                denseTargetId="sales-sold-buyers"
-              />
-            ) : null}
-          </section>
-    </>
+          ) : null}
+        </EcommerceBestSalesman>
+      </Grid>
+    </Grid>
   );
 }
 
@@ -437,7 +425,7 @@ export async function SalesSoldPage({
       <SalesPageHeader pageContract={pageContract} />
 
       {!overviewResult.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           {salesErrorText(overviewResult.error, copy(pageContract, "error.load"))}
         </Alert>
       ) : null}
@@ -462,21 +450,23 @@ export async function SalesSoldPage({
       ) : null}
 
       {/* LAST — the deals ledger (maintainer instruction 2026-09-11: "the deals table keep it at
-          last"). Whole-filter total from the backend, server-paged, row opens the read-only
-          deal drawer. */}
-      <section className="card">
-        <div className="hd">
-          <Banknote className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.ledger.title")}</h3>
-          {/* The WHOLE-FILTER total from the backend, not deals.length. */}
-          <Tag tone={total ? "info" : "mut"}>
-            {num(total)} {copy(pageContract, "summary.count")}
-          </Tag>
-          <div className="sp" style={{ flex: 1 }} />
-        </div>
+          last"). Template order list anatomy: card, header with the whole-filter count Label,
+          TableHeadCustom, server-paged TablePagination footer; a row opens the read-only deal
+          drawer. */}
+      <Card component="section" aria-label={copy(pageContract, "section.ledger.aria")} sx={{ mt: 3 }}>
+        <CardHeader
+          title={copy(pageContract, "section.ledger.title")}
+          action={
+            // The WHOLE-FILTER total from the backend, not deals.length.
+            <Label variant="soft" color={total ? "info" : "default"}>
+              {num(total)} {copy(pageContract, "summary.count")}
+            </Label>
+          }
+          sx={{ mb: 3, "& .MuiCardHeader-action": { alignSelf: "center" } }}
+        />
 
         {!dealsResult.ok ? (
-          <Alert severity="error" style={{ marginBottom: 14 }}>
+          <Alert severity="error" sx={{ mx: 3, mb: 3 }}>
             {salesErrorText(dealsResult.error, copy(pageContract, "error.load"))}
           </Alert>
         ) : null}
@@ -484,52 +474,63 @@ export async function SalesSoldPage({
         {deals.length === 0 ? (
           <EmptyState title={farm !== SALES_DEFAULT_FARM ? copy(pageContract, "empty.deals") : copy(pageContract, "empty.deals.unset")} />
         ) : (
-          <div id="sales-sold-deals" className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.ledger.aria")}>
+          <Box id="sales-sold-deals" tabIndex={0} role="region" aria-label={copy(pageContract, "section.ledger.aria")} sx={{ overflowX: "auto", maxWidth: "100%" }}>
             <Table
               className="sales-deals-table"
               aria-label={copy(pageContract, "section.ledger.aria")}
               sx={{
+                minWidth: 960,
                 // Single-line ledger cells: the global .celllink overflow-wrap:anywhere otherwise splits
-                // "2026-08-11" and "CPT" mid-token. Headers may wrap so a 1-2px overshoot never scrolls the ledger.
+                // "2026-08-11" and "CPT" mid-token.
                 "&& td, && td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
-                "&& td .celllink": { maxWidth: "none", minWidth: "max-content" },
-                "&& th": { whiteSpace: "normal", overflowWrap: "normal", wordBreak: "normal" },
+                "&& td .celllink": { maxWidth: "none", minWidth: "max-content", color: "inherit", textDecoration: "none" },
               }}
             >
-              <TableHead>
-                <TableRow>
-                  {dealColumns.map((label) => (
-                    <TableCell component="th" key={label}>{label}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
+              <TableHeadCustom
+                headCells={dealColumns.map((label, index) => ({
+                  id: `${index}-${label}`,
+                  label,
+                  align: NUMERIC_DEAL_COLUMNS.has(index) ? "right" : "left",
+                }))}
+              />
               <TableBody>
                 {deals.map((deal) => {
                   const drawerHref = hrefWithQuery(PAGE_PATH, sp, { deal_id: deal.deal_id });
-                  const dealCell = (value: ReactNode, extra?: string) => (
-                    <TableCell className={extra}>
+                  const dealCell = (value: ReactNode, align?: "right") => (
+                    <TableCell align={align}>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         {value}
                       </LocalOverlayLink>
                     </TableCell>
                   );
                   return (
-                    <TableRow key={deal.deal_id}>
+                    <TableRow key={deal.deal_id} hover>
                       {dealCell(humanDate(deal.sale_date))}
                       {dealCell(deal.farm)}
-                      {dealCell(<IdentityCell primary={deal.buyer_name} secondary={deal.product_type || undefined} />)}
+                      {dealCell(
+                        // Template order row: primary + secondary text (ListItemText).
+                        <ListItemText
+                          primary={deal.buyer_name}
+                          secondary={deal.product_type || undefined}
+                          slotProps={{ primary: { noWrap: true, variant: "subtitle2" }, secondary: { component: "span" } }}
+                        />,
+                      )}
                       {dealCell(deal.product_type)}
                       {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? "")}
-                      {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "num")}
-                      {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
-                      {dealCell(inr(deal.sales_value), "num")}
-                      {dealCell(<Tag tone={dealStatusTone(deal.status)}>{deal.status}</Tag>)}
+                      {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "right")}
+                      {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "right")}
+                      {dealCell(inr(deal.sales_value), "right")}
+                      {dealCell(
+                        <Label variant="soft" color={STATUS_LABEL[dealStatusTone(deal.status)]}>
+                          {deal.status}
+                        </Label>,
+                      )}
                     </TableRow>
                   );
                 })}
               </TableBody>
             </Table>
-          </div>
+          </Box>
         )}
 
         {pageCount > 1 ? (
@@ -552,7 +553,7 @@ export async function SalesSoldPage({
             denseTargetId="sales-sold-deals"
           />
         ) : null}
-      </section>
+      </Card>
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
           gated on a server-read search param would never appear. */}

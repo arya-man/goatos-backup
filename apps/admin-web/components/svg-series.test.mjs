@@ -49,8 +49,8 @@ test("month-by-month columns label every slot with its figure and scroll on a ph
   const css = readFileSync(new URL("../app/mesha-theme.css", import.meta.url), "utf8");
   assert.match(css, /\.chart-slots-scroll\{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain\}/);
   assert.match(css, /\.chart-slots-plot\{min-width:calc\(var\(--chart-slots,1\) \* 56px\)\}/);
-  const sold = readFileSync(new URL("../features/procurement/sales-sold.tsx", import.meta.url), "utf8");
-  assert.equal((sold.match(/^\s*columnFigures$/gm) ?? []).length, 3);
+  // /sales/sold moved to the template Yearly sales card (R3, docs/design/page-template-map.md);
+  // its month-by-month contract is pinned in features/procurement/sales-format.test.mjs.
 });
 
 test("wide y-axis ticks widen their column instead of clipping", () => {

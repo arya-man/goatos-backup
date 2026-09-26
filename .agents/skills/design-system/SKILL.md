@@ -227,3 +227,4 @@ Full pattern → guard table and the how-to-add-a-page ordering: `docs/design/RE
   TableHeadCustom, TablePaginationCustom/Links). Use EcommerceWidgetSummary/CourseWidgetSummary/BankingWidgetSummary.
 - Review check: a changed page that drops a mapped template import, or a new page with no map row, is a
   blocker; `design:guard` (`page-template-map`, p0) enforces the listed imports.
+- **No pastel fallback on mapped pages (guard `page-template-no-pastel`, p0).** A page with a row in `docs/design/page-template-map.md` must not render `KpiCard variant="tint"/"gradient"` or `AnalyticsWidgetSummary`; KPI rows are `EcommerceWidgetSummary` / `CourseWidgetSummary` / `BankingWidgetSummary`, charts are template chart cards (CardHeader + select), lists use the template table anatomy.

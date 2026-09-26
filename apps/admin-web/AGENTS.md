@@ -215,6 +215,7 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   refuses recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts — charts are Apex (via
   `components/minimal/chart` or `components/kit`) or the two inline helpers (`svg-bars`, `svg-series`).
   Full pattern → guard table: `docs/design/README.md` §5b.
+- **No pastel fallback on mapped pages (guard `page-template-no-pastel`, p0).** A page with a row in `docs/design/page-template-map.md` must not render `KpiCard variant="tint"/"gradient"` or `AnalyticsWidgetSummary`; KPI rows are `EcommerceWidgetSummary` / `CourseWidgetSummary` / `BankingWidgetSummary`, charts are template chart cards (CardHeader + select), lists use the template table anatomy.
 - **Adding a NEW page (ordering):** template section (`docs/design/route-template-map.json`) →
   minimal component (`components/minimal/<area>` or a kit component) → story (states + 390 + light/dark)
   → route in `scripts/smoke-visual-live.mjs` → baseline. Verify at 1440 / 390 / 412, dark + light,

@@ -168,6 +168,7 @@ const CHECKS = {
   "technical-copy": { tier: "waivable", why: "user-visible copy must not name Firebase/config/backend/API/tokens/HTTP codes/null/NaN/stack — say what the person can do instead" },
   "raw-chart-lib": { tier: "waivable", why: "only Apex (components/minimal/chart, components/kit) and the two inline helpers (svg-bars/svg-series) are palette-locked and hover-proven; recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts are refused" },
   "route-template-map-missing": { tier: "waivable", why: "every route in scripts/smoke-visual-live.mjs must have an entry in docs/design/route-template-map.json so the MUI Minimal template section it is built on is discoverable" },
+  "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not fall back to the pastel KpiCard tint/gradient or AnalyticsWidgetSummary; KPI rows are the template Ecommerce/Course/Banking widget summaries" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
@@ -317,6 +318,11 @@ function runGuard(root, { themeDiff }) {
       findings.push(finding("route-template-map-missing", "docs/design/route-template-map.json", 1, "route-template-map.json is missing"));
     }
   }
+
+  // Pages mapped in docs/design/page-template-map.md must not fall back to the pastel KpiCard
+  // tint/gradient or AnalyticsWidgetSummary (the look Ravi rejected on /sales/sold). The import
+  // side of the map is `page-template-map` below.
+  for (const hit of pageTemplatePastelFindings(root)) findings.push(finding("page-template-no-pastel", hit.file, hit.line, hit.snippet));
 
   // components/minimal/ holds ONLY template-derived code (verbatim, near-verbatim, or a
   // structural adaptation). Every file must have a source entry in
@@ -629,6 +635,36 @@ function stripLineComment(line) {
   const at = line.indexOf("//");
   return at >= 0 && !/https?:\/\//.test(line.slice(0, at + 2)) ? line.slice(0, at) : line;
 }
+/** Rows of the machine-read table in docs/design/page-template-map.md. */
+function pageTemplateRows(text) {
+  const rows = [];
+  for (const line of text.split("\n")) {
+    const cells = line.split("|").map((cell) => cell.trim());
+    if (cells.length < 6 || !/^`\//.test(cells[1] ?? "")) continue;
+    const ticks = (cell) => [...cell.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+    rows.push({ route: ticks(cells[1])[0], files: ticks(cells[3]), sections: ticks(cells[4]) });
+  }
+  return rows;
+}
+function pageTemplatePastelFindings(root) {
+  const local = join(root, "docs", "design", "page-template-map.md");
+  const mapFile = existsSync(local) ? local : resolve(root, "../../docs/design/page-template-map.md");
+  if (!existsSync(mapFile)) return [];
+  const out = [];
+  for (const row of pageTemplateRows(readFileSync(mapFile, "utf8"))) {
+    const sources = row.files.map((rel) => ({ rel, text: existsSync(join(root, rel)) ? readFileSync(join(root, rel), "utf8") : null }));
+    for (const source of sources) {
+      if (source.text === null) continue; // a missing file is `page-template-map`'s finding
+      source.text.split("\n").forEach((line, index) => {
+        if (/^\s*(\/\/|\*)/.test(line)) return;
+        if (/<KpiCard\b/.test(line) || /\bAnalyticsWidgetSummary\b/.test(line) || /variant=["'](?:tint|gradient)["']/.test(line) && /Kpi/.test(source.text)) {
+          out.push({ file: source.rel, line: index + 1, snippet: `${row.route}: pastel widget instead of the template section: ${line.trim()}` });
+        }
+      });
+    }
+  }
+  return out;
+}
 function hasPaletteHex(text) {
   return [...text.matchAll(new RegExp(HEX_COLOUR.source, "g"))].some((m) => !NEUTRAL_HEX.test(m[0]));
 }
@@ -707,6 +743,13 @@ async function selfTest() {
   put("app/(admin)/foo/page.tsx", 'export default function Page() { return <div />; }\n');
   put("app/(admin)/ok/page.tsx", 'import { PageHeader } from "@/components/app/page-header";\nexport default function Page() { return <div className="kit-page"><PageHeader /></div>; }\n');
   put("app/(admin)/ok/loading.tsx", "export default function L() { return null; }\n");
+  put("docs/design/page-template-map.md", [
+    "| Route | Template | Files | Sections |",
+    "|---|---|---|---|",
+    "| `/foo` | user list | `features/foo-page.tsx` | `components/minimal/table` |",
+    "| `/pastel` | Ecommerce overview | `features/pastel-page.tsx` | `components/minimal/widgets` |",
+  ].join("\n"));
+  put("features/pastel-page.tsx", 'import { KpiCard } from "@/components/minimal/widgets";\nexport const P = () => <KpiCard variant="tint" label="x" value={1} />;\n');
   const { findings } = runGuard(root, { themeDiff: false });
   const got = new Set(findings.map((f) => f.check));
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
