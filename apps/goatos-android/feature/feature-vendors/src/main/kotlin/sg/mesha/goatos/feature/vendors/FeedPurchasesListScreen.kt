@@ -114,7 +114,9 @@ private fun FeedPurchaseCard(card: FeedPurchaseCardUi, onClick: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             VendorsIconTile(icon = MeshaIcons.Package, tint = MeshaColors.Info, background = MeshaColors.InfoX)
             Column(Modifier.weight(1f)) {
-                Text(text = card.feedItem, color = MeshaColors.Ink, style = MeshaType.listTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // The feed's name is what the card is about: it wraps to a second line rather
+                // than cut to "Mesha Adult Concentrate …" beside the delivery chip on a 360 dp phone.
+                Text(text = card.feedItem, color = MeshaColors.Ink, style = MeshaType.listTitle, maxLines = FEED_NAME_MAX_LINES, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
                 Text(text = card.loadLine, color = MeshaColors.Muted, style = MeshaType.cardSubtitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -129,3 +131,4 @@ private fun FeedPurchaseCard(card: FeedPurchaseCardUi, onClick: () -> Unit) {
 }
 
 private const val ADD_LABEL = "Record purchase"
+private const val FEED_NAME_MAX_LINES = 2

@@ -227,7 +227,7 @@ data class FeedPurchaseCardUi(
     val loadLine: String,
     /** "1,000 kg · ₹23,000" — quantity and landed cost, each formatted by the ViewModel. */
     val quantityLine: String,
-    /** "Bought 01-09-2026 · QA Vendor" */
+    /** "Bought 01/09/2026 · QA Vendor" */
     val metaLine: String,
     /** Backend-owned delivery word ("In transit" / "Delivered"), VERBATIM. */
     val deliveryLabel: String,
