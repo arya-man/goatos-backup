@@ -45,11 +45,12 @@ export class AdminBootstrapCache<T extends { cache_policy: BootstrapCachePolicy 
   async get(
     authority: { baseUrl: string; tenantId: string; bearerToken: string },
     fetcher: (etag?: string) => Promise<BootstrapFetchResult<T>>,
+    options: { forceRevalidate?: boolean } = {},
   ): Promise<T> {
     const now = this.now();
     const key = authorityKey(authority);
     const cached = this.entries.get(key);
-    if (cached && cached.expiresAt > now) {
+    if (!options.forceRevalidate && cached && cached.expiresAt > now) {
       cached.lastUsedAt = now;
       return cached.data;
     }

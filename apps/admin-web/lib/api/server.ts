@@ -943,6 +943,7 @@ export const getAdminWebBootstrap = cache(
     const config = await getServerConfig(true);
     if (!config.ok) return config;
     const client = createAppApiClient(apiClientOptions(config.data));
+    const forceRevalidate = await callerWroteRecently();
     return request(() =>
       adminBootstrapCache.get(config.data, async (etag) => {
         const result =
@@ -958,7 +959,7 @@ export const getAdminWebBootstrap = cache(
           status: result.response.status,
           etag: result.response.headers.get("ETag"),
         };
-      }),
+      }, { forceRevalidate }),
     );
   },
 );

@@ -96,3 +96,34 @@ test("expireAll makes the next read revalidate within the TTL and pick up a chan
   assert.equal((await cache.get(authority, fetcher)).value, "two", "after expireAll the new list is served at once");
   assert.deepEqual(seenEtags, [undefined, 'W/"one"']);
 });
+
+// A Configuration write can hit instance A while the user's next page load hits instance B.
+// Instance B cannot see A's process-local expireAll(), so the caller's write marker must still
+// force one ETag revalidation while the old contract is inside its TTL.
+test("forceRevalidate refreshes an in-TTL contract for cross-instance read-your-writes", async () => {
+  let now = 0;
+  let version = "one";
+  const seenEtags = [];
+  const cache = new AdminBootstrapCache(() => now);
+  const authority = { baseUrl: "http://api", tenantId: "tenant", bearerToken: "token-a" };
+  const fetcher = async (etag) => {
+    seenEtags.push(etag);
+    if (etag === `W/"${version}"`) return { data: null, status: 304, etag };
+    return { data: { value: version, cache_policy: { etag: `W/"${version}"`, in_process_ttl_sec: 60 } }, status: 200, etag: `W/"${version}"` };
+  };
+
+  assert.equal((await cache.get(authority, fetcher)).value, "one");
+  version = "two";
+  now = 5_000;
+
+  assert.equal(
+    (await cache.get(authority, fetcher, { forceRevalidate: true })).value,
+    "two",
+  );
+  assert.equal(
+    (await cache.get(authority, fetcher)).value,
+    "two",
+    "the refreshed contract stays cached after the marker-triggered revalidation",
+  );
+  assert.deepEqual(seenEtags, [undefined, 'W/"one"']);
+});
