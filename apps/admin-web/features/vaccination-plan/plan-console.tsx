@@ -179,7 +179,9 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
                 </div>
               </div>
               <div>
-                <div className="k">Published by</div>
+                {/* "Published by" promises a person; with no author on the record the tile shows only
+                    the date, so it says "Published". */}
+                <div className="k">{personName(live.published_by) ? "Published by" : "Published"}</div>
                 {/* The publisher's name is shown only when the record has one.
                     Older rows were written by an import and have no author, and
                     a dash beside a date reads as a broken field rather than as
