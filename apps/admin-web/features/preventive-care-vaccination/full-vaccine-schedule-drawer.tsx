@@ -9,9 +9,18 @@ import {
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
-import { Search, Warehouse, X } from "lucide-react";
+import { Warehouse } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import InputAdornment from "@mui/material/InputAdornment";
+import ListItemButton from "@mui/material/ListItemButton";
 import { EmptyState } from "@/components/app/empty-state";
+import { Iconify } from "@/components/minimal/iconify";
+import { MinimalDrawer } from "@/components/minimal/drawer";
 
 const PAGE_SIZE = 12;
 
@@ -47,7 +56,6 @@ export function ScheduleLocalDrawer({
   const [drawerOpen, setDrawerOpen] = useState(Boolean(initialRow));
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const selectedIdRef = useRef(initialRow?.eventId);
   const openFrameRef = useRef<number | null>(null);
@@ -103,12 +111,10 @@ export function ScheduleLocalDrawer({
     };
   }, [hideRow, rows, showRow]);
 
+  // The MUI Drawer focuses itself on open and restores focus on close; this only covers a close
+  // that happens from the URL (Back) while focus sat inside the drawer.
   useEffect(() => {
-    if (drawerOpen) {
-      const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-      return () => window.cancelAnimationFrame(frame);
-    }
-    previousFocusRef.current?.focus();
+    if (!drawerOpen) previousFocusRef.current?.focus();
   }, [drawerOpen]);
 
   const closeDrawer = useCallback(() => {
@@ -119,17 +125,6 @@ export function ScheduleLocalDrawer({
     }
     replaceLocalOverlayUrl(closeHref);
   }, [closeHref, hideRow]);
-
-  useEffect(() => {
-    if (!drawerOpen) return undefined;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeDrawer();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closeDrawer, drawerOpen]);
 
   const filteredSheds = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -143,101 +138,99 @@ export function ScheduleLocalDrawer({
 
   if (!displayedRow) return null;
 
+  const closeLabel = copy(pageContract, "schedule.drawer.close");
+  const rowSx = { gap: 1.25, flex: "none", borderBottom: 1, borderColor: "divider" } as const;
+
+  // Template MinimalDrawer (calendar-filters drawer shell): portalled MUI Drawer, focus trapped and
+  // restored; X, Escape and the scrim call closeDrawer, which steps the local-overlay history back
+  // (the URL hash #schedule_event stays the source of truth, so Back closes it too).
   return (
-    <div
-      className="schedule-drawer-backdrop"
-      role="presentation"
-      aria-hidden={!drawerOpen}
-      style={{ opacity: drawerOpen ? 1 : 0, transition: "opacity 260ms cubic-bezier(.4,0,.2,1)" }}
+    <MinimalDrawer
+      open={drawerOpen}
+      onClose={closeDrawer}
+      title={copy(pageContract, "schedule.drawer.title")}
+      closeLabel={closeLabel}
+      width={360}
+      role="dialog"
+      aria-labelledby="schedule-shed-drawer-title"
+      footer={
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.25, width: 1, flexWrap: "wrap" }}>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {copy(pageContract, "schedule.drawer.page_label")} {normalizedPage} / {totalPages} · {filteredSheds.length} {copy(pageContract, "schedule.drawer.rows_label")}
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Button size="small" variant="outlined" color="inherit" disabled={normalizedPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+              {copy(pageContract, "schedule.drawer.previous_page")}
+            </Button>
+            <Button size="small" variant="outlined" color="inherit" disabled={normalizedPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
+              {copy(pageContract, "schedule.drawer.next_page")}
+            </Button>
+          </Stack>
+        </Box>
+      }
     >
-      <button
-        type="button"
-        className="schedule-drawer-close-layer"
-        aria-label={copy(pageContract, "schedule.drawer.close")}
-        disabled={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
-      />
-      <aside
-        className="schedule-side-drawer"
-        role="dialog"
-        aria-modal="false"
-        aria-hidden={!drawerOpen}
-        inert={!drawerOpen}
-        aria-labelledby="schedule-shed-drawer-title"
-        style={{
-          transform: drawerOpen ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 260ms cubic-bezier(.4,0,.2,1)",
+      <Box sx={{ px: 2.5, pt: 2, pb: 1.5 }}>
+        <Typography variant="overline" sx={{ color: "text.secondary" }}>
+          {displayedRow.date ? `${fmtDate(displayedRow.date)} · ${displayedRow.parkName}` : copy(pageContract, "label.placeholder")}
+        </Typography>
+        <Typography id="schedule-shed-drawer-title" variant="subtitle1" component="h3">{copy(pageContract, "schedule.drawer.title")}</Typography>
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          {displayedRow.totalSheds} {copy(pageContract, "schedule.unit.sheds")} · {displayedRow.totalAnimals} {copy(pageContract, "schedule.unit.animals")} · {displayedRow.vaccines.join(", ") || copy(pageContract, "label.placeholder")}
+        </Typography>
+      </Box>
+
+      <Box
+        component="form"
+        sx={{ display: "flex", alignItems: "center", gap: 1, px: 2.5, pb: 2 }}
+        onSubmit={(event: React.FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          setPage(1);
         }}
       >
-        <div className="schedule-drawer-head">
-          <div style={{ minWidth: 0 }}>
-            <span className="eyebrow">
-              {displayedRow.date ? `${fmtDate(displayedRow.date)} · ${displayedRow.parkName}` : copy(pageContract, "label.placeholder")}
-            </span>
-            <h3 id="schedule-shed-drawer-title">{copy(pageContract, "schedule.drawer.title")}</h3>
-            <p className="muted small">
-              {displayedRow.totalSheds} {copy(pageContract, "schedule.unit.sheds")} · {displayedRow.totalAnimals} {copy(pageContract, "schedule.unit.animals")} · {displayedRow.vaccines.join(", ") || copy(pageContract, "label.placeholder")}
-            </p>
-          </div>
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "schedule.drawer.close")} onClick={closeDrawer}>
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
-
-        <form
-          className="schedule-drawer-search"
-          onSubmit={(event) => {
-            event.preventDefault();
+        <TextField
+          name="schedule_sheds_q"
+          size="small"
+          fullWidth
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value.slice(0, 80));
             setPage(1);
           }}
-        >
-          <Search className="ic" aria-hidden="true" />
-          <input
-            name="schedule_sheds_q"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value.slice(0, 80));
-              setPage(1);
-            }}
-            placeholder={copy(pageContract, "schedule.drawer.search")}
-          />
-          <button className="btn sm" type="submit">{copy(pageContract, "schedule.drawer.search_action")}</button>
-        </form>
+          placeholder={copy(pageContract, "schedule.drawer.search")}
+          slotProps={{
+            htmlInput: { "aria-label": copy(pageContract, "schedule.drawer.search") },
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+        <Button type="submit" variant="outlined" color="inherit" sx={{ flex: "none" }}>
+          {copy(pageContract, "schedule.drawer.search_action")}
+        </Button>
+      </Box>
 
-        <div className="schedule-drawer-list" role="list" aria-label={copy(pageContract, "schedule.drawer.title")}>
-          {visibleSheds.length > 0 ? visibleSheds.map((shed) => {
-            const contents = (
-              <>
-                <Warehouse className="ic" aria-hidden="true" />
-                <span>{shed.label}</span>
-                <Tag tone="info">{shed.count > 0 ? `${shed.count} ${copy(pageContract, "schedule.unit.animals")}` : copy(pageContract, "schedule.drawer.open_roster")}</Tag>
-              </>
-            );
-            return shed.href ? (
-              <Link key={shed.label} href={shed.href} className="schedule-drawer-shed-row" role="listitem">{contents}</Link>
-            ) : (
-              <div key={shed.label} className="schedule-drawer-shed-row" role="listitem">{contents}</div>
-            );
-          }) : (
-            <EmptyState title={copy(pageContract, "schedule.drawer.empty")} />
-          )}
-        </div>
-
-        <div className="schedule-drawer-foot">
-          <span className="muted small">
-            {copy(pageContract, "schedule.drawer.page_label")} {normalizedPage} / {totalPages} · {filteredSheds.length} {copy(pageContract, "schedule.drawer.rows_label")}
-          </span>
-          <div className="chips">
-            <button type="button" className={`chip${normalizedPage <= 1 ? " disabled" : ""}`} disabled={normalizedPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-              {copy(pageContract, "schedule.drawer.previous_page")}
-            </button>
-            <button type="button" className={`chip${normalizedPage >= totalPages ? " disabled" : ""}`} disabled={normalizedPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
-              {copy(pageContract, "schedule.drawer.next_page")}
-            </button>
-          </div>
-        </div>
-      </aside>
-    </div>
+      <Stack role="list" aria-label={copy(pageContract, "schedule.drawer.title")} sx={{ px: 2.5, pb: 2.5 }}>
+        {visibleSheds.length > 0 ? visibleSheds.map((shed) => {
+          const contents = (
+            <>
+              <Box component="span" aria-hidden="true" sx={{ display: "inline-flex", color: "primary.main" }}><Warehouse size={16} /></Box>
+              <Box component="span" sx={{ flexGrow: 1, minWidth: 0, typography: "body2" }}>{shed.label}</Box>
+              <Tag tone="info">{shed.count > 0 ? `${shed.count} ${copy(pageContract, "schedule.unit.animals")}` : copy(pageContract, "schedule.drawer.open_roster")}</Tag>
+            </>
+          );
+          return shed.href ? (
+            <ListItemButton key={shed.label} component={Link} href={shed.href} role="listitem" sx={rowSx}>{contents}</ListItemButton>
+          ) : (
+            <Box key={shed.label} role="listitem" sx={{ ...rowSx, display: "flex", alignItems: "center", px: 2, py: 1 }}>{contents}</Box>
+          );
+        }) : (
+          <EmptyState title={copy(pageContract, "schedule.drawer.empty")} />
+        )}
+      </Stack>
+    </MinimalDrawer>
   );
 }

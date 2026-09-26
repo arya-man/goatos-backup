@@ -1735,16 +1735,6 @@
   .schedule-side-drawer{position:fixed;top:0;right:0;width:min(460px,calc(100vw - 28px));height:100dvh;display:flex;flex-direction:column;pointer-events:auto;background:color-mix(in srgb,var(--panel) 96%,var(--bg));border-left:1px solid var(--line);box-shadow:-18px 0 50px rgba(0,0,0,.32);z-index:220}
   .schedule-drawer-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:18px 18px 14px;border-bottom:1px solid var(--line2)}
   .schedule-drawer-head h3{margin:3px 0 4px;font-size:18px}
-  .schedule-drawer-search{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line2);background:color-mix(in srgb,var(--bg) 52%,transparent)}
-  .schedule-drawer-search .ic{width:16px;height:16px;color:var(--muted);flex:0 0 auto}
-  .schedule-drawer-search input[name="schedule_sheds_q"]{min-width:0;flex:1;border:1px solid var(--line2);border-radius:10px;background:var(--bg);color:var(--ink);padding:8px 10px;font:inherit}
-  .schedule-drawer-list{display:grid;gap:8px;align-content:start;overflow:auto;padding:14px;flex:1}
-  .schedule-drawer-shed-row{display:flex;align-items:center;gap:10px;border:1px solid var(--line2);border-radius:12px;padding:10px 12px;background:color-mix(in srgb,var(--panel) 78%,var(--bg));font-weight:800;color:var(--ink);text-decoration:none}
-  .schedule-drawer-shed-row:hover{border-color:color-mix(in srgb,var(--brand) 45%,var(--line2));background:color-mix(in srgb,var(--brand) 9%,var(--panel))}
-  .schedule-drawer-shed-row .ic{width:16px;height:16px;color:var(--brand-d);flex:0 0 auto}
-  .schedule-drawer-shed-row .tag{margin-left:auto}
-  .schedule-drawer-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-top:1px solid var(--line2)}
-  .schedule-drawer-foot .chip.disabled{opacity:.45;pointer-events:none}
   @media(max-width:900px){.vaccination-schedule-summary{align-items:flex-start}.vaccination-schedule-summary .kpi{border-radius:8px}.vaccination-schedule-summary .kpi span{white-space:normal}.vaccination-schedule-hd .sp{display:none}
     .main table.full-vaccine-schedule-table{display:block;min-width:0;width:100%;table-layout:auto}
     .main table.full-vaccine-schedule-table thead{display:none}
