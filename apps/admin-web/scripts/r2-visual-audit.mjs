@@ -834,7 +834,8 @@ async function main() {
 
   const add = (f) => findings.push({ severity: "fail", count: 1, ...f });
 
-  const browser = await chromium.launch({ args: ["--disable-dev-shm-usage"] });
+  // R2_CHROME_EXE: a local Chrome for Testing when the pinned Playwright browser is not installed.
+  const browser = await chromium.launch({ args: ["--disable-dev-shm-usage"], ...(process.env.R2_CHROME_EXE ? { executablePath: process.env.R2_CHROME_EXE } : {}) });
   const newContext = async (profile, forTemplate) => {
     const ctx = await browser.newContext({
       viewport: { width: profile.width, height: profile.height },

@@ -2,7 +2,7 @@
 
 // telemetry:exempt presentational pending state for a URL-keyed panel — no user action, no data read
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 
@@ -15,7 +15,7 @@ const GIVE_UP_MS = 8000;
  * that is already cached (router cache, back/forward) lands inside it, so it shows directly with no
  * skeleton flash; anything slower is a skeleton well inside the 100ms a click may look idle.
  */
-export const URL_PANEL_SKELETON_DELAY_MS = 50;
+export const URL_PANEL_SKELETON_DELAY_MS = 30;
 
 function navKeyOf(pathname: string | null, search: string): string {
   return `${pathname ?? "/"}?${search}`;
@@ -51,23 +51,37 @@ export function UrlPanel({
   const shapeParam = fallbackBy?.param ?? "";
   const pending = pendingFrom !== null && pendingFrom === here;
   const showFallback = pending && shownFor === pendingFrom;
+  // The ROUTER's URL, not window.location: a canonical rewrite (`history.replaceState` with Next's
+  // own state, components/canonical-url.tsx) moves window.location without moving useSearchParams,
+  // and a key taken from window.location would then never match `here` (the weighing hang).
+  const hereRef = useRef(here);
+  useEffect(() => {
+    hereRef.current = here;
+  }, [here]);
   const watchKey = watch.join("|");
   const ignoreKey = ignore.join("|");
 
   useEffect(() => {
     const keys = watchKey.split("|");
     const skip = ignoreKey ? ignoreKey.split("|") : [];
-    const current = () => navKeyOf(window.location.pathname, new URLSearchParams(window.location.search).toString());
     const start = (href: string | null | undefined) => {
       if (!href || !changesWatchedParams(href, window.location, keys, skip)) return;
+      let value: string | null = null;
       if (shapeParam) {
         try {
-          setTargetValue(new URL(href, window.location.href).searchParams.get(shapeParam) ?? "");
+          value = new URL(href, window.location.href).searchParams.get(shapeParam) ?? "";
         } catch {
-          setTargetValue(null);
+          value = null;
         }
       }
-      setPendingFrom(current());
+      const from = hereRef.current;
+      // A control that calls router.push INSIDE its own startTransition announces from within that
+      // transition; a state update made there would wait for the navigation to finish (the hang).
+      // A microtask runs after the transition scope closes, so the skeleton is an urgent update.
+      queueMicrotask(() => {
+        setTargetValue(value);
+        setPendingFrom(from);
+      });
     };
     const onNavigate = (event: Event) => start((event as CustomEvent<Partial<UrlNavDetail>>).detail?.href);
     // Plain link clicks on this page (pagers, chips, tab links) start a navigation too.

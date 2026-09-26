@@ -36,7 +36,9 @@ const HREF_ITEM = /\bhref\s*:/;
  * Routes whose strips only move between ROUTES (each tab is its own page with its own loading.tsx),
  * or that have no data behind the strip. Each entry needs the reason; the list may only shrink.
  */
-export const URL_KEYED_PANEL_EXEMPT = {};
+export const URL_KEYED_PANEL_EXEMPT = {
+  "/vaccination/plan": "its only TablePaginationLinks is a hideActions footer label (one page, no hrefs); nothing on the page changes a search param",
+};
 
 /**
  * Routes still being converted (TABS3, PR #294). SHRINK-ONLY: a route here that already renders

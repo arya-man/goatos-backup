@@ -193,7 +193,7 @@ Neutrals are the MUI Minimal TEMPLATE's (Ravi 2026-09-27): grey scale `--grey-50
   `[ALL_PARAMS]` + `ignore` for drawer / export params; `fallbackBy` gives each tab its own
   skeleton). Within one frame of the click the pressed tab is selected and the panel is its skeleton
   (shared blocks, same shape as the loaded panel); header / crumbs / tabs / filters stay mounted;
-  content streams in when ready (an answer inside 50ms shows directly, no skeleton flash). Never keep
+  content streams in when ready (an answer inside 30ms shows directly, no skeleton flash). Never keep
   the old panel on screen while the server answers, never a full-page `loading.tsx` skeleton, never a
   document reload. Best: the panel is an async server component inside `UrlSuspense`, so the new
   header/tabs stream before the panel data; a page that already awaited its data may wrap its panel
