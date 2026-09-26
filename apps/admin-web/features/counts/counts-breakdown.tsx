@@ -14,7 +14,7 @@ import {
   type EcommerceSalesOverviewItem,
 } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
 import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
-import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
+import { CountsShedChart } from "./counts-shed-chart";
 import { PageHeader } from "@/components/app/page-header";
 import { KpiGrid } from "@/components/minimal/widgets";
 import { dash } from "@/lib/format";
@@ -637,7 +637,7 @@ export async function CountsBreakdownPage({
       ) : null}
 
       {/* Charts on template cards: breed share → EcommerceSalesOverview, stage × sex → stacked
-          AnalyticsWebsiteVisits, sheds → AnalyticsConversionRates (horizontal, grows per row).
+          AnalyticsWebsiteVisits, sheds → AnalyticsConversionRates (horizontal, paged ten bars at a time).
           No truncation: the series PARTITION the herd, so each chart sums to the KPI above it. */}
       <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.charts.aria")}>
         <Grid size={{ xs: 12, md: 5 }}>
@@ -669,16 +669,7 @@ export async function CountsBreakdownPage({
           />
         </Grid>
         <Grid size={12}>
-          <AnalyticsConversionRates
-            title={shedChart.title}
-            aria-label={shedChart.title}
-            empty={<EmptyContent title={emptyChartLabel} />}
-            chart={{
-              categories: (shedChart.data ?? []).map((bar) => bar.label),
-              unit: animalsNoun,
-              series: [{ name: animalsNoun, data: (shedChart.data ?? []).map((bar) => bar.value) }],
-            }}
-          />
+          <CountsShedChart title={shedChart.title} bars={shedChart.data ?? []} unit={animalsNoun} emptyLabel={emptyChartLabel} />
         </Grid>
       </Grid>
     </Stack>
