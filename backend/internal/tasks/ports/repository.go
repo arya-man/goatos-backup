@@ -32,6 +32,10 @@ type OpenWorkflowCommand struct {
 	// 2026-09-25). Nil = true: every other template, and a sale event written before the fact
 	// was carried, compiles every step.
 	SaleHasAnimals *bool
+	// ClockAnchor is the instant the steps' due times count from, when it is not EventAt: a sale
+	// planned for a later day counts from that day (domain.SaleClockAnchor). Zero = EventAt, which
+	// is every other workflow. The workflow's event_at stays the recording moment either way.
+	ClockAnchor time.Time
 }
 
 // GeneralSOP is one startable general work instruction.
@@ -139,6 +143,10 @@ type Repository interface {
 	// is cancelled and the card closes; finished steps keep their record. No-op when the deal has
 	// no workflow or it is no longer open.
 	CancelSaleWorkflow(ctx context.Context, tenantID, dealID string) error
+	// ReanchorSaleWorkflow moves a PLANNED sale's unfinished step clocks to the day it actually
+	// closed (saleDate, the restamped business date). A workflow anchored on its recording is left
+	// alone; a redelivered close finds the anchor already moved and changes nothing.
+	ReanchorSaleWorkflow(ctx context.Context, tenantID, dealID, saleDate string) error
 	// ReconcileAnimalPurchaseDecisionStep follows the newest load counts, reopening
 	// a completed decision when later candidates sync. Zero counts reconcile a
 	// newly opened workflow with an earlier event receipt without overwriting it.

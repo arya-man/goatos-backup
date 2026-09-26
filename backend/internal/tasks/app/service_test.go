@@ -30,7 +30,9 @@ type fakeRepo struct {
 	// saleTagCompletions records the deals whose tag step the engine was asked to complete.
 	saleTagCompletions []string
 	// saleCancellations records the deals whose workflow a failed-deal event asked to cancel.
-	saleCancellations           []string
+	saleCancellations []string
+	// saleReanchors records "deal|sale_date" for each close that asked to move a sale's clock.
+	saleReanchors               []string
 	purchaseDecisionCompletions []string
 	feedReachedCompletions      []string
 	toxinStepCompletions        []string
@@ -234,6 +236,11 @@ func (f *fakeRepo) CompleteSaleTagStep(_ context.Context, tenantID, dealID strin
 
 func (f *fakeRepo) CancelSaleWorkflow(_ context.Context, tenantID, dealID string) error {
 	f.saleCancellations = append(f.saleCancellations, dealID)
+	return nil
+}
+
+func (f *fakeRepo) ReanchorSaleWorkflow(_ context.Context, tenantID, dealID, saleDate string) error {
+	f.saleReanchors = append(f.saleReanchors, dealID+"|"+saleDate)
 	return nil
 }
 

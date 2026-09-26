@@ -330,3 +330,24 @@ Notifications. Event key `feed.sale_failed_return:<deal>`; notification type
 tagged animals releases nothing and sends nothing. Pinned by
 `TestFailedSaleTellsTheFeedDirectorWhichPensFeedAsBefore` (mutation-tested on the audience key)
 and the Postgres release test.
+
+## A planned sale's work is due on its sale day (2026-09-26)
+
+Every `sales.deal` step is authored "immediately", and immediately counted from the RECORDING
+instant, so an In Discussion / Advance Paid sale planned for a later day read "Tag the animals sold
+· Overdue" the moment it was saved. This is a clock anchor, not an authoring change: the SOP still
+says "immediately", and the sale workflow now counts it from the sale's own business day
+(`tasks/domain.SaleClockAnchor`, Asia/Kolkata days, never hours). A sale dated after the day it is
+recorded anchors at 00:00 IST of its sale date; a sale dated that day or earlier anchors on the
+recording exactly as before. The anchor is stored in `workflow_instances.clock_anchor_at` (migration
+000443, NULL = event_at, which is every other workflow); the card's `event_at` stays the recording
+moment, so it still lists on the day it was recorded.
+
+When the sale CLOSES, its date is restamped to the close day (rule 2 above), and
+`sales.deal.status_changed` now carries that `sale_date`. A workflow anchored on the planned day
+moves every unfinished, clock-timed step (and the card's next due) by the amount its anchor moves,
+so a sale closed early is due now; closed on its recording day it returns to the recording instant.
+A workflow anchored on its recording is never moved, and a redelivered close finds the anchor
+already where it belongs. (There is no path that edits an open sale's date; if one is added it must re-anchor the same way.)
+Pinned by `TestPlannedSaleStepsAreDueOnTheSaleDateNotAtRecording` (Postgres),
+`TestPlannedSaleClockAnchorsOnTheSaleDate` and `TestSaleClockAnchorIsTheSaleDayOnlyWhenItIsAhead`.

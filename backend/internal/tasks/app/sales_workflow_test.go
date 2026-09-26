@@ -126,3 +126,43 @@ func TestDealFailedCancelsTheSaleWorkflow(t *testing.T) {
 		t.Fatalf("Deal Failed must cancel the deal's workflow, got %v", repo.saleCancellations)
 	}
 }
+
+// TestPlannedSaleClockAnchorsOnTheSaleDate (2026-09-26): the opener passes the sale's own date so
+// a sale planned for a later day is not overdue at recording, and a close event carries the close
+// date so a planned sale's unfinished steps follow it.
+func TestPlannedSaleClockAnchorsOnTheSaleDate(t *testing.T) {
+	recordedAt := time.Date(2026, 9, 26, 4, 0, 0, 0, time.UTC) // 09:30 IST
+	open := func(saleDate string) ports.OpenWorkflowCommand {
+		t.Helper()
+		repo := &openRecorder{fakeRepo: newFakeRepo(), byRef: map[string]string{}}
+		raw, _ := json.Marshal(map[string]any{"sales_deal_id": "deal-1", "status": "Advance Paid", "sale_date": saleDate})
+		if err := NewSaleRecordedWorkflowHandler(NewService(repo, nil)).HandleEvent(context.Background(), eventbus.Event{
+			Type: EventSalesDealRecorded, TenantID: "tenant", Key: "deal-1", Payload: raw, OccurredAt: recordedAt,
+		}); err != nil || len(repo.opened) != 1 {
+			t.Fatalf("recorded handler: err=%v opened=%d", err, len(repo.opened))
+		}
+		return repo.opened[0]
+	}
+	if got := open("2026-10-01").ClockAnchor; !got.Equal(domain.SaleClockAnchor(recordedAt, "2026-10-01")) || got.Equal(recordedAt) {
+		t.Fatalf("a planned sale must anchor on its day, got %s", got)
+	}
+	if got := open("2026-09-26").ClockAnchor; !got.Equal(recordedAt) {
+		t.Fatalf("a sale dated today must anchor on recording, got %s", got)
+	}
+
+	repo := newFakeRepo()
+	h := NewSaleStatusChangedWorkflowHandler(NewService(repo, nil))
+	raw, _ := json.Marshal(map[string]any{"sales_deal_id": "deal-9", "previous_status": "Advance Paid", "status": "Deal Closed", "sale_date": "2026-09-28"})
+	if err := h.HandleEvent(context.Background(), eventbus.Event{Type: EventSalesDealStatusChanged, TenantID: "tenant", Key: "deal-9", Payload: raw}); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.saleReanchors) != 1 || repo.saleReanchors[0] != "deal-9|2026-09-28" {
+		t.Fatalf("closing must re-anchor on the close date, got %v", repo.saleReanchors)
+	}
+	// An older close event without the date re-anchors nothing (it cannot say where to).
+	raw, _ = json.Marshal(map[string]any{"sales_deal_id": "deal-9", "status": "Deal Closed"})
+	_ = h.HandleEvent(context.Background(), eventbus.Event{Type: EventSalesDealStatusChanged, TenantID: "tenant", Key: "deal-9", Payload: raw})
+	if len(repo.saleReanchors) != 1 {
+		t.Fatalf("a close without a date must not re-anchor, got %v", repo.saleReanchors)
+	}
+}

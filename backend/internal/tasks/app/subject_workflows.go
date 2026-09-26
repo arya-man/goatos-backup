@@ -53,6 +53,9 @@ type OpenSubjectWorkflowInput struct {
 	// SaleHasAnimals decides a sale workflow's `sale_has_animals` steps. Nil = true (every step):
 	// only the sale opener sets it, and an old event without the fact opens as it always did.
 	SaleHasAnimals *bool
+	// ClockAnchor is the instant the steps' due times count from when it is not EventAt (a sale
+	// planned for a later day, domain.SaleClockAnchor). Zero = EventAt.
+	ClockAnchor time.Time
 }
 
 // OpenSubjectWorkflow returns the workflow id for the subject, opening it from the published SOP
@@ -83,6 +86,7 @@ func (s *Service) OpenSubjectWorkflow(ctx context.Context, in OpenSubjectWorkflo
 		ShedID:         optionalUUID(in.ShedID),
 		SubjectRefID:   &ref,
 		SaleHasAnimals: in.SaleHasAnimals,
+		ClockAnchor:    in.ClockAnchor,
 	}); err != nil {
 		return "", err
 	}

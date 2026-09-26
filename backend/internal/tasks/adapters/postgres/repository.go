@@ -131,8 +131,17 @@ func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCom
 			return false, placementErr
 		}
 	}
+	// The instant the steps' clocks count from: EventAt, unless the opener named another (a sale
+	// planned for a later day counts from that day, domain.SaleClockAnchor). Stored only when it
+	// differs, so NULL keeps meaning "event_at" for every other workflow.
+	anchor := cmd.EventAt
+	var storedAnchor any
+	if !cmd.ClockAnchor.IsZero() && !cmd.ClockAnchor.Equal(cmd.EventAt) {
+		anchor = cmd.ClockAnchor
+		storedAnchor = anchor.UTC()
+	}
 	template, sopVersionID, err := r.compileTemplate(ctx, cmd.TenantID, cmd.TemplateKey, domain.CompileOptions{
-		EventAt:            cmd.EventAt,
+		EventAt:            anchor,
 		NeedsShedPlacement: needsShedPlacement,
 		SaleHasAnimals:     cmd.SaleHasAnimals == nil || *cmd.SaleHasAnimals,
 	})
@@ -171,7 +180,7 @@ WHERE tenant_id=$1::uuid AND child_goat_id=$2::uuid`, cmd.TenantID, childID).Sca
 	if first != nil {
 		nextKey = first.Key
 		nextTitle = first.Title
-		nextDue = first.Schedule.DueAt(cmd.EventAt).UTC()
+		nextDue = first.Schedule.DueAt(anchor).UTC()
 	}
 
 	tx, err := r.pool.Begin(ctx)
@@ -191,19 +200,19 @@ INSERT INTO workflow_instances (
   tenant_id, template_key, module, subject_goat_id, dam_goat_id,
   birth_event_id, event_at, event_date, park_id, shed_id, state,
   actions_total, actions_done, next_action_key, next_action_title, next_due_at, sop_version_id, subject_ref_id,
-  capture_evidence
+  capture_evidence, clock_anchor_at
 ) VALUES (
   $1::uuid, $2, $3, nullif($4::text,'')::uuid, nullif($5::text,'')::uuid,
   nullif($6::text,'')::uuid, $7::timestamptz, $8::date, nullif($9::text,'')::uuid, nullif($10::text,'')::uuid, 'open',
   $11, 0, $12, $13, $14::timestamptz, nullif($15::text,'')::uuid, nullif($16::text,'')::uuid,
-  $17::jsonb
+  $17::jsonb, $18::timestamptz
 )
 ON CONFLICT DO NOTHING
 RETURNING workflow_id::text`,
 		cmd.TenantID, cmd.TemplateKey, template.Module, cmd.SubjectGoatID, deref(cmd.DamGoatID),
 		deref(birthEventID), cmd.EventAt.UTC(), biztime.BusinessDate(cmd.EventAt), deref(cmd.ParkID), deref(cmd.ShedID),
 		template.OperatorActionCount(), nextKey, nextTitle, nextDue, sopVersionID, deref(cmd.SubjectRefID),
-		mustCaptureJSON(cmd.CaptureEvidence),
+		mustCaptureJSON(cmd.CaptureEvidence), storedAnchor,
 	).Scan(&workflowID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Natural-key conflict: the workflow already exists. Do not touch its actions -- UNLESS it
@@ -262,10 +271,11 @@ RETURNING workflow_id::text`,
 			// Dependency-timed: populated atomically when the named step completes.
 			dueAt = nil
 		} else if a.Schedule != (domain.Schedule{}) {
-			dueAt = a.Schedule.DueAt(cmd.EventAt).UTC()
+			dueAt = a.Schedule.DueAt(anchor).UTC()
 		} else {
-			// Immediate steps are due at the event moment itself.
-			dueAt = cmd.EventAt.UTC()
+			// Immediate steps are due at the clock's anchor: the event moment itself, or the
+			// planned sale day for a sale recorded ahead of it.
+			dueAt = anchor.UTC()
 		}
 		requires, err := json.Marshal(nonNilStrings(a.Requires))
 		if err != nil {
@@ -2193,4 +2203,75 @@ LIMIT 1`, tenantID, birthEventID, domain.TemplateKeyBirthMother, domain.Template
 		return "", domain.ErrNotFound
 	}
 	return id, err
+}
+
+const (
+	// lockSaleWorkflowClockSQL locks the sale's workflow and reads what a re-anchor decides from.
+	lockSaleWorkflowClockSQL = `
+SELECT workflow_id::text, state, event_at, clock_anchor_at
+FROM workflow_instances
+WHERE tenant_id = $1::uuid AND template_key = $2 AND subject_ref_id = $3::uuid
+FOR UPDATE`
+	// shiftUnfinishedSaleStepsSQL moves every unfinished, clock-timed step by the anchor's move.
+	// A dependency-timed step (after_action_key) counts from its prerequisite, not the anchor, and
+	// keeps its time; a finished step is history.
+	shiftUnfinishedSaleStepsSQL = `
+UPDATE workflow_actions
+SET due_at = due_at + $3::interval, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
+  AND status IN ('pending', 'in_review', 'rework')
+  AND due_at IS NOT NULL AND coalesce(after_action_key, '') = ''`
+	// reanchorSaleWorkflowCardSQL moves the stored anchor and the card's next due in the same
+	// transaction; an anchor back on event_at is stored as NULL, the column's own meaning.
+	reanchorSaleWorkflowCardSQL = `
+UPDATE workflow_instances
+SET clock_anchor_at = CASE WHEN $3::timestamptz = event_at THEN NULL ELSE $3::timestamptz END,
+    next_due_at = next_due_at + $4::interval,
+    row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid AND state = 'open'`
+)
+
+// ReanchorSaleWorkflow follows a PLANNED sale's clock to the day it actually closed (2026-09-26).
+// Closing a sale restamps its sale_date to the close business date (69b8ec292); a workflow whose
+// clock was anchored on the planned day moves every unfinished step by the same amount the anchor
+// moves, so a sale closed early is due now and not on the day it was once planned for. A workflow
+// anchored on its recording (the sale was dated at or before it) is left alone, and a redelivered
+// close finds the anchor already where it belongs and changes nothing.
+func (r *Repository) ReanchorSaleWorkflow(ctx context.Context, tenantID, dealID, saleDate string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		workflowID, state string
+		eventAt           time.Time
+		stored            *time.Time
+	)
+	err = tx.QueryRow(ctx, lockSaleWorkflowClockSQL, tenantID, domain.TemplateKeySalesDeal, dealID).Scan(&workflowID, &state, &eventAt, &stored)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return tx.Commit(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	if state != domain.WorkflowStateOpen || stored == nil {
+		return tx.Commit(ctx)
+	}
+	next := domain.SaleClockAnchor(eventAt, saleDate)
+	shift := next.Sub(*stored)
+	if shift == 0 {
+		return tx.Commit(ctx)
+	}
+	interval := fmt.Sprintf("%d microseconds", shift.Microseconds())
+	if _, err := tx.Exec(ctx, shiftUnfinishedSaleStepsSQL, tenantID, workflowID, interval); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, reanchorSaleWorkflowCardSQL, tenantID, workflowID, next.UTC(), interval); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

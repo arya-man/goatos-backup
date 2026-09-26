@@ -683,6 +683,14 @@ func (s *Service) CancelSaleWorkflow(ctx context.Context, tenantID, dealID strin
 	return s.repo.CancelSaleWorkflow(ctx, tenantID, dealID)
 }
 
+// ReanchorSaleWorkflow moves a planned sale's unfinished step clocks to its close date (2026-09-26).
+func (s *Service) ReanchorSaleWorkflow(ctx context.Context, tenantID, dealID, saleDate string) error {
+	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(dealID) == "" {
+		return domain.ErrMissingRequiredField
+	}
+	return s.repo.ReanchorSaleWorkflow(ctx, tenantID, dealID, saleDate)
+}
+
 // ReconcileAnimalPurchaseDecisionStep follows the newest source load snapshot.
 func (s *Service) ReconcileAnimalPurchaseDecisionStep(ctx context.Context, tenantID, loadID string, pending, decided int, at time.Time) error {
 	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(loadID) == "" {

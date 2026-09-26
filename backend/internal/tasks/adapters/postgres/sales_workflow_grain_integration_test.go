@@ -59,7 +59,7 @@ func TestSaleWorkflowCardOneToManyDealLinesStayOneCard(t *testing.T) {
 	const dealID = "5a1e5a1e-0000-4000-8000-00000000a001"
 	seedSaleDeal(t, pool, ctx, dealID, "Many Lines", 9, "2026-07-27")
 	for i := 1; i <= 3; i++ {
-		if _, err := pool.Exec(ctx, `INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, sales_value) VALUES ($1::uuid, $2::uuid, $3, 'Goat', 'Malai', 3, 30000)`, wfTenant, dealID, i); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed, animal_count, sales_value) VALUES ($1::uuid, $2::uuid, $3, 'Goat', 'goat', 'animal', 'Malai', 3, 30000)`, wfTenant, dealID, i); err != nil {
 			t.Fatalf("seed line %d: %v", i, err)
 		}
 	}

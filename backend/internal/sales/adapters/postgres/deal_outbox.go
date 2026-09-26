@@ -166,7 +166,7 @@ const saleStatusChangedEventType = "sales.deal.status_changed"
 // emitDealStatusChanged writes the status-change envelope. changedAt is the row's own updated_at
 // from the same UPDATE, so the event id is deterministic per change and unique across changes (a
 // deal failed, reopened and failed again emits three distinct events).
-func emitDealStatusChanged(ctx context.Context, tx pgx.Tx, tenantID, actorID, dealID, farm, previous, status string, changedAt time.Time) error {
+func emitDealStatusChanged(ctx context.Context, tx pgx.Tx, tenantID, actorID, dealID, farm, previous, status, saleDate string, changedAt time.Time) error {
 	var parkID string
 	if err := tx.QueryRow(ctx, parkIDForFarmSQL, tenantID, farm).Scan(&parkID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("sales: resolve park for farm %q: %w", farm, err)
@@ -184,6 +184,9 @@ func emitDealStatusChanged(ctx context.Context, tx pgx.Tx, tenantID, actorID, de
 			"sales_deal_id":   dealID,
 			"previous_status": previous,
 			"status":          status,
+			// The sale_date after the change (a close restamps it to the close business date):
+			// tasks/app.SaleStatusChangedWorkflowHandler moves a PLANNED sale's step clocks to it.
+			"sale_date": saleDate,
 			// Who changed it: the identity consumer records the animals' release against this
 			// person (blank for a system caller; the release then names the person who tagged).
 			"actor_id": strings.TrimSpace(actorID),

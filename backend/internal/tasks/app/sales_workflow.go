@@ -92,6 +92,9 @@ func (h *SaleRecordedWorkflowHandler) HandleEvent(ctx context.Context, e eventbu
 		EventAt:        eventAt,
 		ParkID:         strings.TrimSpace(p.ParkID),
 		SaleHasAnimals: p.HasLiveAnimals,
+		// The sale's work is owed on the sale's own day: a sale planned for a later day is not
+		// overdue the moment it is recorded (2026-09-26). Dated today or earlier: the recording.
+		ClockAnchor: domain.SaleClockAnchor(eventAt, p.SaleDate),
 	})
 	return err
 }
@@ -153,11 +156,18 @@ func (h *SaleAllocatedWorkflowHandler) HandleEvent(ctx context.Context, e eventb
 type salesDealStatusChangedPayload struct {
 	SalesDealID string `json:"sales_deal_id"`
 	Status      string `json:"status"`
+	// SaleDate is the deal's sale_date after the change: on a close it is the restamped close day,
+	// which a planned sale's workflow clock follows. Absent on an event written before it was carried.
+	SaleDate string `json:"sale_date"`
 }
+
+// dealStatusClosed is the sales ledger's closed-deal word (sales/domain.StatusDealClosed).
+const dealStatusClosed = "Deal Closed"
 
 // SaleStatusChangedWorkflowHandler cancels a sale's workflow when the deal is marked Deal Failed
 // (maintainer decision 2026-09-25): the work a failed sale owed -- tag, load, gate pass, collect
-// the balance -- will never be done, and an open card for it would read overdue forever. Any other
+// the balance -- will never be done, and an open card for it would read overdue forever. On Deal
+// Closed a PLANNED sale's step clocks follow the restamped close date (2026-09-26). Any other
 // status change leaves the workflow alone.
 type SaleStatusChangedWorkflowHandler struct{ svc *Service }
 
@@ -181,12 +191,15 @@ func (h *SaleStatusChangedWorkflowHandler) HandleEvent(ctx context.Context, e ev
 			return eventbus.PermanentError(err)
 		}
 	}
-	if !strings.EqualFold(strings.TrimSpace(p.Status), dealStatusFailed) {
-		return nil
-	}
 	dealID := strings.TrimSpace(p.SalesDealID)
 	if dealID == "" || strings.TrimSpace(e.TenantID) == "" {
 		return nil
 	}
-	return h.svc.CancelSaleWorkflow(ctx, e.TenantID, dealID)
+	switch {
+	case strings.EqualFold(strings.TrimSpace(p.Status), dealStatusFailed):
+		return h.svc.CancelSaleWorkflow(ctx, e.TenantID, dealID)
+	case strings.EqualFold(strings.TrimSpace(p.Status), dealStatusClosed) && strings.TrimSpace(p.SaleDate) != "":
+		return h.svc.ReanchorSaleWorkflow(ctx, e.TenantID, dealID, strings.TrimSpace(p.SaleDate))
+	}
+	return nil
 }

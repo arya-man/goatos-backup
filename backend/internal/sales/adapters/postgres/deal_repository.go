@@ -426,7 +426,7 @@ FOR UPDATE`, tenantID, dealID).Scan(&previous, &farm)
 		// The sale follows its status through this event, written in the same transaction: on
 		// Deal Failed the tasks consumer cancels the sale's workflow and the identity consumer
 		// RELEASES every animal tagged to it back into the herd, in the pen it was sold from.
-		if err := emitDealStatusChanged(ctx, tx, tenantID, actorID, dealID, farm, previous, status, changedAt); err != nil {
+		if err := emitDealStatusChanged(ctx, tx, tenantID, actorID, dealID, farm, previous, status, saleDate.Format("2006-01-02"), changedAt); err != nil {
 			return domain.Deal{}, err
 		}
 		// Closing a sale takes its feed off the store; failing or reopening one gives it back.
