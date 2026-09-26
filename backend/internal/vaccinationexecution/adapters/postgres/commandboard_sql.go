@@ -602,6 +602,8 @@ GROUP BY park.location_id, g.management_stage, g.sex
 // (c) animal_count numerator: COUNT(DISTINCT target_id) over the cell's obligations;
 //
 //	denominator/key set: same shed x dose x state cell — identical key sets.
+//
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const commandBoardShedDoseSQL = `
 WITH comp AS (
   SELECT

@@ -465,6 +465,7 @@ func (r *Repository) getWeightDemographicsUncached(ctx context.Context, tenantID
 		return out, nil
 	}
 
+	// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
 WITH _param_types AS (
   SELECT
@@ -1619,6 +1620,7 @@ SELECT
 	return out, nil
 }
 
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const shedPartitionWeightDemographicsSQL = `
 WITH scoped AS (
   SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label

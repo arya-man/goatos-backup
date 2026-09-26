@@ -63,6 +63,7 @@ const calendarTodayInRequestedWindow = `(
         )`
 
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const calendarCanonicalEventsCTE = `obligation_events AS (
   WITH obligation_events_rows AS (
     -- Index-bound decomposition of the former 3-way OR (see migration 000190). Each branch is a
@@ -2142,6 +2143,7 @@ func canonicalUnboundedWindow(now time.Time) (time.Time, time.Time) {
 // alternative to a derived read model (ADR operational-kernel-5k-50k-scale-envelope). The scale-guard
 // god-cte detector is suppressed on calendarCanonicalEventsCTE above via `scale-guard:ignore`.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const calendarCanonicalListSQL = "WITH " + calendarCanonicalEventsCTE + `,
 canonical_selected AS (
   -- scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md

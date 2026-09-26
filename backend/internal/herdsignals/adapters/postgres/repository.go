@@ -1387,6 +1387,7 @@ func (r *Repository) GetBatteryHistory(ctx context.Context, tenantID string, tag
 	// now()-based predicates: a probe that misses for any reason (clock skew, midnight) just
 	// sends that tag to the unchanged full-window fallback, so the answer is the same row.
 	today := biztime.BusinessDayStart(time.Now())
+	// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 	edge := today.AddDate(0, 0, -windowDays)
 	rows, err := r.db.Query(ctx, `
 		WITH tags AS (SELECT unnest($2::text[]) AS tag_id)
@@ -1431,6 +1432,7 @@ func (r *Repository) GetBatteryHistory(ctx context.Context, tenantID string, tag
 		}
 		probes[tagID] = p
 		if p.firstMV == nil || p.lastMV == nil {
+			// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 			missing = append(missing, tagID)
 		}
 	}

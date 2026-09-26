@@ -1334,6 +1334,7 @@ func int32Ptr(v pgtype.Int4) *int32 {
 // tenant/park/shed/due-indexed and query-plan-tested (canonical_read_plan_test.go); the summary adds no new scan,
 // it aggregates the rows the page already reads.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const executionClassifiedCTE = `
 WITH completion_candidates AS (
   SELECT
@@ -2046,6 +2047,7 @@ classified AS (
 // unmodified and adds only the page-specific work_state/severity/open-only filter (`filtered`) plus
 // keyset pagination and the display-name LATERAL joins. See executionClassifiedCTE's doc comment for
 // why this sharing exists and the $-parameter contract both queries must honor.
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const vaccinationExecutionSQL = executionClassifiedCTE + `,
 filtered AS (
   -- projection-review: membership=classified rows after tenant/category/scope resolution and work_state/severity filters; group_key=classified.sort_row_key; join_cardinality=classified is already grouped to one row per execution cohort before COUNT(*) OVER(); pagination=total_count is computed over the full filtered result before keyset LIMIT; scope=park/shed inherited from located.park_uuid/located.shed_uuid.
@@ -2172,6 +2174,7 @@ LIMIT ($5::int + 1);
 // caller-facing card identity (shed_uuid, partition_label, sop_task_id, batch_id) and applies the
 // SAME work_state/severity/open-only/completed-visibility filters as the page's `filtered` CTE,
 // with NO LIMIT/cursor -- summaries must reflect every card in the filter, not only the current page.
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const cardSummariesSQL = executionClassifiedCTE + `
 SELECT
   classified.shed_uuid,

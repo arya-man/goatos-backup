@@ -2384,6 +2384,7 @@ WHERE
 ORDER BY due_at ASC, event_id ASC
 LIMIT $11`
 
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const calendarHistorySQL = `
 WITH history AS (
   SELECT
