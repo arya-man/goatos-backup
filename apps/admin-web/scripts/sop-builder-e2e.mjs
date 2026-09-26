@@ -255,7 +255,7 @@ try {
   await check("library card shows step count + proof gate", () => /\d+\s*steps/.test(cardText) && /proof/i.test(cardText));
 
   // ============ 11. EDIT ROUND-TRIP (faithful, not blocked) ============
-  await page.locator("#sopCards .card").first().click();
+  await page.locator("#sopCards .MuiCard-root").first().getByRole("button").last().click();
   await page.waitForTimeout(400);
   await page.getByRole("button", { name: /New SOP in builder/ }).click();
   await page.waitForURL(/edit=/, { timeout: 15000 }).catch(() => {});

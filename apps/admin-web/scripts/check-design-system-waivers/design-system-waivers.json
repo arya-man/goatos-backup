@@ -54,7 +54,6 @@
     "prose-under-title|features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx|<p className=\"muted small\">",
     "prose-under-title|features/preventive-care-vaccination/passport-section.tsx|<p className=\"muted small\">{copy(pageContract, \"vaccination.unavailable_prefix\")}: {res.error.message ?? res.error.code}</p>",
     "prose-under-title|features/procurement/valuation-section.tsx|<p className=\"muted small sales-config-card-copy\">{copy(pageContract, \"section.valuation.sub\")}</p>",
-    "prose-under-title|features/sops/sop-library.tsx|<p className=\"muted\" style={{ maxWidth: 640, margin: \"8px auto 0\", lineHeight: 1.6, fontSize: 13 }}>",
     "prose-under-title|features/weighing/growth-director.tsx|<p className=\"muted small\">{gd(pageContract, \"error.body\")}</p>",
     "prose-under-title|features/weighing/weights-analytics.tsx|<p className=\"muted small\">{copy(pageContract, \"error.load.body\")}</p>",
     "prose-under-title|features/weighing/weights.tsx|<p className=\"muted small\">{copy(pageContract, \"error.load.body\")}</p>",
@@ -672,7 +671,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
     },
     "raw-font-size|features/sops/sop-library.tsx": {
-      "allowed": 4,
+      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
     },
     "raw-font-size|features/vaccination-execution/execution-board.tsx": {
@@ -1596,7 +1595,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/sops/sop-library.tsx": {
-      "allowed": 14,
+      "allowed": 10,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/sops/toxin-editor.tsx": {

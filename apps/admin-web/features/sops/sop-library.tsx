@@ -44,14 +44,21 @@ import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/components/minimal/iconify";
 import { RowMenu } from "@/components/app/row-menu";
 import { FilterBar } from "@/components/app/filter-bar";
-import { TableFooter } from "@/components/app/table-footer";
-import { DenseToggle } from "@/components/app/dense-toggle";
+import Link from "@mui/material/Link";
+import Avatar from "@mui/material/Avatar";
+import Divider from "@mui/material/Divider";
+import Typography from "@mui/material/Typography";
+import ListItemText from "@mui/material/ListItemText";
+import Pagination, { paginationClasses } from "@mui/material/Pagination";
+import { varAlpha } from "minimal-shared/utils";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { EmptyContent } from "@/components/minimal/empty-content";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { ShiftingSummary } from "./shifting-summary";
 import { CaptureCardSummary } from "./capture-summary";
 import { isCaptureCardCode } from "./capture-model";
-import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { PageHeader } from "@/components/app/page-header";
 import Switch from "@mui/material/Switch";
 import FormControlLabel from "@mui/material/FormControlLabel";
@@ -94,18 +101,18 @@ function moduleSegment(basePath: string): string {
   return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : "";
 }
 
-const STATUS_TONE: Record<SopCardView["status"], string> = { active: "t-ok", draft: "t-mut", retired: "t-warn" };
+const STATUS_COLOR: Record<SopCardView["status"], LabelColor> = { active: "success", draft: "default", retired: "warning" };
 
-// Card footer (spec §9) and dialog body rhythm: theme spacing/typography only.
-const CARD_FOOT_SX = { display: "flex", alignItems: "center", gap: 1, mt: 1.25, pt: 1.25, borderTop: 1, borderTopStyle: "dashed", borderColor: "divider" } as const;
-const CARD_META_SX = { minWidth: 0, typography: "caption", color: "text.secondary", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const;
+// Cards per page: a multiple of the 1/2/3-column grid (template job list), not a table page size.
+const CARDS_PER_PAGE = 12;
+
+// Dialog body rhythm: theme spacing/typography only.
 const DLG_BODY_SX = {
   "& .htl > .hrow": { borderRadius: "var(--r-md)", transition: (t: Theme) => t.transitions.create("background-color") },
   "& .htl > .hrow:hover": { bgcolor: "action.hover" },
 } as const;
-function StatusTag({ view }: { view: SopCardView }) {
-  const label = view.status === "active" ? `published${view.versionNumber ? ` · v${view.versionNumber}` : ""}` : view.status;
-  return <span className={`tag ${STATUS_TONE[view.status]}`}>{label}</span>;
+function statusText(view: SopCardView): string {
+  return view.status === "active" ? `published${view.versionNumber ? ` · v${view.versionNumber}` : ""}` : view.status;
 }
 
 export interface SopLibraryProps {
@@ -142,7 +149,6 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [triggerFilter, setTriggerFilter] = useState("");
-  const [dense, setDense] = useState(false);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [facets, setFacets] = useState<Record<FacetId, boolean>>({ domain: true, trigger: true, counts: true, gates: true });
   const [detail, setDetail] = useState<SopCardView | null>(null);
@@ -154,8 +160,7 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
   const openEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}`));
   const openCaptureEditor = (sopId: string) => startEditorNav(() => router.push(`${builderHref}&edit=${sopId}&part=capture`));
   const [requestedPage, setRequestedPage] = useState(1);
-	  const pageSizeOptions = tablePageSizes(pageContract, "sop-library");
-	  const [pageSize, setPageSize] = useState<number>(pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10));
+  const pageSize = CARDS_PER_PAGE;
   // The page is pre-scoped to its module's SOP codes (SOP split, maintainer decision 2026-08-18).
   // Status and trigger are derived from the cards already in hand — no extra backend call.
   const list = useMemo(() => {
@@ -293,7 +298,6 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
                 ariaLabel={copy(pageContract, "action.more")}
                 actions={[
                   { label: copy(pageContract, "action.reset_filters", "Reset filters"), icon: <X size={15} />, onSelect: clearAll, disabled: activeChips.length === 0 },
-                  { label: dense ? copy(pageContract, "action.comfortable") : copy(pageContract, "action.dense"), icon: <List size={15} />, onSelect: () => setDense((d) => !d) },
                 ]}
               />
             </>
@@ -389,97 +393,45 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       ) : null}
 
       {sops.length === 0 && !authRequired && !error ? (
-        // Mock-matching empty state — the engine stands up empty; no sample cards are fabricated.
-        <Card className="card" sx={{ p: { xs: 2, sm: 3 } }}>
-          <div className="bd" style={{ textAlign: "center", padding: 32 }}>
-            <BookText className="ic" aria-hidden="true" style={{ width: 24, height: 24, marginBottom: 10, color: "var(--brand)" }} />
-	            <h3 style={{ margin: 0, fontSize: 16 }}>{copy(pageContract, "empty.title")}</h3>
-            <p className="muted" style={{ maxWidth: 640, margin: "8px auto 0", lineHeight: 1.6, fontSize: 13 }}>
-	              {copy(pageContract, "empty.body")}
-            </p>
-            <Button variant="contained" color="primary" startIcon={<Plus size={18} />} style={{ marginTop: 14 }} onClick={openBuilder}>
+        // Template EmptyContent (job list notFound pattern) — the engine stands up empty; no sample cards are fabricated.
+        <EmptyContent
+          filled
+          title={copy(pageContract, "empty.title")}
+          description={copy(pageContract, "empty.body")}
+          action={
+            <Button variant="contained" color="primary" startIcon={<Plus size={18} />} sx={{ mt: 2 }} onClick={openBuilder}>
               {copy(pageContract, "action.new_sop")}
             </Button>
-          </div>
-        </Card>
+          }
+          sx={{ py: 10 }}
+        />
+      ) : list.length === 0 ? (
+        <EmptyContent filled title={copy(pageContract, "empty.no_match")} sx={{ py: 10 }} />
       ) : (
         <>
-          <div id="sopCards" style={{ display: "contents" }}>
-          <div className={`kit-enter grid g3${dense ? " kit-dense" : ""}`}>
-            {pagedList.map((s) => {
-              const TrigIcon = s.trigger ? TRIGGER_ICON[s.trigger] : BookText;
-              return (
-                <div key={s.sopId} style={{ display: "grid" }}>
-                  <Card
-                    sx={{ cursor: "pointer" }}
-                    className={`card${publishedSop && s.sopId === publishedSop.sopId ? " sop-just-published" : ""}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setDetail(s)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setDetail(s);
-                      }
-                    }}
-                  >
-                  <div className="hd">
-                    <span className="fic" style={{ width: 26, height: 26, background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-                      <TrigIcon className="ic" style={{ width: 14 }} />
-                    </span>
-                    <h3 style={{ fontSize: 14 }}>{s.name}</h3>
-                  </div>
-                  <div className="bd">
-                    {/* Spec §9: status reads top-left, above the facet tags. */}
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 1 }}>
-                      <StatusTag view={s} />
-                    </Box>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                      {facets.domain ? <Tag tone="mut">{s.domainLabel}</Tag> : null}
-                      {facets.trigger && s.trigger ? <Tag tone="info">{s.trigger}</Tag> : null}
-                      {facets.counts && s.inspectionQuestionCount > 0 ? <Tag tone="info">{s.inspectionQuestionCount} {copy(pageContract, "label.inspection_questions")}</Tag> : null}
-                      {facets.counts && s.stepCount !== null ? <Tag tone="ok">{s.stepCount} {copy(pageContract, "label.steps")}</Tag> : null}
-                      {facets.counts && s.followUpStepCount > 0 ? <Tag tone="info">{s.followUpStepCount} {copy(pageContract, "label.operator_steps")}</Tag> : null}
-                    </div>
-                    {facets.gates ? (
-                      <div className="muted small">
-                        {s.gates.length > 0 ? s.gates.slice(0, 3).join(" · ") : s.hasVersion ? copy(pageContract, "label.no_proof_gates") : copy(pageContract, "label.no_published_version")}
-                      </div>
-                    ) : null}
-                    {/* Spec §9 card footer: version line + ⋮ overflow. */}
-                    <Box className="sop-card-foot" onClick={(e) => e.stopPropagation()} sx={CARD_FOOT_SX}>
-                      {/* The internal SOP code (procurement.feed_purchase_form) is a key, never reader copy. */}
-                      {s.versionLabel ? <Box component="span" className="sop-card-meta" sx={CARD_META_SX}>{s.versionLabel}</Box> : null}
-                      <Box sx={{ flex: 1 }} />
-                      <RowMenu
-                        ariaLabel={`${copy(pageContract, "action.more")}: ${s.name}`}
-                        actions={[
-                          { label: copy(pageContract, "action.view_details"), icon: <Info size={15} />, onSelect: () => setDetail(s) },
-                          { label: copy(pageContract, "action.edit", "Edit"), icon: <NotebookPen size={15} />, onSelect: () => openEditor(s.sopId) },
-                        ]}
-                      />
-                    </Box>
-                  </div>
-                  </Card>
-                </div>
-              );
-            })}
-            {list.length === 0 ? <div key="empty-match" className="note">{copy(pageContract, "empty.no_match")}</div> : null}
-          </div>
-          </div>
-          {list.length > 0 ? (
-            <TableFooter
-              className="sop-tfoot"
+          {/* Template sections/job/job-list: 1/2/3-column card grid, gap 3, MUI Pagination centred below. */}
+          <Box
+            id="sopCards"
+            sx={{ gap: 3, display: "grid", gridTemplateColumns: { xs: "repeat(1, 1fr)", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" } }}
+          >
+            {pagedList.map((s) => (
+              <SopItem
+                key={s.sopId}
+                view={s}
+                facets={facets}
+                pageContract={pageContract}
+                justPublished={Boolean(publishedSop && s.sopId === publishedSop.sopId)}
+                onView={() => setDetail(s)}
+                onEdit={() => openEditor(s.sopId)}
+              />
+            ))}
+          </Box>
+          {totalPages > 1 ? (
+            <Pagination
+              count={totalPages}
               page={page}
-              rowsPerPage={pageSize}
-              total={list.length}
-              rowsPerPageOptions={pageSizeOptions}
-              onPageChange={setRequestedPage}
-              onRowsPerPageChange={(n) => {
-                setPageSize(n);
-                setRequestedPage(1);
-              }}
-              left={<DenseToggle checked={dense} onChange={setDense} />}
+              onChange={(_, value) => setRequestedPage(value)}
+              sx={{ mt: { xs: 5, md: 8 }, [`& .${paginationClasses.ul}`]: { justifyContent: "center" } }}
             />
           ) : null}
         </>
@@ -518,6 +470,99 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
         />
       ) : null}
     </div>
+  );
+}
+
+type SopItemProps = {
+  view: SopCardView;
+  facets: Record<FacetId, boolean>;
+  pageContract: AdminUiPageContract;
+  justPublished: boolean;
+  onView: () => void;
+  onEdit: () => void;
+};
+
+// Template sections/job/job-item anatomy: ⋮ action menu pinned top-right, rounded 48px avatar,
+// subtitle1 title link + caption, primary caption line, dashed divider, 2-column caption facts.
+function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: SopItemProps) {
+  const TrigIcon = view.trigger ? TRIGGER_ICON[view.trigger] : BookText;
+  const facts: Array<{ key: string; label: string; icon: React.ReactNode }> = [];
+  if (facets.domain) facts.push({ key: "domain", label: view.domainLabel, icon: <Iconify width={16} icon="solar:tag-horizontal-bold-duotone" sx={{ flexShrink: 0 }} /> });
+  if (facets.trigger && view.trigger) facts.push({ key: "trigger", label: view.trigger, icon: <Iconify width={16} icon="solar:clock-circle-bold" sx={{ flexShrink: 0 }} /> });
+  if (facets.counts && view.stepCount !== null)
+    facts.push({ key: "steps", label: `${view.stepCount} ${copy(pageContract, "label.steps")}`, icon: <Iconify width={16} icon="solar:list-bold" sx={{ flexShrink: 0 }} /> });
+  if (facets.counts && view.inspectionQuestionCount > 0)
+    facts.push({ key: "questions", label: `${view.inspectionQuestionCount} ${copy(pageContract, "label.inspection_questions")}`, icon: <Iconify width={16} icon="solar:bill-list-bold" sx={{ flexShrink: 0 }} /> });
+  if (facets.counts && view.followUpStepCount > 0)
+    facts.push({ key: "operator", label: `${view.followUpStepCount} ${copy(pageContract, "label.operator_steps")}`, icon: <Iconify width={16} icon="solar:user-rounded-bold" sx={{ flexShrink: 0 }} /> });
+  const gates = view.gates.length > 0 ? view.gates.slice(0, 3).join(" · ") : view.hasVersion ? copy(pageContract, "label.no_proof_gates") : copy(pageContract, "label.no_published_version");
+
+  return (
+    <Card
+      className={justPublished ? "sop-just-published" : undefined}
+      data-sop-card={view.sopId}
+      sx={[{ position: "relative" }, justPublished ? (theme) => ({ boxShadow: `0 0 0 2px ${theme.vars.palette.success.main}` }) : null]}
+    >
+      <Box sx={{ position: "absolute", top: 8, right: 8 }}>
+        <RowMenu
+          ariaLabel={`${copy(pageContract, "action.more")}: ${view.name}`}
+          actions={[
+            { label: copy(pageContract, "action.view_details"), icon: <Iconify icon="solar:eye-bold" />, onSelect: onView },
+            { label: copy(pageContract, "action.edit", "Edit"), icon: <Iconify icon="solar:pen-bold" />, onSelect: onEdit },
+          ]}
+        />
+      </Box>
+
+      <Box sx={{ p: 3, pb: 2 }}>
+        <Avatar
+          variant="rounded"
+          sx={(theme) => ({ width: 48, height: 48, mb: 2, color: "primary.main", bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.16) })}
+        >
+          <TrigIcon aria-hidden="true" />
+        </Avatar>
+
+        <ListItemText
+          sx={{ mb: 1, pr: 3 }}
+          primary={
+            <Link component="button" type="button" color="inherit" underline="hover" onClick={onView} sx={{ textAlign: "left", typography: "subtitle1" }}>
+              {view.name}
+            </Link>
+          }
+          secondary={view.versionLabel ?? undefined}
+          slotProps={{
+            primary: { sx: { typography: "subtitle1" } },
+            secondary: { sx: { mt: 1, typography: "caption", color: "text.disabled" } },
+          }}
+        />
+
+        <Label variant="soft" color={STATUS_COLOR[view.status]}>
+          {statusText(view)}
+        </Label>
+      </Box>
+
+      {facts.length > 0 || facets.gates ? <Divider sx={{ borderStyle: "dashed" }} /> : null}
+
+      {facts.length > 0 || facets.gates ? (
+        <Box sx={{ p: 3, rowGap: 1.5, columnGap: 1, display: "grid", gridTemplateColumns: "repeat(2, 1fr)" }}>
+          {facts.map((item) => (
+            <Box key={item.key} sx={{ gap: 0.5, minWidth: 0, display: "flex", alignItems: "center", color: "text.disabled" }}>
+              {item.icon}
+              <Typography variant="caption" noWrap>
+                {item.label}
+              </Typography>
+            </Box>
+          ))}
+          {facets.gates ? (
+            <Box sx={{ gridColumn: "1 / -1", gap: 0.5, minWidth: 0, display: "flex", alignItems: "center", color: "text.disabled" }}>
+              <Iconify width={16} icon="solar:shield-check-bold" sx={{ flexShrink: 0 }} />
+              <Typography variant="caption" noWrap>
+                {gates}
+              </Typography>
+            </Box>
+          ) : null}
+        </Box>
+      ) : null}
+    </Card>
   );
 }
 

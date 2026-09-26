@@ -5134,7 +5134,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 
 /* SOP library: the card whose version was JUST published (maintainer report 2026-09-15 — after
    Publish the editor closes and the change has to be visibly reflected on the library). */
-.sop-just-published{box-shadow:0 0 0 2px var(--ok), 0 8px 24px color-mix(in srgb,var(--ok) 22%,transparent);border-color:var(--ok)}
 .sop-published-banner{align-items:flex-start}
 
 /* Alerts page (maintainer decision 2026-09-16) -- the page below the Work Board. Scoped under
