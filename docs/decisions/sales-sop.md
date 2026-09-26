@@ -65,10 +65,16 @@ the catalog's label (`owner_role` / `owner_label` on the step DTO).
   `sop_step_owners` option group compiled from the same rows.
 
 This is the reason the sale's routes are ORed with the sales permissions rather than a new one:
-the sales desk (`sales.read` / `sales.write`) and the park head who tags (`sales.allocate_animals`)
-each own steps of the SAME workflow, and the handler narrows per module
-(`canReadWorkflowModule`) so a caller admitted on a sales permission alone cannot read a birth
-card.
+the sales desk (`sales.read` / `sales.write`) owns steps of the workflow, and the handler narrows
+per module so a caller admitted on a sales permission alone cannot read a birth card.
+
+**`sales.allocate_animals` alone opens NO sale workflow** (2026-09-26, review of PR #446). A
+tag-only park head holds that permission to tag from the pen; the tag step completes itself from the
+confirm (Decision 3), so they need no workflow call, and the card names the buyer while its other
+steps (loading video, gate pass) are not theirs (maintainer answer, same day). The routes and both
+handler gates therefore admit the sales workflow on `sales.read`, `sales.write` or `counts.write`
+only. Pinned by `TestSaleTaggingAloneOpensNoSalesWorkflow` and
+`TestWorkflowRoutesDoNotAdmitSaleTaggingAlone`.
 
 ## Decision 3: the tag step is engine-completed, never a tap
 

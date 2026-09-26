@@ -1007,3 +1007,25 @@ func TestFeedConfigPermissionsAreSeparateFromFeedDirection(t *testing.T) {
 		t.Fatal("park head must not hold feed config permissions via the feed direction grant")
 	}
 }
+
+// The shared /app/workflows routes must not admit a caller on sales.allocate_animals: tagging
+// animals from the pen is not the sale workflow (review of PR #446).
+func TestWorkflowRoutesDoNotAdmitSaleTaggingAlone(t *testing.T) {
+	for _, op := range []string{"listAppWorkflows", "getAppWorkflowBySubject", "getAppWorkflow", "answerAppWorkflowAction", "completeAppWorkflowAction"} {
+		found := false
+		for _, route := range ProtectedRoutes() {
+			if route.OperationID != op {
+				continue
+			}
+			found = true
+			for _, p := range append(append([]string{}, route.Permissions...), route.AnyPermissions...) {
+				if p == SalesAllocateAnimals {
+					t.Fatalf("%s admits sales.allocate_animals; a tag-only park head would reach the sale workflow", op)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("route %s not found", op)
+		}
+	}
+}

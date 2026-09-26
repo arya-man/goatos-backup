@@ -1226,11 +1226,14 @@ var protectedRoutes = []Route{
 	// (sales.allocate_animals) each own steps of it. PROCUREMENT SOP (2026-09-20) does the same
 	// for animal/feed purchase permissions. The handler narrows per module: a caller admitted on
 	// a sales or purchase permission alone cannot read a birth card (canReadWorkflowModule).
-	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
-	{OperationID: "getAppWorkflowBySubject", Method: "GET", Pattern: "/app/workflows/subject", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
-	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
-	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
-	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, SalesAllocateAnimals, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
+	// sales.allocate_animals is deliberately NOT here (review of PR #446): tagging animals from the
+	// pen is not the sale workflow. The tag step completes itself from the confirm, and a tag-only
+	// park head must reach neither the buyer on the card nor the loading / gate-pass steps.
+	{OperationID: "listAppWorkflows", Method: "GET", Pattern: "/app/workflows", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
+	{OperationID: "getAppWorkflowBySubject", Method: "GET", Pattern: "/app/workflows/subject", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
+	{OperationID: "getAppWorkflow", Method: "GET", Pattern: "/app/workflows/{workflow_id}", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
+	{OperationID: "answerAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/answer", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
+	{OperationID: "completeAppWorkflowAction", Method: "POST", Pattern: "/app/workflows/{workflow_id}/actions/{action_id}/complete", AnyPermissions: []string{CountsWrite, SalesRead, SalesWrite, AnimalPurchaseRead, AnimalPurchaseWrite, AnimalPurchaseDecide, FeedPurchaseRead, FeedPurchaseWrite}},
 
 	{OperationID: "listAppCountsShiftingPendingExecution", Method: "GET", Pattern: "/app/counts/shifting-events/pending-execution", Permissions: []string{CountsWrite}},
 	{OperationID: "completeAppCountsShiftingEvent", Method: "POST", Pattern: "/app/counts/shifting-events/{shifting_event_id}/complete", Permissions: []string{CountsWrite}},

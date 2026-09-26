@@ -428,3 +428,31 @@ func TestCompleteAllowsEmptyBody(t *testing.T) {
 		t.Fatalf("empty-body complete: status=%d calls=%d (%s)", rec.Code, svc.writeCalls, rec.Body.String())
 	}
 }
+
+// TAGGING IS NOT THE SALE WORKFLOW (review of PR #446). A park head holds sales.allocate_animals
+// ALONE so they can tag animals from the pen; that must never open the sale's workflow, whose
+// card names the buyer and whose other steps (loading video, gate pass) are not theirs
+// (maintainer, 2026-09-26). The tag step needs no workflow call: it completes itself from the
+// confirm. So an allocation-only caller is refused the list, the read and both writes.
+func TestSaleTaggingAloneOpensNoSalesWorkflow(t *testing.T) {
+	svc := &stubService{detail: domain.WorkflowDetail{
+		Card: domain.WorkflowCard{WorkflowID: "wf-sale", Module: domain.ModuleSales, TemplateKey: domain.TemplateKeySalesDeal},
+	}}
+	mux := newTestMux(svc)
+	perms := []string{permissions.SalesAllocateAnimals}
+
+	for _, tc := range []struct{ method, target, body string }{
+		{http.MethodGet, "/app/workflows?module=sales", ""},
+		{http.MethodGet, "/app/workflows/wf-sale", ""},
+		{http.MethodPost, "/app/workflows/wf-sale/actions/act-1/answer", `{"answer_value":"yes"}`},
+		{http.MethodPost, "/app/workflows/wf-sale/actions/act-1/complete", `{}`},
+	} {
+		rec := doRequestWithPermissions(mux, tc.method, tc.target, tc.body, map[string]string{"Idempotency-Key": "long-enough-key"}, true, perms)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s %s with sales.allocate_animals alone: status=%d, want 403 (%s)", tc.method, tc.target, rec.Code, rec.Body.String())
+		}
+	}
+	if svc.writeCalls != 0 {
+		t.Fatalf("an allocation-only caller reached the workflow write service: %d calls", svc.writeCalls)
+	}
+}
