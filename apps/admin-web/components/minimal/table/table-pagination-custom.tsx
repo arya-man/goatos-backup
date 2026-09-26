@@ -30,7 +30,12 @@ export function TablePaginationCustom({
         component="div"
         {...other}
         // Mesha: the toolbar wraps at phone width so the arrows never slide out of the card.
-        sx={{ borderTopColor: 'transparent', '& .MuiTablePagination-toolbar': { flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5 } }}
+        // The theme pins the toolbar at 64px, so on phone it grows with the wrapped row (no nested scroller).
+        sx={{
+          borderTopColor: 'transparent',
+          overflow: { xs: 'visible', sm: 'auto' },
+          '& .MuiTablePagination-toolbar': { flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5, height: { xs: 'auto', sm: 64 }, minHeight: 64 },
+        }}
       />
 
       {onChangeDense && (

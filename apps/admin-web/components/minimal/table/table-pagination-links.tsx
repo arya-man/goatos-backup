@@ -138,8 +138,12 @@ export function TablePaginationLinks({
         )}
         sx={[
           { borderTopColor: 'transparent' },
-          // Phone: the toolbar wraps so the arrows never slide out of the card.
-          { '& .MuiTablePagination-toolbar': { flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5 } },
+          // Phone: the toolbar wraps so the arrows never slide out of the card, and grows with the
+          // wrapped row instead of the theme's fixed 64px (which made the arrows a nested scroller).
+          {
+            overflow: { xs: 'visible', sm: 'auto' },
+            '& .MuiTablePagination-toolbar': { flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5, height: { xs: 'auto', sm: 64 }, minHeight: 64 },
+          },
           // No rows-per-page choice on this pager: the template shows none rather than a one-item select.
           ...(rowsPerPageHrefs?.length ? [] : [{ '& .MuiTablePagination-selectLabel, & .MuiTablePagination-input': { display: 'none' } }]),
         ]}
