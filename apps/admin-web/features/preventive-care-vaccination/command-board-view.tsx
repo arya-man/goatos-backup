@@ -18,7 +18,10 @@ import {
   useShedVaccineAnimals,
   type CohortCellRef,
 } from "./command-board-drilldowns";
-import { AlertTriangle, CalendarClock, CalendarX, CircleSlash, Clock, RotateCcw, ShieldCheck, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CalendarX, CircleSlash, Clock, RotateCcw, ShieldCheck, Users } from "lucide-react";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import { MinimalDrawer } from "@/components/minimal/drawer";
 import { InfoHint } from "@/components/app/info-hint";
 import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import TextField from "@mui/material/TextField";
@@ -393,6 +396,9 @@ interface CommandBoardViewProps {
   driveParkId?: string;
 }
 
+/** Detail drawers: the template MinimalDrawer paper width from sm up (phones get the full width). */
+const DRAWER_WIDTH = 380;
+
 const STATUS_KEYS = ["verified", "awaiting", "rework", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 
@@ -732,20 +738,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   }, []);
   useBackCloses(anyDrawerOpen, closeAllDrawers);
 
-  // Escape closes whichever drawer is open, from ANYWHERE on the page. An onKeyDown handler on the
-  // drawer element only fires once focus is already inside it, so pressing Escape after opening a
-  // drawer by mouse did nothing and the scrim kept swallowing the next click.
-  useEffect(() => {
-    if (!selectedCell && !closedDrawerOpen && !selectedShedVaccine) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setSelectedCell(null);
-      setClosedDrawerOpen(false);
-      setSelectedShedVaccine(null);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [selectedCell, closedDrawerOpen, selectedShedVaccine]);
+  // Escape, the scrim and X are the MinimalDrawer's own onClose (MUI Drawer: it focuses itself on
+  // open, so Escape works right after a mouse click too, and focus returns to the cell on close).
 
   // One option per (batch, park) identity. Two operator days of one batch in one park share a
   // selection value -- and selecting either narrows the board the same way -- so the second would
@@ -1494,50 +1488,32 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
 
       {/* Closed, No Dose record drawer. Opens from the KPI tile with the animals already in the
           payload -- no route re-run, no second fetch. Closes on X, scrim, and Escape. */}
-      {/* The drawer is a CHILD of the scrim, not its sibling: `.drawer` is parked off-canvas by
-          `transform: translateX(100%)` and the only rule that pulls it on screen is the DESCENDANT
-          selector `.dscrim.on .drawer`. As a sibling it mounts, fills with data, and stays
-          invisible -- the click looks dead. */}
+      {/* The three drawers are the template MinimalDrawer (portalled MUI Drawer): focus trapped
+          and restored, X / Escape / scrim close, and Back closes via useBackCloses above. */}
       {/* Shed x Vaccine behind drawer. Same structure and the same reason as the Closed, No Dose
-          drawer below: a red cell states the alarm, this names the animals behind it. Also a CHILD
-          of the scrim -- `.drawer` is parked off-canvas and only `.dscrim.on .drawer` pulls it in,
-          so mounting it as a sibling renders a dead click. */}
+          drawer below: a red cell states the alarm, this names the animals behind it. */}
       {selectedShedVaccine && (
-        <div className="dscrim on" onClick={() => setSelectedShedVaccine(null)}>
-          <aside
-            className="drawer on"
-            role="dialog"
-            aria-modal="true"
-            aria-label={copy(pageContract, "command_board.shed_vaccine.title")}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="dh">
-              <div style={{ flex: 1 }}>
-                <h3>
-                  {(selectedShedVaccine.operational_location_display || operationalLocationLabel({
-                    shedName: selectedShedVaccine.shedName,
-                    partitionLabel: selectedShedVaccine.partition_label,
-                  }))} ·{" "}
-                  {view.shedVaccineColumns.find((c) => c.code === selectedShedVaccine.vaccineCode)?.label
-                    || selectedShedVaccine.vaccineCode}
-                </h3>
-                <span>
-                  {selectedShedVaccine.state === "verifying"
-                    ? `${selectedShedVaccine.verifyingAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.verifying_of")} ${selectedShedVaccine.totalAnimals}`
-                    : selectedShedVaccine.state === "rework"
-                      ? `${selectedShedVaccine.reworkAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.rework_of")} ${selectedShedVaccine.totalAnimals}`
-                    : `${selectedShedVaccine.behindAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.behind_of")} ${selectedShedVaccine.totalAnimals}`}
-                  {selectedShedVaccine.parkName ? ` · ${selectedShedVaccine.parkName}` : ""}
-                </span>
-              </div>
-              <button
-                className="cal-nav"
-                onClick={() => setSelectedShedVaccine(null)}
-                title={copy(pageContract, "command_board.cohort_matrix.detail.close")}
-              >
-                <X className="ic" aria-hidden="true" />
-              </button>
-            </div>
+        <MinimalDrawer
+          open
+          onClose={() => setSelectedShedVaccine(null)}
+          title={`${selectedShedVaccine.operational_location_display || operationalLocationLabel({
+            shedName: selectedShedVaccine.shedName,
+            partitionLabel: selectedShedVaccine.partition_label,
+          })} · ${view.shedVaccineColumns.find((c) => c.code === selectedShedVaccine.vaccineCode)?.label
+            || selectedShedVaccine.vaccineCode}`}
+          closeLabel={copy(pageContract, "command_board.cohort_matrix.detail.close")}
+          width={DRAWER_WIDTH}
+          role="dialog"
+          aria-label={copy(pageContract, "command_board.shed_vaccine.title")}
+        >
+            <Typography variant="body2" sx={{ color: "text.secondary", px: 2.5, pt: 2, pb: 1 }}>
+              {selectedShedVaccine.state === "verifying"
+                ? `${selectedShedVaccine.verifyingAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.verifying_of")} ${selectedShedVaccine.totalAnimals}`
+                : selectedShedVaccine.state === "rework"
+                  ? `${selectedShedVaccine.reworkAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.rework_of")} ${selectedShedVaccine.totalAnimals}`
+                : `${selectedShedVaccine.behindAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.behind_of")} ${selectedShedVaccine.totalAnimals}`}
+              {selectedShedVaccine.parkName ? ` · ${selectedShedVaccine.parkName}` : ""}
+            </Typography>
             {/* The videos are SHED-and-day proof covering every animal below, so they belong once in
                 the header. Repeating a link on all 76 rows implied per-goat footage that does not
                 exist. */}
@@ -1565,7 +1541,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 </span>
               )}
             </div>
-            <div className="db">
+            <Box sx={{ pb: 2 }}>
               {/* One row per animal as a two-line card, not five columns. Five columns overflowed
                   the drawer and pushed the animal identity off the left edge behind a horizontal
                   scrollbar, leaving rows whose visible text was identical and gave the reader no way
@@ -1634,35 +1610,24 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   )}
                 </>
               )}
-            </div>
-          </aside>
-        </div>
+            </Box>
+        </MinimalDrawer>
       )}
 
       {closedDrawerOpen && (
-        <div className="dscrim on" onClick={() => setClosedDrawerOpen(false)}>
-          <aside
-            className="drawer on"
-            role="dialog"
-            aria-modal="true"
-            aria-label={copy(pageContract, "command_board.kpi.closed_without_dose")}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setClosedDrawerOpen(false);
-            }}
-          >
-            <div className="dh">
-              <div style={{ flex: 1 }}>
-                <h3>{copy(pageContract, "command_board.kpi.closed_without_dose")}</h3>
-                <span>
-                  {view.kpis.closedWithoutDose} {copy(pageContract, "command_board.closed_drawer.animals_word")}
-                </span>
-              </div>
-              <button className="cal-nav" onClick={() => setClosedDrawerOpen(false)} title={copy(pageContract, "command_board.cohort_matrix.detail.close")}>
-                <X className="ic" aria-hidden="true" />
-              </button>
-            </div>
-            <div className="db">
+        <MinimalDrawer
+          open
+          onClose={() => setClosedDrawerOpen(false)}
+          title={copy(pageContract, "command_board.kpi.closed_without_dose")}
+          closeLabel={copy(pageContract, "command_board.cohort_matrix.detail.close")}
+          width={DRAWER_WIDTH}
+          role="dialog"
+          aria-label={copy(pageContract, "command_board.kpi.closed_without_dose")}
+        >
+            <Typography variant="body2" sx={{ color: "text.secondary", px: 2.5, pt: 2 }}>
+              {view.kpis.closedWithoutDose} {copy(pageContract, "command_board.closed_drawer.animals_word")}
+            </Typography>
+            <Box sx={{ p: 2.5, overflowX: "auto" }}>
               <Table className="cbm-closed-table">
                 <TableHead>
                   <TableRow>
@@ -1712,68 +1677,53 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   {copy(pageContract, "command_board.closed_drawer.capped")} {view.kpis.closedWithoutDose}
                 </div>
               ) : null}
-            </div>
-          </aside>
-        </div>
+            </Box>
+        </MinimalDrawer>
       )}
 
       {/* Cohort matrix cell detail drawer. Opens from clicking a cohort matrix cell with the data
           already in the rendered row. Closes on X, scrim, and Escape. Only one drawer open at a time. */}
       {selectedCell && (
-        <div className="dscrim on" onClick={() => setSelectedCell(null)}>
-          <aside
-            className="drawer on"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · ${selectedCell.cohort} × ${selectedCell.vaccine}`}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setSelectedCell(null);
-            }}
-          >
-            <div className="dh">
-              <div style={{ flex: 1 }}>
-                <h3>
-                  {selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · {selectedCell.cohort} × {selectedCell.vaccine}
-                </h3>
-              </div>
-              <button className="cal-nav" onClick={() => setSelectedCell(null)} title={copy(pageContract, "command_board.cohort_matrix.detail.close")}>
-                <X className="ic" aria-hidden="true" />
-              </button>
-            </div>
-            <div className="db" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div className="metagrid">
-                <div>
-                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.detail.animals")}</div>
-                  <div className="v">{selectedCell.animals}</div>
-                </div>
-                <div>
-                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.pending_word")}</div>
-                  <div className="v">{selectedCell.pending}</div>
-                </div>
-                <div>
-                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.rework_word")}</div>
-                  <div className="v">{selectedCell.rejectedRework}</div>
-                </div>
-                <div>
-                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</div>
-                  <div className="v">{selectedCell.submitted}</div>
-                </div>
-                <div>
-                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.verified_word")}</div>
-                  <div className="v">{selectedCell.verified}</div>
-                </div>
-                <div>
-                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</div>
-                  <div className="v">
-                    {selectedCell.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
-                  </div>
-                </div>
-              </div>
+        <MinimalDrawer
+          open
+          onClose={() => setSelectedCell(null)}
+          title={`${selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · ${selectedCell.cohort} × ${selectedCell.vaccine}`}
+          closeLabel={copy(pageContract, "command_board.cohort_matrix.detail.close")}
+          width={DRAWER_WIDTH}
+          role="dialog"
+          aria-label={`${selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · ${selectedCell.cohort} × ${selectedCell.vaccine}`}
+        >
+            <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2 }}>
+              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 2 }}>
+                <Box>
+                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.detail.animals")}</Typography>
+                  <Typography variant="subtitle2" component="div">{selectedCell.animals}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</Typography>
+                  <Typography variant="subtitle2" component="div">{selectedCell.pending}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.rework_word")}</Typography>
+                  <Typography variant="subtitle2" component="div">{selectedCell.rejectedRework}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</Typography>
+                  <Typography variant="subtitle2" component="div">{selectedCell.submitted}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</Typography>
+                  <Typography variant="subtitle2" component="div">{selectedCell.verified}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</Typography>
+                  <Typography variant="subtitle2" component="div">{selectedCell.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</Typography>
+                </Box>
+              </Box>
 
               {/* The day story: which day the operator actually dosed how many animals. */}
-              <div className="cbm-drawer-section">
-                <b>{copy(pageContract, "command_board.cohort_matrix.detail.per_day")}</b>
+              <Box>
+                <Typography variant="overline" component="div" sx={{ color: "text.secondary", mb: 0.5 }}>{copy(pageContract, "command_board.cohort_matrix.detail.per_day")}</Typography>
                 {cohortDrilldown.data.days.length > 0 ? (
                   <ul className="cbm-daylist">
                     {cohortDrilldown.data.days.map((day) => (
@@ -1789,10 +1739,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     {copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
                   </span>
                 )}
-              </div>
+              </Box>
 
               {/* Sub-cohorts breakdown table */}
               {selectedCell.members.length > 0 ? (
+                <Box sx={{ overflowX: "auto" }}>
                 <Table className="cbm-cohort-detail-table">
                   <TableHead>
                     <TableRow>
@@ -1819,10 +1770,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     ))}
                   </TableBody>
                 </Table>
+                </Box>
               ) : null}
-            </div>
-          </aside>
-        </div>
+            </Box>
+        </MinimalDrawer>
       )}
     </section>
   );
