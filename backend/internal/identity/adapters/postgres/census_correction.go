@@ -21,7 +21,7 @@ import (
 // own source constant.
 const censusCorrectionSource = "counts_census_slice_correction"
 
-// censusSliceScopeSQL is the predicate every part of this write shares -- preview, count, and the
+// censusRowScopeSQL is the predicate every part of this write shares -- preview, count, and the
 // UPDATE itself -- so the number an operator confirms is the number of rows that change.
 //
 // Every column of the Counts Breakdown row participates. Dropping one would widen the correction
@@ -32,7 +32,7 @@ const censusCorrectionSource = "counts_census_slice_correction"
 //
 // The partition is normalized the same way the reclassify path normalizes it, so 'Part 1' and '1'
 // name one pen, and a shed with no pens matches on the 'whole' sentinel.
-const censusSliceScopeSQL = `
+const censusRowScopeSQL = `
     FROM goats g
     LEFT JOIN goat_shed_partitions gsp
       ON gsp.tenant_id = g.tenant_id
@@ -171,8 +171,8 @@ func (r *Repository) applyCensusSliceCorrection(ctx context.Context, tx pgx.Tx, 
 		//
 		// The breed is resolved WITHIN EACH ANIMAL'S OWN SPECIES (audit 2026-09-26): breeds are per
 		// (farm, species), and the same name can be a goat breed and a sheep breed. Resolving by name
-		// alone could link a sheep to the goat row. assertCensusSliceValue has already refused a
-		// breed that some animal's species does not carry, so the subquery always finds a row.
+		// alone could link a sheep to the goat row. The value check has already refused a breed that
+		// some animal's species does not carry, so the subquery always finds a row.
 		// scale-guard:plan-proof-exempt: the goats scope is the unchanged shared census slice predicate; the breeds subqueries only gain species = goats.species against the per-farm breeds catalogue (tens of rows).
 		statement = `
 UPDATE goats
@@ -183,13 +183,13 @@ SET breed = (SELECT btrim(b.canonical_name) FROM breeds b
                 WHERE b.tenant_id = $1::uuid AND b.species = goats.species AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
                 ORDER BY b.breed_id LIMIT 1),
     updated_at = now()
-WHERE goat_id IN (SELECT g.goat_id ` + censusSliceScopeSQL + `)`
+WHERE goat_id IN (SELECT g.goat_id ` + censusRowScopeSQL + `)`
 	case "sex":
 		statement = `
 UPDATE goats
 SET sex = btrim($7::text),
     updated_at = now()
-WHERE goat_id IN (SELECT g.goat_id ` + censusSliceScopeSQL + `)`
+WHERE goat_id IN (SELECT g.goat_id ` + censusRowScopeSQL + `)`
 	default:
 		return 0, ports.ErrCensusCorrectionField
 	}
@@ -227,7 +227,7 @@ func (r *Repository) assertCensusSliceValue(ctx context.Context, tx pgx.Tx, cmd 
 	// The breed must be an active breed OF EVERY ANIMAL'S OWN SPECIES in the slice: the dashboard
 	// offers every species' breeds, and a goat corrected to a sheep breed is a wrong fact, not a
 	// correction. It must also exist at all, which the first half answers for an empty slice.
-	// scale-guard:plan-proof-exempt: the goats side is censusSliceScopeSQL, the same bounded slice countCensusSlice already reads (one pen, one stage/breed/sex, capped by the too-large check); the NOT EXISTS probes the per-farm breeds catalogue.
+	// scale-guard:plan-proof-exempt: the goats side is censusRowScopeSQL, the same bounded census row the count already reads (one pen, one stage/breed/sex, capped by the too-large check); the NOT EXISTS probes the per-farm breeds catalogue.
 	var known, fitsEverySpecies bool
 	partitionKey := oploc.NormalizePartition(stringValue(cmd.PartitionLabel))
 	bound := sqlbind.MustBind(`
@@ -235,7 +235,7 @@ SELECT EXISTS (
          SELECT 1 FROM breeds b
          WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))),
        NOT EXISTS (
-         SELECT 1 `+censusSliceScopeSQL+`
+         SELECT 1 `+censusRowScopeSQL+`
            AND NOT EXISTS (
              SELECT 1 FROM breeds b
              WHERE b.tenant_id = g.tenant_id AND b.species = g.species AND b.status = 'active'
@@ -253,7 +253,7 @@ SELECT EXISTS (
 func (r *Repository) countCensusSlice(ctx context.Context, tx pgx.Tx, cmd ports.CorrectCensusSliceCommand) (int, error) {
 	partitionKey := oploc.NormalizePartition(stringValue(cmd.PartitionLabel))
 	var total int
-	err := tx.QueryRow(ctx, `SELECT count(*)`+censusSliceScopeSQL,
+	err := tx.QueryRow(ctx, `SELECT count(*)`+censusRowScopeSQL,
 		cmd.TenantID, cmd.ShedID, partitionKey, cmd.ManagementStage, cmd.Breed, cmd.Sex).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("identity: correct census slice: count scope: %w", err)
