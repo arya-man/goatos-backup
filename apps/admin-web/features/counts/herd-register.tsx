@@ -220,6 +220,7 @@ export async function HerdRegisterPage({
   const summaryCards = buildHerdSummary(pageContract, summaryResult.ok ? summaryResult.data : null);
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
+  const { cursor: _cursor, page: _page, cursor_stack: _stack, ...firstPageParams } = sp;
   const prevHref = hrefPreviousCursor(pathname, sp);
   const scopedPark = parkId ? locations.parks.find((p) => p.id === parkId) : null;
   const herdContext = scopedPark ? `${scopedPark.code ?? scopedPark.name} · ${copy(pageContract, "label.all_sheds")}` : copy(pageContract, "label.all_parks");
@@ -306,7 +307,7 @@ export async function HerdRegisterPage({
           subheader={herdContext}
           sx={{ pt: 2.25, px: 2.5, pb: 0, mb: 2 }}
         />
-        <HerdFiltersModalClient rowCount={goats.length} pageSize={pageSize} pageSizeOptions={pageSizeOptions} hasFilters={hasFilter} pageContract={pageContract} />
+        <HerdFiltersModalClient hasFilters={hasFilter} pageContract={pageContract} />
         {/* The footer's dense switch is the one piece of client state this server table needs, so
             the table rides into DenseTable as a server subtree rather than the page going client. */}
         <DenseTable
@@ -320,6 +321,9 @@ export async function HerdRegisterPage({
             rangeLabel: goats.length === 0 ? "0" : `${(page - 1) * pageSize + 1}–${(page - 1) * pageSize + goats.length}`,
             prevHref,
             nextHref,
+            // Rows per page belongs to the pager (template TablePagination), a new size restarts at page 1.
+            rowsPerPageHrefs: pageSizeOptions.map((size) => ({ value: size, href: hrefWithDrawerParam(pathname, firstPageParams, "limit", String(size)) })),
+            labelRowsPerPage: copy(pageContract, "filter.rows_per_page_aria"),
             prevLabel: copy(pageContract, "action.previous"),
             nextLabel: copy(pageContract, "action.next"),
           }}

@@ -1,10 +1,13 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Search } from "lucide-react";
+import { ListFilter, Search } from "lucide-react";
 import { useState, useTransition } from "react";
 import TextField from "@mui/material/TextField";
-import MenuItem from "@mui/material/MenuItem";
+import Badge from "@mui/material/Badge";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import InputAdornment from "@mui/material/InputAdornment";
 import { HerdFiltersModal } from "./herd-filters-modal";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -13,15 +16,9 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 // modal's initial chip state and preserved scope always reflect the current address bar, even after a
 // client-side filter navigation without a full reload.
 export function HerdFiltersModalClient({
-  rowCount,
-  pageSize,
-  pageSizeOptions,
   hasFilters,
   pageContract,
 }: {
-  rowCount?: number;
-  pageSize?: number;
-  pageSizeOptions: number[];
   hasFilters?: boolean;
   pageContract: AdminUiPageContract;
 }) {
@@ -29,8 +26,6 @@ export function HerdFiltersModalClient({
   const routerSearchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [isOpen, setIsOpen] = useState(false);
-  const current = routerSearchParams?.toString() ?? "";
-  const [optimisticPageSize, setOptimisticPageSize] = useState<{ from: string; value: string } | null>(null);
 
   const params: RouteSearchParams = {};
   routerSearchParams?.forEach((value, key) => {
@@ -65,56 +60,55 @@ export function HerdFiltersModalClient({
     });
   }
 
-  // Takes the chosen value directly: the MUI select reports `event.target.value`.
-  function onPageSize(value: string) {
-    setOptimisticPageSize({ from: current, value });
-    startTransition(() => {
-      router.replace(paramsWith({ limit: value }), { scroll: false });
-    });
-  }
-
-  const selectedPageSize = optimisticPageSize?.from === current ? optimisticPageSize.value : String(pageSize ?? pageSizeOptions[0]);
-
+  // Template UserTableToolbar: an outlined search field with a start adornment and the Filters
+  // button (template job/product filters: inherit Button + Badge dot while filters are active).
+  // Rows per page lives in the table pager only, never a second select up here.
   return (
     <>
-      <div className="tbar hr-tbar" style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 16px 12px", flexWrap: "wrap", overflow: "visible" }}>
-        <form onSubmit={onSearch} className="tsearch" style={{ margin: 0, minWidth: 260, flex: "1 1 280px" }}>
-          <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-          <input
+      <Box
+        sx={{
+          px: 2.5,
+          pb: 2.5,
+          gap: 2,
+          display: "flex",
+          flexDirection: { xs: "column", sm: "row" },
+          alignItems: { xs: "stretch", sm: "center" },
+          opacity: isPending ? 0.6 : 1,
+        }}
+      >
+        <Box component="form" onSubmit={onSearch} sx={{ flex: "1 1 auto", minWidth: 0 }}>
+          <TextField
+            fullWidth
             name="q"
             defaultValue={searchValue}
             disabled={isPending}
             placeholder={copy(pageContract, "filter.toolbar_placeholder")}
-            aria-label={copy(pageContract, "filter.toolbar_aria")}
+            slotProps={{
+              htmlInput: { "aria-label": copy(pageContract, "filter.toolbar_aria") },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search size={20} aria-hidden="true" />
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
-        </form>
-        <button type="button" className="btn" onClick={() => setIsOpen(true)}>
-          <Search className="ic" style={{ width: 14 }} aria-hidden="true" />
-          {copy(pageContract, "action.filters")}
-          {hasFilters ? (
-            <span className="fbadge" style={{ color: "var(--brand-d)", fontWeight: 700 }}>
-              {copy(pageContract, "filter.active_badge")}
-            </span>
-          ) : null}
-        </button>
-        <span className="muted small">{rowCount ?? 0} {copy(pageContract, "label.rows")}</span>
-        <TextField
-          select
-          label={copy(pageContract, "filter.rows_per_page_aria")}
-          value={selectedPageSize}
-          disabled={isPending}
-          title={isPending ? copy(pageContract, "state.loading") : undefined}
-          onChange={(event) => onPageSize(event.target.value)}
-          sx={{ minWidth: { xs: 0, sm: 132 }, flexShrink: 0, maxWidth: 1 }}
-          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+        </Box>
+        <Button
+          color="inherit"
+          onClick={() => setIsOpen(true)}
+          startIcon={
+            <Badge color="error" variant="dot" invisible={!hasFilters}>
+              <ListFilter size={20} aria-hidden="true" />
+            </Badge>
+          }
+          aria-label={hasFilters ? `${copy(pageContract, "action.filters")} · ${copy(pageContract, "filter.active_badge")}` : undefined}
+          sx={{ flexShrink: 0, minHeight: { xs: 44, sm: 36 } }}
         >
-          {pageSizeOptions.map((size) => (
-            <MenuItem key={String(size)} value={String(size)}>
-              {`${size} / ${copy(pageContract, "pager.page")}`}
-            </MenuItem>
-          ))}
-        </TextField>
-      </div>
+          {copy(pageContract, "action.filters")}
+        </Button>
+      </Box>
 
       <HerdFiltersModal open={isOpen} pageContract={pageContract} searchParams={params} onClose={() => setIsOpen(false)} />
     </>
