@@ -1090,8 +1090,9 @@ export async function WeighingWeightsPage({
           )}
         </Grid>
 
-        {/* The true growth charts: same-tag-twice ADG or weight, per breed, sex and stage. */}
-        <Grid size={{ xs: 12, md: 4 }}>
+        {/* The true growth charts: same-tag-twice ADG or weight. Breed (the long list) takes half the
+            row; sex and stage, usually one or two bars, share the other half. */}
+        <Grid size={{ xs: 12, lg: 6 }}>
           <MetricChart
             initialMetric={breedMetric}
             labels={metricLabels}
@@ -1114,7 +1115,7 @@ export async function WeighingWeightsPage({
             size="short"
           />
         </Grid>
-        <Grid size={{ xs: 12, md: 4 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <MetricChart
             initialMetric={sexMetric}
             labels={metricLabels}
@@ -1136,7 +1137,7 @@ export async function WeighingWeightsPage({
             size="short"
           />
         </Grid>
-        <Grid size={{ xs: 12, md: 4 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <MetricChart
             initialMetric={stageMetric}
             labels={metricLabels}

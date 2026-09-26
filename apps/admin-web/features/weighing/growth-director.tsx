@@ -3,6 +3,7 @@ import AlertTitle from "@mui/material/AlertTitle";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import { EmptyState } from "@/components/app/empty-state";
@@ -102,7 +103,6 @@ export function GrowthDirectorSection({
             value: bandTotal > 0 ? (band.animal_count / bandTotal) * 100 : 0,
             display: `${nf(band.animal_count)} ${kidsNoun}`,
           }))}
-          sx={{ height: 1 }}
         >
           {bandTotal === 0 ? <EmptyState title={copy(pageContract, "empty.no_data.body")} /> : null}
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
@@ -117,15 +117,16 @@ export function GrowthDirectorSection({
           come from that ranked array by VALUE, while the rows are LISTED alphabetically
           (maintainer decision 2026-08-24) so a reader can find the pen they came for. Each bar
           is drawn against the cohort's OWN best ("share of the leader"). */}
+      {/* Right rail: the fair-fight intro card, then one standings card per cohort under it. */}
       <Grid size={{ xs: 12, md: 6 }}>
-        <Card aria-label={gd(pageContract, "fair_fight.title")} sx={{ height: 1 }}>
+        <Stack spacing={3}>
+        <Card aria-label={gd(pageContract, "fair_fight.title")}>
           <CardHeader title={gd(pageContract, "fair_fight.title")} subheader={gd(pageContract, "fair_fight.caption")} />
           <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
             {gd(pageContract, "fair_fight.note")}
           </Typography>
           {fairFight.cohorts.length === 0 ? <EmptyState title={noData} description={gd(pageContract, "fair_fight.empty")} /> : null}
         </Card>
-      </Grid>
       {fairFight.cohorts.map((cohort) => {
         const ranked = cohort.sheds;
         const best = ranked[0];
@@ -137,8 +138,8 @@ export function GrowthDirectorSection({
         const spread = ranked.length > 1 ? best.median_adg_g_per_day - last.median_adg_g_per_day : null;
         const kids = ranked.reduce((sum, shed) => sum + shed.pair_identities, 0);
         return (
-          <Grid key={`${cohort.breed}-${cohort.sex}`} size={{ xs: 12, md: 6 }}>
             <EcommerceSalesOverview
+              key={`${cohort.breed}-${cohort.sex}`}
               aria-label={`${gd(pageContract, "fair_fight.title")} — ${cohort.breed} ${cohort.sex}`}
               title={`${cohort.breed} · ${cohort.sex}`}
               subheader={`${nf(sheds.length)} ${gd(pageContract, "fair_fight.shed_noun")} · ${nf(kids)} ${kidsNoun}`}
@@ -165,7 +166,6 @@ export function GrowthDirectorSection({
                   ),
                 };
               })}
-              sx={{ height: 1 }}
             >
               {spread === null ? null : (
                 <Typography variant="body2" sx={{ color: "text.secondary" }}>
@@ -176,9 +176,10 @@ export function GrowthDirectorSection({
                 </Typography>
               )}
             </EcommerceSalesOverview>
-          </Grid>
         );
       })}
+        </Stack>
+      </Grid>
     </Grid>
   );
 }

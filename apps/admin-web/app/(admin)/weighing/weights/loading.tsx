@@ -1,15 +1,24 @@
-import { ChartCardSkeleton, FilterCardSkeleton, GridSkeleton, HeadingSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
+import { ChartCardSkeleton, FilterCardSkeleton, GridSkeleton, KpiCardSkeleton, PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
 
-/** /weighing/weights: header + export, the filter card, the meta line, the KPI decks, the breed / sex / stage charts. */
+/**
+ * /weighing/weights: header + download, the filter card, four EcommerceWidgetSummary cards, the
+ * sale-ready ring (lg 4) beside breed-wise daily gain (lg 8), then breed (lg 6) / sex / stage (lg 3).
+ */
 export default function Loading() {
   return (
-    <PageSkeleton root="weights-page">
+    <PageSkeleton gap={3} root="">
       <PageHeaderSkeleton actions={1} />
-      <FilterCardSkeleton fields={[200, 260, 200, 160]} />
-      <HeadingSkeleton variant="body2" width={320} />
-      <KpiRowSkeleton count={5} shapes={[{}, { parts: true }, {}, {}, {}]} />
-      <KpiRowSkeleton count={1} spark trend />
-      <GridSkeleton items={[0, 1, 2].map(() => ({ size: { xs: 12, md: 4 }, node: <ChartCardSkeleton height={260} /> }))} />
+      <FilterCardSkeleton fields={[160, 260, 160, 160, 160]} />
+      <GridSkeleton
+        items={[
+          ...Array.from({ length: 4 }, () => ({ size: { xs: 12, sm: 6, lg: 3 }, node: <KpiCardSkeleton hint /> })),
+          { size: { xs: 12, md: 6, lg: 4 }, node: <ChartCardSkeleton height={420} subheader /> },
+          { size: { xs: 12, md: 6, lg: 8 }, node: <ChartCardSkeleton height={420} subheader legend /> },
+          { size: { xs: 12, lg: 6 }, node: <ChartCardSkeleton height={360} action /> },
+          { size: { xs: 12, sm: 6, lg: 3 }, node: <ChartCardSkeleton height={360} action /> },
+          { size: { xs: 12, sm: 6, lg: 3 }, node: <ChartCardSkeleton height={360} action /> },
+        ]}
+      />
     </PageSkeleton>
   );
 }
