@@ -302,9 +302,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* A table skeleton is a table card: paper, radius, hairline rows, header band — the shape it resolves into. */
 .screen[aria-busy="true"] .kit-sk-rows:not(.card .kit-sk-rows){background:var(--paper);border-radius:16px;box-shadow:var(--shadow-card);overflow:clip}
 /* Tab-level skeletons sit inside their table card, never wider than it (owner shot ravi-shots/32). */
-.wt-tab-skeleton{display:block;min-height:0;padding:0;overflow:clip}
-.wt-tab-skeleton .wt-skel-head{padding:20px 24px 12px}
-.wt-tab-skeleton .kit-sk-rows{min-width:0;max-width:100%}
 .kit-sk-rows .kit-skeleton{max-width:100%}
 /* A status chip is never a bar: it hugs its text even inside a stretched flex column / grid cell. */
 .tag{align-self:flex-start;justify-self:start;width:max-content;max-width:100%}
@@ -361,14 +358,9 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .kit-tabs-pending{position:relative}
 .kit-tabs-pending::after{content:"";position:absolute;left:0;bottom:0;height:2px;width:100%;background:linear-gradient(90deg,transparent,var(--primary),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:kit-tabs-progress 900ms linear infinite;pointer-events:none}
 /* The page body dims (not the header, not the strip that is navigating) and stops taking pointer
-   input while a link strip's server navigation is in flight; past 300ms the body gives way to the
-   route's own loading skeleton (components/kit/link-nav-pending.tsx sets the flags on .wrap).
-   `filter` rather than `opacity` so it composes cleanly with any page-level fade. */
+   input while a link strip's navigation is in flight (components/app/link-nav-pending.tsx). */
 .wrap[data-nav-pending]>:not(.kit-navpend)>*:not(.phead):not(header):not(.kit-tabs):not(.metricseg):not(:has(.kit-tabs-pending)):not(:has(.metricseg-pending)){filter:opacity(.6);pointer-events:none;transition:filter 150ms var(--ease)}
-.wrap[data-nav-skeleton]>:not(.kit-navpend)>*:not(.phead):not(header):not(.kit-tabs):not(.metricseg):not(:has(.kit-tabs-pending)):not(:has(.metricseg-pending)){display:none}
 .kit-navpend:empty{display:none}
-.kit-navpend-skel>.screen,.kit-navpend-skel>.kit-page{animation:none}
-.kit-navpend-skel>.screen>*,.kit-navpend-skel>.kit-page>*{animation:none;opacity:1;transform:none}
 @keyframes kit-tabs-progress{from{background-position:-40% 0}to{background-position:140% 0}}
 @media(prefers-reduced-motion:reduce){.kit-tabs-pending::after{animation:none;background:var(--primary);background-size:100% 100%}}
 /* skeletons paint immediately on busy roots (hard-nav must show shape at once) */

@@ -13,9 +13,10 @@
 // waiting for the server round trip.
 //
 // It renders NO copy of its own: labels arrive already resolved from the page contract.
-import { useEffect, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { shownTabValue } from "@/components/app/url-tab-nav";
+import { useUrlTabNav } from "@/components/app/use-url-tab-nav";
 
 export type SegmentedOption = {
   /** Stable identity for this option, compared against `current`. */
@@ -35,28 +36,20 @@ export function SegmentedLinks({
   /** Already resolved from the page contract by the caller; omitted when the group is unlabelled. */
   ariaLabel?: string;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const navKey = `${pathname}?${searchParams.toString()}`;
-  // Optimistic selection. Cleared implicitly on the next render with a new `current`, so a
-  // navigation that fails or is superseded falls back to the server's answer rather than leaving
-  // a segment highlighted for something that never happened.
-  const [optimistic, setOptimistic] = useState<{ value: string; navKey: string } | null>(null);
-  const isPending = optimistic !== null && optimistic.navKey === navKey;
-  const selected = isPending ? optimistic.value : current;
+  // The pressed segment is drawn selected at once and the page stays on screen while the
+  // navigation runs in a transition (see useUrlTabNav).
+  const { pendingValue, isPending, navigate } = useUrlTabNav();
+  const selected = shownTabValue(current, pendingValue);
   // The scroll position at the moment of the click, restored once the navigation settles.
   //
-  // Next router scroll suppression did not hold on these long pages: the navigation is genuinely
-  // client-side (a marker set on `window` survives it) and the position still resets to 0 from
-  // ~2,600px. The position is restored here, which is what keeps the reader beside the chart they
-  // just toggled.
+  // Next router scroll suppression did not hold on these long pages: the position still reset to
+  // 0 from ~2,600px. The position is restored here, which is what keeps the reader beside the chart
+  // they just toggled.
   //
   // Restored only when a pending transition ENDS, so it never fights an ordinary scroll: `pending`
   // is the trigger, and the ref is cleared as soon as it is used.
   const restoreTo = useRef<number | null>(null);
   const wasPending = useRef(false);
-  const fallbackTimer = useRef<number | null>(null);
   useEffect(() => {
     if (isPending) {
       wasPending.current = true;
@@ -74,14 +67,6 @@ export function SegmentedLinks({
     window.scrollTo({ top: Math.min(target, max), behavior: "instant" as ScrollBehavior });
   }, [isPending]);
 
-  useEffect(() => {
-    if (!isPending) return undefined;
-    const timer = window.setTimeout(() => {
-      setOptimistic(null);
-    }, 8000);
-    return () => window.clearTimeout(timer);
-  }, [isPending]);
-
   return (
     <SegmentTabs
       className={isPending ? "metricseg metricseg-pending" : "metricseg"}
@@ -93,24 +78,9 @@ export function SegmentedLinks({
         label: option.label,
         href: option.href,
         onClick: (event: React.MouseEvent<HTMLElement>) => {
-          // Modified clicks (new tab, new window, download) are left to the browser — these are
-          // real links with real hrefs, and hijacking them would break open-in-new-tab.
-          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
-            return;
-          }
-          event.preventDefault();
-          setOptimistic({ value: option.value, navKey });
           restoreTo.current = window.scrollY;
-          if (fallbackTimer.current !== null) {
-            window.clearTimeout(fallbackTimer.current);
-            fallbackTimer.current = null;
-          }
-          window.dispatchEvent(
-            new CustomEvent("metricseg:navigate", {
-              detail: { value: option.value, href: option.href },
-            }),
-          );
-          router.push(option.href, { scroll: false });
+          // Fires metricseg:navigate (LinkNavPending dims the body) and pushes in a transition.
+          navigate(event, option.value, option.href);
         },
       }))}
     />

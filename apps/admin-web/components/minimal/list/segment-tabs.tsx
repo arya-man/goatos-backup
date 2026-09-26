@@ -2,13 +2,17 @@
 
 // The template's segmented tab strip: MUI Tabs with indicatorColor="custom" (theme/core/components/
 // tabs.tsx — the white/grey pill indicator), one scrollable row. Presentation only: each tab is a
-// real link (href) or a button, and the caller owns what a click does.
+// real link (href) or a button, and the caller owns what a click does. A link tab the caller does not
+// handle (no preventDefault) navigates in a transition (useUrlTabNav): the page stays on screen and
+// the pressed tab is drawn selected at once.
 import type { Theme, SxProps } from '@mui/material/styles';
 
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 
 import Link from '@/components/no-prefetch-link';
+import { shownTabValue } from '@/components/app/url-tab-nav';
+import { useUrlTabNav } from '@/components/app/use-url-tab-nav';
 
 export type SegmentTab = {
   value: string;
@@ -33,21 +37,26 @@ export type SegmentTabsProps = {
 };
 
 export function SegmentTabs({ value, tabs, ariaLabel, busy, keepScroll = false, className, sx }: SegmentTabsProps) {
-  const known = tabs.some((tab) => tab.value === value);
+  const { pendingValue, navigate } = useUrlTabNav();
+  const shown = shownTabValue(value, pendingValue);
+  const known = tabs.some((tab) => tab.value === shown);
   return (
     <Tabs
-      value={known ? value : false}
+      value={known ? shown : false}
       indicatorColor="custom"
       variant="scrollable"
       scrollButtons={false}
       aria-label={ariaLabel}
-      aria-busy={busy || undefined}
+      aria-busy={busy || pendingValue !== null || undefined}
       className={className}
       sx={[{ width: 'fit-content', maxWidth: '100%' }, ...(Array.isArray(sx) ? sx : [sx])]}
     >
       {tabs.map((tab) =>
         tab.href ? (
-          <Tab key={tab.value} value={tab.value} label={tab.label} component={Link} href={tab.href} scroll={keepScroll ? false : undefined} onClick={tab.onClick} disabled={tab.disabled} data-testid={tab.testId} />
+          <Tab key={tab.value} value={tab.value} label={tab.label} component={Link} href={tab.href} scroll={keepScroll ? false : undefined} onClick={(event: React.MouseEvent<HTMLElement>) => {
+            tab.onClick?.(event);
+            navigate(event, tab.value, tab.href as string);
+          }} disabled={tab.disabled} data-testid={tab.testId} />
         ) : (
           <Tab key={tab.value} value={tab.value} label={tab.label} onClick={tab.onClick} disabled={tab.disabled} data-testid={tab.testId} />
         ),

@@ -8,10 +8,6 @@ const analyticsRouteSource = readFileSync(
   new URL("../../app/(admin)/weighing/analytics/page.tsx", import.meta.url),
   "utf8",
 );
-const analyticsTabLoadingSource = readFileSync(
-  new URL("./weights-analytics-tab-loading.tsx", import.meta.url),
-  "utf8",
-);
 const landingSource = readFileSync(new URL("./landing-window.ts", import.meta.url), "utf8");
 const landingConstantsSource = readFileSync(
   new URL("./landing-window-constants.ts", import.meta.url),
@@ -167,24 +163,22 @@ test("weights analytics time-wise uses the same selected/default period as every
   assert.doesNotMatch(contract, /not moved by the period filter/);
 });
 
-test("analytics tab changes expose a visible pending state", () => {
+test("analytics tab changes keep the page and show pending on the strip", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
   assert.doesNotMatch(analyticsSource, /pendingLabel=/);
   assert.doesNotMatch(segmentedLinksSource, /pendingLabel\?: string/);
   assert.match(segmentedLinksSource, /metricseg metricseg-pending/);
   assert.doesNotMatch(segmentedLinksSource, /metricseg-status/);
-  assert.match(segmentedLinksSource, /metricseg:navigate/);
+  assert.match(segmentedLinksSource, /useUrlTabNav\(\)/);
   assert.doesNotMatch(segmentedLinksSource, /router\.prefetch/);
   assert.doesNotMatch(segmentedLinksSource, /from "next\/link"/);
   assert.match(segmentedLinksSource, /busy=\{isPending\}/);
-  assert.match(analyticsSource, /<WeightsAnalyticsTabLoading[\s\S]*currentTab=\{tab\}[\s\S]*tabLabels=\{/);
-  assert.match(analyticsSource, /className="wt-tab-live"/);
-  assert.match(analyticsTabLoadingSource, /window\.addEventListener\("metricseg:navigate"/);
-  assert.match(analyticsTabLoadingSource, /classList\.add\("wt-tab-switching"\)/);
-  assert.match(analyticsTabLoadingSource, /wt-tab-skeleton/);
+  // No pending-tab skeleton swaps the live panel out: the old panel stays (dimmed) until the new
+  // one is ready (maintainer P0: a tab click must not flash the page to a shimmer).
+  assert.ok(!existsSync(new URL("./weights-analytics-tab-loading.tsx", import.meta.url)));
+  assert.doesNotMatch(analyticsSource, /WeightsAnalyticsTabLoading/);
   assert.match(css, /\.metricseg-pending\{/);
-  assert.match(css, /\.wt-tab-switching \.wt-tab-live\{display:none\}/);
-  assert.match(css, /\.wt-tab-skeleton\{/);
+  assert.doesNotMatch(css, /\.wt-tab-switching/);
   assert.doesNotMatch(css, /\.metricseg-status\{/);
 });
 

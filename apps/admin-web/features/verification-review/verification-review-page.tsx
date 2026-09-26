@@ -1,3 +1,5 @@
+// A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
+import Form from "next/form";
 import { Label } from "@/components/minimal/label";
 import { FilterChip } from "@/components/minimal/list/filter-chip";
 import Table from "@mui/material/Table";
@@ -473,7 +475,7 @@ export async function VerificationReviewPage({
           />
         ) : null}
 
-        <form action={PATHNAME} className="vr-filter-form">
+        <Form action={PATHNAME} prefetch={false} className="vr-filter-form">
           {/* vd_from / vd_to are NOT excluded: Apply must preserve the selected capture date.
               category is rendered by the subcategory checkboxes below so multi-select stays real. */}
           {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code", "va_fields", "va_entries"])}
@@ -591,7 +593,7 @@ export async function VerificationReviewPage({
             </button>
           ) : null}
         </div>
-        </form>
+        </Form>
         </Box>
 
         <div className="vr-results-zone" aria-live="polite" aria-busy="false">

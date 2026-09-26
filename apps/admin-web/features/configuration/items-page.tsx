@@ -1,3 +1,5 @@
+// A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
+import Form from "next/form";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -530,7 +532,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
           ) : null}
 
           <div className="tbar">
-            <form method="get" action={ITEMS_PATH} className="tsearch" role="search">
+            <Form action={ITEMS_PATH} prefetch={false} className="tsearch" role="search">
               <input type="hidden" name={PARAM_REGISTER} value={params.register} />
               {params.status !== "active" ? <input type="hidden" name={PARAM_STATUS} value={params.status} /> : null}
               {Object.entries(params.filters).map(([key, value]) => (
@@ -538,7 +540,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
               ))}
               <Search className="ic" aria-hidden="true" />
               <input name={PARAM_Q} defaultValue={params.q ?? ""} placeholder={`${c("search.placeholder")} ${(register?.label ?? "").toLowerCase()}`} aria-label={c("search.placeholder")} />
-            </form>
+            </Form>
             {filterColumns.filter((column) => !(isCatalogue && column.key === "category_id")).map((column) => {
               const enumOptions: ConfigurationRefOption[] | null = column.type === "enum" ? (column.options ?? []).map((option) => ({ id: option.value, label: option.label })) : null;
               const opts = (enumOptions ?? data.options[column.ref ?? ""] ?? []).filter((option) => {

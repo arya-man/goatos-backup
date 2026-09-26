@@ -9,6 +9,8 @@ import ListItemText from "@mui/material/ListItemText";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Link from "@/components/no-prefetch-link";
+import { shownTabValue } from "@/components/app/url-tab-nav";
+import { useUrlTabNav } from "@/components/app/use-url-tab-nav";
 
 export type PassportCoverTab = { value: string; href: string; label: string };
 
@@ -23,6 +25,7 @@ export function PassportCover({
   selectedTab: string;
   tabs: PassportCoverTab[];
 }) {
+  const { pendingValue, navigate } = useUrlTabNav();
   return (
     <MuiCard sx={{ height: { xs: 290 }, position: "relative" }}>
       <Box
@@ -82,9 +85,9 @@ export function PassportCover({
           justifyContent: { xs: "center", md: "flex-end" },
         }}
       >
-        <Tabs value={selectedTab} variant="scrollable" allowScrollButtonsMobile>
+        <Tabs value={shownTabValue(selectedTab, pendingValue)} aria-busy={pendingValue !== null || undefined} variant="scrollable" allowScrollButtonsMobile>
           {tabs.map((tab) => (
-            <Tab key={tab.value || "summary"} component={Link} value={tab.value} href={tab.href} label={tab.label} />
+            <Tab key={tab.value || "summary"} component={Link} value={tab.value} href={tab.href} label={tab.label} onClick={(event: React.MouseEvent<HTMLElement>) => navigate(event, tab.value, tab.href)} />
           ))}
         </Tabs>
       </Box>

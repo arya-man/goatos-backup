@@ -21,13 +21,14 @@ async function bundle(dir) {
   const link = path.join(dir, "link.js");
   await writeFile(navigation, `import {useSyncExternalStore} from 'react';
     export function usePathname(){return useSyncExternalStore(window.bell.subscribe,()=>window.bell.pathname);}
-    export function useServerInsertedHTML(){}`);
+    export function useServerInsertedHTML(){}
+    export function useRouter(){return {push(){},replace(){}};}`);
   const feedClient = path.join(dir, "feed-client.js");
   await writeFile(feedClient, `export const fetchNotificationFeed=()=>window.bell.read();
     export const fetchNotificationBadge=async()=>{window.bell.badges++;return {ok:true,unreadCount:1}};`);
   await writeFile(path.join(dir, "empty.js"), "export {};");
   await writeFile(actions, `export const markNotificationsReadAction=async(ids)=>{window.bell.marks+=ids.length;return {ok:true,readCount:ids.length}};`);
-  await writeFile(link, `import React from 'react';export default React.forwardRef(function Link({prefetch,...props},ref){return React.createElement('a',{...props,ref})});`);
+  await writeFile(link, `import React from 'react';export default React.forwardRef(function Link({prefetch,...props},ref){return React.createElement('a',{...props,ref})});export const useLinkStatus=()=>({pending:false});`);
   await writeFile(path.join(dir, "css-loader.cjs"), "module.exports=function(){return 'export default new Proxy({},{get:(_,k)=>typeof k===\\'string\\'?k:undefined});'};");
   await writeFile(path.join(dir, "loader.cjs"), `const ts=require(${JSON.stringify(require.resolve("typescript"))});
     module.exports=function(source){return ts.transpileModule(source,{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2020},fileName:this.resourcePath}).outputText};`);

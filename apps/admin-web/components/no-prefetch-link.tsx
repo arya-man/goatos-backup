@@ -1,4 +1,4 @@
-import NextLink, { useLinkStatus } from "next/dist/client/link";
+import NextLink, { useLinkStatus } from "next/link";
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
 
 // Props are taken from NextLink ITSELF rather than rebuilt from AnchorHTMLAttributes + LinkProps.

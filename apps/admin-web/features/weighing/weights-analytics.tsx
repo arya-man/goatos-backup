@@ -52,7 +52,6 @@ import {
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
 import { SEX_ALL, resolveSexFilter, sexControlValue } from "./sex-filter";
 import { weightsSexChoices } from "./sex-filter-contract";
-import { WeightsAnalyticsTabLoading } from "./weights-analytics-tab-loading";
 
 const PAGE_PATH = "/weighing/analytics";
 const SEX_PARAM = "sex";
@@ -512,16 +511,7 @@ export async function WeighingWeightsAnalyticsPage({
         pageContract={pageContract}
       />
 
-      {/* Centred, not left-flush: this strip is the page's primary navigation across five views of
-          one dataset, and hard against the left edge it read as another filter belonging to the bar
-          above it rather than as the control that changes the whole screen. */}
-      <WeightsAnalyticsTabLoading
-        currentTab={tab}
-        tabLabels={Object.fromEntries(TABS.map((name) => [name, copy(pageContract, `tab.${name}`)]))}
-      />
-
-
-      <div className="wt-tab-live">
+      <div>
         {tabReadFailed ? <WeightsAnalyticsErrorCard pageContract={pageContract} /> : null}
         {!tabReadFailed && tab === "general" ? (
           <GeneralTab

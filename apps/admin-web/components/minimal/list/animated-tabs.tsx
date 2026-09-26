@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
-import { Children, Component, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Children, Component, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { varAlpha } from "minimal-shared/utils";
 import Box from "@mui/material/Box";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { Label } from "@/components/minimal/label";
+import { shownTabValue } from "@/components/app/url-tab-nav";
+import { useUrlTabNav } from "@/components/app/use-url-tab-nav";
 import { cx } from "@/lib/tone";
 
 export type AnimatedTabItem = {
@@ -38,14 +40,14 @@ export type AnimatedTabsProps = {
 
 /**
  * The tab strip: the template's MUI `Tabs` + `Tab`, counts as `Label`s (as in the template user
- * list). One scrollable row at every width. Link-driven strips navigate on the server, so the
- * clicked tab becomes active NOW and the strip shows a pending line until the URL catches up; a
- * stale guess is dropped the moment `value` moves.
+ * list). One scrollable row at every width. Link-driven strips navigate in a transition
+ * (`useUrlTabNav`): the page stays on screen, the clicked tab becomes active NOW and the strip shows
+ * a pending line until the new page is ready.
  */
 export const AnimatedTabs = memo(function AnimatedTabs({ items, value, onChange, variant = "underline", ariaLabel, className, countTone, scrollButtons, sx }: AnimatedTabsProps) {
-  const [optimistic, setOptimistic] = useState<string | null>(null);
-  const active = optimistic && optimistic !== value ? optimistic : value;
-  const pending = optimistic !== null && optimistic !== value;
+  const { pendingValue, navigate } = useUrlTabNav();
+  const active = shownTabValue(value, pendingValue);
+  const pending = pendingValue !== null;
   const known = items.some((item) => item.value === active);
 
   return (
@@ -96,12 +98,9 @@ export const AnimatedTabs = memo(function AnimatedTabs({ items, value, onChange,
               component={Link}
               href={href}
               scroll={false}
-              onClick={() => {
-                setOptimistic(item.value);
+              onClick={(event: MouseEvent<HTMLElement>) => {
                 onChange?.(item.value);
-                // Same event the segmented links fire, so a route's pending-tab skeleton
-                // (WeightsAnalyticsTabLoading) works under the strip without a callback prop.
-                window.dispatchEvent(new CustomEvent("metricseg:navigate", { detail: { value: item.value, href } }));
+                navigate(event, item.value, href);
               }}
             />
           );

@@ -4,31 +4,26 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { RouteSkeleton } from "@/components/route-skeleton";
+import { URL_NAV_EVENT, isCurrentUrl, type UrlNavDetail } from "@/components/app/url-tab-nav";
 
-/** The page keeps its content, dimmed, for this long; past it the route skeleton replaces the body. */
-export const LINK_NAV_SKELETON_AFTER_MS = 300;
 /** A navigation that never lands (a redirect elsewhere, a failed fetch) stops looking pending after this. */
 const LINK_NAV_GIVE_UP_MS = 8000;
-
-type Pending = { href: string; navKey: string; startedAt: number };
 
 function navKeyOf(pathname: string | null, search: string): string {
   return `${pathname ?? "/"}?${search}`;
 }
 
 /**
- * Feedback for every LINK-driven strip (kit `AnimatedTabs` with hrefs, `SegmentedLinks`).
+ * Page-level feedback for every URL-driven strip (kit `AnimatedTabs` with hrefs, `SegmentedLinks`).
  *
- * Those strips navigate on the server: the click is followed by a 0.5–2s round trip in which the
- * old page stays exactly as it was. The strip itself moves its indicator at once and shows the
- * progress line, and both dispatch `metricseg:navigate`; this component, mounted once in the shell
- * beside the page, turns that event into page-level feedback: `data-nav-pending` on the page
- * column dims the body and blocks its pointer (app/frame.css), and past 300ms `data-nav-skeleton`
- * hides the body and shows the route's own loading skeleton in its place — the same one a hard
- * load of the route paints — until the URL catches up. It clears the moment the router lands on
- * ANY new URL (a redirect counts as landing), and gives up after 8s so a failed navigation never
- * leaves the page dimmed.
+ * Those strips navigate in a transition (`useUrlTabNav`): the router keeps the current page on
+ * screen until the new one is ready. The strip moves its indicator at once and shows its progress
+ * line; this component, mounted once in the shell beside the page, turns the strip's
+ * `metricseg:navigate` event into `data-nav-pending` on the page column, which dims the body below
+ * the header and the navigating strip and blocks its pointer (app/frame.css). The header, crumbs,
+ * strip and filters never unmount and the page is never swapped for a skeleton. It clears the
+ * moment the router lands on ANY new URL (a redirect counts as landing), and gives up after 8s so a
+ * failed navigation never leaves the page dimmed.
  *
  * It renders no copy of its own.
  */
@@ -36,70 +31,38 @@ export function LinkNavPending() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const navKey = navKeyOf(pathname, searchParams?.toString() ?? "");
-  const [pending, setPending] = useState<Pending | null>(null);
-  // The navigation that has been in flight past the skeleton threshold, by the URL it left from.
-  const [slowFrom, setSlowFrom] = useState<string | null>(null);
+  // The URL the click left from. Pending only while the URL is still that one: the moment the
+  // router lands anywhere (the target, or a redirect) the flag is inert without any state to clear.
+  const [pendingFrom, setPendingFrom] = useState<string | null>(null);
   const root = useRef<HTMLDivElement | null>(null);
-  // Pending only while the URL is still the one the click left from: the moment the router lands
-  // anywhere (the target, or a redirect), both flags are inert without any state to clear. A stale
-  // record is overwritten by the next click.
-  const active = pending !== null && pending.navKey === navKey;
-  const slow = active && slowFrom === pending.navKey;
+  const active = pendingFrom !== null && pendingFrom === navKey;
 
   useEffect(() => {
     const onNavigate = (event: Event) => {
-      const detail = (event as CustomEvent<{ href?: string }>).detail;
-      const href = detail?.href;
-      if (!href) return;
-      // A click on the tab already selected is not a navigation.
-      let target: string;
-      try {
-        const url = new URL(href, window.location.origin);
-        target = navKeyOf(url.pathname, url.searchParams.toString());
-      } catch {
-        return;
-      }
-      const current = navKeyOf(window.location.pathname, new URLSearchParams(window.location.search).toString());
-      if (target === current) return;
-      setPending({ href, navKey: current, startedAt: Date.now() });
+      const href = (event as CustomEvent<Partial<UrlNavDetail>>).detail?.href;
+      if (!href || isCurrentUrl(href, window.location)) return;
+      setPendingFrom(navKeyOf(window.location.pathname, new URLSearchParams(window.location.search).toString()));
     };
-    window.addEventListener("metricseg:navigate", onNavigate);
-    return () => window.removeEventListener("metricseg:navigate", onNavigate);
+    window.addEventListener(URL_NAV_EVENT, onNavigate);
+    return () => window.removeEventListener(URL_NAV_EVENT, onNavigate);
   }, []);
 
   useEffect(() => {
     if (!active) return undefined;
-    const from = pending.navKey;
-    const skeletonTimer = window.setTimeout(() => setSlowFrom(from), LINK_NAV_SKELETON_AFTER_MS);
-    const giveUp = window.setTimeout(() => setPending((prev) => (prev && prev.navKey === from ? null : prev)), LINK_NAV_GIVE_UP_MS);
-    return () => {
-      window.clearTimeout(skeletonTimer);
-      window.clearTimeout(giveUp);
-    };
-  }, [active, pending]);
+    const from = pendingFrom;
+    const giveUp = window.setTimeout(() => setPendingFrom((prev) => (prev === from ? null : prev)), LINK_NAV_GIVE_UP_MS);
+    return () => window.clearTimeout(giveUp);
+  }, [active, pendingFrom]);
 
-  // The flags live on the page column (this component's parent), so the CSS can reach the page
+  // The flag lives on the page column (this component's parent), so the CSS can reach the page
   // root and its strips as siblings without the page knowing this component exists.
   useEffect(() => {
     const column = root.current?.parentElement;
     if (!column) return undefined;
     if (active) column.setAttribute("data-nav-pending", "true");
     else column.removeAttribute("data-nav-pending");
-    if (active && slow) column.setAttribute("data-nav-skeleton", "true");
-    else column.removeAttribute("data-nav-skeleton");
-    return () => {
-      column.removeAttribute("data-nav-pending");
-      column.removeAttribute("data-nav-skeleton");
-    };
-  }, [active, slow]);
+    return () => column.removeAttribute("data-nav-pending");
+  }, [active]);
 
-  return (
-    <div ref={root} className="kit-navpend" aria-hidden={!(active && slow)} data-active={active ? "true" : undefined}>
-      {active && slow ? (
-        <div className="kit-navpend-skel" aria-live="polite" aria-busy="true">
-          <RouteSkeleton />
-        </div>
-      ) : null}
-    </div>
-  );
+  return <div ref={root} className="kit-navpend" aria-hidden="true" data-active={active ? "true" : undefined} />;
 }
