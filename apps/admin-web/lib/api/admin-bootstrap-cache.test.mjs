@@ -73,3 +73,26 @@ test("keeps a recently used entry past its TTL so it can still revalidate by ETa
   assert.equal(calls, 2);
   assert.equal(cache.size, 1);
 });
+
+// A Configuration save (a new species, gender, breed ...) must reach every other screen's pickers
+// on the next page load, not after the TTL (47 s observed 2026-09-26). expireAll forces that one
+// revalidation, still by ETag, so an unchanged contract costs only a 304.
+test("expireAll makes the next read revalidate within the TTL and pick up a changed contract", async () => {
+  let now = 0;
+  let version = "one";
+  const seenEtags = [];
+  const cache = new AdminBootstrapCache(() => now);
+  const authority = { baseUrl: "http://api", tenantId: "tenant", bearerToken: "token-a" };
+  const fetcher = async (etag) => {
+    seenEtags.push(etag);
+    if (etag === `W/"${version}"`) return { data: null, status: 304, etag };
+    return { data: { value: version, cache_policy: { etag: `W/"${version}"`, in_process_ttl_sec: 60 } }, status: 200, etag: `W/"${version}"` };
+  };
+  assert.equal((await cache.get(authority, fetcher)).value, "one");
+  version = "two"; // a species was added; the backend's revision moved
+  now = 5_000; // well inside the TTL
+  assert.equal((await cache.get(authority, fetcher)).value, "one", "without expireAll the old list is served");
+  cache.expireAll();
+  assert.equal((await cache.get(authority, fetcher)).value, "two", "after expireAll the new list is served at once");
+  assert.deepEqual(seenEtags, [undefined, 'W/"one"']);
+});

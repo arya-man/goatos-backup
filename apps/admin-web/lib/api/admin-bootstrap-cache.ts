@@ -76,6 +76,17 @@ export class AdminBootstrapCache<T extends { cache_policy: BootstrapCachePolicy 
     return result.data;
   }
 
+  /**
+   * Marks every held contract stale, so the next read revalidates with its ETag. Called after a
+   * write that changes a vocabulary the contract compiles (Configuration > Items & settings): the
+   * backend bumps that family's revision, the ETag no longer matches, and the new contract comes
+   * back at once instead of after the advertised TTL (up to a minute, seen at 47 s on 2026-09-26).
+   * The ETag is kept, so an unchanged contract still costs only a 304.
+   */
+  expireAll(): void {
+    for (const entry of this.entries.values()) entry.expiresAt = 0;
+  }
+
   /** Number of contracts currently held; exposed so tests can pin the heap bound. */
   get size(): number {
     return this.entries.size;
