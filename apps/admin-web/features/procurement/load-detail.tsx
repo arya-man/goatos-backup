@@ -1,5 +1,4 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -11,19 +10,19 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
 import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import MuiLink from "@mui/material/Link";
 import Link from "@/components/no-prefetch-link";
-import { PageHeader } from "@/components/app/page-header";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { OrderDetailsToolbar } from "@/components/minimal/sections/order/order-details-toolbar";
+import { OrderDetailsHistory, type OrderHistoryItem } from "@/components/minimal/sections/order/order-details-history";
+import { OrderDetailsCustomer } from "@/components/minimal/sections/order/order-details-customer";
+import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
 import { PagedRows } from "@/components/app/paged-rows";
 import { redirect } from "next/navigation";
-import {
-  ArrowLeft,
-  ClipboardCheck,
-  Flag,
-  HeartPulse,
-  PackageCheck,
-  Truck,
-  Warehouse,
-} from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getProtocolVersion, listLocations, listProtocolConfigs, type LocationSummary } from "@/lib/api/server";
 import { listAllFeedConfigPens } from "@/lib/api/herd-locations";
@@ -42,13 +41,12 @@ import type {
 import { fmtDate, fmtDateTime, shortId } from "@/lib/format";
 import { hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import { actionFeedbackCopy, copy, optionLabel, optionTitle, optionTone, optionalOption, readableOptionKey, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { Tag } from "@/components/ui-primitives";
+import { Tag, TONE_COLOR } from "@/components/ui-primitives";
 import type { Tone } from "@/components/ui-primitives";
 import { LoadWriteActions } from "./load-forms";
 import type { HfRuleOption } from "./hf-rule-picker";
 import type { ProcurementLocationOption, ProcurementLocations } from "./location-selects";
 import {
-  TONE_SWATCH,
   isAcceptedIntake,
   isProcurementHistoryOnly,
   warmupMeta,
@@ -197,6 +195,56 @@ function WarmupTag({ days, purpose, pageContract }: { days: number | null | unde
   );
 }
 
+// ---- Template detail blocks ----
+// Every secondary record set is the template order-details card: Card + CardHeader (title, a soft
+// Label count as the header action, an optional subheader note) with the table scrolling inside the
+// card's Scrollbar (the template's order-details-items Scrollbar box), never past the page edge.
+function DetailTableCard({
+  title,
+  count,
+  tone = "info",
+  note,
+  children,
+}: {
+  title: string;
+  count?: number;
+  tone?: Tone;
+  note?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card component="section" aria-label={title}>
+      <CardHeader
+        title={title}
+        subheader={note}
+        slotProps={{ title: { component: "h3" } }}
+        action={count === undefined ? undefined : <Label variant="soft" color={count ? TONE_COLOR[tone] : "default"}>{count}</Label>}
+        sx={{ mb: 2 }}
+      />
+      {children}
+    </Card>
+  );
+}
+
+function DetailTable({ labels, ariaLabel, children }: { labels: string[]; ariaLabel: string; children: React.ReactNode }) {
+  return (
+    <Scrollbar>
+      <Table sx={{ minWidth: 640 }} aria-label={ariaLabel}>
+        <TableHeadCustom headCells={labels.map((label, index) => ({ id: `c${index}`, label, sortable: false }))} />
+        <TableBody>{children}</TableBody>
+      </Table>
+    </Scrollbar>
+  );
+}
+
+/** Contract labels written as mid-sentence words ("purchase") read as field labels in the rail. */
+function cap(label: string): string {
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : label;
+}
+
+const GOAT_ID_SX = { typography: "subtitle2", whiteSpace: "nowrap" } as const;
+const MUTED_SX = { color: "text.secondary" } as const;
+
 // ---- Journey timeline ----
 // A goat event carries a goat state, a load event a load status; each has its own contract group.
 // The chip shows the farm label ("Accepted intake"), never the stored key (`accepted_herd_intake`).
@@ -209,54 +257,32 @@ function timelineStateLabel(pageContract: AdminUiPageContract, event: Procuremen
   }
   return readableOptionKey(state);
 }
-function TimelineCard({ events, goats, pageContract }: { events: ProcurementTimelineEvent[]; goats: ProcurementLoadGoat[]; pageContract: AdminUiPageContract }) {
+
+function timelineItems(events: ProcurementTimelineEvent[], goats: ProcurementLoadGoat[], pageContract: AdminUiPageContract): OrderHistoryItem[] {
   const goatById = new Map(goats.map((goat) => [goat.goat_id, goat]));
-  return (
-    <section className="card">
-      <div className="hd">
-        <ClipboardCheck className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.timeline.title")}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="muted small">{copy(pageContract, "section.timeline.note")}</span>
-      </div>
-      <div className="bd">
-        {events.length === 0 ? (
-          <p className="muted small" style={{ margin: 0 }}>
-            {copy(pageContract, "empty.timeline")}
-          </p>
-        ) : (
-          events.map((event, idx) => (
-            <div key={`${event.ref_id ?? event.event_type}-${idx}`} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-                <span className="sw" style={{ width: 11, height: 11, borderRadius: 999, background: "var(--info)" }} />
-                {idx < events.length - 1 ? <span style={{ width: 2, flex: 1, minHeight: 24, background: "var(--line)", marginTop: 2 }} /> : null}
-              </div>
-              <div style={{ paddingBottom: 14, minWidth: 0, flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <b style={{ fontSize: 13 }}>{event.summary || event.event_type || copy(pageContract, "label.event_fallback")}</b>
-                  {event.state ? <Tag tone="info">{timelineStateLabel(pageContract, event)}</Tag> : null}
-                  {event.occurred_at ? <span className="muted small">{fmtDateTime(event.occurred_at)}</span> : null}
-                </div>
-                {event.goat_id ? <div className="muted small" style={{ marginTop: 3 }}>{copy(pageContract, "label.goat_prefix")} {goatById.has(event.goat_id) ? goatLabel(goatById.get(event.goat_id) as ProcurementLoadGoat) : shortId(event.goat_id)}</div> : null}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </section>
-  );
+  return events.map((event, idx) => {
+    const goat = event.goat_id
+      ? `${copy(pageContract, "label.goat_prefix")} ${goatById.has(event.goat_id) ? goatLabel(goatById.get(event.goat_id) as ProcurementLoadGoat) : shortId(event.goat_id)}`
+      : null;
+    return {
+      key: `${event.ref_id ?? event.event_type}-${idx}`,
+      title: (
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          {event.summary || event.event_type || copy(pageContract, "label.event_fallback")}
+          {event.state ? <Tag tone="info">{timelineStateLabel(pageContract, event)}</Tag> : null}
+        </Box>
+      ),
+      body: goat ?? undefined,
+      time: event.occurred_at ? fmtDateTime(event.occurred_at) : undefined,
+    };
+  });
 }
 
 // ---- Per-goat rows ----
 function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageContract: AdminUiPageContract }) {
   const goatCols = tableLabels(pageContract, "load-goats");
   return (
-    <section className="card">
-      <div className="hd">
-        <Warehouse className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.goats.title")}</h3>
-        <Tag tone={goats.length ? "info" : "mut"}>{goats.length}</Tag>
-      </div>
+    <DetailTableCard title={copy(pageContract, "section.goats.title")} count={goats.length}>
       <PagedRows
         /* main's mobile-scroll fix (56b3da919) is these two class names: `.twrap` owns the
            horizontal scroll and `.procurement-load-goats-table` carries the per-column
@@ -273,10 +299,8 @@ function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageC
         }
         empty={
           <TableRow>
-            <TableCell colSpan={goatCols.length}>
-              <div className="muted small" style={{ padding: "16px 4px", textAlign: "center" }}>
-                {copy(pageContract, "empty.load_goats")}
-              </div>
+            <TableCell colSpan={goatCols.length} sx={{ py: 3, textAlign: "center", ...MUTED_SX, typography: "body2" }}>
+              {copy(pageContract, "empty.load_goats")}
             </TableCell>
           </TableRow>
         }
@@ -284,10 +308,8 @@ function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageC
                 const accepted = isAcceptedIntake(goat.current_state);
                 const historyOnly = isProcurementHistoryOnly(goat.current_state);
                 return (
-                  <TableRow key={goat.load_goat_id}>
-                    <TableCell>
-                      <span className="gid">{goatLabel(goat)}</span>
-                    </TableCell>
+                  <TableRow key={goat.load_goat_id} hover>
+                    <TableCell sx={GOAT_ID_SX}>{goatLabel(goat)}</TableCell>
                     <TableCell>
                       <ContractTag pageContract={pageContract} groupId="proc_selection_state" value={goat.selection_state} />
                     </TableCell>
@@ -306,69 +328,46 @@ function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageC
                     <TableCell>
                       <WarmupTag days={goat.warmup_days} purpose={goat.purpose} pageContract={pageContract} />
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ typography: "body2" }}>
                       {accepted && goat.goat_id ? (
-                        <Link href={`/goats/${encodeURIComponent(goat.goat_id)}`} className="lk small">
-                          {copy(pageContract, "action.pc_passport")} →
-                        </Link>
+                        <MuiLink component={Link} href={`/goats/${encodeURIComponent(goat.goat_id)}`} color="inherit" underline="always">
+                          {copy(pageContract, "action.pc_passport")}
+                        </MuiLink>
                       ) : historyOnly ? (
-                        <span className="muted small">{copy(pageContract, "label.procurement_history_no_pc")}</span>
+                        <Box component="span" sx={MUTED_SX}>{copy(pageContract, "label.procurement_history_no_pc")}</Box>
                       ) : (
-                        <span className="muted small">{copy(pageContract, "label.in_source_entry")}</span>
+                        <Box component="span" sx={MUTED_SX}>{copy(pageContract, "label.in_source_entry")}</Box>
                       )}
                     </TableCell>
                   </TableRow>
                 );
               })}
       />
-    </section>
+    </DetailTableCard>
   );
+}
+
+function placeholderOr(pageContract: AdminUiPageContract, value: React.ReactNode): React.ReactNode {
+  return value || <Box component="span" sx={MUTED_SX}>{copy(pageContract, "label.placeholder")}</Box>;
 }
 
 // ---- Pre-dispatch decisions ----
 function DecisionCard({ decisions, pageContract }: { decisions: ProcurementDecision[]; pageContract: AdminUiPageContract }) {
   const labels = tableLabels(pageContract, "pre-dispatch-decisions");
   return (
-    <section className="card">
-      <div className="hd">
-        <Flag className="ic" style={{ color: "var(--amber)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.pre_dispatch.title")}</h3>
-        <Tag tone={decisions.length ? "warn" : "mut"}>{decisions.length}</Tag>
-        <div className="sp" style={{ flex: 1 }} />
-      </div>
-      {decisions.length === 0 ? (
-        <div className="bd">
-          <p className="muted small" style={{ margin: 0 }}>
-            {copy(pageContract, "section.pre_dispatch.empty")}
-          </p>
-        </div>
-      ) : (
-        <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.pre_dispatch.title")}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                {labels.map((label) => (
-                  <TableCell component="th" key={label}>{label}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {decisions.map((d, idx) => (
-                <TableRow key={d.decision_id ?? idx}>
-                  <TableCell>
-                    <span className="gid">{shortId(d.goat_id)}</span>
-                  </TableCell>
-                  <TableCell className="muted">{d.decision_stage ?? "pre_dispatch"}</TableCell>
-                  <TableCell>{d.decision_type ? <ContractTag pageContract={pageContract} groupId="proc_decision_type" value={d.decision_type} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</TableCell>
-                  <TableCell className="muted">{d.reason ?? copy(pageContract, "label.placeholder")}</TableCell>
-                  <TableCell className="muted">{fmtDateTime(d.decided_at) || copy(pageContract, "label.placeholder")}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </section>
+    <DetailTableCard title={copy(pageContract, "section.pre_dispatch.title")} count={decisions.length} tone="warn">
+      <DetailTable labels={labels} ariaLabel={copy(pageContract, "section.pre_dispatch.title")}>
+        {decisions.map((d, idx) => (
+          <TableRow key={d.decision_id ?? idx}>
+            <TableCell sx={GOAT_ID_SX}>{shortId(d.goat_id)}</TableCell>
+            <TableCell sx={MUTED_SX}>{d.decision_stage ?? "pre_dispatch"}</TableCell>
+            <TableCell>{placeholderOr(pageContract, d.decision_type ? <ContractTag pageContract={pageContract} groupId="proc_decision_type" value={d.decision_type} /> : null)}</TableCell>
+            <TableCell sx={MUTED_SX}>{d.reason ?? copy(pageContract, "label.placeholder")}</TableCell>
+            <TableCell sx={MUTED_SX}>{fmtDateTime(d.decided_at) || copy(pageContract, "label.placeholder")}</TableCell>
+          </TableRow>
+        ))}
+      </DetailTable>
+    </DetailTableCard>
   );
 }
 
@@ -376,63 +375,38 @@ function DecisionCard({ decisions, pageContract }: { decisions: ProcurementDecis
 function ArrivalGateCard({ reviews, pageContract }: { reviews: ProcurementArrivalReview[]; pageContract: AdminUiPageContract }) {
   const labels = tableLabels(pageContract, "arrival-goats");
   return (
-    <section className="card" style={{ borderColor: "color-mix(in srgb,var(--purple) 28%,var(--line))" }}>
-      <div className="hd">
-        <Flag className="ic" style={{ color: "var(--purple)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.arrival_gate.title")}</h3>
-        <Tag tone={reviews.length ? "pur" : "mut"}>{reviews.length}</Tag>
-        <div className="sp" style={{ flex: 1 }} />
-      </div>
-      <div className="bd">
-        {reviews.length === 0 ? (
-          <p className="muted small" style={{ margin: 0 }}>
-            {copy(pageContract, "section.arrival_gate.empty")}
-          </p>
-        ) : (
-          reviews.map((review, idx) => {
-            const goats = review.goats ?? [];
-            const matched = goats.filter((g) => g.arrival_state === "matched" || g.arrival_state === "accepted").length;
-            const missing = goats.filter((g) => g.arrival_state === "missing").length;
-            const extra = goats.filter((g) => g.arrival_state === "extra_unresolved").length;
-            return (
-              <div key={review.review_id ?? idx} style={{ marginBottom: idx < reviews.length - 1 ? 14 : 0 }}>
-                <div className="fchipsbar" style={{ marginBottom: 8, flexWrap: "wrap" }}>
-                  {review.status ? <Tag tone={contractTone(pageContract, "proc_arrival_status", review.status)}>{copy(pageContract, "label.arrival_prefix")}: {optionLabel(pageContract, "proc_arrival_status", review.status)}</Tag> : null}
-                  <span className="muted small">{copy(pageContract, "label.park_prefix")} {review.park_location_label || (review.park_location_id ? shortId(review.park_location_id) : copy(pageContract, "label.placeholder"))}</span>
-                  <div className="sp" style={{ flex: 1 }} />
-                  <span className="muted small">
-                    {matched} {copy(pageContract, "label.matched")} · {missing} {copy(pageContract, "label.missing")} · {extra} {copy(pageContract, "label.extra_unknown")} · {goats.length} {copy(pageContract, "label.reviewed")}
-                  </span>
-                </div>
-                {goats.length > 0 ? (
-                  <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={table(pageContract, "arrival-goats").title}>
-                    <Table>
-                      <TableHead>
-                        <TableRow>
-                          {labels.map((label) => (
-                            <TableCell component="th" key={label}>{label}</TableCell>
-                          ))}
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {goats.map((g, gi) => (
-                          <TableRow key={g.review_goat_id ?? gi}>
-                            <TableCell>
-                              <span className="gid">{shortId(g.goat_id)}</span>
-                            </TableCell>
-                            <TableCell>{g.arrival_state ? <ContractTag pageContract={pageContract} groupId="proc_arrival_state" value={g.arrival_state} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })
-        )}
-      </div>
-    </section>
+    <DetailTableCard title={copy(pageContract, "section.arrival_gate.title")} count={reviews.length} tone="pur">
+      <Stack spacing={3} sx={{ pb: 1 }}>
+        {reviews.map((review, idx) => {
+          const goats = review.goats ?? [];
+          const matched = goats.filter((g) => g.arrival_state === "matched" || g.arrival_state === "accepted").length;
+          const missing = goats.filter((g) => g.arrival_state === "missing").length;
+          const extra = goats.filter((g) => g.arrival_state === "extra_unresolved").length;
+          return (
+            <Box key={review.review_id ?? idx}>
+              <Box sx={{ px: 3, pb: 2, display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", typography: "body2" }}>
+                {review.status ? <Tag tone={contractTone(pageContract, "proc_arrival_status", review.status)}>{copy(pageContract, "label.arrival_prefix")}: {optionLabel(pageContract, "proc_arrival_status", review.status)}</Tag> : null}
+                <Box component="span" sx={MUTED_SX}>{copy(pageContract, "label.park_prefix")} {review.park_location_label || (review.park_location_id ? shortId(review.park_location_id) : copy(pageContract, "label.placeholder"))}</Box>
+                <Box sx={{ flexGrow: 1 }} />
+                <Box component="span" sx={MUTED_SX}>
+                  {matched} {copy(pageContract, "label.matched")} · {missing} {copy(pageContract, "label.missing")} · {extra} {copy(pageContract, "label.extra_unknown")} · {goats.length} {copy(pageContract, "label.reviewed")}
+                </Box>
+              </Box>
+              {goats.length > 0 ? (
+                <DetailTable labels={labels} ariaLabel={table(pageContract, "arrival-goats").title}>
+                  {goats.map((g, gi) => (
+                    <TableRow key={g.review_goat_id ?? gi}>
+                      <TableCell sx={GOAT_ID_SX}>{shortId(g.goat_id)}</TableCell>
+                      <TableCell>{placeholderOr(pageContract, g.arrival_state ? <ContractTag pageContract={pageContract} groupId="proc_arrival_state" value={g.arrival_state} /> : null)}</TableCell>
+                    </TableRow>
+                  ))}
+                </DetailTable>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Stack>
+    </DetailTableCard>
   );
 }
 
@@ -441,36 +415,20 @@ function TransitCard({ handoffs, pageContract }: { handoffs: ProcurementTransitH
   if (handoffs.length === 0) return null;
   const labels = tableLabels(pageContract, "transit-handoffs");
   return (
-    <section className="card">
-      <div className="hd">
-        <Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.transit.title")}</h3>
-        <Tag tone="info">{handoffs.length}</Tag>
-      </div>
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.transit.title")}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              {labels.map((label) => (
-                <TableCell component="th" key={label}>{label}</TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {handoffs.map((h, idx) => (
-              <TableRow key={h.handoff_id ?? idx}>
-                <TableCell>{h.loaded_count ?? copy(pageContract, "label.placeholder")}</TableCell>
-                <TableCell className="muted">{h.from_location_label || (h.from_location_id ? shortId(h.from_location_id) : copy(pageContract, "label.placeholder"))}</TableCell>
-                <TableCell className="muted">{h.to_location_label || (h.to_location_id ? shortId(h.to_location_id) : copy(pageContract, "label.placeholder"))}</TableCell>
-                <TableCell className="muted">{fmtDateTime(h.dispatched_at) || copy(pageContract, "label.placeholder")}</TableCell>
-                <TableCell>{h.status ? <ContractTag pageContract={pageContract} groupId="proc_transit_status" value={h.status} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</TableCell>
-                <TableCell>{h.discrepancy_state ? <ContractTag pageContract={pageContract} groupId="proc_discrepancy_state" value={h.discrepancy_state} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
+    <DetailTableCard title={copy(pageContract, "section.transit.title")} count={handoffs.length}>
+      <DetailTable labels={labels} ariaLabel={copy(pageContract, "section.transit.title")}>
+        {handoffs.map((h, idx) => (
+          <TableRow key={h.handoff_id ?? idx}>
+            <TableCell>{h.loaded_count ?? copy(pageContract, "label.placeholder")}</TableCell>
+            <TableCell sx={MUTED_SX}>{h.from_location_label || (h.from_location_id ? shortId(h.from_location_id) : copy(pageContract, "label.placeholder"))}</TableCell>
+            <TableCell sx={MUTED_SX}>{h.to_location_label || (h.to_location_id ? shortId(h.to_location_id) : copy(pageContract, "label.placeholder"))}</TableCell>
+            <TableCell sx={MUTED_SX}>{fmtDateTime(h.dispatched_at) || copy(pageContract, "label.placeholder")}</TableCell>
+            <TableCell>{placeholderOr(pageContract, h.status ? <ContractTag pageContract={pageContract} groupId="proc_transit_status" value={h.status} /> : null)}</TableCell>
+            <TableCell>{placeholderOr(pageContract, h.discrepancy_state ? <ContractTag pageContract={pageContract} groupId="proc_discrepancy_state" value={h.discrepancy_state} /> : null)}</TableCell>
+          </TableRow>
+        ))}
+      </DetailTable>
+    </DetailTableCard>
   );
 }
 
@@ -478,44 +436,22 @@ function HoldingCard({ stays, pageContract }: { stays: ProcurementHoldingStay[];
   if (stays.length === 0) return null;
   const labels = tableLabels(pageContract, "holding-stays");
   return (
-    <section className="card">
-      <div className="hd">
-        <Warehouse className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.holding.title")}</h3>
-        <Tag tone="info">{stays.length}</Tag>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="muted small">{copy(pageContract, "section.holding.note")}</span>
-      </div>
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.holding.title")}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              {labels.map((label) => (
-                <TableCell component="th" key={label}>{label}</TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {stays.map((s, idx) => {
-              return (
-                <TableRow key={s.stay_id ?? idx}>
-                  <TableCell>
-                    <span className="gid">{shortId(s.goat_id)}</span>
-                  </TableCell>
-                  <TableCell className="muted">{s.holding_location_id ? shortId(s.holding_location_id) : copy(pageContract, "label.placeholder")}</TableCell>
-                  <TableCell className="muted">{fmtDate(s.started_at) || copy(pageContract, "label.placeholder")}</TableCell>
-                  <TableCell className="muted">{s.ended_at ? fmtDate(s.ended_at) : copy(pageContract, "label.ongoing")}</TableCell>
-                  <TableCell>
-                    <WarmupTag days={s.warmup_days} purpose={s.purpose} pageContract={pageContract} />
-                  </TableCell>
-                  <TableCell>{s.warmup_state ? <ContractTag pageContract={pageContract} groupId="proc_warmup_state" value={s.warmup_state} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
+    <DetailTableCard title={copy(pageContract, "section.holding.title")} count={stays.length} note={copy(pageContract, "section.holding.note")}>
+      <DetailTable labels={labels} ariaLabel={copy(pageContract, "section.holding.title")}>
+        {stays.map((s, idx) => (
+          <TableRow key={s.stay_id ?? idx}>
+            <TableCell sx={GOAT_ID_SX}>{shortId(s.goat_id)}</TableCell>
+            <TableCell sx={MUTED_SX}>{s.holding_location_id ? shortId(s.holding_location_id) : copy(pageContract, "label.placeholder")}</TableCell>
+            <TableCell sx={MUTED_SX}>{fmtDate(s.started_at) || copy(pageContract, "label.placeholder")}</TableCell>
+            <TableCell sx={MUTED_SX}>{s.ended_at ? fmtDate(s.ended_at) : copy(pageContract, "label.ongoing")}</TableCell>
+            <TableCell>
+              <WarmupTag days={s.warmup_days} purpose={s.purpose} pageContract={pageContract} />
+            </TableCell>
+            <TableCell>{placeholderOr(pageContract, s.warmup_state ? <ContractTag pageContract={pageContract} groupId="proc_warmup_state" value={s.warmup_state} /> : null)}</TableCell>
+          </TableRow>
+        ))}
+      </DetailTable>
+    </DetailTableCard>
   );
 }
 
@@ -523,35 +459,17 @@ function HealthCard({ checks, pageContract }: { checks: ProcurementSourceHealthC
   if (checks.length === 0) return null;
   const labels = tableLabels(pageContract, "source-health-checks");
   return (
-    <section className="card">
-      <div className="hd">
-        <HeartPulse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.source_health.title")}</h3>
-        <Tag tone="info">{checks.length}</Tag>
-      </div>
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.source_health.title")}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              {labels.map((label) => (
-                <TableCell component="th" key={label}>{label}</TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {checks.map((c, idx) => (
-              <TableRow key={c.health_check_id ?? idx}>
-                <TableCell>
-                  <span className="gid">{shortId(c.goat_id)}</span>
-                </TableCell>
-                <TableCell>{c.health_state ? <ContractTag pageContract={pageContract} groupId="proc_health_state" value={c.health_state} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</TableCell>
-                <TableCell className="muted">{fmtDateTime(c.checked_at) || copy(pageContract, "label.placeholder")}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
+    <DetailTableCard title={copy(pageContract, "section.source_health.title")} count={checks.length}>
+      <DetailTable labels={labels} ariaLabel={copy(pageContract, "section.source_health.title")}>
+        {checks.map((c, idx) => (
+          <TableRow key={c.health_check_id ?? idx}>
+            <TableCell sx={GOAT_ID_SX}>{shortId(c.goat_id)}</TableCell>
+            <TableCell>{placeholderOr(pageContract, c.health_state ? <ContractTag pageContract={pageContract} groupId="proc_health_state" value={c.health_state} /> : null)}</TableCell>
+            <TableCell sx={MUTED_SX}>{fmtDateTime(c.checked_at) || copy(pageContract, "label.placeholder")}</TableCell>
+          </TableRow>
+        ))}
+      </DetailTable>
+    </DetailTableCard>
   );
 }
 
@@ -559,46 +477,28 @@ function HandoffCard({ handoffs, pageContract }: { handoffs: ProcurementPCHandof
   if (handoffs.length === 0) return null;
   const labels = tableLabels(pageContract, "pc-handoffs");
   return (
-    <section className="card">
-      <div className="hd">
-        <PackageCheck className="ic" style={{ color: "var(--brand-d)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.pc_handoffs.title")}</h3>
-        <Tag tone="ok">{handoffs.length}</Tag>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="muted small">{copy(pageContract, "section.pc_handoffs.note")}</span>
-      </div>
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.pc_handoffs.title")}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              {labels.map((label) => (
-                <TableCell component="th" key={label}>{label}</TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {handoffs.map((h, idx) => (
-              <TableRow key={h.handoff_id ?? idx}>
-                <TableCell>
-                  {h.goat_id ? (
-                    <Link href={`/goats/${encodeURIComponent(h.goat_id)}`} className="gid">
-                      {shortId(h.goat_id)}
-                    </Link>
-                  ) : (
-                    <span className="gid">{copy(pageContract, "label.placeholder")}</span>
-                  )}
-                </TableCell>
-                <TableCell className="muted">{h.park_location_label || (h.park_location_id ? shortId(h.park_location_id) : copy(pageContract, "label.placeholder"))}</TableCell>
-                <TableCell className="muted">{h.shed_location_label || (h.shed_location_id ? shortId(h.shed_location_id) : copy(pageContract, "label.placeholder"))}</TableCell>
-                <TableCell className="muted">{fmtDate(h.entry_date) || copy(pageContract, "label.placeholder")}</TableCell>
-                <TableCell className="muted">{fmtDateTime(h.accepted_at) || copy(pageContract, "label.placeholder")}</TableCell>
-                <TableCell>{h.event_status ? <ContractTag pageContract={pageContract} groupId="proc_handoff_status" value={h.event_status} /> : <span className="muted">{copy(pageContract, "label.placeholder")}</span>}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
+    <DetailTableCard title={copy(pageContract, "section.pc_handoffs.title")} count={handoffs.length} tone="ok" note={copy(pageContract, "section.pc_handoffs.note")}>
+      <DetailTable labels={labels} ariaLabel={copy(pageContract, "section.pc_handoffs.title")}>
+        {handoffs.map((h, idx) => (
+          <TableRow key={h.handoff_id ?? idx}>
+            <TableCell sx={GOAT_ID_SX}>
+              {h.goat_id ? (
+                <MuiLink component={Link} href={`/goats/${encodeURIComponent(h.goat_id)}`} color="inherit" underline="always">
+                  {shortId(h.goat_id)}
+                </MuiLink>
+              ) : (
+                copy(pageContract, "label.placeholder")
+              )}
+            </TableCell>
+            <TableCell sx={MUTED_SX}>{h.park_location_label || (h.park_location_id ? shortId(h.park_location_id) : copy(pageContract, "label.placeholder"))}</TableCell>
+            <TableCell sx={MUTED_SX}>{h.shed_location_label || (h.shed_location_id ? shortId(h.shed_location_id) : copy(pageContract, "label.placeholder"))}</TableCell>
+            <TableCell sx={MUTED_SX}>{fmtDate(h.entry_date) || copy(pageContract, "label.placeholder")}</TableCell>
+            <TableCell sx={MUTED_SX}>{fmtDateTime(h.accepted_at) || copy(pageContract, "label.placeholder")}</TableCell>
+            <TableCell>{placeholderOr(pageContract, h.event_status ? <ContractTag pageContract={pageContract} groupId="proc_handoff_status" value={h.event_status} /> : null)}</TableCell>
+          </TableRow>
+        ))}
+      </DetailTable>
+    </DetailTableCard>
   );
 }
 
@@ -620,17 +520,18 @@ export async function ProcurementLoadDetailPage({
   const actionKey = one(sp, "action_key");
   const returnTo = hrefWithoutAction(`/procurement/source-entry/loads/${encodeURIComponent(loadId)}`, sp);
   const backHref = hrefWithoutAction("/procurement/source-entry", sp);
+  const backLabel = copy(pageContract, "action.back_source_entry");
 
   if (!result.ok) {
     return (
       <div className="screen on">
-        <PageHeader title={pageContract.title || copy(pageContract, "fallback.title")} backHref={backHref} crumbs={[{ label: copy(pageContract, "action.back_source_entry"), href: backHref }, { label: copy(pageContract, "fallback.title") }]} />
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <OrderDetailsToolbar title={pageContract.title || copy(pageContract, "fallback.title")} backHref={backHref} backLabel={backLabel} />
+        <Alert severity="error" sx={{ mb: 3 }}>
           {result.error.message}
         </Alert>
-        <Link href={backHref} className="btn">
-	          <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back_source_entry")}
-        </Link>
+        <Button component={Link} href={backHref} color="inherit" variant="outlined" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />}>
+          {backLabel}
+        </Button>
       </div>
     );
   }
@@ -653,33 +554,29 @@ export async function ProcurementLoadDetailPage({
     ...locations,
     origins: addLocationOption(locations.origins, sourceLocationOption(load)),
   };
-
-  const headerActions = (
-    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
-      <ContractTag pageContract={pageContract} groupId="source_load_status" value={load.status} />
-      <span className="sw" style={{ background: TONE_SWATCH[contractTone(pageContract, "source_load_status", load.status)], width: 10, height: 10, borderRadius: 999 }} />
-    </Box>
-  );
+  const placeholder = copy(pageContract, "label.placeholder");
+  const purchase = fmtDate(load.purchase_date ?? undefined) || placeholder;
+  const plannedDispatch = fmtDate(load.planned_dispatch_at ?? undefined) || placeholder;
 
   return (
     <div className="screen on">
-      <PageHeader
+      {/* Template order details (sections/order/view/order-details-view): toolbar with back arrow,
+          heading + status Label and the date line; Grid md 8 / 4 with the record cards and the
+          History timeline on the left and the Customer / Delivery rail on the right. */}
+      <OrderDetailsToolbar
         title={title}
+        status={optionLabel(pageContract, "source_load_status", load.status)}
+        statusColor={TONE_COLOR[contractTone(pageContract, "source_load_status", load.status)]}
         backHref={backHref}
-        crumbs={[{ label: copy(pageContract, "fallback.title"), href: backHref }, { label: [sourceParty, fmtDate(load.purchase_date ?? undefined)].filter(Boolean).join(" · ") }]}
-        actions={headerActions}
+        backLabel={backLabel}
+        subtitle={[sourceParty, fmtDate(load.purchase_date ?? undefined)].filter(Boolean).join(" · ")}
       />
 
       {actionStatus ? (
-        actionStatus === "success" ? (
-	          <div className="note" style={{ marginBottom: 14 }}>
-	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-	          </div>
-	        ) : (
-	          <Alert severity="error" style={{ marginBottom: 14 }}>
-	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </Alert>
-        )
+        <Alert severity={actionStatus === "success" ? "success" : "error"} sx={{ mb: 3 }}>
+          {actionStatus === "success" ? null : <b>{copy(pageContract, "action.failed_title")}&nbsp;</b>}
+          {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+        </Alert>
       ) : null}
 
       <Grid container spacing={3}>
@@ -712,52 +609,43 @@ export async function ProcurementLoadDetailPage({
             <HoldingCard stays={holdingStays} pageContract={pageContract} />
             <HealthCard checks={sourceHealthChecks} pageContract={pageContract} />
             <HandoffCard handoffs={pcHandoffs} pageContract={pageContract} />
-            <TimelineCard events={timeline} goats={goats} pageContract={pageContract} />
+            <OrderDetailsHistory
+              title={
+                <>
+                  {copy(pageContract, "section.timeline.title")}
+                  {/* CardHeader subheader slot: the stage order note, under the title at every width. */}
+                  <Typography component="span" variant="body2" sx={{ display: "block", mt: 0.5, color: "text.secondary" }}>
+                    {copy(pageContract, "section.timeline.note")}
+                  </Typography>
+                </>
+              }
+              timeline={timelineItems(timeline, goats, pageContract)}
+              summary={
+                timeline.length === 0
+                  ? [{ key: "empty", label: copy(pageContract, "empty.timeline"), value: null }]
+                  : [
+                      { key: "purchase", label: cap(copy(pageContract, "label.purchase")), value: purchase },
+                      { key: "dispatch", label: cap(copy(pageContract, "label.planned_dispatch")), value: plannedDispatch },
+                    ]
+              }
+            />
           </Stack>
         </Grid>
 
         <Grid size={{ xs: 12, md: 4 }}>
           <Card>
-            <Box sx={{ p: 3 }}>
-              <Stack spacing={2}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                    {copy(pageContract, "label.holding_farm")}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: "text.primary" }}>{sourceLocation ?? copy(pageContract, "label.placeholder")}</Typography>
-                </Stack>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                    Source party
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: "text.primary" }}>{sourceParty}</Typography>
-                </Stack>
-              </Stack>
-            </Box>
+            <OrderDetailsCustomer title="Source party" name={sourceParty} lines={[sourceLocation ?? placeholder]} />
 
             <Divider sx={{ borderStyle: "dashed" }} />
-            <Box sx={{ p: 3 }}>
-              <Stack spacing={2}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                    {copy(pageContract, "label.expected")}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: "text.primary" }}>{load.expected_count}</Typography>
-                </Stack>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                    {copy(pageContract, "label.purchase")}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: "text.primary" }}>{fmtDate(load.purchase_date ?? undefined) || copy(pageContract, "label.placeholder")}</Typography>
-                </Stack>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4 }}>
-                    {copy(pageContract, "label.planned_dispatch")}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: "text.primary" }}>{fmtDate(load.planned_dispatch_at ?? undefined) || copy(pageContract, "label.placeholder")}</Typography>
-                </Stack>
-              </Stack>
-            </Box>
+            <OrderDetailsDelivery
+              title={copy(pageContract, "label.load")}
+              rows={[
+                { key: "holding", label: cap(copy(pageContract, "label.holding_farm")), value: sourceLocation ?? placeholder },
+                { key: "expected", label: cap(copy(pageContract, "label.expected")), value: load.expected_count },
+                { key: "purchase", label: cap(copy(pageContract, "label.purchase")), value: purchase },
+                { key: "dispatch", label: cap(copy(pageContract, "label.planned_dispatch")), value: plannedDispatch },
+              ]}
+            />
           </Card>
         </Grid>
       </Grid>

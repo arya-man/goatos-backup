@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { Boxes, IndianRupee, TrendingUp } from "lucide-react";
-import { ProgressRow } from "@/components/app/progress-row";
+import { IndianRupee, TrendingUp } from "lucide-react";
 import { EmptyState } from "@/components/app/empty-state";
 import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { GoatGlyph } from "@/components/goat-glyph";
@@ -11,6 +10,12 @@ import { PagedRows } from "@/components/app/paged-rows";
 import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns";
 import { withLoadPens, type LoadPen } from "@/lib/load-pens";
 import { Tag } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
+import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LoadwiseLoad, LoadwiseSales } from "@/lib/api/procurement";
 import type { ApiResult } from "@/lib/api/server";
@@ -18,10 +23,8 @@ import { humanDate, inr, inrCompact, num, numCompactWhole, signedInr, signedInrC
 import { salesErrorText } from "./sales-error";
 import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
-import { progressRowsClass } from "@/components/app/progress-row";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
-import Typography from "@mui/material/Typography";
 
 /**
  * Tooltip line for a count that includes pre-system history: the copy's label, the count, and the
@@ -178,40 +181,44 @@ export function LoadwiseSection({
   const moneyCell = (value: number | null | undefined, missingLabel: string): ReactNode =>
     value == null ? <span className="muted">{missingLabel}</span> : inr(Math.round(value));
 
-  return (
-    <section className="card sales-card" aria-label={copy(pageContract, "section.loadwise.aria")}>
-      <div className="hd">
-        <Boxes className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.loadwise.title")}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        {/* The price every unsold animal is valued at, as a chip on the header (title = the full
-            backend sentence): most of the profit figures below are stock, so the rate cannot be
-            buried, but it is a figure, not a paragraph. */}
-        {view === "purchased" && data ? (
-          data.overall_avg_sold_price ? (
-            <Tag tone="mut" title={`${copy(pageContract, "loadwise.stock_price_note")} ${inr(Math.round(data.overall_avg_sold_price))} ${copy(pageContract, "loadwise.stock_price_each")}`}>
-              {inr(Math.round(data.overall_avg_sold_price))} {copy(pageContract, "loadwise.stock_price_each")}
-            </Tag>
-          ) : (
-            <Tag tone="mut">{copy(pageContract, "loadwise.stock_price_unknown")}</Tag>
-          )
-        ) : null}
-      </div>
+  // The price every unsold animal is valued at: a soft Label on the register card's header (title =
+  // the full backend sentence). Most of the profit figures below are stock, so the rate cannot be
+  // buried, but it is a figure, not a paragraph.
+  const stockPriceLabel =
+    view === "purchased" && data ? (
+      data.overall_avg_sold_price ? (
+        <Label variant="soft" color="default" title={`${copy(pageContract, "loadwise.stock_price_note")} ${inr(Math.round(data.overall_avg_sold_price))} ${copy(pageContract, "loadwise.stock_price_each")}`}>
+          {inr(Math.round(data.overall_avg_sold_price))} {copy(pageContract, "loadwise.stock_price_each")}
+        </Label>
+      ) : (
+        <Label variant="soft" color="default">{copy(pageContract, "loadwise.stock_price_unknown")}</Label>
+      )
+    ) : null;
 
+  // Template chart card (AnalyticsWebsiteVisits / BankingBalanceStatistics anatomy): Card, CardHeader,
+  // the chart inside the card's 24px padding.
+  const chartCard = (title: string, chart: ReactNode) => (
+    <Card>
+      <CardHeader title={title} />
+      <Box sx={{ px: 3, pb: 3, pt: 2, minWidth: 0 }}>{chart}</Box>
+    </Card>
+  );
+
+  return (
+    <Stack component="section" spacing={3} aria-label={copy(pageContract, "section.loadwise.aria")}>
       {view !== "purchased" ? (
-        <EmptyState title={copy(pageContract, "empty.farm_born")} style={{ marginTop: 12 }} />
+        <Card><EmptyState sx={{ py: 10 }} title={copy(pageContract, "empty.farm_born")} /></Card>
       ) : loadwise && !loadwise.ok ? (
-        <Alert severity="error" style={{ marginTop: 12 }}>
+        <Alert severity="error">
           {salesErrorText(loadwise.error, copy(pageContract, "error.load"))}
         </Alert>
       ) : loads.length === 0 ? (
-        <EmptyState title={copy(pageContract, "empty.loadwise")} style={{ marginTop: 12 }} />
+        <Card><EmptyState sx={{ py: 10 }} title={copy(pageContract, "empty.loadwise")} /></Card>
       ) : (
         <>
           {/* Summary tiles: the backend's whole-read aggregates, verbatim. */}
           {summary ? (
             <>
-              <Box sx={{ mt: 1.5 }}>
               <KpiGrid>
                 <KpiCard
                   tone="primary"
@@ -238,9 +245,9 @@ export function LoadwiseSection({
                   label={copy(pageContract, "loadwise.kpi.profit")}
                   // Signed and toned: a loss must not read like a profit at a glance.
                   value={
-                    <span style={{ color: summary.profit_loss < 0 ? "var(--danger)" : "var(--ok)" }}>
+                    <Box component="span" sx={{ color: summary.profit_loss < 0 ? "error.main" : "success.main" }}>
                       {summary.costed_loads > 0 ? signedInrCompact(summary.profit_loss) : none}
-                    </span>
+                    </Box>
                   }
                   icon={<TrendingUp aria-hidden="true" />}
                   // How much of that figure happened and how much is assumed, and how it was
@@ -261,248 +268,256 @@ export function LoadwiseSection({
                   }
                 />
               </KpiGrid>
-              </Box>
 
-              {/* The same four whole-read aggregates as shares of what was purchased — the shape
-                  a person actually reads them in. Every figure is the backend's own; the bar is
-                  the value over `summary.purchased`, nothing new is computed. */}
-              <Box className={progressRowsClass} sx={{ display: "grid", gap: 1.75, mt: 2.5, px: 2, pt: 0.5, pb: 2.25 }}>
-                <ProgressRow
-                  label={copy(pageContract, "loadwise.kpi.sold")}
-                  value={num(summary.sold)}
-                  percent={summary.purchased > 0 ? (summary.sold / summary.purchased) * 100 : 0}
-                  tone="success"
-                />
-                <ProgressRow
-                  label={copy(pageContract, "loadwise.kpi.remaining")}
-                  value={num(summary.remaining)}
-                  percent={summary.purchased > 0 ? (summary.remaining / summary.purchased) * 100 : 0}
-                  tone="info"
-                />
-                <ProgressRow
-                  label={copy(pageContract, "loadwise.kpi.mortality")}
-                  value={num(summary.mortality)}
-                  percent={summary.purchased > 0 ? (summary.mortality / summary.purchased) * 100 : 0}
-                  tone="error"
-                />
-              </Box>
             </>
           ) : null}
 
-          {/* Chart 1 — animals per load. */}
-          <Typography variant="overline" component="div" color="text.secondary" className="mt" sx={{ mt: 1.25 }}>
-            {copy(pageContract, "chart.loadwise_counts.title")}
-          </Typography>
-          <GroupedColumns
-            series={countSeries}
-            chartLabel={copy(pageContract, "chart.loadwise_counts.title")}
-            emptyLabel={copy(pageContract, "chart.loadwise_counts.empty")}
-            data={loads.map((load) => ({
-              key: load.load_id,
-              axisLabel: axisName(load),
-              label: tipName(load),
-              values: [load.purchased, load.sold, load.mortality, load.remaining, load.tagged_not_closed],
-              displays: [
-                num(load.purchased),
-                num(load.sold),
-                num(load.mortality),
-                num(load.remaining),
-                num(load.tagged_not_closed),
-              ],
-              subLabel: load.vendor_name,
-            }))}
-          />
+          {/* Chart 1 — animals per load, beside the same whole-read aggregates as shares of what was
+              purchased (template EcommerceSalesOverview). Every figure is the backend's own; the bar
+              is the value over `summary.purchased`, nothing new is computed. */}
+          <Grid container spacing={3}>
+            <Grid size={{ xs: 12, lg: summary ? 8 : 12 }} sx={{ minWidth: 0 }}>
+              {chartCard(
+                copy(pageContract, "chart.loadwise_counts.title"),
+                <GroupedColumns
+                  series={countSeries}
+                  chartLabel={copy(pageContract, "chart.loadwise_counts.title")}
+                  emptyLabel={copy(pageContract, "chart.loadwise_counts.empty")}
+                  data={loads.map((load) => ({
+                    key: load.load_id,
+                    axisLabel: axisName(load),
+                    label: tipName(load),
+                    values: [load.purchased, load.sold, load.mortality, load.remaining, load.tagged_not_closed],
+                    displays: [
+                      num(load.purchased),
+                      num(load.sold),
+                      num(load.mortality),
+                      num(load.remaining),
+                      num(load.tagged_not_closed),
+                    ],
+                    subLabel: load.vendor_name,
+                  }))}
+                />,
+              )}
+            </Grid>
+            {summary ? (
+              <Grid size={{ xs: 12, lg: 4 }}>
+                <EcommerceSalesOverview
+                  title={copy(pageContract, "loadwise.kpi.purchased")}
+                  subheader={num(summary.purchased)}
+                  sx={{ height: 1 }}
+                  data={[
+                    { key: "sold", label: copy(pageContract, "loadwise.kpi.sold"), value: summary.purchased > 0 ? (summary.sold / summary.purchased) * 100 : 0, display: num(summary.sold), color: "success" },
+                    { key: "remaining", label: copy(pageContract, "loadwise.kpi.remaining"), value: summary.purchased > 0 ? (summary.remaining / summary.purchased) * 100 : 0, display: num(summary.remaining), color: "info" },
+                    { key: "mortality", label: copy(pageContract, "loadwise.kpi.mortality"), value: summary.purchased > 0 ? (summary.mortality / summary.purchased) * 100 : 0, display: num(summary.mortality), color: "error" },
+                  ]}
+                />
+              </Grid>
+            ) : null}
+          </Grid>
 
           {/* Chart 2 — money per load. The sub-line carries the sold/purchased COUNTS so what is
               left in a load is readable off this chart too. */}
-          <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.loadwise_value.title")}</Typography>
-          <GroupedColumns
-            series={valueSeries}
-            money
-            chartLabel={copy(pageContract, "chart.loadwise_value.title")}
-            emptyLabel={copy(pageContract, "chart.loadwise_value.empty")}
-            data={loads.map((load) => ({
-              key: load.load_id,
-              axisLabel: axisName(load),
-              label: tipName(load),
-              values: [
-                load.purchase_value ?? null,
-                load.sold_value > 0 ? load.sold_value : null,
-                load.assumed_value != null && load.assumed_value > 0 ? load.assumed_value : null,
-                // A LOSS has no bar height — a negative cannot be drawn upward, and drawing its
-                // magnitude would show a loss as a tall green column. The signed figure is in the
-                // tooltip, and the table's coloured cell is where a loss is read.
-                load.profit_loss != null && load.profit_loss > 0 ? load.profit_loss : null,
-              ],
-              displays: [
-                load.purchase_value == null ? copy(pageContract, "value.cost_missing") : inrCompact(load.purchase_value),
-                // A load that has sold NOTHING has no sold value -- absence, never ₹0 -- the same
-                // "not sold yet" the weight chart shows for it. Keyed on the backend's sold COUNT.
-                load.sold === 0 ? copy(pageContract, "value.not_sold_yet") : inrCompact(load.sold_value),
-                load.assumed_value == null ? copy(pageContract, "loadwise.assumed.none") : inrCompact(load.assumed_value),
-                load.profit_loss == null
-                  ? copy(pageContract, "value.cost_missing")
-                  : load.realised_profit_loss != null && load.assumed_value != null
-                    ? `${signedInrCompact(load.profit_loss)} · ${copy(pageContract, "loadwise.realised.label")} ${signedInrCompact(load.realised_profit_loss)}`
-                    : signedInrCompact(load.profit_loss),
-              ],
-              // The column the assumption sits on prints the TOTAL it reaches -- realised plus
-              // assumed -- so the figure above a stacked bar is its height.
-              barLabels: [
-                load.purchase_value == null ? null : inrCompact(load.purchase_value),
-                (load.sold_value > 0 ? load.sold_value : 0) + (load.assumed_value ?? 0) > 0
-                  ? inrCompact((load.sold_value > 0 ? load.sold_value : 0) + (load.assumed_value ?? 0))
-                  : load.sold === 0
-                    ? null
-                    : inrCompact(load.sold_value),
-                null,
-                load.profit_loss == null || load.profit_loss <= 0 ? null : signedInrCompact(load.profit_loss),
-              ],
-              // HOW the assumed part was assumed, in the backend's own sentence.
-              tipLines: load.assumed_value_basis ? [load.assumed_value_basis] : undefined,
-              subLabel: `${num(load.sold)} / ${num(load.purchased)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()}`,
-            }))}
-          />
+          {chartCard(
+            copy(pageContract, "chart.loadwise_value.title"),
+            <GroupedColumns
+              series={valueSeries}
+              money
+              chartLabel={copy(pageContract, "chart.loadwise_value.title")}
+              emptyLabel={copy(pageContract, "chart.loadwise_value.empty")}
+              data={loads.map((load) => ({
+                key: load.load_id,
+                axisLabel: axisName(load),
+                label: tipName(load),
+                values: [
+                  load.purchase_value ?? null,
+                  load.sold_value > 0 ? load.sold_value : null,
+                  load.assumed_value != null && load.assumed_value > 0 ? load.assumed_value : null,
+                  // A LOSS has no bar height — a negative cannot be drawn upward, and drawing its
+                  // magnitude would show a loss as a tall green column. The signed figure is in the
+                  // tooltip, and the table's coloured cell is where a loss is read.
+                  load.profit_loss != null && load.profit_loss > 0 ? load.profit_loss : null,
+                ],
+                displays: [
+                  load.purchase_value == null ? copy(pageContract, "value.cost_missing") : inrCompact(load.purchase_value),
+                  // A load that has sold NOTHING has no sold value -- absence, never ₹0 -- the same
+                  // "not sold yet" the weight chart shows for it. Keyed on the backend's sold COUNT.
+                  load.sold === 0 ? copy(pageContract, "value.not_sold_yet") : inrCompact(load.sold_value),
+                  load.assumed_value == null ? copy(pageContract, "loadwise.assumed.none") : inrCompact(load.assumed_value),
+                  load.profit_loss == null
+                    ? copy(pageContract, "value.cost_missing")
+                    : load.realised_profit_loss != null && load.assumed_value != null
+                      ? `${signedInrCompact(load.profit_loss)} · ${copy(pageContract, "loadwise.realised.label")} ${signedInrCompact(load.realised_profit_loss)}`
+                      : signedInrCompact(load.profit_loss),
+                ],
+                // The column the assumption sits on prints the TOTAL it reaches -- realised plus
+                // assumed -- so the figure above a stacked bar is its height.
+                barLabels: [
+                  load.purchase_value == null ? null : inrCompact(load.purchase_value),
+                  (load.sold_value > 0 ? load.sold_value : 0) + (load.assumed_value ?? 0) > 0
+                    ? inrCompact((load.sold_value > 0 ? load.sold_value : 0) + (load.assumed_value ?? 0))
+                    : load.sold === 0
+                      ? null
+                      : inrCompact(load.sold_value),
+                  null,
+                  load.profit_loss == null || load.profit_loss <= 0 ? null : signedInrCompact(load.profit_loss),
+                ],
+                // HOW the assumed part was assumed, in the backend's own sentence.
+                tipLines: load.assumed_value_basis ? [load.assumed_value_basis] : undefined,
+                subLabel: `${num(load.sold)} / ${num(load.purchased)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()}`,
+              }))}
+            />,
+          )}
 
           {/* Chart 3 — weight per animal, in against out. The pair only means something when both
               halves exist, and a load that has sold nothing has no sale weight, so its second bar
               is absent rather than zero. */}
-          <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.loadwise_weight.title")}</Typography>
-          <GroupedColumns
-            series={weightSeries}
-            chartLabel={copy(pageContract, "chart.loadwise_weight.title")}
-            emptyLabel={copy(pageContract, "chart.loadwise_weight.empty")}
-            data={loads.map((load) => ({
-              key: load.load_id,
-              axisLabel: axisName(load),
-              label: tipName(load),
-              values: [
-                load.avg_purchase_weight_kg ?? null,
-                load.avg_sale_weight_kg ?? null,
-                ...(currentWeights ? [currentWeightFor(load, currentWeights)?.averageKg ?? null] : []),
-              ],
-              displays: [
-                load.avg_purchase_weight_kg == null
-                  ? copy(pageContract, "value.weight_missing")
-                  : `${num(load.avg_purchase_weight_kg, 1)} ${copy(pageContract, "value.kg")}`,
-                load.avg_sale_weight_kg == null
-                  ? copy(pageContract, "value.not_sold_yet")
-                  : `${num(load.avg_sale_weight_kg, 1)} ${copy(pageContract, "value.kg")}`,
-                ...(currentWeights
-                  ? [
-                      (() => {
+          {chartCard(
+            copy(pageContract, "chart.loadwise_weight.title"),
+            <GroupedColumns
+              series={weightSeries}
+              chartLabel={copy(pageContract, "chart.loadwise_weight.title")}
+              emptyLabel={copy(pageContract, "chart.loadwise_weight.empty")}
+              data={loads.map((load) => ({
+                key: load.load_id,
+                axisLabel: axisName(load),
+                label: tipName(load),
+                values: [
+                  load.avg_purchase_weight_kg ?? null,
+                  load.avg_sale_weight_kg ?? null,
+                  ...(currentWeights ? [currentWeightFor(load, currentWeights)?.averageKg ?? null] : []),
+                ],
+                displays: [
+                  load.avg_purchase_weight_kg == null
+                    ? copy(pageContract, "value.weight_missing")
+                    : `${num(load.avg_purchase_weight_kg, 1)} ${copy(pageContract, "value.kg")}`,
+                  load.avg_sale_weight_kg == null
+                    ? copy(pageContract, "value.not_sold_yet")
+                    : `${num(load.avg_sale_weight_kg, 1)} ${copy(pageContract, "value.kg")}`,
+                  ...(currentWeights
+                    ? [
+                        (() => {
+                          const now = currentWeightFor(load, currentWeights);
+                          if (now != null) {
+                            return `${num(now.averageKg, 1)} ${copy(pageContract, "value.kg")} · ${num(now.animals)} ${copy(pageContract, "value.weighed_now")}`;
+                          }
+                          return load.remaining <= 0
+                            ? copy(pageContract, "value.sold_no_now")
+                            : copy(pageContract, "value.not_weighed_yet");
+                        })(),
+                      ]
+                    : []),
+                ],
+                barLabels: [
+                  load.avg_purchase_weight_kg == null ? null : numCompactWhole(load.avg_purchase_weight_kg),
+                  load.avg_sale_weight_kg == null ? null : numCompactWhole(load.avg_sale_weight_kg),
+                  ...(currentWeights
+                    ? [(() => {
                         const now = currentWeightFor(load, currentWeights);
-                        if (now != null) {
-                          return `${num(now.averageKg, 1)} ${copy(pageContract, "value.kg")} · ${num(now.animals)} ${copy(pageContract, "value.weighed_now")}`;
-                        }
-                        return load.remaining <= 0
-                          ? copy(pageContract, "value.sold_no_now")
-                          : copy(pageContract, "value.not_weighed_yet");
-                      })(),
-                    ]
-                  : []),
-              ],
-              barLabels: [
-                load.avg_purchase_weight_kg == null ? null : numCompactWhole(load.avg_purchase_weight_kg),
-                load.avg_sale_weight_kg == null ? null : numCompactWhole(load.avg_sale_weight_kg),
-                ...(currentWeights
-                  ? [(() => {
-                      const now = currentWeightFor(load, currentWeights);
-                      return now == null ? null : numCompactWhole(now.averageKg);
-                    })()]
-                  : []),
-              ],
-              // The sale average is over the animals actually WEIGHED on the way out, which is
-              // fewer than sold on some loads. Saying so here is the difference between a sample
-              // and a claim about the whole load.
-              subLabel:
-                load.sold_weighed_animals != null && load.sold_weighed_animals < load.sold
-                  ? `${num(load.sold_weighed_animals)} / ${num(load.sold)} ${copy(pageContract, "value.weighed_out")}`
-                  : load.vendor_name,
-            }))}
-          />
+                        return now == null ? null : numCompactWhole(now.averageKg);
+                      })()]
+                    : []),
+                ],
+                // The sale average is over the animals actually WEIGHED on the way out, which is
+                // fewer than sold on some loads. Saying so here is the difference between a sample
+                // and a claim about the whole load.
+                subLabel:
+                  load.sold_weighed_animals != null && load.sold_weighed_animals < load.sold
+                    ? `${num(load.sold_weighed_animals)} / ${num(load.sold)} ${copy(pageContract, "value.weighed_out")}`
+                    : load.vendor_name,
+              }))}
+            />,
+          )}
 
           {/* Chart 4 — what a kilogram cost against what it fetched. */}
-          <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.loadwise_per_kg.title")}</Typography>
-          <GroupedColumns
-            series={perKgSeries}
-            money
-            chartLabel={copy(pageContract, "chart.loadwise_per_kg.title")}
-            emptyLabel={copy(pageContract, "chart.loadwise_per_kg.empty")}
-            data={loads.map((load) => ({
-              key: load.load_id,
-              axisLabel: axisName(load),
-              label: tipName(load),
-              values: [load.landed_price_per_kg ?? null, load.sale_price_per_kg ?? null],
-              displays: [
-                load.landed_price_per_kg == null
-                  ? copy(pageContract, "value.cost_missing")
-                  : inr(load.landed_price_per_kg, 2),
-                load.sale_price_per_kg == null
-                  ? copy(pageContract, "value.not_sold_yet")
-                  : inr(load.sale_price_per_kg, 2),
-              ],
-              barLabels: [
-                load.landed_price_per_kg == null ? null : inr(Math.round(load.landed_price_per_kg)),
-                load.sale_price_per_kg == null ? null : inr(Math.round(load.sale_price_per_kg)),
-              ],
-              subLabel: load.vendor_name,
-            }))}
-          />
+          {chartCard(
+            copy(pageContract, "chart.loadwise_per_kg.title"),
+            <GroupedColumns
+              series={perKgSeries}
+              money
+              chartLabel={copy(pageContract, "chart.loadwise_per_kg.title")}
+              emptyLabel={copy(pageContract, "chart.loadwise_per_kg.empty")}
+              data={loads.map((load) => ({
+                key: load.load_id,
+                axisLabel: axisName(load),
+                label: tipName(load),
+                values: [load.landed_price_per_kg ?? null, load.sale_price_per_kg ?? null],
+                displays: [
+                  load.landed_price_per_kg == null
+                    ? copy(pageContract, "value.cost_missing")
+                    : inr(load.landed_price_per_kg, 2),
+                  load.sale_price_per_kg == null
+                    ? copy(pageContract, "value.not_sold_yet")
+                    : inr(load.sale_price_per_kg, 2),
+                ],
+                barLabels: [
+                  load.landed_price_per_kg == null ? null : inr(Math.round(load.landed_price_per_kg)),
+                  load.sale_price_per_kg == null ? null : inr(Math.round(load.sale_price_per_kg)),
+                ],
+                subLabel: load.vendor_name,
+              }))}
+            />,
+          )}
 
           {/* Chart 5 — the fattening clock from arrival: the finished arrival-to-sale span
               (animal-weighted) for the animals that sold, and the days-so-far for the animals still
               on the farm. Neither is the load's AGE — that clock starts at purchase and is not on
               this axis. */}
-          <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.loadwise_fattening.title")}</Typography>
-          <GroupedColumns
-            series={fatteningSeries}
-            chartLabel={copy(pageContract, "chart.loadwise_fattening.title")}
-            emptyLabel={copy(pageContract, "chart.loadwise_fattening.empty")}
-            data={loads.map((load) => ({
-              key: load.load_id,
-              axisLabel: axisName(load),
-              label: tipName(load),
-              values: [load.fattening_days ?? null, load.days_on_farm_so_far ?? null],
-              displays: [
-                load.fattening_days == null
-                  ? copy(pageContract, "value.not_sold_yet")
-                  : `${num(load.fattening_days)} ${copy(pageContract, "value.days")}`,
-                // Absent means the load holds nothing, or its arrival date is unknown. The
-                // tooltip still states what is left in the shed, a fact rather than a claim about
-                // days, so the row is never simply blank.
-                load.days_on_farm_so_far == null
-                  ? `${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}`
-                  : `${num(load.days_on_farm_so_far)} ${copy(pageContract, "value.days")} · ${num(
-                      load.remaining,
-                    )} ${copy(pageContract, "value.still_on_farm")}`,
-              ],
-              barLabels: [
-                load.fattening_days == null ? null : numCompactWhole(load.fattening_days),
-                load.days_on_farm_so_far == null ? null : numCompactWhole(load.days_on_farm_so_far),
-              ],
-              // "Sold, alive in any case at the bottom" (maintainer, 2026-09-25): under EVERY bar
-              // the load's split -- sold, still on farm, or both -- so the finished span reads as
-              // the sold animals' story and the running bar as the animals still here.
-              subLabel: [
-                load.sold > 0 ? `${num(load.sold)} ${copy(pageContract, "value.sold_count")}` : null,
-                load.remaining > 0 ? `${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ") || load.vendor_name,
-              // On hover: the day the animals REACHED THE FARM -- where this clock starts -- and the
-              // purchase date beside it, which is not where it starts.
-              tipLines: [
-                load.arrived_on ? `${copy(pageContract, "value.arrived_on")} ${humanDate(load.arrived_on)}` : null,
-                load.purchase_date ? `${copy(pageContract, "value.bought_on")} ${humanDate(load.purchase_date)}` : null,
-              ].filter((line): line is string => line != null),
-            }))}
-          />
+          {chartCard(
+            copy(pageContract, "chart.loadwise_fattening.title"),
+            <GroupedColumns
+              series={fatteningSeries}
+              chartLabel={copy(pageContract, "chart.loadwise_fattening.title")}
+              emptyLabel={copy(pageContract, "chart.loadwise_fattening.empty")}
+              data={loads.map((load) => ({
+                key: load.load_id,
+                axisLabel: axisName(load),
+                label: tipName(load),
+                values: [load.fattening_days ?? null, load.days_on_farm_so_far ?? null],
+                displays: [
+                  load.fattening_days == null
+                    ? copy(pageContract, "value.not_sold_yet")
+                    : `${num(load.fattening_days)} ${copy(pageContract, "value.days")}`,
+                  // Absent means the load holds nothing, or its arrival date is unknown. The
+                  // tooltip still states what is left in the shed, a fact rather than a claim about
+                  // days, so the row is never simply blank.
+                  load.days_on_farm_so_far == null
+                    ? `${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}`
+                    : `${num(load.days_on_farm_so_far)} ${copy(pageContract, "value.days")} · ${num(
+                        load.remaining,
+                      )} ${copy(pageContract, "value.still_on_farm")}`,
+                ],
+                barLabels: [
+                  load.fattening_days == null ? null : numCompactWhole(load.fattening_days),
+                  load.days_on_farm_so_far == null ? null : numCompactWhole(load.days_on_farm_so_far),
+                ],
+                // "Sold, alive in any case at the bottom" (maintainer, 2026-09-25): under EVERY bar
+                // the load's split -- sold, still on farm, or both -- so the finished span reads as
+                // the sold animals' story and the running bar as the animals still here.
+                subLabel: [
+                  load.sold > 0 ? `${num(load.sold)} ${copy(pageContract, "value.sold_count")}` : null,
+                  load.remaining > 0 ? `${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || load.vendor_name,
+                // On hover: the day the animals REACHED THE FARM -- where this clock starts -- and the
+                // purchase date beside it, which is not where it starts.
+                tipLines: [
+                  load.arrived_on ? `${copy(pageContract, "value.arrived_on")} ${humanDate(load.arrived_on)}` : null,
+                  load.purchase_date ? `${copy(pageContract, "value.bought_on")} ${humanDate(load.purchase_date)}` : null,
+                ].filter((line): line is string => line != null),
+              }))}
+            />,
+          )}
 
-          {/* The reconciliation table: scrolls sideways inside the card, never past its edge. */}
+          {/* The reconciliation register: template table card (CardHeader + stock-price Label, the
+              table scrolls sideways inside the card, never past its edge, then the pager). */}
+          <Card>
+          <CardHeader title={copy(pageContract, "section.loadwise.title")} action={stockPriceLabel} />
           <Box
             sx={{
-              "& .twrap": { overflowX: "auto", maxWidth: "100%", minWidth: 0, scrollbarGutter: "stable", mt: 1.5, px: { xs: 2, sm: 0 } },
+              mt: 3,
+              "& .twrap": { overflowX: "auto", maxWidth: "100%", minWidth: 0, scrollbarGutter: "stable" },
               "& .twrap table": { minWidth: "100%" },
             }}
           >
@@ -659,8 +674,9 @@ export function LoadwiseSection({
               nextLabel=""
             />
           ) : null}
+          </Card>
         </>
       )}
-    </section>
+    </Stack>
   );
 }

@@ -5,11 +5,12 @@
 import { useState } from "react";
 import Box from "@mui/material/Box";
 
-import { Caption } from "@/components/app/caption";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import { Label } from "@/components/minimal/label";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { SeriesLegend, SeriesLines, seriesColorVar, type LineSeries } from "@/components/svg-series";
-import { Tag } from "@/components/ui-primitives";
 import type { MarketSeries } from "@/lib/api/market-server";
 import { istDayPlus } from "@/lib/format";
 
@@ -89,13 +90,11 @@ export function MarketTrendSection({
   const unit = trendSeries[0]?.unit_label ?? "";
 
   return (
-    <Box component="section" className="card wchart" sx={{ mt: 1.5 }} aria-label={labels.aria}>
-      <div className="hd">
-        <h3>{labels.title}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        {unit ? <Tag tone="mut">{unit}</Tag> : null}
-      </div>
-      <Caption>{labels.sub}</Caption>
+    // Template chart card (AnalyticsWebsiteVisits anatomy): CardHeader (title, subheader, unit Label),
+    // the question tabs and city pills as the card's filter row, legend, then the chart.
+    <Card component="section" aria-label={labels.aria}>
+      <CardHeader title={labels.title} subheader={labels.sub} action={unit ? <Label variant="soft" color="default">{unit}</Label> : null} />
+      <Box sx={{ px: 3, pt: 2, pb: 3, minWidth: 0 }}>
       {/* Template tabs driven by client state (no href): a pick redraws from the series the page
           already holds, and the URL follows without a navigation. */}
       <Box sx={{ mb: 1.75 }}>
@@ -125,6 +124,7 @@ export function MarketTrendSection({
         chartLabel={`${labels.title} · ${questionLabel}`}
         emptyLabel={labels.empty}
       />
-    </Box>
+      </Box>
+    </Card>
   );
 }

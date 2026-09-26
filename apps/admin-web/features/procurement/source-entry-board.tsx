@@ -1,11 +1,12 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
+import Card from "@mui/material/Card";
+import Avatar from "@mui/material/Avatar";
+import ListItemText from "@mui/material/ListItemText";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { ArrowRight, PackageSearch } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getProcurementLoad, listProcurementLoads } from "@/lib/api/procurement-server";
@@ -24,6 +25,11 @@ import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { getProcurementOrigins } from "./load-detail";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { Iconify } from "@/components/minimal/iconify";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { LinkFiltersResult, type LinkFilterChip } from "./link-filters-result";
 import { phoneLoadCardsSx } from "./procurement-sx";
 
 const LOAD_CARDS_SX = phoneLoadCardsSx("source-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 9, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1 / -1", row: 2, secondary: true }]);
@@ -235,93 +241,89 @@ export async function SourceEntryBoardPage({
     });
   }
 
+  const placeholder = copy(pageContract, "label.placeholder");
+  const statusChips: LinkFilterChip[] =
+    statusFilter === "all"
+      ? []
+      : [{ id: "status", label: `${loadLabels[loadLabels.length - 1]}:`, value: optionLabel(pageContract, "source_load_status", statusFilter), href: statusHref("all") }];
+
   return (
     <div className="screen on">
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
         actions={<NewLoadForm returnTo={hrefWithQuery(pathname, sp, { source_load: null })} pageContract={pageContract} origins={origins} suppliers={suppliers} />}
-        tabs={
-          <Box sx={{ mb: 1.75 }}>
-            <AnimatedTabs
-              ariaLabel={copy(pageContract, "filter.all_states")}
-              value={statusFilter}
-              items={[
-                // No count badge here: `loads` is ALREADY narrowed by the selected status server-side,
-                // so a per-tab count computed from it would report the current filter's size on every
-                // tab. The backend does not issue whole-filter counts for this strip.
-                { value: "all", label: copy(pageContract, "filter.all_states"), href: statusHref("all") },
-                ...sourceLoadStatuses.map((status) => ({
-                  value: status.key,
-                  label: status.label,
-                  href: statusHref(status.key as ProcurementLoadStatus),
-                })),
-              ]}
-            />
-          </Box>
-        }
       />
 
       {actionStatus ? (
-        actionStatus === "success" ? (
-	          <div className="note" style={{ marginBottom: 14 }}>
-	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
-        ) : (
-          <Alert severity="error" style={{ marginBottom: 14 }}>
-	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </Alert>
-        )
+        <Alert severity={actionStatus === "success" ? "success" : "error"} sx={{ mb: 3 }}>
+          {actionStatus === "success" ? null : <b>{copy(pageContract, "action.failed_title")}&nbsp;</b>}
+          {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+        </Alert>
       ) : null}
 
       {!result.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           {result.error.message}
         </Alert>
       ) : null}
 
-      {/* The status tabs drive a server navigation. The kit `TabPanel` content transition is NOT
-          wrapped around this card: it branches on `useReducedMotion()`, which is false on the server
-          and true on a reduced-motion client, so it renders a different element tree on each side
-          and hydration fails on every load under that setting. */}
-      <section className="card">
-        <div className="hd">
-          <PackageSearch className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-	          <h3>{copy(pageContract, "section.loads.title")}</h3>
-	          <Tag tone={loads.length ? "info" : "mut"}>{copy(pageContract, "section.loads.badge")}</Tag>
-        </div>
-        <div className="tbar">
-	          <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
-	          <VaccinationFilterButton
-	            pageContract={pageContract}
-	            title={copy(pageContract, "filter.drawer.title")}
-	            searchReason={copy(pageContract, "filter.search_reason")}
-	            filterReason={copy(pageContract, "filter.reason")}
-	            rowsLabel={`${loads.length} ${copy(pageContract, "label.rows")} · ${copy(pageContract, "filter.rows_suffix")}`}
-	            facets={loadLabels}
-	          />
-	        </div>
-	        <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
-          <Box sx={LOAD_CARDS_SX}>
-            <Table className="source-loads-table">
-              <TableHead>
-                <TableRow>
-  	                {loadLabels.map((c) => (
-                    <TableCell component="th" key={c}>{c}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
+      {/* Template order list (sections/order/view/order-list-view): one Card holding the status
+          Tabs (Label count on the active tab — the backend issues no whole-filter count per stage,
+          so only the shown stage can be counted honestly), the OrderTableToolbar, the filters
+          result, the Scrollbar table under TableHeadCustom and the pager. The status tabs drive a
+          server navigation; the kit TabPanel is NOT wrapped around the card (it branches on
+          useReducedMotion(), which differs server/client and breaks hydration). */}
+      <Card data-filter-scope="">
+        <AnimatedTabs
+          ariaLabel={copy(pageContract, "filter.all_states")}
+          value={statusFilter}
+          scrollButtons="auto"
+          sx={{ px: { md: 2.5 } }}
+          items={[
+            { value: "all", label: copy(pageContract, "filter.all_states"), href: statusHref("all"), count: statusFilter === "all" ? loads.length : undefined },
+            ...sourceLoadStatuses.map((status) => ({
+              value: status.key,
+              label: status.label,
+              href: statusHref(status.key as ProcurementLoadStatus),
+              count: statusFilter === status.key ? loads.length : undefined,
+            })),
+          ]}
+        />
+
+        <OrderTableToolbar
+          search={
+            <Box sx={{ display: "flex" }}>
+              <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
+            </Box>
+          }
+          trailing={
+            <VaccinationFilterButton
+              pageContract={pageContract}
+              title={copy(pageContract, "filter.drawer.title")}
+              searchReason={copy(pageContract, "filter.search_reason")}
+              filterReason={copy(pageContract, "filter.reason")}
+              rowsLabel={`${loads.length} ${copy(pageContract, "label.rows")} · ${copy(pageContract, "filter.rows_suffix")}`}
+              facets={loadLabels}
+            />
+          }
+        />
+
+        <LinkFiltersResult totalResults={loads.length} chips={statusChips} resetHref={statusHref("all")} />
+
+        <Box sx={LOAD_CARDS_SX} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
+          <Scrollbar>
+            <Table className="source-loads-table" sx={{ minWidth: 960 }}>
+              <TableHeadCustom headCells={loadLabels.map((label, index) => ({ id: `c${index}`, label, sortable: false }))} />
               <TableBody>
                 {loads.length === 0 ? (
                   <TableRow>
-  	                  <TableCell colSpan={loadLabels.length}>
-                      <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-  	                      {result.ok
-  	                        ? statusFilter === "all"
-  	                          ? copy(pageContract, "empty.loads_detail")
-  	                          : `${copy(pageContract, "empty.loads_filtered_prefix")} “${optionLabel(pageContract, "source_load_status", statusFilter as ProcurementLoadStatus)}” ${copy(pageContract, "empty.loads_filtered_suffix")}`
-  	                        : copy(pageContract, "empty.unavailable")}
-                      </div>
+                    <TableCell colSpan={loadLabels.length} sx={{ py: 5, textAlign: "center", color: "text.secondary", typography: "body2" }}>
+                      {result.ok
+                        ? statusFilter === "all"
+                          ? copy(pageContract, "empty.loads_detail")
+                          : `${copy(pageContract, "empty.loads_filtered_prefix")} “${optionLabel(pageContract, "source_load_status", statusFilter as ProcurementLoadStatus)}” ${copy(pageContract, "empty.loads_filtered_suffix")}`
+                        : copy(pageContract, "empty.unavailable")}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -333,19 +335,24 @@ export async function SourceEntryBoardPage({
                     const purpose = purposeLabel(detail, pageContract);
                     const warmup = warmupCell(load, detail, pageContract);
                     // An unknown value (no detail read yet) is a blank cell, not a grey "—" pill.
-                    const placeholder = copy(pageContract, "label.placeholder");
                     const tagging = taggingLabel(detail, load.expected_count, pageContract);
                     return (
-                      <TableRow key={load.load_id}>
+                      <TableRow key={load.load_id} hover>
                         <TableCell>
                           <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                            <b>{sourcePartyLabel(load)}</b>
-                            {load.purchase_date ? <div className="muted small">{fmtDate(load.purchase_date)}</div> : null}
+                            <Box sx={{ gap: 2, display: "flex", alignItems: "center" }}>
+                              <Avatar alt={sourcePartyLabel(load)}>{sourcePartyLabel(load).slice(0, 1).toUpperCase()}</Avatar>
+                              <ListItemText
+                                primary={sourcePartyLabel(load)}
+                                secondary={load.purchase_date ? fmtDate(load.purchase_date) : undefined}
+                                slotProps={{ primary: { sx: { typography: "body2" } }, secondary: { sx: { color: "text.disabled" } } }}
+                              />
+                            </Box>
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
                           <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                            <b>{sourceLocationLabel(load, pageContract)}</b>
+                            {sourceLocationLabel(load, pageContract)}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
@@ -353,17 +360,19 @@ export async function SourceEntryBoardPage({
                             {purpose === placeholder ? null : <Tag tone={purpose === optionLabel(pageContract, "proc_purpose", "fattening") ? "mut" : "ok"}>{purpose}</Tag>}
                           </LocalOverlayLink>
                         </TableCell>
-                        <TableCell>
+                        <TableCell align="center">
                           <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                             {load.expected_count}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
                           <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                            {warmup.label === placeholder ? null : <Tag tone={warmup.tone}>{warmup.label}</Tag>}
-                            <div className="muted small" title={warmup.note}>
-                              {load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}
-                            </div>
+                            <ListItemText
+                              primary={warmup.label === placeholder ? null : <Tag tone={warmup.tone}>{warmup.label}</Tag>}
+                              secondary={load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}
+                              title={warmup.note}
+                              slotProps={{ secondary: { sx: { mt: 0.5, typography: "caption" } } }}
+                            />
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
@@ -384,7 +393,7 @@ export async function SourceEntryBoardPage({
                         <TableCell>
                           <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                             <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
-                            <ArrowRight className="ic" style={{ width: 13, flexShrink: 0, marginLeft: 6 }} aria-hidden="true" />
+                            <Iconify icon="eva:arrow-ios-forward-fill" width={16} sx={{ ml: 0.75, color: "text.disabled", flexShrink: 0 }} />
                           </LocalOverlayLink>
                         </TableCell>
                       </TableRow>
@@ -393,10 +402,10 @@ export async function SourceEntryBoardPage({
                 )}
               </TableBody>
             </Table>
-          </Box>
-        </div>
+          </Scrollbar>
+        </Box>
         <ProcurementPager prevHref={prevHref} nextHref={nextHref} page={page} count={loads.length} noun={loadLabels[0].toLowerCase()} forceVisible />
-      </section>
+      </Card>
       <SourceEntryLocalDrawer
         items={drawerItems}
         initialSelectedId={selectedLoadId}

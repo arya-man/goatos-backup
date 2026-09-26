@@ -38,7 +38,7 @@ assert.match(
   "drawer goat count must render unavailable when detail was not fetched, not 0",
 );
 
-assert.match(source, /<Table className="source-loads-table">/, "source-entry loads table must keep its scoped class");
+assert.match(source, /<Table className="source-loads-table"[ >]/, "source-entry loads table must keep its scoped class");
 assert.match(css, /\.main table\.source-loads-table\{min-width:1180px\}/, "source-entry table must own enough width for mobile scroll");
 assert.match(css, /\.main table\.source-loads-table th,\s*\.main table\.source-loads-table td,\s*\.main table\.source-loads-table td \.celllink\{white-space:nowrap/, "source-entry table links must not clip/wrap status labels");
 assert.match(css, /\.main table\.source-loads-table th:nth-child\(9\),\.main table\.source-loads-table td:nth-child\(9\)\{min-width:172px\}/, "source-entry status column must fit Accepted intake");

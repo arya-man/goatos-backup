@@ -3,15 +3,17 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import { Caption } from "@/components/app/caption";
 import { EmptyState } from "@/components/app/empty-state";
 import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { redirect } from "next/navigation";
-import { Building2, CalendarRange, CircleCheck, Clock, Phone } from "lucide-react";
+import { Building2, CalendarRange, CircleCheck, Clock } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
-import { Tag } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
@@ -25,6 +27,8 @@ import Alert from "@mui/material/Alert";
 import { MarketTrendSection } from "./market-trend-section";
 import { salesErrorText } from "./sales-error";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
 import { MARKET_WINDOWS } from "./market-analytics-layout";
 
 const PAGE_PATH = "/sales/market-analytics";
@@ -116,7 +120,7 @@ export async function MarketAnalyticsPage({
         </Alert>
       ) : null}
 
-      <Box sx={{ mt: 1.5 }}>
+      <Stack spacing={3}>
       <KpiGrid>
         <KpiCard
           tone="primary"
@@ -143,9 +147,8 @@ export async function MarketAnalyticsPage({
           icon={<CircleCheck aria-hidden="true" />}
         />
       </KpiGrid>
-      </Box>
 
-      <Box sx={{ mt: 1.5, mb: 1.75 }}>
+      <Box>
 
         <AnimatedTabs
           variant="pill"
@@ -161,24 +164,25 @@ export async function MarketAnalyticsPage({
       </Box>
 
       {analytics.series.length === 0 ? (
-        <div style={{ marginTop: 12 }}>
-          <EmptyState
+        <Card>
+          <EmptyState sx={{ py: 10 }}
             title={day && day.cards.length === 0 ? copy(pageContract, "empty.config") : copy(pageContract, "empty.analytics")}
-            action={<Link href="/sales/config" className="btn">{copy(pageContract, "link.sales_config")}</Link>}
+            action={<Button component={Link} href="/sales/config" variant="contained" color="primary">{copy(pageContract, "link.sales_config")}</Button>}
           />
-        </div>
+        </Card>
       ) : (
         <>
-          <section className="card" style={{ marginTop: 12 }} aria-label={copy(pageContract, "section.latest.aria")}>
-            <div className="hd">
-              <Phone className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-              <h3>{copy(pageContract, "section.latest.title")}</h3>
-              <div className="sp" style={{ flex: 1 }} />
-              {latestDate ? <Tag tone="info">{humanDate(latestDate)}</Tag> : null}
-            </div>
-            <Caption>{copy(pageContract, "section.latest.sub")}</Caption>
-            <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.latest.title")}>
-              <Table className="market-latest-table">
+          {/* Latest prices: template table card (CardHeader title + subheader + date Label). */}
+          <Card aria-label={copy(pageContract, "section.latest.aria")} component="section">
+            <CardHeader
+              title={copy(pageContract, "section.latest.title")}
+              subheader={copy(pageContract, "section.latest.sub")}
+              action={latestDate ? <Label variant="soft" color="info">{humanDate(latestDate)}</Label> : null}
+            />
+            <Box sx={{ mt: 3 }}>
+            <Scrollbar>
+            <Box tabIndex={0} role="region" aria-label={copy(pageContract, "section.latest.title")}>
+              <Table className="market-latest-table" sx={{ minWidth: 560 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell component="th">{copy(pageContract, "column.city")}</TableCell>
@@ -213,11 +217,11 @@ export async function MarketAnalyticsPage({
                             <TableCell key={q.id} className="num" data-label={q.label} title={`${copy(pageContract, "column.recorded_on")} ${humanDate(cell.business_date)}`}>
                               <Box component="span" sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.25 }}>
                               <b>{priceWithUnit(cell.price, cell.unit_label)}</b>
-                              <span className="small"style={{ color: delta == null ? "var(--muted)" : delta > 0 ? "var(--ok)" : delta < 0 ? "var(--danger)" : "var(--muted)" }}>
+                              <Box component="span" sx={{ typography: "caption", color: delta == null ? "text.secondary" : delta > 0 ? "success.main" : delta < 0 ? "error.main" : "text.secondary" }}>
                                 {delta == null
                                   ? copy(pageContract, "value.no_previous")
                                   : `${delta > 0 ? "▲" : delta < 0 ? "▼" : "•"} ${num(Math.abs(delta), Number.isInteger(delta) ? 0 : 2)}`}
-                              </span>
+                              </Box>
                               </Box>
                             </TableCell>
                           );
@@ -228,8 +232,10 @@ export async function MarketAnalyticsPage({
                   })}
                 </TableBody>
               </Table>
-            </div>
-          </section>
+            </Box>
+            </Scrollbar>
+            </Box>
+          </Card>
 
           <MarketTrendSection
             series={analytics.series}
@@ -251,6 +257,7 @@ export async function MarketAnalyticsPage({
           />
         </>
       )}
+      </Stack>
     </div>
   );
 }

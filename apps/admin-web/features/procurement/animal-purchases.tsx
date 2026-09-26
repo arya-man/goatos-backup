@@ -1,19 +1,27 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import Divider from "@mui/material/Divider";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { Iconify } from "@/components/minimal/iconify";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { JobItem } from "@/components/minimal/sections/job/job-item";
+import { JobList } from "@/components/minimal/sections/job/job-list";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { AnimalPurchaseRecordedRange } from "./animal-purchase-recorded-range";
-import { KpiValue } from "./kpi-value";
 import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
-import { CircleCheck, CircleX, Hourglass, Truck, Video } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getAnimalPurchaseDeskCounts, listAnimalPurchaseLoads, listAnimalPurchaseReview } from "@/lib/api/procurement-server";
@@ -81,6 +89,9 @@ function decisionTone(tone: AnimalPurchaseAnimal["decision_tone"]): Tone {
  * records a load or an animal; its only write is the decision, and that renders only behind the
  * backend-declared `decide_animal_purchase` control — there is deliberately no role check here.
  */
+// The KPI cards have no series on this read; the sparkline stays hidden.
+const NO_TREND = { categories: [], series: [] };
+
 export async function AnimalPurchasesPage({
   searchParams,
   pageContract,
@@ -205,56 +216,49 @@ export async function AnimalPurchasesPage({
         </Alert>
       ) : null}
 
-      {/* Whole-desk figures from the backend counts, never sums over the rendered page. */}
-      <Box sx={{ mb: 1.75 }}>
-      <KpiGrid>
-        <KpiCard
-          tone="primary"
-          label={copy(pageContract, "summary.loads")}
-          // The loads read is one keyset page; a trailing "+" says there are more than shown.
-          value={loadsResult.ok ? `${num(loads.length)}${loadsNextCursor ? "+" : ""}` : none}
-          icon={<Truck aria-hidden="true" />}
-          hint={loadsTable.title}
-        />
-        <KpiCard
-          tone="warning"
-          label={copy(pageContract, "summary.pending")}
-          value={totals ? <KpiValue value={totals.pending} /> : none}
-          icon={<Hourglass aria-hidden="true" />}
-        />
-        <KpiCard
-          tone="success"
-          label={copy(pageContract, "summary.accepted")}
-          value={totals ? <KpiValue value={totals.accepted} /> : none}
-          icon={<CircleCheck aria-hidden="true" />}
-        />
-        <KpiCard
-          tone="error"
-          label={copy(pageContract, "summary.rejected")}
-          value={totals ? <KpiValue value={totals.rejected} /> : none}
-          icon={<CircleX aria-hidden="true" />}
-        />
-      </KpiGrid>
-      </Box>
-
-      <section className="card" style={{ marginBottom: 14 }}>
-        <div className="hd">
-          <Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.loads.title")}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          {/* The load FILTER: a plain query-param link, not an overlay. Clicking a load narrows
-              the animals section below; the all-loads chip clears it. */}
-          {/* The load FILTER as one pill strip: All loads · <selected>. Query-param links, no overlay. */}
-          <AnimatedTabs
-            variant="pill"
-            ariaLabel={copy(pageContract, "filter.load")}
-            value={loadId ? "selected" : "all"}
-            items={[
-              { value: "all", label: copy(pageContract, "filter.load.all"), href: hrefWithQuery(sp, { load_id: null, ap_cursor: null, ap_status: null, ap_code: null }) },
-              ...(loadId ? [{ value: "selected", label: selectedLoadRef ?? none, href: hrefWithQuery(sp, {}) }] : []),
-            ]}
+      {/* Whole-desk figures from the backend counts, never sums over the rendered page. Template
+          Ecommerce overview KPI row: EcommerceWidgetSummary cards on a Grid, spacing 3. */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <EcommerceWidgetSummary
+            title={copy(pageContract, "summary.loads")}
+            // The loads read is one keyset page; a trailing "+" says there are more than shown.
+            total={loadsResult.ok ? `${num(loads.length)}${loadsNextCursor ? "+" : ""}` : none}
+            caption={loadsTable.title} chart={NO_TREND}
           />
-        </div>
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <EcommerceWidgetSummary title={copy(pageContract, "summary.pending")} total={totals ? totals.pending : none} chart={NO_TREND} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <EcommerceWidgetSummary title={copy(pageContract, "summary.accepted")} total={totals ? totals.accepted : none} chart={NO_TREND} />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <EcommerceWidgetSummary title={copy(pageContract, "summary.rejected")} total={totals ? totals.rejected : none} chart={NO_TREND} />
+        </Grid>
+      </Grid>
+
+      {/* Loads: the template order-list card — CardHeader with the load filter pill strip as its
+          action, the selected load's record, the Scrollbar table under TableHeadCustom and the
+          template table pagination. */}
+      <Card sx={{ mb: 3 }}>
+        <CardHeader
+          title={copy(pageContract, "section.loads.title")}
+          slotProps={{ title: { component: "h3" } }}
+          sx={{ mb: 3, "& .MuiCardHeader-action": { alignSelf: "center", m: 0 } }}
+          action={
+            /* The load FILTER as one pill strip: All loads · <selected>. Query-param links, no overlay. */
+            <AnimatedTabs
+              variant="pill"
+              ariaLabel={copy(pageContract, "filter.load")}
+              value={loadId ? "selected" : "all"}
+              items={[
+                { value: "all", label: copy(pageContract, "filter.load.all"), href: hrefWithQuery(sp, { load_id: null, ap_cursor: null, ap_status: null, ap_code: null }) },
+                ...(loadId ? [{ value: "selected", label: selectedLoadRef ?? none, href: hrefWithQuery(sp, {}) }] : []),
+              ]}
+            />
+          }
+        />
         {/* The selected load's own record: what the buying desk typed when it opened the load on
             the phone (load number, vendor, farm, expected count, note), who recorded it and when,
             plus any EXTRA authored SOP answers (how it arrived, documents, ...). These sit with the
@@ -302,19 +306,13 @@ export async function AnimalPurchasesPage({
         {loads.length === 0 ? (
           <EmptyState title={copy(pageContract, "empty.loads")} />
         ) : (
-          <div id="animal-purchase-loads" className="twrap" tabIndex={0} role="region" aria-label={loadsTable.title}>
-            <Box sx={LOAD_CARDS_SX}>
-              <Table className="animal-purchase-loads-table" aria-label={loadsTable.title}>
-                <TableHead>
-                  {/* Header labels come from the page contract IN ITS ORDER; the body cells below
-                      are written in that same order (load_ref, vendor_name, farm, expected_count,
-                      total, pending, accepted, rejected, created_at). */}
-                  <TableRow>
-                    {loadColumns.map((label) => (
-                      <TableCell component="th" key={label}>{label}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
+          <Box id="animal-purchase-loads" tabIndex={0} role="region" aria-label={loadsTable.title} sx={LOAD_CARDS_SX}>
+            <Scrollbar>
+              <Table className="animal-purchase-loads-table" aria-label={loadsTable.title} sx={{ minWidth: 960 }}>
+                {/* Header labels come from the page contract IN ITS ORDER; the body cells below
+                    are written in that same order (load_ref, vendor_name, farm, expected_count,
+                    total, pending, accepted, rejected, created_at). */}
+                <TableHeadCustom headCells={loadColumns.map((label, index) => ({ id: `c${index}`, label, sortable: false }))} />
                 <TableBody>
                   {loads.map((load) => {
                     const selected = load.load_id === loadId;
@@ -330,25 +328,23 @@ export async function AnimalPurchasesPage({
                       </Link>
                     );
                     return (
-                      <TableRow key={load.load_id} className={selected ? "on" : undefined} aria-selected={selected ? "true" : undefined}>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(<b>{load.load_ref}</b>)}</TableCell>
-                        <TableCell>{cellLink(load.vendor_name || none)}</TableCell>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(load.farm)}</TableCell>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.expected_count))}</TableCell>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.total))}</TableCell>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>
-                          {cellLink(<Tag tone={load.counts.pending > 0 ? "warn" : "mut"}>{num(load.counts.pending)}</Tag>)}
-                        </TableCell>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.accepted))}</TableCell>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.rejected))}</TableCell>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(fmtDate(load.created_at))}</TableCell>
+                      <TableRow key={load.load_id} hover selected={selected} aria-selected={selected ? "true" : undefined} sx={{ "& td": { whiteSpace: "nowrap" } }}>
+                        <TableCell sx={{ typography: "subtitle2" }}>{cellLink(load.load_ref)}</TableCell>
+                        <TableCell sx={{ "&&": { whiteSpace: "normal" } }}>{cellLink(load.vendor_name || none)}</TableCell>
+                        <TableCell>{cellLink(load.farm)}</TableCell>
+                        <TableCell>{cellLink(num(load.expected_count))}</TableCell>
+                        <TableCell>{cellLink(num(load.counts.total))}</TableCell>
+                        <TableCell>{cellLink(<Tag tone={load.counts.pending > 0 ? "warn" : "mut"}>{num(load.counts.pending)}</Tag>)}</TableCell>
+                        <TableCell>{cellLink(num(load.counts.accepted))}</TableCell>
+                        <TableCell>{cellLink(num(load.counts.rejected))}</TableCell>
+                        <TableCell>{cellLink(fmtDate(load.created_at))}</TableCell>
                       </TableRow>
                     );
                   })}
                 </TableBody>
               </Table>
-            </Box>
-          </div>
+            </Scrollbar>
+          </Box>
         )}
 
         {loads.length > 0 ? (
@@ -372,149 +368,177 @@ export async function AnimalPurchasesPage({
             denseTargetId="animal-purchase-loads"
           />
         ) : null}
-      </section>
+      </Card>
 
-      <section className="card">
-        <div className="hd">
-          <Video className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.animals.title")}</h3>
-        </div>
-
-        {/* Load and recorded-on window: a plain GET form, so the filter lives in the URL like
-            every other list filter and the whole-filter chip counts follow it. The chip and the
-            page cursor are dropped on submit by construction (they are not form fields). */}
-        {/* The fields sit straight on the card (template invoice toolbar, no inner bordered box); the
-            top inset keeps the notched "Load" / "Recorded from" labels clear of the card edge. */}
-        <Box
-          component="form"
-          method="get"
-          action={PATHNAME}
-          className="ap-filter-bar"
-          role="search"
-          aria-label={copy(pageContract, "filter.load")}
-          sx={{
-            "&&": { pt: 1.25, px: 0, pb: 0, border: 0, borderRadius: 0, background: "none" },
-            "& .kit-daterange.ap-filter-date": { height: "auto", p: 0, border: 0, borderRadius: 0, background: "none", flex: "1 1 20rem", minWidth: "17.5rem" },
-          }}
-        >
-          {decision !== DEFAULT_DECISION ? <input type="hidden" name="decision" value={decision} /> : null}
-          <FormSelect
-            label={copy(pageContract, "filter.load")}
-            name="load_id"
-            defaultValue={loadId ?? ""}
-            className="ap-filter"
-            minWidth={220}
-            options={listOptions(
-              loads,
-              (load) => load.load_id,
-              (load) => `${load.load_ref} · ${load.vendor_name}`,
-              copy(pageContract, "filter.load.all"),
-            )}
-          />
-          <AnimalPurchaseRecordedRange
-            from={recordedFrom}
-            to={recordedTo}
-            label={copy(pageContract, "filter.recorded_from")}
-            fromLabel={copy(pageContract, "filter.from")}
-            toLabel={copy(pageContract, "filter.recorded_to")}
-            previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
-            nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
-          />
-          <Button type="submit" variant="contained" color="primary" size="small">
-            {copy(pageContract, "filter.apply")}
-          </Button>
-          {loadId || recordedFrom || recordedTo ? (
-            <Link href={hrefWithQuery(sp, { load_id: null, recorded_from: null, recorded_to: null, ap_cursor: null, ap_status: null, ap_code: null })} className="btn sm" scroll={false}>
-              {copy(pageContract, "filter.clear")}
-            </Link>
-          ) : null}
-        </Box>
+      {/* Animals: the template job list — a Card holding the decision Tabs (Label counts) and the
+          filter toolbar, then the job-item card grid with centred MUI Pagination. */}
+      <Card sx={{ mb: 3 }}>
+        <CardHeader title={copy(pageContract, "section.animals.title")} slotProps={{ title: { component: "h3" } }} sx={{ mb: 1 }} />
 
         {/* Decision chips are the response's own filters: label and WHOLE-FILTER count verbatim,
             selection as the backend reports it. A filter switch drops the cursor by construction. */}
         {filters.length > 0 ? (
-          <Box sx={{ mb: 1.75 }}>
-            <AnimatedTabs
-              ariaLabel={copy(pageContract, "filter.decision")}
-              value={filters.find((filter) => filter.selected)?.key ?? decision}
-              items={filters.map((filter) => ({
-                value: filter.key,
-                label: filter.label,
-                count: num(filter.count),
-                href: hrefWithQuery(sp, {
-                  decision: filter.key === DEFAULT_DECISION ? null : filter.key,
-                  ap_cursor: null,
-                  ap_status: null,
-                  ap_code: null,
-                }),
-              }))}
-            />
-          </Box>
+          <AnimatedTabs
+            ariaLabel={copy(pageContract, "filter.decision")}
+            value={filters.find((filter) => filter.selected)?.key ?? decision}
+            sx={{ px: { md: 2.5 } }}
+            items={filters.map((filter) => ({
+              value: filter.key,
+              label: filter.label,
+              count: num(filter.count),
+              href: hrefWithQuery(sp, {
+                decision: filter.key === DEFAULT_DECISION ? null : filter.key,
+                ap_cursor: null,
+                ap_status: null,
+                ap_code: null,
+              }),
+            }))}
+          />
         ) : null}
 
-        {/* The decision tabs drive a server navigation. The kit `TabPanel` content transition is
-            NOT wrapped around this body: it branches on `useReducedMotion()`, which is false on the
-            server and true on a reduced-motion client, so it renders a different element tree on
-            each side and hydration fails on every load under that setting. Put it back once the kit
-            renders one tree and only zeroes the durations. */}
-        {animals.length === 0 ? (
-          <EmptyState title={copy(pageContract, decision === DEFAULT_DECISION ? "empty.pending" : "empty.animals")} />
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {animals.map((animal) => {
-              // The decision block is the same on both card shapes: who decided and when, the form
-              // for a pending row behind the backend control, or the backend's reason.
-              const decisionBlock =
-                animal.decision !== "pending" ? (
-                  <div className="small" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span className="muted">
-                      {copy(pageContract, "decision.by")} {animal.decided_by_name || none}
-                      {animal.decided_at ? ` ${copy(pageContract, "decision.on")} ${fmtDateTime(animal.decided_at)}` : ""}
-                    </span>
-                    {animal.decision_note ? <span>{animal.decision_note}</span> : null}
-                  </div>
-                ) : canDecide ? (
-                  <AnimalPurchaseDecisionForm candidateId={animal.candidate_id} rowVersion={animal.row_version} labels={decisionLabels} />
-                ) : (
-                  // A principal who can open the page but not decide sees the backend's reason,
-                  // never a button that would 403.
-                  <div className="muted small">{decideDisabledReason || copy(pageContract, "verdict.disabled_no_access")}</div>
-                );
+        {/* Load and recorded-on window: a plain GET form, so the filter lives in the URL like
+            every other list filter and the whole-filter chip counts follow it. The chip and the
+            page cursor are dropped on submit by construction (they are not form fields). The
+            fields sit in the template OrderTableToolbar row. */}
+        <Box
+          component="form"
+          method="get"
+          action={PATHNAME}
+          role="search"
+          aria-label={copy(pageContract, "filter.load")}
+          sx={{ "& .kit-daterange.ap-filter-date": { height: "auto", p: 0, border: 0, borderRadius: 0, background: "none", flex: "1 1 20rem", minWidth: { xs: 0, sm: "17.5rem" }, maxWidth: { md: 480 } } }}
+        >
+          {decision !== DEFAULT_DECISION ? <input type="hidden" name="decision" value={decision} /> : null}
+          <OrderTableToolbar
+            filters={
+              <FormSelect
+                label={copy(pageContract, "filter.load")}
+                name="load_id"
+                defaultValue={loadId ?? ""}
+                className="order-toolbar-filter"
+                fullWidth
+                options={listOptions(
+                  loads,
+                  (load) => load.load_id,
+                  (load) => `${load.load_ref} · ${load.vendor_name}`,
+                  copy(pageContract, "filter.load.all"),
+                )}
+              />
+            }
+            search={
+              <Box sx={{ display: "flex" }}>
+              <AnimalPurchaseRecordedRange
+                from={recordedFrom}
+                to={recordedTo}
+                label={copy(pageContract, "filter.recorded_from")}
+                fromLabel={copy(pageContract, "filter.from")}
+                toLabel={copy(pageContract, "filter.recorded_to")}
+                previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+                nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+              />
+              </Box>
+            }
+            trailing={
+              <Box sx={{ display: "flex", gap: 1, flexShrink: 0, pr: { md: 1.5 } }}>
+                <Button type="submit" variant="contained" color="primary">
+                  {copy(pageContract, "filter.apply")}
+                </Button>
+                {loadId || recordedFrom || recordedTo ? (
+                  <Button component={Link} href={hrefWithQuery(sp, { load_id: null, recorded_from: null, recorded_to: null, ap_cursor: null, ap_status: null, ap_code: null })} scroll={false} color="inherit" variant="outlined">
+                    {copy(pageContract, "filter.clear")}
+                  </Button>
+                ) : null}
+              </Box>
+            }
+          />
+        </Box>
+      </Card>
 
-              // Backend-owned row title ("Animal 7 · Female goat"), the CEO's decision chip, the
-              // buying desk's own field verdict beside it, and the load.
-              const heading = (
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <b style={{ fontSize: 15 }}>{animal.title}</b>
-                  <Tag tone={decisionTone(animal.decision_tone)}>{animal.decision_label}</Tag>
-                  <FieldVerdictChip animal={animal} hint={sopCopy.fieldVerdictHint} />
-                  <span className="muted small">
-                    {animalColumn("load_ref")} {animal.load_ref}
-                  </span>
-                </div>
+      {/* The decision tabs drive a server navigation. The kit `TabPanel` content transition is
+          NOT wrapped around this body: it branches on `useReducedMotion()`, which is false on the
+          server and true on a reduced-motion client, so it renders a different element tree on
+          each side and hydration fails on every load under that setting. Put it back once the kit
+          renders one tree and only zeroes the durations. */}
+      {animals.length === 0 ? (
+        <Card>
+          <EmptyState title={copy(pageContract, decision === DEFAULT_DECISION ? "empty.pending" : "empty.animals")} />
+        </Card>
+      ) : (
+        <JobList
+          columns={{ xs: "repeat(1, minmax(0, 1fr))", lg: "repeat(2, minmax(0, 1fr))" }}
+          pagination={{
+            page: animalCursor ? 2 : 1,
+            ariaLabel: copy(pageContract, "section.animals.title"),
+            hrefs: [
+              ...(animalCursor ? [hrefWithQuery(sp, { ap_cursor: null, ap_status: null, ap_code: null })] : []),
+              hrefWithQuery(sp, { ap_status: null, ap_code: null }),
+              ...(animalsNextCursor ? [hrefWithQuery(sp, { ap_cursor: animalsNextCursor, ap_status: null, ap_code: null })] : []),
+            ],
+          }}
+        >
+          {animals.map((animal) => {
+            // The decision block is the same on both card shapes: who decided and when, the form
+            // for a pending row behind the backend control, or the backend's reason.
+            const decisionBlock =
+              animal.decision !== "pending" ? (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, typography: "body2" }}>
+                  <Box component="span" sx={{ color: "text.secondary" }}>
+                    {copy(pageContract, "decision.by")} {animal.decided_by_name || none}
+                    {animal.decided_at ? ` ${copy(pageContract, "decision.on")} ${fmtDateTime(animal.decided_at)}` : ""}
+                  </Box>
+                  {animal.decision_note ? <span>{animal.decision_note}</span> : null}
+                </Box>
+              ) : canDecide ? (
+                <AnimalPurchaseDecisionForm candidateId={animal.candidate_id} rowVersion={animal.row_version} labels={decisionLabels} />
+              ) : (
+                // A principal who can open the page but not decide sees the backend's reason,
+                // never a button that would 403.
+                <Box sx={{ color: "text.secondary", typography: "body2" }}>{decideDisabledReason || copy(pageContract, "verdict.disabled_no_access")}</Box>
               );
 
-              if (animal.questionnaire_version > 0) {
-                // A row recorded under the Procurement SOP questionnaire: captures per slot on the
-                // left, the answers by section on the right, the decision under the answers.
-                return (
-                  <article key={animal.candidate_id} className="card ap-animal ap-sop" aria-label={animal.title}>
-                    {heading}
-                    {/* The captures as one strip in recorded order, the answers beneath in compact
-                        columns, the decision as the card's last line. */}
-                    <AnimalPurchaseMedia slots={animal.media_slots ?? []} copy={sopCopy} />
-                    <AnimalPurchaseAnswers rows={animal.answer_rows ?? []} copy={sopCopy} />
-                    <div className="ap-sop-decision">{decisionBlock}</div>
-                  </article>
-                );
-              }
+            // The CEO's decision chip, the buying desk's own field verdict beside it, and the load:
+            // the template job-item meta line under the backend-owned row title.
+            const heading = (
+              <>
+                <Tag tone={decisionTone(animal.decision_tone)}>{animal.decision_label}</Tag>
+                <FieldVerdictChip animal={animal} hint={sopCopy.fieldVerdictHint} />
+                <Box component="span" sx={{ color: "text.disabled", ml: 0.5 }}>
+                  {animalColumn("load_ref")} {animal.load_ref}
+                </Box>
+              </>
+            );
 
-              // A legacy row recorded before the questionnaire: one video and the few facts, in
-              // the same card shape as an SOP row (a tile strip, then the facts, then the decision).
+            if (animal.questionnaire_version > 0) {
+              // A row recorded under the Procurement SOP questionnaire: the captures as one strip
+              // in recorded order, the answers beneath in compact columns, the decision last.
               return (
-                <article key={animal.candidate_id} className="card ap-animal ap-sop" aria-label={animal.title}>
-                  {heading}
-                  <div className="ap-sop-media">
+                <article key={animal.candidate_id} className="ap-animal" aria-label={animal.title}>
+                  <JobItem
+                    title={animal.title}
+                    meta={heading}
+                    avatar={<Iconify icon="solar:videocamera-record-bold" />}
+                    media={<AnimalPurchaseMedia slots={animal.media_slots ?? []} copy={sopCopy} />}
+                    sx={{ height: 1 }}
+                  >
+                    <Stack spacing={2.5} divider={<Divider sx={{ borderStyle: "dashed" }} />}>
+                      <AnimalPurchaseAnswers rows={animal.answer_rows ?? []} copy={sopCopy} />
+                      {decisionBlock}
+                    </Stack>
+                  </JobItem>
+                </article>
+              );
+            }
+
+            // A legacy row recorded before the questionnaire: one video and the few facts, in
+            // the same card shape as an SOP row (a tile strip, then the facts, then the decision).
+            return (
+              <article key={animal.candidate_id} className="ap-animal" aria-label={animal.title}>
+                <JobItem
+                  title={animal.title}
+                  meta={heading}
+                  avatar={<Iconify icon="solar:videocamera-record-bold" />}
+                  sx={{ height: 1 }}
+                  media={
                     <div className="ap-tiles">
                       {animal.media_url ? (
                         <AnimalPurchaseLightbox
@@ -529,54 +553,23 @@ export async function AnimalPurchasesPage({
                         </figure>
                       )}
                     </div>
-                  </div>
-                  <dl className="ap-facts">
-                    <div className="ap-sop-row">
-                      <dt>{animalColumn("breed")}</dt>
-                      <dd>{animal.breed || none}</dd>
-                    </div>
-                    <div className="ap-sop-row">
-                      <dt>{animalColumn("age_months")}</dt>
-                      <dd>{animal.age_months == null ? none : num(animal.age_months)}</dd>
-                    </div>
-                    <div className="ap-sop-row">
-                      <dt>{animalColumn("weight_kg")}</dt>
-                      <dd>{animal.weight_kg == null ? none : num(animal.weight_kg, 1)}</dd>
-                    </div>
-                    <div className="ap-sop-row">
-                      <dt>{animalColumn("condition")}</dt>
-                      <dd>{animal.condition_label || none}</dd>
-                    </div>
-                    <div className="ap-sop-row">
-                      <dt>{animalColumn("temp_tag")}</dt>
-                      <dd>{animal.temp_tag || none}</dd>
-                    </div>
-                    <div className="ap-sop-row">
-                      <dt>{animalColumn("notes")}</dt>
-                      <dd>{animal.notes || none}</dd>
-                    </div>
-                  </dl>
-                  <div className="ap-sop-decision">{decisionBlock}</div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-
-        {animalsNextCursor || animalCursor ? (
-          <ProcurementTableFooter
-            denseLabel={copy(pageContract, "action.dense", "Dense")}
-            rowsLabel={copy(pageContract, "pager.rows", "Rows")}
-            page={1}
-            pageCount={1}
-            prevHref={animalCursor ? hrefWithQuery(sp, { ap_cursor: null, ap_status: null, ap_code: null }) : null}
-            nextHref={animalsNextCursor ? hrefWithQuery(sp, { ap_cursor: animalsNextCursor, ap_status: null, ap_code: null }) : null}
-            rangeLabel={`${num(animals.length)} ${copy(pageContract, animals.length === 1 ? "pager.noun.one" : "pager.noun")}`}
-            prevLabel={copy(pageContract, "action.prev_page")}
-            nextLabel={copy(pageContract, "action.next_page")}
-          />
-        ) : null}
-      </section>
+                  }
+                  facts={[
+                    { key: "breed", label: animalColumn("breed"), value: animal.breed || none },
+                    { key: "age", label: animalColumn("age_months"), value: animal.age_months == null ? none : num(animal.age_months) },
+                    { key: "weight", label: animalColumn("weight_kg"), value: animal.weight_kg == null ? none : num(animal.weight_kg, 1) },
+                    { key: "condition", label: animalColumn("condition"), value: animal.condition_label || none },
+                    { key: "temp_tag", label: animalColumn("temp_tag"), value: animal.temp_tag || none },
+                    { key: "notes", label: animalColumn("notes"), value: animal.notes || none },
+                  ]}
+                >
+                  {decisionBlock}
+                </JobItem>
+              </article>
+            );
+          })}
+        </JobList>
+      )}
     </div>
   );
 }
