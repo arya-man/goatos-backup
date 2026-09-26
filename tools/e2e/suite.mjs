@@ -659,10 +659,10 @@ await runCase("C19", "An earlier version that will not load says so and closes",
     results.at(-1).shots.push(await shot("C19-unreadable"));
     const body = await page.locator("body").innerText();
     check("it does not sit on Loading forever", /Loading…/.test(body), false);
-    check("the sheet is open", await page.locator(".vp-modal").count(), 1);
+    check("the sheet is open", await page.locator(".vp-version-sheet").count(), 1);
     await page.keyboard.press("Escape");
-    await page.locator(".vp-modal").waitFor({ state: "detached", timeout: 5000 }).catch(() => undefined);
-    check("Escape closes it even in the error state", await page.locator(".vp-modal").count(), 0);
+    await page.locator(".vp-version-sheet").waitFor({ state: "detached", timeout: 5000 }).catch(() => undefined);
+    check("Escape closes it even in the error state", await page.locator(".vp-version-sheet").count(), 0);
   } else {
     note("no earlier version to view in this baseline", "skipped");
   }

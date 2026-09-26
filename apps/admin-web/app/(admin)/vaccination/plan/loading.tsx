@@ -1,13 +1,15 @@
-import { PageHeaderSkeleton, PageSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { KpiRowSkeleton, OptionalSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
 
-/** /vaccination/plan: header + the version action, then the live plan card (key tiles, vaccine table). */
+/** /vaccination/plan: header + version action, the live version's four CourseWidgetSummary tiles, the live vaccine table card, earlier versions. */
 export default function Loading() {
   return (
-    <PageSkeleton root="kit-enter vplan" gap={2}>
+    <PageSkeleton>
       <PageHeaderSkeleton actions={1} />
-      <StackSkeleton spacing={0}>
-        <TableSkeleton columns={4} rows={6} toolbar={<StatStripSkeleton count={4} card={false} />} />
-      </StackSkeleton>
+      <KpiRowSkeleton count={4} icon />
+      <TableSkeleton columns={4} rows={7} subheader headerAction />
+      <OptionalSkeleton>
+        <TableSkeleton columns={5} rows={3} headerAction pager={false} />
+      </OptionalSkeleton>
     </PageSkeleton>
   );
 }

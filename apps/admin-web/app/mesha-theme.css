@@ -3070,7 +3070,6 @@ select:disabled { opacity: .45 }
    inside the card. */
 .hbarlist{padding:2px 14px}
 
-
 @media(max-width:760px){
   .sales-ready-tolerance{grid-template-columns:1fr}
   .sales-ready-tolerance-head{justify-content:space-between}
@@ -3519,25 +3518,12 @@ select:disabled { opacity: .45 }
 
 .vplan .card { background: color-mix(in srgb,var(--paper) 82%,transparent); border: 1px solid color-mix(in srgb,var(--line) 74%,transparent); border-radius: 12px;
   box-shadow: none; margin: 0 0 14px; overflow: hidden }
-.vplan .card.livecard { border-color: color-mix(in srgb,var(--brand) 42%,var(--line)) }
 .vplan .card-h { padding: 15px 18px; border-bottom: 1px solid color-mix(in srgb,var(--line) 72%,transparent); display: flex; gap: 14px;
   align-items: flex-start; justify-content: space-between; flex-wrap: wrap }
 .vplan .card-h h2 { font-size: 19px; font-weight: 750; letter-spacing: 0 }
 .vplan .card-h .s { color: var(--muted); font-size: 13px; margin: 4px 0 0; max-width: 66ch }
 .vplan .card-b { padding: 16px 18px }
-
-.vplan .livegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 1px;
-  background: color-mix(in srgb,var(--line) 70%,transparent); border: 1px solid color-mix(in srgb,var(--line) 74%,transparent); border-radius: 10px; overflow: hidden }
-.vplan .livegrid > div { background: color-mix(in srgb,var(--paper-2) 76%,transparent); padding: 12px 14px }
 .vplan .k { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600 }
-.vplan .lv { margin-top: 5px; font-weight: 600; font-size: 15px }
-.vplan .vby { display: block; font-size: 11.5px; color: var(--faint); font-variant-numeric: normal }
-
-.vplan .draftnudge { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
-  margin-top: 16px; border: 1px solid var(--warn); background: var(--warnx); border-radius: 10px;
-  padding: 12px 15px; font-size: 13.5px }
-.vplan .draftnudge b { color: var(--ink) }
-.vplan .dn-l { color: var(--muted) }
 .vplan .ab-spacer { flex: 1; min-width: 8px }
 .vplan .anchorform { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end }
 @media (max-width: 880px) { .vplan .anchorform { grid-template-columns: 1fr } }
@@ -3584,14 +3570,9 @@ select:disabled { opacity: .45 }
   letter-spacing: normal; text-transform: none; background: transparent }
 .vplan .tag.on { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-d) }
 .vplan .tag.no { border-color: var(--warn); background: var(--warnx); color: var(--warn) }
-.vplan tr.voff td { color: var(--muted) }
 
 /* list screen + versions — remainder of the mock's own rules */
 .vplan .verline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 600; font-size: 14.5px }
-.vplan .vbtn { font-size: 12.5px; font-weight: 600; border: 1px solid var(--line); border-radius: 8px;
-  padding: 5px 11px; cursor: pointer; color: var(--ink); white-space: nowrap; background: none; min-height: 40px }
-.vplan .vbtn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand-d); background: var(--brand-soft) }
-.vplan .vbtn:disabled { opacity: .42; cursor: not-allowed }
 
 /* read-only "view settings" sheet */
 .vp-modal { position: fixed; inset: 0; z-index: 300; background: color-mix(in srgb,var(--bg) 72%,transparent); display: grid; place-items: center; padding: 24px }
@@ -3602,8 +3583,6 @@ select:disabled { opacity: .45 }
   padding: 18px 22px; border-bottom: 1px solid color-mix(in srgb,var(--line) 78%,transparent); background: color-mix(in srgb,var(--paper) 88%,transparent) }
 .vp-head h2 { font-size: 20px; line-height: 28px; font-weight: 700; letter-spacing: 0; margin-top: 3px }
 .vp-body { padding: 20px 22px; overflow: auto; scrollbar-gutter: stable }
-.vp-lead { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.55 }
-.vp-lead b { color: var(--ink) }
 .vp-x { width: 36px; height: 36px; border-radius: var(--r-sm,8px); display: grid; place-items: center; cursor: pointer;
   color: var(--muted); font-size: 15px; flex: none; background: transparent; border: 1px solid transparent; transition:background-color .15s ease,border-color .15s ease,color .15s ease }
 .vp-x:hover { background: var(--hover); border-color: var(--line); color: var(--ink) }
@@ -3816,14 +3795,14 @@ select:disabled { opacity: .45 }
   .vplan { padding: 14px 12px 24px }
   .vplan .head { padding: 16px 14px; border-radius: 11px; margin-bottom: 12px }
   .vplan h1:not(.kit-page-title) { font-size: 24px; line-height: 1.12 }
-  .vplan .draftnudge, .vplan .anchoractions { display: grid; grid-template-columns: 1fr; width: 100% }
-  .vplan .draftnudge .btn, .vplan .anchoractions .btn { width: 100%; justify-content: center; min-height: 42px; padding: 9px 12px }
+  .vplan .anchoractions { display: grid; grid-template-columns: 1fr; width: 100% }
+  .vplan .anchoractions .btn { width: 100%; justify-content: center; min-height: 42px; padding: 9px 12px }
   .vplan .pill { width: fit-content; max-width: 100%; white-space: normal; line-height: 1.25 }
   .vplan .card { border-radius: 11px; margin-bottom: 12px }
   .vplan .card-h { padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px }
   .vplan .card-h h2 { font-size: 18px; line-height: 1.22 }
   .vplan .card-b { padding: 14px }
-  .vplan .livegrid, .vplan .scope { grid-template-columns: 1fr; border-radius: 9px }
+  .vplan .scope { grid-template-columns: 1fr; border-radius: 9px }
   .vplan .scroll { margin-left: 0; margin-right: 0; padding: 0; overflow-x: visible }
   .vplan .tabl { display: block; min-width: 0; width: 100%; font-size: 13.5px }
   .vplan .tabl thead { display: none!important; position: static!important }

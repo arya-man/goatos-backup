@@ -1,17 +1,28 @@
 "use client";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+
 import { PageHeader } from "@/components/app/page-header";
+import { KpiCard } from "@/components/minimal/widgets";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { LinkButton } from "@/components/minimal/link-button";
+import { TableHeadCustom, TablePaginationLinks } from "@/components/minimal/table";
 
 /**
  * Vaccination plan console — the list screen.
  *
- * Markup and class names are the approved mock's, verbatim; the styles live in
- * app/mesha-theme.css under `.vp`. Two screens, mirroring what the product
+ * Template anatomy (course KPI row + table cards + Dialog); no legacy `.vp` markup. Two screens, mirroring what the product
  * already has: this list, and the editor behind "Start a new version". They are
  * deliberately NOT merged — see MOCK-BEHAVIOUR-SPEC.md §2.
  *
@@ -108,261 +119,206 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
 
   if (loadFailed) {
     return (
-      <div className="vplan">
-        <section className="card">
-          <div className="card-b">
-            <Alert severity="error">
-              <span className="ic">!</span>
-              <span>The vaccination plan could not be loaded.</span>
-            </Alert>
-          </div>
-        </section>
-      </div>
+      <Box className="screen on">
+        <PageHeader title="Vaccination plan" crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan" }]} />
+        <Alert severity="error">The vaccination plan could not be loaded.</Alert>
+      </Box>
     );
   }
 
   const draftHref = draft ? `/vaccination/plan/edit?version=${draft.protocol_version_id}` : "#";
+  const draftLabel = draft ? draft.version_label || `V${draft.version}` : "";
+  const liveKpis = live
+    ? [
+        { key: "since", label: "In force since", value: formatDate(live.effective_from), icon: "solar:calendar-date-bold" as const, tone: "primary" as const },
+        { key: "applies", label: "Applies to", value: appliesTo(live), icon: "solar:users-group-rounded-bold" as const, tone: "info" as const },
+        { key: "vaccines", label: "Vaccines in the plan", value: `${inPlanCount} of ${catalog.length}`, icon: "solar:medical-kit-bold" as const, tone: "success" as const },
+        {
+          // "Published by" promises a person; with no author on the record the tile shows only the date.
+          key: "published",
+          label: personName(live.published_by) ? "Published by" : "Published",
+          value: personName(live.published_by) ?? formatDate(live.published_at),
+          hint: personName(live.published_by) ? formatDate(live.published_at) : undefined,
+          icon: "solar:verified-check-bold" as const,
+          tone: "warning" as const,
+        },
+      ]
+    : [];
 
   return (
-    <div className="kit-enter vplan" style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0,1fr)" }}>
-      <div style={{ minWidth: 0 }}>
+    <Box className="screen on">
       <PageHeader
         title="Vaccination plan"
         crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan" }]}
         actions={
           draft ? (
-            <a className="btn primary" href={draftHref}>
-              Open {draft.version_label || `V${draft.version}`}
-            </a>
+            <LinkButton href={draftHref} variant="contained" color="primary" startIcon={<Iconify icon="solar:pen-bold" />}>
+              Open {draftLabel}
+            </LinkButton>
           ) : (
-            <button className="btn primary" onClick={onStart} disabled={pending} type="button">
+            <Button variant="contained" color="primary" onClick={onStart} disabled={pending} startIcon={<Iconify icon="mingcute:add-line" />}>
               {pending ? "Starting…" : "Start a new version"}
-            </button>
+            </Button>
           )
         }
       />
-      {error ? (
-        <Alert severity="error" style={{ marginTop: 16, marginBottom: 0 }}>
-          <span className="ic">!</span>
-          <span>{error}</span>
-        </Alert>
-      ) : null}
-      </div>
 
-      {live ? (
-        <div style={{ minWidth: 0 }}>
-        <section className="card livecard">
-          <div className="card-h">
-            <div>
-              <div className="eyebrow" style={{ marginBottom: 4 }}>
-                Live right now
-              </div>
-              <h2>{live.version_label || `V${live.version}`}</h2>
-            </div>
-            <span className="pill live">
-              <span className="dot" />
-              Published
-            </span>
-          </div>
-          <div className="card-b">
-            <div className="livegrid">
-              <div>
-                <div className="k">In force since</div>
-                <div className="lv num">{formatDate(live.effective_from)}</div>
-              </div>
-              <div>
-                <div className="k">Applies to</div>
-                <div className="lv">{appliesTo(live)}</div>
-              </div>
-              <div>
-                <div className="k">Vaccines in the plan</div>
-                <div className="lv">
-                  <span className="num">{inPlanCount}</span> of{" "}
-                  <span className="num">{catalog.length}</span>
-                </div>
-              </div>
-              <div>
-                {/* "Published by" promises a person; with no author on the record the tile shows only
-                    the date, so it says "Published". */}
-                <div className="k">{personName(live.published_by) ? "Published by" : "Published"}</div>
-                {/* The publisher's name is shown only when the record has one.
-                    Older rows were written by an import and have no author, and
-                    a dash beside a date reads as a broken field rather than as
-                    "nobody" — so the date stands alone instead. */}
-                <div className="lv">
-                  {personName(live.published_by) ? (
-                    <>
-                      {personName(live.published_by)}
-                      <span className="vby">{formatDate(live.published_at)}</span>
-                    </>
-                  ) : (
-                    <span className="num">{formatDate(live.published_at)}</span>
-                  )}
-                </div>
-              </div>
-            </div>
+      <Stack spacing={3}>
+        {error ? <Alert severity="error">{error}</Alert> : null}
 
-            {catalog.length > 0 ? (
-              <div className="scroll" tabIndex={0}>
-                <Table className="tabl">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell component="th">Vaccine</TableCell>
-                      <TableCell component="th">First doses</TableCell>
-                      <TableCell component="th">Repeats</TableCell>
-                      <TableCell component="th" />
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {catalog.map((v) => (
-                      <TableRow className={v.inPlan ? undefined : "voff"} key={v.code}>
-                        <TableCell>
-                          <b>{v.name}</b>
-                        </TableCell>
-                        <TableCell>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</TableCell>
-                        <TableCell>{v.inPlan ? describeRepeats(v.repeats) : "—"}</TableCell>
-                        <TableCell>
-                          {v.inPlan ? (
-                            <span className="tag on">in the plan</span>
-                          ) : (
-                            <span className="tag">not in this plan</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <div className="pager2">
-                  <span className="muted small">
-                    Page 1 · {catalog.length} vaccine{catalog.length === 1 ? "" : "s"} on this page
-                  </span>
-                  <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
-                    Previous
-                  </span>
-                  <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
-                    Next
-                  </span>
-                </div>
-              </div>
-            ) : null}
+        {live ? (
+          <>
+            {/* Template overview/course: CourseWidgetSummary tiles for the live version's facts. */}
+            <Grid container spacing={3}>
+              {liveKpis.map((kpi) => (
+                <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
+                  <KpiCard
+                    label={kpi.label}
+                    // Dates and names are text, not counts: the h4 step keeps DD/MM/YYYY on one line in a quarter-width tile.
+                    value={<Box component="span" sx={{ typography: "h4", whiteSpace: "nowrap" }}>{kpi.value}</Box>}
+                    hint={kpi.hint} tone={kpi.tone} icon={<Iconify icon={kpi.icon} width={32} />} />
+                </Grid>
+              ))}
+            </Grid>
 
             {draft ? (
-              <div className="draftnudge">
-                {/* Discarding destroys work that cannot be recovered, so it asks
-                    first. The question is asked inline rather than through
-                    window.confirm: a native dialog is outside the design system,
-                    cannot be styled, and is dismissed by automation, so the
-                    destructive path would never be exercised by a test. */}
+              // Discarding destroys work that cannot be recovered, so it asks first, inline (a native
+              // confirm is outside the design system and dismissed by automation).
+              <Alert
+                severity="warning"
+                action={
+                  confirmingDiscard ? (
+                    <Stack direction="row" spacing={1}>
+                      <Button size="small" color="inherit" onClick={() => setConfirmingDiscard(false)}>
+                        Keep it
+                      </Button>
+                      <Button size="small" variant="contained" color="error" disabled={pending} onClick={() => onDiscard(draft.protocol_version_id)}>
+                        {pending ? "Discarding…" : "Yes, discard it"}
+                      </Button>
+                    </Stack>
+                  ) : (
+                    <Stack direction="row" spacing={1}>
+                      <Button size="small" color="inherit" disabled={pending} onClick={() => setConfirmingDiscard(true)}>
+                        Discard it
+                      </Button>
+                      <LinkButton href={draftHref} size="small" variant="contained" color="warning">
+                        Open the draft
+                      </LinkButton>
+                    </Stack>
+                  )
+                }
+              >
                 {confirmingDiscard ? (
                   <>
-                    <span className="dn-l">
-                      <b>Discard {draft.version_label || `V${draft.version}`}?</b> The draft and
-                      everything in it is deleted. This cannot be undone.
-                    </span>
-                    <span className="ab-spacer" />
-                    <button
-                      className="btn ghost sm"
-                      type="button"
-                      onClick={() => setConfirmingDiscard(false)}
-                    >
-                      Keep it
-                    </button>
-                    <button
-                      className="btn sm"
-                      type="button"
-                      disabled={pending}
-                      onClick={() => onDiscard(draft.protocol_version_id)}
-                    >
-                      {pending ? "Discarding…" : "Yes, discard it"}
-                    </button>
+                    <b>Discard {draftLabel}?</b> The draft and everything in it is deleted. This cannot be undone.
                   </>
                 ) : (
                   <>
-                    <span className="dn-l">
-                      <b>A draft is waiting.</b> {draft.version_label || `V${draft.version}`} — not
-                      live yet.
-                    </span>
-                    <span className="ab-spacer" />
-                    <button
-                      className="btn ghost sm"
-                      type="button"
-                      disabled={pending}
-                      onClick={() => setConfirmingDiscard(true)}
-                    >
-                      Discard it
-                    </button>
-                    <a className="btn sm" href={draftHref}>
-                      Open the draft
-                    </a>
+                    <b>A draft is waiting.</b> {draftLabel} — not live yet.
                   </>
                 )}
-              </div>
+              </Alert>
             ) : null}
-          </div>
-        </section>
-        </div>
-      ) : null}
 
-      {earlier.length > 0 ? (
-        <div style={{ minWidth: 0 }}>
-        <section className="card">
-          <div className="card-h">
-            <div>
-              <h2>Earlier versions</h2>
-            </div>
-          </div>
-          <div className="card-b">
-            <div className="scroll" tabIndex={0}>
-              <Table className="tabl">
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">Version</TableCell>
-                    <TableCell component="th">In force</TableCell>
-                    <TableCell component="th">Published</TableCell>
-                    <TableCell component="th">What changed</TableCell>
-                    <TableCell component="th" />
-                  </TableRow>
-                </TableHead>
+            {/* Template table card: CardHeader (eyebrow subheader + status Label), TableHeadCustom. */}
+            <Card>
+              <CardHeader
+                title={live.version_label || `V${live.version}`}
+                subheader="Live right now"
+                action={
+                  <Label variant="soft" color="success" startIcon={<Iconify icon="solar:check-circle-bold" width={16} />}>
+                    Published
+                  </Label>
+                }
+                sx={{ mb: 3 }}
+              />
+              {catalog.length > 0 ? (
+                <>
+                  <Scrollbar>
+                    <Table sx={{ minWidth: 720 }}>
+                      <TableHeadCustom
+                        headCells={[
+                          { id: "vaccine", label: "Vaccine" },
+                          { id: "first", label: "First doses" },
+                          { id: "repeats", label: "Repeats" },
+                          { id: "state", label: "", width: 160 },
+                        ]}
+                      />
+                      <TableBody>
+                        {catalog.map((v) => (
+                          <TableRow hover key={v.code} sx={v.inPlan ? undefined : { "& td": { color: "text.disabled" } }}>
+                            <TableCell sx={{ typography: "subtitle2" }}>{v.name}</TableCell>
+                            <TableCell>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</TableCell>
+                            <TableCell>{v.inPlan ? describeRepeats(v.repeats) : "—"}</TableCell>
+                            <TableCell>
+                              <Label variant="soft" color={v.inPlan ? "success" : "default"}>
+                                {v.inPlan ? "in the plan" : "not in this plan"}
+                              </Label>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Scrollbar>
+                  <TablePaginationLinks
+                    page={0}
+                    rowsPerPage={catalog.length}
+                    count={catalog.length}
+                    hideActions
+                    rangeLabel={`Page 1 · ${catalog.length} vaccine${catalog.length === 1 ? "" : "s"} on this page`}
+                    prevLabel="Previous"
+                    nextLabel="Next"
+                  />
+                </>
+              ) : null}
+            </Card>
+          </>
+        ) : null}
+
+        {earlier.length > 0 ? (
+          <Card>
+            <CardHeader title="Earlier versions" action={<Label variant="soft">{earlier.length}</Label>} sx={{ mb: 3 }} />
+            <Scrollbar>
+              <Table sx={{ minWidth: 820 }}>
+                <TableHeadCustom
+                  headCells={[
+                    { id: "version", label: "Version" },
+                    { id: "inforce", label: "In force" },
+                    { id: "published", label: "Published" },
+                    { id: "changed", label: "What changed" },
+                    { id: "action", label: "", width: 140 },
+                  ]}
+                />
                 <TableBody>
                   {earlier.map((v) => (
-                    <TableRow key={v.protocol_version_id}>
-                      <TableCell>
-                        <b>{v.version_label || `V${v.version}`}</b>
-                      </TableCell>
-                      <TableCell className="num">
-                        {formatInForceRange(v)}
-                      </TableCell>
-                      <TableCell className="num">
+                    <TableRow hover key={v.protocol_version_id}>
+                      <TableCell sx={{ typography: "subtitle2" }}>{v.version_label || `V${v.version}`}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{formatInForceRange(v)}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>
                         {formatDate(v.published_at)}
                         {personName(v.published_by) ? (
-                          <span className="vby">{personName(v.published_by)}</span>
+                          <Box component="span" sx={{ display: "block", typography: "caption", color: "text.secondary" }}>
+                            {personName(v.published_by)}
+                          </Box>
                         ) : null}
                       </TableCell>
-                      <TableCell>{changeNotes[v.protocol_version_id] ?? "—"}</TableCell>
-                      <TableCell>
-                        <button className="vbtn" type="button" onClick={() => void openVersion(v)}>
+                      <TableCell sx={{ color: "text.secondary" }}>{changeNotes[v.protocol_version_id] ?? "—"}</TableCell>
+                      <TableCell align="right">
+                        <Button size="small" variant="outlined" color="inherit" onClick={() => void openVersion(v)}>
                           View settings
-                        </button>
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </div>
-          </div>
-        </section>
-        </div>
-      ) : null}
+            </Scrollbar>
+          </Card>
+        ) : null}
+      </Stack>
 
-      {sheetOpen ? (
-        <VersionSheet
-          data={sheet}
-          loading={sheetLoading}
-          error={sheetError}
-          onClose={() => setSheetOpen(false)}
-        />
-      ) : null}
-    </div>
+      <VersionSheet open={sheetOpen} data={sheet} loading={sheetLoading} error={sheetError} onClose={() => setSheetOpen(false)} />
+    </Box>
   );
 }
 

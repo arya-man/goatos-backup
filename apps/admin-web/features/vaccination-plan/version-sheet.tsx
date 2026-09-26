@@ -1,6 +1,5 @@
 "use client";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -18,8 +17,17 @@ import TableCell from "@mui/material/TableCell";
  * what a plan said.
  */
 
-import { X } from "lucide-react";
-import { useEffect } from "react";
+import Alert from "@mui/material/Alert";
+import Paper from "@mui/material/Paper";
+import Dialog from "@mui/material/Dialog";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table";
 
 import { describeFirstDoses, describeRepeats, type VaccineGroup } from "./plan-model";
 
@@ -31,81 +39,68 @@ export type VersionSheetData = {
 };
 
 type Props = {
+  open: boolean;
   data: VersionSheetData | null;
   loading: boolean;
   error: string | null;
   onClose: () => void;
 };
 
-export function VersionSheet({ data, loading, error, onClose }: Props) {
-  // Escape closes. A modal that traps the reader with no keyboard exit is a
-  // defect, not a detail.
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
+// Template Dialog (portal, backdrop, Escape and backdrop close, fullScreen on phones). The root carries
+// the `vp-version-sheet` class the E2E suite (tools/e2e/suite.mjs) looks for.
+export function VersionSheet({ open, data, loading, error, onClose }: Props) {
   return (
-    <div
-      className="vp-modal"
-      role="presentation"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth="md"
+      className="vp-version-sheet"
+      slotProps={{ paper: { "aria-label": "Version settings" } }}
+      sx={{ "& .MuiDialog-container": { alignItems: { xs: "flex-end", sm: "center" } } }}
     >
-      <div className="vp-sheet" role="dialog" aria-modal="true" aria-label="Version settings">
-        <div className="vp-head">
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 4 }}>
-              Read-only
-            </div>
-            <h2>{data?.label ?? "Version settings"}</h2>
-          </div>
-          <button className="vp-x" onClick={onClose} type="button" aria-label="Close">
-            {/* lucide, not a dingbat: check-mock-fidelity.mjs rejects emoji glyphs
-                because the mock uses real icons and a dingbat renders differently
-                on every platform. */}
-            <X size={15} aria-hidden />
-          </button>
-        </div>
-        <div className="vp-body">
-          {loading ? <p className="vp-lead">Loading…</p> : null}
-          {error ? <p className="vp-lead">{error}</p> : null}
-          {data && !loading && !error ? (
-            <>
-              <p className="vp-lead">
-                In force <b>{data.inForce}</b> · published <b>{data.published}</b>. This version is
-                retired and cannot be changed. To bring any of it back, start a new version.
-              </p>
-              <div className="scroll" style={{ marginTop: 0 }}>
-                <Table className="tabl">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell component="th">Vaccine</TableCell>
-                      <TableCell component="th">First doses</TableCell>
-                      <TableCell component="th">Repeats</TableCell>
-                    </TableRow>
-                  </TableHead>
+      <DialogTitle sx={{ pr: 7 }}>
+        <Typography variant="overline" component="div" sx={{ color: "text.secondary" }}>
+          Read-only
+        </Typography>
+        {data?.label ?? "Version settings"}
+        <IconButton onClick={onClose} aria-label="Close" sx={{ position: "absolute", top: 12, right: 12 }}>
+          <Iconify icon="mingcute:close-line" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent sx={{ pb: 3 }}>
+        {loading ? <Typography variant="body2" sx={{ color: "text.secondary" }}>Loading…</Typography> : null}
+        {error ? <Alert severity="error">{error}</Alert> : null}
+        {data && !loading && !error ? (
+          <>
+            <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+              In force <b>{data.inForce}</b> · published <b>{data.published}</b>. This version is retired and cannot be changed. To bring any of it back, start a new version.
+            </Typography>
+            <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+              <Scrollbar>
+                <Table sx={{ minWidth: 560 }}>
+                  <TableHeadCustom
+                    headCells={[
+                      { id: "vaccine", label: "Vaccine" },
+                      { id: "first", label: "First doses" },
+                      { id: "repeats", label: "Repeats" },
+                    ]}
+                  />
                   <TableBody>
                     {data.vaccines.map((v) => (
-                      <TableRow className={v.inPlan ? undefined : "voff"} key={v.code}>
-                        <TableCell>
-                          <b>{v.name}</b>
-                        </TableCell>
+                      <TableRow key={v.code} sx={v.inPlan ? undefined : { "& td": { color: "text.disabled" } }}>
+                        <TableCell sx={{ typography: "subtitle2" }}>{v.name}</TableCell>
                         <TableCell>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</TableCell>
                         <TableCell>{v.inPlan ? describeRepeats(v.repeats) : "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
-              </div>
-            </>
-          ) : null}
-        </div>
-      </div>
-    </div>
+              </Scrollbar>
+            </Paper>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
