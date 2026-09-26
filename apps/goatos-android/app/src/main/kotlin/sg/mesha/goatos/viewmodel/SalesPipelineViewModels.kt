@@ -411,11 +411,13 @@ class SalesLeadBoardViewModel @Inject constructor(
                         mapOf(AnalyticsEvents.Params.REASON to payload.kind),
                     )
                     onOk()
-                    local.update { it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = done) }
+                    // Only "saving" is true the instant after submit; the banner then follows the
+                    // outbox row (saved / still on this phone / refused).
+                    local.update { it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
                     // The board is a SERVER read, so re-reading it the instant the row is queued
                     // shows the board WITHOUT the new lead -- the write has not reached the server
                     // yet. Follow the outbox row instead and re-read when it actually lands.
-                    refreshWhenWriteLands(result.value, if (ownsForm) payload.clientId else "")
+                    refreshWhenWriteLands(result.value, if (ownsForm) payload.clientId else "", done)
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, failure) }
@@ -436,7 +438,7 @@ class SalesLeadBoardViewModel @Inject constructor(
      * outbox after the grace period leaves the board as it is and says so, rather than showing a
      * board that silently lacks the row the operator just entered.
      */
-    private fun refreshWhenWriteLands(outboxItemId: String, writeClientId: String) {
+    private fun refreshWhenWriteLands(outboxItemId: String, writeClientId: String, saved: String) {
         // Only the form THIS write came from is settled by its outcome: one closed and replaced by
         // a fresh form in the meantime carries a different key and is left alone.
         fun Local.ownsForm() = writeClientId.isNotEmpty() && formClientId == writeClientId
@@ -444,8 +446,13 @@ class SalesLeadBoardViewModel @Inject constructor(
             syncRepository.followQueuedWrite(outboxItemId).collect { outcome ->
                 when (outcome) {
                     QueuedWriteOutcome.Saved -> {
-                        // The lead is on the board: the form, and with it its key, is done.
-                        local.update { if (it.ownsForm()) it.copy(form = null, formClientId = "") else it }
+                        // The lead is on the board: the form, and with it its key, is done, and the
+                        // banner says so -- never "saved on this phone" about a row the server holds
+                        // (Sales phone E2E 2026-09-26).
+                        local.update {
+                            val settled = it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = saved)
+                            if (it.ownsForm()) settled.copy(form = null, formClientId = "") else settled
+                        }
                         refresh()
                     }
                     // Durable on this phone and will be sent: the form has done its job too.
@@ -499,10 +506,13 @@ class SalesLeadBoardViewModel @Inject constructor(
         const val SEARCH_GROUPS = "Search by name, district or number"
         const val NO_PHONE = "No number recorded"
         const val EMPTY_FILTERED = "No leads match this search"
-        const val MESSAGE_LEAD_SAVED = "Saved. It reaches the board when the phone is online."
-        const val MESSAGE_LEAD_CHANGED = "Changes saved. They reach the board when the phone is online."
+        // Shown only once the server HAS the lead (QueuedWriteOutcome.Saved); a lead still on the
+        // phone says MESSAGE_QUEUED_OFFLINE instead. No future tense here.
+        const val MESSAGE_SAVING = "Saving…"
+        const val MESSAGE_LEAD_SAVED = "Lead saved."
+        const val MESSAGE_LEAD_CHANGED = "Changes saved."
         const val MESSAGE_QUEUED_OFFLINE = "Saved on this phone. It reaches the board when the phone is online."
-        const val MESSAGE_STATUS_SAVED = "Status saved. It reaches the board when the phone is online."
+        const val MESSAGE_STATUS_SAVED = "Status saved."
         const val MESSAGE_FAILED = "Could not save that. Try again."
     }
 }

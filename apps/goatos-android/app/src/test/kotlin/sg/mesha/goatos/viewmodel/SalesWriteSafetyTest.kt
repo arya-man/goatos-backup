@@ -301,6 +301,39 @@ class SalesWriteSafetyTest {
     }
 
     @Test
+    fun `a lead the server accepted drops the saved-on-this-phone banner`() = runTest(dispatcher) {
+        // Seen on the phone (2026-09-26): the buyer-leads banner kept saying "Saved on this phone.
+        // It reaches the board when the phone is online." after the lead was already on the board.
+        val sync = SalesSync()
+        val vm = leadVm(sync)
+        backgroundScope.launch { vm.state.collect {} }
+        vm.onEvent(SalesLeadBoardEvent.OpenForm)
+        vm.onEvent(SalesLeadBoardEvent.FieldChanged(SalesBuyerLeadField.BUYER_NAME.name, "Ramesh"))
+        vm.onEvent(SalesLeadBoardEvent.Submit)
+        testScheduler.advanceTimeBy(DEFAULT_OFFLINE_AFTER_MS + 1)
+        testScheduler.runCurrent()
+        assertTrue("still unsent after the grace period: the offline sentence is true", vm.state.value.writeMessage.startsWith("Saved on this phone"))
+        sync.succeed("row-1")
+        val message = vm.state.value.writeMessage
+        assertEquals(VendorsWriteStatus.SYNCED, vm.state.value.writeStatus)
+        assertTrue("the banner follows the row once it lands; got \"$message\"", !message.contains("phone"))
+    }
+
+    @Test
+    fun `a lead accepted at once never says it waits for the network`() = runTest(dispatcher) {
+        val sync = SalesSync()
+        val vm = leadVm(sync)
+        backgroundScope.launch { vm.state.collect {} }
+        vm.onEvent(SalesLeadBoardEvent.OpenForm)
+        vm.onEvent(SalesLeadBoardEvent.FieldChanged(SalesBuyerLeadField.BUYER_NAME.name, "Ramesh"))
+        vm.onEvent(SalesLeadBoardEvent.Submit)
+        sync.succeed("row-1")
+        val message = vm.state.value.writeMessage
+        assertEquals(VendorsWriteStatus.SYNCED, vm.state.value.writeStatus)
+        assertTrue("got \"$message\"", message.isNotBlank() && !message.contains("online"))
+    }
+
+    @Test
     fun `a double tap on a new lead queues one lead`() = runTest(dispatcher) {
         val sync = SalesSync()
         val vm = leadVm(sync)
