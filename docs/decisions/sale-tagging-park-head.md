@@ -76,7 +76,13 @@ so a tick alone adds the module and clearing it removes the module and the permi
 ## The phone flow
 
 `SaleTaggingListScreen` (L0) lists the queue, Room-first over the cached first page.
-`SaleTaggingScreen` (hosted drill) is the basket: the tag field carries the Bluetooth chip that
+`SaleTaggingScreen` (hosted drill) reads its sale through `GET /admin/goats/sale-tagging/{sales_deal_id}`
+(Room-cached per sale), which carries the park the SERVER resolved (`park_id`, also on every queue
+row). That is the park it searches. Until 2026-09-26 the screen matched the sale's farm code
+against the pen catalog on the device, in parallel with reading the queue cache: a tenant-wide park
+head (two parks) whose catalog arrived first matched nothing and could never search, and a sale not
+on the cached first queue page had no row at all (review of PR #446; pinned by
+`SaleTaggingViewModelParkTest`, red on the old view model). It is the basket: the tag field carries the Bluetooth chip that
 switches the keyboard-wedge reader on, the same field takes a hand-typed number, both run the
 identical lookup (`/admin/goats/sale-candidates` with the park resolved from the sale's farm),
 and only an EXACT identifier match lands in the basket -- a substring hit is a different animal
@@ -105,7 +111,9 @@ same request. Pinned by `TestAnExactReplayOfACommittedConfirmReturnsTheOriginalR
 drawer path too.
 
 **Not given to the park head** (maintainer answer 2026-09-26): the Sales SOP's loading-video and
-gate-pass-photo steps. They stay inside the Sales module.
+gate-pass-photo steps. They stay inside the Sales module, and `sales.allocate_animals` alone opens
+NO sale workflow on the API either -- not the list, the card (which names the buyer), or an answer
+or completion (review of PR #446; see `docs/decisions/sales-sop.md`).
 
 ## What was deliberately not done
 

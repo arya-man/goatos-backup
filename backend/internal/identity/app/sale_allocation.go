@@ -682,7 +682,57 @@ func (s *SaleAllocationService) ListSaleTaggingQueue(ctx context.Context, input 
 	if deals == nil {
 		deals = []ports.SaleTaggingDeal{}
 	}
+	parks, err := s.parksByFarm(ctx, tenant)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range deals {
+		deals[i].ParkID = parks[strings.ToUpper(strings.TrimSpace(deals[i].Farm))]
+	}
 	return deals, cursor, nil
+}
+
+// GetSaleTaggingDeal is ONE sale for the tagging screen, with the park it was recorded at. It sits
+// behind the same clamp as every allocation route, so another park's sale is refused before it is
+// described; a fully tagged sale still resolves (the screen shows what it has just finished).
+func (s *SaleAllocationService) GetSaleTaggingDeal(ctx context.Context, tenantID, salesDealID string, allowed []string) (*ports.SaleTaggingDeal, error) {
+	tenant := strings.TrimSpace(tenantID)
+	if tenant == "" {
+		return nil, BadRequest("missing_tenant", "tenant scope is required")
+	}
+	deal := strings.TrimSpace(salesDealID)
+	if !uuidPattern.MatchString(deal) {
+		return nil, BadRequest("invalid_sales_deal_id", "sales_deal_id must be a valid UUID")
+	}
+	if err := s.refuseSaleOutsideScope(ctx, tenant, deal, allowed); err != nil {
+		return nil, err
+	}
+	got, err := s.deals.ReadSaleTaggingDeal(ctx, tenant, deal)
+	if err != nil {
+		return nil, mapSaleDealErr(err)
+	}
+	parks, err := s.parksByFarm(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	got.ParkID = parks[strings.ToUpper(strings.TrimSpace(got.Farm))]
+	return got, nil
+}
+
+// parksByFarm maps a ledger farm code to its park id through the pen catalog (a park's
+// location_code IS a deal's farm). One catalog read per request, however many rows it labels.
+func (s *SaleAllocationService) parksByFarm(ctx context.Context, tenantID string) (map[string]string, error) {
+	catalog, err := s.reader.ListSaleLocations(ctx, tenantID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	out := make(map[string]string, len(catalog.Parks))
+	for _, p := range catalog.Parks {
+		if code := strings.ToUpper(strings.TrimSpace(p.Label)); code != "" {
+			out[code] = p.ParkID
+		}
+	}
+	return out, nil
 }
 
 // GetSaleLocations serves the picker's park/shed/pen vocabulary.

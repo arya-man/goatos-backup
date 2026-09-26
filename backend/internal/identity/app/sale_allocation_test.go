@@ -124,6 +124,16 @@ type fakeDeals struct {
 	farmReads int
 }
 
+func (f *fakeDeals) ReadSaleTaggingDeal(_ context.Context, _, dealID string) (*ports.SaleTaggingDeal, error) {
+	for _, d := range f.queue {
+		if d.SalesDealID == dealID {
+			out := d
+			return &out, nil
+		}
+	}
+	return nil, ports.ErrSaleDealNotFound
+}
+
 func (f *fakeDeals) ReadSaleDealFarm(context.Context, string, string) (string, error) {
 	f.farmReads++
 	if f.farm == "" {

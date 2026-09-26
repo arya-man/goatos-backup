@@ -1790,6 +1790,13 @@ interface AppApi {
      */
     suspend fun getSaleTaggingQueue(limit: Int? = null, cursor: String? = null): SaleTaggingQueueDto
 
+    /**
+     * GET /admin/goats/sale-tagging/{sales_deal_id} — ONE sale in the queue's shape, with the park it
+     * was recorded at, whether or not it still owes animals. The tagging screen reads this rather
+     * than finding the sale in the cached first queue page.
+     */
+    suspend fun getSaleTaggingDeal(salesDealId: String): SaleTaggingDealDto
+
     /** POST /admin/goats/sale-allocations/preview — the review step; mutates nothing. */
     suspend fun previewSaleAllocation(request: SaleAllocationRequestDto): SalePreviewDto
 
@@ -3575,6 +3582,10 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         SaleCandidatePageDto(candidates = listOf(fakeSaleCandidate()))
 
     override suspend fun getSaleAllocation(salesDealId: String): SaleAllocationDto = SaleAllocationDto(salesDealId = salesDealId)
+
+    override suspend fun getSaleTaggingDeal(salesDealId: String): SaleTaggingDealDto =
+        getSaleTaggingQueue(null, null).deals.firstOrNull { it.salesDealId == salesDealId }
+            ?: SaleTaggingDealDto(salesDealId = salesDealId)
 
     override suspend fun getSaleTaggingQueue(limit: Int?, cursor: String?): SaleTaggingQueueDto =
         SaleTaggingQueueDto(

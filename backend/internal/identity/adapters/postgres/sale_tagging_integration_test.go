@@ -127,6 +127,14 @@ func TestTaggingQueueListsOnlyLiveSalesStillOwedAnimalsForTheFarmsAsked(t *testi
 	if err != nil || last != nil || len(second) != 1 || second[0].SalesDealID != tagDealCPT {
 		t.Fatalf("page 2 = %+v cursor=%v err=%v", second, last, err)
 	}
+	// The one-sale read the tagging screen uses: found whether or not it still owes animals.
+	one, err := bridge.ReadSaleTaggingDeal(ctx, ssTenant, tagDealComplete)
+	if err != nil || one.Farm != "CBE" || one.DeclaredAnimalCount != 1 || one.AlreadyTagged != 1 || one.Remaining() != 0 {
+		t.Fatalf("ReadSaleTaggingDeal(complete sale) = %+v err=%v; want CBE, 1 of 1 tagged", one, err)
+	}
+	if _, err := bridge.ReadSaleTaggingDeal(ctx, ssTenant, "77777777-7777-4777-8777-777777777799"); err != ports.ErrSaleDealNotFound {
+		t.Fatalf("ReadSaleTaggingDeal(unknown) err = %v, want ErrSaleDealNotFound", err)
+	}
 	// The farm read that clamps a park-scoped caller to their own park's sales.
 	if farm, err := bridge.ReadSaleDealFarm(ctx, ssTenant, tagDealCPT); err != nil || farm != "CPT" {
 		t.Fatalf("ReadSaleDealFarm(CPT deal) = %q, %v; want CPT", farm, err)

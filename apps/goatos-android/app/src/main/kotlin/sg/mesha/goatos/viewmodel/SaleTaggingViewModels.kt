@@ -188,9 +188,9 @@ class SaleTaggingViewModel @Inject constructor(
     private data class Local(
         /** The sale as the queue last showed it; kept once read so finishing it (and so leaving the queue) does not blank the screen. */
         val deal: SaleTaggingDealDto? = null,
-        /** The park this sale's farm code resolves to; blank until the catalog is read. */
+        /** The park the SERVER resolved for this sale (park_id); blank until the sale is read. */
         val parkId: String = "",
-        val catalogFailed: Boolean = false,
+        val dealFailed: Boolean = false,
         val alreadyTagged: List<SaleAllocationAnimalDto> = emptyList(),
         val allocationRead: Boolean = false,
         val tagInput: String = "",
@@ -211,19 +211,31 @@ class SaleTaggingViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEventsVendors.VENDORS_TAG_ANIMALS_OPENED, mapOf(AnalyticsEvents.Params.KIND to "tag_only"))
-        viewModelScope.launch { repository.observeTaggingQueue().collect { queue -> queue?.deals?.firstOrNull { it.salesDealId == dealId }?.let { deal -> local.update { it.copy(deal = deal) } } } }
+        // THE SALE CARRIES ITS OWN PARK (review of PR #446). The park to search comes from the
+        // server's park_id on the sale, never from matching its farm code against the catalog on
+        // the device: that raced the queue cache, and a tenant-wide park head (two parks) whose
+        // catalog arrived first could never search. The sale's own read is authoritative; the
+        // queue's cached row only paints the header until it lands, and never overrides it.
         viewModelScope.launch {
-            when (val result = repository.saleLocations()) {
+            repository.observeTaggingDeal(dealId).collect { deal ->
+                if (deal != null) local.update { l -> l.copy(deal = deal, parkId = deal.parkId.ifBlank { l.parkId }) }
+            }
+        }
+        viewModelScope.launch {
+            repository.observeTaggingQueue().collect { queue ->
+                queue?.deals?.firstOrNull { it.salesDealId == dealId }?.let { row ->
+                    local.update { l -> l.copy(deal = l.deal ?: row, parkId = l.parkId.ifBlank { row.parkId }) }
+                }
+            }
+        }
+        viewModelScope.launch {
+            when (val result = repository.refreshTaggingDeal(dealId)) {
                 is AppResult.Ok -> local.update { l ->
-                    // The sale's farm code IS the park's short code (CBE, CPT). The catalog is
-                    // already clamped to the caller's parks on the server.
-                    val park = result.value.parks.firstOrNull { it.label.equals(l.deal?.farm, ignoreCase = true) }
-                        ?: result.value.parks.singleOrNull()
-                    l.copy(parkId = park?.parkId.orEmpty(), catalogFailed = park == null)
+                    l.copy(deal = result.value, parkId = result.value.parkId.ifBlank { l.parkId }, dealFailed = false)
                 }
                 is AppResult.Err -> {
-                    result.cause?.let { crashReporter.recordException(it, "sale tagging locations read failed") }
-                    local.update { it.copy(catalogFailed = true, message = result.message) }
+                    result.cause?.let { crashReporter.recordException(it, "sale tagging deal read failed") }
+                    local.update { it.copy(dealFailed = it.deal == null, message = result.message) }
                 }
             }
             readAllocation()
@@ -264,7 +276,7 @@ class SaleTaggingViewModel @Inject constructor(
             submitInFlight = l.submitInFlight,
             done = l.done,
             doneLine = l.doneLine,
-            isLoading = deal == null && !l.catalogFailed && l.message == null,
+            isLoading = deal == null && !l.dealFailed && l.message == null,
             message = l.message,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SaleTaggingUiState())

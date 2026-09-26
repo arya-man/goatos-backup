@@ -66,6 +66,7 @@ func RegisterSaleAllocation(mux *http.ServeMux, h *SaleAllocationHandler) {
 	mux.HandleFunc("POST /admin/goats/sale-allocations/confirm", h.ConfirmSaleAllocation)
 	mux.HandleFunc("GET /admin/goats/sale-allocations/{sales_deal_id}", h.GetSaleAllocation)
 	mux.HandleFunc("GET /admin/goats/sale-tagging", h.ListSaleTaggingQueue)
+	mux.HandleFunc("GET /admin/goats/sale-tagging/{sales_deal_id}", h.GetSaleTaggingDeal)
 }
 
 // allowedParkIDs resolves the caller's park scope for every allocation route (maintainer
@@ -212,9 +213,12 @@ type saleTaggingQueueResponse struct {
 }
 
 type saleTaggingDealPayload struct {
-	SalesDealID         string `json:"sales_deal_id"`
-	SaleDate            string `json:"sale_date"`
-	Farm                string `json:"farm"`
+	SalesDealID string `json:"sales_deal_id"`
+	SaleDate    string `json:"sale_date"`
+	Farm        string `json:"farm"`
+	// ParkID is the park the sale was recorded at, resolved on the server: the park the tagging
+	// screen searches. Empty when the farm code names no active park.
+	ParkID              string `json:"park_id,omitempty"`
 	ProductType         string `json:"product_type"`
 	Breed               string `json:"breed,omitempty"`
 	DeclaredAnimalCount int    `json:"declared_animal_count"`
@@ -246,13 +250,32 @@ func (h *SaleAllocationHandler) ListSaleTaggingQueue(w http.ResponseWriter, r *h
 	}
 	out := saleTaggingQueueResponse{Deals: make([]saleTaggingDealPayload, 0, len(deals)), NextCursor: cursor}
 	for _, d := range deals {
-		out.Deals = append(out.Deals, saleTaggingDealPayload{
-			SalesDealID: d.SalesDealID, SaleDate: d.SaleDate, Farm: d.Farm,
-			ProductType: d.ProductType, Breed: d.Breed,
-			DeclaredAnimalCount: d.DeclaredAnimalCount, AlreadyTagged: d.AlreadyTagged, Remaining: d.Remaining(),
-		})
+		out.Deals = append(out.Deals, saleTaggingDealToPayload(d))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// GetSaleTaggingDeal serves ONE sale for the tagging screen, in the queue's shape, with its park.
+// Same clamp as every allocation route; no buyer and no money.
+func (h *SaleAllocationHandler) GetSaleTaggingDeal(w http.ResponseWriter, r *http.Request) {
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
+	deal, err := h.service.GetSaleTaggingDeal(r.Context(), tenantID(r), r.PathValue("sales_deal_id"), allowed)
+	if err != nil {
+		h.respondSaleError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saleTaggingDealToPayload(*deal))
+}
+
+func saleTaggingDealToPayload(d ports.SaleTaggingDeal) saleTaggingDealPayload {
+	return saleTaggingDealPayload{
+		SalesDealID: d.SalesDealID, SaleDate: d.SaleDate, Farm: d.Farm, ParkID: d.ParkID,
+		ProductType: d.ProductType, Breed: d.Breed,
+		DeclaredAnimalCount: d.DeclaredAnimalCount, AlreadyTagged: d.AlreadyTagged, Remaining: d.Remaining(),
+	}
 }
 
 // PreviewSaleAllocation is the review step. It mutates nothing.

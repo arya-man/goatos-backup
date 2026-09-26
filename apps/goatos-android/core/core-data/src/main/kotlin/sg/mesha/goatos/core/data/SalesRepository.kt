@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.SaleAllocationDto
 import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
+import sg.mesha.goatos.core.network.dto.SaleTaggingDealDto
 import sg.mesha.goatos.core.network.dto.SaleTaggingQueueDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
 import sg.mesha.goatos.core.network.dto.SalePreviewDto
@@ -145,6 +146,12 @@ interface SalesRepository {
     fun observeTaggingQueue(): Flow<SaleTaggingQueueDto?>
     suspend fun refreshTaggingQueue(): AppResult<SaleTaggingQueueDto>
     suspend fun taggingQueuePage(cursor: String): AppResult<SaleTaggingQueueDto>
+
+    // ONE sale for the tagging screen, with the park the SERVER resolved for it. Room-first like
+    // the queue, keyed by the sale, so the screen neither races the queue cache nor depends on the
+    // sale being on its first page (review of PR #446).
+    fun observeTaggingDeal(dealId: String): Flow<SaleTaggingDealDto?>
+    suspend fun refreshTaggingDeal(dealId: String): AppResult<SaleTaggingDealDto>
 }
 
 class DefaultSalesRepository(
@@ -367,6 +374,14 @@ class DefaultSalesRepository(
         return result
     }
 
+    override fun observeTaggingDeal(dealId: String): Flow<SaleTaggingDealDto?> = observeBlob(TAGGING_DEAL_KEY_PREFIX + dealId)
+
+    override suspend fun refreshTaggingDeal(dealId: String): AppResult<SaleTaggingDealDto> { // offline-first-guard:ignore: persists through putBlob -> vendorsBlobCacheDao().upsert, the same Room blob observeTaggingDeal() reads
+        val result = call { api.getSaleTaggingDeal(dealId) }
+        if (result is AppResult.Ok) putBlob(TAGGING_DEAL_KEY_PREFIX + dealId, json.encodeToString(result.value))
+        return result
+    }
+
     // offline-first-guard:ignore: a further page of the same queue, appended to the cached first page in the state holder
     override suspend fun taggingQueuePage(cursor: String): AppResult<SaleTaggingQueueDto> =
         call { api.getSaleTaggingQueue(VENDORS_PAGE_SIZE, cursor.ifBlank { null }) }
@@ -410,6 +425,7 @@ class DefaultSalesRepository(
         fun dealScopeMetaKey(scopeKey: String) = "sales-deal-scope:" + scopeKey
         const val OPTIONS_KEY = "sales-options"
         const val TAGGING_QUEUE_KEY = "sale-tagging-queue"
+        const val TAGGING_DEAL_KEY_PREFIX = "sale-tagging-deal:"
         const val VENDOR_OPTIONS_KEY = "sales-vendor-options"
     }
 

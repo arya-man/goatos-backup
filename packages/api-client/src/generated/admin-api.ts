@@ -1109,6 +1109,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/sale-tagging/{sales_deal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One sale for the tag-only screen, with the park it was recorded at.
+         * @description The queue row's shape for ONE sale, whether or not it still owes animals, so the tagging screen never depends on the sale being on the cached first page of the queue. Carries the server-resolved park_id the screen searches. No buyer and no money. Clamped to the caller's park scope: another park's sale is refused 403 park_out_of_scope.
+         */
+        get: operations["getSaleTaggingDeal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/goats/sale-candidates": {
         parameters: {
             query?: never;
@@ -4620,6 +4640,11 @@ export interface components {
             sale_date: string;
             /** @description The ledger's farm code (CBE, CPT). */
             farm: string;
+            /**
+             * Format: uuid
+             * @description The park the sale was recorded at, resolved on the server from the farm code. The tagging screen searches this park. Absent when the farm code names no active park.
+             */
+            park_id?: string;
             product_type: string;
             breed?: string;
             declared_animal_count: number;
@@ -8179,6 +8204,33 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getSaleTaggingDeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sales_deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sale. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleTaggingDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["ServerError"];
         };
     };

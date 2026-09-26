@@ -338,6 +338,11 @@ data class SaleTaggingDealDto(
     @SerialName("sale_date") val saleDate: String = "",
     /** The ledger's farm code (CBE, CPT), which is also the park's short code. */
     @SerialName("farm") val farm: String = "",
+    /**
+     * The park the sale was recorded at, resolved on the SERVER: the park the tagging screen
+     * searches. Blank on a row cached by an older build, or when the farm names no active park.
+     */
+    @SerialName("park_id") val parkId: String = "",
     @SerialName("product_type") val productType: String = "",
     @SerialName("breed") val breed: String = "",
     @SerialName("declared_animal_count") val declaredAnimalCount: Int = 0,

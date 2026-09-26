@@ -71,6 +71,7 @@ import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
 import sg.mesha.goatos.core.network.dto.SalePreviewDto
+import sg.mesha.goatos.core.network.dto.SaleTaggingDealDto
 import sg.mesha.goatos.core.network.dto.SaleTaggingQueueDto
 import sg.mesha.goatos.core.network.dto.SalesBuyerLeadDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
@@ -974,6 +975,8 @@ private class StubSalesRepository : SalesRepository {
     override fun observeTaggingQueue(): Flow<SaleTaggingQueueDto?> = flowOf(null)
     override suspend fun refreshTaggingQueue(): AppResult<SaleTaggingQueueDto> = error("unused")
     override suspend fun taggingQueuePage(cursor: String): AppResult<SaleTaggingQueueDto> = error("unused")
+    override fun observeTaggingDeal(dealId: String): Flow<SaleTaggingDealDto?> = flowOf(null)
+    override suspend fun refreshTaggingDeal(dealId: String): AppResult<SaleTaggingDealDto> = error("unused")
 }
 
 /**

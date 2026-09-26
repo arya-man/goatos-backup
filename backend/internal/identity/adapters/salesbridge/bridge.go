@@ -85,6 +85,31 @@ WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid`, tenantID, salesDealID).Scan(&
 	return strings.TrimSpace(farm), nil
 }
 
+// ReadSaleTaggingDeal is one sale in the queue's shape, by primary key, with no "still owed"
+// filter: the tagging screen must still describe a sale it has just finished.
+func (b *Bridge) ReadSaleTaggingDeal(ctx context.Context, tenantID, salesDealID string) (*ports.SaleTaggingDeal, error) {
+	var d ports.SaleTaggingDeal
+	err := b.pool.QueryRow(ctx, `
+SELECT d.id::text,
+       to_char(d.sale_date, 'YYYY-MM-DD'),
+       COALESCE(d.farm, ''),
+       COALESCE(d.product_type, ''),
+       COALESCE(d.breed, ''),
+       COALESCE(floor(d.animal_count)::int, 0),
+       (SELECT count(*)::int FROM goat_sale_allocations a
+         WHERE a.tenant_id = d.tenant_id AND a.sales_deal_id = d.id AND a.status = 'tagged') AS tagged
+FROM sales_deals d
+WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid`, tenantID, salesDealID).Scan(
+		&d.SalesDealID, &d.SaleDate, &d.Farm, &d.ProductType, &d.Breed, &d.DeclaredAnimalCount, &d.AlreadyTagged)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ports.ErrSaleDealNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("salesbridge: read sale tagging deal: %w", err)
+	}
+	return &d, nil
+}
+
 // ListSaleTaggingDeals is the park head's tag-only queue (maintainer decision 2026-09-11).
 //
 // It reads the sales ledger through the SAME bridge ReadSaleDeal uses, for the same reason:

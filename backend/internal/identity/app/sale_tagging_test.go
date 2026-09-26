@@ -296,3 +296,55 @@ func TestAReplayIsStillClampedToTheCallersPark(t *testing.T) {
 		t.Fatalf("replay from another park: err = %#v, want park_out_of_scope", err)
 	}
 }
+
+// THE SALE CARRIES ITS OWN PARK (review of PR #446). The phone used to work out which park to
+// search by matching the sale's farm code against the pen catalog on the device, which raced the
+// queue cache: a tenant-wide park head (the real ones today) sees two parks, so a catalog that
+// arrived before the sale row matched nothing and the screen could never search. The server now
+// resolves park_id once -- on every queue row, tenant-wide callers included, and on a per-sale
+// read the detail screen uses, which also finds a sale that is not on the cached first page and
+// one that is already fully tagged.
+func TestTheSaleCarriesItsOwnParkOnTheQueueAndTheDetail(t *testing.T) {
+	svc, repo, deals := newSaleService()
+	repo.catalog = &ports.SaleLocationCatalog{Parks: []ports.SaleLocationPark{
+		{ParkID: parkA, Label: "CPT"},
+		{ParkID: parkB, Label: "CBE"},
+	}}
+	deals.queue = []ports.SaleTaggingDeal{
+		{SalesDealID: saleDeal, Farm: "CPT", DeclaredAnimalCount: 2, AlreadyTagged: 2},
+		{SalesDealID: goatID(9), Farm: "CBE", DeclaredAnimalCount: 3},
+	}
+
+	out, _, err := svc.ListSaleTaggingQueue(context.Background(), ListSaleTaggingQueueInput{TenantID: saleTenant})
+	if err != nil {
+		t.Fatalf("tenant-wide queue: %v", err)
+	}
+	parks := map[string]string{}
+	for _, d := range out {
+		parks[d.SalesDealID] = d.ParkID
+	}
+	if parks[saleDeal] != parkA || parks[goatID(9)] != parkB {
+		t.Fatalf("queue rows carry parks %v, want CPT->A and CBE->B for a tenant-wide caller", parks)
+	}
+
+	// The detail read: the caller's own sale, fully tagged, still resolves with its park.
+	deals.farm = "CPT"
+	got, err := svc.GetSaleTaggingDeal(context.Background(), saleTenant, saleDeal, []string{parkA})
+	if err != nil || got.ParkID != parkA || got.Remaining() != 0 {
+		t.Fatalf("detail of the caller's sale = %+v err=%v; want park A, 0 remaining", got, err)
+	}
+	// Another park's sale is refused before it is described.
+	deals.farm = "CBE"
+	if _, err := svc.GetSaleTaggingDeal(context.Background(), saleTenant, goatID(9), []string{parkA}); err == nil {
+		t.Fatal("detail of another park's sale must be refused")
+	} else if appErr, ok := err.(*Error); !ok || appErr.Code != "park_out_of_scope" {
+		t.Fatalf("detail of another park's sale: err = %#v, want park_out_of_scope", err)
+	}
+	// An unknown sale is not found, not a blank row.
+	deals.farm = "CPT"
+	if _, err := svc.GetSaleTaggingDeal(context.Background(), saleTenant, goatID(8), nil); err == nil {
+		t.Fatal("an unknown sale must be not found")
+	} else if appErr, ok := err.(*Error); !ok || appErr.HTTPStatus != 404 {
+		t.Fatalf("unknown sale: err = %#v, want 404", err)
+	}
+}

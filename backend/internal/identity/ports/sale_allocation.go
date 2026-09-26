@@ -344,6 +344,11 @@ type SaleDealReader interface {
 	// the ledger's farm codes (CBE, CPT); nil means every farm. The rows carry NO buyer and NO
 	// money on purpose -- that is what "tag animals and nothing else" means on the wire.
 	ListSaleTaggingDeals(ctx context.Context, tenantID string, farms []string, limit int, cursor string) ([]SaleTaggingDeal, *string, error)
+	// ReadSaleTaggingDeal is ONE sale in the queue's shape, by id, whether or not it still owes
+	// animals -- the tagging screen reads it so it never depends on the sale being on the cached
+	// first page of the queue. ErrSaleDealNotFound for an unknown id. ParkID is left blank; the
+	// service resolves it.
+	ReadSaleTaggingDeal(ctx context.Context, tenantID, salesDealID string) (*SaleTaggingDeal, error)
 	// ReadSaleDealFarm returns the farm code the sale was recorded at (CBE, CPT, ...). It is
 	// asked ONLY for a park-scoped caller, to refuse a sale recorded at another park; it is a
 	// separate read from ReadSaleDeal because a sale with no animal count (manure) still has a
@@ -358,7 +363,11 @@ type SaleTaggingDeal struct {
 	// SaleDate is the ledger's business date, YYYY-MM-DD.
 	SaleDate string
 	// Farm is the ledger's farm code (CBE, CPT), which is also the park's location_code.
-	Farm        string
+	Farm string
+	// ParkID is the park that farm code names, resolved by the SERVICE from the pen catalog (the
+	// ledger stores no park id). The tagging screen searches this park; resolving it on the
+	// device raced the queue cache (review of PR #446). Blank when the code names no active park.
+	ParkID      string
 	ProductType string
 	Breed       string
 	// DeclaredAnimalCount is what the sale is for; AlreadyTagged how many are done.

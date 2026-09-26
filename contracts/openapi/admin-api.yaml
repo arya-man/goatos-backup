@@ -2320,6 +2320,41 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/goats/sale-tagging/{sales_deal_id}:
+    get:
+      tags:
+        - Admin Goats
+      operationId: getSaleTaggingDeal
+      summary: One sale for the tag-only screen, with the park it was recorded at.
+      description: >-
+        The queue row's shape for ONE sale, whether or not it still owes animals, so the tagging
+        screen never depends on the sale being on the cached first page of the queue. Carries the
+        server-resolved park_id the screen searches. No buyer and no money. Clamped to the
+        caller's park scope: another park's sale is refused 403 park_out_of_scope.
+      parameters:
+        - name: sales_deal_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The sale.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleTaggingDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /admin/goats/sale-candidates:
     get:
       tags:
@@ -11822,6 +11857,12 @@ components:
         farm:
           type: string
           description: The ledger's farm code (CBE, CPT).
+        park_id:
+          type: string
+          format: uuid
+          description: >-
+            The park the sale was recorded at, resolved on the server from the farm code. The
+            tagging screen searches this park. Absent when the farm code names no active park.
         product_type:
           type: string
         breed:
