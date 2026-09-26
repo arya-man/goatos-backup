@@ -67,7 +67,7 @@ test("authoring controls render only when the contract enables them, else the ba
   // LocalOverlayLink; same gate, same link.
   assert.match(feature, /\{\s*canCreate && catalogParkId \? \(\s*<Button component=\{LocalOverlayLink\}/);
   assert.match(feature, /\{!canConfigure \? <Alert severity="info"[^>]*>\{c\("configure\.disabled_no_access"\)\}<\/Alert> : null\}/);
-  assert.match(drawer, /readOnly \? \(?\s*<div className="note">\{copy\(pageContract, "configure\.disabled_no_access"\)\}/);
+  assert.match(drawer, /readOnly \? <Alert severity="info">\{copy\(pageContract, "configure\.disabled_no_access"\)\}/);
   assert.match(drawer, /isEdit && canSetStatus && routine\.status !== "retired"/);
   for (const source of [feature, drawer, filter, actions]) {
     // `.role` as a PROPERTY (actor.role) is a role conditional; the `"filter.role"` copy KEY of the

@@ -2394,110 +2394,7 @@
 .card .bd { padding: 6px 16px 16px }
 .sales-config-card-copy{margin:0;padding:10px 16px 14px;line-height:1.45}
 /* Market survey config (Sales Config): the body sits inside the card's .bd, blocks are spaced, rows breathe. */
-/* Routines drawer (pen routines): option rows are checkbox/radio + text on ONE line. They sit
-   inside .fld, whose label rule is the small uppercase field caption, so the reset is scoped to
-   the option class and must stay more specific than `.fld label`. */
-.fld label.pen-routine-check,.pen-routine-check{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:13px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink);cursor:pointer}
-/* Routines drawer (/routines, redesigned 2026-09-26). Everything is scoped under .prt so nothing
-   leaks to another drawer. The form is numbered steps (.prt-step), each a card with one heading
-   style. Native checkboxes and radios stay REAL and visible: the drawer's .fld rules give every
-   input a text box's width and 9px/11px padding, which stretched a checkbox into a wide box with its
-   tick in the corner -- the reset below puts them back to 16px squares with the tick centred. */
-.prt{display:flex;flex-direction:column;gap:12px}
-.prt-form{display:flex;flex-direction:column;gap:12px}
-.prt-fieldset{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:12px}
-.prt input[type=checkbox],.prt input[type=radio]{width:16px;height:16px;min-width:16px;min-height:16px;padding:0;margin:0;flex:none;box-sizing:border-box;accent-color:var(--brand);cursor:pointer}
-.prt-step{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
-.prt-step-hd{display:flex;align-items:center;gap:10px;min-width:0}
-.prt-step-hd h4{margin:0;font-size:14px;font-weight:700;color:var(--ink)}
-.prt-step-no{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--brand-soft);color:var(--brand);font-size:12px;font-weight:800}
-.prt-step-no.sm{width:20px;height:20px;font-size:11px}
-.prt-step-aside{margin-left:auto;font-size:12px;color:var(--muted);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.prt-hint{margin:0;font-size:12.5px;color:var(--muted);line-height:1.45}
-.prt-sub{display:block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:2px 0 6px}
-.prt .fld{margin:0}
-.prt-row2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.prt-row3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.prt-narrow{max-width:220px}
-.prt-count{margin-left:auto;font-size:12px;color:var(--faint);font-weight:600;white-space:nowrap}
 
-/* Who does it: the Tasks "For" picker (its anatomy is shared below, under :is(.lt-modal,.prt)). */
-.prt-warn{color:var(--warn,#c98a16)}
-
-/* A closed choice drawn as tiles; the radio inside is real. */
-.prt-tiles{display:flex;flex-wrap:wrap;gap:8px}
-.prt label.prt-tile{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;margin:0;border:1px solid var(--line);border-radius:10px;background:var(--bg);cursor:pointer;font-size:13px;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0;min-height:40px}
-.prt label.prt-tile.on{border-color:var(--brand);background:var(--brand-soft)}
-.prt label.prt-tile.off{opacity:.45;cursor:not-allowed}
-.prt label.prt-tile:focus-within{box-shadow:0 0 0 3px var(--brand-soft)}
-
-/* One-line checkbox rows and pill toggles (weekdays, month days, work kinds). */
-.prt label.prt-check{display:flex;align-items:center;gap:9px;margin:0;font-size:13px;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:0;cursor:pointer;min-width:0}
-.prt label.prt-check > span:not(.prt-count){min-width:0;overflow-wrap:anywhere}
-.prt-pills{display:flex;flex-wrap:wrap;gap:6px}
-.prt-pills.prt-month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
-.prt label.prt-pill{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:6px 10px;margin:0;border:1px solid var(--line);border-radius:999px;background:var(--bg);font-size:12.5px;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0;cursor:pointer;min-height:34px}
-.prt .prt-month label.prt-pill{padding:6px 4px;border-radius:8px}
-.prt label.prt-pill.on{border-color:var(--brand);background:var(--brand-soft)}
-.prt .prt-month label.prt-pill input{display:none}
-
-/* Chosen pens: search + bulk tick + a scrolling list. */
-.prt-pens{display:flex;flex-direction:column;gap:8px}
-.prt-pens-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.prt-search{display:flex;align-items:center;gap:6px;flex:1 1 180px;min-width:0;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg)}
-.prt-search:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
-.prt-search .ic{width:14px;height:14px;color:var(--faint)}
-.prt .prt-search input{border:0;background:transparent;outline:0;box-shadow:none;padding:8px 0;min-height:36px;width:100%;font:inherit;font-size:13px;color:var(--ink)}
-.prt-pen-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 12px;max-height:280px;overflow-y:auto;padding:6px 8px;border:1px solid var(--line);border-radius:10px}
-.prt label.prt-pen{padding:6px 4px;border-radius:6px}
-.prt label.prt-pen.on{background:var(--brand-soft)}
-.prt label.prt-pen.empty > span:first-of-type{color:var(--muted)}
-
-/* Questions. */
-.prt-questions{display:flex;flex-direction:column;gap:10px}
-.prt-question{border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:10px 12px;display:flex;flex-direction:column;gap:10px}
-.prt-question-hd{display:flex;align-items:center;justify-content:space-between}
-.prt-question-ft{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
-.prt-proof{display:inline-flex;gap:6px;margin-left:auto}
-.prt-proof select{min-height:34px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:12.5px}
-.prt-option{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:6px;align-items:center;margin-bottom:6px}
-.prt .prt-option input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
-.prt .prt-option-key{color:var(--muted)}
-.prt-key summary{cursor:pointer;font-size:12px;color:var(--faint);font-weight:600;width:max-content}
-.prt .prt-key input{margin-top:6px;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
-.prt-add{align-self:flex-start}
-.prt-media{margin-top:4px}
-.prt-media-box{border:1px solid var(--line);border-radius:10px;padding:8px 10px 10px}
-
-/* Status row and outcomes. */
-.prt-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 14px;border:1px solid var(--line);border-radius:12px}
-.prt-confirm{flex:1 1 220px;font-size:13px;color:var(--ink)}
-.prt .btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
-.prt-outcome{font-size:12.5px;font-weight:600}
-.prt-outcome.ok{color:var(--ok)}
-.prt-outcome.error{color:var(--danger)}
-div.prt-outcome.error{padding:9px 11px;border-radius:10px;background:rgba(229,72,77,.1)}
-.prt-foot{display:flex;align-items:center;gap:10px;flex:1;min-width:0;margin-right:auto}
-.prt-foot .btn{display:inline-flex;align-items:center;gap:6px}
-.prt-foot .prt-outcome{min-width:0;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.prt-spin{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:prt-spin .7s linear infinite}
-@keyframes prt-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.prt-spin{animation:none}}
-
-/* Today's KPI tiles: five in a row on a laptop, a compact 3 + 2 on a phone instead of five
-   full-width cards stacked down the screen. */
-@media (max-width:640px){
-  .prt-kpis.grid.g5{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-  .prt-kpis .kpi{padding:10px 10px}
-  .prt-kpis .kpi .val{font-size:22px}
-  .prt-kpis .kpi .lab{font-size:10.5px;overflow-wrap:anywhere}
-  .prt-row2,.prt-row3{grid-template-columns:minmax(0,1fr)}
-  .prt-row2.prt-media{grid-template-columns:minmax(0,1fr)}
-  .prt-media-box .prt-row2{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .prt-pen-list{grid-template-columns:minmax(0,1fr)}
-  .prt-narrow{max-width:none}
-  .prt-proof{margin-left:0}
-}
 /* Experiment pen chooser (Feed Config): the tick list inside the enrol drawer.
 
    Its rows live inside .fld, whose `input` rule is `width:100%` + padding for text boxes — applied
@@ -5005,6 +4902,7 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
    rules under `.wb`; this is the same anatomy restated for the modal: a full-width 44px trigger,
    the list opening IN FLOW -- static, like inside the phone filter sheet -- so the modal body's
    scroller cannot clip it, 44px rows reading "Name — Title", and brand tokens only. */
+.prt-warn{color:var(--warn,#c98a16)}
 /* Shared with the routine drawer's "Who does it" (.prt): the same single-person picker, one anatomy. */
 :is(.lt-modal,.prt) .avs-single{position:relative;display:grid;grid-template-columns:1fr;width:100%}
 :is(.lt-modal,.prt) .avs-trigger{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer}
@@ -5875,31 +5773,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 aside.drawer.approvals-drawer .dc{padding-bottom:32px;scroll-padding-bottom:24px}
 aside.drawer.approvals-drawer .dh,aside.drawer.approvals-drawer .df{flex-shrink:0}
 aside.drawer.approvals-drawer .df{flex-wrap:wrap}
-/* /routines on a phone: routine cards instead of the wide table (see routines-page.tsx). */
-.prt-cards{display:none;list-style:none;margin:0;padding:0}
-.prt-people{display:flex;flex-direction:column;max-width:260px}
-.prt-name-link{color:var(--brand);font-weight:650;text-decoration:none}
-.prt-name-link:hover,.prt-name-link:focus-visible{text-decoration:underline}
-.prt-people-names{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The laptop table fits its card at 1440: the two long text columns wrap instead of pushing the
-   Edit button past the right edge. */
-.prt-table td.prt-col-evidence{white-space:normal;min-width:150px;max-width:220px}
-.prt-table td.prt-col-people .prt-people{max-width:220px}
-.prt-table td.prt-col-cadence{white-space:normal;min-width:110px}
-@media (max-width:640px){
-  .prt-cards{display:flex;flex-direction:column;gap:10px;margin-top:8px}
-  .prt-table{display:none}
-  .prt-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel)}
-  .prt-card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px}
-  .prt-card-name{font-weight:700;font-size:15px;min-width:0;overflow-wrap:anywhere}
-  .prt-card-name a{color:var(--ink)}
-  .prt-card dl{margin:0;display:grid;gap:6px}
-  .prt-card dl > div{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;font-size:13px}
-  .prt-card dt{color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
-  .prt-card dd{margin:0;min-width:0;overflow-wrap:anywhere}
-  .prt-card .prt-people{max-width:none}
-  .prt-card .prt-people-names{white-space:normal}
-}
 
 /* At a phone's 390px the six top-bar controls need ~443px with the "Mesha" word beside the logo,
    so the account button wrapped onto a second row of its own (~90px lost on every page). Below

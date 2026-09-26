@@ -1,15 +1,31 @@
 "use client";
 
-import { Check, Plus, Search, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Plus, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { startTransition, useActionState, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
+import Accordion from "@mui/material/Accordion";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import AccordionSummary from "@mui/material/AccordionSummary";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
 import Checkbox from "@mui/material/Checkbox";
+import Divider from "@mui/material/Divider";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import FormGroup from "@mui/material/FormGroup";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import Radio from "@mui/material/Radio";
+import RadioGroup from "@mui/material/RadioGroup";
+import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import Typography from "@mui/material/Typography";
+import { TAP_MIN } from "@/components/minimal/_shared/tap";
+import { Label } from "@/components/minimal/label";
 import { AssigneePicker } from "@/components/assignee-picker";
 import { currentHistoryEntryIsLocalOverlay, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
@@ -219,25 +235,52 @@ function sentence(pageContract: AdminUiPageContract, key: string, values: Record
   return template ? fill(template, values) : plain;
 }
 
-/** One numbered step of the form: the same heading everywhere, the step's fields beneath. */
+// Checkbox rows keep a 44px tap target on a phone (WebView rule) without the template's
+// negative margin pulling the box outside the form column.
+const CHECK_ROW_SX = { m: 0, minHeight: TAP_MIN, "& .MuiFormControlLabel-label": { typography: "body2" } } as const;
+const TWO_COL_SX = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" }, gap: 2, alignItems: "start" } as const;
+
+/** One numbered step of the form: template Label number + subtitle heading, the step's fields beneath. */
 function Step({ index, title, hint, children, aside }: { index: number; title: string; hint?: string; children: React.ReactNode; aside?: React.ReactNode }) {
   const headingId = useId();
   return (
-    <section className="prt-step" aria-labelledby={headingId}>
-      <header className="prt-step-hd">
-        <span className="prt-step-no" aria-hidden="true">
+    <Stack component="section" aria-labelledby={headingId} spacing={2}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+        <Label color="primary" variant="soft" aria-hidden="true">
           {index}
-        </span>
-        <h4 id={headingId}>{title}</h4>
-        {aside ? <span className="prt-step-aside">{aside}</span> : null}
-      </header>
-      {hint ? <p className="prt-hint">{hint}</p> : null}
+        </Label>
+        <Typography id={headingId} component="h4" variant="subtitle1" sx={{ flexGrow: 1, minWidth: 0 }}>
+          {title}
+        </Typography>
+        {aside ? (
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {aside}
+          </Typography>
+        ) : null}
+      </Stack>
+      {hint ? (
+        <Typography variant="body2" sx={{ color: "text.secondary", mt: -1 }}>
+          {hint}
+        </Typography>
+      ) : null}
       {children}
-    </section>
+    </Stack>
   );
 }
 
-/** A choice between a closed vocabulary's options, drawn as tiles; each tile is a real radio. */
+/** A labelled group of controls inside a step (template form-row caption above its controls). */
+function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Stack spacing={1}>
+      <Typography variant="overline" sx={{ color: "text.secondary" }}>
+        {title}
+      </Typography>
+      {children}
+    </Stack>
+  );
+}
+
+/** A choice between a closed vocabulary's options: a template RadioGroup drawn as bordered tiles. */
 function ChoiceTiles({
   name,
   options,
@@ -252,17 +295,36 @@ function ChoiceTiles({
   isDisabled?: (key: string) => boolean;
 }) {
   return (
-    <div className="prt-tiles" role="radiogroup">
+    <RadioGroup
+      name={name}
+      value={value}
+      onChange={(_event, key) => onChange(key)}
+      sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" }, gap: 1 }}
+    >
       {options.map((option) => {
         const off = isDisabled?.(option.key) ?? false;
+        const on = value === option.key;
         return (
-          <label key={option.key} className={["prt-tile", value === option.key ? "on" : "", off ? "off" : ""].filter(Boolean).join(" ")}>
-            <Radio size="small" name={name} value={option.key} checked={value === option.key} disabled={off} onChange={() => onChange(option.key)} sx={{ p: 0 }} />
-            <span>{option.label}</span>
-          </label>
+          <FormControlLabel
+            key={option.key}
+            value={option.key}
+            disabled={off}
+            control={<Radio size="small" />}
+            label={option.label}
+            sx={{
+              m: 0,
+              pr: 1.5,
+              minHeight: TAP_MIN,
+              border: 1,
+              borderRadius: "var(--r-md)",
+              borderColor: on ? "primary.main" : "divider",
+              bgcolor: on ? "action.selected" : "transparent",
+              "& .MuiFormControlLabel-label": { typography: "body2" },
+            }}
+          />
         );
       })}
-    </div>
+    </RadioGroup>
   );
 }
 
@@ -364,11 +426,11 @@ export function RoutineDrawerForm({
   const proofKinds = kinds(catalog?.question_proof_kinds);
   const proofChoosable = proofKinds.length > 1;
 
-  const countField = (id: string, value: number, onValue: (next: number) => void) => (
+  const countField = (id: string, fieldLabel: string, value: number, onValue: (next: number) => void) => (
     <TextField
       id={id}
+      label={fieldLabel}
       type="number"
-      size="small"
       fullWidth
       value={value}
       onChange={(e) => onValue(Number.parseInt(e.target.value, 10) || 0)}
@@ -376,12 +438,16 @@ export function RoutineDrawerForm({
     />
   );
 
+  // Template drawer form: numbered steps (Label + subtitle heading, dashed dividers between them),
+  // MUI TextFields with their own labels, RadioGroup tiles and FormControlLabel checkbox lists.
+  const labelShrink = { inputLabel: { shrink: true } } as const;
   return (
-    <div className="prt">
+    // `prt` only scopes the shared AssigneePicker anatomy (:is(.lt-modal,.prt) .avs-*); no own layout rules.
+    <Stack className="prt" spacing={3}>
       <form
         id={formId}
         aria-busy={pending}
-        className="pen-routine-form prt-form"
+        className="pen-routine-form"
         onSubmit={(event) => {
           // Submitted through a transition rather than `action=`: React resets a form after its
           // action runs, and the reset snapped the Park select back to its first option (the drawer
@@ -401,54 +467,47 @@ export function RoutineDrawerForm({
         <input type="hidden" name={FORM_JSON_FIELDS.evidence} value={JSON.stringify(evidenceBody(draft))} />
         <input type="hidden" name="occupied_only" value={draft.occupiedOnly ? "on" : "off"} />
 
-        {isEdit ? <div className="note">{copy(pageContract, "hint.versions")}</div> : null}
-        {readOnly ? <div className="note">{copy(pageContract, "configure.disabled_no_access")}</div> : null}
+        <Stack spacing={1.5} sx={{ mb: isEdit || readOnly ? 3 : 0 }}>
+          {isEdit ? <Alert severity="info">{copy(pageContract, "hint.versions")}</Alert> : null}
+          {readOnly ? <Alert severity="info">{copy(pageContract, "configure.disabled_no_access")}</Alert> : null}
+        </Stack>
 
-        <fieldset disabled={readOnly} className="prt-fieldset">
+        <Stack component="fieldset" disabled={readOnly} spacing={3} divider={<Divider flexItem sx={{ borderStyle: "dashed" }} />} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
           {/* 1. Details: name, instruction, the ONE park it belongs to. */}
           <Step index={1} title={label(pageContract, "section.details", "drawer.routine.title")}>
-            <div className="fld">
-              <label htmlFor="pr-name">{field("name")}</label>
-              <TextField id="pr-name" name="name" size="small" fullWidth required value={draft.name} onChange={(e) => update({ name: e.target.value })} slotProps={{ htmlInput: { maxLength: LIMITS.nameMax } }} />
-            </div>
-            <div className="fld">
-              <label htmlFor="pr-instruction">{field("instruction")}</label>
-              <textarea id="pr-instruction" name="instruction" rows={2} value={draft.instruction} onChange={(e) => update({ instruction: e.target.value })} />
-            </div>
-            <div className="fld">
-              <label htmlFor="pr-park">{field("park")}</label>
-              {isEdit ? (
-                <>
-                  <input type="hidden" name="park_id" value={routine.park_id} />
-                  <TextField id="pr-park" size="small" fullWidth value={routine.park_name} disabled slotProps={{ htmlInput: { readOnly: true } }} />
-                </>
-              ) : (
-                <TextField
-                  select
-                  size="small"
-                  fullWidth
-                  id="pr-park"
-                  name="park_id"
-                  value={draft.parkId}
-                  slotProps={{ select: { native: true } }}
-                  onChange={(e) => {
-                    // Another park means another catalog (its pens, who holds each role there):
-                    // move to that park's page with the create drawer open rather than reading a
-                    // second catalog from here.
-                    const parkId = e.target.value;
-                    const target = parkHrefs[parkId];
-                    if (parkId !== catalogParkId && target) router.replace(target, { scroll: false });
-                    else update({ parkId });
-                  }}
-                >
-                  {parks.map((park) => (
-                    <option key={park.park_id} value={park.park_id}>
-                      {park.name}
-                    </option>
-                  ))}
-                </TextField>
-              )}
-            </div>
+            <TextField id="pr-name" name="name" label={field("name")} fullWidth required value={draft.name} onChange={(e) => update({ name: e.target.value })} slotProps={{ htmlInput: { maxLength: LIMITS.nameMax } }} />
+            <TextField id="pr-instruction" name="instruction" label={field("instruction")} fullWidth multiline minRows={2} value={draft.instruction} onChange={(e) => update({ instruction: e.target.value })} />
+            {isEdit ? (
+              <>
+                <input type="hidden" name="park_id" value={routine.park_id} />
+                <TextField id="pr-park" label={field("park")} fullWidth value={routine.park_name} disabled slotProps={{ htmlInput: { readOnly: true } }} />
+              </>
+            ) : (
+              <TextField
+                select
+                fullWidth
+                id="pr-park"
+                name="park_id"
+                label={field("park")}
+                value={draft.parkId}
+                slotProps={{ ...labelShrink, select: { native: true } }}
+                onChange={(e) => {
+                  // Another park means another catalog (its pens, who holds each role there):
+                  // move to that park's page with the create drawer open rather than reading a
+                  // second catalog from here.
+                  const parkId = e.target.value;
+                  const target = parkHrefs[parkId];
+                  if (parkId !== catalogParkId && target) router.replace(target, { scroll: false });
+                  else update({ parkId });
+                }}
+              >
+                {parks.map((park) => (
+                  <option key={park.park_id} value={park.park_id}>
+                    {park.name}
+                  </option>
+                ))}
+              </TextField>
+            )}
           </Step>
 
           {/* 2. Who does it: ONE person, picked by name exactly like the Tasks "For" field. The
@@ -469,28 +528,31 @@ export function RoutineDrawerForm({
               onSelect={(next) => update({ assigneeUserId: next ?? "" })}
             />
             {assigneeGone ? (
-              <p className="prt-hint prt-warn" role="status">
+              <Alert severity="warning" role="status">
                 {label(pageContract, "assignee.unavailable", "empty.role_people")}
-              </p>
+              </Alert>
             ) : null}
-            {!owners.length ? <p className="prt-hint prt-warn">{copy(pageContract, "empty.role_people")}</p> : null}
+            {!owners.length ? <Alert severity="warning">{copy(pageContract, "empty.role_people")}</Alert> : null}
           </Step>
 
           {/* 3. Pens: every pen, a ticked list from the partition catalog, or ONE task for the whole park. */}
           <Step index={3} title={field("scope")} aside={parkName}>
             <ChoiceTiles name="scope_kind" options={kinds(catalog?.scope_kinds)} value={draft.scopeKind} onChange={(key) => chooseScope(key as ScopeKind)} />
             {draft.scopeKind === "all_pens" ? (
-              <label className="prt-check">
-                <Checkbox size="small" checked={draft.occupiedOnly} onChange={(e) => update({ occupiedOnly: e.target.checked })} sx={{ p: 0 }} />
-                <span>{field("occupied_only")}</span>
-                <span className="prt-count">
+              <Stack direction="row" sx={{ alignItems: "center", flexWrap: "wrap", columnGap: 1 }}>
+                <FormControlLabel
+                  sx={CHECK_ROW_SX}
+                  control={<Checkbox size="small" checked={draft.occupiedOnly} onChange={(e) => update({ occupiedOnly: e.target.checked })} />}
+                  label={field("occupied_only")}
+                />
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
                   {sentence(pageContract, "count.pens_occupied", { occupied: occupiedCount, total: pens.length }, `${occupiedCount} / ${pens.length}`)}
-                </span>
-              </label>
+                </Typography>
+              </Stack>
             ) : null}
             {draft.scopeKind === "selected_pens" ? (
-              <div className="prt-pens">
-                <div className="prt-pens-bar">
+              <Stack spacing={1.5}>
+                <Stack direction="row" sx={{ alignItems: "center", flexWrap: "wrap", gap: 1 }}>
                   <TextField
                     type="search"
                     size="small"
@@ -529,26 +591,46 @@ export function RoutineDrawerForm({
                   >
                     {label(pageContract, "action.clear_pens", "action.close")}
                   </Button>
-                  <span className="prt-count">{sentence(pageContract, "count.pens_chosen", { chosen: draft.pens.length, total: pens.length }, `${draft.pens.length} / ${pens.length}`)}</span>
-                </div>
-                <div className="prt-pen-list">
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    {sentence(pageContract, "count.pens_chosen", { chosen: draft.pens.length, total: pens.length }, `${draft.pens.length} / ${pens.length}`)}
+                  </Typography>
+                </Stack>
+                <FormGroup sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" }, columnGap: 1 }}>
                   {shownPens.map((pen) => {
                     const key = penKey(pen);
                     const on = draft.pens.includes(key);
                     return (
-                      <label key={key} className={["prt-check", "prt-pen", on ? "on" : "", pen.occupied ? "" : "empty"].filter(Boolean).join(" ")}>
-                        <Checkbox size="small" checked={on} onChange={() => update({ pens: toggle(draft.pens, key) })} sx={{ p: 0 }} />
-                        {/* Backend-composed pen label, rendered verbatim: "Castro 2", "Godel 1 - Part 3". */}
-                        <span>{pen.operational_location_display}</span>
-                        {pen.occupied ? null : <span className="prt-count">{copy(pageContract, "label.pen_empty", "")}</span>}
-                      </label>
+                      <FormControlLabel
+                        key={key}
+                        sx={CHECK_ROW_SX}
+                        control={<Checkbox size="small" checked={on} onChange={() => update({ pens: toggle(draft.pens, key) })} />}
+                        label={
+                          <>
+                            {/* Backend-composed pen label, rendered verbatim: "Castro 2", "Godel 1 - Part 3". */}
+                            {pen.operational_location_display}
+                            {pen.occupied ? null : (
+                              <Typography component="span" variant="caption" sx={{ ml: 1, color: "text.disabled" }}>
+                                {copy(pageContract, "label.pen_empty", "")}
+                              </Typography>
+                            )}
+                          </>
+                        }
+                      />
                     );
                   })}
-                  {!shownPens.length ? <p className="prt-hint">{label(pageContract, "empty.pens_search", "empty.tasks")}</p> : null}
-                </div>
-              </div>
+                </FormGroup>
+                {!shownPens.length ? (
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    {label(pageContract, "empty.pens_search", "empty.tasks")}
+                  </Typography>
+                ) : null}
+              </Stack>
             ) : null}
-            {draft.scopeKind === "park" ? <p className="prt-hint">{copy(pageContract, "hint.park_scope")}</p> : null}
+            {draft.scopeKind === "park" ? (
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                {copy(pageContract, "hint.park_scope")}
+              </Typography>
+            ) : null}
           </Step>
 
           {/* 4. When: which business dates raise a task, from which day, and when the push goes out. */}
@@ -562,133 +644,132 @@ export function RoutineDrawerForm({
               isDisabled={(key) => key === "after_work" && draft.scopeKind === "park"}
             />
             {draft.cadenceKind === "weekly" ? (
-              <div className="fld">
-                <span className="prt-sub">{field("weekdays")}</span>
-                <div className="prt-pills" role="group" aria-label={field("weekdays")}>
+              <FieldGroup title={field("weekdays")}>
+                <FormGroup row aria-label={field("weekdays")} sx={{ columnGap: 1 }}>
                   {weekdays.map((name, index) => {
                     const day = index + 1;
                     const on = draft.weekdays.includes(day);
                     return (
-                      <label key={day} className={on ? "prt-pill on" : "prt-pill"}>
-                        <Checkbox size="small" checked={on} onChange={() => update({ weekdays: toggleNumber(draft.weekdays, day) })} sx={{ p: 0 }} />
-                        <span>{name}</span>
-                      </label>
+                      <FormControlLabel
+                        key={day}
+                        sx={CHECK_ROW_SX}
+                        control={<Checkbox size="small" checked={on} onChange={() => update({ weekdays: toggleNumber(draft.weekdays, day) })} />}
+                        label={name}
+                      />
                     );
                   })}
-                </div>
-              </div>
+                </FormGroup>
+              </FieldGroup>
             ) : null}
             {draft.cadenceKind === "monthly" ? (
-              <div className="fld">
-                <span className="prt-sub">{field("month_days")}</span>
-                <div className="prt-pills prt-month" role="group" aria-label={field("month_days")}>
-                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => {
-                    const on = draft.monthDays.includes(day);
-                    return (
-                      <label key={day} className={on ? "prt-pill on" : "prt-pill"}>
-                        <Checkbox size="small" checked={on} onChange={() => update({ monthDays: toggleNumber(draft.monthDays, day) })} sx={{ display: "none" }} />
-                        <span>{day}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+              <FieldGroup title={field("month_days")}>
+                {/* Template ToggleButtonGroup (multi-select): 31 day buttons in a 7-column grid. */}
+                <ToggleButtonGroup
+                  value={draft.monthDays}
+                  onChange={(_event, days: number[]) => update({ monthDays: [...days].sort((a, b) => a - b) })}
+                  aria-label={field("month_days")}
+                  size="small"
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+                    gap: 0.5,
+                    border: 0,
+                    "& .MuiToggleButton-root": { minWidth: 0, minHeight: TAP_MIN, border: 1, borderColor: "divider", borderRadius: "var(--r-md)", m: 0 },
+                  }}
+                >
+                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                    <ToggleButton key={day} value={day}>
+                      {day}
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </FieldGroup>
             ) : null}
             {draft.cadenceKind === "every_n_days" ? (
-              <div className="fld prt-narrow">
-                <label htmlFor="pr-interval">{field("interval_days")}</label>
-                <TextField
-                  id="pr-interval"
-                  name="interval_days"
-                  type="number"
-                  size="small"
-                  fullWidth
-                  required
-                  value={draft.intervalDays}
-                  onChange={(e) => update({ intervalDays: e.target.value })}
-                  slotProps={{ htmlInput: { inputMode: "numeric", min: LIMITS.intervalMin, max: LIMITS.intervalMax } }}
-                />
-              </div>
+              <TextField
+                id="pr-interval"
+                name="interval_days"
+                type="number"
+                label={field("interval_days")}
+                required
+                value={draft.intervalDays}
+                onChange={(e) => update({ intervalDays: e.target.value })}
+                sx={{ maxWidth: { sm: 240 } }}
+                slotProps={{ htmlInput: { inputMode: "numeric", min: LIMITS.intervalMin, max: LIMITS.intervalMax } }}
+              />
             ) : null}
             {draft.cadenceKind === "after_work" ? (
               <>
-                <div className="fld">
-                  <span className="prt-sub">{field("after_work_kinds")}</span>
-                  <div className="prt-pills" role="group" aria-label={field("after_work_kinds")}>
+                <FieldGroup title={field("after_work_kinds")}>
+                  <FormGroup row aria-label={field("after_work_kinds")} sx={{ columnGap: 1 }}>
                     {kinds(catalog?.work_kinds).map((option) => {
                       const on = draft.afterWorkKinds.includes(option.key);
                       return (
-                        <label key={option.key} className={on ? "prt-pill on" : "prt-pill"}>
-                          <Checkbox size="small" checked={on} onChange={() => update({ afterWorkKinds: toggle(draft.afterWorkKinds, option.key) })} sx={{ p: 0 }} />
-                          <span>{option.label}</span>
-                        </label>
+                        <FormControlLabel
+                          key={option.key}
+                          sx={CHECK_ROW_SX}
+                          control={<Checkbox size="small" checked={on} onChange={() => update({ afterWorkKinds: toggle(draft.afterWorkKinds, option.key) })} />}
+                          label={option.label}
+                        />
                       );
                     })}
-                  </div>
-                </div>
-                <div className="fld prt-narrow">
-                  <label htmlFor="pr-due-offset">{field("due_offset_days")}</label>
-                  <TextField
-                    id="pr-due-offset"
-                    name="due_offset_days"
-                    type="number"
-                    size="small"
-                    fullWidth
-                    value={draft.dueOffsetDays}
-                    onChange={(e) => update({ dueOffsetDays: e.target.value })}
-                    slotProps={{ htmlInput: { inputMode: "numeric", min: LIMITS.dueOffsetMin, max: LIMITS.dueOffsetMax } }}
-                  />
-                </div>
+                  </FormGroup>
+                </FieldGroup>
+                <TextField
+                  id="pr-due-offset"
+                  name="due_offset_days"
+                  type="number"
+                  label={field("due_offset_days")}
+                  value={draft.dueOffsetDays}
+                  onChange={(e) => update({ dueOffsetDays: e.target.value })}
+                  sx={{ maxWidth: { sm: 240 } }}
+                  slotProps={{ htmlInput: { inputMode: "numeric", min: LIMITS.dueOffsetMin, max: LIMITS.dueOffsetMax } }}
+                />
               </>
             ) : (
               // A calendar cadence keeps a stored offset untouched; a blank one lets the backend default apply.
               <input type="hidden" name="due_offset_days" value={draft.dueOffsetDays} />
             )}
-            <div className="prt-row2">
-              <div className="fld">
-                <span className="prt-sub">{field("start_date")}</span>
-                <ThemedDatePicker
-                  name="start_date"
-                  label={field("start_date")}
-                  value={draft.startDate}
-                  onChange={(key) => update({ startDate: key })}
-                  previousMonthLabel={label(pageContract, "date.previous_month", "action.previous")}
-                  nextMonthLabel={label(pageContract, "date.next_month", "action.next")}
-                  invalidDateText={label(pageContract, "date.invalid", "action.error_form")}
-                />
-              </div>
-              <div className="fld">
-                <label htmlFor="pr-notify-time">{field("notify_time")}</label>
-                <TextField
-                  select
-                  size="small"
-                  fullWidth
-                  id="pr-notify-time"
-                  name="notify_time"
-                  value={draft.notifyTime.slice(0, 5)}
-                  onChange={(e) => update({ notifyTime: e.target.value })}
-                  slotProps={{ select: { native: true } }}
-                >
-                  {times.map((time) => (
-                    <option key={time} value={time}>
-                      {time}
-                    </option>
-                  ))}
-                </TextField>
-              </div>
-            </div>
+            <Box sx={TWO_COL_SX}>
+              <FieldGroup title={field("start_date")}>
+              <ThemedDatePicker
+                name="start_date"
+                label={field("start_date")}
+                value={draft.startDate}
+                onChange={(key) => update({ startDate: key })}
+                previousMonthLabel={label(pageContract, "date.previous_month", "action.previous")}
+                nextMonthLabel={label(pageContract, "date.next_month", "action.next")}
+                invalidDateText={label(pageContract, "date.invalid", "action.error_form")}
+              />
+              </FieldGroup>
+              <TextField
+                select
+                fullWidth
+                id="pr-notify-time"
+                name="notify_time"
+                label={field("notify_time")}
+                value={draft.notifyTime.slice(0, 5)}
+                onChange={(e) => update({ notifyTime: e.target.value })}
+                slotProps={{ ...labelShrink, select: { native: true } }}
+              >
+                {times.map((time) => (
+                  <option key={time} value={time}>
+                    {time}
+                  </option>
+                ))}
+              </TextField>
+            </Box>
           </Step>
 
           {/* 5. What to record: the questions, the capture counts, the pen check-in. */}
           <Step index={5} title={label(pageContract, "section.capture", "field.questions")}>
-            <span className="prt-sub">{field("questions")}</span>
-            <div className="prt-questions">
+            <FieldGroup title={field("questions")}>
               {draft.questions.map((question, index) => (
-                <div key={question.key} className="prt-question">
-                  <div className="prt-question-hd">
-                    <span className="prt-step-no sm" aria-hidden="true">
+                <Card key={question.key} variant="outlined" sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+                  <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
+                    <Label color="default" variant="soft" aria-hidden="true">
                       {index + 1}
-                    </span>
+                    </Label>
                     <IconButton
                       type="button"
                       size="small"
@@ -698,65 +779,52 @@ export function RoutineDrawerForm({
                     >
                       <Trash2 className="ic" aria-hidden="true" />
                     </IconButton>
-                  </div>
-                  <div className="fld">
-                    <label htmlFor={`pr-q-title-${question.key}`}>{label(pageContract, "field.question_title", "field.name")}</label>
+                  </Stack>
+                  <TextField
+                    id={`pr-q-title-${question.key}`}
+                    label={label(pageContract, "field.question_title", "field.name")}
+                    fullWidth
+                    value={question.title}
+                    required
+                    onChange={(e) =>
+                      updateQuestion(question.key, { title: e.target.value, id: question.idTouched ? question.id : slugQuestionId(e.target.value) })
+                    }
+                  />
+                  <Box sx={TWO_COL_SX}>
                     <TextField
-                      id={`pr-q-title-${question.key}`}
-                      size="small"
+                      select
                       fullWidth
-                      value={question.title}
-                      required
-                      onChange={(e) =>
-                        updateQuestion(question.key, { title: e.target.value, id: question.idTouched ? question.id : slugQuestionId(e.target.value) })
-                      }
+                      id={`pr-q-kind-${question.key}`}
+                      label={label(pageContract, "field.question_kind", "field.questions")}
+                      value={question.kind}
+                      onChange={(e) => updateQuestion(question.key, { kind: e.target.value as QuestionDraft["kind"] })}
+                      slotProps={{ ...labelShrink, select: { native: true } }}
+                    >
+                      {kinds(catalog?.question_kinds).map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </TextField>
+                    <TextField
+                      id={`pr-q-hint-${question.key}`}
+                      label={label(pageContract, "field.question_hint", "field.instruction")}
+                      fullWidth
+                      value={question.hint ?? ""}
+                      onChange={(e) => updateQuestion(question.key, { hint: e.target.value })}
                     />
-                  </div>
-                  <div className="prt-row2">
-                    <div className="fld">
-                      <label htmlFor={`pr-q-kind-${question.key}`}>{label(pageContract, "field.question_kind", "field.questions")}</label>
-                      <TextField
-                        select
-                        size="small"
-                        fullWidth
-                        id={`pr-q-kind-${question.key}`}
-                        value={question.kind}
-                        onChange={(e) => updateQuestion(question.key, { kind: e.target.value as QuestionDraft["kind"] })}
-                        slotProps={{ select: { native: true } }}
-                      >
-                        {kinds(catalog?.question_kinds).map((option) => (
-                          <option key={option.key} value={option.key}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </TextField>
-                    </div>
-                    <div className="fld">
-                      <label htmlFor={`pr-q-hint-${question.key}`}>{label(pageContract, "field.question_hint", "field.instruction")}</label>
-                      <TextField id={`pr-q-hint-${question.key}`} size="small" fullWidth value={question.hint ?? ""} onChange={(e) => updateQuestion(question.key, { hint: e.target.value })} />
-                    </div>
-                  </div>
+                  </Box>
                   {question.kind === "number" ? (
-                    <div className="prt-row3">
-                      <div className="fld">
-                        <label htmlFor={`pr-q-min-${question.key}`}>{field("min")}</label>
-                        <TextField id={`pr-q-min-${question.key}`} type="number" size="small" fullWidth value={question.min ?? ""} onChange={(e) => updateQuestion(question.key, { min: e.target.value === "" ? null : Number(e.target.value) })} />
-                      </div>
-                      <div className="fld">
-                        <label htmlFor={`pr-q-max-${question.key}`}>{field("max")}</label>
-                        <TextField id={`pr-q-max-${question.key}`} type="number" size="small" fullWidth value={question.max ?? ""} onChange={(e) => updateQuestion(question.key, { max: e.target.value === "" ? null : Number(e.target.value) })} />
-                      </div>
-                      <div className="fld">
-                        <label htmlFor={`pr-q-unit-${question.key}`}>{label(pageContract, "field.question_unit", "field.questions")}</label>
-                        <TextField id={`pr-q-unit-${question.key}`} size="small" fullWidth value={question.unit ?? ""} onChange={(e) => updateQuestion(question.key, { unit: e.target.value })} />
-                      </div>
-                    </div>
+                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(3, minmax(0, 1fr))" }, gap: 2 }}>
+                      <TextField id={`pr-q-min-${question.key}`} label={field("min")} type="number" fullWidth value={question.min ?? ""} onChange={(e) => updateQuestion(question.key, { min: e.target.value === "" ? null : Number(e.target.value) })} />
+                      <TextField id={`pr-q-max-${question.key}`} label={field("max")} type="number" fullWidth value={question.max ?? ""} onChange={(e) => updateQuestion(question.key, { max: e.target.value === "" ? null : Number(e.target.value) })} />
+                      <TextField id={`pr-q-unit-${question.key}`} label={label(pageContract, "field.question_unit", "field.questions")} fullWidth value={question.unit ?? ""} onChange={(e) => updateQuestion(question.key, { unit: e.target.value })} />
+                    </Box>
                   ) : null}
                   {question.kind === "choice" || question.kind === "multi_choice" ? (
-                    <div className="fld">
-                      <span className="prt-sub">{label(pageContract, "field.question_options", "field.questions")}</span>
+                    <FieldGroup title={label(pageContract, "field.question_options", "field.questions")}>
                       {(question.options ?? []).map((option, optionIndex) => (
-                        <div key={optionIndex} className="prt-option">
+                        <Stack key={optionIndex} direction="row" spacing={1} sx={{ alignItems: "center" }}>
                           <TextField
                             size="small"
                             fullWidth
@@ -776,9 +844,8 @@ export function RoutineDrawerForm({
                             size="small"
                             fullWidth
                             value={option.value}
-                            className="prt-option-key"
                             placeholder={label(pageContract, "field.option_value", "field.name")}
-                            slotProps={{ htmlInput: { "aria-label": label(pageContract, "field.option_value", "field.name") } }}
+                            slotProps={{ htmlInput: { "aria-label": label(pageContract, "field.option_value", "field.name"), style: { fontFamily: "monospace" } } }}
                             onChange={(e) => {
                               const options = (question.options ?? []).map((item, i) => (i === optionIndex ? { ...item, value: cleanQuestionId(e.target.value) } : item));
                               updateQuestion(question.key, { options });
@@ -793,32 +860,35 @@ export function RoutineDrawerForm({
                           >
                             <Trash2 className="ic" aria-hidden="true" />
                           </IconButton>
-                        </div>
+                        </Stack>
                       ))}
                       {(question.options ?? []).length < LIMITS.optionsMax ? (
-                        <Button
-                          type="button"
-                          size="small"
-                          variant="outlined"
-                          color="inherit"
-                          startIcon={<Plus className="ic" aria-hidden="true" />}
-                          onClick={() => updateQuestion(question.key, { options: [...(question.options ?? []), { value: "", label: "" }] })}
-                        >
-                          {label(pageContract, "action.add_option", "field.questions")}
-                        </Button>
+                        <Box>
+                          <Button
+                            type="button"
+                            size="small"
+                            variant="outlined"
+                            color="inherit"
+                            startIcon={<Plus className="ic" aria-hidden="true" />}
+                            onClick={() => updateQuestion(question.key, { options: [...(question.options ?? []), { value: "", label: "" }] })}
+                          >
+                            {label(pageContract, "action.add_option", "field.questions")}
+                          </Button>
+                        </Box>
                       ) : null}
-                    </div>
+                    </FieldGroup>
                   ) : null}
-                  <div className="prt-question-ft">
-                    <label className="prt-check">
-                      <Checkbox size="small" checked={question.required} onChange={(e) => updateQuestion(question.key, { required: e.target.checked })} sx={{ p: 0 }} />
-                      <span>{label(pageContract, "field.question_required", "field.presence")}</span>
-                    </label>
+                  <Stack direction="row" sx={{ alignItems: "center", flexWrap: "wrap", gap: 1.5 }}>
+                    <FormControlLabel
+                      sx={CHECK_ROW_SX}
+                      control={<Checkbox size="small" checked={question.required} onChange={(e) => updateQuestion(question.key, { required: e.target.checked })} />}
+                      label={label(pageContract, "field.question_required", "field.presence")}
+                    />
                     {/* Per-question proof (maintainer instruction 2026-09-18): what capture this
                         question needs to count as answered, and one or several. "none" is the
                         catalog's own key for no proof; it never travels. */}
                     {proofChoosable ? (
-                      <span className="prt-proof">
+                      <Stack direction="row" spacing={1} sx={{ ml: { sm: "auto" } }}>
                         <TextField
                           select
                           size="small"
@@ -852,78 +922,80 @@ export function RoutineDrawerForm({
                             ))}
                           </TextField>
                         ) : null}
-                      </span>
+                      </Stack>
                     ) : null}
-                  </div>
+                  </Stack>
                   {/* The key is what the phone's answer is stored under; it follows the title until
-                      edited, so most people never need to touch it. */}
-                  <details className="prt-key">
-                    <summary>{label(pageContract, "field.question_id", "field.name")}</summary>
-                    <TextField
-                      id={`pr-q-id-${question.key}`}
-                      size="small"
-                      fullWidth
-                      value={question.id}
-                      required
-                      slotProps={{ htmlInput: { "aria-label": label(pageContract, "field.question_id", "field.name") } }}
-                      onChange={(e) => updateQuestion(question.key, { id: cleanQuestionId(e.target.value), idTouched: true })}
-                    />
-                  </details>
-                </div>
+                      edited, so most people never need to touch it (template Accordion, closed). */}
+                  <Accordion disableGutters elevation={0} sx={{ bgcolor: "transparent", "&::before": { display: "none" } }}>
+                    <AccordionSummary expandIcon={<ChevronDown className="ic" aria-hidden="true" />} sx={{ px: 0, minHeight: TAP_MIN }}>
+                      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                        {label(pageContract, "field.question_id", "field.name")}
+                      </Typography>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ px: 0 }}>
+                      <TextField
+                        id={`pr-q-id-${question.key}`}
+                        size="small"
+                        fullWidth
+                        value={question.id}
+                        required
+                        slotProps={{ htmlInput: { "aria-label": label(pageContract, "field.question_id", "field.name"), style: { fontFamily: "monospace" } } }}
+                        onChange={(e) => updateQuestion(question.key, { id: cleanQuestionId(e.target.value), idTouched: true })}
+                      />
+                    </AccordionDetails>
+                  </Accordion>
+                </Card>
               ))}
-            </div>
-            {draft.questions.length < LIMITS.questionsMax ? (
-              <Button type="button" size="small" variant="outlined" color="inherit" className="prt-add" startIcon={<Plus className="ic" aria-hidden="true" />} onClick={addQuestion}>
-                {label(pageContract, "action.add_question", "field.questions")}
-              </Button>
-            ) : null}
+              {draft.questions.length < LIMITS.questionsMax ? (
+                <Box>
+                  <Button type="button" size="small" variant="outlined" color="inherit" startIcon={<Plus className="ic" aria-hidden="true" />} onClick={addQuestion}>
+                    {label(pageContract, "action.add_question", "field.questions")}
+                  </Button>
+                </Box>
+              ) : null}
+            </FieldGroup>
 
-            <div className="prt-row2 prt-media">
+            <Box sx={TWO_COL_SX}>
               {(["photo", "video"] as const).map((kind) => (
-                <div key={kind} className="prt-media-box">
-                  <span className="prt-sub">{field(kind)}</span>
-                  <div className="prt-row2">
-                    <div className="fld">
-                      <label htmlFor={`pr-${kind}-min`}>{field("min")}</label>
-                      {countField(`pr-${kind}-min`, draft[kind].min, (min) => update({ [kind]: { ...draft[kind], min } } as Partial<Draft>))}
-                    </div>
-                    <div className="fld">
-                      <label htmlFor={`pr-${kind}-max`}>{field("max")}</label>
-                      {countField(`pr-${kind}-max`, draft[kind].max, (max) => update({ [kind]: { ...draft[kind], max } } as Partial<Draft>))}
-                    </div>
-                  </div>
-                </div>
+                <FieldGroup key={kind} title={field(kind)}>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 2 }}>
+                    {countField(`pr-${kind}-min`, field("min"), draft[kind].min, (min) => update({ [kind]: { ...draft[kind], min } } as Partial<Draft>))}
+                    {countField(`pr-${kind}-max`, field("max"), draft[kind].max, (max) => update({ [kind]: { ...draft[kind], max } } as Partial<Draft>))}
+                  </Box>
+                </FieldGroup>
               ))}
-            </div>
-            <span className="prt-sub">{field("presence")}</span>
-            <ChoiceTiles name="presence_kind" options={kinds(catalog?.presence_kinds)} value={draft.presence} onChange={(key) => update({ presence: key as Draft["presence"] })} />
+            </Box>
+            <FieldGroup title={field("presence")}>
+              <ChoiceTiles name="presence_kind" options={kinds(catalog?.presence_kinds)} value={draft.presence} onChange={(key) => update({ presence: key as Draft["presence"] })} />
+            </FieldGroup>
           </Step>
 
           {/* 6. Review: what a submit does. */}
           <Step index={6} title={field("review")}>
             <ChoiceTiles name="review_kind" options={kinds(catalog?.review_kinds)} value={draft.reviewKind} onChange={(key) => update({ reviewKind: key as Draft["reviewKind"] })} />
           </Step>
-        </fieldset>
+        </Stack>
 
         {/* The outcome sentence also shows in the footer beside Save; this copy keeps it next to the
             fields for a reader who scrolled up to fix one. */}
         {message && state.status === "error" ? (
-          <div className="prt-outcome error" role="alert">
+          <Alert severity="error" role="alert" sx={{ mt: 3 }}>
             {message}
-          </div>
+          </Alert>
         ) : null}
       </form>
 
       {/* Status: pause / resume / retire. Open tasks are untouched by any of these. Retire is
           permanent, so it asks once -- in place, as two buttons, never the browser's own box. */}
       {isEdit && canSetStatus && routine.status !== "retired" ? (
-        <form action={statusFormAction} aria-busy={statusPending} className="prt-status">
+        <Stack component="form" action={statusFormAction} aria-busy={statusPending} direction="row" sx={{ alignItems: "center", flexWrap: "wrap", gap: 1, pt: 3, borderTop: 1, borderColor: "divider", borderTopStyle: "dashed" }}>
           <input type="hidden" name="routine_id" value={routine.routine_id} />
           <input type="hidden" name="row_version" value={routine.row_version} />
           <Tag tone={routine.status === "active" ? "ok" : "warn"}>{routine.status_label}</Tag>
           {confirmRetire ? (
             <>
-              <span className="prt-confirm">{copy(pageContract, "action.retire.confirm")}</span>
+              <Typography variant="body2" sx={{ color: "error.main" }}>{copy(pageContract, "action.retire.confirm")}</Typography>
               <Button key="retire-confirm" type="submit" name="status" value="retired" size="small" variant="contained" color="error" disabled={statusPending}>
                 {copy(pageContract, "action.retire")}
               </Button>
@@ -951,17 +1023,17 @@ export function RoutineDrawerForm({
             </>
           )}
           {statusMessage ? (
-            <span role="status" className={statusState.status === "success" ? "prt-outcome ok" : "prt-outcome error"}>
+            <Typography role="status" variant="body2" sx={{ color: statusState.status === "success" ? "success.main" : "error.main" }}>
               {statusMessage}
-            </span>
+            </Typography>
           ) : null}
-        </form>
+        </Stack>
       ) : null}
 
       {/* The footer's Save lives outside the scroll; this publishes the form's pending state and
           outcome to it (see RoutineSaveFooter). */}
       <SaveStateBridge formId={formId} pending={pending} message={message} tone={state.status} />
-    </div>
+    </Stack>
   );
 }
 
@@ -1005,21 +1077,23 @@ export function RoutineSaveFooter({ formId, saveLabel, canSave }: { formId: stri
   );
   if (!canSave) return null;
   return (
-    <div className="prt-foot">
+    <Stack direction="row" sx={{ alignItems: "center", flexWrap: "wrap", gap: 1.5, width: 1 }}>
       <Button
         type="submit"
         form={formId}
         variant="contained"
-        disabled={view.pending}
-        startIcon={view.pending ? <span className="prt-spin" aria-hidden="true" /> : <Check className="ic" aria-hidden="true" />}
+        color="primary"
+        loading={view.pending}
+        loadingPosition="start"
+        startIcon={<Check className="ic" aria-hidden="true" />}
       >
         {saveLabel}
       </Button>
       {view.message ? (
-        <span role="status" className={view.tone === "success" ? "prt-outcome ok" : "prt-outcome error"}>
+        <Typography role="status" variant="body2" sx={{ color: view.tone === "success" ? "success.main" : "error.main" }}>
           {view.message}
-        </span>
+        </Typography>
       ) : null}
-    </div>
+    </Stack>
   );
 }
