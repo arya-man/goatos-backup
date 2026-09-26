@@ -274,7 +274,6 @@ export async function HerdAnalyticsPage({
     ...data.months.map((m) => [m.label, m.births, m.deaths, m.sold, m.other_exits]),
   ];
   const nothingRecorded = totals.live_animals === 0 && data.months.every((month) => month.births + month.deaths + month.sold + month.other_exits + month.movements === 0);
-  const mixSize = showParks ? { xs: 12, md: 6 } : { xs: 12, md: 6, lg: 4 };
 
   return (
     <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
@@ -357,20 +356,19 @@ export async function HerdAnalyticsPage({
       {/* Composition now: template EcommerceSalesOverview progress rows (count + share). The
           section keeps its accessible name so the grouping is still announced. */}
       <Grid container spacing={3} component="section" aria-label={ha(pageContract, "section.mix.aria")}>
-        <Grid size={mixSize}>
+        {/* Breed is the long list: it takes the left column, the short mixes stack on the right. */}
+        <Grid size={{ xs: 12, md: 6 }}>
           <MixCard title={ha(pageContract, "chart.breed.title")} bars={toBars(data.breed, ha(pageContract, "label.unassigned_breed"))} emptyLabel={emptyChart} />
         </Grid>
-        <Grid size={mixSize}>
-          <MixCard title={ha(pageContract, "chart.stage.title")} bars={toBars(data.stage, ha(pageContract, "label.unassigned_stage"))} emptyLabel={emptyChart} />
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Stack spacing={3}>
+            <MixCard title={ha(pageContract, "chart.stage.title")} bars={toBars(data.stage, ha(pageContract, "label.unassigned_stage"))} emptyLabel={emptyChart} />
+            <MixCard title={ha(pageContract, "chart.age.title")} bars={ageBars} emptyLabel={emptyChart} />
+            {showParks ? (
+              <MixCard title={ha(pageContract, "chart.park.title")} bars={toBars(data.park, ha(pageContract, "label.unassigned_park"))} emptyLabel={emptyChart} />
+            ) : null}
+          </Stack>
         </Grid>
-        <Grid size={mixSize}>
-          <MixCard title={ha(pageContract, "chart.age.title")} bars={ageBars} emptyLabel={emptyChart} />
-        </Grid>
-        {showParks ? (
-          <Grid size={mixSize}>
-            <MixCard title={ha(pageContract, "chart.park.title")} bars={toBars(data.park, ha(pageContract, "label.unassigned_park"))} emptyLabel={emptyChart} />
-          </Grid>
-        ) : null}
       </Grid>
     </Stack>
   );

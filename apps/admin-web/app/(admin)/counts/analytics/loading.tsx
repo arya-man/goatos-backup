@@ -1,8 +1,8 @@
-import { ChartCardSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { ChartCardSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
 /**
  * /counts/analytics: header + export, date range, six EcommerceWidgetSummary cards, the flow chart
- * (lg 8) beside the sex radial (lg 4), then the three composition cards.
+ * (lg 8) beside the sex radial (lg 4), then breed mix beside the stacked stage / age / park mixes.
  */
 export default function Loading() {
   return (
@@ -17,7 +17,18 @@ export default function Loading() {
         ]}
       />
       <GridSkeleton
-        items={[0, 1, 2].map(() => ({ size: { xs: 12, md: 6, lg: 4 }, node: <ChartCardSkeleton height={240} /> }))}
+        items={[
+          { size: { xs: 12, md: 6 }, node: <ChartCardSkeleton height={520} /> },
+          {
+            size: { xs: 12, md: 6 },
+            node: (
+              <StackSkeleton>
+                <ChartCardSkeleton height={160} />
+                <ChartCardSkeleton height={100} />
+              </StackSkeleton>
+            ),
+          },
+        ]}
       />
     </PageSkeleton>
   );
