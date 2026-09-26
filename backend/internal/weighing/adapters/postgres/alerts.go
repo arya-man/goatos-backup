@@ -69,8 +69,8 @@ func decodeAlertCursor(value string) (alertCursor, error) {
 // predicate keep this off a full-history scan; both are served by
 // notification_requests_weighing_alerts_idx (migration 000083).
 //
-// scale-guard:ignore: workforce-scale read -- one person's own weighing notifications inside a fixed 30-day window, keyset-paginated. Never herd-scale: notification_requests rows are produced per work-state transition per recipient device, not per animal.
 // scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
+// scale-guard:ignore: workforce-scale read -- one person's own weighing notifications inside a fixed 30-day window, keyset-paginated. Never herd-scale: notification_requests rows are produced per work-state transition per recipient device, not per animal.
 const listAlertsSQL = `
 WITH me AS (
   SELECT COALESCE(

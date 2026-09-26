@@ -12,6 +12,9 @@
 #      prints the single-step re-run command, stays RED — and an unrelated process
 #      (standing in for another session's build) is left alive.
 #   The digest-level matrix is in `node tools/ci/step-input-digest.mjs --self-test`.
+# The caller's fail-fast choice (land-check exports GOATOS_CI_FAIL_FAST=0) must not leak into
+# the cases below: each case sets the mode it tests.
+unset GOATOS_CI_FAIL_FAST
 set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

@@ -1333,8 +1333,8 @@ func int32Ptr(v pgtype.Int4) *int32 {
 // and its card summaries cannot drift apart (they had drifted three times while hand-copied). Both callers stay
 // tenant/park/shed/due-indexed and query-plan-tested (canonical_read_plan_test.go); the summary adds no new scan,
 // it aggregates the rows the page already reads.
-// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 // scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const executionClassifiedCTE = `
 WITH completion_candidates AS (
   SELECT

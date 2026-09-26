@@ -62,8 +62,8 @@ const calendarTodayInRequestedWindow = `(
       AND (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata' <  $3::timestamptz
         )`
 
-// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 // scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const calendarCanonicalEventsCTE = `obligation_events AS (
   WITH obligation_events_rows AS (
     -- Index-bound decomposition of the former 3-way OR (see migration 000190). Each branch is a
@@ -2141,9 +2141,9 @@ func canonicalUnboundedWindow(now time.Time) (time.Time, time.Time) {
 // calendarCanonicalListSQL is the compute-on-read canonical reconstruction of the Calendar list. It
 // is deliberately a large multi-CTE query: at the 5k-to-50k scale envelope this is the accepted
 // alternative to a derived read model (ADR operational-kernel-5k-50k-scale-envelope). The scale-guard
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 // god-cte detector is suppressed on calendarCanonicalEventsCTE above via `scale-guard:ignore`.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
-// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); measured <500ms on STG-size data, not yet proven at 500k rows.
 const calendarCanonicalListSQL = "WITH " + calendarCanonicalEventsCTE + `,
 canonical_selected AS (
   -- scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md
