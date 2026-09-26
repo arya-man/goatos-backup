@@ -17,8 +17,17 @@ import { visibleQuestionIds } from "./authored-form-visibility";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendorForm, ProcurementVendorQuestion } from "@/lib/api/server";
+import Box from "@mui/material/Box";
 import Checkbox from "@mui/material/Checkbox";
+import FormControl from "@mui/material/FormControl";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import FormGroup from "@mui/material/FormGroup";
+import FormHelperText from "@mui/material/FormHelperText";
+import FormLabel from "@mui/material/FormLabel";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { FormSelect } from "./form-select";
+import { listOptions } from "./option-utils";
 
 type ProcurementVendorFormPage = ProcurementVendorForm["pages"][number];
 type ProcurementVendorQuestionOption = NonNullable<ProcurementVendorQuestion["options"]>[number];
@@ -80,74 +89,78 @@ export function FeedPurchaseExtraFields({ form, pageContract }: { form: Procurem
   const visiblePages = pages.map((page) => ({ ...page, questions: page.questions.filter((q) => visibleIds.has(q.id)) }));
 
   return (
-    <div ref={rootRef} style={{ display: "contents" }}>
+    <Box ref={rootRef} sx={{ display: "contents" }}>
       {visiblePages.map((page, pi) => (
-        <div key={`${page.page}-${pi}`} style={{ display: "contents" }}>
-          {page.page ? <div className="dgrp">{page.page}</div> : null}
+        <Box key={`${page.page}-${pi}`} sx={{ display: "contents" }}>
+          {page.page ? (
+            <Typography variant="subtitle2" component="h3" sx={{ pt: 1 }}>
+              {page.page}
+            </Typography>
+          ) : null}
           {page.questions.map((q) => {
             const id = `fp-sop-${q.id}`;
             const name = `sop.${q.id}`;
             const pickedValue = picked[q.id] ?? "";
+            const hint = [q.hint, q.unit].filter(Boolean).join(" · ");
             return (
-              <div className="fld" key={q.id}>
-                <label htmlFor={id}>
-                  {q.title}
-                  {q.required ? " *" : ""}
-                </label>
+              <Box key={q.id} sx={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
                 {q.kind === "choice" ? (
                   <>
-                    <select
+                    <FormSelect
+                      label={q.title}
                       id={id}
                       name={name}
                       required={q.required}
                       value={pickedValue}
-                      onChange={(e) => setPicked((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                    >
-                      <option value="" disabled>
-                        —
-                      </option>
-                      {(q.options ?? []).map((o: ProcurementVendorQuestionOption) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={(next) => setPicked((prev) => ({ ...prev, [q.id]: next }))}
+                      options={listOptions(q.options ?? [], (o: ProcurementVendorQuestionOption) => o.value, (o: ProcurementVendorQuestionOption) => o.label, "—")}
+                    />
                     {q.allow_other && pickedValue === "other" ? (
-                      <input name={`${name}_other`} placeholder={copy(pageContract, "hint.other")} required maxLength={160} />
+                      <TextField
+                        fullWidth
+                        name={`${name}_other`}
+                        placeholder={copy(pageContract, "hint.other")}
+                        required
+                        slotProps={{ htmlInput: { maxLength: 160, "aria-label": `${q.title} ${copy(pageContract, "hint.other")}` } }}
+                      />
                     ) : null}
                   </>
                 ) : q.kind === "multi" ? (
-                  <div className="vendor-form-multi">
-                    {(q.options ?? []).map((o: ProcurementVendorQuestionOption) => (
-                      <FormControlLabel
-                        key={o.value}
-                        className="chkline"
-                        control={<Checkbox name={name} value={o.value} sx={{ p: { xs: 1.5, sm: 1 } }} />}
-                        label={<>{o.label}</>}
-                      />
-                    ))}
-                  </div>
-                ) : q.kind === "number" ? (
-                  <input
+                  <FormControl component="fieldset" required={q.required}>
+                    <FormLabel component="legend">{q.title}</FormLabel>
+                    <FormGroup>
+                      {(q.options ?? []).map((o: ProcurementVendorQuestionOption) => (
+                        <FormControlLabel
+                          key={o.value}
+                          control={<Checkbox name={name} value={o.value} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                          label={<>{o.label}</>}
+                        />
+                      ))}
+                    </FormGroup>
+                  </FormControl>
+                ) : (
+                  <TextField
+                    fullWidth
                     id={id}
                     name={name}
-                    type="number"
+                    type={q.kind === "number" ? "number" : "text"}
+                    label={q.title}
                     required={q.required}
-                    min={q.min ?? undefined}
-                    max={q.max ?? undefined}
-                    step="any"
+                    slotProps={{
+                      htmlInput: q.kind === "number" ? { min: q.min ?? undefined, max: q.max ?? undefined, step: "any" } : { maxLength: 500 },
+                      inputLabel: { shrink: true },
+                    }}
                   />
-                ) : (
-                  <input id={id} name={name} type="text" required={q.required} maxLength={500} />
                 )}
-                {q.hint ? <div className="muted small">{q.hint}</div> : null}
-                {q.unit ? <div className="muted small">{q.unit}</div> : null}
-              </div>
+                {hint ? <FormHelperText sx={{ mx: 0 }}>{hint}</FormHelperText> : null}
+              </Box>
             );
           })}
-        </div>
+        </Box>
       ))}
-      <div className="note">{copy(pageContract, "hint.authored_questions")}</div>
-    </div>
+      <Typography variant="body2" component="div" sx={{ color: "text.secondary" }}>
+        {copy(pageContract, "hint.authored_questions")}
+      </Typography>
+    </Box>
   );
 }

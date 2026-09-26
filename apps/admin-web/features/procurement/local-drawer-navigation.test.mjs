@@ -15,7 +15,10 @@ test("Procurement source-load local drawer fetches selected detail for ordinary 
   assert.match(drawerSource, /popstate/);
   assert.match(drawerSource, /currentHistoryEntryIsLocalOverlay/);
   assert.doesNotMatch(drawerSource, /<Link[^>]+className="veil"/);
-  assert.match(drawerSource, /<Link href=\{displayedItem\.detailHref\}/);
+  assert.match(drawerSource, /<LinkButton href=\{displayedItem\.detailHref\}/);
+  // Template temporary drawer (R2-4): portal, backdrop, header + close, footer actions.
+  assert.match(drawerSource, /<DetailDrawer\b[^]*?onClose=\{closeDrawer\}/);
+  assert.doesNotMatch(drawerSource, /className=\{?[`"](?:scrim|drawer)\b/);
   assert.match(drawerSource, /detailHref.*#hf-evidence/);
 });
 

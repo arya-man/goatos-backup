@@ -82,5 +82,9 @@ test("a refused record-sale brings its reason into view", () => {
 
 test("the sale's lines table pans inside the drawer instead of painting past it", () => {
   const drawer = readFileSync(new URL("./sales-record-drawer.tsx", import.meta.url), "utf8");
-  assert.match(drawer, /<div className="twrap"[^>]*>\s*<Table className="sales-lines-table"/);
+  // Template drawer (R2-4): the six-column table keeps every column whole at its own min width and
+  // pans sideways inside its own Scrollbar, never clipped at the 480px drawer edge.
+  assert.match(drawer, /<DrawerTableScroll>\s*<Table size="small" sx=\{\{ minWidth: \d+ \}\} data-testid="sale-detail-lines"/);
+  assert.match(drawer, /<DetailDrawer\b/);
+  assert.doesNotMatch(drawer, /className=\{?[`"](?:scrim|drawer)\b/);
 });

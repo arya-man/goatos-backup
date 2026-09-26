@@ -5,8 +5,12 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
-import { Pencil, Wheat, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { Pencil, Wheat } from "lucide-react";
+import { useCallback, useId, useSyncExternalStore, type ReactNode } from "react";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -14,6 +18,7 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
+import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem, DrawerTableScroll } from "@/components/app/detail-drawer";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedPurchase, FeedPurchaseOptions } from "@/lib/api/procurement";
 import type { ProcurementVendorForm } from "@/lib/api/server";
@@ -97,7 +102,8 @@ export function FeedPurchaseDrawer({
    */
   purchaseForm?: ProcurementVendorForm | null;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const addFormId = useId();
+  const editFormId = useId();
 
   // The URL is an EXTERNAL store — LocalOverlayLink mutates history outside React — so it is read
   // via useSyncExternalStore rather than mirrored into state in an effect. SSR renders it closed.
@@ -119,18 +125,8 @@ export function FeedPurchaseDrawer({
     replaceLocalOverlayUrl(listHref);
   }, [listHref]);
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
+  // Escape and the backdrop reach `close` through the template Drawer's onClose (focus is trapped in
+  // the paper and returned to the opener); a second Escape listener would step history back twice.
 
   const none = copy(pageContract, "value.none");
   const field = (key: string) => copy(pageContract, `field.${key}`);
@@ -183,64 +179,63 @@ export function FeedPurchaseDrawer({
 
   // One read-only cell pair of the record body.
   const cell = (label: string, value: string | number | null | undefined) => (
-    <div key={label}>
-      <div className="k">{label}</div>
-      <div className="v">{value === null || value === undefined || value === "" ? none : value}</div>
-    </div>
+    <DrawerMetaItem key={label} label={label}>
+      {value === null || value === undefined || value === "" ? none : value}
+    </DrawerMetaItem>
   );
 
   return (
-    <>
-      <div
-        className={`scrim${open ? " on" : ""}`}
-        aria-label={copy(pageContract, "action.close")}
-        aria-hidden={!open}
-        tabIndex={open ? 0 : -1}
-        onClick={close}
-      />
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--info)" }}>
-            <Wheat className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "crumb")}</div>
-            <h2>{isAdding ? title : (purchase?.feed_item ?? title)}</h2>
-            {purchase ? (
-              <div className="muted small" style={{ marginTop: 3 }}>
-                {fmtDate(purchase.purchase_date)} · {purchase.farm}
-              </div>
-            ) : null}
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          {purchase && !isAdding && !isEditing && canEdit ? (
-            <button
-              type="button"
-              className="btn sm dh-action"
-              onClick={() => replaceLocalOverlayUrl(`${detailHref}&edit=1`)}
-            >
-              <Pencil aria-hidden="true" />
-              {copy(pageContract, "action.edit_feed_purchase.label")}
-            </button>
-          ) : null}
-          <button
-            ref={closeButtonRef}
+    <DetailDrawer
+      open={open}
+      onClose={close}
+      title={isAdding ? title : (purchase?.feed_item ?? title)}
+      eyebrow={copy(pageContract, "crumb")}
+      icon={<Wheat aria-hidden="true" />}
+      iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
+      subtitle={purchase ? `${fmtDate(purchase.purchase_date)} · ${purchase.farm}` : undefined}
+      ariaLabel={title}
+      closeLabel={copy(pageContract, "action.close")}
+      footer={
+        isAdding ? (
+          <>
+            <Button type="button" variant="outlined" color="inherit" onClick={close}>
+              {copy(pageContract, "action.cancel")}
+            </Button>
+            <Button type="submit" form={addFormId} variant="contained">
+              {copy(pageContract, "action.save")}
+            </Button>
+          </>
+        ) : isEditing ? (
+          <>
+            <Button type="button" variant="outlined" color="inherit" onClick={() => replaceLocalOverlayUrl(detailHref)}>
+              {copy(pageContract, "action.cancel")}
+            </Button>
+            <Button type="submit" form={editFormId} variant="contained">
+              {copy(pageContract, "action.save")}
+            </Button>
+          </>
+        ) : undefined
+      }
+    >
+        {purchase && !isAdding && !isEditing && canEdit ? (
+          <Button
             type="button"
-            className="iconbtn"
-            aria-label={copy(pageContract, "action.close")}
-            onClick={close}
+            variant="outlined"
+            color="inherit"
+            startIcon={<Pencil aria-hidden="true" />}
+            sx={{ alignSelf: "flex-start" }}
+            onClick={() => replaceLocalOverlayUrl(`${detailHref}&edit=1`)}
           >
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
+            {copy(pageContract, "action.edit_feed_purchase.label")}
+          </Button>
+        ) : null}
 
         {isAdding ? (
-          <form action={recordFeedPurchaseAction} style={{ display: "contents" }}>
-            <div className="dc">
+          <Box component="form" id={addFormId} action={recordFeedPurchaseAction} sx={{ display: "contents" }}>
               <input type="hidden" name="return_to" value={listHref} />
               <input type="hidden" name="idempotency_key" value={recordIdempotencyKey} />
 
-              <div className="note">{copy(pageContract, "required.hint")}</div>
+              <DrawerHint>{copy(pageContract, "required.hint")}</DrawerHint>
               {/* The authored form's version and every question it asked: readFormAnswers only maps
                   typed fields onto question ids the drawer declares here (40466370a). */}
               {purchaseForm ? <>
@@ -250,11 +245,10 @@ export function FeedPurchaseDrawer({
                 ))}
               </> : null}
 
-              <div className="fld">
-                <label htmlFor="fp-purchase_date">{field("purchase_date")}</label>
+              <Box sx={FIELD_SX}>
                 {datePicker("purchase_date", "purchase_date", { required: true })}
-              </div>
-              <div className="fld">
+              </Box>
+              <Box sx={FIELD_SX}>
                 <FormSelect
                   label={field("farm")}
                   name="farm"
@@ -263,8 +257,8 @@ export function FeedPurchaseDrawer({
                   required
                   options={listOptions(farmOptions, (option) => option.key, (option) => option.label, "—")}
                 />
-              </div>
-              <div className="fld">
+              </Box>
+              <Box sx={FIELD_SX}>
                 {/* The catalog LABEL is both the option value and what is sent: the backend resolves
                     it through the same normalization the ledger's key uses. */}
                 <FormSelect
@@ -275,54 +269,45 @@ export function FeedPurchaseDrawer({
                   required
                   options={listOptions(feedItems, (item) => item.label, (item) => item.label, "—")}
                 />
-              </div>
-              <div className="fld">
-                <label htmlFor="fp-quantity_kg">{field("quantity_kg")}</label>
-                <input id="fp-quantity_kg" name="quantity_kg" type="number" min={0.001} step="0.001" required />
-              </div>
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-quantity_kg" name="quantity_kg" type="number" required label={field("quantity_kg")} slotProps={{ htmlInput: { min: 0.001, step: "0.001" }, inputLabel: { shrink: true } }} />
+              </Box>
 
-              <div className="fld">
-                <label htmlFor="fp-feed_cost">{field("feed_cost")}</label>
-                <input id="fp-feed_cost" name="feed_cost" type="number" min={0} step="0.01" />
-              </div>
-              <div className="fld">
-                <label htmlFor="fp-transport_cost">{field("transport_cost")}</label>
-                <input id="fp-transport_cost" name="transport_cost" type="number" min={0} step="0.01" />
-              </div>
-              <div className="fld">
-                <label htmlFor="fp-loading_cost">{field("loading_cost")}</label>
-                <input id="fp-loading_cost" name="loading_cost" type="number" min={0} step="0.01" />
-              </div>
-              <div className="fld">
-                <label htmlFor="fp-unloading_cost">{field("unloading_cost")}</label>
-                <input id="fp-unloading_cost" name="unloading_cost" type="number" min={0} step="0.01" />
-              </div>
-              <div className="fld">
-                <label htmlFor="fp-total_cost">{field("total_cost")}</label>
-                <input id="fp-total_cost" name="total_cost" type="number" min={0} step="0.01" />
-              </div>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-feed_cost" name="feed_cost" type="number" label={field("feed_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-transport_cost" name="transport_cost" type="number" label={field("transport_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-loading_cost" name="loading_cost" type="number" label={field("loading_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-unloading_cost" name="unloading_cost" type="number" label={field("unloading_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-total_cost" name="total_cost" type="number" label={field("total_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
 
-              <div className="fld">
-                <label htmlFor="fp-vendor">{field("vendor")}</label>
+              <Box sx={FIELD_SX}>
                 {/* Free text with a suggestion list, not a select: a new supplier must be enterable
                     on the first load bought from them. */}
-                <input id="fp-vendor" name="vendor" required maxLength={160} list="fp-vendor-options" />
+                <TextField fullWidth id="fp-vendor" name="vendor" required label={field("vendor")} slotProps={{ htmlInput: { maxLength: 160, list: "fp-vendor-options" }, inputLabel: { shrink: true } }} />
                 <datalist id="fp-vendor-options">
                   {vendorSuggestions.map((vendor) => (
                     <option key={vendor} value={vendor} />
                   ))}
                 </datalist>
-              </div>
-              <div className="fld">
-                <label htmlFor="fp-days_of_stock">{field("days_of_stock")}</label>
-                <input id="fp-days_of_stock" name="days_of_stock" type="number" min={1} step="1" />
-                <div className="muted small">{copy(pageContract, "hint.days_of_stock")}</div>
-              </div>
-              <div className="fld">
-                <label htmlFor="fp-payment_released">{field("payment_released")}</label>
-                <input id="fp-payment_released" name="payment_released" type="number" min={0} step="0.01" />
-              </div>
-              <div className="fld">
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-days_of_stock" name="days_of_stock" type="number" label={field("days_of_stock")} slotProps={{ htmlInput: { min: 1, step: "1" }, inputLabel: { shrink: true } }} />
+                <DrawerHint>{copy(pageContract, "hint.days_of_stock")}</DrawerHint>
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-payment_released" name="payment_released" type="number" label={field("payment_released")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
                 <FormSelect
                   label={field("payment_status")}
                   name="payment_status"
@@ -331,114 +316,68 @@ export function FeedPurchaseDrawer({
                   required
                   options={listOptions(paymentOptions, (option) => option.key, (option) => option.label, "—")}
                 />
-              </div>
+              </Box>
 
               {/* DELIVERY: blank = the load is still on the road (the normal case). A date here
                   records a load that already came in, reached that day. */}
-              <div className="dgrp">{copy(pageContract, "section.delivery.title")}</div>
-              <div className="fld">
-                <label htmlFor="fp-reached_on">{field("reached_on")}</label>
+              <DrawerGroup>{copy(pageContract, "section.delivery.title")}</DrawerGroup>
+              <Box sx={FIELD_SX}>
                 {datePicker("reached_on", "reached_on")}
-              </div>
-              <div className="fld">
-                <label htmlFor="fp-reached_weight_kg">{field("reached_weight_kg")}</label>
-                <input id="fp-reached_weight_kg" name="reached_weight_kg" type="number" min={0.001} step="0.001" />
-              </div>
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fp-reached_weight_kg" name="reached_weight_kg" type="number" label={field("reached_weight_kg")} slotProps={{ htmlInput: { min: 0.001, step: "0.001" }, inputLabel: { shrink: true } }} />
+              </Box>
 
               {/* Whatever the farm authored beyond the ledger's own columns, from the published
                   form (2026-09-20). Nothing renders when the document adds nothing. */}
               <FeedPurchaseExtraFields form={purchaseForm} pageContract={pageContract} />
-            </div>
-            <div className="df">
-              <button type="submit" className="btn p">
-                {copy(pageContract, "action.save")}
-              </button>
-              <button type="button" className="btn" onClick={close}>
-                {copy(pageContract, "action.cancel")}
-              </button>
-            </div>
-          </form>
+          </Box>
         ) : purchase && isEditing ? (
-          <form action={editFeedPurchaseAction} style={{ display: "contents" }}>
-            <div className="dc">
+          <Box component="form" id={editFormId} action={editFeedPurchaseAction} sx={{ display: "contents" }}>
               <input type="hidden" name="return_to" value={detailHref} />
               <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
 
               {/* Identity is read-only by design: farm, feed and batch are the natural key the
                   stock cards group by. The hint says so rather than leaving greyed boxes mute. */}
-              <div className="metagrid">
-                <div>
-                  <div className="k">{field("farm")}</div>
-                  <div className="v">{purchase.farm}</div>
-                </div>
-                <div>
-                  <div className="k">{field("feed_item")}</div>
-                  <div className="v">{purchase.feed_item}</div>
-                </div>
-                <div>
-                  <div className="k">{field("batch_no")}</div>
-                  <div className="v">{purchase.batch_no}</div>
-                </div>
-              </div>
+              <DrawerMetaGrid>
+                <DrawerMetaItem label={field("farm")}>{purchase.farm}</DrawerMetaItem>
+                <DrawerMetaItem label={field("feed_item")}>{purchase.feed_item}</DrawerMetaItem>
+                <DrawerMetaItem label={field("batch_no")}>{purchase.batch_no}</DrawerMetaItem>
+              </DrawerMetaGrid>
 
-              <div className="fld">
-                <label htmlFor="fpe-purchase_date">{field("purchase_date")}</label>
+              <Box sx={FIELD_SX}>
                 {datePicker("purchase_date", "purchase_date", { required: true, defaultValue: purchase.purchase_date })}
-              </div>
-              <div className="fld">
-                <label htmlFor="fpe-quantity_kg">{field("quantity_kg")}</label>
-                <input id="fpe-quantity_kg" name="quantity_kg" type="number" min={0.001} step="0.001" required defaultValue={purchase.quantity_kg} />
-              </div>
-              <div className="fld">
-                <label htmlFor="fpe-feed_cost">{field("feed_cost")}</label>
-                <input id="fpe-feed_cost" name="feed_cost" type="number" min={0} step="0.01" defaultValue={purchase.feed_cost ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="fpe-transport_cost">{field("transport_cost")}</label>
-                <input id="fpe-transport_cost" name="transport_cost" type="number" min={0} step="0.01" defaultValue={purchase.transport_cost ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="fpe-loading_cost">{field("loading_cost")}</label>
-                <input id="fpe-loading_cost" name="loading_cost" type="number" min={0} step="0.01" defaultValue={purchase.loading_cost ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="fpe-unloading_cost">{field("unloading_cost")}</label>
-                <input id="fpe-unloading_cost" name="unloading_cost" type="number" min={0} step="0.01" defaultValue={purchase.unloading_cost ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="fpe-total_cost">{field("total_cost")}</label>
-                <input id="fpe-total_cost" name="total_cost" type="number" min={0} step="0.01" defaultValue={purchase.total_cost ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="fpe-vendor">{field("vendor")}</label>
-                <input id="fpe-vendor" name="vendor" required maxLength={160} defaultValue={purchase.vendor} list="fp-vendor-options" />
-              </div>
-              <div className="fld">
-                <label htmlFor="fpe-days_of_stock">{field("days_of_stock")}</label>
-                <input
-                  id="fpe-days_of_stock"
-                  name="days_of_stock"
-                  type="number"
-                  min={1}
-                  step="1"
-                  defaultValue={purchase.days_of_stock ?? ""}
-                />
-                <div className="muted small">{copy(pageContract, "hint.days_of_stock")}</div>
-              </div>
-            </div>
-            <div className="df">
-              <button type="submit" className="btn p">
-                {copy(pageContract, "action.save")}
-              </button>
-              <button type="button" className="btn" onClick={() => replaceLocalOverlayUrl(detailHref)}>
-                {copy(pageContract, "action.cancel")}
-              </button>
-            </div>
-          </form>
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fpe-quantity_kg" name="quantity_kg" type="number" required defaultValue={purchase.quantity_kg} label={field("quantity_kg")} slotProps={{ htmlInput: { min: 0.001, step: "0.001" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fpe-feed_cost" name="feed_cost" type="number" defaultValue={purchase.feed_cost ?? ""} label={field("feed_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fpe-transport_cost" name="transport_cost" type="number" defaultValue={purchase.transport_cost ?? ""} label={field("transport_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fpe-loading_cost" name="loading_cost" type="number" defaultValue={purchase.loading_cost ?? ""} label={field("loading_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fpe-unloading_cost" name="unloading_cost" type="number" defaultValue={purchase.unloading_cost ?? ""} label={field("unloading_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fpe-total_cost" name="total_cost" type="number" defaultValue={purchase.total_cost ?? ""} label={field("total_cost")} slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fpe-vendor" name="vendor" required defaultValue={purchase.vendor} label={field("vendor")} slotProps={{ htmlInput: { maxLength: 160, list: "fp-vendor-options" }, inputLabel: { shrink: true } }} />
+              </Box>
+              <Box sx={FIELD_SX}>
+                <TextField fullWidth id="fpe-days_of_stock" name="days_of_stock" type="number" defaultValue={purchase.days_of_stock ?? ""} label={field("days_of_stock")} slotProps={{ htmlInput: { min: 1, step: "1" }, inputLabel: { shrink: true } }} />
+                <DrawerHint>{copy(pageContract, "hint.days_of_stock")}</DrawerHint>
+              </Box>
+          </Box>
         ) : purchase ? (
-          <div className="dc">
-            {/* RECORD drawer body: the mock's .metagrid of uppercase-key cells, never a flat stack. */}
-            <div className="metagrid">
+          <>
+            {/* RECORD drawer body: label/value cells, never a flat stack. */}
+            <DrawerMetaGrid>
               {cell(field("purchase_date"), fmtDate(purchase.purchase_date))}
               {cell(field("farm"), purchase.farm)}
               {cell(field("feed_item"), purchase.feed_item)}
@@ -452,7 +391,7 @@ export function FeedPurchaseDrawer({
               {cell(field("per_kg_cost"), purchase.per_kg_cost == null ? null : inr(purchase.per_kg_cost, 2))}
               {cell(field("vendor"), purchase.vendor)}
               {(purchase.answer_rows ?? []).map((answer) => (
-                <div key={answer.question_id}><div className="k">{answer.label}</div><div className="v">{answer.value}</div></div>
+                <DrawerMetaItem key={answer.question_id} label={answer.label}>{answer.value}</DrawerMetaItem>
               ))}
               {cell(
                 field("days_of_stock"),
@@ -466,33 +405,29 @@ export function FeedPurchaseDrawer({
                   ? copy(pageContract, "value.entry_app")
                   : copy(pageContract, "value.entry_sheet"),
               )}
-            </div>
+            </DrawerMetaGrid>
 
             {/* DELIVERY: has the load come in, when, and what it is worth in the store. Behind its
                 backend control, the mark-reached / update-arrival write. The received weight can
                 be entered later, so the same form serves a load already reached. */}
-            <div className="dgrp">{copy(pageContract, "section.delivery.title")}</div>
-            <div className="metagrid">
-              <div>
-                <div className="k">{field("delivery_status")}</div>
-                <div className="v">
+            <DrawerGroup>{copy(pageContract, "section.delivery.title")}</DrawerGroup>
+            <DrawerMetaGrid>
+              <DrawerMetaItem label={field("delivery_status")}>
                   <Tag tone={deliveryStatusChip(pageContract, purchase.delivery_status, none).tone}>
                     {deliveryStatusChip(pageContract, purchase.delivery_status, none).label}
                   </Tag>
-                </div>
-              </div>
+                </DrawerMetaItem>
               {cell(field("reached_on"), purchase.reached_on ? fmtDate(purchase.reached_on) : null)}
               {cell(field("reached_weight_kg"), purchase.reached_weight_kg == null ? null : num(purchase.reached_weight_kg, 1))}
               {/* BACKEND-derived: received weight if entered, else buying weight; absent on the road. */}
               {cell(field("stock_kg"), purchase.stock_kg == null ? null : num(purchase.stock_kg, 1))}
-            </div>
+            </DrawerMetaGrid>
             {canRecordDelivery ? (
-              <form action={recordFeedPurchaseDeliveryAction}>
+              <Box component="form" action={recordFeedPurchaseDeliveryAction} sx={FORM_SX}>
                 <input type="hidden" name="return_to" value={detailHref} />
                 <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
                 <input type="hidden" name="was_reached" value={purchase.reached_on ? "1" : "0"} />
-                <div className="fld">
-                  <label htmlFor="fpd-reached_on">{field("reached_on")}</label>
+                <Box sx={FIELD_SX}>
                   {/* A load cannot reach before it was bought: the picker's floor is the purchase
                       date, the same rule the backend enforces under the row lock. */}
                   {datePicker("reached_on", "reached_on", {
@@ -500,43 +435,32 @@ export function FeedPurchaseDrawer({
                     min: purchase.purchase_date,
                     defaultValue: purchase.reached_on ?? undefined,
                   })}
-                </div>
-                <div className="fld">
-                  <label htmlFor="fpd-reached_weight_kg">{field("reached_weight_kg")}</label>
-                  <input
-                    id="fpd-reached_weight_kg"
-                    name="reached_weight_kg"
-                    type="number"
-                    min={0.001}
-                    step="0.001"
-                    defaultValue={purchase.reached_weight_kg ?? ""}
-                  />
-                  <div className="muted small">
+                </Box>
+                <Box sx={FIELD_SX}>
+                  <TextField fullWidth id="fpd-reached_weight_kg" name="reached_weight_kg" type="number" defaultValue={purchase.reached_weight_kg ?? ""} label={field("reached_weight_kg")} slotProps={{ htmlInput: { min: 0.001, step: "0.001" }, inputLabel: { shrink: true } }} />
+                  <DrawerHint>
                     {purchase.reached_on ? copy(pageContract, "hint.reached_weight") : copy(pageContract, "hint.mark_reached")}
-                  </div>
-                </div>
-                <button type="submit" className="btn p">
+                  </DrawerHint>
+                </Box>
+                <Button type="submit" variant="contained" sx={{ alignSelf: "flex-start" }}>
                   {purchase.reached_on
                     ? copy(pageContract, "action.update_delivery.label")
                     : copy(pageContract, "action.mark_reached.label")}
-                </button>
-              </form>
+                </Button>
+              </Box>
             ) : null}
 
             {/* PAYMENTS: what has been handed over, what is still owed, the instalment history,
                 and — behind their backend controls — the add-payment and status-edit writes. */}
-            <div className="dgrp">{copy(pageContract, "section.payments.title")}</div>
-            <div className="metagrid">
-              <div>
-                <div className="k">{copy(pageContract, "column.payment_status")}</div>
-                <div className="v">
+            <DrawerGroup>{copy(pageContract, "section.payments.title")}</DrawerGroup>
+            <DrawerMetaGrid>
+              <DrawerMetaItem label={copy(pageContract, "column.payment_status")}>
                   {/* Tone AND label come from the contract's own option group, so the chip follows a
                       backend vocabulary change instead of a hardcoded comparison here. */}
                   <Tag tone={paymentStatusChip(pageContract, purchase.payment_status, none).tone}>
                     {paymentStatusChip(pageContract, purchase.payment_status, none).label}
                   </Tag>
-                </div>
-              </div>
+                </DrawerMetaItem>
               {cell(
                 copy(pageContract, "payments.paid_so_far"),
                 purchase.payment_released == null ? null : inr(purchase.payment_released),
@@ -547,13 +471,13 @@ export function FeedPurchaseDrawer({
                 copy(pageContract, "payments.balance"),
                 purchase.payment_balance == null ? null : inr(purchase.payment_balance),
               )}
-            </div>
+            </DrawerMetaGrid>
 
             {purchase.payments.length === 0 ? (
-              <div className="muted small">{copy(pageContract, "payments.empty")}</div>
+              <DrawerHint>{copy(pageContract, "payments.empty")}</DrawerHint>
             ) : (
-              <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.payments.title")}>
-                <Table aria-label={copy(pageContract, "section.payments.title")}>
+              <DrawerTableScroll>
+                <Table size="small" sx={{ minWidth: 400 }} aria-label={copy(pageContract, "section.payments.title")}>
                   <TableHead>
                     <TableRow>
                       <TableCell component="th">{copy(pageContract, "payments.column.paid_on")}</TableCell>
@@ -564,44 +488,41 @@ export function FeedPurchaseDrawer({
                   <TableBody>
                     {purchase.payments.map((payment) => (
                       <TableRow key={payment.payment_id}>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{fmtDate(payment.paid_on)}</TableCell>
-                        <TableCell style={{ whiteSpace: "nowrap" }}>{inr(payment.amount_rupees)}</TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(payment.paid_on)}</TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>{inr(payment.amount_rupees)}</TableCell>
                         <TableCell>{payment.note || none}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
-              </div>
+              </DrawerTableScroll>
             )}
 
             {canRecordPayment ? (
-              <form action={recordFeedPurchasePaymentAction}>
+              <Box component="form" action={recordFeedPurchasePaymentAction} sx={FORM_SX}>
                 <input type="hidden" name="return_to" value={detailHref} />
                 <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
                 <input type="hidden" name="idempotency_key" value={paymentIdempotencyKey} />
-                <div className="fld">
-                  <label htmlFor="fpp-paid_on">{field("paid_on")}</label>
+                <Box sx={FIELD_SX}>
                   {datePicker("paid_on", "paid_on", { required: true })}
-                </div>
-                <div className="fld">
-                  <label htmlFor="fpp-amount">{field("amount_rupees")}</label>
-                  <input id="fpp-amount" name="amount_rupees" type="number" min={0.01} step="0.01" required />
-                </div>
-                <div className="fld">
-                  <label htmlFor="fpp-note">{field("note")}</label>
-                  <input id="fpp-note" name="note" maxLength={300} />
-                </div>
-                <button type="submit" className="btn p">
+                </Box>
+                <Box sx={FIELD_SX}>
+                  <TextField fullWidth id="fpp-amount" name="amount_rupees" type="number" required label={field("amount_rupees")} slotProps={{ htmlInput: { min: 0.01, step: "0.01" }, inputLabel: { shrink: true } }} />
+                </Box>
+                <Box sx={FIELD_SX}>
+                  <TextField fullWidth id="fpp-note" name="note" label={field("note")} slotProps={{ htmlInput: { maxLength: 300 }, inputLabel: { shrink: true } }} />
+                </Box>
+                <Button type="submit" variant="contained" sx={{ alignSelf: "flex-start" }}>
                   {copy(pageContract, "action.record_feed_payment.label")}
-                </button>
-              </form>
+                </Button>
+              </Box>
             ) : null}
 
             {canEditStatus ? (
-              <form action={setFeedPurchasePaymentStatusAction} className="fld">
+              <Box component="form" action={setFeedPurchasePaymentStatusAction} sx={FIELD_SX}>
                 <input type="hidden" name="return_to" value={detailHref} />
                 <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
-                <div style={{ display: "flex", gap: 9, alignItems: "flex-end" }}>
+                <Box sx={{ display: "flex", gap: 1, alignItems: "flex-end" }}>
                   <FormSelect
                     label={field("payment_status")}
                     name="payment_status"
@@ -610,15 +531,37 @@ export function FeedPurchaseDrawer({
                     required
                     options={listOptions(paymentOptions, (option) => option.key, (option) => option.label)}
                   />
-                  <button type="submit" className="btn">
+                  <Button type="submit" variant="outlined" color="inherit">
                     {copy(pageContract, "action.update_payment_status.label")}
-                  </button>
-                </div>
-              </form>
+                  </Button>
+                </Box>
+              </Box>
             ) : null}
-          </div>
+          </>
         ) : null}
-      </aside>
-    </>
+    </DetailDrawer>
+  );
+}
+
+/** One field block (control + its hint) in the drawer's form column. */
+const FIELD_SX = { display: "flex", flexDirection: "column", gap: 1, minWidth: 0 } as const;
+/** An inline form in the record body: its fields and its submit, one column. */
+const FORM_SX = { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 } as const;
+
+/** A section title inside the drawer body (template subtitle2 heading). */
+function DrawerGroup({ children }: { children: ReactNode }) {
+  return (
+    <Typography variant="subtitle2" component="h3" sx={{ pt: 1 }}>
+      {children}
+    </Typography>
+  );
+}
+
+/** A muted guidance line under a field or section. */
+function DrawerHint({ children }: { children: ReactNode }) {
+  return (
+    <Typography variant="body2" component="div" sx={{ color: "text.secondary" }}>
+      {children}
+    </Typography>
   );
 }

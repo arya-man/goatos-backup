@@ -4,8 +4,11 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
-import { Boxes, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import { Boxes } from "lucide-react";
+import { useCallback, useId, useSyncExternalStore } from "react";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -13,6 +16,7 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
+import { DetailDrawer, DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerNote, DrawerTableScroll } from "@/components/app/detail-drawer";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LoadwiseLoad } from "@/lib/api/procurement";
 import { humanDate, inr, num } from "./sales-format";
@@ -36,7 +40,8 @@ function subscribeToOverlayUrl(onChange: () => void): () => void {
 /**
  * The load-wise section's cost drawer: what one animal load cost to buy and bring in. Modeled on
  * the sales/feed drawers — CLIENT state driven by the URL (LocalOverlayLink changes history
- * WITHOUT an RSC request) and the mock's drawer anatomy (`.scrim`/`.drawer.on`, `.dh`/`.dc`/`.df`).
+ * WITHOUT an RSC request), rendered in the template temporary drawer (DetailDrawer: portal,
+ * backdrop, header + close, Scrollbar body, footer actions).
  *
  * The form is a PUT of the full cost state: it opens prefilled with the load's recorded values, a
  * blank stays null (never coerced to 0), and clearing every box clears the recorded cost.
@@ -55,7 +60,7 @@ export function LoadCostDrawer({
   /** Backend-declared record_load_cost capability; without it the form never renders. */
   canRecordCost: boolean;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const formId = useId();
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readCostLoadParam, () => "");
   const load = selection ? (loads.find((l) => l.load_id === selection) ?? null) : null;
   const open = load !== null;
@@ -68,18 +73,8 @@ export function LoadCostDrawer({
     replaceLocalOverlayUrl(listHref);
   }, [listHref]);
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
+  // Escape and the backdrop reach `close` through the template Drawer's onClose (focus is trapped in
+  // the paper and returned to the opener); a second Escape listener would step history back twice.
 
   const none = copy(pageContract, "value.none");
   const field = (key: string) => copy(pageContract, `field.${key}`);
@@ -87,216 +82,159 @@ export function LoadCostDrawer({
 
   // One read-only cell pair of the record body.
   const cell = (label: string, value: string | number | null | undefined) => (
-    <div key={label}>
-      <div className="k">{label}</div>
-      <div className="v">{value === null || value === undefined || value === "" ? none : value}</div>
-    </div>
+    <DrawerMetaItem key={label} label={label}>
+      {value === null || value === undefined || value === "" ? none : value}
+    </DrawerMetaItem>
+  );
+
+  const heading = load
+    ? load.load_ref
+      ? `${copy(pageContract, "column.load")} ${load.load_ref} · ${load.vendor_name || copy(pageContract, "value.none")}`
+      : load.vendor_name.trim() === ""
+        ? title
+        : load.vendor_name
+    : title;
+
+  const costField = (name: "animal_cost" | "transport_cost" | "other_cost", value: number | null | undefined) => (
+    <TextField
+      fullWidth
+      id={`lc-${name}`}
+      name={name}
+      type="number"
+      label={field(name)}
+      disabled={!canRecordCost}
+      defaultValue={value ?? ""}
+      slotProps={{ htmlInput: { min: 0, step: "0.01" }, inputLabel: { shrink: true } }}
+    />
   );
 
   return (
-    <>
-      <div
-        className={`scrim${open ? " on" : ""}`}
-        aria-label={copy(pageContract, "action.close")}
-        aria-hidden={!open}
-        tabIndex={open ? 0 : -1}
-        onClick={close}
-      />
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--info)" }}>
-            <Boxes className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "crumb")}</div>
-            <h2>
-              {load
-                ? load.load_ref
-                  ? `${copy(pageContract, "column.load")} ${load.load_ref} · ${load.vendor_name || copy(pageContract, "value.none")}`
-                  : load.vendor_name.trim() === ""
-                    ? title
-                    : load.vendor_name
-                : title}
-            </h2>
-            {load?.purchase_date ? (
-              <div className="muted small" style={{ marginTop: 3 }}>
-                {humanDate(load.purchase_date)}
-                {load.farm ? ` · ${load.farm}` : ""}
-              </div>
-            ) : null}
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button
-            ref={closeButtonRef}
-            type="button"
-            className="iconbtn"
-            aria-label={copy(pageContract, "action.close")}
-            onClick={close}
-          >
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
+    <DetailDrawer
+      open={open}
+      onClose={close}
+      title={heading}
+      eyebrow={copy(pageContract, "crumb")}
+      icon={<Boxes aria-hidden="true" />}
+      iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
+      subtitle={load?.purchase_date ? `${humanDate(load.purchase_date)}${load.farm ? ` · ${load.farm}` : ""}` : undefined}
+      ariaLabel={title}
+      closeLabel={copy(pageContract, "action.close")}
+      footer={
+        load ? (
+          canRecordCost ? (
+            <Button type="submit" form={formId} variant="contained">
+              {copy(pageContract, "action.record_load_cost.label")}
+            </Button>
+          ) : (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "disabled.load_cost")}</Typography>
+          )
+        ) : undefined
+      }
+    >
+      {load ? (
+        <Box component="form" id={formId} action={recordLoadCostAction} key={load.load_id} sx={{ display: "contents" }}>
+          <input type="hidden" name="return_to" value={listHref} />
+          <input type="hidden" name="load_id" value={load.load_id} />
 
-        {load ? (
-          <form action={recordLoadCostAction} style={{ display: "contents" }} key={load.load_id}>
-            <div className="dc">
-              <input type="hidden" name="return_to" value={listHref} />
-              <input type="hidden" name="load_id" value={load.load_id} />
-
-              {/* The reconciliation the cost is being recorded against, read-only. */}
-              <div className="metagrid">
-                {cell(copy(pageContract, "column.purchased"), num(load.purchased))}
-                {cell(copy(pageContract, "column.sold"), num(load.sold))}
-                {cell(copy(pageContract, "column.mortality"), num(load.mortality))}
-                {cell(copy(pageContract, "column.remaining"), num(load.remaining))}
-                {/* Culled / transferred / lost. The table has no column for it, so this is where
-                    a load that HAS other exits still shows them. */}
-                {load.other_exits > 0 ? cell(copy(pageContract, "column.other_exits"), num(load.other_exits)) : null}
-                {cell(
-                  copy(pageContract, "column.sold_value"),
-                  load.sold_value > 0 ? inr(Math.round(load.sold_value)) : none,
-                )}
-                <div>
-                  <div className="k">{copy(pageContract, "column.unaccounted")}</div>
-                  <div className="v">
-                    {load.unaccounted === 0 ? <Tag tone="mut">0</Tag> : <Tag tone="dng">{num(load.unaccounted)}</Tag>}
-                  </div>
-                </div>
-              </div>
-
-              {/* The load's pre-system history, with the dates the old records span. */}
-              {load.prior_sold || load.prior_dead ? (
-                <div style={{ marginTop: 10 }}>
-                  <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "loadwise.prior.title")}</Typography>
-                  {load.prior_sold ? (
-                    <div className="muted small">
-                      {copy(pageContract, "loadwise.prior.sold")}: <b>{num(load.prior_sold.count)}</b>{" "}
-                      {copy(pageContract, "loadwise.prior.animals")}
-                      {load.prior_sold.value ? <> · {inr(Math.round(load.prior_sold.value))}</> : null}
-                      {load.prior_sold.first_on ? (
-                        <>
-                          {" "}· {humanDate(load.prior_sold.first_on)}
-                          {load.prior_sold.last_on && load.prior_sold.last_on !== load.prior_sold.first_on
-                            ? ` – ${humanDate(load.prior_sold.last_on)}`
-                            : ""}
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {load.prior_dead ? (
-                    <div className="muted small">
-                      {copy(pageContract, "loadwise.prior.died")}: <b>{num(load.prior_dead.count)}</b>{" "}
-                      {copy(pageContract, "loadwise.prior.animals")}
-                      {load.prior_dead.first_on ? (
-                        <>
-                          {" "}· {humanDate(load.prior_dead.first_on)}
-                          {load.prior_dead.last_on && load.prior_dead.last_on !== load.prior_dead.first_on
-                            ? ` – ${humanDate(load.prior_dead.last_on)}`
-                            : ""}
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {/* WHAT THE THREE FIGURES ARE MADE OF (maintainer decision 2026-09-01). The list
-                  stays three columns; the itemisation appears only here, on the opened load.
-                  Every label is backend-owned copy keyed on the line's KIND -- the kind string
-                  itself is never rendered. Absent for a load costed before the itemisation
-                  existed, which is why this block is conditional rather than an empty table:
-                  "no breakdown recorded" is a different fact from "no cost recorded", and the
-                  cost fields below already state the latter. */}
-              {load.cost_lines && load.cost_lines.length > 0 ? (
-                <div style={{ marginTop: 10 }}>
-                  <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "loadwise.cost_breakdown.title")}</Typography>
-                  <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
-                    <Table aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
-                      <TableBody>
-                        {load.cost_lines.map((line, index) => (
-                          <TableRow key={`${line.kind}-${index}`}>
-                            <TableCell>{copy(pageContract, `cost_kind.${line.kind}`, line.kind)}</TableCell>
-                            <TableCell className="num" style={{ whiteSpace: "nowrap" }}>
-                              {inr(Math.round(line.amount))}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {/* The total the reader is checking the parts against. Recomputed from the
-                            lines rather than read from purchase_value so a breakdown that does not
-                            add up is VISIBLE instead of hidden behind an authoritative-looking
-                            figure. */}
-                        <TableRow>
-                          <TableCell>
-                            <b>{copy(pageContract, "loadwise.cost_breakdown.total")}</b>
-                          </TableCell>
-                          <TableCell className="num" style={{ whiteSpace: "nowrap" }}>
-                            <b>{inr(Math.round(load.cost_lines.reduce((sum, line) => sum + line.amount, 0)))}</b>
-                          </TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </div>
-                  <div className="muted small" style={{ marginTop: 4 }}>
-                    {copy(pageContract, "loadwise.cost_breakdown.hint")}
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="note" style={{ marginTop: 10 }}>
-                {copy(pageContract, "hint.load_cost")}
-              </div>
-
-              <div className="fld">
-                <label htmlFor="lc-animal_cost">{field("animal_cost")}</label>
-                <input
-                  id="lc-animal_cost"
-                  name="animal_cost"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  disabled={!canRecordCost}
-                  defaultValue={load.animal_cost ?? ""}
-                />
-              </div>
-              <div className="fld">
-                <label htmlFor="lc-transport_cost">{field("transport_cost")}</label>
-                <input
-                  id="lc-transport_cost"
-                  name="transport_cost"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  disabled={!canRecordCost}
-                  defaultValue={load.transport_cost ?? ""}
-                />
-              </div>
-              <div className="fld">
-                <label htmlFor="lc-other_cost">{field("other_cost")}</label>
-                <input
-                  id="lc-other_cost"
-                  name="other_cost"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  disabled={!canRecordCost}
-                  defaultValue={load.other_cost ?? ""}
-                />
-              </div>
-            </div>
-            {canRecordCost ? (
-              <div className="df">
-                <button type="submit" className="btn primary">
-                  {copy(pageContract, "action.record_load_cost.label")}
-                </button>
-              </div>
-            ) : (
-              <div className="df">
-                <span className="muted small">{copy(pageContract, "disabled.load_cost")}</span>
-              </div>
+          {/* The reconciliation the cost is being recorded against, read-only. */}
+          <DrawerMetaGrid>
+            {cell(copy(pageContract, "column.purchased"), num(load.purchased))}
+            {cell(copy(pageContract, "column.sold"), num(load.sold))}
+            {cell(copy(pageContract, "column.mortality"), num(load.mortality))}
+            {cell(copy(pageContract, "column.remaining"), num(load.remaining))}
+            {/* Culled / transferred / lost. The table has no column for it, so this is where
+                a load that HAS other exits still shows them. */}
+            {load.other_exits > 0 ? cell(copy(pageContract, "column.other_exits"), num(load.other_exits)) : null}
+            {cell(
+              copy(pageContract, "column.sold_value"),
+              load.sold_value > 0 ? inr(Math.round(load.sold_value)) : none,
             )}
-          </form>
-        ) : null}
-      </aside>
-    </>
+            <DrawerMetaItem label={copy(pageContract, "column.unaccounted")}>
+              {load.unaccounted === 0 ? <Tag tone="mut">0</Tag> : <Tag tone="dng">{num(load.unaccounted)}</Tag>}
+            </DrawerMetaItem>
+          </DrawerMetaGrid>
+
+          {/* The load's pre-system history, with the dates the old records span. */}
+          {load.prior_sold || load.prior_dead ? (
+            <DrawerBlock title={copy(pageContract, "loadwise.prior.title")}>
+              {load.prior_sold ? (
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  {copy(pageContract, "loadwise.prior.sold")}: <b>{num(load.prior_sold.count)}</b>{" "}
+                  {copy(pageContract, "loadwise.prior.animals")}
+                  {load.prior_sold.value ? <> · {inr(Math.round(load.prior_sold.value))}</> : null}
+                  {load.prior_sold.first_on ? (
+                    <>
+                      {" "}· {humanDate(load.prior_sold.first_on)}
+                      {load.prior_sold.last_on && load.prior_sold.last_on !== load.prior_sold.first_on
+                        ? ` – ${humanDate(load.prior_sold.last_on)}`
+                        : ""}
+                    </>
+                  ) : null}
+                </Typography>
+              ) : null}
+              {load.prior_dead ? (
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  {copy(pageContract, "loadwise.prior.died")}: <b>{num(load.prior_dead.count)}</b>{" "}
+                  {copy(pageContract, "loadwise.prior.animals")}
+                  {load.prior_dead.first_on ? (
+                    <>
+                      {" "}· {humanDate(load.prior_dead.first_on)}
+                      {load.prior_dead.last_on && load.prior_dead.last_on !== load.prior_dead.first_on
+                        ? ` – ${humanDate(load.prior_dead.last_on)}`
+                        : ""}
+                    </>
+                  ) : null}
+                </Typography>
+              ) : null}
+            </DrawerBlock>
+          ) : null}
+
+          {/* WHAT THE THREE FIGURES ARE MADE OF (maintainer decision 2026-09-01). The list
+              stays three columns; the itemisation appears only here, on the opened load.
+              Every label is backend-owned copy keyed on the line's KIND -- the kind string
+              itself is never rendered. Absent for a load costed before the itemisation
+              existed, which is why this block is conditional rather than an empty table:
+              "no breakdown recorded" is a different fact from "no cost recorded", and the
+              cost fields below already state the latter. */}
+          {load.cost_lines && load.cost_lines.length > 0 ? (
+            <DrawerBlock title={copy(pageContract, "loadwise.cost_breakdown.title")}>
+              <DrawerTableScroll>
+                <Table size="small" sx={{ minWidth: 320 }} aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
+                  <TableBody>
+                    {load.cost_lines.map((line, index) => (
+                      <TableRow key={`${line.kind}-${index}`}>
+                        <TableCell>{copy(pageContract, `cost_kind.${line.kind}`, line.kind)}</TableCell>
+                        <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                          {inr(Math.round(line.amount))}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {/* The total the reader is checking the parts against. Recomputed from the
+                        lines rather than read from purchase_value so a breakdown that does not
+                        add up is VISIBLE instead of hidden behind an authoritative-looking
+                        figure. */}
+                    <TableRow>
+                      <TableCell sx={{ typography: "subtitle2" }}>{copy(pageContract, "loadwise.cost_breakdown.total")}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: "nowrap", typography: "subtitle2" }}>
+                        {inr(Math.round(load.cost_lines.reduce((sum, line) => sum + line.amount, 0)))}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </DrawerTableScroll>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                {copy(pageContract, "loadwise.cost_breakdown.hint")}
+              </Typography>
+            </DrawerBlock>
+          ) : null}
+
+          <DrawerNote>{copy(pageContract, "hint.load_cost")}</DrawerNote>
+
+          {costField("animal_cost", load.animal_cost)}
+          {costField("transport_cost", load.transport_cost)}
+          {costField("other_cost", load.other_cost)}
+        </Box>
+      ) : null}
+    </DetailDrawer>
   );
 }

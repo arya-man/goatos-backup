@@ -4,6 +4,7 @@ import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import MuiLink from "@mui/material/Link";
 import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -11,9 +12,9 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import TextField from "@mui/material/TextField";
 
-import { Banknote, Save, Trash2, X } from "lucide-react";
+import { Banknote, Save, Trash2 } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
-import { startTransition, useActionState, useCallback, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { startTransition, useActionState, useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -21,6 +22,7 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
+import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem, DrawerTableScroll } from "@/components/app/detail-drawer";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesDeal, SalesOptions } from "@/lib/api/procurement";
 import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
@@ -76,8 +78,9 @@ function vendorLabel(vendor: ProcurementVendorOption): string {
 /**
  * The sales board's record / detail overlay, modeled on the vendor register drawer: CLIENT state
  * driven by the URL (LocalOverlayLink changes history WITHOUT an RSC request, so a server-read
- * search param would never open it), and the mock's drawer anatomy — `.scrim`/`.drawer.on`,
- * `.dh`/`.dc`/`.df`, with a RECORD body as a `.metagrid` of `.k`/`.v` cells.
+ * search param would never open it), rendered in the template temporary drawer (DetailDrawer:
+ * portal, backdrop, header + close, Scrollbar body, footer actions) with a RECORD body of
+ * label/value cells (DrawerMetaGrid).
  */
 export function SalesRecordDrawer({
   deals,
@@ -125,7 +128,7 @@ export function SalesRecordDrawer({
    */
   stockConfirmDetail?: string;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const recordFormId = useId();
 
   // The URL is an EXTERNAL store — LocalOverlayLink mutates history outside React — so it is read
   // via useSyncExternalStore rather than mirrored into state in an effect. SSR always renders the
@@ -218,18 +221,8 @@ export function SalesRecordDrawer({
     replaceLocalOverlayUrl(listHref);
   }, [listHref]);
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
+  // Escape and the backdrop reach `close` through the template Drawer's onClose (MUI traps focus in
+  // the paper and returns it to the opener); a second Escape listener here would step history back twice.
 
   const none = copy(pageContract, "value.none");
   const notApplicable = copy(pageContract, "value.not_applicable");
@@ -292,46 +285,62 @@ export function SalesRecordDrawer({
 
   // One read-only cell pair of the record body.
   const cell = (label: string, value: string | number | null | undefined) => (
-    <div key={label}>
-      <div className="k">{label}</div>
-      <div className="v">{value === null || value === undefined || value === "" ? none : value}</div>
-    </div>
+    <DrawerMetaItem key={label} label={label}>
+      {value === null || value === undefined || value === "" ? none : value}
+    </DrawerMetaItem>
+  );
+
+  const saveButton = (
+    // A sale cannot be recorded without a vendor, so Save is disabled-with-reason rather than left
+    // live to fail at the backend with a message about a field the form could not offer. The
+    // route validates the same rule regardless. It sits in the drawer footer and submits the form
+    // by id.
+    <Button
+      type="submit"
+      form={recordFormId}
+      variant="contained"
+      color="primary"
+      loading={recordPending}
+      disabled={!canPickVendor}
+      title={
+        canPickVendor
+          ? undefined
+          : copy(
+              pageContract,
+              vendorsUnavailable
+                ? "error.vendors_unavailable"
+                : vendorsTruncated
+                  ? "hint.vendor_truncated"
+                  : "hint.vendor_empty",
+            )
+      }
+    >
+      {copy(pageContract, "action.save")}
+    </Button>
   );
 
   return (
-    <>
-      <div
-        className={`scrim${open ? " on" : ""}`}
-        aria-label={copy(pageContract, "action.close")}
-        aria-hidden={!open}
-        tabIndex={open ? 0 : -1}
-        onClick={close}
-      />
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--info)" }}>
-            <Banknote className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "crumb")}</div>
-            <h2>{isAdding ? title : (deal?.buyer_name ?? title)}</h2>
-            {deal ? (
-              <div className="muted small" style={{ marginTop: 3 }}>
-                {fmtDate(deal.sale_date)} · {deal.farm}
-              </div>
-            ) : null}
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <IconButton
-            ref={closeButtonRef}
-            type="button"
-            aria-label={copy(pageContract, "action.close")}
-            onClick={close}
-          >
-            <X className="ic" aria-hidden="true" />
-          </IconButton>
-        </div>
-
+    <DetailDrawer
+      open={open}
+      onClose={close}
+      title={isAdding ? title : (deal?.buyer_name ?? title)}
+      eyebrow={copy(pageContract, "crumb")}
+      icon={<Banknote aria-hidden="true" />}
+      iconColors={{ bg: "var(--brand-soft)", fg: "var(--info)" }}
+      subtitle={deal ? `${fmtDate(deal.sale_date)} · ${deal.farm}` : undefined}
+      ariaLabel={title}
+      closeLabel={copy(pageContract, "action.close")}
+      footer={
+        isAdding ? (
+          <>
+            <Button type="button" variant="outlined" color="inherit" onClick={close}>
+              {copy(pageContract, "action.cancel")}
+            </Button>
+            {saveButton}
+          </>
+        ) : undefined
+      }
+    >
         {isAdding ? (
           <form onSubmit={async (event) => {
             event.preventDefault();
@@ -350,17 +359,15 @@ export function SalesRecordDrawer({
               // the next submit is a new intent with a new key.
               setSaleKey(mintPaymentKey());
             }
-          }} style={{ display: "contents" }}>
-            <div className="dc">
+          }} id={recordFormId} style={{ display: "contents" }}>
               {/* Refusals return in place, preserving controlled and native form fields. */}
               <input type="hidden" name="return_to" value={listHref} />
               <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={saleKey} />
 
               {recordError && recordError.code !== "feed_stock_confirmation_required" ? <Alert ref={recordAlertRef} role="alert" severity="warning">{recordError.message}</Alert> : null}
-              <div className="note">{copy(pageContract, "required.hint")}</div>
+              <DrawerHint>{copy(pageContract, "required.hint")}</DrawerHint>
 
-              <div className="fld">
-                <label htmlFor="s-sale_date">{field("sale_date")}</label>
+              <Box sx={FIELD_SX}>
                 {/* The app's shared date control -- the same one the vaccination schedule uses --
                     rather than a native input, whose browser-drawn calendar and locale date order
                     match nothing else on the page. The max used to be TODAY ("a sale may be
@@ -377,8 +384,8 @@ export function SalesRecordDrawer({
                   invalidDateText={copy(pageContract, "date.invalid_sale_date")}
                   required
                 />
-              </div>
-              <div className="fld">
+              </Box>
+              <Box sx={FIELD_SX}>
                 <FormSelect
                   label={field("farm")}
                   name="farm"
@@ -388,7 +395,7 @@ export function SalesRecordDrawer({
                   required
                   options={listOptions(farmOptions, (option) => option.key, (option) => option.label, "—")}
                 />
-              </div>
+              </Box>
               <SaleLinesEditor
                 lines={lines}
                 onChange={changeLines}
@@ -400,8 +407,8 @@ export function SalesRecordDrawer({
                 // The short-feed-sale confirmation (maintainer decision 2026-09-23). It appears
                 // only after the backend has asked for it, and it is NOT checked by default: a
                 // tick the form carries on its own is not a confirmation of anything.
-                <div className="fld sales-stock-ack" ref={recordError?.code === "feed_stock_confirmation_required" ? recordAlertRef : undefined}>
-                  {recordError?.message || stockConfirmDetail ? <div role="alert" className="note warn">{recordError?.message || stockConfirmDetail}</div> : null}
+                <Box sx={FIELD_SX} ref={recordError?.code === "feed_stock_confirmation_required" ? recordAlertRef : undefined}>
+                  {recordError?.message || stockConfirmDetail ? <Alert role="alert" severity="warning">{recordError?.message || stockConfirmDetail}</Alert> : null}
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -416,30 +423,29 @@ export function SalesRecordDrawer({
                     label={<>{" "}
                       {copy(pageContract, "field.stock_shortfall_ack")}</>}
                   />
-                  <div className="note">{copy(pageContract, "hint.stock_shortfall_ack")}</div>
-                </div>
+                  <DrawerHint>{copy(pageContract, "hint.stock_shortfall_ack")}</DrawerHint>
+                </Box>
               ) : null}
 
-              <div className="dgrp">{field("vendor")}</div>
-              <div className="fld">
-                <label htmlFor="s-buyer_vendor_id">{field("vendor")}</label>
+              <DrawerGroup>{field("vendor")}</DrawerGroup>
+              <Box sx={FIELD_SX}>
                 {vendorsUnavailable ? (
                   // The register could not be READ. Say that, rather than render an empty dropdown
                   // that reads as "no vendors exist" and sends the person to add a duplicate.
-                  <div className="note warn">{copy(pageContract, "error.vendors_unavailable")}</div>
+                  <Alert severity="warning">{copy(pageContract, "error.vendors_unavailable")}</Alert>
                 ) : vendorsTruncated ? (
                   <>
-                    <div className="note warn">{copy(pageContract, "hint.vendor_truncated")}</div>
-                    <Link href="/procurement/vendors" className="btn sm">
+                    <Alert severity="warning">{copy(pageContract, "hint.vendor_truncated")}</Alert>
+                    <Button component={Link} href="/procurement/vendors" size="small" variant="outlined" color="inherit" sx={{ alignSelf: "flex-start" }}>
                       {copy(pageContract, "action.open_vendors")}
-                    </Link>
+                    </Button>
                   </>
                 ) : vendorsEmpty ? (
                   <>
-                    <div className="note">{copy(pageContract, "hint.vendor_empty")}</div>
-                    <Link href="/procurement/vendors" className="btn sm">
+                    <DrawerHint>{copy(pageContract, "hint.vendor_empty")}</DrawerHint>
+                    <Button component={Link} href="/procurement/vendors" size="small" variant="outlined" color="inherit" sx={{ alignSelf: "flex-start" }}>
                       {copy(pageContract, "action.open_vendors")}
-                    </Link>
+                    </Button>
                   </>
                 ) : (
                   <>
@@ -484,19 +490,19 @@ export function SalesRecordDrawer({
                         "—",
                       )}
                     />
-                    {noMatches ? <div className="note">{copy(pageContract, "hint.vendor_no_match")}</div> : null}
+                    {noMatches ? <DrawerHint>{copy(pageContract, "hint.vendor_no_match")}</DrawerHint> : null}
                     {/* The exit from a required field the person may not be able to fill: the
                         buyer might simply not be on the register yet. */}
-                    <div className="note">
+                    <DrawerHint>
                       {copy(pageContract, "hint.vendor")}{" "}
                       <MuiLink component={Link} href="/procurement/vendors" color="info" underline="always">
                         {copy(pageContract, "action.open_vendors")}
                       </MuiLink>
-                    </div>
+                    </DrawerHint>
                   </>
                 )}
-              </div>
-              <div className="fld">
+              </Box>
+              <Box sx={FIELD_SX}>
                 <TextField
                   fullWidth
                   id="s-buyer_name"
@@ -507,8 +513,8 @@ export function SalesRecordDrawer({
                   onChange={(event) => setBuyerName(event.target.value)}
                   slotProps={{ htmlInput: { maxLength: 160 }, inputLabel: { shrink: true } }}
                 />
-              </div>
-              <div className="fld">
+              </Box>
+              <Box sx={FIELD_SX}>
                 <TextField
                   fullWidth
                   id="s-buyer_place"
@@ -518,9 +524,9 @@ export function SalesRecordDrawer({
                   onChange={(event) => setBuyerPlace(event.target.value)}
                   slotProps={{ htmlInput: { maxLength: 160 }, inputLabel: { shrink: true } }}
                 />
-              </div>
-              <div className="dgrp">{copy(pageContract, "section.payments.title")}</div>
-              <div className="fld">
+              </Box>
+              <DrawerGroup>{copy(pageContract, "section.payments.title")}</DrawerGroup>
+              <Box sx={FIELD_SX}>
                 <TextField
                   fullWidth
                   id="s-advance_amount"
@@ -529,8 +535,8 @@ export function SalesRecordDrawer({
                   label={field("advance_amount")}
                   slotProps={{ htmlInput: { min: 0, step: 0.01 }, inputLabel: { shrink: true } }}
                 />
-              </div>
-              <div className="fld">
+              </Box>
+              <Box sx={FIELD_SX}>
                 {/* Defaults to Deal Closed — a recorded sale is a finished one unless the desk says
                     otherwise. Advance Paid / In Discussion record an EXPECTED sale (a future sale
                     date is fine); the receipt itself is dated by when the money arrived. */}
@@ -541,9 +547,9 @@ export function SalesRecordDrawer({
                   defaultValue="Deal Closed"
                   options={listOptions(dealStatusOptions, (option) => option.key, (option) => option.label)}
                 />
-                <div className="muted small">{copy(pageContract, "hint.status")}</div>
-              </div>
-              <div className="fld">
+                <DrawerHint>{copy(pageContract, "hint.status")}</DrawerHint>
+              </Box>
+              <Box sx={FIELD_SX}>
                 <TextField
                   fullWidth
                   multiline
@@ -553,41 +559,12 @@ export function SalesRecordDrawer({
                   label={field("comments")}
                   slotProps={{ htmlInput: { maxLength: 2000 }, inputLabel: { shrink: true } }}
                 />
-              </div>
-            </div>
-            <div className="df">
-              {/* A sale cannot be recorded without a vendor, so Save is disabled-with-reason rather
-                  than left live to fail at the backend with a message about a field the form could
-                  not offer. The route validates the same rule regardless. */}
-              <Button
-                type="submit"
-                variant="contained" color="primary"
-                loading={recordPending}
-                disabled={!canPickVendor}
-                title={
-                  canPickVendor
-                    ? undefined
-                    : copy(
-                        pageContract,
-                        vendorsUnavailable
-                          ? "error.vendors_unavailable"
-                          : vendorsTruncated
-                            ? "hint.vendor_truncated"
-                            : "hint.vendor_empty",
-                      )
-                }
-              >
-                {copy(pageContract, "action.save")}
-              </Button>
-              <Button type="button" variant="outlined" onClick={close}>
-                {copy(pageContract, "action.cancel")}
-              </Button>
-            </div>
+              </Box>
           </form>
         ) : deal ? (
-          <div className="dc">
-            {/* RECORD drawer body: the mock's .metagrid of uppercase-key cells, never a flat stack. */}
-            <div className="metagrid">
+          <>
+            {/* RECORD drawer body: label/value cells, never a flat stack. */}
+            <DrawerMetaGrid>
               {cell(field("sale_date"), fmtDate(deal.sale_date))}
               {plannedSaleDate ? cell(field("planned_sale_date"), fmtDate(plannedSaleDate)) : null}
               {cell(field("farm"), deal.farm)}
@@ -611,34 +588,31 @@ export function SalesRecordDrawer({
               {cell(field("total_weight_kg"), deal.total_weight_kg == null ? null : num(deal.total_weight_kg, 1))}
               {cell(field("sales_value"), inr(deal.sales_value))}
               {cell(field("advance_amount"), deal.advance_amount == null ? null : inr(deal.advance_amount))}
-              <div>
-                <div className="k">{copy(pageContract, "column.status")}</div>
-                <div className="v">
-                  <Tag tone={dealStatusTone(deal.status)}>{deal.status}</Tag>
-                </div>
-              </div>
+              <DrawerMetaItem label={copy(pageContract, "column.status")}>
+                <Tag tone={dealStatusTone(deal.status)}>{deal.status}</Tag>
+              </DrawerMetaItem>
               {cell(field("comments"), deal.comments)}
-            </div>
+            </DrawerMetaGrid>
 
             {/* WHAT WAS SOLD: one row per product/breed line (migration 000296). The product,
                 breed, animals, weight and value cells above are the backend's ROLLUP of these. */}
-            <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
+            <DrawerGroup>{copy(pageContract, "section.lines.title")}</DrawerGroup>
             {deal.lines.length === 0 ? (
-              <div className="note">{copy(pageContract, "detail.lines.empty")}</div>
+              <DrawerHint>{copy(pageContract, "detail.lines.empty")}</DrawerHint>
             ) : (
               // Its own pan region: headers, breed and quantity wrap so the six columns fit a
               // laptop drawer, but a phone is narrower than any readable six-column table, so the
               // table pans here rather than painting off the screen.
-              <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.lines.title")}>
-              <Table className="sales-lines-table" data-testid="sale-detail-lines">
+              <DrawerTableScroll>
+              <Table size="small" sx={{ minWidth: 640 }} data-testid="sale-detail-lines" aria-label={copy(pageContract, "section.lines.title")}>
                 <TableHead>
                   <TableRow>
                     <TableCell component="th">{field("product_type")}</TableCell>
                     <TableCell component="th">{field("breed")}</TableCell>
-                    <TableCell component="th" className="num">{copy(pageContract, "field.line_animal_count")}</TableCell>
-                    <TableCell component="th" className="num">{copy(pageContract, "field.line_total_weight_kg")}</TableCell>
-                    <TableCell component="th" className="num">{copy(pageContract, "field.line_quantity_rate")}</TableCell>
-                    <TableCell component="th" className="num">{copy(pageContract, "field.sales_value")}</TableCell>
+                    <TableCell component="th" align="right">{copy(pageContract, "field.line_animal_count")}</TableCell>
+                    <TableCell component="th" align="right">{copy(pageContract, "field.line_total_weight_kg")}</TableCell>
+                    <TableCell component="th" align="right">{copy(pageContract, "field.line_quantity_rate")}</TableCell>
+                    <TableCell component="th" align="right">{copy(pageContract, "field.sales_value")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -651,36 +625,36 @@ export function SalesRecordDrawer({
                     return (
                       <TableRow key={line.line_id}>
                         <TableCell>{line.product_type}</TableCell>
-                        <TableCell className="wrap">{breedBeyondProduct(line.product_type, line.breed) ?? ""}</TableCell>
-                        <TableCell className="num">{line.animal_count == null ? (byUnit ? notApplicable : none) : num(line.animal_count)}</TableCell>
-                        <TableCell className="num">{line.total_weight_kg == null ? (byUnit ? notApplicable : none) : num(line.total_weight_kg, 1)}</TableCell>
-                        <TableCell className="num wrap">{quantityAtRate(line.quantity, line.unit, line.rate_per_unit) || (isAnimal ? notApplicable : none)}</TableCell>
-                        <TableCell className="num">{inr(line.sales_value)}</TableCell>
+                        <TableCell>{breedBeyondProduct(line.product_type, line.breed) ?? ""}</TableCell>
+                        <TableCell align="right">{line.animal_count == null ? (byUnit ? notApplicable : none) : num(line.animal_count)}</TableCell>
+                        <TableCell align="right">{line.total_weight_kg == null ? (byUnit ? notApplicable : none) : num(line.total_weight_kg, 1)}</TableCell>
+                        <TableCell align="right">{quantityAtRate(line.quantity, line.unit, line.rate_per_unit) || (isAnimal ? notApplicable : none)}</TableCell>
+                        <TableCell align="right">{inr(line.sales_value)}</TableCell>
                       </TableRow>
                     );
                   })}
                 </TableBody>
               </Table>
-              </div>
+              </DrawerTableScroll>
             )}
 
             {/* PAYMENTS: what the buyer has handed over, what is still owed, the receipt history,
                 and — behind its backend control — the add-payment write. */}
-            <div className="dgrp">{copy(pageContract, "section.payments.title")}</div>
-            <div className="metagrid">
+            <DrawerGroup>{copy(pageContract, "section.payments.title")}</DrawerGroup>
+            <DrawerMetaGrid>
               {cell(
                 copy(pageContract, "payments.received_so_far"),
                 deal.payment_received == null ? null : inr(deal.payment_received),
               )}
               {/* BACKEND-derived; this cell renders the figure and never subtracts anything itself. */}
               {cell(copy(pageContract, "payments.balance"), inr(deal.payment_balance))}
-            </div>
+            </DrawerMetaGrid>
 
             {deal.payments.length === 0 ? (
-              <div className="muted small">{copy(pageContract, "payments.empty")}</div>
+              <DrawerHint>{copy(pageContract, "payments.empty")}</DrawerHint>
             ) : (
-              <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.payments.title")}>
-                <Table aria-label={copy(pageContract, "section.payments.title")}>
+              <DrawerTableScroll>
+                <Table size="small" sx={{ minWidth: showPaymentActions ? 560 : 400 }} aria-label={copy(pageContract, "section.payments.title")}>
                   <TableHead>
                     <TableRow>
                       <TableCell component="th">{copy(pageContract, "payments.column.received_on")}</TableCell>
@@ -704,7 +678,7 @@ export function SalesRecordDrawer({
                     ))}
                   </TableBody>
                 </Table>
-              </div>
+              </DrawerTableScroll>
             )}
 
             {canRecordPayment ? (
@@ -718,10 +692,10 @@ export function SalesRecordDrawer({
             ) : null}
 
             {canEditStatus && editStatusOptions.length > 0 ? (
-              <form action={setSalesDealStatusAction} className="fld">
+              <Box component="form" action={setSalesDealStatusAction} sx={FIELD_SX}>
                 <input type="hidden" name="return_to" value={dealHref} />
                 <input type="hidden" name="deal_id" value={deal.deal_id} />
-                <div style={{ display: "flex", gap: 9, alignItems: "flex-end" }}>
+                <Box sx={{ display: "flex", gap: 1, alignItems: "flex-end" }}>
                   <FormSelect
                     label={field("status")}
                     name="status"
@@ -733,27 +707,26 @@ export function SalesRecordDrawer({
                   <Button type="submit" variant="outlined">
                     {copy(pageContract, "action.update_deal_status.label")}
                   </Button>
-                </div>
+                </Box>
                 {statusStockConfirmNeeded ? (
                   // Closing takes the sale's feed off the store, so the close asks the same
                   // question recording it did. Shown only after the backend has asked, and NOT
                   // ticked by default: a tick the form carries on its own confirms nothing.
-                  <div className="fld sales-stock-ack">
-                    {stockConfirmDetail ? <div className="note warn">{stockConfirmDetail}</div> : null}
+                  <Box sx={FIELD_SX}>
+                    {stockConfirmDetail ? <Alert severity="warning">{stockConfirmDetail}</Alert> : null}
                     <FormControlLabel
                       control={<Checkbox id="sds-stock_ack" name="stock_shortfall_acknowledged" value="1" sx={{ p: { xs: 1.5, sm: 1 } }} />}
                       label={<>{" "}
                     {copy(pageContract, "field.stock_shortfall_ack")}</>}
                     />
-                    <div className="note">{copy(pageContract, "hint.stock_shortfall_ack")}</div>
-                  </div>
+                    <DrawerHint>{copy(pageContract, "hint.stock_shortfall_ack")}</DrawerHint>
+                  </Box>
                 ) : null}
-              </form>
+              </Box>
             ) : null}
-          </div>
+          </>
         ) : null}
-      </aside>
-    </>
+    </DetailDrawer>
   );
 }
 
@@ -836,8 +809,7 @@ function RecordPaymentForm({
           {paymentErrorText(pageContract, error, "action.payment_record_failed")}
         </Alert>
       ) : null}
-      <div className="fld">
-        <label>{field("received_on")}</label>
+      <Box sx={FIELD_SX}>
         <ThemedDatePicker
           name="received_on"
           label={field("received_on")}
@@ -846,8 +818,8 @@ function RecordPaymentForm({
           nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
           invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
         />
-      </div>
-      <div className="fld">
+      </Box>
+      <Box sx={FIELD_SX}>
         <TextField
           fullWidth
           id="sdp-amount"
@@ -857,8 +829,8 @@ function RecordPaymentForm({
           required
           slotProps={{ htmlInput: { min: 0.01, step: 0.01 }, inputLabel: { shrink: true } }}
         />
-      </div>
-      <div className="fld">
+      </Box>
+      <Box sx={FIELD_SX}>
         <TextField
           fullWidth
           id="sdp-note"
@@ -866,8 +838,8 @@ function RecordPaymentForm({
           label={field("note")}
           slotProps={{ htmlInput: { maxLength: 300 }, inputLabel: { shrink: true } }}
         />
-        <div className="muted small">{copy(pageContract, "hint.record_payment")}</div>
-      </div>
+        <DrawerHint>{copy(pageContract, "hint.record_payment")}</DrawerHint>
+      </Box>
       <Button type="submit" variant="contained" color="primary" disabled={pending} aria-disabled={pending}>
         {copy(pageContract, "action.record_deal_payment.label")}
       </Button>
@@ -992,7 +964,7 @@ function PaymentRow({
                 <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={remove.key} />
               </form>
             ) : null}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
               {canUpdate ? (
                 <IconButton
                   type="submit"
@@ -1019,7 +991,7 @@ function PaymentRow({
                   <Trash2 className="ic" aria-hidden="true" />
                 </IconButton>
               ) : null}
-            </div>
+            </Box>
           </TableCell>
         ) : null}
       </TableRow>
@@ -1033,5 +1005,26 @@ function PaymentRow({
         </TableRow>
       ) : null}
     </>
+  );
+}
+
+/** One field block (control + its hint) in the drawer's form column. */
+const FIELD_SX = { display: "flex", flexDirection: "column", gap: 1, minWidth: 0 } as const;
+
+/** A section title inside the drawer body (template subtitle2 heading). */
+function DrawerGroup({ children }: { children: ReactNode }) {
+  return (
+    <Typography variant="subtitle2" component="h3" sx={{ pt: 1 }}>
+      {children}
+    </Typography>
+  );
+}
+
+/** A muted guidance line under a field or section. */
+function DrawerHint({ children }: { children: ReactNode }) {
+  return (
+    <Typography variant="body2" component="div" sx={{ color: "text.secondary" }}>
+      {children}
+    </Typography>
   );
 }

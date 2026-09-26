@@ -1,5 +1,4 @@
 "use client";
-import Box from "@mui/material/Box";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -20,9 +19,17 @@ import TableCell from "@mui/material/TableCell";
 // NO VERDICT IS COMPUTED HERE. `sellable`, `blocker` and `blocked_reason` all arrive from the
 // backend and are rendered verbatim. The component never decides an animal is fine to sell.
 
-import { PackageCheck, X } from "lucide-react";
+import { PackageCheck } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import Paper from "@mui/material/Paper";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import FormHelperText from "@mui/material/FormHelperText";
 import { Caption } from "@/components/app/caption";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { DetailDrawer, DrawerTableScroll } from "@/components/app/detail-drawer";
+import { useCallback, useEffect, useState, useSyncExternalStore, useTransition } from "react";
 
 import { LOCAL_OVERLAY_URL_CHANGE_EVENT, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
@@ -74,7 +81,6 @@ export function SaleAllocationDrawer({
   pageContract: AdminUiPageContract;
   listHref: string;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readTagParam, () => "");
   const open = selection !== "";
 
@@ -128,18 +134,11 @@ export function SaleAllocationDrawer({
     setPreview(null);
     setConfirmed(null);
     setError("");
-    closeButtonRef.current?.focus();
   }, [open, selection]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, close]);
+  // Escape and the backdrop reach `close` through the template Drawer's onClose; MUI traps focus in
+  // the paper and returns it to the row that opened it.
 
   const loadCandidates = useCallback(
     (nextCursor?: string) => {
@@ -259,290 +258,286 @@ export function SaleAllocationDrawer({
     });
   };
 
+  const title = copy(pageContract, "action.tag_animals.label");
+  const pickedByLocation = [...new Set(pickedList.map((c) => c.operational_location_display))];
+
   return (
-    <>
-      <div className="scrim on" onClick={close} aria-hidden />
-      <aside className="drawer on sales-tagdrawer" role="dialog" aria-modal="true" aria-label={copy(pageContract, "action.tag_animals.label")}>
-        <div className="dh">
-          <b>
-            <PackageCheck className="ic" size={15} aria-hidden /> {copy(pageContract, "action.tag_animals.label")}
-          </b>
-          {/* Pushes the close control to the drawer's edge, where every other drawer keeps it. */}
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" onClick={close} aria-label={copy(pageContract, "action.close")}>
-            <X size={15} aria-hidden />
-          </button>
-        </div>
-
-        <div className="dc">
-          {/* WHICH SALE these animals are being tagged to. Editable while picking, locked
-              once the review step is reached: changing the sale under a reviewed list would
-              silently re-point animals a person already checked. */}
-          <Box className="sales-tagdeal" sx={{ "&&": { mb: 2.25 } }}>
-            <FormSelect
-              label={copy(pageContract, "field.sale")}
-              value={deal?.deal_id ?? ""}
-              onValueChange={setDealId}
-              disabled={step !== "pick"}
-              options={listOptions(deals, (d) => d.deal_id, (d) => dealOptionLabel(d))}
-            />
-          </Box>
-          {error ? <div className="banner err">{error}</div> : null}
-
-          {step === "pick" ? (
-            <div className="sales-tagpick">
-              <div className="sales-tagpick-main">
-                <Box className="sales-tagfilters" sx={{ "&&": { rowGap: 2.5, alignItems: "end" } }}>
-                  <div className="fld">
-                    <FormSelect
-                      label={copy(pageContract, "field.park")}
-                      id="tag-park"
-                      value={parkId}
-                      onValueChange={(next) => { setParkId(next); setLocationKey(""); }}
-                      options={listOptions(
-                        locations?.parks ?? [],
-                        (p) => p.park_id,
-                        (p) => p.label,
-                        copy(pageContract, "value.choose_park"),
-                      )}
-                    />
-                    {/*
-                      A picker with nothing in it must SAY why. The two reasons are
-                      different facts and carry different backend copy: the catalog read
-                      failed (usually a missing grant, which a person can get fixed), or
-                      the farm genuinely has no shed to sell out of.
-                    */}
-                    {locations === null ? (
-                      <div className="hint err">{copy(pageContract, "empty.parks_unavailable")}</div>
-                    ) : locations.parks.length === 0 ? (
-                      <div className="hint">{copy(pageContract, "empty.parks")}</div>
-                    ) : null}
-                  </div>
-                  <div className="fld">
-                    <FormSelect
-                      label={copy(pageContract, "field.shed")}
-                      id="tag-loc"
-                      value={locationKey}
-                      onValueChange={setLocationKey}
-                      disabled={!parkId}
-                      options={listOptions(
-                        locationsInPark,
-                        (l) => locationEntryKey(l),
-                        (l) => l.operational_location_display,
-                        copy(pageContract, "value.all_sheds"),
-                      )}
-                    />
-                  </div>
-                  <div className="fld">
-                    <label htmlFor="tag-q">{copy(pageContract, "field.search_tag")}</label>
-                    <input
-                      id="tag-q"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      maxLength={80}
-                      placeholder={copy(pageContract, "value.search_tag_hint")}
-                    />
-                  </div>
-                </Box>
-
-                <div className="tablewrap">
-                  <Table className="tbl sales-tagtable">
-                    <TableBody>
-                      {candidates.map((c) => {
-                        const on = picked.has(c.goat_id);
-                        return (
-                          <TableRow key={c.goat_id} className={c.sellable ? "" : "muted"}>
-                            <TableCell>
-                              <Checkbox
-                                checked={on}
-                                disabled={!c.sellable}
-                                onChange={() => toggle(c)}
-                                sx={{ p: { xs: 1.5, sm: 1 } }}
-                                slotProps={{ input: { "aria-label": animalLabel(c) } }}
-                              />
-                            </TableCell>
-                            {/* BOTH tags, because the search matches either one. A row
-                                showing only the primary answered a search for the
-                                secondary with a number that reads as a different animal. */}
-                            <TableCell>
-                              <b>{c.tag_number || c.display_id}</b>
-                              {c.secondary_tag_number ? (
-                                <div className="muted small">{c.secondary_tag_number}</div>
-                              ) : null}
-                            </TableCell>
-                            <TableCell>{c.operational_location_display}</TableCell>
-                            <TableCell>
-                              {/* The refusal is the backend's sentence, verbatim. */}
-                              {c.sellable ? null : <Tag tone="warn">{c.blocked_reason}</Tag>}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-                {cursor ? (
-                  <button type="button" className="btn" onClick={() => loadCandidates(cursor)} disabled={pending}>
-                    {copy(pageContract, "action.load_more")}
-                  </button>
-                ) : null}
-              </div>
-
-              {/* The running count, on the right, as asked: how many are picked right now, and
-                  from where — so a person can see the sale taking shape before they commit. */}
-              <aside className="sales-tagpick-side">
-                <div className="sales-tagcount">
-                  <b>
-                    {pickedList.length}
-                    {target > 0 ? <span className="sales-tagtarget"> / {target}</span> : null}
-                  </b>
-                  <span className="muted small">{copy(pageContract, "label.selected")}</span>
-                  {target > 0 && remaining > 0 ? (
-                    <span className="muted small">
-                      {remaining} {copy(pageContract, "label.still_to_pick")}
-                    </span>
-                  ) : null}
-                  {canReview ? (
-                    <Tag tone="ok">{copy(pageContract, "label.all_picked")}</Tag>
-                  ) : null}
-                </div>
-                <ul className="sales-taglist small">
-                  {[...new Set(pickedList.map((c) => c.operational_location_display))].map((label) => (
-                    <li key={label}>
-                      {label} · {pickedList.filter((c) => c.operational_location_display === label).length}
-                    </li>
-                  ))}
-                </ul>
-              </aside>
-            </div>
-          ) : null}
-
-          {step === "review" && preview ? (
-            <div className="sales-tagreview">
-              <Caption>{copy(pageContract, "hint.review")}</Caption>
-              {preview.shed_groups.map((group) => (
-                <section key={`${group.shed_id}|${group.partition_label ?? ""}`} className="card">
-                  <b>{group.operational_location_display}</b>{" "}
-                  <span className="muted small">· {group.animals}</span>
-                  <div className="chiprow">
-                    {group.tag_numbers.map((tag) => (
-                      <Tag key={tag} tone="mut">{tag}</Tag>
-                    ))}
-                  </div>
-                </section>
-              ))}
-              {/* Weight at tagging (maintainer decision 2026-09-08): one box per cleared animal,
-                  every one required. The value goes to the backend as typed. */}
-              <section className="card sales-tagweights">
-                <b>{copy(pageContract, "field.animal_weight")}</b>
-                <p className="muted small" style={{ marginTop: 4 }}>
-                  {copy(pageContract, "hint.animal_weight")}
-                </p>
-                <div className="tablewrap">
-                  <Table className="tbl sales-tagtable">
-                    <TableBody>
-                      {clearedAnimals.map((c) => {
-                        const raw = weightOf(c.goat_id);
-                        const bad = weightAttempted ? !weightLooksValid(raw) : raw !== "" && !weightLooksValid(raw);
-                        return (
-                          <TableRow key={c.goat_id}>
-                            <TableCell>
-                              <b>{c.tag_number || c.display_id}</b>
-                              {c.secondary_tag_number ? (
-                                <div className="muted small">{c.secondary_tag_number}</div>
-                              ) : null}
-                            </TableCell>
-                            <TableCell>{c.operational_location_display}</TableCell>
-                            <TableCell>
-                              <input
-                                inputMode="decimal"
-                                required
-                                aria-label={`${copy(pageContract, "field.animal_weight")} ${animalLabel(c)}`}
-                                aria-invalid={bad}
-                                value={weights.get(c.goat_id) ?? ""}
-                                onChange={(e) => {
-                                  const next = new Map(weights);
-                                  next.set(c.goat_id, e.target.value);
-                                  setWeights(next);
-                                  if (weightAttempted && clearedAnimals.every((animal) => weightLooksValid((next.get(animal.goat_id) ?? "").trim()))) {
-                                    setWeightAttempted(false);
-                                  }
-                                }}
-                                style={{ width: 96 }}
-                              />
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              </section>
-              {preview.blocked_animals.length > 0 ? (
-                <section className="card">
-                  <b>{copy(pageContract, "label.cannot_sell")}</b>
-                  <ul className="sales-taglist small">
-                    {preview.blocked_animals.map((c) => (
-                      <li key={c.goat_id}>
-                        {animalLabel(c)} — {c.blocked_reason}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-            </div>
-          ) : null}
-
-          {step === "done" && confirmed ? (
-            <div className="banner ok">
-              {confirmed.allocated} {copy(pageContract, "label.marked_sold")}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="df">
+    <DetailDrawer
+      open={open}
+      onClose={close}
+      title={title}
+      icon={<PackageCheck aria-hidden />}
+      ariaLabel={title}
+      closeLabel={copy(pageContract, "action.close")}
+      paperTestId="sale-allocation-drawer"
+      footer={
+        <>
           {step === "pick" ? (
             <>
-              {/* The sale's own count is the target, and a partial mapping cannot proceed:
+              {/* The sale count is the target, and a partial mapping cannot proceed:
                   a half-tagged sale leaves the ledger saying one thing and the herd
                   another, with no screen showing the gap. */}
               {!canReview ? (
-                <span className="muted small">
+                <Typography variant="body2" sx={{ color: "text.secondary", flex: "1 1 auto", alignSelf: "center", minWidth: 0 }}>
                   {target === 0
                     ? copy(pageContract, "hint.sale_no_count")
                     : overPicked
                       ? copy(pageContract, "hint.too_many")
                       : `${copy(pageContract, "hint.pick_all_prefix")} ${target} ${copy(pageContract, "hint.pick_all_suffix")}`}
-                </span>
+                </Typography>
               ) : null}
-              <button type="button" className="btn primary" disabled={!canReview || pending} onClick={goToReview}>
+              <Button variant="contained" disabled={!canReview || pending} onClick={goToReview}>
                 {copy(pageContract, "action.done")}
-              </button>
+              </Button>
             </>
           ) : null}
           {step === "review" ? (
             <>
-              <button type="button" className="btn" onClick={() => setStep("pick")} disabled={pending}>
+              <Button variant="outlined" color="inherit" onClick={() => setStep("pick")} disabled={pending}>
                 {copy(pageContract, "action.back")}
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                onClick={confirm}
-                disabled={pending || !preview?.complete}
-              >
+              </Button>
+              <Button variant="contained" onClick={confirm} disabled={pending || !preview?.complete}>
                 {copy(pageContract, "action.confirm_sold")}
-              </button>
+              </Button>
             </>
           ) : null}
           {step === "done" ? (
-            <button type="button" className="btn primary" onClick={close}>
+            <Button variant="contained" onClick={close}>
               {copy(pageContract, "action.close")}
-            </button>
+            </Button>
           ) : null}
-        </div>
-      </aside>
-    </>
+        </>
+      }
+    >
+      {/* WHICH SALE these animals are being tagged to. Editable while picking, locked once the
+          review step is reached: changing the sale under a reviewed list would silently re-point
+          animals a person already checked. */}
+      <FormSelect
+        label={copy(pageContract, "field.sale")}
+        value={deal?.deal_id ?? ""}
+        onValueChange={setDealId}
+        disabled={step !== "pick"}
+        options={listOptions(deals, (d) => d.deal_id, (d) => dealOptionLabel(d))}
+      />
+      {error ? <Alert severity="error">{error}</Alert> : null}
+
+      {step === "pick" ? (
+        <>
+          {/* The running count, above the list (the drawer is one column): how many are picked
+              right now, and from where -- so a person can see the sale taking shape before they
+              commit. */}
+          <Paper variant="outlined" sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1 }} data-testid="sale-tag-count">
+            <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", flexWrap: "wrap" }}>
+              <Typography variant="h4" component="b">
+                {pickedList.length}
+                {target > 0 ? (
+                  <Typography component="span" variant="h6" sx={{ color: "text.secondary" }}>
+                    {" "}/ {target}
+                  </Typography>
+                ) : null}
+              </Typography>
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>{copy(pageContract, "label.selected")}</Typography>
+              {target > 0 && remaining > 0 ? (
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  · {remaining} {copy(pageContract, "label.still_to_pick")}
+                </Typography>
+              ) : null}
+              {canReview ? <Tag tone="ok">{copy(pageContract, "label.all_picked")}</Tag> : null}
+            </Stack>
+            {pickedByLocation.length > 0 ? (
+              <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
+                {pickedByLocation.map((label) => (
+                  <Tag key={label} tone="mut">
+                    {label} · {pickedList.filter((c) => c.operational_location_display === label).length}
+                  </Tag>
+                ))}
+              </Stack>
+            ) : null}
+          </Paper>
+
+          <Stack spacing={2}>
+            <div>
+              <FormSelect
+                label={copy(pageContract, "field.park")}
+                id="tag-park"
+                value={parkId}
+                onValueChange={(next) => { setParkId(next); setLocationKey(""); }}
+                options={listOptions(
+                  locations?.parks ?? [],
+                  (p) => p.park_id,
+                  (p) => p.label,
+                  copy(pageContract, "value.choose_park"),
+                )}
+              />
+              {/*
+                A picker with nothing in it must SAY why. The two reasons are different facts and
+                carry different backend copy: the catalog read failed (usually a missing grant,
+                which a person can get fixed), or the farm genuinely has no shed to sell out of.
+              */}
+              {locations === null ? (
+                <FormHelperText error>{copy(pageContract, "empty.parks_unavailable")}</FormHelperText>
+              ) : locations.parks.length === 0 ? (
+                <FormHelperText>{copy(pageContract, "empty.parks")}</FormHelperText>
+              ) : null}
+            </div>
+            <FormSelect
+              label={copy(pageContract, "field.shed")}
+              id="tag-loc"
+              value={locationKey}
+              onValueChange={setLocationKey}
+              disabled={!parkId}
+              options={listOptions(
+                locationsInPark,
+                (l) => locationEntryKey(l),
+                (l) => l.operational_location_display,
+                copy(pageContract, "value.all_sheds"),
+              )}
+            />
+            <TextField
+              id="tag-q"
+              fullWidth
+              label={copy(pageContract, "field.search_tag")}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={copy(pageContract, "value.search_tag_hint")}
+              slotProps={{ htmlInput: { maxLength: 80 }, inputLabel: { shrink: true } }}
+            />
+          </Stack>
+
+          <DrawerTableScroll>
+            <Table size="small" sx={{ minWidth: 400 }} aria-label={title}>
+              <TableBody>
+                {candidates.map((c) => {
+                  const on = picked.has(c.goat_id);
+                  return (
+                    <TableRow key={c.goat_id} sx={c.sellable ? undefined : { "& td": { color: "text.disabled" } }}>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={on}
+                          disabled={!c.sellable}
+                          onChange={() => toggle(c)}
+                          sx={{ p: { xs: 1.5, sm: 1 } }}
+                          slotProps={{ input: { "aria-label": animalLabel(c) } }}
+                        />
+                      </TableCell>
+                      {/* BOTH tags, because the search matches either one. A row showing only the
+                          primary answered a search for the secondary with a number that reads as a
+                          different animal. */}
+                      <TableCell>
+                        <Typography variant="subtitle2" component="b">{c.tag_number || c.display_id}</Typography>
+                        {c.secondary_tag_number ? (
+                          <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{c.secondary_tag_number}</Typography>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>{c.operational_location_display}</TableCell>
+                      <TableCell>
+                        {/* The refusal is the backend's sentence, verbatim. */}
+                        {c.sellable ? null : <Tag tone="warn">{c.blocked_reason}</Tag>}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </DrawerTableScroll>
+          {cursor ? (
+            <Button variant="outlined" color="inherit" onClick={() => loadCandidates(cursor)} disabled={pending} sx={{ alignSelf: "flex-start" }}>
+              {copy(pageContract, "action.load_more")}
+            </Button>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === "review" && preview ? (
+        <>
+          <Caption>{copy(pageContract, "hint.review")}</Caption>
+          {preview.shed_groups.map((group) => (
+            <Paper key={`${group.shed_id}|${group.partition_label ?? ""}`} variant="outlined" sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1 }}>
+              <Typography variant="subtitle2">
+                {group.operational_location_display}{" "}
+                <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>· {group.animals}</Typography>
+              </Typography>
+              <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
+                {group.tag_numbers.map((tag) => (
+                  <Tag key={tag} tone="mut">{tag}</Tag>
+                ))}
+              </Stack>
+            </Paper>
+          ))}
+          {/* Weight at tagging (maintainer decision 2026-09-08): one box per cleared animal, every
+              one required. The value goes to the backend as typed. */}
+          <Paper variant="outlined" sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1 }}>
+            <Typography variant="subtitle2">{copy(pageContract, "field.animal_weight")}</Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {copy(pageContract, "hint.animal_weight")}
+            </Typography>
+            <DrawerTableScroll>
+              <Table size="small" sx={{ minWidth: 360 }} aria-label={copy(pageContract, "field.animal_weight")}>
+                <TableBody>
+                  {clearedAnimals.map((c) => {
+                    const raw = weightOf(c.goat_id);
+                    const bad = weightAttempted ? !weightLooksValid(raw) : raw !== "" && !weightLooksValid(raw);
+                    return (
+                      <TableRow key={c.goat_id}>
+                        <TableCell>
+                          <Typography variant="subtitle2" component="b">{c.tag_number || c.display_id}</Typography>
+                          {c.secondary_tag_number ? (
+                            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{c.secondary_tag_number}</Typography>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>{c.operational_location_display}</TableCell>
+                        <TableCell>
+                          <TextField
+                            size="small"
+                            required
+                            error={bad}
+                            value={weights.get(c.goat_id) ?? ""}
+                            onChange={(e) => {
+                              const next = new Map(weights);
+                              next.set(c.goat_id, e.target.value);
+                              setWeights(next);
+                              if (weightAttempted && clearedAnimals.every((animal) => weightLooksValid((next.get(animal.goat_id) ?? "").trim()))) {
+                                setWeightAttempted(false);
+                              }
+                            }}
+                            sx={{ width: 1 }}
+                            slotProps={{
+                              htmlInput: {
+                                inputMode: "decimal",
+                                "aria-label": `${copy(pageContract, "field.animal_weight")} ${animalLabel(c)}`,
+                                "aria-invalid": bad,
+                              },
+                            }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </DrawerTableScroll>
+          </Paper>
+          {preview.blocked_animals.length > 0 ? (
+            <Paper variant="outlined" sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1 }}>
+              <Typography variant="subtitle2">{copy(pageContract, "label.cannot_sell")}</Typography>
+              <Stack component="ul" spacing={0.5} sx={{ m: 0, pl: 2.5, typography: "body2" }}>
+                {preview.blocked_animals.map((c) => (
+                  <li key={c.goat_id}>
+                    {animalLabel(c)} — {c.blocked_reason}
+                  </li>
+                ))}
+              </Stack>
+            </Paper>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === "done" && confirmed ? (
+        <Alert severity="success">
+          {confirmed.allocated} {copy(pageContract, "label.marked_sold")}
+        </Alert>
+      ) : null}
+    </DetailDrawer>
   );
 }
 
