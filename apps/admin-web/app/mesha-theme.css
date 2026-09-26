@@ -4275,12 +4275,8 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
 .herd-signals-page .insight .if{font-size:11.5px;color:var(--muted);margin-top:5px}
 
 /* Full-screen history overlay — a client-local overlay (URL hash `hs_history`), never a route
-   navigation. z-index sits above the drawer/scrim so Expand can be opened from within the drawer. */
-/* z-index:70 sat BEHIND the app-wide sticky top bar (.top, z-index:100) and its .routebar
-   (z-index:101) -- the full-screen history view rendered but was fully hidden under that chrome.
-   110 clears both; the drawer/scrim (z-index 60/61) still sit correctly below this. */
-.herd-signals-page .fs{position:fixed;inset:0;z-index:110;background:var(--bg);display:none;flex-direction:column}
-.herd-signals-page .fs.on{display:flex}
+   navigation. Positioning/stacking now belong to the MUI Dialog (fullScreen, portalled). */
+.herd-signals-page .fs{min-height:100%;background:var(--bg);display:flex;flex-direction:column}
 .herd-signals-page .fshd{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel);flex:none;flex-wrap:wrap}
 .herd-signals-page .fshd b{font-size:15px}
 .herd-signals-page .fsbd{overflow:auto;padding:16px 18px 40px;flex:1}

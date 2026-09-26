@@ -87,7 +87,7 @@ async function main() {
     // 2) THE DIALOG. Previously: waitForSelector("[role='dialog']").catch(() => console.warn(...))
     // — but the SIDE drawer (`aside.drawer`, opened by a row click) carries no `role="dialog"` at
     // all; only the FULL-SCREEN view opened via its "Expand" button does (see
-    // herd-signals-history-fullscreen.tsx: `role="dialog"` on the `.fs` element). So this
+    // herd-signals-history-fullscreen.tsx: a MUI Dialog fullScreen, `role="dialog"` on its paper). So this
     // assertion, run right after the row click and before Expand is ever clicked, could also
     // never have passed — same unconditionally-dead shape as the grid check above. Check the
     // actual side drawer here (`aside.drawer.on`), and check `role="dialog"` after Expand below.

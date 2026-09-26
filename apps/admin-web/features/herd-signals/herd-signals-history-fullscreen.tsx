@@ -10,6 +10,7 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 
 import { useEffect, useMemo, useState } from "react";
 import { useTheme, type Theme } from "@mui/material/styles";
+import Dialog from "@mui/material/Dialog";
 import { EmptyState } from "@/components/app/empty-state";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
@@ -249,8 +250,22 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   const titleLine = `${item.display_id ? `${item.display_id} · ` : "Unmapped tag "}${item.tag_id} — movement history`;
   const subtitleLine = [fmtBleMac(item.tag_mac), location || null, item.gateway_id || null].filter(Boolean).join(" · ");
 
+  // MUI Dialog fullScreen: portals to <body> (a transformed ancestor or the page's stacking context
+  // can no longer clip it or paint the Ask Mesha FAB over it), traps focus and restores it. Escape
+  // stays with useLocalOverlaySelection (it owns the URL/history step), so the Dialog ignores
+  // its own Escape reason -- two handlers would step history back twice. The page-scope wrapper keeps the
+  // existing .herd-signals-page .fs styles applying inside the portal.
   return (
-    <div className={`fs${drawerOpen ? " on" : ""}`} role="dialog" aria-label="Full movement history" aria-hidden={!drawerOpen}>
+    <Dialog
+      fullScreen
+      open={drawerOpen}
+      onClose={(_event, reason) => {
+        if (reason !== "escapeKeyDown") closeDrawer();
+      }}
+      slotProps={{ paper: { "aria-label": "Full movement history" } }}
+    >
+    <div className="herd-signals-page">
+    <div className="fs">
       <div className="fshd">
         <svg className="ic" viewBox="0 0 24 24">
           <path d="M3 12h4l3 8 4-16 3 8h4" />
@@ -636,5 +651,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
         </div>
       </div>
     </div>
+    </div>
+    </Dialog>
   );
 }
