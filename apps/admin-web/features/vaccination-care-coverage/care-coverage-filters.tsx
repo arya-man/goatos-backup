@@ -36,8 +36,11 @@ export function CareCoverageFilters({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const [optimisticParkSelected, setOptimisticParkSelected] = useState<string | null>(null);
+  const selectedParkValue = optimisticParkSelected ?? parkSelected;
 
-  function go(href: string) {
+  function go(href: string, nextParkSelected?: string) {
+    if (nextParkSelected !== undefined) setOptimisticParkSelected(nextParkSelected);
     startTransition(() => router.push(href, { scroll: false }));
   }
 
@@ -55,6 +58,7 @@ export function CareCoverageFilters({
 
   const parkLabel = parkChoices.find((choice) => choice.value === parkSelected)?.label;
   const penLabels = new Map(penChoices.map((choice) => [choice.value, choice.label]));
+  if (optimisticParkSelected !== null && optimisticParkSelected === parkSelected) setOptimisticParkSelected(null);
 
   return (
     <div className={`lt-fbar cc-fbar${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
@@ -62,10 +66,10 @@ export function CareCoverageFilters({
         <Layers className="ic" style={{ width: 13, height: 13 }} aria-hidden="true" />
         <select
           aria-label={copy(pageContract, "filter.park")}
-          value={parkSelected}
+          value={selectedParkValue}
           onChange={(event) => {
             const next = parkChoices.find((choice) => choice.value === event.target.value);
-            go(next ? next.href : parkClearHref);
+            go(next ? next.href : parkClearHref, next?.value ?? "");
           }}
         >
           <option value="">{copy(pageContract, "filter.all_parks")}</option>
