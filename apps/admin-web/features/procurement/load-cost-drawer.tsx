@@ -122,7 +122,7 @@ export function LoadCostDrawer({
       footer={
         load ? (
           canRecordCost ? (
-            <Button type="submit" form={formId} variant="contained">
+            <Button type="submit" form={formId} variant="contained" color="primary">
               {copy(pageContract, "action.record_load_cost.label")}
             </Button>
           ) : (

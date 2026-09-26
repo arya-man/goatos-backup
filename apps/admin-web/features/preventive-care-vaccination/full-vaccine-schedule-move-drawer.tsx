@@ -116,7 +116,7 @@ export function ScheduleMoveDrawer({
           <Button variant="outlined" color="inherit" onClick={closeDrawer}>
             {copy(pageContract, "schedule.move.close")}
           </Button>
-          <Button variant="contained" type="submit" form={MOVE_FORM_ID}>
+          <Button variant="contained" color="primary" type="submit" form={MOVE_FORM_ID}>
             {copy(pageContract, "schedule.postpone.action")}
           </Button>
         </>

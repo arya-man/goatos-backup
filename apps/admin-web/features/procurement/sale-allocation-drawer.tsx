@@ -286,7 +286,7 @@ export function SaleAllocationDrawer({
                       : `${copy(pageContract, "hint.pick_all_prefix")} ${target} ${copy(pageContract, "hint.pick_all_suffix")}`}
                 </Typography>
               ) : null}
-              <Button variant="contained" disabled={!canReview || pending} onClick={goToReview}>
+              <Button variant="contained" color="primary" disabled={!canReview || pending} onClick={goToReview}>
                 {copy(pageContract, "action.done")}
               </Button>
             </>
@@ -296,13 +296,13 @@ export function SaleAllocationDrawer({
               <Button variant="outlined" color="inherit" onClick={() => setStep("pick")} disabled={pending}>
                 {copy(pageContract, "action.back")}
               </Button>
-              <Button variant="contained" onClick={confirm} disabled={pending || !preview?.complete}>
+              <Button variant="contained" color="primary" onClick={confirm} disabled={pending || !preview?.complete}>
                 {copy(pageContract, "action.confirm_sold")}
               </Button>
             </>
           ) : null}
           {step === "done" ? (
-            <Button variant="contained" onClick={close}>
+            <Button variant="contained" color="primary" onClick={close}>
               {copy(pageContract, "action.close")}
             </Button>
           ) : null}

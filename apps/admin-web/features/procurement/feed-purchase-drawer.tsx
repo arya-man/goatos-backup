@@ -201,7 +201,7 @@ export function FeedPurchaseDrawer({
             <Button type="button" variant="outlined" color="inherit" onClick={close}>
               {copy(pageContract, "action.cancel")}
             </Button>
-            <Button type="submit" form={addFormId} variant="contained">
+            <Button type="submit" form={addFormId} variant="contained" color="primary">
               {copy(pageContract, "action.save")}
             </Button>
           </>
@@ -210,7 +210,7 @@ export function FeedPurchaseDrawer({
             <Button type="button" variant="outlined" color="inherit" onClick={() => replaceLocalOverlayUrl(detailHref)}>
               {copy(pageContract, "action.cancel")}
             </Button>
-            <Button type="submit" form={editFormId} variant="contained">
+            <Button type="submit" form={editFormId} variant="contained" color="primary">
               {copy(pageContract, "action.save")}
             </Button>
           </>
@@ -442,7 +442,7 @@ export function FeedPurchaseDrawer({
                     {purchase.reached_on ? copy(pageContract, "hint.reached_weight") : copy(pageContract, "hint.mark_reached")}
                   </DrawerHint>
                 </Box>
-                <Button type="submit" variant="contained" sx={{ alignSelf: "flex-start" }}>
+                <Button type="submit" variant="contained" color="primary" sx={{ alignSelf: "flex-start" }}>
                   {purchase.reached_on
                     ? copy(pageContract, "action.update_delivery.label")
                     : copy(pageContract, "action.mark_reached.label")}
@@ -512,7 +512,7 @@ export function FeedPurchaseDrawer({
                 <Box sx={FIELD_SX}>
                   <TextField fullWidth id="fpp-note" name="note" label={field("note")} slotProps={{ htmlInput: { maxLength: 300 }, inputLabel: { shrink: true } }} />
                 </Box>
-                <Button type="submit" variant="contained" sx={{ alignSelf: "flex-start" }}>
+                <Button type="submit" variant="contained" color="primary" sx={{ alignSelf: "flex-start" }}>
                   {copy(pageContract, "action.record_feed_payment.label")}
                 </Button>
               </Box>
