@@ -1969,10 +1969,11 @@
     },
     {
       "eventType": "sales.deal.status_changed",
-      "producer": "FAILED SALE (maintainer decisions 2026-09-25, docs/decisions/sales-sop.md -> 'A failed sale'): sales.Repository.SetDealStatus emits ONE event per ACTUAL status change, INSIDE the transaction that locks the deal row, updates sales_deals.status, syncs the feed depletions and writes the audit row; a retried no-op change (same status) emits nothing. Deal Failed is FINAL: moving a failed deal to any other status is refused under the row lock (409 sale_deal_failed_is_final), so a deal emits Deal Failed at most once. Payload: tenant_id, sales_deal_id, previous_status, status, sale_date (the deal's sale_date after the change -- a close restamps it to the close business date), actor_id (who changed it; blank for a system caller). Aggregate/subject is the sales_deal the outbox validator already knows (000275). Event id and idempotency key are derived from the deal and the row's updated_at from the same UPDATE.",
+      "producer": "FAILED SALE (maintainer decisions 2026-09-25, docs/decisions/sales-sop.md -> 'A failed sale'): sales.Repository.SetDealStatus emits ONE event per ACTUAL status change, INSIDE the transaction that locks the deal row, updates sales_deals.status, syncs the feed depletions and writes the audit row; a retried no-op change (same status) emits nothing. Deal Failed is FINAL: moving a failed deal to any other status is refused under the row lock (409 sale_deal_failed_is_final), so a deal emits Deal Failed at most once. Payload: tenant_id, sales_deal_id, previous_status, status, sale_date (the deal's sale_date after the change -- a close restamps it to the close business date), actor_id (who changed it; blank for a system caller). Aggregate/subject is the sales_deal the outbox validator already knows (000275). Event id and idempotency key are derived from the deal and the row's updated_at from the same UPDATE. EXISTING DATA: migration 000450_sales_failed_deal_release_repair.sql writes the same envelope ONCE per deal that is already Deal Failed with a 'tagged' allocation (key '<deal>:repair-000450', envelope actor system_rule, payload.actor_id = the deal's last sales.deal.status_set actor or blank), so the relay drives the same consumers for sales failed before the release existed; proven by identity TestRepair000450ReleasesAnimalsOfSalesThatFailedBeforeTheRelease.",
       "producerFiles": [
         "backend/internal/sales/adapters/postgres/deal_outbox.go",
-        "backend/internal/sales/adapters/postgres/deal_repository.go"
+        "backend/internal/sales/adapters/postgres/deal_repository.go",
+        "backend/migrations/postgres/000450_sales_failed_deal_release_repair.sql"
       ],
       "consumers": [
         {
@@ -1989,7 +1990,8 @@
       "owningDoc": "docs/decisions/sales-sop.md",
       "e2eProof": [
         "backend/internal/tasks/adapters/postgres/sales_workflow_conditions_integration_test.go",
-        "backend/internal/identity/adapters/postgres/sale_deal_failed_integration_test.go"
+        "backend/internal/identity/adapters/postgres/sale_deal_failed_integration_test.go",
+        "backend/internal/identity/adapters/postgres/sale_deal_failed_repair_integration_test.go"
       ],
       "surfaces": [
         "backend",
