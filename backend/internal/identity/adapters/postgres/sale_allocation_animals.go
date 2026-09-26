@@ -9,7 +9,7 @@ import (
 )
 
 // saleAllocationAnimalsSQL is the one-per-animal read-back of a sale's allocation: the tag and
-// pen SNAPSHOTTED at tagging, plus the weight (000282) and rate (000291) typed for each. Bounded
+// pen SNAPSHOTTED at tagging, plus the weight (000282) and rate (000443) typed for each. Bounded
 // by the deal's own animal count (at most MaxSaleAllocationGoatsPerCommand per confirm), served
 // by the (tenant_id, sales_deal_id) index the shed-wise read-back already uses. The numerics come
 // back as text so nothing round-trips through a float.

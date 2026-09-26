@@ -111,7 +111,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("calendar", SurfaceMobile, LevelView, LevelDo)),
 		// Tag animals to a sale from the pen (maintainer decision 2026-09-11): the allocation
 		// authority alone, phone only. No `sales` row: the ledger, buyers and money stay off
-		// this job. Migration 000291 writes the same row onto every park head already backfilled.
+		// this job. Migration 000443 writes the same row onto every park head already backfilled.
 		one(assign("sale_allocation", SurfaceMobile, LevelDo)),
 		one(assign("config", SurfaceMobile, LevelView)),
 	),

@@ -91,6 +91,17 @@ type fakeDeals struct {
 	queueCalls     [][]string
 	queueFarmsSeen bool
 	queue          []ports.SaleTaggingDeal
+	// farm is the code the sale was recorded at; farmReads counts the scope lookups.
+	farm      string
+	farmReads int
+}
+
+func (f *fakeDeals) ReadSaleDealFarm(context.Context, string, string) (string, error) {
+	f.farmReads++
+	if f.farm == "" {
+		return "CPT", nil
+	}
+	return f.farm, nil
 }
 
 func (f *fakeDeals) ListSaleTaggingDeals(_ context.Context, _ string, farms []string, _ int, _ string) ([]ports.SaleTaggingDeal, *string, error) {

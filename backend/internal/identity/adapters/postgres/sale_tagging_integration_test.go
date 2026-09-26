@@ -133,6 +133,13 @@ func TestTaggingQueueListsOnlyLiveSalesStillOwedAnimalsForTheFarmsAsked(t *testi
 	if err != nil || last != nil || len(second) != 1 || second[0].SalesDealID != tagDealCPT {
 		t.Fatalf("page 2 = %+v cursor=%v err=%v", second, last, err)
 	}
+	// The farm read that clamps a park-scoped caller to their own park's sales.
+	if farm, err := bridge.ReadSaleDealFarm(ctx, ssTenant, tagDealCPT); err != nil || farm != "CPT" {
+		t.Fatalf("ReadSaleDealFarm(CPT deal) = %q, %v; want CPT", farm, err)
+	}
+	if _, err := bridge.ReadSaleDealFarm(ctx, ssTenant, "77777777-7777-4777-8777-777777777799"); err != ports.ErrSaleDealNotFound {
+		t.Fatalf("ReadSaleDealFarm(unknown deal) err = %v, want ErrSaleDealNotFound", err)
+	}
 	if _, err := pool.Exec(ctx, `DELETE FROM sales_deals WHERE tenant_id=$1::uuid AND id = ANY($2::uuid[])`,
 		ssTenant, []string{tagDealCBE, tagDealCPT, tagDealManure, tagDealFailed}); err != nil {
 		t.Fatalf("cleanup: %v", err)

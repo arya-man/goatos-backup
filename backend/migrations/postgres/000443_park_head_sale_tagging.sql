@@ -4,7 +4,7 @@
 --
 -- PARK HEADS TAG ANIMALS TO A SALE, AND NOTHING ELSE OF SALES (maintainer decision 2026-09-11).
 --
--- Two halves, one decision.
+-- Three parts, one decision.
 --
 -- 1. RATE PER ANIMAL. When the park head tags an animal to a sale from the pen they also type
 --    the price agreed for THAT animal. It is a fact about this allocation -- what this animal
@@ -66,6 +66,26 @@ INSERT INTO public.person_module_access_sale_tagging_backfill (tenant_id, workfo
 SELECT tenant_id, workforce_member_id FROM inserted
 ON CONFLICT DO NOTHING;
 
+-- 3. THE SAME TICK AS THE PARK HEAD JOB'S DEFAULT. Picking "Park head" for a NEW person on /people
+--    pre-fills from designation_module_defaults, so without this row a park head hired tomorrow
+--    would reach no tagging screen until somebody remembered to tick it by hand. Additive only
+--    and ledgered like the person rows: an admin who later edits the default keeps the edit.
+CREATE TABLE IF NOT EXISTS public.designation_module_defaults_sale_tagging_backfill (
+  designation_code text PRIMARY KEY
+);
+
+WITH inserted AS (
+  INSERT INTO public.designation_module_defaults (designation_code, surface, module_key, capabilities, pages)
+  SELECT d.designation_code, 'mobile', 'sale_allocation', ARRAY['do']::text[], '{}'::text[]
+  FROM public.designation_catalog d
+  WHERE d.designation_code = 'park_head'
+  ON CONFLICT (designation_code, surface, module_key) DO NOTHING
+  RETURNING designation_code
+)
+INSERT INTO public.designation_module_defaults_sale_tagging_backfill (designation_code)
+SELECT designation_code FROM inserted
+ON CONFLICT DO NOTHING;
+
 -- +goose Down
 DELETE FROM public.person_module_access p
 USING public.person_module_access_sale_tagging_backfill b
@@ -74,6 +94,12 @@ WHERE p.tenant_id = b.tenant_id
   AND p.surface = 'mobile'
   AND p.module_key = 'sale_allocation';
 DROP TABLE IF EXISTS public.person_module_access_sale_tagging_backfill;
+DELETE FROM public.designation_module_defaults d
+USING public.designation_module_defaults_sale_tagging_backfill b
+WHERE d.designation_code = b.designation_code
+  AND d.surface = 'mobile'
+  AND d.module_key = 'sale_allocation';
+DROP TABLE IF EXISTS public.designation_module_defaults_sale_tagging_backfill;
 
 ALTER TABLE public.goat_sale_allocations
   DROP CONSTRAINT IF EXISTS goat_sale_allocations_rate_check,

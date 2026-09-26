@@ -31,6 +31,8 @@ func TestConfirmRefusesAnimalsOutsideTheCallersParkScope(t *testing.T) {
 		candidateInPark(1, parkA, "9051"),
 		candidateInPark(2, parkA, "9052"),
 	)
+	// The sale is recorded at park A (fakeDeals' default farm is CPT), so park A's scope owns it.
+	repo.catalog = &ports.SaleLocationCatalog{Parks: []ports.SaleLocationPark{{ParkID: parkA, Label: "CPT"}, {ParkID: parkB, Label: "CBE"}}}
 	base := ConfirmSaleAllocationInput{
 		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-scope",
 		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(2)},
@@ -190,5 +192,89 @@ func TestTaggingQueueNarrowsToTheCallersFarmsAndFailsClosed(t *testing.T) {
 	}
 	if !deals.queueFarmsSeen || deals.queueCalls[0] != nil {
 		t.Fatalf("tenant-wide queue must ask with no farm filter, got %v", deals.queueCalls)
+	}
+}
+
+// THE SALE'S OWN FARM IS IN SCOPE TOO. Clamping the animals alone let a park head tag animals
+// from their own pen onto a sale another park recorded, and read back any sale's tags, weights
+// and rates by id. A park-scoped caller is refused a sale whose farm is not one of their parks'
+// codes on the review, the confirm and the read-back -- before anything is read about animals or
+// written. Tenant-wide callers (nil scope) are untouched.
+func TestPreviewConfirmAndReadBackRefuseASaleAtAnotherPark(t *testing.T) {
+	svc, repo, deals := newSaleService(candidateInPark(1, parkA, "9051"))
+	repo.catalog = &ports.SaleLocationCatalog{Parks: []ports.SaleLocationPark{
+		{ParkID: parkA, Label: "CPT"},
+		{ParkID: parkB, Label: "CBE"},
+	}}
+	deals.farm = "CBE" // the sale was recorded at park B
+
+	_, err := svc.PreviewSaleAllocation(context.Background(), PreviewSaleAllocationInput{
+		TenantID: saleTenant, SalesDealID: saleDeal, GoatIDs: []string{goatID(1)}, AllowedParkIDs: []string{parkA},
+	})
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "park_out_of_scope" || appErr.HTTPStatus != 403 {
+		t.Fatalf("preview of another park's sale: err = %#v, want 403 park_out_of_scope", err)
+	}
+
+	_, err = svc.ConfirmSaleAllocation(context.Background(), ConfirmSaleAllocationInput{
+		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-farm",
+		SalesDealID: saleDeal, GoatIDs: []string{goatID(1)},
+		AnimalWeightsKg: weightsFor([]string{goatID(1)}), AllowedParkIDs: []string{parkA},
+	})
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "park_out_of_scope" {
+		t.Fatalf("confirm onto another park's sale: err = %#v, want park_out_of_scope", err)
+	}
+	if repo.recorded != nil {
+		t.Fatalf("nothing may be written for another park's sale, got %+v", repo.recorded)
+	}
+
+	if _, err := svc.GetSaleAllocationAnimals(context.Background(), saleTenant, saleDeal, []string{parkA}); err == nil {
+		t.Fatal("read-back of another park's sale must be refused")
+	}
+	if _, err := svc.GetSaleAllocation(context.Background(), saleTenant, saleDeal, []string{parkA}); err == nil {
+		t.Fatal("grouped read-back of another park's sale must be refused")
+	}
+
+	// The same sale is the caller's own when their scope includes park B, and every step runs.
+	deals.farm = "CPT"
+	if _, err := svc.PreviewSaleAllocation(context.Background(), PreviewSaleAllocationInput{
+		TenantID: saleTenant, SalesDealID: saleDeal, GoatIDs: []string{goatID(1)}, AllowedParkIDs: []string{parkA},
+	}); err != nil {
+		t.Fatalf("preview of the caller's own sale: %v", err)
+	}
+	if _, err := svc.GetSaleAllocationAnimals(context.Background(), saleTenant, saleDeal, []string{parkA}); err != nil {
+		t.Fatalf("read-back of the caller's own sale: %v", err)
+	}
+
+	// Tenant-wide: any farm, and the farm is never even looked up.
+	deals.farm, deals.farmReads = "CBE", 0
+	if _, err := svc.GetSaleAllocationAnimals(context.Background(), saleTenant, saleDeal, nil); err != nil {
+		t.Fatalf("tenant-wide read-back: %v", err)
+	}
+	if deals.farmReads != 0 {
+		t.Fatalf("a tenant-wide caller must not pay for a farm lookup, got %d reads", deals.farmReads)
+	}
+}
+
+// The park/pen vocabulary a park-scoped caller is served names their own parks only, so the
+// phone never offers a park the server would then refuse.
+func TestSaleLocationsNarrowToTheCallersParks(t *testing.T) {
+	svc, repo, _ := newSaleService()
+	repo.catalog = &ports.SaleLocationCatalog{
+		Parks: []ports.SaleLocationPark{{ParkID: parkA, Label: "CPT"}, {ParkID: parkB, Label: "CBE"}},
+		Locations: []ports.SaleLocationEntry{
+			{ShedID: shedA, ParkID: parkA, OperationalLocationDisplay: "Castro 1"},
+			{ShedID: shedB, ParkID: parkB, OperationalLocationDisplay: "Gandhi 2"},
+		},
+	}
+	got, err := svc.GetSaleLocations(context.Background(), saleTenant, []string{parkA})
+	if err != nil {
+		t.Fatalf("scoped locations: %v", err)
+	}
+	if len(got.Parks) != 1 || got.Parks[0].ParkID != parkA || len(got.Locations) != 1 || got.Locations[0].ParkID != parkA {
+		t.Fatalf("scoped catalog = %+v, want park A only", got)
+	}
+	all, err := svc.GetSaleLocations(context.Background(), saleTenant, nil)
+	if err != nil || len(all.Parks) != 2 || len(all.Locations) != 2 {
+		t.Fatalf("tenant-wide catalog = %+v err=%v, want both parks", all, err)
 	}
 }

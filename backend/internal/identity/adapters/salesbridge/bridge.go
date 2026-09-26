@@ -70,6 +70,21 @@ WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid`, tenantID, salesDealID).Scan(&
 	}, nil
 }
 
+// ReadSaleDealFarm returns the farm code a sale was recorded at. One indexed primary-key read.
+func (b *Bridge) ReadSaleDealFarm(ctx context.Context, tenantID, salesDealID string) (string, error) {
+	var farm string
+	err := b.pool.QueryRow(ctx, `
+SELECT COALESCE(d.farm, '') FROM sales_deals d
+WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid`, tenantID, salesDealID).Scan(&farm)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrSaleDealNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("salesbridge: read sale deal farm: %w", err)
+	}
+	return strings.TrimSpace(farm), nil
+}
+
 // ListSaleTaggingDeals is the park head's tag-only queue (maintainer decision 2026-09-11).
 //
 // It reads the sales ledger through the SAME bridge ReadSaleDeal uses, for the same reason:

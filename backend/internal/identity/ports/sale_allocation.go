@@ -343,6 +343,11 @@ type SaleDealReader interface {
 	// the ledger's farm codes (CBE, CPT); nil means every farm. The rows carry NO buyer and NO
 	// money on purpose -- that is what "tag animals and nothing else" means on the wire.
 	ListSaleTaggingDeals(ctx context.Context, tenantID string, farms []string, limit int, cursor string) ([]SaleTaggingDeal, *string, error)
+	// ReadSaleDealFarm returns the farm code the sale was recorded at (CBE, CPT, ...). It is
+	// asked ONLY for a park-scoped caller, to refuse a sale recorded at another park; it is a
+	// separate read from ReadSaleDeal because a sale with no animal count (manure) still has a
+	// farm and must still be scope-checked on the read-back.
+	ReadSaleDealFarm(ctx context.Context, tenantID, salesDealID string) (string, error)
 }
 
 // SaleTaggingDeal is one sale as the tag-only queue shows it. Only what a person tagging in a

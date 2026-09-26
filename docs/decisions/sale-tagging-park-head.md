@@ -1,6 +1,7 @@
 # Park heads tag animals to a sale, and nothing else of Sales
 
-**Maintainer decision, 2026-09-11.** Status: implemented.
+**Maintainer decision, 2026-09-11.** Status: implemented; rebuilt on main 2026-09-26 (migration
+`000443`).
 
 ## The decision
 
@@ -20,15 +21,24 @@ anything ... They should just see the sale there."
 web that permission is the tag-animals drawer inside the Sales pages; a park head holds no
 `admin_web.bootstrap`, so the web is unaffected. The capability module `sale_allocation` is now
 on both surfaces; the mobile row is written for every park head already backfilled by migration
-`000291` (the `000245`/`000272` shape, with a ledger so Down removes exactly what Up wrote).
+`000443` (the `000245`/`000272` shape, with a ledger so Down removes exactly what Up wrote), and
+the same row is added to the `park_head` job's default ticks (`designation_module_defaults`), so
+picking "Park head" for a new person on `/people` pre-fills it.
 
-**Scope.** Every allocation route -- picker, review, confirm, and the new queue -- is clamped to
-the caller's park at the HTTP boundary (`allowedParkIDs` in `sale_allocation_handler.go`,
-through `ResolveAuthorizedParkScopeForCapabilities`). A park head asking about another park's
-animals is refused `403 park_out_of_scope` before the count gate, so a crafted request cannot even
-learn how many animals a sale at another park still needs. The sales desk and the CXO are
-tenant-wide and see every park exactly as before. Pinned by
-`TestConfirmRefusesAnimalsOutsideTheCallersParkScope` and `TestPreviewAndPickerRefuseAnotherPark`.
+**Scope.** Every allocation route -- the park/pen vocabulary, the picker, the review, the
+confirm, the read-back and the queue -- is clamped to the caller's park at the HTTP boundary
+(`allowedParkIDs` in `sale_allocation_handler.go`, through
+`ResolveAuthorizedParkScopeForCapabilities`, which reads the person's own park ticks). The clamp
+covers BOTH halves of a tag: every animal must stand in one of the caller's parks, AND the SALE
+must have been recorded at one of them (its `farm` code, read by `salesbridge.ReadSaleDealFarm`).
+Clamping only the animals would let a park head tag animals from their own pen onto another
+park's sale, or read back any sale's tags, weights and rates by id. A park head asking about
+another park is refused `403 park_out_of_scope` before the count gate, so a crafted request
+cannot even learn how many animals a sale at another park still needs. The sales desk and the
+CXO are tenant-wide, see every park exactly as before, and never pay for the farm lookup. Pinned
+by `TestConfirmRefusesAnimalsOutsideTheCallersParkScope`, `TestPreviewAndPickerRefuseAnotherPark`,
+`TestPreviewConfirmAndReadBackRefuseASaleAtAnotherPark` (mutation-tested: making the sale clamp
+a no-op turns it red) and `TestSaleLocationsNarrowToTheCallersParks`.
 
 **The queue.** `GET /admin/goats/sale-tagging` lists the live animal sales at the caller's
 park(s) that still owe animals: date, farm, product, breed, declared, tagged, remaining. **No
@@ -39,7 +49,7 @@ through the sale-location catalog (a park's `location_code` IS the deal's `farm`
 that resolves to no farm sees an EMPTY queue rather than every farm's. Pinned by
 `TestTaggingQueueNarrowsToTheCallersFarmsAndFailsClosed`.
 
-**Rate per animal.** `goat_sale_allocations.rate_rupees` (nullable, `> 0`, migration `000291`)
+**Rate per animal.** `goat_sale_allocations.rate_rupees` (nullable, `> 0`, migration `000443`)
 beside `weight_kg` from 000282 -- a fact about THIS allocation, never about the goat and never a
 replacement for the deal-level `sales_value`. On the wire it is `animal_rates_rupees` on the
 confirm, **optional** so the web drawer's confirm stays valid, **required by the phone's tag-only

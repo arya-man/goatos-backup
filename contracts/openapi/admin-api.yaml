@@ -2266,7 +2266,9 @@ paths:
         pens exist twice in the location register (canonical shed plus its pen catalog,
         and old rows literally named "Castro 1"), and the alias rows hold no animals and
         no pens, so offering them gave an operator a choice that could only return an
-        empty list. Sheds that can yield no candidate at all are likewise omitted.
+        empty list. Sheds that can yield no candidate at all are likewise omitted. A
+        park-scoped caller (a park head tagging from the pen) is served their own parks
+        and pens only, so the phone never offers a park the picker would then refuse.
       responses:
         "200":
           description: The picker vocabulary.
@@ -2473,7 +2475,9 @@ paths:
         The sales ledger stores no goat_id (the sales module reads no herd table), so the
         deal-to-animal mapping is read from here. Location and identifier are the SNAPSHOT
         taken when the animal was tagged, not the goat's present location -- a sold
-        animal's row keeps moving and would make an old sale re-describe itself.
+        animal's row keeps moving and would make an old sale re-describe itself. A
+        park-scoped caller may read back only a sale recorded at one of their own parks;
+        another park's sale is refused 403 park_out_of_scope.
       parameters:
         - name: sales_deal_id
           in: path

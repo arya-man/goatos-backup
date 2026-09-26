@@ -343,12 +343,16 @@ func (h *SaleAllocationHandler) ConfirmSaleAllocation(w http.ResponseWriter, r *
 
 // GetSaleAllocation reads back the animals one sale is made of, shed-wise.
 func (h *SaleAllocationHandler) GetSaleAllocation(w http.ResponseWriter, r *http.Request) {
-	groups, err := h.service.GetSaleAllocation(r.Context(), tenantID(r), r.PathValue("sales_deal_id"))
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
+	groups, err := h.service.GetSaleAllocation(r.Context(), tenantID(r), r.PathValue("sales_deal_id"), allowed)
 	if err != nil {
 		h.respondSaleError(w, r, err)
 		return
 	}
-	animals, err := h.service.GetSaleAllocationAnimals(r.Context(), tenantID(r), r.PathValue("sales_deal_id"))
+	animals, err := h.service.GetSaleAllocationAnimals(r.Context(), tenantID(r), r.PathValue("sales_deal_id"), allowed)
 	if err != nil {
 		h.respondSaleError(w, r, err)
 		return
@@ -403,7 +407,11 @@ func decodeSaleBody(body []byte, dest any) error {
 
 // ListSaleLocations serves the picker's park/shed/pen vocabulary.
 func (h *SaleAllocationHandler) ListSaleLocations(w http.ResponseWriter, r *http.Request) {
-	catalog, err := h.service.GetSaleLocations(r.Context(), tenantID(r))
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
+	catalog, err := h.service.GetSaleLocations(r.Context(), tenantID(r), allowed)
 	if err != nil {
 		h.respondSaleError(w, r, err)
 		return
