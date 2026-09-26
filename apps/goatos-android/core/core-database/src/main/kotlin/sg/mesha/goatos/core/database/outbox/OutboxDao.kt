@@ -347,6 +347,18 @@ interface OutboxDao {
     )
     suspend fun requeueAccessDenied(now: Long): Int
 
+    /**
+     * The network came back: every row still waiting out a transient backoff becomes due NOW.
+     * Only a retryable FAILED row is touched -- never a server refusal (`conflict`) or a row that
+     * spent its budget -- and the attempt count is kept, so a reconnect is one more attempt
+     * inside the budget, never a fresh budget.
+     */
+    @Query(
+        "UPDATE outbox SET nextAttemptAt = :now, updatedAt = :now " +
+            "WHERE status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts AND nextAttemptAt > :now",
+    )
+    suspend fun rearmBackoffForReconnect(now: Long): Int
+
     /** Manual retry only re-arms a terminal FAILED row — guarded so it can never clobber a
      *  row a drain is actively dispatching (IN_FLIGHT) or one that already SUCCEEDED. */
     @Query(

@@ -110,6 +110,10 @@ interface OutboxStore {
     suspend fun settleConflictAsSucceeded(id: String, resultJson: String, now: Long): Boolean = false
     suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, lastErrorCode: String?, lastErrorField: String?, lastHttpStatus: Int?, now: Long): Boolean
 
+    /** Connectivity regained: makes every retryable row waiting out a transient backoff due
+     *  now, keeping its attempt count (see OutboxDao.rearmBackoffForReconnect). Returns rows re-armed. */
+    suspend fun rearmBackoffForReconnect(now: Long): Int = 0
+
     /** Re-queues only rows refused with HTTP 403 (see OutboxDao.requeueAccessDenied). Returns rows re-queued. */
     suspend fun requeueAccessDenied(now: Long): Int
 
@@ -232,6 +236,8 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     ): Boolean = dao.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, lastErrorCode, lastErrorField, lastHttpStatus, now) > 0
 
     override suspend fun requeueAccessDenied(now: Long): Int = dao.requeueAccessDenied(now)
+
+    override suspend fun rearmBackoffForReconnect(now: Long): Int = dao.rearmBackoffForReconnect(now)
 
     override suspend fun markRetryReady(id: String, now: Long): Boolean = dao.markRetryReady(id, now) > 0
 

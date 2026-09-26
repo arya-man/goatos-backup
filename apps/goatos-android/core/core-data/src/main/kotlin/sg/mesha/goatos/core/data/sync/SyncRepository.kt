@@ -64,6 +64,10 @@ private const val CLOCK_PUNCH_MAX_ATTEMPTS = 1000
  */
 internal const val SALES_WRITE_MAX_ATTEMPTS = CLOCK_PUNCH_MAX_ATTEMPTS
 
+/** A reconnect re-arms waiting rows at most this often (see DefaultSyncRepository.onConnectivityRegained). */
+internal const val RECONNECT_REARM_MIN_INTERVAL_MS = 30_000L
+private const val NEVER_REARMED = Long.MIN_VALUE
+
 /**
  * ## Sync engine — public integration point
  *
@@ -1233,6 +1237,25 @@ class DefaultSyncRepository(
     fun notifyConnectivityChanged(online: Boolean) {
         onlineFlow.value = online
     }
+
+    /**
+     * DI-wiring-only hook: the phone got its network back. Kicking a drain alone was not enough
+     * (Sales phone E2E 2026-09-26): a sale queued during the outage was still inside its backoff
+     * -- up to ~18 minutes at the cap -- so the drain skipped it and it sat for minutes after the
+     * phone was online again. The waiting rows are re-armed first, keeping their attempt count so
+     * the retry budget still holds, and at most once per [RECONNECT_REARM_MIN_INTERVAL_MS] so a
+     * flapping network cannot turn every blip into another attempt.
+     */
+    suspend fun onConnectivityRegained() {
+        val now = clock()
+        val last = lastReconnectRearmAt.get()
+        if ((last == NEVER_REARMED || now - last >= RECONNECT_REARM_MIN_INTERVAL_MS) && lastReconnectRearmAt.compareAndSet(last, now)) {
+            withContext(dispatchers.io) { store.rearmBackoffForReconnect(now) }
+        }
+        engine.drainOnce()
+    }
+
+    private val lastReconnectRearmAt = java.util.concurrent.atomic.AtomicLong(NEVER_REARMED)
 
     override suspend fun enqueueShedSubmit(
         taskId: String,

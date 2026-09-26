@@ -1220,7 +1220,8 @@ object AppModule {
             val online = platformOnline || connectivityGate.isOnline()
             repo?.notifyConnectivityChanged(online)
             if (online) appScope.launch {
-                engine.drainOnce()
+                // Re-arms writes still waiting out a backoff so they leave now, not minutes later.
+                if (repo != null) repo.onConnectivityRegained() else engine.drainOnce()
                 runCatching { backendAnalyticsAdapter.drainQueue() }
             }
         }

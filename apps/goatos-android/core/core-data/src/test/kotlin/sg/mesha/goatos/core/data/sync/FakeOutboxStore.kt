@@ -215,6 +215,17 @@ class FakeOutboxStore : OutboxStore {
         )
     }
 
+    override suspend fun rearmBackoffForReconnect(now: Long): Int {
+        var n = 0
+        rows.value = rows.value.map {
+            if (it.status == OutboxStatus.FAILED.name && !it.conflict && it.attemptCount < it.maxAttempts && it.nextAttemptAt > now) {
+                n++
+                it.copy(nextAttemptAt = now, updatedAt = now)
+            } else it
+        }
+        return n
+    }
+
     override suspend fun requeueAccessDenied(now: Long): Int {
         var n = 0
         rows.value = rows.value.map {
