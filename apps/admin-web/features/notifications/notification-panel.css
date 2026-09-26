@@ -8,12 +8,9 @@
 .nc-ibtn{display:grid;place-items:center;width:36px;height:36px;flex:none;border:0;border-radius:var(--r-md);background:transparent;color:var(--fg-muted);cursor:pointer;transition:background-color var(--dur) var(--ease),color var(--dur) var(--ease),transform 100ms var(--ease)}
 .nc-ibtn svg{width:18px;height:18px}
 .nc-ibtn:hover:not(:disabled){background:var(--paper-2);color:var(--fg)}
-.nc-ibtn.on{background:var(--paper-2);color:var(--fg)}
 .nc-ibtn:active:not(:disabled){transform:scale(.96)}
 .nc-ibtn:disabled{opacity:.38;cursor:default}
 .nc-ibtn:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
-.nc-ibtn-brand:not(:disabled){color:var(--primary-ink)}
-.nc-ibtn-brand:hover:not(:disabled){background:var(--primary-soft);color:var(--primary-ink)}
 
 /* ⚙ section: browser push -- the switch for this browser and the registered-browser list. */
 .nc-push-wrap{flex:none;padding:12px 16px 4px;box-shadow:inset 0 -1px 0 var(--line)}

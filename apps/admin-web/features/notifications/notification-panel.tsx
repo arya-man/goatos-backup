@@ -21,6 +21,8 @@
  */
 
 import { motion, useReducedMotion } from "motion/react";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
 import { isPushCapable } from "@/lib/push-capable";
 import Link from "@/components/no-prefetch-link";
 import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -177,10 +179,16 @@ export function NotificationPanel({
     return () => io.disconnect();
   }, [hasMore, loadingMore, rows.length]);
 
-  const iconButton = (label: string, icon: ReactNode, onClick: () => void, disabled = false, extra?: string, pressed?: boolean) => (
-    <button type="button" className={cx("nc-ibtn", extra)} onClick={onClick} disabled={disabled} title={label} aria-label={label} aria-pressed={pressed}>
-      {icon}
-    </button>
+  // Header actions: template notifications-drawer IconButtons (Tooltip + IconButton), so the
+  // PhoneTapStyles 44px floor applies on phone.
+  const iconButton = (label: string, icon: ReactNode, onClick: () => void, disabled = false, color: "default" | "primary" = "default", pressed?: boolean) => (
+    <Tooltip title={label}>
+      <span>
+        <IconButton color={color} onClick={onClick} disabled={disabled} aria-label={label} aria-pressed={pressed} sx={pressed ? { bgcolor: "action.selected" } : undefined}>
+          {icon}
+        </IconButton>
+      </span>
+    </Tooltip>
   );
 
   const emptyIcon = !feed.available ? <BellOff /> : tab === "unread" ? <CheckCheck /> : <Inbox />;
@@ -190,9 +198,9 @@ export function NotificationPanel({
     <div className="nc" data-notification-panel>
       <div className="nc-head">
         <h2 className="nc-title">{centreCopy.title}</h2>
-        {iconButton(centreCopy.markAllRead, <CheckCheck aria-hidden="true" />, onMarkAllRead, busy || !hasUnread, "nc-ibtn-brand")}
-        {showPush ? iconButton(centreCopy.settings, <Settings aria-hidden="true" />, () => setPushOpen((v) => !v), false, pushOpen ? "on" : undefined, pushOpen) : null}
-        {iconButton(centreCopy.close, <X aria-hidden="true" />, onClose)}
+        {iconButton(centreCopy.markAllRead, <CheckCheck size={20} aria-hidden="true" />, onMarkAllRead, busy || !hasUnread, "primary")}
+        {showPush ? iconButton(centreCopy.settings, <Settings size={20} aria-hidden="true" />, () => setPushOpen((v) => !v), false, "default", pushOpen) : null}
+        {iconButton(centreCopy.close, <X size={20} aria-hidden="true" />, onClose)}
       </div>
 
       {showPush && pushOpen ? (
