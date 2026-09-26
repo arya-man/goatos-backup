@@ -33,6 +33,7 @@ cp "$repo/tools/ci/check-push-hook-freshness.sh" tools/ci/
 # incidental reason — and case (g) below could never go red.
 cp "$repo/tools/ci/check-local-ci-evidence.mjs" tools/ci/
 cp "$repo/tools/ci/check-stg-promotion.mjs" tools/ci/
+cp "$repo/tools/ci/step-input-digest.mjs" tools/ci/
 git remote add origin git@github.com:vgoats/goatos.git
 # Install a pre-push hook of exactly the shape the installer writes.
 sed -n '/^cat >"\$hook" <<.HOOK.$/,/^HOOK$/p' "$repo/tools/agent-hooks/install-stg-push-guard.sh" \
@@ -42,6 +43,7 @@ chmod +x "$sandbox/hooks/pre-push"
 # (a) installed copies match the sources — MUST unset CI env vars so the real logic runs
 cp tools/ci/check-local-ci-evidence.mjs "$sandbox/hooks/goatos-check-local-ci-evidence.mjs"
 cp tools/ci/check-stg-promotion.mjs "$sandbox/hooks/goatos-check-stg-promotion.mjs"
+cp tools/ci/step-input-digest.mjs "$sandbox/hooks/step-input-digest.mjs"
 env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
 check "(a) installed copies match" 0 $?
 
@@ -101,6 +103,7 @@ else
   cp "$repo/tools/ci/check-push-hook-freshness.sh" tools/ci/
   cp "$repo/tools/ci/check-local-ci-evidence.mjs" tools/ci/
   cp "$repo/tools/ci/check-stg-promotion.mjs" tools/ci/
+  cp "$repo/tools/ci/step-input-digest.mjs" tools/ci/
   git remote add origin git@github.com:vgoats/goatos.git
   # Install a pre-push hook with freshly installed copies
   mkdir -p "$sandbox/hooks"
@@ -109,6 +112,7 @@ else
   chmod +x "$sandbox/hooks/pre-push"
   cp "$repo/tools/ci/check-local-ci-evidence.mjs" "$sandbox/hooks/goatos-check-local-ci-evidence.mjs"
   cp "$repo/tools/ci/check-stg-promotion.mjs" "$sandbox/hooks/goatos-check-stg-promotion.mjs"
+  cp "$repo/tools/ci/step-input-digest.mjs" "$sandbox/hooks/step-input-digest.mjs"
   # Run the guard
   env -u CI -u GITHUB_ACTIONS -u CI_ENVIRONMENT bash tools/ci/check-push-hook-freshness.sh >/dev/null 2>&1
   check "(e) this checkout passes" 0 $?
