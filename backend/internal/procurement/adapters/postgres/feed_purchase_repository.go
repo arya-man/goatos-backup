@@ -333,24 +333,25 @@ WHERE tenant_id = $1 AND feed_item_key = feed_config_norm($2) AND status = 'acti
 
 	// The CATALOG's label is stored, not the typed one: the ledger's rows must read with one
 	// spelling per feed, or the stock cards group a feed against itself.
-	// THE LOAD NUMBER IS ALWAYS THE NEXT ONE (maintainer decision 2026-09-26): max+1 for this farm
-	// and feed, serialised by an advisory lock so two loads recorded at once cannot take the same
-	// number. Validate has already refused a client-supplied number, so there is no other path.
+	// THE LOAD NUMBER IS AUTOMATIC AND ONE RUNNING COUNT (maintainer decisions 2026-09-26): the
+	// farm numbers every feed load it buys with ONE sequence across both farms and every feed --
+	// the sheet's 219 loads carry 219 different numbers, and the desk kept that count going by hand
+	// in the app. So the next load is the highest number the ledger holds for this tenant + 1,
+	// serialised by a TENANT-wide advisory lock so two loads recorded at once never share a number.
+	// Validate has already refused a client-supplied number, so there is no other path.
 	if write.BatchNo != nil {
 		return domain.FeedPurchase{}, domain.ErrFeedPurchaseValidation{Field: "batch_no", Reason: domain.FeedLoadNumberAutomatic}
 	}
 	batchNo := 0
 	if _, err := tx.Exec(ctx, `
-SELECT pg_advisory_xact_lock(hashtext($1::text || ':' || $2 || ':' || feed_config_norm($3))::bigint)`,
-		tenantID, write.FarmLabel, catalogLabel); err != nil {
-		return domain.FeedPurchase{}, fmt.Errorf("procurement: lock feed batch counter: %w", err)
+SELECT pg_advisory_xact_lock(hashtext($1::text || ':feed_load_number')::bigint)`, tenantID); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: lock feed load number: %w", err)
 	}
 	if err := tx.QueryRow(ctx, `
 SELECT COALESCE(max(batch_no), 0) + 1
 FROM public.feed_purchases
-WHERE tenant_id = $1 AND farm_label = $2 AND feed_item_key = feed_config_norm($3)`,
-		tenantID, write.FarmLabel, catalogLabel).Scan(&batchNo); err != nil {
-		return domain.FeedPurchase{}, fmt.Errorf("procurement: next feed batch no: %w", err)
+WHERE tenant_id = $1`, tenantID).Scan(&batchNo); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: next feed load number: %w", err)
 	}
 
 	// DELIVERY STATE (maintainer decision 2026-09-03). A load is recorded as still on the road

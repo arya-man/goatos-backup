@@ -74,7 +74,7 @@ func FeedPurchaseFormProfile() EntryFormProfile {
 		CatalogKinds:  FeedPurchaseCatalogKinds,
 		Noun:          "a feed purchase",
 		Reserved: map[string]string{
-			"batch_no": "the load number is given automatically (the next number for this farm and feed)",
+			"batch_no": "the load number is given automatically (the farm's next running load number)",
 		},
 	}
 }

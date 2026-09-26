@@ -17,10 +17,9 @@ import (
 // Nobody types a load number any more, so the ledger's own assignment is the only thing that
 // numbers the farm's loads. This pins every property a person relies on when they read "Load 12":
 //
-//   - it continues from the highest number already in the ledger (sheet history included), never
-//     restarting at 1 and never colliding with an imported load;
-//   - it counts per farm AND per feed: another feed, or the same feed at the other farm, has its
-//     own sequence;
+//   - it is ONE RUNNING COUNT across both farms and every feed (how the farm's sheet numbered its
+//     loads), continuing from the highest number already in the ledger -- sheet history included --
+//     never restarting at 1 and never repeating a number another farm or feed already carries;
 //   - an exact retry of the same submit returns the same load and uses up no number;
 //   - a refused write (a supplied number) uses up no number either;
 //   - loads recorded AT THE SAME MOMENT (two desks, a double tap, a phone and the web) each get a
@@ -72,12 +71,12 @@ VALUES ($1, $2, 'CPT', 'Dry Sorghum Forage', 7, '2026-08-01', 1000, 10, 10000, 0
 		t.Fatalf("next load = %d, want 9", n)
 	}
 
-	// Its own sequence per feed and per farm.
-	if n := mustRecord("maize-1", func(w *domain.FeedPurchaseWrite) { w.FeedItemLabel = "Maize" }); n != 1 {
-		t.Fatalf("first Maize load at CPT = %d, want 1 (a different feed counts on its own)", n)
+	// ONE count: another feed and the other farm continue the SAME sequence.
+	if n := mustRecord("maize-1", func(w *domain.FeedPurchaseWrite) { w.FeedItemLabel = "Maize" }); n != 10 {
+		t.Fatalf("a Maize load at CPT = %d, want 10 (every feed shares the one running count)", n)
 	}
-	if n := mustRecord("cbe-1", func(w *domain.FeedPurchaseWrite) { w.FarmLabel = "CBE" }); n != 1 {
-		t.Fatalf("first Dry Sorghum load at CBE = %d, want 1 (the other farm counts on its own)", n)
+	if n := mustRecord("cbe-1", func(w *domain.FeedPurchaseWrite) { w.FarmLabel = "CBE" }); n != 11 {
+		t.Fatalf("a load at CBE = %d, want 11 (both farms share the one running count)", n)
 	}
 
 	// An exact retry returns the same load and consumes nothing.
@@ -88,11 +87,12 @@ VALUES ($1, $2, 'CPT', 'Dry Sorghum Forage', 7, '2026-08-01', 1000, 10, 10000, 0
 	if _, err := record("refused", func(w *domain.FeedPurchaseWrite) { b := 50; w.BatchNo = &b }); err == nil {
 		t.Fatal("a supplied load number must be refused")
 	}
-	if n := mustRecord("seq-3", nil); n != 10 {
-		t.Fatalf("load after a retry and a refusal = %d, want 10 -- neither may use up a number", n)
+	if n := mustRecord("seq-3", nil); n != 12 {
+		t.Fatalf("load after a retry and a refusal = %d, want 12 -- neither may use up a number", n)
 	}
 
-	// At the same moment: twelve submits race for the same farm and feed.
+	// At the same moment: twelve submits race, spread over both farms and two feeds, because they
+	// all draw on the one count.
 	const racers = 12
 	var wg sync.WaitGroup
 	start := make(chan struct{})
@@ -103,7 +103,14 @@ VALUES ($1, $2, 'CPT', 'Dry Sorghum Forage', 7, '2026-08-01', 1000, 10, 10000, 0
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			numbers[i], errs[i] = record(fmt.Sprintf("race-%02d", i), nil)
+			numbers[i], errs[i] = record(fmt.Sprintf("race-%02d", i), func(w *domain.FeedPurchaseWrite) {
+				if i%2 == 1 {
+					w.FarmLabel = "CBE"
+				}
+				if i%3 == 0 {
+					w.FeedItemLabel = "Maize"
+				}
+			})
 		}(i)
 	}
 	close(start)
@@ -115,21 +122,19 @@ VALUES ($1, $2, 'CPT', 'Dry Sorghum Forage', 7, '2026-08-01', 1000, 10, 10000, 0
 	}
 	sort.Ints(numbers)
 	for i, n := range numbers {
-		if want := 11 + i; n != want {
-			t.Fatalf("concurrent numbers = %v, want 11..%d each exactly once", numbers, 10+racers)
+		if want := 13 + i; n != want {
+			t.Fatalf("concurrent numbers = %v, want 13..%d each exactly once", numbers, 12+racers)
 		}
 	}
 
-	// The ledger agrees: no duplicate number anywhere for this farm and feed, and no gap.
+	// The ledger agrees: every load in the tenant carries a different number, and none is missing.
 	var total, distinct, maxNo int
 	if err := pool.QueryRow(ctx, `
 SELECT count(*), count(DISTINCT batch_no), max(batch_no)
-FROM feed_purchases
-WHERE tenant_id = $1 AND farm_label = 'CPT' AND feed_item_label = 'Dry Sorghum Forage'`, testTenant).
-		Scan(&total, &distinct, &maxNo); err != nil {
+FROM feed_purchases WHERE tenant_id = $1`, testTenant).Scan(&total, &distinct, &maxNo); err != nil {
 		t.Fatalf("read ledger: %v", err)
 	}
-	if total != distinct || maxNo != 10+racers || total != 1+3+racers {
-		t.Fatalf("ledger rows=%d distinct=%d max=%d; want %d distinct rows ending at %d", total, distinct, maxNo, 1+3+racers, 10+racers)
+	if want := 1 + 5 + racers; total != want || distinct != want || maxNo != 12+racers {
+		t.Fatalf("ledger rows=%d distinct=%d max=%d; want %d distinct numbers ending at %d", total, distinct, maxNo, want, 12+racers)
 	}
 }

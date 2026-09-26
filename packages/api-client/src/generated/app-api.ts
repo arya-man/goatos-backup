@@ -9228,7 +9228,7 @@ export interface components {
             feed_item: string;
             /**
              * @deprecated
-             * @description Must be ABSENT (or null). The load number is automatic (maintainer decision 2026-09-26): the next number for this farm and feed is assigned inside the write transaction. A supplied value is refused 422 with a field error on batch_no, never honoured. The field stays in the schema only so an older client is told why.
+             * @description Must be ABSENT (or null). The load number is automatic (maintainer decision 2026-09-26): the next number for this farm and feed is assigned inside the write transaction. A supplied value is refused 400 feed_purchase_invalid_batch_no, never honoured. The field stays in the schema only so an older client is told why.
              */
             batch_no?: number | null;
             /** @description Required and must be more than zero. */

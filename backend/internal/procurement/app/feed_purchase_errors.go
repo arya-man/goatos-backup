@@ -38,7 +38,7 @@ func feedPurchaseFieldLabel(field string) string {
 	case "quantity_kg":
 		return "Quantity (kg)"
 	case "batch_no":
-		return "Batch number"
+		return "Load number"
 	case "feed_cost":
 		return "Feed cost"
 	case "transport_cost":
