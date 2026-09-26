@@ -625,9 +625,9 @@ WHERE tenant_id = $1::uuid
 ORDER BY name, item_id
 LIMIT 500`
 
-// sqlListBreeds is the species-less breed list (feed_breeds, counts_breed, rule_breeds): every
-// species' breeds, one option per breed NAME. It was goat-only until the 2026-09-26 audit, which
-// left a sheep -- or any configured species -- unable to be corrected to its own breed on Counts.
+// sqlListBreeds is the species-less breed list (feed_breeds, rule_breeds): every species'
+// breeds, one option per breed NAME. It was goat-only until the 2026-09-26 audit. (Counts' breed
+// correction reads the carried breeds of allBreedsSQL instead.)
 // A name the farm keeps under two species is one option; the write that takes it resolves the
 // breed within each animal's own species.
 const sqlListBreeds = `
