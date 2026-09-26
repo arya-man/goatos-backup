@@ -514,7 +514,7 @@ class DefaultSalesRepository(
                 } else {
                     1
                 }
-                val deals = mutableListOf<SalesDealDto>()
+                val deals = mutableListOf<SalesDealDto>() // mobile-guard:ignore: local to one mediator load, at most REFRESH_MAX_PAGES pages of 20
                 var nextOffset = offset
                 var total: Int
                 do {
