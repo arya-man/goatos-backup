@@ -1,0 +1,135 @@
+name: stg-deploy-trigger
+
+# Agent/terminal twin of the #goatos-stg-deploy Slack button. It runs the SAME Cloud
+# Build trigger (goatos-stg-deploy-main, identity goatos-github-deploy-stg) with the
+# SAME substitutions the Slack bot sends, from exact origin/main. Auth is GitHub OIDC ->
+# Workload Identity (pool github-goatos, condition repository == vgoats/goatos): no
+# personal gcloud login, no service-account JSON, no second deployment authority.
+#
+#   gh workflow run stg-deploy-trigger.yml -R vgoats/goatos -f mode=backend-web-mobile
+#   gh run watch -R vgoats/goatos "$(gh run list -R vgoats/goatos -w stg-deploy-trigger.yml -L1 --json databaseId -q '.[0].databaseId')"
+#
+# mode=check authenticates and describes the trigger + active builds without running it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: backend-web | backend-web-mobile | mobile-only | check
+        required: true
+        default: check
+        type: choice
+        options: [check, backend-web, backend-web-mobile, mobile-only]
+      sha:
+        description: Optional expected origin/main SHA (refused unless it equals the current main head)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: stg-deploy-trigger
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: goatos-stg
+  TRIGGER_NAME: goatos-stg-deploy-main
+  TRIGGER_LOCATION: global
+  DEPLOY_REGION: asia-south1
+
+jobs:
+  trigger:
+    runs-on: [self-hosted, macOS, ARM64, goatos-local-ci]
+    timeout-minutes: 90
+    steps:
+      - name: Actor allowlist
+        env:
+          ACTOR: ${{ github.actor }}
+        run: |
+          case "$ACTOR" in
+            ravimesha|arya-man|manju-mesha) echo "actor $ACTOR allowed" ;;
+            *) echo "::error::actor $ACTOR may not deploy STG"; exit 1 ;;
+          esac
+
+      - name: Require dispatch from main at exact origin/main head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref }}
+          WANT_SHA: ${{ inputs.sha }}
+        run: |
+          [ "$REF" = "refs/heads/main" ] || { echo "::error::dispatch from main only (got $REF)"; exit 1; }
+          head="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" -q .sha)"
+          echo "origin/main head: $head"
+          if [ -n "$WANT_SHA" ] && [ "${head#"$WANT_SHA"}" = "$head" ]; then
+            echo "::error::sha $WANT_SHA is not the current origin/main head $head"; exit 1
+          fi
+          echo "MAIN_SHA=$head" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.MAIN_SHA }}
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GOATOS_STG_WIF_PROVIDER }}
+          service_account: ${{ vars.GOATOS_STG_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Describe trigger and refuse when a deploy is already running
+        run: |
+          gcloud builds triggers describe "$TRIGGER_NAME" --project="$PROJECT_ID" --region="$TRIGGER_LOCATION" \
+            --format='table(name,id,serviceAccount,github.push.branch)'
+          trigger_id="$(gcloud builds triggers describe "$TRIGGER_NAME" --project="$PROJECT_ID" --region="$TRIGGER_LOCATION" --format='value(id)')"
+          active="$(gcloud builds list --project="$PROJECT_ID" --region="$TRIGGER_LOCATION" --ongoing \
+            --filter="buildTriggerId=$trigger_id AND (substitutions._DEPLOY_STG=true OR substitutions._DEPLOY_MOBILE=true)" \
+            --format='value(id,status)' --limit=5)"
+          if [ -n "$active" ]; then
+            echo "Deploy already running:"; echo "$active"
+            [ "${{ inputs.mode }}" = "check" ] || { echo "::error::another STG deploy is active; not starting a second"; exit 1; }
+          else
+            echo "No active STG deploy."
+          fi
+
+      - name: Run goatos-stg-deploy-main (same substitutions as the Slack bot)
+        if: inputs.mode != 'check'
+        env:
+          MODE: ${{ inputs.mode }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          case "$MODE" in
+            backend-web)        deploy_stg=true;  deploy_mobile=false ;;
+            backend-web-mobile) deploy_stg=true;  deploy_mobile=true ;;
+            mobile-only)        deploy_stg=false; deploy_mobile=true ;;
+          esac
+          source_flag="--branch=main"
+          if [ "$deploy_mobile" = true ]; then
+            # Same checked-in Android version bump the Slack mobile button commits first.
+            export GOATOS_GITHUB_PAT="$(gcloud secrets versions access latest --secret=goatos-github-pat --project="$PROJECT_ID")"
+            echo "::add-mask::$GOATOS_GITHUB_PAT"
+            bump_sha="$(cd tools/deploy/slack-stg-deploy-bot && TRIGGERED_BY="github:$ACTOR" go run . bump-android-version)"
+            unset GOATOS_GITHUB_PAT
+            echo "Android bump commit: $bump_sha"
+            source_flag="--sha=$bump_sha"
+          fi
+          subs="_DEPLOY_STG=$deploy_stg,_DEPLOY_MOBILE=$deploy_mobile,_GOATOS_STG_ZERO_DOWNTIME_DEPLOY=true,_SLACK_USER_ID=,_TRIGGERED_BY=github:$ACTOR"
+          build_id="$(gcloud builds triggers run "$TRIGGER_NAME" --project="$PROJECT_ID" --region="$TRIGGER_LOCATION" \
+            $source_flag --substitutions="$subs" --format='value(metadata.build.id)')"
+          [ -n "$build_id" ] || { echo "::error::trigger run returned no build id"; exit 1; }
+          url="https://console.cloud.google.com/cloud-build/builds;region=$TRIGGER_LOCATION/$build_id?project=$PROJECT_ID&authuser=ravi@mesha.sg"
+          echo "Cloud Build: $build_id"; echo "$url"
+          { echo "### STG deploy ($MODE)"; echo "- Cloud Build: [$build_id]($url)"; } >> "$GITHUB_STEP_SUMMARY"
+          echo "BUILD_ID=$build_id" >> "$GITHUB_ENV"
+
+      - name: Wait for the build and report per-step times
+        if: inputs.mode != 'check'
+        run: |
+          while :; do
+            status="$(gcloud builds describe "$BUILD_ID" --project="$PROJECT_ID" --region="$TRIGGER_LOCATION" --format='value(status)')"
+            case "$status" in QUEUED|WORKING|PENDING) sleep 30 ;; *) break ;; esac
+          done
+          gcloud builds describe "$BUILD_ID" --project="$PROJECT_ID" --region="$TRIGGER_LOCATION" \
+            --format='table(steps.id,steps.status,steps.timing.startTime,steps.timing.endTime)' || true
+          echo "Final status: $status"
+          echo "- Final status: \`$status\`" >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" = "SUCCESS" ]

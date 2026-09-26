@@ -30,7 +30,18 @@ what a failure usually means.
 .github/workflows/pages.yml
 .github/workflows/stg-pr-gate.yml
 .github/workflows/stg-deploy.yml
+.github/workflows/stg-deploy-trigger.yml
 ```
+
+`stg-deploy-trigger` (workflow_dispatch only, self-hosted runner, no paid
+minutes) is how agents deploy STG without a personal gcloud login: GitHub OIDC ->
+Workload Identity -> `goatos-github-deploy-stg`, then it runs the Cloud Build
+trigger `goatos-stg-deploy-main` with the Slack button's substitutions. Inputs:
+`mode` (`check` | `backend-web` | `backend-web-mobile` | `mobile-only`) and an
+optional `sha` that must equal the current `origin/main` head. Common failures:
+"actor ... may not deploy" (allowlist), "another STG deploy is active" (wait for
+the running build), auth errors (WIF provider/var drift). See
+`docs/runbooks/stg-deploy.md`.
 
 This is the main CI guardrail workflow.
 

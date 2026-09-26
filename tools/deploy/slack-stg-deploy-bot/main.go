@@ -191,6 +191,13 @@ type githubUpdateResponse struct {
 }
 
 func main() {
+	// `bump-android-version` is the CLI twin of the Slack mobile button's bump, used by
+	// .github/workflows/stg-deploy-trigger.yml so an agent-dispatched mobile deploy
+	// commits the identical version bump. The PAT comes from GOATOS_GITHUB_PAT (read by
+	// the workflow from the same goatos-github-pat secret); it prints the bump commit SHA.
+	if len(os.Args) > 1 && os.Args[1] == "bump-android-version" {
+		os.Exit(runBumpAndroidVersionCLI())
+	}
 	cfg := config{
 		ProjectID:     env("PROJECT_ID", "goatos-stg"),
 		ProjectNumber: env("PROJECT_NUMBER", "514832198871"),
@@ -1324,4 +1331,32 @@ func mustEnv(key string) string {
 		log.Fatalf("%s is required", key)
 	}
 	return value
+}
+
+func runBumpAndroidVersionCLI() int {
+	pat := strings.TrimSpace(os.Getenv("GOATOS_GITHUB_PAT"))
+	if pat == "" {
+		fmt.Fprintln(os.Stderr, "bump-android-version: GOATOS_GITHUB_PAT is empty")
+		return 2
+	}
+	cfg := config{GitHubOwner: env("GITHUB_OWNER", "vgoats"), GitHubRepo: env("GITHUB_REPO", "goatos")}
+	triggeredBy := env("TRIGGERED_BY", "stg-deploy-trigger workflow")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		next, err := cfg.bumpAndroidReleaseVersionOnce(ctx, pat, triggeredBy)
+		if err == nil {
+			fmt.Fprintf(os.Stderr, "bumped Android release to %s (%d)\n", next.Name, next.Code)
+			fmt.Println(next.CommitSHA)
+			return 0
+		}
+		lastErr = err
+		if !strings.Contains(err.Error(), "409") {
+			break
+		}
+		time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+	}
+	fmt.Fprintln(os.Stderr, "bump-android-version:", lastErr)
+	return 1
 }
