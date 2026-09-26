@@ -10,6 +10,7 @@ import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { ORIGIN_KEYS, canonicalOriginRedirect, originFromParam } from "@/lib/animal-origin";
 import { fmtDate, todayIso } from "@/lib/format";
 import { sharesOfWhole } from "@/lib/shares";
 import {
@@ -261,7 +262,11 @@ export async function WeighingWeightsPage({
   // emptying the page, for the same reason the sex fallback does -- a hand-edited URL must not take
   // the screen down.
   const rawOrigin = one(params, ORIGIN_PARAM);
-  const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
+  // A bookmark from the two-way filter (`origin=purchased`) is rewritten to its three-way key so
+  // the control shows the cohort the figures are actually filtered to.
+  const legacyOrigin = canonicalOriginRedirect("/weighing/weights", params);
+  if (legacyOrigin) redirect(legacyOrigin);
+  const originFilter = originFromParam(rawOrigin);
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
@@ -478,8 +483,7 @@ export async function WeighingWeightsPage({
       allowAll: true,
       value: originFilter,
       options: [
-        { value: "farm_born", label: copy(pageContract, "view.origin.farm_born") },
-        { value: "purchased", label: copy(pageContract, "view.origin.purchased") },
+        ...ORIGIN_KEYS.map((key) => ({ value: key, label: copy(pageContract, `view.origin.${key}`) })),
       ],
     },
   ];

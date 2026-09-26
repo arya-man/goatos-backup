@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/animalorigin"
 	"math"
 	"sort"
 	"strings"
@@ -42,14 +43,12 @@ func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, par
 	if sex == "all" {
 		sex = ""
 	}
-	origin = strings.ToLower(strings.TrimSpace(origin))
-	switch origin {
-	case "", "all", "farm_born", "purchased":
-	default:
-		return domain.FeedWeightBand{}, ports.ErrInvalidArgument
-	}
-	if origin == "all" {
+	if strings.EqualFold(strings.TrimSpace(origin), "all") {
 		origin = ""
+	}
+	origin, ok := animalorigin.Normalize(origin)
+	if !ok {
+		return domain.FeedWeightBand{}, ports.ErrInvalidArgument
 	}
 	weighingCategory = strings.TrimSpace(weighingCategory)
 	if weighingCategory == "all" {

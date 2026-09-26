@@ -70,10 +70,11 @@ VALUES
   ($1::uuid, $4::uuid, $5::uuid, 517.5,  20.7, 25, $6::uuid, $7::uuid, 'fcr:lump:w2', $9::timestamptz)`,
 		gdTenant, gdCampaignW1, fcrBucketW1L, gdCampaignW2, gdBucketW2L, gdProof, gdOperator, day(8, 10), day(15, 10))
 
-	// 25 live goats in the lump pen, one breed, one sex, all goats, none bought.
+	// 25 live goats in the lump pen, one breed, one sex, all goats, none bought, all born here
+	// (origin_type 'birth': since 2026-09-26 "on no load" alone no longer makes a pen farm born).
 	execGD(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id, species)
-SELECT gen_random_uuid(), $1::uuid, 'G-88' || lpad(i::text, 4, '0'), 'Beetal', 'male', 'kid', 'alive', 'kid', $2::uuid, $3::uuid, $4::uuid, $3::uuid, 'goat'
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id, species, origin_type)
+SELECT gen_random_uuid(), $1::uuid, 'G-88' || lpad(i::text, 4, '0'), 'Beetal', 'male', 'kid', 'alive', 'kid', $2::uuid, $3::uuid, $4::uuid, $3::uuid, 'goat', 'birth'
 FROM generate_series(1, 25) AS i`, gdTenant, gdParty, gdShedLump, gdPark)
 
 	// Scanned pen: three kids in the physical shed's pen "Part 2"; two weighed both rounds.

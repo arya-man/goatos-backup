@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -55,7 +56,7 @@ func TestFCRPenSumsSegmentsAndValuesGainAtTheSpeciesPrice(t *testing.T) {
 	if pen.Status != FCRPenOK || pen.BlockedCells != 2 {
 		t.Fatalf("status=%s blocked=%d", pen.Status, pen.BlockedCells)
 	}
-	if pen.Origin != OriginPurchased || pen.Breed != "Anantapur Sheep" || pen.WeightBand != "15-20" {
+	if pen.Origin != OriginProcuredLoad || pen.Breed != "Anantapur Sheep" || pen.WeightBand != "15-20" {
 		t.Fatalf("cohort: origin=%s breed=%s band=%s", pen.Origin, pen.Breed, pen.WeightBand)
 	}
 	near(t, "summary fcr", got.Summary.FCR, 8)
@@ -153,7 +154,7 @@ func TestFCRPensClusterByParkCodeThenReadAToZ(t *testing.T) {
 func TestFCRCohortsAreAgreeOrNeitherAndFiltersApplyPerPen(t *testing.T) {
 	pens := []FCRPenRow{
 		{PenKey: "m", LocationID: "m", ParkID: "p", ParkName: "P", ShedName: "M", Rounds: 2, LatestAnimals: 12, Residents: 12, Breeds: 2, Breed: "Beetal", Sexes: 2, Sex: "male", SpeciesCount: 1, Species: "goat", BoughtResidents: 4, FirstAverageKg: f(31)},
-		{PenKey: "g", LocationID: "g", ParkID: "p", ParkName: "P", ShedName: "G", Rounds: 2, LatestAnimals: 8, Residents: 8, Breeds: 1, Breed: "Sirohi", Sexes: 1, Sex: "male", SpeciesCount: 1, Species: "goat", BoughtResidents: 0, FirstAverageKg: f(14.9)},
+		{PenKey: "g", LocationID: "g", ParkID: "p", ParkName: "P", ShedName: "G", Rounds: 2, LatestAnimals: 8, Residents: 8, Breeds: 1, Breed: "Sirohi", Sexes: 1, Sex: "male", SpeciesCount: 1, Species: "goat", BoughtResidents: 0, FarmBornResidents: 8, FirstAverageKg: f(14.9)},
 	}
 	segments := []FCRSegmentRow{
 		{PenKey: "m", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 100, FeedKg: f(84), HeadDays: f(84)},
@@ -185,7 +186,7 @@ func TestFCRCohortsAreAgreeOrNeitherAndFiltersApplyPerPen(t *testing.T) {
 		t.Fatalf("sex filter must drop the mixed pen whole, got %+v", filtered.Pens)
 	}
 	near(t, "filtered fcr", filtered.Summary.FCR, 5)
-	byOrigin := BuildFCRReport(pens, segments, SalePrices{}, FCRFilters{Origin: OriginPurchased})
+	byOrigin := BuildFCRReport(pens, segments, SalePrices{}, FCRFilters{Origin: OriginProcuredLoad})
 	if len(byOrigin.Pens) != 0 {
 		t.Fatalf("a pen with 4 of 12 bought is claimed by neither origin, got %+v", byOrigin.Pens)
 	}
@@ -317,7 +318,7 @@ func TestEmptiedPenFallsBackToTheWeighedCohort(t *testing.T) {
 	segments := []FCRSegmentRow{{PenKey: "e", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 100, FeedKg: f(63), FeedCostINR: f(1260), HeadDays: f(63)}}
 	got := BuildFCRReport(pens, segments, SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 450}}}, FCRFilters{})
 	pen := got.Pens[0]
-	if pen.Breed != "Sirohi" || pen.Sex != "male" || pen.Species != "goat" || pen.Origin != OriginPurchased {
+	if pen.Breed != "Sirohi" || pen.Sex != "male" || pen.Species != "goat" || pen.Origin != OriginProcuredLoad {
 		t.Fatalf("cohort = %+v", pen)
 	}
 	near(t, "gain value from the weighed cohort", pen.GainValueINR, 6.3*450)
@@ -404,5 +405,64 @@ func TestFCRBandGroupsCarryTheFarmWording(t *testing.T) {
 	}
 	if words := BandFarmLabelsFor(nil); words[1] != "15 – 20 kg" || words[len(words)-1] != "35 kg and over" {
 		t.Fatalf("farm band words = %v", words)
+	}
+}
+
+// THREE ORIGIN COHORTS (maintainer decision 2026-09-26). "On no load" is no longer farm born: a
+// pen of animals bought without a load is its own cohort, and a pen whose residents carry no
+// recorded origin is claimed by none of the three.
+func TestFCROriginKeepsFarmBornApartFromProcuredWithoutALoad(t *testing.T) {
+	cases := []struct {
+		name                 string
+		bought, born, noLoad int
+		want                 string
+	}{
+		{"all on a load", 6, 0, 0, OriginProcuredLoad},
+		{"all born here", 0, 6, 0, OriginFarmBorn},
+		{"all bought without a load", 0, 0, 6, OriginProcuredNoLoad},
+		// The defect: before 2026-09-26 this pen read as farm born because none was on a load.
+		{"no recorded origin, on no load", 0, 0, 0, CohortMixed},
+		{"born and bought without a load", 0, 3, 3, CohortMixed},
+	}
+	for _, c := range cases {
+		if got := originFor(6, c.bought, c.born, c.noLoad); got != c.want {
+			t.Errorf("%s: origin = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := originFor(0, 0, 0, 0); got != CohortUnknown {
+		t.Errorf("an empty pen has no origin to report, got %q", got)
+	}
+}
+
+// Pagination: the origin groups are whole-report aggregates. The pens table pages on the client,
+// so a farm-born pen past the first page must still be counted in its cohort.
+func TestFCROriginGroupsCountEveryPenPastThePageBoundary(t *testing.T) {
+	const pens = 30 // more than the 25-row page the pens table shows
+	var rows []FCRPenRow
+	var segments []FCRSegmentRow
+	for i := 0; i < pens; i++ {
+		key := fmt.Sprintf("p%02d", i)
+		row := FCRPenRow{PenKey: key, LocationID: key, ParkID: "p", ParkName: "P", ShedName: key, Rounds: 2, LatestAnimals: 4,
+			Residents: 4, Breeds: 1, Breed: "Sirohi", Sexes: 1, Sex: "male", SpeciesCount: 1, Species: "goat", FirstAverageKg: f(14)}
+		switch i % 3 {
+		case 0:
+			row.FarmBornResidents = 4
+		case 1:
+			row.NoLoadResidents = 4
+		default:
+			row.BoughtResidents = 4
+		}
+		rows = append(rows, row)
+		segments = append(segments, FCRSegmentRow{PenKey: key, StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 100, FeedKg: f(28), HeadDays: f(28)})
+	}
+	got := BuildFCRReport(rows, segments, SalePrices{}, FCRFilters{})
+	counted := map[string]int{}
+	for _, g := range got.ByOrigin {
+		counted[g.Key] = g.Pens
+	}
+	for _, key := range []string{OriginFarmBorn, OriginProcuredNoLoad, OriginProcuredLoad} {
+		if counted[key] != pens/3 {
+			t.Fatalf("origin %s counts %d pens, want %d (every pen, not one page): %+v", key, counted[key], pens/3, got.ByOrigin)
+		}
 	}
 }

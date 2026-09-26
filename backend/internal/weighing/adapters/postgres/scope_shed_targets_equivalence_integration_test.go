@@ -150,6 +150,13 @@ ON CONFLICT (load_id) DO NOTHING`, loadID, repoTenant, repoParty)
 INSERT INTO procurement_load_goats (load_goat_id, tenant_id, load_id, goat_id)
 VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid), (gen_random_uuid(), $1::uuid, $2::uuid, $4::uuid), (gen_random_uuid(), $1::uuid, $2::uuid, $5::uuid)
 ON CONFLICT DO NOTHING`, repoTenant, loadID, goatMixedM, goatSelfA, goatSelfB)
+	// Every animal NOT on the load was born here. Since 2026-09-26 "on no load" alone no longer
+	// makes an animal farm born (platform/animalorigin), so the register has to say it.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE goats SET origin_type = 'birth'
+WHERE tenant_id = $1::uuid AND goat_id = ANY($2::uuid[])
+  AND NOT EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id = goats.goat_id)`,
+		repoTenant, []string{goatSelfA, goatSelfB, goatPart1A, goatPart1B, goatPart2, goatMixedM, goatMixedF, goatReissuedOld, goatReissuedNew, goatSelfParentF})
 
 	// Tags: a straight tag per scanned kid, plus ONE RE-ISSUED tag. "re-930" was on a female first
 	// and is now on a male; the identifier rows differ only in case (the lifetime-unique column is
@@ -231,7 +238,7 @@ func TestSetBasedShedTargetsResolvesTheSameScopeAsTheCorrelatedForm(t *testing.T
 			assertScopeReachesFixture(t, got, sex)
 		}
 	}
-	for _, origin := range []string{OriginPurchased, OriginFarmBorn} {
+	for _, origin := range []string{OriginProcuredLoad, OriginFarmBorn} {
 		for _, allTime := range []bool{false, true} {
 			got := runScopeQueryForTest(t, ctx, pool, originQuery.current, repoTenant, parks, windowFrom, windowTo, origin, allTime)
 			want := runScopeQueryForTest(t, ctx, pool, originQuery.legacy, repoTenant, parks, windowFrom, windowTo, origin, allTime)

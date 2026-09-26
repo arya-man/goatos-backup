@@ -13,6 +13,7 @@ import (
 	fwrdomain "github.com/vgoats/goatos/backend/internal/feedwaterremoval/domain"
 	fwrports "github.com/vgoats/goatos/backend/internal/feedwaterremoval/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/animalorigin"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -1976,12 +1977,10 @@ func validateWeighingCategoryFilter(weighingCategory string) error {
 }
 
 func validateOriginFilter(origin string) error {
-	switch strings.TrimSpace(origin) {
-	case "", "farm_born", "purchased":
-		return nil
-	default:
+	if _, ok := animalorigin.Normalize(origin); !ok {
 		return ports.ErrInvalidArgument
 	}
+	return nil
 }
 
 // resolveMonitorParkScope turns an OPTIONAL park_id into the concrete park list a

@@ -229,7 +229,7 @@ func TestGetFeedWeightBandGateWindowAndFilters(t *testing.T) {
 		t.Fatalf("window must be inclusive from, exclusive day after to: %v .. %v", repo.gotStart, repo.gotEnd)
 	}
 	// The filters reach the repository as the weighing resolvers expect them: "all" is blank.
-	if repo.gotSex != "male" || repo.gotOrigin != "purchased" || repo.gotMode != "" {
+	if repo.gotSex != "male" || repo.gotOrigin != "procured_load" || repo.gotMode != "" {
 		t.Fatalf("filters must reach the repository normalised, got sex=%q origin=%q mode=%q", repo.gotSex, repo.gotOrigin, repo.gotMode)
 	}
 	if got.Reconciliation.OutputRows != 5 {

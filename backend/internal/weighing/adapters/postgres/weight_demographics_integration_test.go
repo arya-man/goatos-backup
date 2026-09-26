@@ -1236,9 +1236,9 @@ SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, management_stage=EXCLUDED.management
 	// weigh has no tags and is attributed through the pen's residents; without a row here the pen
 	// resolves to no breed and drops out of the breed aggregate entirely.
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-940002', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
-ON CONFLICT (goat_id) DO UPDATE SET shed_id = EXCLUDED.shed_id`,
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id, origin_type)
+VALUES ($1::uuid, $2::uuid, 'G-940002', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid, 'birth')
+ON CONFLICT (goat_id) DO UPDATE SET shed_id = EXCLUDED.shed_id, origin_type = EXCLUDED.origin_type`,
 		partBGoat, repoTenant, repoParty, weightDemoPartitionShed, repoPark)
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)

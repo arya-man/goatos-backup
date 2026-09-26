@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/animalorigin"
 )
 
 // FEED CONVERSION RATIO (maintainer request 2026-09-07): "under weighing add a tab called FCR --
@@ -43,10 +45,13 @@ const (
 	CohortUnknown = "unknown"
 )
 
-// Origin labels, matching the weighing origin filter vocabulary.
+// Origin labels: the three cohorts of platform/animalorigin, the vocabulary the Weights page's
+// origin filter uses (maintainer decision 2026-09-26, replacing farm born / purchased, where "farm
+// born" meant "on no load" and so held every animal bought without one).
 const (
-	OriginFarmBorn  = "farm_born"
-	OriginPurchased = "purchased"
+	OriginFarmBorn       = animalorigin.FarmBorn
+	OriginProcuredNoLoad = animalorigin.ProcuredNoLoad
+	OriginProcuredLoad   = animalorigin.ProcuredLoad
 )
 
 // Pen statuses. Exactly one per pen; a pen with an FCR is "ok" even when it also carries blocked
@@ -195,6 +200,11 @@ type FCRPenRow struct {
 	ResidentMix     []HeadMix // live residents per (species, stage, sex), for the head-weighted sale price
 	BreedMembers    []FCRCohortMember
 	BoughtResidents int
+	// FarmBornResidents / NoLoadResidents count the live residents of the other two origin
+	// cohorts (origin_type 'birth' / 'procured', each on no load). A resident answering no cohort
+	// is in none of the three counts, so a pen holding one is never claimed by any origin.
+	FarmBornResidents int
+	NoLoadResidents   int
 	// Weighed* describe the animals actually SCANNED in this pen during the window, resolved
 	// through the register regardless of where they are now or whether they are still alive. They
 	// are the fallback cohort for a pen that has NO live residents today -- kids sold or moved after
@@ -210,6 +220,8 @@ type FCRPenRow struct {
 	WeighedMix          []HeadMix
 	WeighedBreedMembers []FCRCohortMember
 	WeighedBought       int
+	WeighedFarmBorn     int
+	WeighedNoLoad       int
 	IndividualScanned   bool
 	WholeShedWeighed    bool
 	WindowFeedKg        *float64 // directed kg over the WHOLE window, for pens with no segment
@@ -548,6 +560,8 @@ func cohortSource(row FCRPenRow) FCRPenRow {
 	row.ResidentMix = row.WeighedMix
 	row.BreedMembers = row.WeighedBreedMembers
 	row.BoughtResidents = row.WeighedBought
+	row.FarmBornResidents = row.WeighedFarmBorn
+	row.NoLoadResidents = row.WeighedNoLoad
 	return row
 }
 
@@ -573,7 +587,7 @@ func penFromRow(row FCRPenRow, bandEdges []float64) FCRPen {
 		Breed:        cohortDisplay(row.Residents, row.Breeds, row.Breed),
 		Sex:          cohortValue(row.Residents, row.Sexes, row.Sex),
 		Species:      cohortValue(row.Residents, row.SpeciesCount, row.Species),
-		Origin:       originFor(row.Residents, row.BoughtResidents),
+		Origin:       originFor(row.Residents, row.BoughtResidents, row.FarmBornResidents, row.NoLoadResidents),
 		BlockedCells: row.WindowBlockedCells,
 		Status:       FCRPenWeighedOnce,
 		ADGGPerDay:   row.GeneralADGGPerDay,
@@ -846,17 +860,20 @@ func cohortLabel(value string) string {
 	return value
 }
 
-// originFor: purchased when EVERY live resident came off a procurement load, farm born when NONE
-// did, mixed otherwise -- the identical agree-or-neither shape the Weights page's Origin filter
-// applies to a whole-shed pen.
-func originFor(residents, bought int) string {
+// originFor: a pen belongs to an origin cohort only when EVERY live resident answers it -- all on
+// a load, all farm born, or all procured without a load -- and is "mixed" otherwise, including a
+// pen holding an animal whose origin is not recorded. The identical agree-or-neither shape the
+// Weights page's Origin filter applies to a whole-shed pen.
+func originFor(residents, bought, born, noLoad int) string {
 	switch {
 	case residents == 0:
 		return CohortUnknown
 	case bought == residents:
-		return OriginPurchased
-	case bought == 0:
+		return OriginProcuredLoad
+	case born == residents:
 		return OriginFarmBorn
+	case noLoad == residents:
+		return OriginProcuredNoLoad
 	default:
 		return CohortMixed
 	}

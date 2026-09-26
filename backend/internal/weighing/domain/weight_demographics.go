@@ -94,7 +94,7 @@ type WeightGainThresholdBucket struct {
 type WeightGainOriginBucket struct {
 	// Label is the breed as stored ("Anantapur Sheep"). Clients render it; they do not re-map it.
 	Label string `json:"label"`
-	// Origin is exactly "farm_born" or "purchased". A bucket is never emitted for an animal or pen
+	// Origin is exactly "farm_born", "procured_no_load" or "procured_load" (platform/animalorigin). A bucket is never emitted for an animal or pen
 	// that is on neither side.
 	Origin string `json:"origin"`
 	// Animals is the count behind MedianGainGPerDay: scanned kids of this breed and origin with a

@@ -59,8 +59,10 @@ function groupLabel(pageContract: AdminUiPageContract, group: GrowthFCRGroup, id
       return copy(pageContract, "label.fcr.unknown");
     case "farm_born":
       return copy(pageContract, "label.fcr.farm_born");
-    case "purchased":
-      return copy(pageContract, "label.fcr.purchased");
+    case "procured_no_load":
+      return copy(pageContract, "label.fcr.procured_no_load");
+    case "procured_load":
+      return copy(pageContract, "label.fcr.procured_load");
     default:
       return group.label;
   }

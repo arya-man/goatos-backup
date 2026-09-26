@@ -346,8 +346,11 @@ WITH exited AS (
     AND g.merged_into_goat_id IS NULL
     AND g.exited_at >= $3::timestamptz AND g.exited_at < $4::timestamptz
     AND ($5::text = '' OR g.sex = $5::text)
+    -- Origin per platform/animalorigin: a load wins, then the register's origin_type.
     AND ($6::text = ''
-         OR ($6::text = 'purchased') = EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = g.tenant_id AND plg.goat_id = g.goat_id))
+         OR $6::text = (CASE WHEN EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = g.tenant_id AND plg.goat_id = g.goat_id) THEN 'procured_load'
+                             WHEN g.origin_type = 'birth' THEN 'farm_born'
+                             WHEN g.origin_type = 'procured' THEN 'procured_no_load' END))
 ),
 -- NOT MATERIALIZED: referenced twice, so Postgres would otherwise fence it off and plan the
 -- weigh join against a one-row estimate, walking the whole window's observations per tag

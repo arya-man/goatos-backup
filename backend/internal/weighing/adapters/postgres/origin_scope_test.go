@@ -30,8 +30,11 @@ func TestNormalizeOriginFilterRejectsUnknownValuesAsInvalidArgument(t *testing.T
 	for _, in := range []struct{ raw, want string }{
 		{"", ""},
 		{"farm_born", OriginFarmBorn},
-		{"purchased", OriginPurchased},
-		{" PURCHASED ", OriginPurchased},
+		{"procured_no_load", OriginProcuredNoLoad},
+		{"procured_load", OriginProcuredLoad},
+		// The retired two-way key still means the load cohort, so an old bookmark keeps working.
+		{"purchased", OriginProcuredLoad},
+		{" PURCHASED ", OriginProcuredLoad},
 	} {
 		got, err := normalizeOriginFilter(in.raw)
 		if err != nil {
