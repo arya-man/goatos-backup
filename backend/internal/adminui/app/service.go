@@ -5307,8 +5307,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.line_total_weight_kg": "Weight (kg)",
 			"field.line_sales_value":     "Value (₹)",
 			// The detail table's quantity cell: "20 kg at ₹40/kg" for a line priced by the unit
-			// (feed, manure, a farm item), blank for an animal line, which carries head and weight.
+			// (feed, manure, a farm item), a dash for an animal line, which carries head and weight.
 			"field.line_quantity_rate": "Quantity",
+			// A cell that does not apply to its line -- a quantity on an animal line, a head count
+			// or weight on a line sold by the kilogram. "Not recorded" there would read as missing
+			// data when nothing was ever owed.
+			"value.not_applicable": "—",
 			// A feed line is priced by the kilogram, so it asks for the quantity and the rate and
 			// works the value out. The labels say "feed" plainly: the operator is selling a sack,
 			// not a "product of kind feed".

@@ -217,6 +217,7 @@ export function SalesRecordDrawer({
   }, [open, close]);
 
   const none = copy(pageContract, "value.none");
+  const notApplicable = copy(pageContract, "value.not_applicable");
   const field = (key: string) => copy(pageContract, `field.${key}`);
   const title = isAdding ? copy(pageContract, "drawer.record_sale.title") : copy(pageContract, "drawer.detail.title");
   const showPaymentActions = canUpdatePayment || canDeletePayment;
@@ -590,9 +591,9 @@ export function SalesRecordDrawer({
             {deal.lines.length === 0 ? (
               <div className="note">{copy(pageContract, "detail.lines.empty")}</div>
             ) : (
-              // Its own pan region: the cells never wrap, so a feed line ("Dry Masoor Bhusa",
-              // "Not recorded" twice, a lakh value) is wider than the drawer and painted past its
-              // edge on a laptop and clean off a phone.
+              // Its own pan region: headers, breed and quantity wrap so the six columns fit a
+              // laptop drawer, but a phone is narrower than any readable six-column table, so the
+              // table pans here rather than painting off the screen.
               <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.lines.title")}>
               <table className="sales-lines-table" data-testid="sale-detail-lines">
                 <thead>
@@ -606,16 +607,23 @@ export function SalesRecordDrawer({
                   </tr>
                 </thead>
                 <tbody>
-                  {deal.lines.map((line) => (
-                    <tr key={line.line_id}>
-                      <td>{line.product_type}</td>
-                      <td>{line.breed}</td>
-                      <td className="num">{line.animal_count == null ? none : num(line.animal_count)}</td>
-                      <td className="num">{line.total_weight_kg == null ? none : num(line.total_weight_kg, 1)}</td>
-                      <td className="num">{quantityAtRate(line.quantity, line.unit, line.rate_per_unit) || none}</td>
-                      <td className="num">{inr(line.sales_value)}</td>
-                    </tr>
-                  ))}
+                  {deal.lines.map((line) => {
+                    // A cell that does not belong to the line's kind reads as a dash, never as
+                    // "Not recorded": an animal line owes no quantity, and a line sold by the unit
+                    // owes no head count or weight.
+                    const byUnit = line.quantity != null;
+                    const isAnimal = line.product_kind === "animal";
+                    return (
+                      <tr key={line.line_id}>
+                        <td>{line.product_type}</td>
+                        <td className="wrap">{line.breed}</td>
+                        <td className="num">{line.animal_count == null ? (byUnit ? notApplicable : none) : num(line.animal_count)}</td>
+                        <td className="num">{line.total_weight_kg == null ? (byUnit ? notApplicable : none) : num(line.total_weight_kg, 1)}</td>
+                        <td className="num wrap">{quantityAtRate(line.quantity, line.unit, line.rate_per_unit) || (isAnimal ? notApplicable : none)}</td>
+                        <td className="num">{inr(line.sales_value)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               </div>

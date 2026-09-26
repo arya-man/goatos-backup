@@ -6340,6 +6340,8 @@ input[type="checkbox"]:not(.lt-people-row input):disabled{opacity:.5;cursor:not-
 :where(.card)>:where(.empty){padding:14px 16px;color:var(--muted);font-size:12.5px;line-height:1.5}
 .sales-lines-table th,.sales-lines-table td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 .sales-lines-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600}
+/* On a laptop the headers and the two long text cells (breed, "2,000 kg at ₹2.50/kg") wrap so all six columns fit the drawer. A phone keeps one line per cell and pans inside .twrap: wrapping there only stacks "2,000 kg / at / ₹2.50/kg". */
+@media (min-width:481px){.sales-lines-table th,.sales-lines-table td.wrap{white-space:normal}.sales-lines-table td.wrap{min-width:64px}}
 .sales-lines-table .num{text-align:right;font-variant-numeric:tabular-nums}
 @media (max-width:480px){.sales-line-grid,.sales-line-grid-3{grid-template-columns:1fr}}
 /* per-column pager (each column pages its own lane) */
