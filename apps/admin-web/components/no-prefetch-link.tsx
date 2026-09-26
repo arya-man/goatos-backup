@@ -1,3 +1,5 @@
+"use client";
+
 import NextLink, { useLinkStatus } from "next/link";
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
 
