@@ -14,6 +14,8 @@ import type { FeedAnalyticsExecutionResponse } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
+import { DrawerMetaGrid, DrawerMetaItem } from "@/components/app/detail-drawer";
+import Typography from "@mui/material/Typography";
 
 // Feed direction completion — WHO fed, WHO did not, and what they filmed (maintainer decision
 // 2026-08-26: operators were skipping proof uploads and no screen could show it). One row per
@@ -326,46 +328,25 @@ function drawerItem(row: CompletionRow, pageContract: AdminUiPageContract): Loca
     title: row.operational_location_display,
     body: (
       <>
-        <div className="metagrid">
-          <div>
-            <div className="k">{fc("drawer.completion.farm")}</div>
-            <div className="v">{row.park_label}</div>
-          </div>
-          <div>
-            <div className="k">{fc("drawer.completion.session")}</div>
-            <div className="v">{row.session_label || String(row.session_no)}</div>
-          </div>
-          <div>
-            <div className="k">{fc("drawer.completion.status")}</div>
-            <div className="v">{status}</div>
-          </div>
-          <div>
-            <div className="k">{fc("drawer.completion.submitted_by")}</div>
-            <div className="v">{row.submitted_by_name || dash}</div>
-          </div>
-          <div>
-            <div className="k">{fc("drawer.completion.submitted_at")}</div>
-            <div className="v">{istInstant(row.submitted_at) ?? dash}</div>
-          </div>
-          <div>
-            <div className="k">{fc("drawer.completion.verified_by")}</div>
-            <div className="v">{row.verified_by_name || dash}</div>
-          </div>
-          <div>
-            <div className="k">{fc("drawer.completion.verified_at")}</div>
-            <div className="v">{istInstant(row.verified_at) ?? dash}</div>
-          </div>
-        </div>
+        <DrawerMetaGrid>
+          <DrawerMetaItem label={fc("drawer.completion.farm")}>{row.park_label}</DrawerMetaItem>
+          <DrawerMetaItem label={fc("drawer.completion.session")}>{row.session_label || String(row.session_no)}</DrawerMetaItem>
+          <DrawerMetaItem label={fc("drawer.completion.status")}>{status}</DrawerMetaItem>
+          <DrawerMetaItem label={fc("drawer.completion.submitted_by")}>{row.submitted_by_name || dash}</DrawerMetaItem>
+          <DrawerMetaItem label={fc("drawer.completion.submitted_at")}>{istInstant(row.submitted_at) ?? dash}</DrawerMetaItem>
+          <DrawerMetaItem label={fc("drawer.completion.verified_by")}>{row.verified_by_name || dash}</DrawerMetaItem>
+          <DrawerMetaItem label={fc("drawer.completion.verified_at")}>{istInstant(row.verified_at) ?? dash}</DrawerMetaItem>
+        </DrawerMetaGrid>
 
         {row.rework_reason ? (
-          <p className="muted small" style={{ marginTop: 10 }}>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {`${fc("drawer.completion.rework")}: ${row.rework_reason}`}
-          </p>
+          </Typography>
         ) : null}
 
-        <h4 className="h" style={{ marginTop: 14 }}>
+        <Typography variant="subtitle2" component="h4" sx={{ m: 0 }}>
           {fc("drawer.completion.videos")}
-        </h4>
+        </Typography>
         <div className="tablewrap">
           <Table className="tbl">
             <TableHead>

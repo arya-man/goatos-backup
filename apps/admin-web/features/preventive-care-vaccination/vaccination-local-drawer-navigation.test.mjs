@@ -59,6 +59,9 @@ test("shared local overlay lifecycle covers history, Escape, outside click, focu
   assert.match(navigation, /window\.history\.back\(\)/);
   assert.match(navigation, /event\.key !== "Escape"/);
   assert.match(navigation, /previousFocusRef\.current\?\.focus\(\)/);
-  assert.match(drawer, /onClick=\{closeDrawer\}/);
-  assert.match(drawer, /className=\{`drawer\$\{drawerOpen \? " on" : ""\}`\}/);
+  // Template MinimalDrawer (portal + backdrop): X, backdrop and Escape all land on closeDrawer.
+  assert.match(drawer, /<DetailDrawer/);
+  assert.match(drawer, /open=\{drawerOpen\}/);
+  assert.match(drawer, /onClose=\{closeDrawer\}/);
+  assert.match(navigation, /if \(!openRef\.current\) return;/);
 });

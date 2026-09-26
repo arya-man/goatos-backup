@@ -41,6 +41,8 @@ import {
 } from "@/features/preventive-care-vaccination";
 import { ShedEventActions } from "./shed-event-actions";
 import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
+import { DrawerMetaGrid, DrawerMetaItem } from "@/components/app/detail-drawer";
+import { LinkButton } from "@/components/minimal/link-button";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
 const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "missed", "blocked", "rejected"]);
@@ -553,45 +555,26 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
     icon: <Syringe className="ic" aria-hidden="true" />,
     body: (
       <>
-          <div className="metagrid">
-            <div>
-              <div className="k">{copy(pageContract, "drawer.shed_event.shed_event")}</div>
-              <div className="v">{driveLabel}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.shed_event.shed")}</div>
-              <div className="v">{/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
-              {partitionLabel(row)}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.shed_event.owner_assist")}</div>
-              <div className="v">{row.owner?.operatorName ?? copy(pageContract, "label.owner_chain_to_assign")}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.shed_event.stock")}</div>
-              <div className="v">{copy(pageContract, "label.stock_resolved_action_center")}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.shed_event.status")}</div>
-              <div className="v">
-                <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag>
-              </div>
-            </div>
-          </div>
+          <DrawerMetaGrid>
+            <DrawerMetaItem label={copy(pageContract, "drawer.shed_event.shed_event")}>{driveLabel}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "drawer.shed_event.shed")}>{/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
+              {partitionLabel(row)}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "drawer.shed_event.owner_assist")}>{row.owner?.operatorName ?? copy(pageContract, "label.owner_chain_to_assign")}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "drawer.shed_event.stock")}>{copy(pageContract, "label.stock_resolved_action_center")}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "drawer.shed_event.status")}><Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag></DrawerMetaItem>
+          </DrawerMetaGrid>
           <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${partitionLabel(row)}`} vaccineName={driveLabel} pageContract={pageContract} />
-          <div style={{ marginTop: 16 }}>
-            <ShedEventActions pageContract={pageContract} />
-          </div>
+          <ShedEventActions pageContract={pageContract} />
       </>
     ),
     footer: (
       <>
-          <Link href={actionCenterHref} className="btn" scroll={false}>
+          <LinkButton href={actionCenterHref} variant="outlined" color="inherit" scroll={false}>
             {copy(pageContract, "action.open_action_center")}
-          </Link>
-          <Link href={detailHref} className="btn">
+          </LinkButton>
+          <LinkButton href={detailHref} variant="outlined" color="inherit">
             {copy(pageContract, "action.shed_detail")}
-          </Link>
+          </LinkButton>
       </>
     ),
   };

@@ -12,7 +12,8 @@ test("protocol-adherence record drawers open locally without a route/RSC navigat
   assert.match(pageSource, /ProtocolAdherenceLocalDrawer/);
   assert.match(drawerSource, /useLocalOverlaySelection/);
   assert.match(drawerSource, /selectionKey: "adh_row"/);
-  assert.match(drawerSource, /className=\{`scrim\$\{drawerOpen \? " on" : ""\}`\}/);
+  assert.match(drawerSource, /<DetailDrawer/);
+  assert.match(drawerSource, /onClose=\{closeDrawer\}/);
 	assert.doesNotMatch(drawerSource, /<Link[^>]+className="veil"/);
 });
 

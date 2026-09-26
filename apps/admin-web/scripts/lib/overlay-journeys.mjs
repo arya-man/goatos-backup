@@ -40,6 +40,8 @@ export async function assertReadOnlyClickTarget(locator, options = {}) {
 }
 
 const DRAWER = { overlay: "aside.drawer.on", header: ".dh", body: ".dc" };
+// Template MinimalDrawer via components/app/detail-drawer.tsx (portalled MUI Drawer paper, role=dialog).
+const DETAIL_DRAWER = { overlay: ".MuiDrawer-root .MuiDrawer-paper[role=dialog]" };
 
 /**
  * routeName -> steps. Route names match smoke-visual-live.mjs's route list.
@@ -147,7 +149,7 @@ export const overlayJourneys = {
       id: "item-row-drawer",
       // features/configuration/items-page.tsx: <LocalOverlayLink className="cfg-row-link"> ; LocalOverlayDrawer (components/local-overlay-drawer.tsx)
       trigger: "a.cfg-row-link",
-      ...DRAWER,
+      ...DETAIL_DRAWER,
       kind: "drawer",
       source: "features/configuration/items-page.tsx, components/local-overlay-drawer.tsx",
     },
@@ -157,7 +159,7 @@ export const overlayJourneys = {
       id: "routine-drawer",
       // features/pen-routines/routines-page.tsx: routine name cell -> <LocalOverlayLink href=?edit=<id>> (no class); LocalOverlayDrawer
       trigger: 'table.tbl a[href*="edit="]:not(.btn):not([href*="edit=new"])',
-      ...DRAWER,
+      ...DETAIL_DRAWER,
       kind: "drawer",
       source: "features/pen-routines/routines-page.tsx, components/local-overlay-drawer.tsx",
     },

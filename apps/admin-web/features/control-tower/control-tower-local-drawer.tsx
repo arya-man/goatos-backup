@@ -1,11 +1,12 @@
 "use client";
 
-import Link from "@/components/no-prefetch-link";
+import { LinkButton } from "@/components/minimal/link-button";
+import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem, DrawerNote } from "@/components/app/detail-drawer";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ControlTowerAlert } from "@/lib/api/server";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { Tone } from "@/features/process-integrity";
 
 const SEVERITY_FILL = {
@@ -47,7 +48,7 @@ export function ControlTowerLocalDrawer({
   initialSelectedAlertId?: string;
   closeHref: string;
 }) {
-  const { displayedItem: displayedRecord, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem: displayedRecord, drawerOpen, closeDrawer } = useLocalOverlaySelection({
     items: records,
     itemId: alertId,
     selectionKey: "ct_alert",
@@ -55,30 +56,8 @@ export function ControlTowerLocalDrawer({
     closeHref,
   });
 
-  return (
-    <>
-      {displayedRecord ? (
-        <button
-          type="button"
-          className={`scrim${drawerOpen ? " on" : ""}`}
-          data-testid="control-tower-drawer-scrim"
-          aria-label={copy(pageContract, "drawer.alert.close_label")}
-          aria-hidden={!drawerOpen}
-          tabIndex={drawerOpen ? 0 : -1}
-          onClick={closeDrawer}
-        />
-      ) : null}
-      {displayedRecord ? (
-        <ControlTowerAlertDrawer
-          record={displayedRecord}
-          pageContract={pageContract}
-          open={drawerOpen}
-          closeDrawer={closeDrawer}
-          closeButtonRef={closeButtonRef}
-        />
-      ) : null}
-    </>
-  );
+  if (!displayedRecord) return null;
+  return <ControlTowerAlertDrawer record={displayedRecord} pageContract={pageContract} open={drawerOpen} closeDrawer={closeDrawer} />;
 }
 
 function ControlTowerAlertDrawer({
@@ -86,50 +65,44 @@ function ControlTowerAlertDrawer({
   pageContract,
   open,
   closeDrawer,
-  closeButtonRef,
 }: {
   record: ControlTowerDrawerRecord;
   pageContract: AdminUiPageContract;
   open: boolean;
   closeDrawer: () => void;
-  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const { alert } = record;
   const fill = SEVERITY_FILL[alert.severity];
   const owner = alert.owner?.operator_name ?? alert.owner?.park_head_name ?? copy(pageContract, "label.owner_unassigned");
   return (
-    <aside className={`drawer${open ? " on" : ""}`} aria-label={copy(pageContract, "drawer.alert.aria")} aria-hidden={!open} inert={!open}>
-      <div className="dh">
-        <span className="fic" style={{ background: fill.bg, color: fill.fg }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-        </span>
-        <div>
-          <div className="mt">{pageContract.title}</div>
-          <h2>{alert.title}</h2>
-        </div>
-        <span className="sp" style={{ flex: 1 }} />
-        <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.alert.close_label")} onClick={closeDrawer}>
-          <X className="ic" />
-        </button>
-      </div>
-      <div className="dc">
-        <div className="metagrid">
-          <div><div className="k">{copy(pageContract, "label.gap")}</div><div className="v"><Tag tone={optionTone(pageContract, "work_state_filter_chips", alert.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", alert.work_state)}</Tag></div></div>
-          <div><div className="k">{copy(pageContract, "label.severity")}</div><div className="v"><Tag tone={optionTone(pageContract, "severity_chips", alert.severity) as Tone}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag></div></div>
-          <div><div className="k">{copy(pageContract, "label.scope")}</div><div className="v">{alert.scope_label}</div></div>
-          <div><div className="k">{copy(pageContract, "label.detail")}</div><div className="v">{alert.detail}</div></div>
-          <div><div className="k">{copy(pageContract, "label.owner")}</div><div className="v">{owner}</div></div>
-          <div><div className="k">{copy(pageContract, "label.next_action")}</div><div className="v">{alert.next_action}</div></div>
-          <div><div className="k">{copy(pageContract, "label.evidence")}</div><div className="v">{evidenceSummary(alert, pageContract)}</div></div>
-        </div>
-        <div className="note" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.alert.guidance")}</div>
-      </div>
-      <div className="df">
-        <Link href={record.actionCenterHref} className="btn p">{copy(pageContract, "action.open_action_center")}</Link>
-        <Link href={record.workflowHref} className="btn">{copy(pageContract, "action.open_workflow")}</Link>
-        <Link href={record.adherenceHref} className="btn">{copy(pageContract, "action.open_adherence")}</Link>
-        <Link href={record.vaccinationHref} className="btn">{copy(pageContract, "action.open_vaccination")}</Link>
-      </div>
-    </aside>
+    <DetailDrawer
+      open={open}
+      onClose={closeDrawer}
+      title={alert.title}
+      eyebrow={pageContract.title}
+      icon={<AlertTriangle aria-hidden="true" />}
+      iconColors={fill}
+      ariaLabel={copy(pageContract, "drawer.alert.aria")}
+      closeLabel={copy(pageContract, "drawer.alert.close_label")}
+      footer={
+        <>
+          <LinkButton href={record.actionCenterHref} variant="contained">{copy(pageContract, "action.open_action_center")}</LinkButton>
+          <LinkButton href={record.workflowHref} variant="outlined" color="inherit">{copy(pageContract, "action.open_workflow")}</LinkButton>
+          <LinkButton href={record.adherenceHref} variant="outlined" color="inherit">{copy(pageContract, "action.open_adherence")}</LinkButton>
+          <LinkButton href={record.vaccinationHref} variant="outlined" color="inherit">{copy(pageContract, "action.open_vaccination")}</LinkButton>
+        </>
+      }
+    >
+      <DrawerMetaGrid>
+        <DrawerMetaItem label={copy(pageContract, "label.gap")}><Tag tone={optionTone(pageContract, "work_state_filter_chips", alert.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", alert.work_state)}</Tag></DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.severity")}><Tag tone={optionTone(pageContract, "severity_chips", alert.severity) as Tone}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag></DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.scope")}>{alert.scope_label}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.detail")}>{alert.detail}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.owner")}>{owner}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.next_action")}>{alert.next_action}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.evidence")} span>{evidenceSummary(alert, pageContract)}</DrawerMetaItem>
+      </DrawerMetaGrid>
+      <DrawerNote>{copy(pageContract, "drawer.alert.guidance")}</DrawerNote>
+    </DetailDrawer>
   );
 }

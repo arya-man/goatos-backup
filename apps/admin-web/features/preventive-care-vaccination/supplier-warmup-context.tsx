@@ -3,9 +3,11 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
+import { DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerNote } from "@/components/app/detail-drawer";
+import { LinkButton } from "@/components/minimal/link-button";
+import Box from "@mui/material/Box";
 import { ArrowRight, Truck } from "lucide-react";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { firstAuthRequiredError } from "@/lib/api/server";
@@ -288,56 +290,36 @@ function warmupLoadDrawerItem(load: ProcurementLoad, detail: ProcurementLoadDeta
     icon: <Truck className="ic" aria-hidden="true" />,
     body: (
       <>
-          <div className="note">
-            {copy(pageContract, "drawer.warmup.note")}
-          </div>
-          <div className="metagrid" style={{ marginTop: 14 }}>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.warmup.animals")}</div>
-              <div className="v">{load.expected_count}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.warmup.holding_farm")}</div>
-              <div className="v">{sourceLocationLabel(pageContract, load)}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.warmup.purpose")}</div>
-              <div className="v">{purpose}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.warmup.warmup")}</div>
-              <div className="v">{warmup.label}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.warmup.hf_vaccination")}</div>
-              <div className="v">
-                <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>
-              </div>
-            </div>
-          </div>
-          <div className="muted small" style={{ marginTop: 14, fontWeight: 700 }}>
-            {copy(pageContract, "drawer.warmup.actions_label")}
-          </div>
-          <div className="chipset" style={{ marginTop: 8 }}>
-            <Link href={`${href}#hf-evidence`} className="chip on">
-              {copy(pageContract, "action.record_hf_dose")}
-            </Link>
-            <Link href={`${href}#hf-evidence`} className="chip">
-              {copy(pageContract, "action.import_vaccination_evidence")}
-            </Link>
-            <Link href={`${href}#review`} className="chip">
-              {copy(pageContract, "action.reject_before_load")}
-            </Link>
-            <Link href={`${href}#dispatch`} className="chip">
-              {copy(pageContract, "action.clear_to_ship")}
-            </Link>
-          </div>
+          <DrawerNote>{copy(pageContract, "drawer.warmup.note")}</DrawerNote>
+          <DrawerMetaGrid>
+            <DrawerMetaItem label={copy(pageContract, "drawer.warmup.animals")}>{load.expected_count}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "drawer.warmup.holding_farm")}>{sourceLocationLabel(pageContract, load)}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "drawer.warmup.purpose")}>{purpose}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "drawer.warmup.warmup")}>{warmup.label}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "drawer.warmup.hf_vaccination")}><Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag></DrawerMetaItem>
+          </DrawerMetaGrid>
+          <DrawerBlock title={copy(pageContract, "drawer.warmup.actions_label")}>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+              <LinkButton href={`${href}#hf-evidence`} size="small" variant="soft" color="primary">
+                {copy(pageContract, "action.record_hf_dose")}
+              </LinkButton>
+              <LinkButton href={`${href}#hf-evidence`} size="small" variant="soft">
+                {copy(pageContract, "action.import_vaccination_evidence")}
+              </LinkButton>
+              <LinkButton href={`${href}#review`} size="small" variant="soft">
+                {copy(pageContract, "action.reject_before_load")}
+              </LinkButton>
+              <LinkButton href={`${href}#dispatch`} size="small" variant="soft">
+                {copy(pageContract, "action.clear_to_ship")}
+              </LinkButton>
+            </Box>
+          </DrawerBlock>
       </>
     ),
     footer: (
-          <Link href={`${href}#hf-evidence`} className="btn p">
-            {copy(pageContract, "action.open_source_entry")}
-          </Link>
+      <LinkButton href={`${href}#hf-evidence`} variant="contained">
+        {copy(pageContract, "action.open_source_entry")}
+      </LinkButton>
     ),
   };
 }

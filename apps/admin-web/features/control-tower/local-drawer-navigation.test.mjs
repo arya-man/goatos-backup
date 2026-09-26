@@ -11,7 +11,10 @@ test("control-tower record drawers open locally without a route/RSC navigation",
   assert.match(pageSource, /ControlTowerLocalDrawer/);
   assert.match(drawerSource, /useLocalOverlaySelection/);
   assert.match(drawerSource, /selectionKey: "ct_alert"/);
-  assert.match(drawerSource, /className=\{`scrim\$\{drawerOpen \? " on" : ""\}`\}/);
+  // Template MinimalDrawer (portal + theme backdrop) via DetailDrawer; backdrop/X/Escape -> closeDrawer.
+  assert.match(drawerSource, /<DetailDrawer/);
+  assert.match(drawerSource, /onClose=\{closeDrawer\}/);
+  assert.doesNotMatch(drawerSource, /className=\{`(scrim|drawer)/);
   assert.doesNotMatch(drawerSource, /<Link[^>]+className="veil"/);
 });
 

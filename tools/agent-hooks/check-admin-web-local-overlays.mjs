@@ -123,7 +123,9 @@ const findings = routeDrivenOverlayFindings(files, (file) => readFileSync(resolv
 
 const requiredWiring = [
   ["apps/admin-web/components/local-overlay-link.tsx", ["data-local-overlay-navigation", "window.history.pushState", "nextUrl.href === window.location.href", "LOCAL_OVERLAY_URL_CHANGE_EVENT", "useLocalOverlaySelection", "popstate", "Escape"]],
-  ["apps/admin-web/components/local-overlay-drawer.tsx", ["useLocalOverlaySelection", "className={`scrim", "inert={!drawerOpen}"]],
+  // The shell is the template MinimalDrawer (portalled MUI Drawer: theme backdrop, focus trap and
+  // return, inert page behind it); open state and every close path stay with the local hook.
+  ["apps/admin-web/components/local-overlay-drawer.tsx", ["useLocalOverlaySelection", "<DetailDrawer", "open={drawerOpen}", "onClose={closeDrawer}"]],
   ["apps/admin-web/components/mesha-shell.tsx", ["anchor.dataset.localOverlayNavigation"]],
   ["apps/admin-web/features/process-integrity/work-board.tsx", ["LocalOverlayLink", "localOverlay"]],
   ["apps/admin-web/features/process-integrity/action-center-local-drawer.tsx", ["ActionCenterLocalDrawer", "currentHistoryEntryIsLocalOverlay"]],

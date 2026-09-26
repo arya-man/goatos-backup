@@ -53,7 +53,10 @@ export function MinimalDrawer({
       slotProps={{
         ...slotProps,
         backdrop: { invisible: invisibleBackdrop },
-        paper: { sx: { width: { xs: 1, sm: width }, maxWidth: '100vw', display: 'flex', flexDirection: 'column' } },
+        paper: {
+          ...(slotProps?.paper as object | undefined),
+          sx: { width: { xs: 1, sm: width }, maxWidth: '100vw', display: 'flex', flexDirection: 'column' },
+        },
       }}
       {...other}
     >

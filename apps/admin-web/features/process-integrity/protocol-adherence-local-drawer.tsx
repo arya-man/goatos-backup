@@ -1,11 +1,14 @@
 "use client";
 
-import Link from "@/components/no-prefetch-link";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import { LinkButton } from "@/components/minimal/link-button";
+import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem, DrawerNote } from "@/components/app/detail-drawer";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { AdherenceRow } from "@/lib/api/server";
-import { Syringe, X } from "lucide-react";
+import { Syringe } from "lucide-react";
 import type { Tone } from "./process-integrity";
 import { EvidenceMedia } from "./evidence-media";
 
@@ -41,7 +44,7 @@ export function ProtocolAdherenceLocalDrawer({
   initialSelectedRowId?: string;
   pageContract: AdminUiPageContract;
 }) {
-  const { displayedItem: displayedRecord, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem: displayedRecord, drawerOpen, closeDrawer } = useLocalOverlaySelection({
     items: records,
     itemId: adherenceRowId,
     selectionKey: "adh_row",
@@ -49,30 +52,9 @@ export function ProtocolAdherenceLocalDrawer({
     closeHref,
   });
 
+  if (!displayedRecord) return null;
   return (
-    <>
-      {displayedRecord ? (
-        <button
-          type="button"
-          className={`scrim${drawerOpen ? " on" : ""}`}
-          data-testid="protocol-adherence-drawer-scrim"
-          aria-label={copy(pageContract, "drawer.record.close_label")}
-          aria-hidden={!drawerOpen}
-          tabIndex={drawerOpen ? 0 : -1}
-          onClick={closeDrawer}
-        />
-      ) : null}
-      {displayedRecord ? (
-        <AdherenceRecordDrawer
-          record={displayedRecord}
-          ledgerLabels={ledgerLabels}
-          pageContract={pageContract}
-          open={drawerOpen}
-          closeDrawer={closeDrawer}
-          closeButtonRef={closeButtonRef}
-        />
-      ) : null}
-    </>
+    <AdherenceRecordDrawer record={displayedRecord} ledgerLabels={ledgerLabels} pageContract={pageContract} open={drawerOpen} closeDrawer={closeDrawer} />
   );
 }
 
@@ -83,47 +65,46 @@ function AdherenceRecordDrawer({
   pageContract,
   open,
   closeDrawer,
-  closeButtonRef,
 }: {
   record: ProtocolAdherenceDrawerRecord;
   ledgerLabels: string[];
   pageContract: AdminUiPageContract;
   open: boolean;
   closeDrawer: () => void;
-  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const { row } = record;
 
   return (
-    <aside className={`drawer${open ? " on" : ""}`} aria-label={copy(pageContract, "drawer.record.aria")} aria-hidden={!open} inert={!open}>
-      <div className="dh">
-        <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}><Syringe className="ic" aria-hidden="true" /></span>
-        <div>
-          <div className="mt">{copy(pageContract, "drawer.record.eyebrow")}</div>
-          <h2>{record.expectedTitle}</h2>
-          <div className="mt">{record.expectedDetail}</div>
-        </div>
-        <span className="sp" style={{ flex: 1 }} />
-        <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.record.close_label")} onClick={closeDrawer}><X className="ic" /></button>
-      </div>
-      <div className="dc">
-        <div className="metagrid">
-          <div><div className="k">{ledgerLabels[0]}</div><div className="v">{record.expectedTitle}</div><div className="mt">{record.expectedDetail}</div></div>
-          <div><div className="k">{ledgerLabels[1]}</div><div className="v">{record.actual}</div></div>
-          <div><div className="k">{ledgerLabels[2]}</div><div className="v"><Tag tone={workStateTone(pageContract, row.work_state)}>{record.gap}</Tag></div></div>
-          <div><div className="k">{ledgerLabels[3]}</div><div className="v"><Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag></div></div>
-          <div><div className="k">{ledgerLabels[4]}</div><div className="v">{record.owner}</div></div>
-          <div><div className="k">{ledgerLabels[5]}</div><div className="v">{row.next_action}</div></div>
-          <div><div className="k">{ledgerLabels[6]}</div><div className="v"><EvidenceMedia evidence={row.evidence} pageContract={pageContract} /></div></div>
-        </div>
-        <div className="note" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.record.note")}</div>
-      </div>
-      <div className="df">
-        <Link href={record.workflowHref} className="btn p">{row.next_action}</Link>
-        <Link href={record.actionCenterHref} className="btn">{copy(pageContract, "action.open_action_center")}</Link>
-        <Link href={record.workflowHref} className="btn">{copy(pageContract, "action.workflow_record")}</Link>
-        <button type="button" className="btn" onClick={closeDrawer}>{copy(pageContract, "action.close")}</button>
-      </div>
-    </aside>
+    <DetailDrawer
+      open={open}
+      onClose={closeDrawer}
+      title={record.expectedTitle}
+      eyebrow={copy(pageContract, "drawer.record.eyebrow")}
+      icon={<Syringe aria-hidden="true" />}
+      ariaLabel={copy(pageContract, "drawer.record.aria")}
+      closeLabel={copy(pageContract, "drawer.record.close_label")}
+      footer={
+        <>
+          <LinkButton href={record.workflowHref} variant="contained">{row.next_action}</LinkButton>
+          <LinkButton href={record.actionCenterHref} variant="outlined" color="inherit">{copy(pageContract, "action.open_action_center")}</LinkButton>
+          <LinkButton href={record.workflowHref} variant="outlined" color="inherit">{copy(pageContract, "action.workflow_record")}</LinkButton>
+          <Button variant="outlined" color="inherit" onClick={closeDrawer}>{copy(pageContract, "action.close")}</Button>
+        </>
+      }
+    >
+      <DrawerMetaGrid>
+        <DrawerMetaItem label={ledgerLabels[0]}>
+          {record.expectedTitle}
+          <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{record.expectedDetail}</Typography>
+        </DrawerMetaItem>
+        <DrawerMetaItem label={ledgerLabels[1]}>{record.actual}</DrawerMetaItem>
+        <DrawerMetaItem label={ledgerLabels[2]}><Tag tone={workStateTone(pageContract, row.work_state)}>{record.gap}</Tag></DrawerMetaItem>
+        <DrawerMetaItem label={ledgerLabels[3]}><Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag></DrawerMetaItem>
+        <DrawerMetaItem label={ledgerLabels[4]}>{record.owner}</DrawerMetaItem>
+        <DrawerMetaItem label={ledgerLabels[5]}>{row.next_action}</DrawerMetaItem>
+        <DrawerMetaItem label={ledgerLabels[6]} span><EvidenceMedia evidence={row.evidence} pageContract={pageContract} /></DrawerMetaItem>
+      </DrawerMetaGrid>
+      <DrawerNote>{copy(pageContract, "drawer.record.note")}</DrawerNote>
+    </DetailDrawer>
   );
 }

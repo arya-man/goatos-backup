@@ -1,7 +1,8 @@
 "use client";
 
-import { X } from "lucide-react";
+import Button from "@mui/material/Button";
 import type { ReactNode } from "react";
+import { DetailDrawer } from "./app/detail-drawer";
 import { useLocalOverlaySelection } from "./local-overlay-link";
 
 export type LocalOverlayDrawerItem = {
@@ -37,7 +38,7 @@ export function LocalOverlayDrawer({
   ariaLabel: string;
   closeLabel: string;
 }) {
-  const { displayedItem, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem, drawerOpen, closeDrawer } = useLocalOverlaySelection({
     items,
     itemId: drawerItemId,
     selectionKey,
@@ -46,40 +47,27 @@ export function LocalOverlayDrawer({
   });
   if (!displayedItem) return null;
 
+  // Template MinimalDrawer (portal, backdrop, focus return). Escape, Back and the backdrop still go
+  // through closeDrawer so the URL/history step stays with useLocalOverlaySelection.
   return (
-    <>
-      <button
-        type="button"
-        className={`scrim${drawerOpen ? " on" : ""}`}
-        aria-label={closeLabel}
-        aria-hidden={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
-      />
-      <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label={ariaLabel} aria-hidden={!drawerOpen} inert={!drawerOpen}>
-        <div className="dh">
-          {displayedItem.icon ? (
-            <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-              {displayedItem.icon}
-            </span>
-          ) : null}
-          <div>
-            <div className="mt">{displayedItem.eyebrow}</div>
-            <h2>{displayedItem.title}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={closeLabel} onClick={closeDrawer}>
-            <X className="ic" />
-          </button>
-        </div>
-        <div className="dc">{displayedItem.body}</div>
-        <div className="df">
+    <DetailDrawer
+      open={drawerOpen}
+      onClose={closeDrawer}
+      title={displayedItem.title}
+      eyebrow={displayedItem.eyebrow}
+      icon={displayedItem.icon}
+      ariaLabel={ariaLabel}
+      closeLabel={closeLabel}
+      footer={
+        <>
           {displayedItem.footer}
-          <button type="button" className="btn" onClick={closeDrawer}>
+          <Button variant="outlined" color="inherit" onClick={closeDrawer}>
             {closeLabel}
-          </button>
-        </div>
-      </aside>
-    </>
+          </Button>
+        </>
+      }
+    >
+      {displayedItem.body}
+    </DetailDrawer>
   );
 }

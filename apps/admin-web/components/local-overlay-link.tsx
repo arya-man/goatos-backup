@@ -118,6 +118,10 @@ export function useLocalOverlaySelection<T>({
   const initialItem = items.find((item) => itemId(item) === initialSelectedId);
   const [displayedItem, setDisplayedItem] = useState<T | undefined>(initialItem);
   const [drawerOpen, setDrawerOpen] = useState(Boolean(initialItem));
+  // Mirrors "open or opening" synchronously: a portalled MUI Drawer/Dialog reports Escape/backdrop
+  // through onClose while this hook also listens for Escape, and a second close in the same tick
+  // must not step history back twice.
+  const openRef = useRef(Boolean(initialItem));
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const openFrameRef = useRef<number | null>(null);
@@ -127,6 +131,7 @@ export function useLocalOverlaySelection<T>({
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
     if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openRef.current = true;
     setDisplayedItem(item);
     openFrameRef.current = window.requestAnimationFrame(() => {
       setDrawerOpen(true);
@@ -137,6 +142,7 @@ export function useLocalOverlaySelection<T>({
   const hideDrawer = useCallback((): void => {
     if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    openRef.current = false;
     setDrawerOpen(false);
     closeTimerRef.current = window.setTimeout(() => {
       setDisplayedItem(undefined);
@@ -188,6 +194,7 @@ export function useLocalOverlaySelection<T>({
   }, [drawerOpen]);
 
   const closeDrawer = useCallback((): void => {
+    if (!openRef.current) return;
     hideDrawer();
     if (currentHistoryEntryIsLocalOverlay()) {
       window.history.back();
