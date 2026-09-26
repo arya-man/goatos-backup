@@ -280,6 +280,11 @@ Explicit exceptions:
 - `components/admin-shell.tsx` has a contract-unavailable emergency screen. It
   is intentionally local because the contract request failed; using backend copy
   there would create a circular dependency.
+  Its words live in `components/admin-shell-unavailable.ts` and are farm words
+  per failure kind ("Mesha is not reachable right now"); the error's kind, code
+  and trace id go to the server log and Faro
+  (`observability/contract-unavailable-telemetry.tsx`) and never onto the screen
+  (2026-09-26: it printed the raw code `backend_down`).
 - Locale/time-zone tokens (`en-CA`, `en-GB`, `Asia/Kolkata`) and keyboard event
   strings (`Escape`, `Enter`) are technical implementation constants, not UI
   product copy.

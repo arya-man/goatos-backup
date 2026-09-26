@@ -1,5 +1,7 @@
 import { FirebaseSessionBridge } from "@/components/auth/firebase-session-bridge";
+import { contractUnavailableCopy } from "@/components/admin-shell-unavailable";
 import { MeshaShell, type ShellContract } from "@/components/mesha-shell";
+import { ContractUnavailableTelemetry } from "@/components/observability/contract-unavailable-telemetry";
 import { getAdminWebBootstrap, type AdminWebBootstrapResponse } from "@/lib/api/server";
 import type { Park } from "@/lib/scope";
 
@@ -22,25 +24,24 @@ function toShellContract(contract: AdminWebBootstrapResponse): ShellContract {
 export async function AdminShell({ children }: { children: React.ReactNode }) {
   const contract = await getAdminWebBootstrap();
   if (!contract.ok) {
+    const { kind, code, status, traceId } = contract.error;
+    const copy = contractUnavailableCopy(kind);
+    // The code is for the people who run the system, not the person at the screen: it goes to
+    // the server log and to Faro, and the screen says what happened in farm words.
+    console.error(JSON.stringify({ event: "admin_shell_contract_unavailable", kind, code, status, trace_id: traceId }));
     return (
       <>
         <FirebaseSessionBridge />
+        <ContractUnavailableTelemetry kind={kind} code={code} status={status} traceId={traceId} />
         <main className="wrap" style={{ padding: 24 }}>
           <section className="card">
-            <h1>Admin-web contract unavailable</h1>
-            <p className="muted">
-              The backend-owned UI contract could not be loaded, so admin-web is not rendering local fallback IA.
-              Resolve the API/session/tenant error and reload.
-            </p>
-            <div className="metagrid" style={{ marginTop: 14 }}>
-              <div>
-                <div className="k">Error</div>
-                <div className="v">{contract.error.code ?? contract.error.kind}</div>
-              </div>
-              <div>
-                <div className="k">Detail</div>
-                <div className="v">{contract.error.message}</div>
-              </div>
+            <h1>{copy.title}</h1>
+            <p className="muted">{copy.body}</p>
+            <div style={{ marginTop: 14 }}>
+              {/* A plain reload of the page that failed: href="" is the current URL. */}
+              <a className="btn primary" href={kind === "unauthorized" ? "/login" : ""}>
+                {copy.retry}
+              </a>
             </div>
           </section>
         </main>
