@@ -26,6 +26,7 @@ export type FCRPensTableLabels = {
   scanned: string;
   status: { ok: string; blocked: string; weighed_once: string; no_feed: string; no_gain: string };
   unpriced: string;
+  wasted: string;
   rupee: string;
   empty: React.ReactNode;
 };
@@ -90,7 +91,21 @@ export function FCRPensTable({
       sortValue: (row) => row.gain_kg ?? undefined,
     },
     feed_kg: {
-      cell: (row) => (row.feed_kg == null ? absent : num(row.feed_kg)),
+      // Feed is what the pen ATE: the sheet's kilograms less the leftover the verifier weighed.
+      // The wasted kilograms are printed under it so the reader can see what was taken off.
+      cell: (row) =>
+        row.feed_kg == null ? (
+          absent
+        ) : (
+          <span>
+            {num(row.feed_kg)}
+            {row.wastage_kg != null && row.wastage_kg > 0 ? (
+              <span className="muted small" style={{ display: "block" }}>
+                {num(row.wastage_kg)} {labels.wasted}
+              </span>
+            ) : null}
+          </span>
+        ),
       meta: { cellClassName: "num" },
       sortValue: (row) => row.feed_kg ?? undefined,
     },

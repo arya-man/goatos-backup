@@ -26,6 +26,7 @@ consecutive weighing rounds of one pen.
 
 ```text
 segment feed_kg   = Σ quantity_kg the sheet directed to the pen on days [round₁, round₂)
+                    − Σ verifier-approved wastage_kg of the pen on those days   (see below)
 segment head_days = Σ over those days of the sheet's own head count for the pen
 segment adg       = whole-shed: (avg₂ − avg₁) × 1000 / days
                     scanned:    mean over kids weighed in BOTH rounds of (w₂ − w₁) × 1000 / days
@@ -37,6 +38,29 @@ group FCR         = Σ feed_kg / Σ gain_kg over its member pens      (never a m
 ADG × fed head-days is what keeps numerator and denominator on one population: a pen's TOTAL weight
 moves when animals enter or leave, which is not growth, while the feed sheet's head count on each
 day is the population that actually ate. It also makes whole-shed and scanned pens one formula.
+
+## Feed wastage comes off the feed side (maintainer instruction 2026-09-26)
+
+Feed the verifier weighed as LEFT OVER was directed but not eaten, so FCR takes it off: every
+`feed_kg` on the tab is directed feed minus approved wastage, and FCR is feed EATEN per kg gained.
+
+- **Any workflow.** Today only experiment pens owe a wastage video (migration 000176), but the read
+  applies no workflow filter -- the feed side already sums every workflow's sheet. When wastage is
+  recorded for normal pens it is subtracted with no change to the FCR code. Pinned by an
+  integration test that records a `normal` row in a throwaway database.
+- **Approved readings only.** `status = 'completed'` with a kg. A pending or sent-back clip's number
+  is not the verifier's yet.
+- **Only on fed days.** Wastage on a pen-day the feed rollup holds no known quantity for (blocked or
+  absent) is ignored; it would come off a numerator that never held that day's feed.
+- **Never negative.** A leftover heavier than the directed feed floors intake at zero.
+- **The money stays in the bill.** Wasted feed was bought, so `feed_cost_inr` is the full spend.
+  `feed_cost_per_kg_inr` is therefore what a kilogram EATEN cost (priced kg taken off in proportion,
+  since wastage is weighed per pen-day, not per feed item), which keeps break-even FCR on the same
+  eaten basis as the FCR it is compared with.
+- **Read at request time, not folded into the rollup.** One row per wastage pen-day, served by
+  `feed_wastage_completions_serving_idx`. Approving a reading, or changing one, evicts the FCR read
+  cache for the park through the same `commitIssueAndEvict` a feed-issue write uses.
+- `wastage_kg` is on each pen and the summary; the page prints "N kg wasted" under Feed kg.
 
 ## The grain bridge
 
@@ -91,8 +115,9 @@ the Weights-screen park scope. Admin-web: the eighth tab on `/weighing/analytics
 
 ## Known and accepted
 
-- Feed is the DIRECTED quantity, not a measured intake; the only measured feed figure (the
-  verifier's packed weight) is sparse. The tab's `basis` field and note disclose this.
+- Feed is the DIRECTED quantity less approved wastage, not a measured intake; the only measured
+  feed figures (the verifier's packed weight and leftover) are sparse. The tab's `basis` field and
+  note disclose this.
 - Park-level external feed consumption that no sheet assigns to a pen is left out.
 - The Growth Director block on `/weighing/weights` still shows its older `kg_feed_per_kg_gain` per
   pen (per-head feed ÷ median ADG). Repointing that widget to this read is a follow-up the maintainer

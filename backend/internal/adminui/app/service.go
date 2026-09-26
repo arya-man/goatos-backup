@@ -579,7 +579,7 @@ func pages() []domain.PageContract {
 		// the five hands-on-the-animal PC Care jobs: one row per pen, one column per job, a tick
 		// where the job was submitted (approved or waiting for the verifier). Columns come from the read.
 		page("vaccination-care-coverage", "/vaccination/care-coverage", "/vaccination/care-coverage", "Care Coverage",
-			"Every pen against deworming, anti protozoan, ticks removal, hoof trimming and hair trimming — a tick where it is done.",
+			"Every pen that has animals in it against deworming, anti protozoan, ticks removal, hoof trimming and hair trimming — a tick where it is done.",
 			"module-surface", []domain.TableContract{
 				tableP("care-coverage", "Pen care status", "/app/pc-care/pen-coverage",
 					[]string{"pen", "deworming", "anti_protozoan", "ticks_removal", "hoof_trimming", "hair_trimming"}, "pen", []int{25, 50, 100}),
@@ -3375,12 +3375,12 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			"crumb":                           "Preventive Care (PC) · Vaccination",
 			"page.title":                      "Care Coverage",
-			"page.subtitle":                   "Every pen against the five care jobs. A tick means the job was done and submitted there.",
+			"page.subtitle":                   "Every pen that has animals in it against the five care jobs. A tick means the job was done and submitted there.",
 			"section.matrix.title":            "Pen care status",
 			"section.matrix.aria":             "Pens against care jobs",
 			"section.matrix.note":             "The date under a tick is the day the job was last submitted in that pen, whether or not the verifier has checked the video yet. A job sent back for rework shows no tick.",
 			"section.matrix.empty":            "No pens in this view",
-			"section.matrix.empty_body":       "There are no active pens in the selected park.",
+			"section.matrix.empty_body":       "No pen in this view has animals in it right now.",
 			"section.matrix.unavailable":      "Care status is unavailable",
 			"section.matrix.unavailable_body": "The pen list could not be loaded. Reload the page to try again.",
 			"label.done":                      "Done",
@@ -3397,7 +3397,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.all_pens":                 "All pens",
 			"filter.remove_one":               "Remove filter",
 			"filter.clear_all":                "Clear filters",
-			"filter.unlisted_selection":       "Not in this park",
+			"filter.unlisted_selection":       "Not listed now",
 			"filter.truncated_note":           "Some pens are not listed in the filter.",
 			"filter.apply_note":               "Park and pen narrow the table. Tick several pens, then Apply.",
 			"filter.search_pens":              "Search pens",
@@ -6093,7 +6093,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"fcr.price.overrides": "set by stage and sex; each animal is valued at its own",
 
 			"section.fcr.pens.title":     "FCR by pen",
-			"section.fcr.pens.caption":   "Kilograms of feed directed to the pen between its first and latest weighing in the period, per kilogram the pen gained. Grouped by park, pens A to Z; the dashed line is break-even at today's prices.",
+			"section.fcr.pens.caption":   "Kilograms of feed the pen ate between its first and latest weighing in the period (directed feed less any leftover the verifier weighed), per kilogram the pen gained. Grouped by park, pens A to Z; the dashed line is break-even at today's prices.",
 			"section.fcr.pens.aria":      "Feed conversion ratio by pen",
 			"section.fcr.money.title":    "Money by pen",
 			"section.fcr.money.caption":  "What each pen's gain is worth at the assumed sale price, what its feed cost at purchase prices, and the money made between the two. A bar below the line is a pen that ate more value than it put on.",
@@ -6108,7 +6108,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.fcr.sex.caption":    "A pen counts under a sex only when every resident is that sex.",
 			"section.fcr.sex.aria":       "Feed conversion ratio by sex",
 			"section.fcr.weekly.title":   "FCR week by week",
-			"section.fcr.weekly.caption": "Each weighing round closes a segment for its pen: feed directed since the previous round over the gain across it. Weeks are grouped by the round that closed them.",
+			"section.fcr.weekly.caption": "Each weighing round closes a segment for its pen: feed eaten since the previous round over the gain across it. Weeks are grouped by the round that closed them.",
 			"section.fcr.weekly.aria":    "Feed conversion ratio by week",
 			"section.fcr.band.title":     "FCR by weight band",
 			"section.fcr.band.caption":   "Band from the pen's average weight at its first weighing in the period.",
@@ -6137,7 +6137,7 @@ func pageSpecificCopy(id string) map[string]string {
 
 			"table.fcr.title":                 "Pens",
 			"table.fcr.aria":                  "FCR by pen",
-			"table.fcr.caption":               "One row per pen. Feed is what the sheet directed between the two weighing dates; gain is the pen's daily gain × the head-days actually fed. Blocked feed cells understate feed and are flagged.",
+			"table.fcr.caption":               "One row per pen. Feed is what the sheet directed between the two weighing dates, less any leftover the verifier weighed; gain is the pen's daily gain × the head-days actually fed. Blocked feed cells understate feed and are flagged.",
 			"table.fcr.pen":                   "Pen",
 			"table.fcr.cohort":                "Cohort",
 			"table.fcr.animals":               "Kids",
@@ -6158,8 +6158,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.fcr.status.no_feed":        "no feed rows",
 			"table.fcr.status.no_gain":        "no gain",
 			"table.fcr.unpriced":              "kg unpriced",
+			"table.fcr.wasted":                "kg wasted",
 
-			"note.fcr.basis":    "Feed is the quantity the feed sheet directed, not a measured intake. Park-level feed that no sheet assigns to a pen is left out.",
+			"note.fcr.basis":    "Feed is the quantity the feed sheet directed, less the leftover the verifier weighed off the pen's wastage video wherever one was recorded. Wasted feed still counts in the feed bill. Park-level feed that no sheet assigns to a pen is left out.",
 			"note.fcr.filters":  "Under a sex or origin filter a pen counts only when every resident matches: feed is given to the whole pen and cannot be split.",
 			"note.fcr.excluded": "Pens weighed once, pens with no feed sheet rows and pens that did not gain are listed in the table without a ratio and stay out of every chart.",
 			"empty.fcr.body":    "No pen has two weighings and feed sheet rows in this period yet. FCR appears once a pen has been weighed twice with feed directed in between.",

@@ -42,6 +42,22 @@ func fcrRawRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql strin
 	return out
 }
 
+// fcrLeadingColumns trims each row of rolled to the width of the oracle's rows.
+func fcrLeadingColumns(rolled, live [][]any) [][]any {
+	if len(live) == 0 {
+		return rolled
+	}
+	width := len(live[0])
+	out := make([][]any, len(rolled))
+	for i, row := range rolled {
+		if len(row) > width {
+			row = row[:width]
+		}
+		out[i] = row
+	}
+	return out
+}
+
 // fcrRowsEqual compares two result sets cell by cell; float8 cells within a relative 1e-9 (the
 // rollup sums the same products in a different order), everything else exactly.
 func fcrRowsEqual(a, b [][]any) (bool, string) {
@@ -106,10 +122,17 @@ VALUES
 				t.Fatal(err)
 			}
 			for _, category := range []string{"", "individual_animal", "per_shed_partition"} {
-				args := []any{gdTenant, parks, from, to, category, idMap.Tags, idMap.CanonicalTags, w[0], w[1]}
+				args := []any{gdTenant, parks, from, to, category, idMap.Tags, idMap.CanonicalTags, w[0], w[1], false, []string{}}
 				for _, pair := range [][3]string{{"pens", fcrPensLiveSQL, fcrPensSQL}, {"segments", fcrSegmentsLiveSQL, fcrSegmentsSQL}} {
-					live := fcrRawRows(t, ctx, pool, pair[1], args...)
-					rolled := fcrRawRows(t, ctx, pool, pair[2], args...)
+					live := fcrRawRows(t, ctx, pool, pair[1], args[:9]...) // the oracle predates $10/$11
+					// The oracle predates the columns appended after the feed ones (the General-tab
+					// ADG pair and the approved wastage); none of them reads the rollup, and each has
+					// its own test, so the equivalence is checked over the columns the oracle carries.
+					rolledArgs := args[:9]
+					if pair[0] == "pens" { // the pens statement also takes the General-ADG kid filter ($10/$11)
+						rolledArgs = args
+					}
+					rolled := fcrLeadingColumns(fcrRawRows(t, ctx, pool, pair[2], rolledArgs...), live)
 					if ok, why := fcrRowsEqual(live, rolled); !ok {
 						t.Fatalf("%s window %v parks %v category %q: rollup differs from live: %s", pair[0], w, parks, category, why)
 					}
@@ -141,7 +164,7 @@ func TestFCRRollupReadAfterFeedWritesSeesTheWrite(t *testing.T) {
 			t.Fatalf("GetFCR: %v", err)
 		}
 		for _, pen := range got.Pens {
-			if pen.OperationalLocationDisplay == "Coimbatore · Lump 1" && pen.FeedCostINR != nil {
+			if pen.OperationalLocationDisplay == "CBE · Lump 1" && pen.FeedCostINR != nil {
 				return *pen.FeedCostINR
 			}
 		}

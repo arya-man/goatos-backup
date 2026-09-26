@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +63,43 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, pcTenant, task.TaskID, workS
 	}
 }
 
+// coverageResident places one animal in a pen (partition "" = an undivided shed). The board lists
+// only pens that hold a live animal today, so every pen a test expects to see gets one.
+func coverageResident(t *testing.T, ctx context.Context, repo *Repository, parkID, shedID, partition, lifecycle string) {
+	t.Helper()
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ('9c000000-0000-4000-8000-000000002001'::uuid, 'org', 'Coverage Custodian', 'active')
+ON CONFLICT (party_id) DO NOTHING`); err != nil {
+		t.Fatalf("seed party: %v", err)
+	}
+	var goatID string
+	if err := repo.pool.QueryRow(ctx, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id, species)
+VALUES (gen_random_uuid(), $1::uuid, 'G-' || lpad((floor(random() * 1e12))::bigint::text, 12, '0'), 'Beetal', 'female', 'adult', $2, 'adult',
+        '9c000000-0000-4000-8000-000000002001'::uuid, $3::uuid, $4::uuid, $3::uuid, 'goat')
+RETURNING goat_id::text`, pcTenant, lifecycle, shedID, parkID).Scan(&goatID); err != nil {
+		t.Fatalf("seed resident: %v", err)
+	}
+	if partition == "" {
+		return
+	}
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'test')`, pcTenant, goatID, shedID, partition); err != nil {
+		t.Fatalf("seed resident partition: %v", err)
+	}
+}
+
+// coverageResidents puts one live animal in each "shed|partition" pen of parkID.
+func coverageResidents(t *testing.T, ctx context.Context, repo *Repository, parkID string, pens ...string) {
+	t.Helper()
+	for _, pen := range pens {
+		shed, partition, _ := strings.Cut(pen, "|")
+		coverageResident(t, ctx, repo, parkID, shed, partition, "alive")
+	}
+}
+
 func assigneesFor(parkID string) []string {
 	if parkID == pcOtherPark {
 		return []string{pcOtherParkOperator}
@@ -111,6 +149,7 @@ func TestPenCoverageOneToManyTasksAndMultipleDimensionsPartitions(t *testing.T) 
 	coverageTask(t, ctx, repo, pcPark, pcShedA, "", domain.CategoryDeworming, 10, "completed", "completed", 11)
 	coverageTask(t, ctx, repo, pcPark, pcShedA, "", domain.CategoryDeworming, 6, "completed", "completed", 7)
 	coverageTask(t, ctx, repo, pcPark, covShedGodel, "Part 1", domain.CategoryHoofTrimming, 4, "completed", "completed", 5)
+	coverageResidents(t, ctx, repo, pcPark, pcShedA, covShedGodel+"|Part 1", covShedGodel+"|Part 2")
 
 	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
 	if page.Total != 3 || len(page.Rows) != 3 {
@@ -138,6 +177,7 @@ func TestPenCoveragePaginationPageBoundaryWalksEveryPenOnce(t *testing.T) {
 	seedCoverageGodel(t, ctx, repo)
 	seedRoundCardsPark(t, ctx, repo, covShedOther, "S-O", "Gandhi 2")
 	coverageTask(t, ctx, repo, pcPark, covShedOther, "", domain.CategoryTicksRemoval, 3, "completed", "completed", 3)
+	coverageResidents(t, ctx, repo, pcPark, pcShedA, covShedGodel+"|Part 1", covShedGodel+"|Part 2", covShedOther)
 
 	seen := map[string]int{}
 	cursor := ""
@@ -185,6 +225,8 @@ VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON C
 		t.Fatalf("seed other-park shed: %v", err)
 	}
 	coverageTask(t, ctx, repo, pcOtherPark, covShedOther, "", domain.CategoryDeworming, 3, "completed", "completed", 3)
+	coverageResidents(t, ctx, repo, pcPark, pcShedA)
+	coverageResidents(t, ctx, repo, pcOtherPark, covShedOther)
 
 	scoped := coverage(t, ctx, repo, ports.PenCareCoverageQuery{AuthorizedParkIDs: []string{pcPark}, Limit: 50})
 	if scoped.Total != 1 || len(scoped.Rows) != 1 || scoped.Rows[0].ShedID != pcShedA {
@@ -225,6 +267,7 @@ func TestPenCoverageStatusMatrixSubmittedWorkTicks(t *testing.T) {
 	for i, c := range cases {
 		coverageTask(t, ctx, repo, pcPark, pcShedA, "", c.category, 3+i, c.workState, c.status, 3+i)
 	}
+	coverageResidents(t, ctx, repo, pcPark, pcShedA)
 	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
 	for i, c := range cases {
 		got, _ := cellOf(t, page, pcShedA, "", c.category)
@@ -263,6 +306,8 @@ VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON C
 		t.Fatalf("seed other-park shed: %v", err)
 	}
 	coverageTask(t, ctx, repo, pcPark, covShedGodel, "Part 2", domain.CategoryDeworming, 3, "completed", "completed", 3)
+	coverageResidents(t, ctx, repo, pcPark, pcShedA, covShedGodel+"|Part 1", covShedGodel+"|Part 2")
+	coverageResidents(t, ctx, repo, pcOtherPark, covShedOther)
 
 	all := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
 	if all.Total != 4 || len(all.ParkOptions) != 2 || len(all.PenOptions) != 4 {
@@ -336,6 +381,7 @@ VALUES ($1::uuid, $2::uuid, 'Part 10', '10', 'active', 'manual'), ($1::uuid, $2:
 ON CONFLICT DO NOTHING`, pcTenant, covShedGodel); err != nil {
 		t.Fatalf("seed partitions: %v", err)
 	}
+	coverageResidents(t, ctx, repo, pcPark, pcShedA, covShedGodel+"|Part 1", covShedGodel+"|Part 2", covShedGodel+"|Part 10", yashoda9, yashoda10)
 	want := []string{"Castro", "Mandela 1|Part 1", "Mandela 1|Part 2", "Mandela 1|Part 10", "Yashoda 9", "Yashoda 10"}
 	label := func(row ports.PenCareCoverageRow) string {
 		if row.PartitionLabel == "" {
@@ -368,5 +414,120 @@ ON CONFLICT DO NOTHING`, pcTenant, covShedGodel); err != nil {
 	wantOptions := []string{"Castro", "Mandela 1 - Part 1", "Mandela 1 - Part 2", "Mandela 1 - Part 10", "Yashoda 9", "Yashoda 10"}
 	if fmt.Sprint(options) != fmt.Sprint(wantOptions) {
 		t.Fatalf("pen filter order = %v, want %v", options, wantOptions)
+	}
+}
+
+// EMPTY PENS ARE NOT LISTED (maintainer decision 2026-09-26). Godel 1 Part 1 holds a live animal
+// and is listed; its sibling Part 2 holds nobody and is hidden even though it has done work on it;
+// Castro's only animal has died, so Castro is hidden too. The Pen filter and the total follow the
+// board. When an animal walks back into Part 2 the pen returns WITH its history.
+func TestPenCoverageEmptyPensAreHiddenFromBoardFilterAndTotal(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	coverageTask(t, ctx, repo, pcPark, covShedGodel, "Part 2", domain.CategoryDeworming, 3, "completed", "completed", 3)
+	coverageResidents(t, ctx, repo, pcPark, covShedGodel+"|Part 1")
+	coverageResident(t, ctx, repo, pcPark, pcShedA, "", "dead")
+
+	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	if page.Total != 1 || len(page.Rows) != 1 || page.Rows[0].ShedID != covShedGodel || page.Rows[0].PartitionLabel != "Part 1" {
+		t.Fatalf("occupied pens = %+v total %d, want only Godel 1 Part 1", page.Rows, page.Total)
+	}
+	if len(page.PenOptions) != 1 || page.PenOptions[0].Value != covShedGodel+"|part 1" {
+		t.Fatalf("pen filter = %+v, want only the occupied pen", page.PenOptions)
+	}
+
+	coverageResidents(t, ctx, repo, pcPark, covShedGodel+"|Part 2")
+	back := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	if back.Total != 2 {
+		t.Fatalf("after an animal moves in, total = %d, want 2", back.Total)
+	}
+	if got, _ := cellOf(t, back, covShedGodel, "Part 2", domain.CategoryDeworming); got != "2026-09-03" {
+		t.Fatalf("Part 2 returns with its history: deworming = %q, want 2026-09-03", got)
+	}
+}
+
+// OCCUPANCY, ONE-TO-MANY: a pen holding many animals is still ONE row (the occupancy check is a
+// semi-join, never a join that multiplies the pen by its residents), and a resident whose pen label
+// differs only in case, spacing, or the "Part " prefix still counts.
+func TestPenCoverageOccupiedPenWithManyResidentsOneToManyListsOnce(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	for i := 0; i < 5; i++ {
+		coverageResidents(t, ctx, repo, pcPark, covShedGodel+"|Part 1")
+	}
+	coverageResidents(t, ctx, repo, pcPark, covShedGodel+"|2")
+	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	if page.Total != 2 || len(page.Rows) != 2 || len(page.PenOptions) != 2 {
+		t.Fatalf("total %d rows %d options %d, want 2/2/2 (Part 1 once despite five animals; Part 2 by its normalised label)", page.Total, len(page.Rows), len(page.PenOptions))
+	}
+}
+
+// OCCUPANCY, PAGINATION: empty pens between occupied ones are skipped by the keyset walk, every
+// occupied pen is visited once, and total is the occupied count on every page.
+func TestPenCoverageOccupancyPaginationPageBoundarySkipsEmptyPens(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	seedRoundCardsPark(t, ctx, repo, covShedOther, "S-O", "Gandhi 2")
+	// Castro (empty), Gandhi 2 (occupied), Godel 1 Part 1 (empty), Godel 1 Part 2 (occupied).
+	coverageResidents(t, ctx, repo, pcPark, covShedOther, covShedGodel+"|Part 2")
+	var walked []string
+	cursor := ""
+	for i := 0; i < 10; i++ {
+		page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 1, Cursor: cursor})
+		if page.Total != 2 {
+			t.Fatalf("page %d total = %d, want the 2 occupied pens", i+1, page.Total)
+		}
+		for _, row := range page.Rows {
+			walked = append(walked, row.ShedName+"|"+row.PartitionLabel)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if fmt.Sprint(walked) != fmt.Sprint([]string{"Gandhi 2|", "Godel 1|Part 2"}) {
+		t.Fatalf("walked %v, want only the two occupied pens in order", walked)
+	}
+}
+
+// OCCUPANCY, PARK SCOPE: occupancy is the pen's own. An occupied pen in the other park never makes a
+// same-named empty pen of this park appear, and a park-scoped caller sees none of the other park.
+func TestPenCoverageOccupancyParkScopeIsPerPen(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON CONFLICT (location_id) DO NOTHING`,
+		pcTenant, covShedOther, pcOtherPark); err != nil {
+		t.Fatalf("seed other-park shed: %v", err)
+	}
+	coverageResidents(t, ctx, repo, pcOtherPark, covShedOther) // CBE Castro occupied; CPT Castro empty
+	scoped := coverage(t, ctx, repo, ports.PenCareCoverageQuery{AuthorizedParkIDs: []string{pcPark}, Limit: 50})
+	if scoped.Total != 0 || len(scoped.Rows) != 0 || len(scoped.PenOptions) != 0 {
+		t.Fatalf("CPT caller sees %+v, want nothing: CPT Castro is empty and CBE is out of scope", scoped.Rows)
+	}
+	all := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	if all.Total != 1 || all.Rows[0].ShedID != covShedOther {
+		t.Fatalf("tenant-wide = %+v, want only CBE Castro", all.Rows)
+	}
+}
+
+// OCCUPANCY, STATUS MATRIX: only an ALIVE animal occupies a pen. Every other lifecycle status leaves
+// the pen empty and hidden; one alive animal among them brings it back.
+func TestPenCoverageOccupancyStatusMatrixOnlyAliveAnimalsCount(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	for _, status := range []string{"dead", "sold", "culled", "transferred", "lost", "inactive"} {
+		coverageResident(t, ctx, repo, pcPark, pcShedA, "", status)
+	}
+	if page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50}); page.Total != 0 {
+		t.Fatalf("a pen holding only dead/sold/culled/transferred/lost/inactive animals is listed (total %d)", page.Total)
+	}
+	coverageResident(t, ctx, repo, pcPark, pcShedA, "", "alive")
+	if page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50}); page.Total != 1 {
+		t.Fatalf("one alive animal must list the pen, total %d", page.Total)
 	}
 }

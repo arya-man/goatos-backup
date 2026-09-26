@@ -9,10 +9,14 @@ Index: page scope · base SQL · 1 Farm FCR · 2 Gain value · 3 Feed spent + co
 - Window: landing-window.ts:51 — explicit `wt_from`/`wt_to` (clamped to today) else default_from (landing-window-constants.ts; DB `weighing_calendar_config`: stg = fixed_date 2026-08-03) through `latest_weighing_date` (stg 2026-09-23). Backend window = [from 00:00 IST, to+1 00:00 IST) on `accepted_at`; feed_day in [from, to+1) (service.go:231 resolveWindow).
 - Sex: default **male** (weights-analytics.tsx:195); `sex=all` -> '' (both). Origin: farm_born|procured_no_load|procured_load|'' . Both are PEN-grain agree-or-neither filters (domain/fcr.go:562): a pen passes only if its cohort sex/origin equals the filter exactly — mixed pens drop out of any sex/origin filter.
 - Cohort = live residents in the pen (goats alive, shed_id + scrubbed goat_shed_partitions label) — fallback to animals scanned in the pen in-window when the pen has no live residents (fcr.go:207-240, domain :517).
-- Feed = **directed sheet kg, as-fed** (feed_direction_issue_rows.quantity_kg, issues state issued|amended|locked), NOT dry matter, NOT measured intake. NULL quantity = blocked cell, never 0.
+- Feed = **eaten sheet kg, as-fed**: directed sheet kg (feed_direction_issue_rows.quantity_kg, issues state issued|amended|locked) minus verifier-approved wastage for those fed days, floored at 0 per segment. NOT dry matter, NOT measured intake. NULL quantity = blocked cell, never 0.
 - Gain = segment ADG x fed head-days/1000. Segment = two consecutive rounds of one pen (ordered period_start_date, d). Whole-pen arm: Δ pen average_weight_kg / days (latest non-withdrawn, non-rejected shed observation per pen per campaign). Scanned arm: mean per-animal daily gain over animals weighed in BOTH rounds (identity merge through ResolveAnimalIdentityMap: double-tagged animals keyed by canonical tag, identity_scope.go:146). Rejected scans dropped. Head-days = Σ over feed days in [d_prev, d) of max(head_count) per (pen, day, shed_tag_key, breed_key).
 - Pen join weighing<->feed sheet: bucket -> (physical shed id, scrubbed partition) via pen_map (fcr.go:79); feed side uses generated partition_key ('whole'->'', 'part 3'->'3'). Not by name.
 - A segment counts only when feed_kg not null AND head_days>0 (domain :632). Losing segments (ADG<0) ARE netted in; pen needs Σgain>0 for a ratio.
+- FEED WASTAGE (2026-09-26): segment feed_kg = directed kg minus the verifier-APPROVED leftover (feed_wastage_completions
+  status 'completed', ANY workflow) on the segment's days the sheet fed with a known quantity. Cost is NOT reduced,
+  so feed_cost_per_kg_inr (and break-even) are per kg EATEN. The pen and summary carry wastage_kg; unpriced kg is prorated
+  onto the eaten basis the same way priced feed is.
 - Feed price: latest same-park feed_purchases row on/before feed_day (per_kg_cost else total_cost/quantity_kg); unpriced kg counted separately, not free.
 - Sale price: growth_sale_price_assumptions effective TODAY (fcr.go:416); per (species, stage, sex) override else species default; pen price = head-weighted over cohort mix. stg: goat 425, sheep 425 ₹/kg, no overrides.
 
@@ -68,6 +72,13 @@ feed_rows AS (SELECT r.shed_id pen_shed_id,
   i.feed_day,i.park_id,r.feed_item_key,r.quantity_kg,r.head_count,r.shed_tag_key,r.breed_key
   FROM feed_direction_issue_rows r JOIN feed_direction_issues i ON i.feed_direction_issue_id=r.feed_direction_issue_id, prm
   WHERE i.park_id=ANY(prm.parks) AND i.feed_day>=prm.fd AND i.feed_day<prm.td AND i.state IN ('issued','amended','locked') AND r.shed_id IN (SELECT pen_shed_id FROM pen_map)),
+wd AS (SELECT w.shed_id pen_shed_id,
+  CASE WHEN w.partition_key='whole' THEN '' WHEN w.partition_key LIKE 'part %' THEN btrim(substr(w.partition_key,6)) WHEN w.partition_key LIKE 'pt %' THEN btrim(substr(w.partition_key,4)) ELSE w.partition_key END pen_key,
+  w.target_date feed_day, sum(w.wastage_kg)::float8 kg
+  FROM feed_wastage_completions w, prm
+  WHERE w.tenant_id=prm.t AND w.park_id=ANY(prm.parks) AND w.target_date>=prm.fd AND w.target_date<prm.td AND w.status='completed' AND w.wastage_kg IS NOT NULL
+    AND w.shed_id IN (SELECT pen_shed_id FROM pen_map) GROUP BY 1,2,3),
+wfed AS (SELECT wd.* FROM wd WHERE EXISTS (SELECT 1 FROM feed_rows fr WHERE fr.pen_shed_id=wd.pen_shed_id AND fr.pen_key=wd.pen_key AND fr.feed_day=wd.feed_day AND fr.quantity_kg IS NOT NULL)),
 pens AS (SELECT pen_shed_id,pen_key,count(*) rounds,(array_agg(avg_kg ORDER BY period_start_date,d))[1] first_avg,
   (array_agg(animals ORDER BY period_start_date DESC,d DESC))[1] last_animals FROM pen_rounds GROUP BY 1,2),
 res AS (SELECT p.pen_shed_id,p.pen_key,g.goat_id,g.breed,lower(g.sex) sex,lower(g.species) species,
@@ -107,11 +118,16 @@ sf AS (SELECT sg.pen_shed_id,sg.pen_key,sg.d_prev,sg.d, sum(fr.quantity_kg) FILT
   LEFT JOIN fp ON fp.park_id=fr.park_id AND fp.feed_item_key=fr.feed_item_key AND fp.feed_day=fr.feed_day GROUP BY 1,2,3,4),
 sh AS (SELECT sg.pen_shed_id,sg.pen_key,sg.d_prev,sg.d,sum(g.h)::float8 head_days FROM segments sg JOIN (SELECT pen_shed_id,pen_key,feed_day,shed_tag_key,breed_key,max(head_count) h FROM feed_rows WHERE head_count IS NOT NULL GROUP BY 1,2,3,4,5) g
   ON g.pen_shed_id=sg.pen_shed_id AND g.pen_key=sg.pen_key AND g.feed_day>=sg.d_prev AND g.feed_day<sg.d GROUP BY 1,2,3,4),
-seg AS (SELECT sg.*, f.feed_kg, f.cost, f.unpriced, h.head_days, (f.feed_kg IS NOT NULL AND h.head_days>0) ok, sg.adg_g*h.head_days/1000 gain
-  FROM segments sg LEFT JOIN sf f USING (pen_shed_id,pen_key,d_prev,d) LEFT JOIN sh h USING (pen_shed_id,pen_key,d_prev,d)),
+sw AS (SELECT sg.pen_shed_id,sg.pen_key,sg.d_prev,sg.d,sum(wf.kg)::float8 wastage FROM segments sg JOIN wfed wf
+  ON wf.pen_shed_id=sg.pen_shed_id AND wf.pen_key=sg.pen_key AND wf.feed_day>=sg.d_prev AND wf.feed_day<sg.d GROUP BY 1,2,3,4),
+seg AS (SELECT sg.*, GREATEST(f.feed_kg-COALESCE(w.wastage,0),0) feed_kg, COALESCE(w.wastage,0) wastage_kg, f.cost,
+  CASE WHEN f.feed_kg > 0 THEN f.unpriced * GREATEST(f.feed_kg-COALESCE(w.wastage,0),0) / f.feed_kg ELSE 0 END unpriced,
+  h.head_days, (f.feed_kg IS NOT NULL AND h.head_days>0) ok, sg.adg_g*h.head_days/1000 gain
+  FROM segments sg LEFT JOIN sf f USING (pen_shed_id,pen_key,d_prev,d) LEFT JOIN sh h USING (pen_shed_id,pen_key,d_prev,d)
+  LEFT JOIN sw w USING (pen_shed_id,pen_key,d_prev,d)),
 pen AS (SELECT p.pen_shed_id,p.pen_key,shed.name shed,pk.name park,pk.location_code pcode,p.rounds,p.last_animals animals,p.first_avg,
   COALESCE(c.sex,'unknown') sex, COALESCE(c.breed,'unknown') breed, COALESCE(c.origin,'unknown') origin, COALESCE(c.priced,false) priced,
-  bool_or(s.ok) anyok, sum(s.feed_kg) FILTER (WHERE s.ok) feed_kg, sum(s.gain) FILTER (WHERE s.ok) gain_kg, sum(s.head_days) FILTER (WHERE s.ok) head_days,
+  bool_or(s.ok) anyok, sum(s.feed_kg) FILTER (WHERE s.ok) feed_kg, sum(s.wastage_kg) FILTER (WHERE s.ok) wastage_kg, sum(s.gain) FILTER (WHERE s.ok) gain_kg, sum(s.head_days) FILTER (WHERE s.ok) head_days,
   sum(s.cost) FILTER (WHERE s.ok) cost, COALESCE(sum(s.unpriced) FILTER (WHERE s.ok),0) unpriced
   FROM pens p JOIN locations shed ON shed.location_id=p.pen_shed_id LEFT JOIN locations pk ON pk.location_id=shed.parent_location_id
   LEFT JOIN coh c USING (pen_shed_id,pen_key) LEFT JOIN seg s USING (pen_shed_id,pen_key)

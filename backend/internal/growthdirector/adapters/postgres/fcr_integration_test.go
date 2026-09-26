@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"math"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 )
 
 // FCR integration coverage. Two pens, one per weighing arm, each with the exact shape the live
@@ -319,7 +322,7 @@ VALUES
 	for _, pen := range got.Pens {
 		byDisplay[pen.OperationalLocationDisplay] = pen
 	}
-	lump, ok := byDisplay["Coimbatore · Lump 1"]
+	lump, ok := byDisplay["CBE · Lump 1"]
 	if !ok {
 		t.Fatalf("no lump pen row; got %v", keysOf(byDisplay))
 	}
@@ -328,12 +331,239 @@ VALUES
 	if lump.BlockedCells != 1 {
 		t.Fatalf("lump blocked cells = %d, want 1 (the join must not multiply the blocked row either)", lump.BlockedCells)
 	}
-	scan, ok := byDisplay["Coimbatore · Fcr Shed - Part 2"]
+	scan, ok := byDisplay["CBE · Fcr Shed - Part 2"]
 	if !ok {
 		t.Fatalf("no scanned pen row; got %v", keysOf(byDisplay))
 	}
 	fcrNear(t, "scan feed kg is not multiplied by the extra loads", scan.FeedKg, 7)
 	fcrNear(t, "scan feed cost at one price per row", scan.FeedCostINR, 188)
+}
+
+// FEED WASTAGE comes off the feed side of FCR, through the real query. On top of the base fixture:
+//
+//   - Lump 1, Jul 9: an APPROVED 7 kg leftover -> counted (Jul 9 also has a blocked Bran cell, but
+//     its Maize row is known, so the day was fed). Lump feed 70 - 7 = 63, FCR 63 / 17.5 = 3.6.
+//   - Lump 1, Jul 11: a PENDING 5 kg reading -> ignored until the verifier approves it.
+//   - Lump 1, Jul 16: an approved leftover on a day the sheet fed nothing -> ignored.
+//   - Fcr Shed "Part 2", Jul 10: an approved 0.7 kg leftover recorded under the NORMAL workflow.
+//     The schema admits only 'experiment' today (000176), so the check is dropped in this throwaway
+//     database to prove FCR needs no change when normal pens start recording wastage. Its feed is
+//     keyed on the physical shed + "Part 2", the same bridge the sheet rows cross. 7 - 0.7 = 6.3.
+func TestFCRSubtractsApprovedWastageOnFedDaysForAnyWorkflow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFCRFixture(t, ctx, pool)
+
+	execGD(t, ctx, pool, `ALTER TABLE feed_wastage_completions DROP CONSTRAINT feed_wastage_completions_workflow_check`)
+	execGD(t, ctx, pool, `
+INSERT INTO feed_wastage_completions (tenant_id, park_id, shed_id, partition_label, target_date, workflow, status, wastage_proof_ref, sop_proofs, idempotency_key, wastage_kg, wastage_recorded_by, wastage_recorded_at)
+VALUES
+  ($1::uuid, $2::uuid, $3::uuid, NULL,     '2026-07-09', 'experiment', 'completed',            'proof-w1', '{"video": ["proof-w1"]}', 'fcr-w:1', 7.0, $5::uuid, now()),
+  ($1::uuid, $2::uuid, $3::uuid, NULL,     '2026-07-11', 'experiment', 'pending_verification', 'proof-w2', '{"video": ["proof-w2"]}', 'fcr-w:2', 5.0, $5::uuid, now()),
+  ($1::uuid, $2::uuid, $3::uuid, NULL,     '2026-07-16', 'experiment', 'completed',            'proof-w3', '{"video": ["proof-w3"]}', 'fcr-w:3', 9.0, $5::uuid, now()),
+  ($1::uuid, $2::uuid, $4::uuid, 'Part 2', '2026-07-10', 'normal',     'completed',            'proof-w4', '{"video": ["proof-w4"]}', 'fcr-w:4', 0.7, $5::uuid, now())`,
+		gdTenant, gdPark, gdShedLump, fcrShedPhys, gdOperator)
+
+	repo := NewRepository(pool, 30*time.Second)
+	got, err := repo.GetFCR(ctx, gdTenant, []string{gdPark},
+		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "", "", "")
+	if err != nil {
+		t.Fatalf("GetFCR: %v", err)
+	}
+	byDisplay := map[string]domain.FCRPen{}
+	for _, pen := range got.Pens {
+		byDisplay[pen.OperationalLocationDisplay] = pen
+	}
+	lump, ok := byDisplay["CBE · Lump 1"]
+	if !ok {
+		t.Fatalf("no lump pen row; got %v", keysOf(byDisplay))
+	}
+	fcrNear(t, "lump feed eaten", lump.FeedKg, 63)
+	fcrNear(t, "lump wastage", lump.WastageKg, 7)
+	fcrNear(t, "lump fcr", lump.FCR, 3.6)
+	fcrNear(t, "lump feed cost keeps the wasted kg", lump.FeedCostINR, 1400)
+
+	scan := byDisplay["CBE · Fcr Shed - Part 2"]
+	fcrNear(t, "scan feed eaten", scan.FeedKg, 6.3)
+	fcrNear(t, "scan wastage", scan.WastageKg, 0.7)
+	fcrNear(t, "scan fcr", scan.FCR, 6.3/2.1)
+
+	fcrNear(t, "farm fcr", got.Summary.FCR, 69.3/19.6)
+	if math.Abs(got.Summary.WastageKg-7.7) > 0.005 || math.Abs(got.Summary.FeedKg-69.3) > 0.005 {
+		t.Fatalf("summary feed=%.3f wastage=%.3f, want 69.3 / 7.7", got.Summary.FeedKg, got.Summary.WastageKg)
+	}
+	fcrNear(t, "week fcr", got.Weekly[0].FCR, 69.3/19.6)
+}
+
+// An approved wastage reading reaches a CACHED FCR read on its own: migration 000453's trigger on
+// feed_wastage_completions evicts the shared "analytics" cache for the park on commit, so the tab
+// does not keep serving the pre-approval ratio. A reading nobody has approved evicts nothing and
+// changes nothing.
+func TestFCRCachedReadPicksUpAnApprovedWastageReading(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFCRFixture(t, ctx, pool)
+
+	cache := readcache.New(readcache.DefaultOptions("analytics"))
+	readcache.NewListener(pool, slog.New(slog.NewTextHandler(io.Discard, nil)), cache).Start(ctx)
+	for deadline := time.Now().Add(10 * time.Second); !cache.Coherent(); {
+		if time.Now().After(deadline) {
+			t.Fatal("listener never connected")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	repo := NewRepository(pool, 30*time.Second).WithReadCache(cache)
+	lumpFeed := func() float64 {
+		t.Helper()
+		got, err := repo.GetFCR(ctx, gdTenant, []string{gdPark},
+			time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "", "", "")
+		if err != nil {
+			t.Fatalf("GetFCR: %v", err)
+		}
+		for _, pen := range got.Pens {
+			if pen.OperationalLocationDisplay == "CBE · Lump 1" && pen.FeedKg != nil {
+				return *pen.FeedKg
+			}
+		}
+		t.Fatal("no lump pen feed")
+		return 0
+	}
+	if got := lumpFeed(); math.Abs(got-70) > 0.005 {
+		t.Fatalf("before any wastage, lump feed = %.3f, want 70", got)
+	}
+
+	// The operator's clip, measured but not approved: FCR ignores it.
+	var completionID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO feed_wastage_completions (tenant_id, park_id, shed_id, partition_label, target_date, workflow, status, wastage_proof_ref, sop_proofs, idempotency_key, wastage_kg, wastage_recorded_by, wastage_recorded_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, '2026-07-09', 'experiment', 'pending_verification', 'proof-c1', '{"video": ["proof-c1"]}', 'fcr-cache:1', 7.0, $4::uuid, now())
+RETURNING completion_id::text`, gdTenant, gdPark, gdShedLump, gdOperator).Scan(&completionID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := lumpFeed(); math.Abs(got-70) > 0.005 {
+		t.Fatalf("a pending reading moved FCR: lump feed = %.3f, want 70", got)
+	}
+
+	// The verifier approves: the cached read must move to 63 on its own, without a restart.
+	execGD(t, ctx, pool, `
+UPDATE feed_wastage_completions SET status = 'completed', verified_by = $2::uuid, verified_at = now()
+WHERE completion_id = $1::uuid`, completionID, gdOperator)
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		got := lumpFeed()
+		if math.Abs(got-63) <= 0.005 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("approved wastage never reached the cached FCR: lump feed still %.3f, want 63", got)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// fcrWastage records one wastage row on the fixture's lump pen (undivided) unless shed/label say
+// otherwise. kg < 0 means no reading was recorded.
+func fcrWastage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, park, shed, label, day, workflow, status string, kg float64, key string) {
+	t.Helper()
+	var kgArg, byArg any
+	if kg >= 0 {
+		kgArg, byArg = kg, gdOperator
+	}
+	execGD(t, ctx, pool, `
+INSERT INTO feed_wastage_completions (tenant_id, park_id, shed_id, partition_label, target_date, workflow, status, wastage_proof_ref, sop_proofs, idempotency_key, wastage_kg, wastage_recorded_by, wastage_recorded_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, ''), $5::date, $6, $7, 'proof-' || $10, jsonb_build_object('video', jsonb_build_array('proof-' || $10)), $10,
+        $8::numeric, $9::uuid, CASE WHEN $8::numeric IS NULL THEN NULL ELSE now() END)`,
+		gdTenant, park, shed, label, day, workflow, status, kgArg, byArg, key)
+}
+
+// fcrLumpFeed reads the lump pen's feed and wastage for the fixture window.
+func fcrLumpFeed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) domain.FCRPen {
+	t.Helper()
+	got, err := NewRepository(pool, 30*time.Second).GetFCR(ctx, gdTenant, []string{gdPark},
+		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "", "", "")
+	if err != nil {
+		t.Fatalf("GetFCR: %v", err)
+	}
+	for _, pen := range got.Pens {
+		if pen.OperationalLocationDisplay == "CBE · Lump 1" {
+			return pen
+		}
+	}
+	t.Fatal("no lump pen row")
+	return domain.FCRPen{}
+}
+
+func fcrWastageDB(t *testing.T) (context.Context, *pgxpool.Pool) {
+	t.Helper()
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	t.Cleanup(pool.Close)
+	seedFCRFixture(t, ctx, pool)
+	return ctx, pool
+}
+
+// OneToMany: a pen-day carries several feed items and more than one wastage row (an experiment and
+// a normal reading). Each reading is subtracted once and no feed item is multiplied by them.
+func TestFCRWastageOneToManyFeedItemsAndWorkflowsNeverMultiply(t *testing.T) {
+	ctx, pool := fcrWastageDB(t)
+	// Jul 10 also gets 5 kg of Bran on the lump pen: two feed items that day.
+	execGD(t, ctx, pool, `
+INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, partition_label, shed_tag, breed, session_no, head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg, overdue_pending, row_seq, item_seq)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Lump 1', NULL, '', '', 1, 25, false, 'normal', 'Bran', 5.0, 15.0, false, 0, 3)`,
+		gdTenant, fcrIssueBase+"21", gdPark, gdShedLump)
+	execGD(t, ctx, pool, `ALTER TABLE feed_wastage_completions DROP CONSTRAINT feed_wastage_completions_workflow_check`)
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-10", "experiment", "completed", 2, "otm-1")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-10", "normal", "completed", 1, "otm-2")
+	lump := fcrLumpFeed(t, ctx, pool)
+	fcrNear(t, "feed eaten: 70 + 5 bran - 3 wastage", lump.FeedKg, 72)
+	fcrNear(t, "wastage counted once per reading", lump.WastageKg, 3)
+}
+
+// PageBoundary: a segment is [earlier round, later round). Leftover on the first fed day and on the
+// last fed day before the later round both belong to the segment; the later round's own day is the
+// next segment's and has no feed here, so it is not taken off.
+func TestFCRWastageAtSegmentPageBoundary(t *testing.T) {
+	ctx, pool := fcrWastageDB(t)
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-08", "experiment", "completed", 2, "pb-1")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-14", "experiment", "completed", 3, "pb-2")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-15", "experiment", "completed", 9, "pb-3")
+	lump := fcrLumpFeed(t, ctx, pool)
+	fcrNear(t, "both in-segment days count, the round day does not", lump.WastageKg, 5)
+	fcrNear(t, "feed eaten", lump.FeedKg, 65)
+}
+
+// ParkScope: wastage filed under ANOTHER park for the same shed id never reaches this park's FCR.
+func TestFCRWastageParkScopeKeepsOtherParksOut(t *testing.T) {
+	ctx, pool := fcrWastageDB(t)
+	const otherPark = "22222222-0000-4000-8000-000000003199"
+	execGD(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, status, display_order)
+VALUES ($1::uuid, $2::uuid, 'park', 'Other park', 'active', 900) ON CONFLICT (location_id) DO NOTHING`, otherPark, gdTenant)
+	fcrWastage(t, ctx, pool, otherPark, gdShedLump, "", "2026-07-09", "experiment", "completed", 7, "ps-1")
+	lump := fcrLumpFeed(t, ctx, pool)
+	if lump.WastageKg != nil {
+		t.Fatalf("another park's wastage leaked in: %v", *lump.WastageKg)
+	}
+	fcrNear(t, "feed untouched", lump.FeedKg, 70)
+}
+
+// StatusMatrix: only an APPROVED reading is taken off. A reading still waiting for the verifier, one
+// sent back for a re-shoot, and an approved row with no reading all leave the feed as directed.
+func TestFCRWastageStatusMatrixOnlyApprovedCounts(t *testing.T) {
+	ctx, pool := fcrWastageDB(t)
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-09", "experiment", "pending_verification", 5, "sm-1")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-10", "experiment", "rework", 6, "sm-2")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-11", "experiment", "completed", -1, "sm-3")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-12", "experiment", "completed", 4, "sm-4")
+	lump := fcrLumpFeed(t, ctx, pool)
+	fcrNear(t, "only the approved 4 kg", lump.WastageKg, 4)
+	fcrNear(t, "feed eaten", lump.FeedKg, 66)
 }
 
 func keysOf(m map[string]domain.FCRPen) []string {

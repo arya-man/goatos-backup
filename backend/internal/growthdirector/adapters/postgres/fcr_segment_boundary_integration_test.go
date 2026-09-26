@@ -48,7 +48,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Lump 1', NULL, '', '', 1
 	}
 	var lump *domain.FCRPen
 	for i := range got.Pens {
-		if got.Pens[i].OperationalLocationDisplay == "Coimbatore · Lump 1" {
+		if got.Pens[i].OperationalLocationDisplay == "CBE · Lump 1" {
 			lump = &got.Pens[i]
 		}
 	}
