@@ -4732,7 +4732,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"hint.days_of_stock":  "Optional. How many days of feeding this load is meant to cover, as the buyer expects it. Feed Analytics compares it with what the sheets actually used.",
 			"value.days_of_stock": "{days} days",
 			"required.hint":       "Date, farm, feed, quantity, vendor and payment status are required.",
-			"hint.batch_no":       "Leave blank to record this as the next load of this feed at this farm.",
 			"hint.total_cost":     "Leave blank to add up the feed, transport, loading and unloading costs entered above.",
 
 			// Delivery (maintainer decision 2026-09-03): a load is bought, travels for days, then

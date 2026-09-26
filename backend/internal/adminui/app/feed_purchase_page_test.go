@@ -61,7 +61,7 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 		"field.quantity_kg", "field.feed_cost", "field.transport_cost", "field.loading_cost",
 		"field.unloading_cost", "field.total_cost", "field.per_kg_cost", "field.vendor",
 		"field.payment_released", "field.payment_status",
-		"hint.batch_no", "hint.total_cost", "required.hint",
+		"hint.total_cost", "required.hint",
 		"value.none", "value.entry_app", "value.entry_sheet",
 		"column.entry_source", "column.payment_status", "column.payment_balance",
 		"section.payments.title", "payments.paid_so_far", "payments.balance", "payments.empty",

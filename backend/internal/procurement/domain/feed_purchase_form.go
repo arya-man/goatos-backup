@@ -48,7 +48,6 @@ var lockedFeedPurchaseQuestions = map[string]VendorQuestion{
 	"feed_item_label":   {Kind: VendorQuestionChoice, Catalog: CatalogKindFeedItem},
 	"quantity_kg":       {Kind: VendorQuestionNumber},
 	"vendor":            {Kind: VendorQuestionText},
-	"batch_no":          {Kind: VendorQuestionNumber},
 	"feed_cost":         {Kind: VendorQuestionNumber},
 	"transport_cost":    {Kind: VendorQuestionNumber},
 	"loading_cost":      {Kind: VendorQuestionNumber},
@@ -74,6 +73,9 @@ func FeedPurchaseFormProfile() EntryFormProfile {
 		RequiredIDs:   requiredFeedPurchaseQuestionIDs,
 		CatalogKinds:  FeedPurchaseCatalogKinds,
 		Noun:          "a feed purchase",
+		Reserved: map[string]string{
+			"batch_no": "the load number is given automatically (the next number for this farm and feed)",
+		},
 	}
 }
 
@@ -128,7 +130,9 @@ func ApplyFeedPurchaseAnswers(write FeedPurchaseWrite, answers map[string]string
 	}
 	for id, raw := range answers {
 		value := strings.TrimSpace(raw)
-		if !IsTypedFeedPurchaseQuestion(id) {
+		// The load number is no longer a question (it is automatic), but a client that still answers
+		// it must reach Validate and be REFUSED -- never kept as an extra the ledger did not assign.
+		if !IsTypedFeedPurchaseQuestion(id) && id != "batch_no" {
 			if value != "" {
 				extras[id] = value
 			}

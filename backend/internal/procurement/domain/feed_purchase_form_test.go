@@ -44,6 +44,11 @@ func TestFeedPurchaseFormRefusesWhatTheLedgerCannotRun(t *testing.T) {
 		"identity made optional": {func(d *VendorFormDSL) { d.Pages[0].Questions[0].Required = false }, "must stay compulsory"},
 		"identity dropped":       {func(d *VendorFormDSL) { d.Pages[0].Questions = d.Pages[0].Questions[1:] }, `question "purchase_date" must be present`},
 		"foreign catalog":        {func(d *VendorFormDSL) { d.Pages[0].Questions[1].Catalog = CatalogKindBreed }, "not a catalog this form can read"},
+		// The load number is given by the ledger (maintainer decision 2026-09-26), so an author
+		// cannot put it back on the form as a question.
+		"load number asked": {func(d *VendorFormDSL) {
+			d.Pages[0].Questions = append(d.Pages[0].Questions, VendorQuestion{ID: "batch_no", Title: "Load number", Kind: VendorQuestionNumber})
+		}, "given automatically"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -136,5 +141,18 @@ func TestMigrationEmbedsTheSeededFeedPurchaseForm(t *testing.T) {
 		if !strings.Contains(string(raw), col) {
 			t.Fatalf("migration 000376 does not add %s", col)
 		}
+	}
+}
+
+// A load number arriving as a form ANSWER lands on the typed field -- where validation refuses it --
+// and is never kept as an authored extra, which would store a number the ledger did not assign.
+func TestAnAnsweredLoadNumberIsRefusedNotStoredAsAnExtra(t *testing.T) {
+	base := FeedPurchaseWrite{PurchaseDate: "2026-09-01", FarmLabel: "CBE", FeedItemLabel: "Maize", QuantityKg: 1000, Vendor: "Agri Traders", PaymentStatus: "Pending"}
+	got, extras := ApplyFeedPurchaseAnswers(base, map[string]string{"batch_no": "4"})
+	if _, ok := extras["batch_no"]; ok {
+		t.Fatal("a load number must not be stored as an authored extra")
+	}
+	if got.BatchNo == nil {
+		t.Fatal("an answered load number must reach the typed field so validation can refuse it")
 	}
 }

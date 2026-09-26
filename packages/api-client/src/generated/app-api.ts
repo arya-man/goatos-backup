@@ -9226,7 +9226,10 @@ export interface components {
             farm: "CBE" | "CPT";
             /** @description Must resolve to an ACTIVE feed catalog item; an unknown feed is rejected, never created. */
             feed_item: string;
-            /** @description Omit to have the next number for this farm and feed assigned inside the write transaction. Supply one only to record a load out of order. */
+            /**
+             * @deprecated
+             * @description Must be ABSENT (or null). The load number is automatic (maintainer decision 2026-09-26): the next number for this farm and feed is assigned inside the write transaction. A supplied value is refused 422 with a field error on batch_no, never honoured. The field stays in the schema only so an older client is told why.
+             */
             batch_no?: number | null;
             /** @description Required and must be more than zero. */
             quantity_kg: number;

@@ -225,6 +225,9 @@ type EntryFormProfile struct {
 	CatalogKinds  []string
 	// Noun names the record in a problem message ("a vendor cannot exist without it").
 	Noun string
+	// Reserved are question ids an author may NOT ask, with why: a value the system gives itself
+	// (the feed purchase's load number, 2026-09-26) must not come back as a question on the form.
+	Reserved map[string]string
 }
 
 // VendorFormProfile is the vendor register's document.
@@ -281,6 +284,9 @@ func ValidateEntryForm(profile EntryFormProfile, dsl VendorFormDSL) []string {
 			}
 			if _, dup := seen[q.ID]; dup {
 				add("%s.id: %q is used twice", qp, q.ID)
+			}
+			if why, reserved := profile.Reserved[q.ID]; reserved {
+				add("%s.id: %q cannot be asked: %s", qp, q.ID, why)
 			}
 			if strings.TrimSpace(q.Title) == "" {
 				add("%s.title: required", qp)

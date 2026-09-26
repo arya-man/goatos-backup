@@ -25,8 +25,8 @@ const FEED_PURCHASES_PATH = "/procurement/feed-purchases";
  *
  * A CLEARED cost is null, never 0: a load bought with no transport charge and a load whose
  * transport charge has not been entered yet are different facts, and coercing blank into 0 would
- * invent the first. The same rule is why `batch_no` stays null when blank — that is what tells the
- * backend to assign the next load number itself.
+ * invent the first. The load number is never sent: it is automatic (maintainer decision
+ * 2026-09-26) and the backend refuses one a client supplies.
  */
 
 function readPurchaseForm(formData: FormData): FeedPurchaseWrite {
@@ -45,7 +45,6 @@ function readPurchaseForm(formData: FormData): FeedPurchaseWrite {
     // boundary.
     farm: requiredString(formData, "farm") as FeedPurchaseWrite["farm"],
     feed_item: requiredString(formData, "feed_item"),
-    batch_no: parseOptionalNumber("batch_no"),
     quantity_kg: Number(requiredString(formData, "quantity_kg")),
     feed_cost: parseOptionalNumber("feed_cost"),
     transport_cost: parseOptionalNumber("transport_cost"),
