@@ -641,11 +641,11 @@ func applySegments(pen *FCRPen, row FCRPenRow, segs []FCRSegmentRow, prices Sale
 		feedKg += feed
 		gainKg += gain
 		headDays += *seg.HeadDays
-		unpriced += seg.UnpricedKg
 		wastage += seg.WastageKg
 		// Wastage is weighed per pen-day, not per feed item, so it cannot be split between priced
 		// and unpriced kilograms; take it off both in proportion.
 		if directed := *seg.FeedKg; directed > 0 {
+			unpriced += seg.UnpricedKg * feed / directed
 			pricedEaten += (directed - seg.UnpricedKg) * feed / directed
 		}
 		if seg.FeedCostINR != nil {

@@ -419,8 +419,10 @@ func TestFCRSubtractsApprovedWastageFromFeedButKeepsItsCost(t *testing.T) {
 		GeneralADGGPerDay: f(100), GeneralADGAnimals: 100,
 	}}
 	// 700 head-days x 100 g/day = 70 kg gain. 420 kg directed at ₹20/kg, 70 kg of it left over.
+	// Of the directed feed, 120 kg has no purchase price; wastage comes off priced and unpriced
+	// kilograms proportionally, so unpriced eaten is 100 kg, not the old directed 120 kg.
 	segments := []FCRSegmentRow{{PenKey: "w", StartDate: "2026-08-03", EndDate: "2026-08-10", Animals: 100, ADGGPerDay: 100,
-		Mode: "per_shed_partition", FeedKg: f(420), FeedCostINR: f(8400), HeadDays: f(700), WastageKg: 70}}
+		Mode: "per_shed_partition", FeedKg: f(420), FeedCostINR: f(8400), HeadDays: f(700), UnpricedKg: 120, WastageKg: 70}}
 	prices := SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 450}}}
 
 	got := BuildFCRReport(pens, segments, prices, FCRFilters{})
@@ -430,13 +432,16 @@ func TestFCRSubtractsApprovedWastageFromFeedButKeepsItsCost(t *testing.T) {
 	near(t, "pen fcr", pen.FCR, 5) // 350 / 70, not 420 / 70 = 6
 	near(t, "cost stays full", pen.FeedCostINR, 8400)
 	near(t, "cost per kg gain", pen.FeedCostPerKgGainINR, 120)
-	near(t, "summary fcr", got.Summary.FCR, 5)
-	if got.Summary.FeedKg != 350 || got.Summary.WastageKg != 70 {
-		t.Fatalf("summary feed=%v wastage=%v", got.Summary.FeedKg, got.Summary.WastageKg)
+	if pen.UnpricedFeedKg != 100 {
+		t.Fatalf("pen unpriced eaten kg = %v, want 100", pen.UnpricedFeedKg)
 	}
-	// ₹8400 over 350 kg eaten = ₹24/kg; break-even 450/24 = 18.75, on the same eaten basis as FCR.
-	near(t, "cost per kg eaten", got.Summary.FeedCostPerKgINR, 24)
-	near(t, "break-even", got.Summary.BreakEvenFCR, 18.75)
+	near(t, "summary fcr", got.Summary.FCR, 5)
+	if got.Summary.FeedKg != 350 || got.Summary.WastageKg != 70 || got.Summary.UnpricedFeedKg != 100 {
+		t.Fatalf("summary feed=%v wastage=%v unpriced=%v", got.Summary.FeedKg, got.Summary.WastageKg, got.Summary.UnpricedFeedKg)
+	}
+	// Cost/kg is over the priced eaten kg only: 350 eaten - 100 unpriced eaten = 250 priced eaten.
+	near(t, "cost per kg priced eaten", got.Summary.FeedCostPerKgINR, 33.6)
+	near(t, "break-even", got.Summary.BreakEvenFCR, 450/33.6)
 	near(t, "week fcr", got.Weekly[0].FCR, 5)
 	near(t, "breed fcr", got.ByBreed[0].FCR, 5)
 	if len(got.EstimatedByBreed) != 1 {
