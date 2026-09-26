@@ -63,6 +63,11 @@ function groupLabel(pageContract: AdminUiPageContract, group: GrowthFCRGroup, id
     case "purchased":
       return copy(pageContract, "label.fcr.purchased");
     default:
+      // A gender the farm added on Configuration is named from its list, never shown as a code.
+      if (id === "sex") {
+        const configured = weightsSexChoices(pageContract).find((choice) => choice.value === group.key);
+        if (configured) return configured.label;
+      }
       return group.label;
   }
 }

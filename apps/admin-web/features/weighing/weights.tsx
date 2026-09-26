@@ -33,7 +33,7 @@ import {
   weightsWindowSettings,
 } from "./landing-window";
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
-import { SEX_ALL, resolveSexFilter, sexControlValue } from "./sex-filter";
+import { SEX_ALL, resolveSexFilter, sexControlValue, sexLabel } from "./sex-filter";
 import { sexSentence, weightsSexChoices } from "./sex-filter-contract";
 import { assumptionValue, bandEdgesParam, DEFAULT_SALE_READY_LOWER_KG, fillKg } from "./assumption-copy";
 
@@ -662,14 +662,19 @@ export async function WeighingWeightsPage({
   // A dimension has a weight series and, separately, a gain series over the smaller
   // set of animals weighed twice. Selecting between them here keeps the two
   // populations from being conflated in one row.
+  // `name` turns a bucket's key into the farm's word. The sex buckets arrive as the stored gender
+  // CODE ("male", "castrated") -- weighing reads no gender list of its own -- so the sex chart
+  // names them from the farm's genders on this page's contract (audit 2026-09-26).
   const dimensionBars = (
     kind: "weight" | "adg",
     weightBuckets: readonly { label: string; average_weight_kg: number }[],
     gainBuckets: readonly { label: string; median_gain_g_per_day: number }[],
+    name: (key: string) => string = (key) => key,
   ) =>
     kind === "weight"
-      ? weightBuckets.map((b) => ({ key: b.label, label: b.label, value: Number(b.average_weight_kg.toFixed(1)) }))
-      : gainBuckets.map((b) => ({ key: b.label, label: b.label, value: Math.round(b.median_gain_g_per_day) }));
+      ? weightBuckets.map((b) => ({ key: b.label, label: name(b.label), value: Number(b.average_weight_kg.toFixed(1)) }))
+      : gainBuckets.map((b) => ({ key: b.label, label: name(b.label), value: Math.round(b.median_gain_g_per_day) }));
+  const sexName = (code: string) => sexLabel(code, sexChoices);
   const metricLabels = {
     adg: copy(pageContract, "metric.gain"),
     weight: copy(pageContract, "metric.weight"),
@@ -993,13 +998,13 @@ export async function WeighingWeightsPage({
           title={{ adg: copy(pageContract, "chart.sex.title_gain"), weight: copy(pageContract, "chart.sex.title") }}
           series={{
             adg: {
-              data: dimensionBars("adg", demo?.by_sex ?? [], demo?.gain_by_sex ?? []),
+              data: dimensionBars("adg", demo?.by_sex ?? [], demo?.gain_by_sex ?? [], sexName),
               emptyLabel: copy(pageContract, "empty.metric.no_gain"),
               unit: "g",
               chartLabel: copy(pageContract, "chart.sex.aria"),
             },
             weight: {
-              data: dimensionBars("weight", demo?.by_sex ?? [], demo?.gain_by_sex ?? []),
+              data: dimensionBars("weight", demo?.by_sex ?? [], demo?.gain_by_sex ?? [], sexName),
               emptyLabel: copy(pageContract, "empty.demographics.body"),
               unit: "kg",
               chartLabel: copy(pageContract, "chart.sex.aria"),

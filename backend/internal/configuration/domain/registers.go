@@ -388,7 +388,9 @@ var Registers = []Register{
 			// it was unclassified everywhere; left blank it still is, which is right for a clinical
 			// state such as ICU.
 			{Key: "age_band", Label: "Kid or adult", Type: TypeEnum, Options: StageAgeBands, Hint: "Shifting and Health treat kid and adult stages differently. Leave blank for a clinical state such as ICU."},
-			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+			// In the form, not the table: the rows are already listed in this order, and the
+			// table needs the room for Kid or adult at laptop width.
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true, ListHidden: true},
 		},
 	},
 	{
