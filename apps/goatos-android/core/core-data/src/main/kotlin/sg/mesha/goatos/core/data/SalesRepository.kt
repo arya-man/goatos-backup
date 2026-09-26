@@ -154,7 +154,12 @@ class DefaultSalesRepository(
                 pageSize = VENDORS_PAGE_SIZE,
                 initialLoadSize = VENDORS_PAGE_SIZE,
                 prefetchDistance = 3,
-                enablePlaceholders = false,
+                // Placeholders keep every position ABSOLUTE. Without them, once the 60-row window
+                // dropped its first page the pager counted the person's place from the first row
+                // it still held, so a refresh at the bottom reloaded the wrong rows and the list
+                // jumped towards the top (Sales phone E2E 2026-09-26). The rows themselves stay
+                // bounded by maxSize; a placeholder is only a count.
+                enablePlaceholders = true,
                 maxSize = VENDORS_PAGE_SIZE * 3,
             ),
             remoteMediator = SalesDealRemoteMediator(farm, key, api, database, json, clock),

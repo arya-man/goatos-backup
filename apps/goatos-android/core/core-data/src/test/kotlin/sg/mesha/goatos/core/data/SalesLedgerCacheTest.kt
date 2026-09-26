@@ -5,6 +5,7 @@ import androidx.paging.LoadType
 import androidx.paging.PagingConfig
 import androidx.paging.PagingState
 import androidx.paging.RemoteMediator
+import androidx.paging.testing.asSnapshot
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
@@ -130,6 +131,24 @@ class SalesLedgerCacheTest {
             assertEquals("page by page, never one oversized request", listOf(0, 20, 40), backend.requests.map { it.second })
             assertTrue("the ledger still knows it is at its end", all.load(LoadType.APPEND, atTheBottom) is RemoteMediator.MediatorResult.Success)
             assertEquals(listOf(0, 20, 40), backend.requests.map { it.second })
+        }
+    }
+
+    /**
+     * The same refresh through the real Pager the screen collects. Measured on the Realme: at
+     * row 74 of 75 a refresh landed on row ~22, because the pager dropped its first page (a
+     * 60-row window) and, with no placeholders, counted the person's place from the first row
+     * it still HELD -- not from the top of the ledger. The row they were looking at must be
+     * among the rows the refreshed ledger presents.
+     */
+    @Test
+    fun `a refresh through the real pager comes back to the row the person was looking at`() = runTest {
+        withRepo { repo, _, _ ->
+            val shown = repo.deals("").asSnapshot {
+                scrollTo(44)
+                refresh()
+            }
+            assertTrue("row 44 is on screen after the refresh; got ${shown.map { it.dealId }}", shown.any { it.dealId == "all-44" })
         }
     }
 
