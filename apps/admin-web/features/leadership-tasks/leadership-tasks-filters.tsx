@@ -18,7 +18,7 @@ import type { TaskRow } from "./task-row";
 import { taskRowPatch, useTaskRowsVersion } from "./task-row-store";
 import { patchApplies } from "./task-detail-pick";
 import { dateSpanLabel, personFilterLabel } from "./filter-labels";
-import { TASK_SORTS, type TaskSort } from "./task-url";
+import { DEFAULT_TASK_SORT, TASK_SORTS, type TaskSort } from "./task-url";
 import { useDialogShell } from "./use-dialog-shell";
 import { DropdownPaper } from "@/components/app/dropdown-paper";
 
@@ -339,6 +339,8 @@ export function LeadershipTasksFilters({
   const deadlineSpan = dateSpanLabel(deadlineFrom, deadlineTo);
   const raisedSpan = dateSpanLabel(raisedFrom, raisedTo);
 
+  const shownSortRaw = fieldValue(TASK_PARAM.sort, sort);
+  const shownSort: TaskSort = (TASK_SORTS as readonly string[]).includes(shownSortRaw) ? (shownSortRaw as TaskSort) : DEFAULT_TASK_SORT;
   const shownAssignee = fieldValue(TASK_PARAM.assignee, assignee);
   const shownRaiser = fieldValue(TASK_PARAM.raiser, raiser);
   // One name, or "Dinakar, Manju" for a multi-tick; an unknown id reads as a neutral label, never
@@ -563,13 +565,20 @@ export function LeadershipTasksFilters({
         <div className="lt-fsel lt-fsel-kit">
           <span className="lt-fkey">{copy(pageContract, "filter.sort")}</span>
           {/* Kit listbox, not a native <select>: same apply-on-change, same param. */}
+          {/* No outlined label: `.lt-fkey` already says "Sort", a notch label said it twice. An
+              unknown `t_sort` (stale link) shows the default the server applies, never a blank. */}
           <TextField
             select
-            label={copy(pageContract, "filter.sort")}
-            value={fieldValue(TASK_PARAM.sort, sort)}
+            value={shownSort}
             onChange={({ target: { value } }) => go(paramsWith({ [TASK_PARAM.sort]: value }))}
             sx={{ flexShrink: 0, maxWidth: 1 }}
-            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            slotProps={{
+              select: {
+                displayEmpty: true,
+                SelectDisplayProps: { "aria-label": copy(pageContract, "filter.sort") } as React.HTMLAttributes<HTMLDivElement>,
+                MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } },
+              },
+            }}
           >
             {TASK_SORTS.map((option) => (
               <MenuItem key={option} value={option}>
