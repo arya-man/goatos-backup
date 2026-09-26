@@ -74,3 +74,11 @@ test("sales config classes are not styled by the legacy stylesheets", () => {
   }
   assert.deepEqual(hits, [], `legacy CSS still styles: ${hits.join(", ")}`);
 });
+
+// guard: sales-config-items-panel: the What-we-sell card sits outside the tab's keyed panel (it
+// shares its list with the record-sale drawer), so it carries its own URL panel on `tab` — or a
+// tab click leaves the stale items card on screen until the server answers.
+test("the items card is wrapped in a URL panel keyed on the tab", () => {
+  const items = readFileSync(new URL("./sales-config-items.tsx", import.meta.url), "utf8");
+  assert.match(items, /<UrlPanel watch=\{\["tab"\]\} fallback=\{null\}>\s*\{showProducts \?/);
+});

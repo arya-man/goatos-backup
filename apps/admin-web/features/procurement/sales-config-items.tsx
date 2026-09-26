@@ -14,6 +14,7 @@ import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesDeal, SalesOptions, SellableProduct, SellableProductPage } from "@/lib/api/procurement";
 import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SellableProductsSection } from "./sellable-products-section";
+import { UrlPanel } from "@/components/app/url-panel";
 
 export function SalesItemsAndRecordDrawer({
   showProducts = true,
@@ -73,6 +74,10 @@ export function SalesItemsAndRecordDrawer({
 
   return (
     <>
+      {/* The items card lives outside the tab's keyed panel (it shares its list with the drawer),
+          so it gets its own URL panel: leaving the tab hides it at click time instead of leaving
+          the stale card on screen until the server answers (FJ3/TABS3 stale-panel). */}
+      <UrlPanel watch={["tab"]} fallback={null}>
       {showProducts ? (
         <SellableProductsSection
           page={productsPage}
@@ -82,6 +87,7 @@ export function SalesItemsAndRecordDrawer({
           onProductsChanged={setProducts}
         />
       ) : null}
+      </UrlPanel>
       {children}
       <SalesRecordDrawer
         deals={deals}

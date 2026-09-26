@@ -496,10 +496,11 @@ export async function SalesConfigPage({
 
 /** The params the tab sections read: the tab and the deals ledger's pager. */
 const CONFIG_PANEL_WATCH = ["tab", "limit", "offset"] as const;
-/** Each tab's section skeleton (the items tab renders inside the always-mounted drawer boundary). */
+/** Each tab's section skeleton. The items card renders in the drawer boundary under its own URL panel
+ *  (sales-config-items.tsx); its skeleton shows here while the tab loads. */
 const CONFIG_TAB_SKELETON: Record<SalesConfigTab, ReactNode> = Object.fromEntries(
   SALES_CONFIG_TABS.map((key) => [
     key,
-    key === "sales" || key === "loads" ? <PanelSkeleton table={8} /> : key === "items" ? null : <PanelSkeleton charts={1} table={6} />,
+    key === "sales" || key === "loads" ? <PanelSkeleton table={8} /> : <PanelSkeleton charts={1} table={6} />,
   ]),
 ) as Record<SalesConfigTab, ReactNode>;

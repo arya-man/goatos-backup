@@ -524,7 +524,7 @@ function SopItem({ view, facets, pageContract, justPublished, onView, onEdit }: 
         <ListItemText
           sx={{ mb: 1, pr: 3 }}
           primary={
-            <Link component="button" type="button" color="inherit" underline="hover" onClick={onView} sx={{ textAlign: "left", typography: "subtitle1" }}>
+            <Link component="button" type="button" color="inherit" underline="hover" onClick={onView} sx={{ textAlign: "left", typography: "subtitle1", minWidth: { xs: 44, md: 0 } }}>
               {view.name}
             </Link>
           }
