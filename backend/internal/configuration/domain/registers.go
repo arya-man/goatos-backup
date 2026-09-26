@@ -225,7 +225,7 @@ var BuiltinCodes = map[string]map[string]bool{
 	RegStages: {
 		"k0": true, "k1": true, "k2": true, "k3": true,
 		"f2": true, "f2-male": true, "f2-female": true, "buck": true,
-		"non-pregnant": true, "pregnant": true, "flushing": true,
+		"non-pregnant": true, "pregnant": true, "mother": true, "flushing": true,
 	},
 }
 
@@ -377,7 +377,7 @@ var Registers = []Register{
 	},
 	{
 		Key: RegStages, Label: "Lifecycle stages", One: "Stage", Group: GroupAnimalTypes,
-		Hint: "The stages an animal moves through, with the age band each covers. K0, Flushing and the growth stages (K1 to Pregnant) are built in: rename them if you like, but they cannot be removed.",
+		Hint: "The stages an animal moves through, with the age band each covers. K0, Flushing and the growth stages (K1 to Pregnant, and Mother) are built in: rename them if you like, but they cannot be removed.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "code", Label: "Code", Type: TypeText, Required: true, Immutable: true, Hint: "The tag the farm uses, such as K2 or F2-Male; cannot change once saved."},

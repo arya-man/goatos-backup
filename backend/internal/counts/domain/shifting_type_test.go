@@ -745,3 +745,45 @@ func TestRefusalCopyCarriesNoInternalVocabulary(t *testing.T) {
 		}
 	}
 }
+
+// F2-Female -> Mother is a growth step (maintainer decision 2026-09-26), beside F2-Female ->
+// Non-Pregnant: into a pen set to Mother, into a pen already holding Mothers, and into an EMPTY pen
+// whose Stage is Mother, she becomes Mother. An empty pen set to anything else still gives
+// Non-Pregnant, exactly as before the second rung. Mother is female-only.
+func TestGrowthShiftFatteningFemaleMayBecomeMother(t *testing.T) {
+	setToMother := knownDest(ShiftTypeContext{
+		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3,
+		DestinationConfiguredStage: "Mother",
+		Animals:                    animals("F2-Female", "female"),
+	})
+	wantDecision(t, setToMother, ShiftTypeDecision{TargetStage: "Mother"})
+
+	holdingMothers := knownDest(ShiftTypeContext{
+		Type:                      ShiftTypeGrowth,
+		DestinationHeadCount:      5,
+		DestinationResidentStages: []string{"Mother"},
+		Animals:                   animals("F2-Female", "female"),
+	})
+	wantDecision(t, holdingMothers, ShiftTypeDecision{TargetStage: "Mother"})
+
+	emptySetToMother := knownDest(ShiftTypeContext{
+		Type:                       ShiftTypeGrowth,
+		DestinationConfiguredStage: "Mother",
+		Animals:                    animals("F2-Female", "female"),
+	})
+	wantDecision(t, emptySetToMother, ShiftTypeDecision{TargetStage: "Mother", AdoptPenTag: "Mother"})
+
+	emptyUnset := knownDest(ShiftTypeContext{Type: ShiftTypeGrowth, Animals: animals("F2-Female", "female")})
+	wantDecision(t, emptyUnset, ShiftTypeDecision{TargetStage: "Non-Pregnant", AdoptPenTag: "Non-Pregnant"})
+
+	male := knownDest(ShiftTypeContext{
+		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3,
+		DestinationConfiguredStage: "Mother",
+		Animals:                    animals("F2-Male", "male"),
+	})
+	if _, refusal := ResolveShiftTypeDecision(male); refusal == nil {
+		t.Fatal("a fattening male must not become Mother")
+	}
+}
