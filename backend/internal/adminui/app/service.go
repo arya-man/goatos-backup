@@ -579,7 +579,7 @@ func pages() []domain.PageContract {
 		// the five hands-on-the-animal PC Care jobs: one row per pen, one column per job, a tick
 		// where the job was submitted (approved or waiting for the verifier). Columns come from the read.
 		page("vaccination-care-coverage", "/vaccination/care-coverage", "/vaccination/care-coverage", "Care Coverage",
-			"Every pen against deworming, anti protozoan, ticks removal, hoof trimming and hair trimming — a tick where it is done.",
+			"Every pen that has animals in it against deworming, anti protozoan, ticks removal, hoof trimming and hair trimming — a tick where it is done.",
 			"module-surface", []domain.TableContract{
 				tableP("care-coverage", "Pen care status", "/app/pc-care/pen-coverage",
 					[]string{"pen", "deworming", "anti_protozoan", "ticks_removal", "hoof_trimming", "hair_trimming"}, "pen", []int{25, 50, 100}),
