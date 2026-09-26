@@ -14,6 +14,7 @@ import {
   listProcurementVendorCatalog,
   listProcurementVendors,
   type ProcurementVendor,
+  type ProcurementVendorCatalog,
 } from "@/lib/api/server";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -65,6 +66,15 @@ function hrefWithQuery(pathname: string, sp: RouteSearchParams, patch: Record<st
 
 const FILTER_KEYS: VendorFilterKey[] = ["record_type", "status", "state", "city", "breed"];
 
+/** Where each facet's offered values live in the vendor catalog (mirrors the filter bar's selects). */
+const VENDOR_CATALOG_KEY = {
+  record_type: "record_types",
+  status: "statuses",
+  state: "states",
+  city: "cities",
+  breed: "breeds",
+} as const satisfies Record<VendorFilterKey, keyof ProcurementVendorCatalog>;
+
 /**
  * Which half of the register this page shows, read from the page's OWN backend contract.
  *
@@ -105,21 +115,38 @@ export async function VendorBoardPage({
   const limit = boundedInt(one(sp, "limit"), PAGE_SIZE, 1, 100);
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
 
-  const activeFilters: Partial<Record<VendorFilterKey, string>> = {};
+  const requestedFilters: Partial<Record<VendorFilterKey, string>> = {};
   for (const key of FILTER_KEYS) {
     const value = one(sp, key);
-    if (value) activeFilters[key] = value;
+    if (value) requestedFilters[key] = value;
   }
 
-  // Both reads in parallel: the catalog is needed to render the filter selects and the edit form,
-  // and it does not depend on the page of vendors.
+  // The catalog renders the filter selects and the edit form. A facet value the catalog does not
+  // offer (a stale bookmark, a hand-edited URL) is dropped ONCE here, so the select ("All"), the
+  // applied chip and the vendor query all agree -- the select used to show "All" while the chip and
+  // the server still applied the stale value (0 vendors). With no facet in the URL the vendor read
+  // does not wait for the catalog. If the catalog read fails the values pass through unchecked.
   // The published vendor form (VENDOR FORM IS AUTHORED, 2026-09-19) rides along: it is what the
   // add / edit drawer renders, question by question.
+  const catalogPromise = listProcurementVendorCatalog({ side });
+  const hasRequestedFilter = Object.keys(requestedFilters).length > 0;
+  const validFilters = (catalogRes: Awaited<typeof catalogPromise>): Partial<Record<VendorFilterKey, string>> => {
+    if (!catalogRes.ok) return requestedFilters;
+    const cleaned: Partial<Record<VendorFilterKey, string>> = {};
+    for (const key of FILTER_KEYS) {
+      const value = requestedFilters[key];
+      if (value && (catalogRes.data[VENDOR_CATALOG_KEY[key]] ?? []).some((entry) => entry.value === value)) cleaned[key] = value;
+    }
+    return cleaned;
+  };
+  const listFor = (filters: Partial<Record<VendorFilterKey, string>>) =>
+    listProcurementVendors({ search: search || undefined, limit, offset, side, ...filters });
   const [result, catalogResult, formResult] = await Promise.all([
-    listProcurementVendors({ search: search || undefined, limit, offset, side, ...activeFilters }),
-    listProcurementVendorCatalog({ side }),
+    hasRequestedFilter ? catalogPromise.then((catalogRes) => listFor(validFilters(catalogRes))) : listFor({}),
+    catalogPromise,
     getProcurementVendorForm({ side }),
   ]);
+  const activeFilters = hasRequestedFilter ? validFilters(catalogResult) : requestedFilters;
 
   const authError = firstAuthRequiredError(result, catalogResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
