@@ -16802,8 +16802,16 @@ export interface components {
             adg_g_per_day: number | null;
             /** Format: double */
             gain_kg: number | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Feed eaten: directed kg minus verifier-approved wastage.
+             */
             feed_kg: number | null;
+            /**
+             * Format: double
+             * @description Verifier-approved leftover taken off feed_kg; null when none was recorded.
+             */
+            wastage_kg: number | null;
             /** Format: double */
             fcr: number | null;
             /** Format: double */
@@ -16865,8 +16873,13 @@ export interface components {
             pens_without_gain: number;
             pens_with_blocked_cells: number;
             animals: number;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Feed eaten across the pens with an FCR: directed kg minus verifier-approved wastage.
+             */
             feed_kg: number;
+            /** Format: double */
+            wastage_kg: number;
             /** Format: double */
             gain_kg: number;
             /** Format: double */

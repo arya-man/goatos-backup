@@ -38670,7 +38670,7 @@ components:
     GrowthFCRPen:
       type: object
       additionalProperties: false
-      required: [location_id, partition_label, operational_location_display, park_id, park_name, weighing_modes, breed, sex, species, origin, animals, rounds, first_weigh_date, last_weigh_date, start_weight_kg, weight_band, head_days, adg_g_per_day, gain_kg, feed_kg, fcr, feed_cost_inr, feed_cost_per_kg_gain_inr, gain_value_inr, margin_inr, unpriced_feed_kg, blocked_cells, status]
+      required: [location_id, partition_label, operational_location_display, park_id, park_name, weighing_modes, breed, sex, species, origin, animals, rounds, first_weigh_date, last_weigh_date, start_weight_kg, weight_band, head_days, adg_g_per_day, gain_kg, feed_kg, wastage_kg, fcr, feed_cost_inr, feed_cost_per_kg_gain_inr, gain_value_inr, margin_inr, unpriced_feed_kg, blocked_cells, status]
       properties:
         location_id: {type: string, format: uuid}
         partition_label: {type: string}
@@ -38693,7 +38693,8 @@ components:
         head_days: {type: number, format: double, nullable: true}
         adg_g_per_day: {type: number, format: double, nullable: true}
         gain_kg: {type: number, format: double, nullable: true}
-        feed_kg: {type: number, format: double, nullable: true}
+        feed_kg: {type: number, format: double, nullable: true, description: "Feed eaten: directed kg minus verifier-approved wastage."}
+        wastage_kg: {type: number, format: double, nullable: true, description: "Verifier-approved leftover taken off feed_kg; null when none was recorded."}
         fcr: {type: number, format: double, nullable: true}
         feed_cost_inr: {type: number, format: double, nullable: true}
         feed_cost_per_kg_gain_inr: {type: number, format: double, nullable: true}
@@ -38734,7 +38735,7 @@ components:
     GrowthFCRSummary:
       type: object
       additionalProperties: false
-      required: [pens_in_scope, pens_with_fcr, pens_weighed_once, pens_without_feed, pens_without_gain, pens_with_blocked_cells, animals, feed_kg, gain_kg, head_days, fcr, adg_g_per_day, feed_cost_inr, feed_cost_per_kg_inr, feed_cost_per_kg_gain_inr, gain_value_inr, valued_gain_kg, valued_pens, margin_inr, break_even_fcr, unpriced_feed_kg]
+      required: [pens_in_scope, pens_with_fcr, pens_weighed_once, pens_without_feed, pens_without_gain, pens_with_blocked_cells, animals, feed_kg, wastage_kg, gain_kg, head_days, fcr, adg_g_per_day, feed_cost_inr, feed_cost_per_kg_inr, feed_cost_per_kg_gain_inr, gain_value_inr, valued_gain_kg, valued_pens, margin_inr, break_even_fcr, unpriced_feed_kg]
       properties:
         pens_in_scope: {type: integer}
         pens_with_fcr: {type: integer}
@@ -38743,7 +38744,8 @@ components:
         pens_without_gain: {type: integer}
         pens_with_blocked_cells: {type: integer}
         animals: {type: integer}
-        feed_kg: {type: number, format: double}
+        feed_kg: {type: number, format: double, description: "Feed eaten across the pens with an FCR: directed kg minus verifier-approved wastage."}
+        wastage_kg: {type: number, format: double}
         gain_kg: {type: number, format: double}
         head_days: {type: number, format: double}
         fcr: {type: number, format: double, nullable: true}

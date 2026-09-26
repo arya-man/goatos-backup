@@ -192,7 +192,49 @@ feed_days AS (
     AND fd.park_id = ANY($2::uuid[])
     AND fd.feed_day >= $8::date AND fd.feed_day < $9::date
     AND fd.pen_shed_id IN (SELECT pen_shed_id FROM pen_map)
+),
+-- FEED WASTAGE (maintainer instruction 2026-09-26): the leftover the verifier weighed off the pen's
+-- wastage video, one figure per pen per feed day (target_date IS the sheet's feed_day, and the pen
+-- key is the rollup's own scrub of the same generated partition_key). It is taken off the directed
+-- kilograms so the ratio is feed EATEN per kg gained.
+--
+-- DELIBERATELY NOT FILTERED BY WORKFLOW. Today only experiment pens owe a wastage video (000176),
+-- but the feed side already sums every workflow's sheet, so when wastage is recorded for normal pens
+-- it lands here with no change to this file. Summed per pen-day across workflows for that reason.
+--
+-- Only an APPROVED reading counts (status 'completed' with a kg): a pending or sent-back clip's
+-- number is not yet the verifier's. And only on a pen-day the rollup holds a known feed quantity
+-- for -- leftover taken off a day whose feed is blocked or absent would come off a numerator that
+-- never contained that day's feed. Read here rather than folded into the rollup: the table is one
+-- row per experiment pen-day (~1k a month) and its serving index leads (tenant, park, target_date).
+-- projection-review: membership=completed wastage rows of the scoped parks and window; group_key=
+-- (pen_shed_id, pen_key, feed_day) -- one row per pen-day after the GROUP BY, the grain feed_days
+-- carries, so every later join is 1:0..1 per feed day; pagination=NONE; scope=tenant + park ANY +
+-- the window's business days.
+wastage_rows AS (
+  SELECT w.shed_id AS pen_shed_id, ` + fcrWastagePenKey + ` AS pen_key, w.target_date AS feed_day,
+         sum(w.wastage_kg)::float8 AS wastage_kg
+  FROM feed_wastage_completions w
+  WHERE w.tenant_id = $1::uuid
+    AND w.park_id = ANY($2::uuid[])
+    AND w.target_date >= $8::date AND w.target_date < $9::date
+    AND w.status = 'completed'
+    AND w.wastage_kg IS NOT NULL
+    AND w.shed_id IN (SELECT pen_shed_id FROM pen_map)
+  GROUP BY 1, 2, 3
+),
+wastage_days AS (
+  SELECT wr.pen_shed_id, wr.pen_key, wr.feed_day, wr.wastage_kg
+  FROM wastage_rows wr
+  WHERE EXISTS (
+    SELECT 1 FROM feed_days fd
+    WHERE fd.pen_shed_id = wr.pen_shed_id AND fd.pen_key = wr.pen_key
+      AND fd.feed_day = wr.feed_day AND fd.feed_kg IS NOT NULL)
 )`
+
+// fcrWastagePenKey is the rollup's pen-key scrub applied to the wastage row's generated
+// partition_key (the same lower(btrim(label)) / 'whole' column the feed sheet carries).
+var fcrWastagePenKey = strings.ReplaceAll(fcrRollupPenKey, "r.partition_key", "w.partition_key")
 
 // The scrub applied to the bucket-derived label and to the feed sheet's label. Written twice as
 // constants because the Go format verb cannot sit inside a raw SQL string.
@@ -292,6 +334,13 @@ window_feed AS (
   LEFT JOIN feed_days fd ON fd.pen_shed_id = p.pen_shed_id AND fd.pen_key = p.pen_key
   GROUP BY p.pen_shed_id, p.pen_key
 ),
+-- Its own aggregate, never joined beside feed_days: both are one row per pen-day, and a second
+-- LEFT JOIN in window_feed would be safe only while that stays true.
+window_wastage AS (
+  SELECT wd.pen_shed_id, wd.pen_key, sum(wd.wastage_kg)::float8 AS wastage_kg
+  FROM wastage_days wd
+  GROUP BY wd.pen_shed_id, wd.pen_key
+),
 -- THE PEN'S DAILY GAIN, ON THE GENERAL TAB'S STATISTIC (maintainer decision 2026-09-24: "make sure
 -- the FCR tab uses the same logic as General"). The segment ADG the ratio is built from weights each
 -- leg by the feed sheet's head-days, so the same pen read 173 g here and 169 g on General. The
@@ -356,7 +405,8 @@ SELECT p.pen_shed_id::text, p.pen_key,
        c.residents, c.breeds, COALESCE(c.breed, ''), c.sexes, COALESCE(c.sex, ''), c.species_n, COALESCE(c.species, ''), cm.mix, c.breed_members, c.bought,
        wc.animals, wc.breeds, COALESCE(wc.breed, ''), wc.sexes, COALESCE(wc.sex, ''), wc.species_n, COALESCE(wc.species, ''), wm.mix, wc.breed_members, wc.bought,
        wf.feed_kg::float8, wf.blocked_cells,
-       COALESCE(gl.g, gs.g)::float8, (CASE WHEN gl.g IS NOT NULL THEN gl.animals ELSE gs.animals END)::int
+       COALESCE(gl.g, gs.g)::float8, (CASE WHEN gl.g IS NOT NULL THEN gl.animals ELSE gs.animals END)::int,
+       ww.wastage_kg
 FROM pens p
 JOIN locations shed ON shed.location_id = p.pen_shed_id AND shed.tenant_id = $1::uuid
 LEFT JOIN locations pk ON pk.location_id = shed.parent_location_id AND pk.tenant_id = $1::uuid
@@ -365,6 +415,7 @@ LEFT JOIN weighed_cohort wc ON wc.pen_shed_id = p.pen_shed_id AND wc.pen_key = p
 LEFT JOIN cohort_mix cm ON cm.pen_shed_id = p.pen_shed_id AND cm.pen_key = p.pen_key
 LEFT JOIN weighed_mix wm ON wm.pen_shed_id = p.pen_shed_id AND wm.pen_key = p.pen_key
 LEFT JOIN window_feed wf ON wf.pen_shed_id = p.pen_shed_id AND wf.pen_key = p.pen_key
+LEFT JOIN window_wastage ww ON ww.pen_shed_id = p.pen_shed_id AND ww.pen_key = p.pen_key
 LEFT JOIN gen_lump gl ON gl.pen_shed_id = p.pen_shed_id AND gl.pen_key = p.pen_key
 LEFT JOIN gen_scan gs ON gs.pen_shed_id = p.pen_shed_id AND gs.pen_key = p.pen_key
 ORDER BY COALESCE(NULLIF(pk.location_code, ''), pk.name), shed.name, p.pen_key`
@@ -459,12 +510,24 @@ seg_heads AS (
    AND fd.feed_day >= sg.d_prev AND fd.feed_day < sg.d
    AND fd.head_days IS NOT NULL
   GROUP BY sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d
+),
+-- projection-review: group_key=(pen_shed_id, pen_key, d_prev, d) like seg_feed; wastage_days is one
+-- row per pen-day, collapsed by the aggregate, so the final 1:0..1 join cannot multiply.
+seg_wastage AS (
+  SELECT sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d, sum(wd.wastage_kg)::float8 AS wastage_kg
+  FROM segments sg
+  JOIN wastage_days wd
+    ON wd.pen_shed_id = sg.pen_shed_id AND wd.pen_key = sg.pen_key
+   AND wd.feed_day >= sg.d_prev AND wd.feed_day < sg.d
+  GROUP BY sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d
 )
 SELECT sg.pen_shed_id::text, sg.pen_key, sg.d_prev::text, sg.d::text, sg.animals, sg.adg_g, sg.mode, sg.paired,
-       f.feed_kg, f.feed_cost, COALESCE(f.unpriced_kg, 0), COALESCE(f.blocked_cells, 0), h.head_days
+       f.feed_kg, f.feed_cost, COALESCE(f.unpriced_kg, 0), COALESCE(f.blocked_cells, 0), h.head_days,
+       COALESCE(w.wastage_kg, 0)
 FROM segments sg
 LEFT JOIN seg_feed  f ON f.pen_shed_id = sg.pen_shed_id AND f.pen_key = sg.pen_key AND f.d_prev = sg.d_prev AND f.d = sg.d
 LEFT JOIN seg_heads h ON h.pen_shed_id = sg.pen_shed_id AND h.pen_key = sg.pen_key AND h.d_prev = sg.d_prev AND h.d = sg.d
+LEFT JOIN seg_wastage w ON w.pen_shed_id = sg.pen_shed_id AND w.pen_key = sg.pen_key AND w.d_prev = sg.d_prev AND w.d = sg.d
 ORDER BY sg.pen_shed_id, sg.pen_key, sg.d`
 )
 
@@ -621,7 +684,7 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 			&row.Rounds, &row.FirstWeighDate, &row.LastWeighDate, &firstAvg, &row.LatestAnimals, &row.Modes,
 			&residents, &breeds, &row.Breed, &sexes, &row.Sex, &speciesN, &row.Species, &residentMix, &residentBreeds, &bought,
 			&wAnimals, &wBreeds, &row.WeighedBreed, &wSexes, &row.WeighedSex, &wSpeciesN, &row.WeighedSpecies, &weighedMix, &weighedBreeds, &wBought,
-			&windowFeed, &blocked, &row.GeneralADGGPerDay, &genAnimals); err != nil {
+			&windowFeed, &blocked, &row.GeneralADGGPerDay, &genAnimals, &row.WindowWastageKg); err != nil {
 			return nil, err
 		}
 		row.PenKey = row.LocationID + "|" + row.PenKey
@@ -721,7 +784,7 @@ func (r *Repository) fcrSegments(ctx context.Context, tenantID string, parkIDs [
 		var seg domain.FCRSegmentRow
 		var shedID string
 		if err := rows.Scan(&shedID, &seg.PenKey, &seg.StartDate, &seg.EndDate, &seg.Animals, &seg.ADGGPerDay, &seg.Mode, &seg.PairedKids,
-			&seg.FeedKg, &seg.FeedCostINR, &seg.UnpricedKg, &seg.BlockedCells, &seg.HeadDays); err != nil {
+			&seg.FeedKg, &seg.FeedCostINR, &seg.UnpricedKg, &seg.BlockedCells, &seg.HeadDays, &seg.WastageKg); err != nil {
 			return nil, err
 		}
 		seg.PenKey = shedID + "|" + seg.PenKey

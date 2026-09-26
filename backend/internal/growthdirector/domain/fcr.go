@@ -33,6 +33,14 @@ import (
 // was told to give), not a measured intake. The only measured quantity in the feed chain is the
 // verifier's packed weight, which is sparse; version 1 uses the sheet (maintainer decision
 // 2026-09-07) and says so.
+//
+// FEED WASTAGE IS TAKEN OFF (maintainer instruction 2026-09-26). Where the verifier has weighed a
+// pen's leftover for a feed day, that kilogram was directed but not eaten, so it leaves the feed
+// side: every FeedKg on this tab is directed minus approved wastage, and FCR is feed EATEN per kg
+// gained. The repository applies no workflow filter, so wastage recorded for any pen -- today only
+// experiment pens owe it -- is subtracted with no change here. Its MONEY stays in the feed bill:
+// wasted feed was still bought, so FeedCostINR is the full spend and FeedCostPerKgINR is what a
+// kilogram EATEN cost, which keeps break-even FCR on the same basis as the FCR it is compared to.
 const FCRBasisDirectedFeed = "directed_feed"
 
 // Cohort labels a pen carries when its residents do not agree. A pen holding two breeds is filed
@@ -167,6 +175,7 @@ type FCRSegmentRow struct {
 	UnpricedKg   float64  // directed kg with no purchase price on or before the day
 	BlockedCells int
 	HeadDays     *float64
+	WastageKg    float64 // verifier-approved leftover on the segment's fed days; 0 when none recorded
 }
 
 // FCRPenRow is one pen as the repository returns it: identity, cohort and its rounds.
@@ -214,6 +223,7 @@ type FCRPenRow struct {
 	WholeShedWeighed    bool
 	WindowFeedKg        *float64 // directed kg over the WHOLE window, for pens with no segment
 	WindowBlockedCells  int
+	WindowWastageKg     *float64 // approved wastage over the WHOLE window, paired with WindowFeedKg
 	// GeneralADGGPerDay is the pen's daily gain on the General tab's own statistic (whole pen:
 	// latest minus first average over the days between; scanned: the mean of each animal's own
 	// gain), and GeneralADGAnimals the animals it speaks for. It is the ADG this tab SHOWS, so a pen
@@ -243,7 +253,8 @@ type FCRPen struct {
 	HeadDays                   *float64 `json:"head_days"`
 	ADGGPerDay                 *float64 `json:"adg_g_per_day"`
 	GainKg                     *float64 `json:"gain_kg"`
-	FeedKg                     *float64 `json:"feed_kg"`
+	FeedKg                     *float64 `json:"feed_kg"` // directed minus approved wastage: feed eaten
+	WastageKg                  *float64 `json:"wastage_kg"`
 	FCR                        *float64 `json:"fcr"`
 	FeedCostINR                *float64 `json:"feed_cost_inr"`
 	FeedCostPerKgGainINR       *float64 `json:"feed_cost_per_kg_gain_inr"`
@@ -254,6 +265,9 @@ type FCRPen struct {
 	UnpricedFeedKg float64  `json:"unpriced_feed_kg"`
 	BlockedCells   int      `json:"blocked_cells"`
 	Status         string   `json:"status"`
+	// pricedFeedKg is the EATEN kilograms that carry a purchase price: the denominator of the
+	// summary's cost per kg of feed. Not on the wire.
+	pricedFeedKg float64
 }
 
 // FCRGroup is one bar of a cut: sum-over-sum across its member pens, never a mean of pen ratios,
@@ -299,6 +313,7 @@ type FCRSummary struct {
 	PensWithBlockedCells int      `json:"pens_with_blocked_cells"`
 	Animals              int      `json:"animals"`
 	FeedKg               float64  `json:"feed_kg"`
+	WastageKg            float64  `json:"wastage_kg"`
 	GainKg               float64  `json:"gain_kg"`
 	HeadDays             float64  `json:"head_days"`
 	FCR                  *float64 `json:"fcr"`
@@ -437,12 +452,15 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 		}
 		summary.PensWithFCR++
 		summary.FeedKg += *pen.FeedKg
+		if pen.WastageKg != nil {
+			summary.WastageKg += *pen.WastageKg
+		}
 		summary.GainKg += *pen.GainKg
 		summary.HeadDays += *pen.HeadDays
 		summary.UnpricedFeedKg += pen.UnpricedFeedKg
 		if pen.FeedCostINR != nil {
 			summary.FeedCostINR = addPtr(summary.FeedCostINR, *pen.FeedCostINR)
-			pricedFeedKg += *pen.FeedKg - pen.UnpricedFeedKg
+			pricedFeedKg += pen.pricedFeedKg
 		}
 		if pen.GainValueINR != nil {
 			summary.GainValueINR = addPtr(summary.GainValueINR, *pen.GainValueINR)
@@ -581,8 +599,11 @@ func penFromRow(row FCRPenRow, bandEdges []float64) FCRPen {
 	if pen.WeighingModes == nil {
 		pen.WeighingModes = []string{}
 	}
-	if row.Rounds < 2 {
-		pen.FeedKg = row.WindowFeedKg
+	if row.Rounds < 2 && row.WindowFeedKg != nil {
+		pen.FeedKg = ptr(eatenKg(*row.WindowFeedKg, derefOr(row.WindowWastageKg)))
+		if row.WindowWastageKg != nil && *row.WindowWastageKg > 0 {
+			pen.WastageKg = ptr(*row.WindowWastageKg)
+		}
 	}
 	return pen
 }
@@ -606,7 +627,7 @@ func applySegments(pen *FCRPen, row FCRPenRow, segs []FCRSegmentRow, prices Sale
 		pen.Status = FCRPenWeighedOnce
 		return
 	}
-	var feedKg, gainKg, headDays, unpriced float64
+	var feedKg, gainKg, headDays, unpriced, wastage, pricedEaten float64
 	var cost *float64
 	blocked := 0
 	any := false
@@ -621,6 +642,12 @@ func applySegments(pen *FCRPen, row FCRPenRow, segs []FCRSegmentRow, prices Sale
 		gainKg += gain
 		headDays += *seg.HeadDays
 		unpriced += seg.UnpricedKg
+		wastage += seg.WastageKg
+		// Wastage is weighed per pen-day, not per feed item, so it cannot be split between priced
+		// and unpriced kilograms; take it off both in proportion.
+		if directed := *seg.FeedKg; directed > 0 {
+			pricedEaten += (directed - seg.UnpricedKg) * feed / directed
+		}
 		if seg.FeedCostINR != nil {
 			cost = addPtr(cost, *seg.FeedCostINR)
 		}
@@ -631,6 +658,10 @@ func applySegments(pen *FCRPen, row FCRPenRow, segs []FCRSegmentRow, prices Sale
 		return
 	}
 	pen.FeedKg = ptr(feedKg)
+	if wastage > 0 {
+		pen.WastageKg = ptr(wastage)
+	}
+	pen.pricedFeedKg = pricedEaten
 	pen.GainKg = ptr(gainKg)
 	pen.HeadDays = ptr(headDays)
 	pen.UnpricedFeedKg = unpriced
@@ -655,13 +686,35 @@ func applySegments(pen *FCRPen, row FCRPenRow, segs []FCRSegmentRow, prices Sale
 	}
 }
 
-// segmentGainAndFeed returns the segment's gain and feed in kg, or ok=false when the segment has no
-// feed rows or no head count and therefore cannot take part in a ratio.
+// segmentGainAndFeed returns the segment's gain and the feed it ATE in kg (directed minus approved
+// wastage), or ok=false when the segment has no feed rows or no head count and therefore cannot
+// take part in a ratio. Every FCR on the tab -- pen, group, week, summary -- reads feed through
+// here, so wastage is subtracted in exactly one place.
 func segmentGainAndFeed(seg FCRSegmentRow) (gainKg, feedKg float64, ok bool) {
 	if seg.FeedKg == nil || seg.HeadDays == nil || *seg.HeadDays <= 0 {
 		return 0, 0, false
 	}
-	return seg.ADGGPerDay * *seg.HeadDays / 1000, *seg.FeedKg, true
+	return seg.ADGGPerDay * *seg.HeadDays / 1000, eatenKg(*seg.FeedKg, seg.WastageKg), true
+}
+
+// eatenKg is directed feed less the leftover weighed off it. A leftover heavier than the feed the
+// sheet directed (a verifier reading a trough that also held the previous day's feed) floors at
+// zero rather than reporting negative intake.
+func eatenKg(directedKg, wastageKg float64) float64 {
+	if wastageKg <= 0 {
+		return directedKg
+	}
+	if eaten := directedKg - wastageKg; eaten > 0 {
+		return eaten
+	}
+	return 0
+}
+
+func derefOr(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func addGroup(into map[string]*FCRGroup, key, label string, pen FCRPen, adgAnimals int) {

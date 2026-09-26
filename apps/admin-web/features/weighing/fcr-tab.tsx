@@ -175,6 +175,7 @@ export function FCRTab({
       no_gain: copy(pageContract, "table.fcr.status.no_gain"),
     },
     unpriced: copy(pageContract, "table.fcr.unpriced"),
+    wasted: copy(pageContract, "table.fcr.wasted"),
     rupee,
     empty: <span className="muted small">{copy(pageContract, "empty.fcr.body")}</span>,
   };
@@ -229,7 +230,7 @@ export function FCRTab({
           sub={`${penCount(pageContract, s.pens_with_fcr)} · ${s.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.kids")}`}
         />
         <KPI label={copy(pageContract, "kpi.fcr.gain_value.label")} value={money(s.gain_value_inr)} sub={`${num(s.gain_kg, 0)} kg · ${copy(pageContract, "kpi.fcr.gain_value.sub")}`} />
-        <KPI label={copy(pageContract, "kpi.fcr.feed_cost.label")} value={money(s.feed_cost_inr)} sub={`${num(s.feed_kg, 0)} kg · ${money(s.feed_cost_per_kg_gain_inr)} ${copy(pageContract, "kpi.fcr.cost_gain.label").toLowerCase()}`} />
+        <KPI label={copy(pageContract, "kpi.fcr.feed_cost.label")} value={money(s.feed_cost_inr)} sub={`${num(s.feed_kg, 0)} kg${s.wastage_kg > 0 ? ` (${num(s.wastage_kg, 0)} ${copy(pageContract, "table.fcr.wasted")})` : ""} · ${money(s.feed_cost_per_kg_gain_inr)} ${copy(pageContract, "kpi.fcr.cost_gain.label").toLowerCase()}`} />
         <KPI
           label={copy(pageContract, "kpi.fcr.margin.label")}
           value={money(s.margin_inr)}

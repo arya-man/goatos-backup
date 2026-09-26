@@ -406,3 +406,58 @@ func TestFCRBandGroupsCarryTheFarmWording(t *testing.T) {
 		t.Fatalf("farm band words = %v", words)
 	}
 }
+
+// Feed wastage the verifier weighed is directed feed nobody ate, so it comes off the feed side of
+// every ratio -- pen, week, group and summary -- while its cost stays in the bill. The segments
+// here carry no workflow at all: whatever pen the repository hands wastage for is treated the same.
+func TestFCRSubtractsApprovedWastageFromFeedButKeepsItsCost(t *testing.T) {
+	pens := []FCRPenRow{{
+		PenKey: "w", LocationID: "shed", ParkID: "p", ParkName: "Coimbatore", ShedName: "Castro", PartitionLabel: "1",
+		Modes: []string{"per_shed_partition"}, Rounds: 2, FirstWeighDate: "2026-08-03", LastWeighDate: "2026-08-10",
+		FirstAverageKg: f(18.0), LatestAnimals: 100, Residents: 100, Breeds: 1, Breed: "Beetal", Sexes: 1, Sex: "male",
+		SpeciesCount: 1, Species: "goat", ResidentMix: []HeadMix{{Species: "goat", Animals: 100}},
+		GeneralADGGPerDay: f(100), GeneralADGAnimals: 100,
+	}}
+	// 700 head-days x 100 g/day = 70 kg gain. 420 kg directed at ₹20/kg, 70 kg of it left over.
+	segments := []FCRSegmentRow{{PenKey: "w", StartDate: "2026-08-03", EndDate: "2026-08-10", Animals: 100, ADGGPerDay: 100,
+		Mode: "per_shed_partition", FeedKg: f(420), FeedCostINR: f(8400), HeadDays: f(700), WastageKg: 70}}
+	prices := SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 450}}}
+
+	got := BuildFCRReport(pens, segments, prices, FCRFilters{})
+	pen := got.Pens[0]
+	near(t, "feed eaten", pen.FeedKg, 350)
+	near(t, "wastage", pen.WastageKg, 70)
+	near(t, "pen fcr", pen.FCR, 5) // 350 / 70, not 420 / 70 = 6
+	near(t, "cost stays full", pen.FeedCostINR, 8400)
+	near(t, "cost per kg gain", pen.FeedCostPerKgGainINR, 120)
+	near(t, "summary fcr", got.Summary.FCR, 5)
+	if got.Summary.FeedKg != 350 || got.Summary.WastageKg != 70 {
+		t.Fatalf("summary feed=%v wastage=%v", got.Summary.FeedKg, got.Summary.WastageKg)
+	}
+	// ₹8400 over 350 kg eaten = ₹24/kg; break-even 450/24 = 18.75, on the same eaten basis as FCR.
+	near(t, "cost per kg eaten", got.Summary.FeedCostPerKgINR, 24)
+	near(t, "break-even", got.Summary.BreakEvenFCR, 18.75)
+	near(t, "week fcr", got.Weekly[0].FCR, 5)
+	near(t, "breed fcr", got.ByBreed[0].FCR, 5)
+	if len(got.EstimatedByBreed) != 1 {
+		t.Fatalf("estimated breed groups = %+v", got.EstimatedByBreed)
+	}
+	near(t, "estimated breed fcr", got.EstimatedByBreed[0].FCR, 5)
+}
+
+// A pen with no wastage recorded is untouched, and a leftover heavier than the directed feed floors
+// at zero intake instead of going negative.
+func TestFCRWastageAbsentIsNoChangeAndNeverNegative(t *testing.T) {
+	if eatenKg(420, 0) != 420 {
+		t.Fatal("no wastage must leave the directed feed as is")
+	}
+	if eatenKg(10, 12) != 0 {
+		t.Fatal("wastage above directed feed must floor at zero")
+	}
+	pens := []FCRPenRow{{PenKey: "once", LocationID: "a", ParkID: "p", ParkName: "P", ShedName: "A", Rounds: 1,
+		LatestAnimals: 10, Residents: 10, Breeds: 1, Breed: "Beetal", Sexes: 1, Sex: "male", SpeciesCount: 1, Species: "goat",
+		WindowFeedKg: f(120), WindowWastageKg: f(20)}}
+	got := BuildFCRReport(pens, nil, SalePrices{}, FCRFilters{})
+	near(t, "weighed-once feed eaten", got.Pens[0].FeedKg, 100)
+	near(t, "weighed-once wastage", got.Pens[0].WastageKg, 20)
+}

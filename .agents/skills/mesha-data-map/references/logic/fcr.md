@@ -13,6 +13,10 @@ Index: page scope · base SQL · 1 Farm FCR · 2 Gain value · 3 Feed spent + co
 - Gain = segment ADG x fed head-days/1000. Segment = two consecutive rounds of one pen (ordered period_start_date, d). Whole-pen arm: Δ pen average_weight_kg / days (latest non-withdrawn, non-rejected shed observation per pen per campaign). Scanned arm: mean per-animal daily gain over animals weighed in BOTH rounds (identity merge through ResolveAnimalIdentityMap: double-tagged animals keyed by canonical tag, identity_scope.go:146). Rejected scans dropped. Head-days = Σ over feed days in [d_prev, d) of max(head_count) per (pen, day, shed_tag_key, breed_key).
 - Pen join weighing<->feed sheet: bucket -> (physical shed id, scrubbed partition) via pen_map (fcr.go:79); feed side uses generated partition_key ('whole'->'', 'part 3'->'3'). Not by name.
 - A segment counts only when feed_kg not null AND head_days>0 (domain :632). Losing segments (ADG<0) ARE netted in; pen needs Σgain>0 for a ratio.
+- FEED WASTAGE (2026-09-26): segment feed_kg = directed kg minus the verifier-APPROVED leftover (feed_wastage_completions
+  status 'completed', ANY workflow) on the segment's days the sheet fed with a known quantity, floored at 0. Cost is NOT reduced,
+  so feed_cost_per_kg_inr (and break-even) are per kg EATEN. The pen and summary carry wastage_kg. The runnable form is
+  references/cost-per-kg-gain.sql; the "Base SQL" below predates it and reports DIRECTED feed.
 - Feed price: latest same-park feed_purchases row on/before feed_day (per_kg_cost else total_cost/quantity_kg); unpriced kg counted separately, not free.
 - Sale price: growth_sale_price_assumptions effective TODAY (fcr.go:416); per (species, stage, sex) override else species default; pen price = head-weighted over cohort mix. stg: goat 425, sheep 425 ₹/kg, no overrides.
 

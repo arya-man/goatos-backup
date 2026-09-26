@@ -4,6 +4,9 @@
 -- Rule (app): segment = two consecutive rounds of one pen; counts when directed feed kg present AND fed head-days>0;
 -- LOSING segments (ADG<0) are netted in; a pen gets FCR/cost only if its net gain>0 and it has >=2 rounds.
 -- rs_per_kg_gain = sum(pen feed cost) / sum(pen gain kg) over those pens (unpriced kg shown separately, cost understated).
+-- FEED WASTAGE (2026-09-26): feed_kg and fcr are feed EATEN = directed kg minus the verifier-APPROVED leftover
+-- (feed_wastage_completions status 'completed', any workflow) on the segment's days that the sheet fed with a known
+-- quantity, floored at 0 per segment. Cost is NOT reduced (wasted feed was still bought), so rs_per_kg_gain is unchanged.
 -- Window default = the tab's landing window: weighing_calendar_config default_from_date (stg 2026-08-03) through latest
 -- accepted weighing date. Tab default sex is MALE; this file defaults to all sexes -> pass sex:'male' to match an untouched tab.
 -- Run: run_reference('cost-per-kg-gain.sql', params={from_date:'2026-08-03', to_date:'2026-09-23', sex:'male'}).
@@ -14,6 +17,8 @@
 -- param: origin text     farm_born | purchased; empty/all = both
 -- param: weighing text   individual | whole_pen; empty/all = both
 -- Verified 2026-09-24 (2026-08-03..2026-09-23): all sexes ALL ₹334/kg (tab ₹334); male ALL ₹318/kg (tab ₹318).
+-- Verified 2026-09-26 with wastage (2026-08-20..latest weighing, all sexes): ALL 39 pens, feed eaten 23240.8 kg, wastage
+-- 4739.1 kg, gain 2616.4 kg, ₹382/kg gain, FCR 8.88 -- identical to GET /growth-director/fcr on the same data.
 -- Not here: gain value / margin / break-even (sale price per species x stage x sex) and the estimated-by-breed split: see logic/fcr.md.
 WITH prm AS (SELECT '00000000-0000-4000-8000-000000000001'::uuid t,
   ARRAY(SELECT l.location_id FROM locations l WHERE l.location_type='park' AND l.status='active'
@@ -73,6 +78,13 @@ feed_rows AS (SELECT r.shed_id pen_shed_id,
   i.feed_day,i.park_id,r.feed_item_key,r.quantity_kg,r.head_count,r.shed_tag_key,r.breed_key
   FROM feed_direction_issue_rows r JOIN feed_direction_issues i ON i.feed_direction_issue_id=r.feed_direction_issue_id, prm
   WHERE i.park_id=ANY(prm.parks) AND i.feed_day>=prm.fd AND i.feed_day<prm.td AND i.state IN ('issued','amended','locked') AND r.shed_id IN (SELECT pen_shed_id FROM pen_map)),
+wd AS (SELECT w.shed_id pen_shed_id,
+  CASE WHEN w.partition_key='whole' THEN '' WHEN w.partition_key LIKE 'part %' THEN btrim(substr(w.partition_key,6)) WHEN w.partition_key LIKE 'pt %' THEN btrim(substr(w.partition_key,4)) ELSE w.partition_key END pen_key,
+  w.target_date feed_day, sum(w.wastage_kg)::float8 kg
+  FROM feed_wastage_completions w, prm
+  WHERE w.tenant_id=prm.t AND w.park_id=ANY(prm.parks) AND w.target_date>=prm.fd AND w.target_date<prm.td AND w.status='completed' AND w.wastage_kg IS NOT NULL
+    AND w.shed_id IN (SELECT pen_shed_id FROM pen_map) GROUP BY 1,2,3),
+wfed AS (SELECT wd.* FROM wd WHERE EXISTS (SELECT 1 FROM feed_rows fr WHERE fr.pen_shed_id=wd.pen_shed_id AND fr.pen_key=wd.pen_key AND fr.feed_day=wd.feed_day AND fr.quantity_kg IS NOT NULL)),
 pens AS (SELECT pen_shed_id,pen_key,count(*) rounds,(array_agg(avg_kg ORDER BY period_start_date,d))[1] first_avg,
   (array_agg(animals ORDER BY period_start_date DESC,d DESC))[1] last_animals FROM pen_rounds GROUP BY 1,2),
 res AS (SELECT p.pen_shed_id,p.pen_key,g.goat_id,g.breed,lower(g.sex) sex,lower(g.species) species,
@@ -106,11 +118,15 @@ sf AS (SELECT sg.pen_shed_id,sg.pen_key,sg.d_prev,sg.d, sum(fr.quantity_kg) FILT
   LEFT JOIN fp ON fp.park_id=fr.park_id AND fp.feed_item_key=fr.feed_item_key AND fp.feed_day=fr.feed_day GROUP BY 1,2,3,4),
 sh AS (SELECT sg.pen_shed_id,sg.pen_key,sg.d_prev,sg.d,sum(g.h)::float8 head_days FROM segments sg JOIN (SELECT pen_shed_id,pen_key,feed_day,shed_tag_key,breed_key,max(head_count) h FROM feed_rows WHERE head_count IS NOT NULL GROUP BY 1,2,3,4,5) g
   ON g.pen_shed_id=sg.pen_shed_id AND g.pen_key=sg.pen_key AND g.feed_day>=sg.d_prev AND g.feed_day<sg.d GROUP BY 1,2,3,4),
-seg AS (SELECT sg.*, f.feed_kg, f.cost, f.unpriced, h.head_days, (f.feed_kg IS NOT NULL AND h.head_days>0) ok, sg.adg_g*h.head_days/1000 gain
-  FROM segments sg LEFT JOIN sf f USING (pen_shed_id,pen_key,d_prev,d) LEFT JOIN sh h USING (pen_shed_id,pen_key,d_prev,d)),
+sw AS (SELECT sg.pen_shed_id,sg.pen_key,sg.d_prev,sg.d,sum(wf.kg)::float8 wastage FROM segments sg JOIN wfed wf
+  ON wf.pen_shed_id=sg.pen_shed_id AND wf.pen_key=sg.pen_key AND wf.feed_day>=sg.d_prev AND wf.feed_day<sg.d GROUP BY 1,2,3,4),
+seg AS (SELECT sg.*, GREATEST(f.feed_kg-COALESCE(w.wastage,0),0) feed_kg, COALESCE(w.wastage,0) wastage_kg, f.cost, f.unpriced, h.head_days,
+  (f.feed_kg IS NOT NULL AND h.head_days>0) ok, sg.adg_g*h.head_days/1000 gain
+  FROM segments sg LEFT JOIN sf f USING (pen_shed_id,pen_key,d_prev,d) LEFT JOIN sh h USING (pen_shed_id,pen_key,d_prev,d)
+  LEFT JOIN sw w USING (pen_shed_id,pen_key,d_prev,d)),
 pen AS (SELECT p.pen_shed_id,p.pen_key,shed.name shed,pk.name park,pk.location_code pcode,p.rounds,p.last_animals animals,p.first_avg,
   COALESCE(c.sex,'unknown') sex, COALESCE(c.breed,'unknown') breed, COALESCE(c.origin,'unknown') origin, COALESCE(c.priced,false) priced,
-  bool_or(s.ok) anyok, sum(s.feed_kg) FILTER (WHERE s.ok) feed_kg, sum(s.gain) FILTER (WHERE s.ok) gain_kg, sum(s.head_days) FILTER (WHERE s.ok) head_days,
+  bool_or(s.ok) anyok, sum(s.feed_kg) FILTER (WHERE s.ok) feed_kg, sum(s.wastage_kg) FILTER (WHERE s.ok) wastage_kg, sum(s.gain) FILTER (WHERE s.ok) gain_kg, sum(s.head_days) FILTER (WHERE s.ok) head_days,
   sum(s.cost) FILTER (WHERE s.ok) cost, COALESCE(sum(s.unpriced) FILTER (WHERE s.ok),0) unpriced
   FROM pens p JOIN locations shed ON shed.location_id=p.pen_shed_id LEFT JOIN locations pk ON pk.location_id=shed.parent_location_id
   LEFT JOIN coh c USING (pen_shed_id,pen_key) LEFT JOIN seg s USING (pen_shed_id,pen_key)
@@ -120,6 +136,7 @@ fpen AS (SELECT pen.*, CASE WHEN rounds<2 OR anyok IS NULL THEN 'weighed_once' W
     FROM pen, prm WHERE (prm.sx='' OR pen.sex=prm.sx) AND (prm.org='' OR pen.origin=prm.org))
 SELECT COALESCE(park,'ALL') park, count(*) FILTER (WHERE fcr IS NOT NULL) pens_with_fcr, count(*) pens_in_scope,
   round(sum(feed_kg) FILTER (WHERE fcr IS NOT NULL)::numeric,1) feed_kg,
+  round(sum(wastage_kg) FILTER (WHERE fcr IS NOT NULL)::numeric,1) wastage_kg,
   round(sum(cost) FILTER (WHERE fcr IS NOT NULL)::numeric) feed_cost_rs,
   round(sum(gain_kg) FILTER (WHERE fcr IS NOT NULL)::numeric,1) gain_kg,
   round((sum(cost) FILTER (WHERE fcr IS NOT NULL)/NULLIF(sum(gain_kg) FILTER (WHERE fcr IS NOT NULL),0))::numeric) rs_per_kg_gain,

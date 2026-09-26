@@ -25,7 +25,11 @@ func TestFCRSegmentsGenericPlanNeverSelfJoinsScanRounds(t *testing.T) {
 	seedFCRFixture(t, ctx, pool)
 
 	for name, stmt := range map[string]string{"segments": fcrSegmentsSQL, "pens": fcrPensSQL} {
-		bound, err := sqlbind.Bind(stmt, gdTenant, []string{gdPark}, nil, nil, "", []string{}, []string{}, "2026-07-01", "2026-08-01")
+		args := []any{gdTenant, []string{gdPark}, nil, nil, "", []string{}, []string{}, "2026-07-01", "2026-08-01"}
+		if name == "pens" { // the pens statement also takes the General-ADG kid filter ($10/$11)
+			args = append(args, false, []string{})
+		}
+		bound, err := sqlbind.Bind(stmt, args...)
 		if err != nil {
 			t.Fatalf("%s bind: %v", name, err)
 		}
