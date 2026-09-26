@@ -2,9 +2,9 @@
 
 import { Check, Plus, Search, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { startTransition, useActionState, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { initials } from "@/components/assignee-picker";
+import { AssigneePicker } from "@/components/assignee-picker";
 import { currentHistoryEntryIsLocalOverlay, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { Tag } from "@/components/ui-primitives";
@@ -74,7 +74,8 @@ type Draft = {
   dueOffsetDays: string;
   notifyTime: string;
   reviewKind: "verifier" | "none";
-  roles: string[];
+  /** The ONE person the routine is for ("" until chosen). */
+  assigneeUserId: string;
   questions: QuestionDraft[];
   photo: { min: number; max: number };
   video: { min: number; max: number };
@@ -105,7 +106,7 @@ function draftFrom(routine: PenRoutineRow | undefined, parkId: string, catalog: 
       dueOffsetDays: "",
       notifyTime: catalog?.defaults.notify_time ?? "",
       reviewKind: "none",
-      roles: [],
+      assigneeUserId: "",
       questions: [],
       photo: { min: 0, max: 0 },
       video: { min: 0, max: 0 },
@@ -128,7 +129,7 @@ function draftFrom(routine: PenRoutineRow | undefined, parkId: string, catalog: 
     dueOffsetDays: String(routine.due_offset_days),
     notifyTime: routine.notify_time,
     reviewKind: routine.review_kind,
-    roles: routine.assignee_roles.map((option) => option.key),
+    assigneeUserId: routine.assignee?.user_id ?? "",
     questions: routine.evidence.questions.map((question) => ({
       ...question,
       options: question.options ? question.options.map((option) => ({ ...option })) : undefined,
@@ -316,18 +317,14 @@ export function RoutineDrawerForm({
     setDraft((current) => ({ ...current, questions: current.questions.map((q) => (q.key === key ? { ...q, ...patch } : q)) }));
 
   const pens: PenRoutineCatalogPen[] = catalog?.pens ?? [];
-  const roles = catalog?.roles ?? [];
-  // Roles travel in the catalog's vocabulary order; a stored role the catalog did not serve is kept.
-  const orderedRoles = [...roles.map((option) => option.key).filter((key) => draft.roles.includes(key)), ...draft.roles.filter((key) => !roles.some((option) => option.key === key))];
-  // Everyone the chosen roles reach at this park, each person once however many roles they hold.
-  const reached = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const option of roles) {
-      if (!draft.roles.includes(option.key)) continue;
-      for (const person of option.people) if (!seen.has(person.user_id)) seen.set(person.user_id, person.display_name);
-    }
-    return [...seen.values()];
-  }, [roles, draft.roles]);
+  // "Who does it" is one person, picked by name like a task (maintainer decision 2026-09-26).
+  // The catalog lists everyone who may do routines at this park, each once with their titles; a
+  // park head appears only for their own park.
+  const people = catalog?.people ?? [];
+  const owners = people.map((person) => ({ id: person.user_id, name: person.display_name, title: person.title }));
+  // A saved person the catalog no longer lists has lost the role here: the routine raises nothing
+  // until someone else is chosen, and the drawer says so.
+  const assigneeGone = Boolean(draft.assigneeUserId) && !people.some((person) => person.user_id === draft.assigneeUserId);
   const storedCadence = routine?.cadence_kind;
   const chooseScope = (scopeKind: ScopeKind) =>
     // A whole-park task names no pens and cannot follow work done in a pen.
@@ -375,14 +372,26 @@ export function RoutineDrawerForm({
 
   return (
     <div className="prt">
-      <form id={formId} action={formAction} aria-busy={pending} className="pen-routine-form prt-form">
+      <form
+        id={formId}
+        aria-busy={pending}
+        className="pen-routine-form prt-form"
+        onSubmit={(event) => {
+          // Submitted through a transition rather than `action=`: React resets a form after its
+          // action runs, and the reset snapped the Park select back to its first option (the drawer
+          // read "Coimbatore" on a Channapatna routine after a refused save). The refusal is shown
+          // beside the fields the reader typed, untouched.
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          startTransition(() => formAction(data));
+        }}
+      >
         {isEdit ? <input type="hidden" name="routine_id" value={routine.routine_id} /> : null}
         {isEdit ? <input type="hidden" name="row_version" value={routine.row_version} /> : null}
         <input type="hidden" name={FORM_JSON_FIELDS.pens} value={JSON.stringify(pens.filter((pen) => draft.pens.includes(penKey(pen))).map((pen) => ({ shed_id: pen.shed_id, partition_label: pen.partition_label })))} />
         <input type="hidden" name={FORM_JSON_FIELDS.weekdays} value={JSON.stringify(draft.weekdays)} />
         <input type="hidden" name={FORM_JSON_FIELDS.monthDays} value={JSON.stringify(draft.monthDays)} />
         <input type="hidden" name={FORM_JSON_FIELDS.afterWorkKinds} value={JSON.stringify(draft.afterWorkKinds)} />
-        <input type="hidden" name={FORM_JSON_FIELDS.assigneeRoles} value={JSON.stringify(orderedRoles)} />
         <input type="hidden" name={FORM_JSON_FIELDS.evidence} value={JSON.stringify(evidenceBody(draft))} />
         <input type="hidden" name="occupied_only" value={draft.occupiedOnly ? "on" : "off"} />
 
@@ -432,53 +441,29 @@ export function RoutineDrawerForm({
             </div>
           </Step>
 
-          {/* 2. Who does it: roles, never named people -- whoever holds a role for this park owes the
-              task. Each row shows who that is today; the line above says who the routine reaches. */}
+          {/* 2. Who does it: ONE person, picked by name exactly like the Tasks "For" field. The
+              picker posts assignee_user_id; the server derives the roles through which that person
+              may do it at this park and refuses anyone who holds none there. */}
           <Step index={2} title={field("assignee_roles")} hint={copy(pageContract, "hint.assignee_roles")}>
-            <div className={reached.length ? "prt-reach" : "prt-reach warn"} role="status" aria-live="polite">
-              {!draft.roles.length ? (
-                label(pageContract, "summary.no_roles", "hint.assignee_roles")
-              ) : reached.length ? (
-                <>
-                  <span className="avs prt-reach-avs" aria-hidden="true">
-                    {reached.slice(0, 5).map((name) => (
-                      <span key={name} className="av">
-                        {initials(name)}
-                      </span>
-                    ))}
-                  </span>
-                  <span>{sentence(pageContract, "summary.goes_to", { names: reached.join(", "), count: reached.length }, reached.join(", "))}</span>
-                </>
-              ) : (
-                label(pageContract, "summary.no_holders", "empty.role_people")
-              )}
-            </div>
-            <div className="prt-roles">
-              {roles.map((option) => {
-                const on = draft.roles.includes(option.key);
-                return (
-                  <label key={option.key} className={on ? "prt-role on" : "prt-role"}>
-                    <input type="checkbox" checked={on} onChange={() => update({ roles: toggle(draft.roles, option.key) })} />
-                    <span className="prt-role-text">
-                      <span className="prt-role-name">{option.label}</span>
-                      <span className={option.people.length ? "prt-role-people" : "prt-role-people none"}>
-                        {option.people.length ? option.people.map((person) => person.display_name).join(", ") : copy(pageContract, "empty.role_people")}
-                      </span>
-                    </span>
-                    {option.people.length ? (
-                      <span className="avs prt-role-avs" aria-hidden="true">
-                        {option.people.slice(0, 3).map((person) => (
-                          <span key={person.user_id} className="av">
-                            {initials(person.display_name)}
-                          </span>
-                        ))}
-                        {option.people.length > 3 ? <span className="av more">+{option.people.length - 3}</span> : null}
-                      </span>
-                    ) : null}
-                  </label>
-                );
-              })}
-            </div>
+            <AssigneePicker
+              mode="single"
+              name="assignee_user_id"
+              labels={{
+                label: field("assignee_roles"),
+                search: label(pageContract, "assignee.search", "filter.pens_search"),
+                none: label(pageContract, "assignee.none", "empty.role_people"),
+                placeholder: label(pageContract, "assignee.placeholder", "field.assignee_roles"),
+              }}
+              owners={owners}
+              selected={draft.assigneeUserId || undefined}
+              onSelect={(next) => update({ assigneeUserId: next ?? "" })}
+            />
+            {assigneeGone ? (
+              <p className="prt-hint prt-warn" role="status">
+                {label(pageContract, "assignee.unavailable", "empty.role_people")}
+              </p>
+            ) : null}
+            {!owners.length ? <p className="prt-hint prt-warn">{copy(pageContract, "empty.role_people")}</p> : null}
           </Step>
 
           {/* 3. Pens: every pen, a ticked list from the partition catalog, or ONE task for the whole park. */}

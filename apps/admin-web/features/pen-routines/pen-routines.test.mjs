@@ -108,7 +108,7 @@ const base = {
   review_kind: "verifier",
   start_date: "2026-09-17",
   interval_days: "5",
-  [FORM_JSON_FIELDS.assigneeRoles]: ["park_head", "ceo_internal"],
+  assignee_user_id: "11111111-1111-4111-8111-111111111111",
   [FORM_JSON_FIELDS.evidence]: {
     questions: [
       { id: "cleaned", kind: "yes_no", title: "Was the pen cleaned?", required: true },
@@ -137,7 +137,8 @@ test("decoder: daily all-pens routine with a full evidence block round-trips as 
   assert.strictEqual(body.due_offset_days, 0);
   assert.equal(body.notify_time, "07:00");
   assert.equal(body.review_kind, "verifier");
-  assert.deepEqual(body.assignee_roles, ["park_head", "ceo_internal"]);
+  assert.equal(body.assignee_user_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal("assignee_roles" in body, false, "roles are the server's to derive, never sent");
   assert.equal(body.start_date, "2026-09-17");
   assert.strictEqual(body.interval_days, null, "a daily routine carries no interval, whatever the form still held");
   assert.equal("assignee_user_ids" in body, false, "named people are gone from the write");
@@ -190,11 +191,9 @@ test("decoder: selected pens carry shed + partition, an undivided shed carries n
   assert.strictEqual(body.row_version, 7);
 });
 
-test("decoder: roles round-trip and an unknown role key is never sent", () => {
-  const body = decodePenRoutineWrite(form({ ...base, [FORM_JSON_FIELDS.assigneeRoles]: ["pc_director", "breeding_director", "janitor", "", "ceo_internal"] }));
-  assert.deepEqual(body.assignee_roles, ["pc_director", "breeding_director", "ceo_internal"]);
-  const none = decodePenRoutineWrite(form({ ...base, [FORM_JSON_FIELDS.assigneeRoles]: "not json" }));
-  assert.deepEqual(none.assignee_roles, [], "an empty list goes to the backend, which refuses it as no_roles");
+test("decoder: the one person travels as posted; a blank one goes to the backend to refuse", () => {
+  const none = decodePenRoutineWrite(form({ ...base, assignee_user_id: "" }));
+  assert.equal(none.assignee_user_id, "", "blank is sent as blank; the backend refuses it as no_assignee");
 });
 
 test("decoder: every_n_days carries its interval as a number; blank stays null; a bad start date is dropped", () => {
@@ -219,8 +218,12 @@ test("decoder: a whole-park task clears pens and never skips empty pens", () => 
   assert.equal(body.occupied_only, false);
 });
 
-test("the drawer assigns by role, offers a whole-park scope and every few days, and the tables render roles and park tasks", () => {
-  assert.match(drawer, /catalog\?\.roles/);
+test("the drawer assigns ONE person like a task, offers a whole-park scope and every few days, and the tables render the person and park tasks", () => {
+  // Who does it: the Tasks single-person picker over the catalog's people, posting assignee_user_id.
+  assert.match(drawer, /<AssigneePicker\s+mode="single"\s+name="assignee_user_id"/);
+  assert.match(drawer, /catalog\?\.people/);
+  assert.doesNotMatch(drawer, /catalog\?\.roles|FORM_JSON_FIELDS\.assigneeRoles/, "no role checklist is offered any more");
+  assert.match(feature, /routine\.assignee\.display_name/);
   assert.match(drawer, /copy\(pageContract, "empty\.role_people"\)/);
   assert.match(drawer, /copy\(pageContract, "hint\.assignee_roles"\)/);
   assert.match(drawer, /copy\(pageContract, "hint\.park_scope"\)/);

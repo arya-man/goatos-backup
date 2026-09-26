@@ -5374,6 +5374,8 @@ export interface components {
             assignee_roles: components["schemas"]["PenRoutineRole"][];
             /** @description Who holds those roles for the routine's park right now (read-only preview, at most 50). */
             people: components["schemas"]["PenRoutineRolePerson"][];
+            /** @description The ONE person the routine is for; null on a routine written before 2026-09-26 (then owed by every holder of assignee_roles). An empty display_name means the person no longer holds a role for the park, so the routine raises nothing until someone else is chosen. */
+            assignee: components["schemas"]["PenRoutinePerson"] | null;
             /** @description Checks of this routine still owed today. */
             open_today: number;
             /** @description Checks of this routine carried past their planned date. */
@@ -5412,6 +5414,14 @@ export interface components {
             user_id: string;
             display_name: string;
         };
+        /** @description One person a routine can be for at the requested park, each once. */
+        PenRoutineCatalogPerson: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            /** @description The roles through which they may do it here, backend-labelled, e.g. "Park Head, Preventive Care Director". */
+            title: string;
+        };
         /** @description One assignable role and who holds it FOR THE REQUESTED PARK (the same resolution every task read uses). */
         PenRoutineCatalogRole: {
             /** @enum {string} */
@@ -5439,6 +5449,8 @@ export interface components {
             pens: components["schemas"]["PenRoutineCatalogPen"][];
             /** @description Every assignable role in vocabulary order, each with who holds it for the requested park. */
             roles: components["schemas"]["PenRoutineCatalogRole"][];
+            /** @description "Who does it": every holder of an assignable role for the park, each once, park head first and CXO last, then by name. A park head appears only for their own park. */
+            people: components["schemas"]["PenRoutineCatalogPerson"][];
             work_kinds: components["schemas"]["PenRoutineKeyLabel"][];
             question_kinds: components["schemas"]["PenRoutineKeyLabel"][];
             /** @description Per-question proof media (none | photo | video | photo_or_video), backend-labelled. */
@@ -5491,8 +5503,11 @@ export interface components {
             /** @enum {string} */
             review_kind: "verifier" | "none";
             evidence: components["schemas"]["PenRoutineEvidence"];
-            /** @description Who the routine is for. Whoever holds one of these roles for the park gets the task; an empty list is refused (no_roles). */
-            assignee_roles: ("park_head" | "pc_director" | "breeding_director" | "growth_director" | "feed_director" | "health_director" | "procurement_director" | "ceo_internal")[];
+            /**
+             * Format: uuid
+             * @description The ONE person the routine is for (maintainer decision 2026-09-26), picked from the catalog's people. Blank is refused (no_assignee); a person holding no assignable role for the park is refused (not_assignable). The server derives assignee_roles from that person's grants at the park.
+             */
+            assignee_user_id: string;
             /** @description Update only -- the version the drawer loaded with; 0 skips the fence. */
             row_version?: number;
         };

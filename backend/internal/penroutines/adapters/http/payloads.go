@@ -119,11 +119,14 @@ type routineRow struct {
 	EvidenceLine   string              `json:"evidence_line"`
 	AssigneeRoles  []rolePayload       `json:"assignee_roles"`
 	People         []rolePersonPayload `json:"people"`
-	OpenToday      int                 `json:"open_today"`
-	Delayed        int                 `json:"delayed"`
-	CreatedAt      string              `json:"created_at"`
-	UpdatedAt      string              `json:"updated_at"`
-	RowVersion     int                 `json:"row_version"`
+	// Assignee is the ONE person the routine is for; null on a routine written before the
+	// 2026-09-26 revision (it is then owed by every holder of assignee_roles).
+	Assignee   *personPayload `json:"assignee"`
+	OpenToday  int            `json:"open_today"`
+	Delayed    int            `json:"delayed"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
+	RowVersion int            `json:"row_version"`
 }
 
 type parkPayload struct {
@@ -155,6 +158,15 @@ type personPayload struct {
 	DisplayName string `json:"display_name"`
 }
 
+// catalogPersonPayload is one person a routine can be for at the requested park (maintainer
+// decision 2026-09-26: a routine goes to ONE person, picked by name like a task). Title lists the
+// roles through which they may do it here, in vocabulary order, composed by the backend.
+type catalogPersonPayload struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	Title       string `json:"title"`
+}
+
 // catalogRolePayload is one assignable role and who holds it for the requested park.
 type catalogRolePayload struct {
 	Key    string          `json:"key"`
@@ -175,10 +187,13 @@ type catalogDefaults struct {
 }
 
 type catalogPayload struct {
-	Pens          []catalogPenPayload  `json:"pens"`
-	Roles         []catalogRolePayload `json:"roles"`
-	WorkKinds     []optionPayload      `json:"work_kinds"`
-	QuestionKinds []optionPayload      `json:"question_kinds"`
+	Pens  []catalogPenPayload  `json:"pens"`
+	Roles []catalogRolePayload `json:"roles"`
+	// People is the "who does it" list: every holder of an assignable role for the park, each
+	// once, ordered by their first role in vocabulary order (park head first, CXO last), then name.
+	People        []catalogPersonPayload `json:"people"`
+	WorkKinds     []optionPayload        `json:"work_kinds"`
+	QuestionKinds []optionPayload        `json:"question_kinds"`
 	// Per-question proof vocabulary (maintainer instruction 2026-09-18): what capture a
 	// question needs to count as answered, and whether one or several.
 	QuestionProofKinds  []optionPayload `json:"question_proof_kinds"`
@@ -214,8 +229,10 @@ type routineWrite struct {
 	NotifyTime     string          `json:"notify_time"`
 	ReviewKind     string          `json:"review_kind"`
 	Evidence       domain.Evidence `json:"evidence"`
-	AssigneeRoles  []string        `json:"assignee_roles"`
-	RowVersion     int             `json:"row_version"`
+	// AssigneeUserID is the one person the routine is for. assignee_roles is no longer read on
+	// write: the server derives it from that person's grants at the park.
+	AssigneeUserID string `json:"assignee_user_id"`
+	RowVersion     int    `json:"row_version"`
 }
 
 type statusWrite struct {
@@ -297,6 +314,7 @@ func toRoutineRow(row ports.RoutineListRow) routineRow {
 		EvidenceLine:   domain.EvidenceLineForScope(d.Evidence, d.ScopeKind),
 		AssigneeRoles:  roles,
 		People:         people,
+		Assignee:       assigneeOf(d),
 		OpenToday:      row.OpenToday,
 		Delayed:        row.Delayed,
 		CreatedAt:      d.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
@@ -341,7 +359,7 @@ func (w routineWrite) toDefinition() domain.Definition {
 		NotifyTime:     w.NotifyTime,
 		ReviewKind:     w.ReviewKind,
 		Evidence:       w.Evidence,
-		AssigneeRoles:  w.AssigneeRoles,
+		AssigneeUserID: w.AssigneeUserID,
 		RowVersion:     w.RowVersion,
 	}
 }
@@ -360,4 +378,19 @@ func workKindOptions() []optionPayload {
 		out = append(out, optionPayload{Key: k, Label: domain.WorkKindLabel(k)})
 	}
 	return out
+}
+
+// assigneeOf names the routine's one person from the resolved preview; a person the preview no
+// longer resolves (their role at the park was taken away) is still named by id so the drawer can
+// show who was chosen, with an empty name the web renders as "no longer available".
+func assigneeOf(d domain.Definition) *personPayload {
+	if d.AssigneeUserID == "" {
+		return nil
+	}
+	for _, p := range d.People {
+		if p.UserID == d.AssigneeUserID {
+			return &personPayload{UserID: p.UserID, DisplayName: p.DisplayName}
+		}
+	}
+	return &personPayload{UserID: d.AssigneeUserID}
 }

@@ -184,14 +184,15 @@ func (s *AuthoringService) prepare(_ context.Context, _ string, d domain.Definit
 	if d.ScopeKind == domain.ScopeAllPens {
 		d.Pens = nil
 	}
-	roles := make([]string, 0, len(d.AssigneeRoles))
-	for _, r := range d.AssigneeRoles {
-		roles = append(roles, strings.TrimSpace(r))
+	// The person is the client's; the roles are the server's (derived under the write's lock
+	// from the grants that person holds at the park), so a client can never widen who owes it.
+	d.AssigneeUserID = strings.TrimSpace(d.AssigneeUserID)
+	if d.AssigneeUserID != "" && !uuidutil.IsUUIDString(d.AssigneeUserID) {
+		return domain.Definition{}, fmt.Errorf("%w: the person is not valid", domain.ErrInvalidRoutine)
 	}
-	d.AssigneeRoles = roles
+	d.AssigneeRoles = nil
 	if err := domain.ValidateDefinition(d); err != nil {
 		return domain.Definition{}, err
 	}
-	d.AssigneeRoles = domain.SortRoles(d.AssigneeRoles)
 	return d, nil
 }

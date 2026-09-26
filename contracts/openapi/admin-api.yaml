@@ -13377,7 +13377,7 @@ components:
     PenRoutineRow:
       type: object
       description: One routine as the /routines table and drawer render it; every line is backend copy.
-      required: [routine_id, park_id, park_name, name, instruction, scope_kind, occupied_only, pens, cadence_kind, weekdays, month_days, after_work_kinds, interval_days, start_date, cadence_line, due_offset_days, notify_time, review_kind, status, status_label, current_version, evidence, evidence_line, assignee_roles, people, open_today, delayed, created_at, updated_at, row_version]
+      required: [routine_id, park_id, park_name, name, instruction, scope_kind, occupied_only, pens, cadence_kind, weekdays, month_days, after_work_kinds, interval_days, start_date, cadence_line, due_offset_days, notify_time, review_kind, status, status_label, current_version, evidence, evidence_line, assignee_roles, people, assignee, open_today, delayed, created_at, updated_at, row_version]
       properties:
         routine_id: { type: string, format: uuid }
         park_id: { type: string, format: uuid }
@@ -13418,6 +13418,11 @@ components:
           description: Who holds those roles for the routine's park right now (read-only preview, at most 50).
           items:
             $ref: "#/components/schemas/PenRoutineRolePerson"
+        assignee:
+          description: The ONE person the routine is for; null on a routine written before 2026-09-26 (then owed by every holder of assignee_roles). An empty display_name means the person no longer holds a role for the park, so the routine raises nothing until someone else is chosen.
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/PenRoutinePerson"
         open_today: { type: integer, description: Checks of this routine still owed today. }
         delayed: { type: integer, description: Checks of this routine carried past their planned date. }
         created_at: { type: string, format: date-time }
@@ -13464,6 +13469,14 @@ components:
       properties:
         user_id: { type: string, format: uuid }
         display_name: { type: string }
+    PenRoutineCatalogPerson:
+      type: object
+      description: One person a routine can be for at the requested park, each once.
+      required: [user_id, display_name, title]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        title: { type: string, description: 'The roles through which they may do it here, backend-labelled, e.g. "Park Head, Preventive Care Director".' }
     PenRoutineCatalogRole:
       type: object
       description: One assignable role and who holds it FOR THE REQUESTED PARK (the same resolution every task read uses).
@@ -13492,7 +13505,7 @@ components:
         interval_days: { type: integer, description: 'What "Every few days" pre-fills (3).' }
     PenRoutineCatalogResponse:
       type: object
-      required: [pens, roles, work_kinds, question_kinds, question_proof_kinds, question_proof_counts, cadence_kinds, review_kinds, presence_kinds, scope_kinds, defaults, trace_id]
+      required: [pens, roles, people, work_kinds, question_kinds, question_proof_kinds, question_proof_counts, cadence_kinds, review_kinds, presence_kinds, scope_kinds, defaults, trace_id]
       properties:
         pens:
           type: array
@@ -13503,6 +13516,11 @@ components:
           description: Every assignable role in vocabulary order, each with who holds it for the requested park.
           items:
             $ref: "#/components/schemas/PenRoutineCatalogRole"
+        people:
+          type: array
+          description: '"Who does it": every holder of an assignable role for the park, each once, park head first and CXO last, then by name. A park head appears only for their own park.'
+          items:
+            $ref: "#/components/schemas/PenRoutineCatalogPerson"
         work_kinds:
           type: array
           items:
@@ -13549,7 +13567,7 @@ components:
     PenRoutineWrite:
       type: object
       description: The create / update body. Unknown keys are refused.
-      required: [park_id, name, scope_kind, cadence_kind, review_kind, evidence, assignee_roles]
+      required: [park_id, name, scope_kind, cadence_kind, review_kind, evidence, assignee_user_id]
       properties:
         park_id: { type: string, format: uuid }
         name: { type: string, maxLength: 80 }
@@ -13573,12 +13591,10 @@ components:
         review_kind: { type: string, enum: [verifier, none] }
         evidence:
           $ref: "#/components/schemas/PenRoutineEvidence"
-        assignee_roles:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          description: Who the routine is for. Whoever holds one of these roles for the park gets the task; an empty list is refused (no_roles).
-          items: { type: string, enum: [park_head, pc_director, breeding_director, growth_director, feed_director, health_director, procurement_director, ceo_internal] }
+        assignee_user_id:
+          type: string
+          format: uuid
+          description: The ONE person the routine is for (maintainer decision 2026-09-26), picked from the catalog's people. Blank is refused (no_assignee); a person holding no assignable role for the park is refused (not_assignable). The server derives assignee_roles from that person's grants at the park.
         row_version: { type: integer, description: Update only -- the version the drawer loaded with; 0 skips the fence. }
     PenRoutineStatusWrite:
       type: object

@@ -517,7 +517,12 @@ type Definition struct {
 	CurrentVersion int
 	Evidence       Evidence
 	Pens           []PenRef
-	// AssigneeRoles are WHO owes the routine, keys of AssignableRoles.
+	// AssigneeUserID is the ONE person the routine is for (maintainer decision 2026-09-26: "just
+	// like tasks, it goes to one only"). Empty only on a routine written before that revision.
+	AssigneeUserID string
+	// AssigneeRoles are the roles through which the assignee may do it at the routine's park,
+	// derived by the server on write from the grants the person holds there (never sent by a
+	// client). A legacy routine with no AssigneeUserID is owed by every holder of these roles.
 	AssigneeRoles []string
 	// People are the role holders a read resolved for the routine's park (read-only preview;
 	// ignored on write).
@@ -550,7 +555,12 @@ type PenRef struct {
 var (
 	ErrInvalidRoutine = errors.New("pen routine: the routine is not valid")
 	// ErrNoRoles wraps ErrInvalidRoutine: a routine for nobody. Its own code on the wire.
-	ErrNoRoles              = fmt.Errorf("%w (no roles)", ErrInvalidRoutine)
+	ErrNoRoles = fmt.Errorf("%w (no roles)", ErrInvalidRoutine)
+	// ErrNoAssignee wraps ErrInvalidRoutine: nobody chosen. Its own code on the wire.
+	ErrNoAssignee = fmt.Errorf("%w (no assignee)", ErrInvalidRoutine)
+	// ErrNotAssignable: the chosen person holds none of the assignable roles for the routine's
+	// park (a park head of the other park, or someone whose role was taken away).
+	ErrNotAssignable        = errors.New("pen routine: that person cannot do routines at this park")
 	ErrInvalidEvidence      = errors.New("pen routine: the evidence rules are not valid")
 	ErrNotAssignee          = errors.New("pen routine: caller is not an assignee of this routine")
 	ErrAlreadyDone          = errors.New("pen routine: already submitted")
@@ -576,10 +586,10 @@ func ValidateDefinition(d Definition) error {
 	if strings.TrimSpace(d.ParkID) == "" {
 		return fmt.Errorf("%w: a park is required", ErrInvalidRoutine)
 	}
-	roles := dedupe(d.AssigneeRoles)
-	if len(roles) == 0 {
-		return fmt.Errorf("%w: pick at least one role the routine is for", ErrNoRoles)
+	if strings.TrimSpace(d.AssigneeUserID) == "" {
+		return fmt.Errorf("%w: choose who the routine is for", ErrNoAssignee)
 	}
+	roles := dedupe(d.AssigneeRoles)
 	if len(roles) != len(d.AssigneeRoles) {
 		return fmt.Errorf("%w: a role is chosen twice", ErrInvalidRoutine)
 	}

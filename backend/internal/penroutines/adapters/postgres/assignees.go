@@ -38,10 +38,17 @@ import (
 
 // RoleHoldersFromSQL returns a FROM ... WHERE fragment over user_scope_grants rg joined to its
 // active workforce_members rm, restricted to grants of one of `roles` covering `park` in
-// `tenant`. Each argument is a SQL expression (a column of the enclosing query or a bind), so
-// the caller composes it as `SELECT ... <fragment> [AND ...]` or `EXISTS (SELECT 1 <fragment>)`.
-// rg.user_id, rg.role and rm.display_name are the columns a consumer selects.
-func RoleHoldersFromSQL(tenant, roles, park string) string {
+// `tenant`, and -- when `person` is not SQL NULL -- to that one user. Each argument is a SQL
+// expression (a column of the enclosing query or a bind), so the caller composes it as
+// `SELECT ... <fragment> [AND ...]` or `EXISTS (SELECT 1 <fragment>)`. rg.user_id, rg.role and
+// rm.display_name are the columns a consumer selects.
+//
+// ONE PERSON (maintainer decision 2026-09-26, "just like tasks, it goes to one only"): a routine
+// names the person it is for (pen_routine_definitions.assignee_user_id). The person filter keeps
+// every role-coverage rule above -- a park head still owes only their own park's routines, and a
+// person who loses the role stops being owed it (the routine then raises nothing, loudly) rather
+// than the work falling to someone else. A legacy routine with no person keeps role semantics.
+func RoleHoldersFromSQL(tenant, roles, park, person string) string {
 	return `
 FROM user_scope_grants rg
 JOIN workforce_members rm
@@ -52,13 +59,20 @@ WHERE rg.tenant_id = ` + tenant + `
   AND rg.role = ANY(` + roles + `)
   AND ((rg.scope_type = 'park' AND rg.scope_id = ` + park + `)
     OR (rg.scope_type = 'tenant' AND rg.role <> 'park_head')
-    OR (rg.scope_type = 'tenant' AND rg.role = 'park_head' AND rm.primary_location_id = ` + park + `))`
+    OR (rg.scope_type = 'tenant' AND rg.role = 'park_head' AND rm.primary_location_id = ` + park + `))
+  AND (` + person + ` IS NULL OR rg.user_id = ` + person + `)`
 }
 
 // RoutineRolesSQL is the assignee_roles of the routine a pen_routine_tasks row (aliased by
 // taskAlias) belongs to, as a scalar array subquery, for reads that do not already join the
 // definition. The trailing ::text[] cast is load-bearing: without it `= ANY((SELECT ...))` parses
 // as the SUBQUERY form of ANY and compares a role to the whole array (text = text[]).
+// RoutineAssigneeSQL is the person the routine a task row belongs to is for, as a scalar
+// subquery (NULL for a legacy role-only routine).
+func RoutineAssigneeSQL(taskAlias string) string {
+	return `(SELECT prd.assignee_user_id FROM pen_routine_definitions prd WHERE prd.tenant_id = ` + taskAlias + `.tenant_id AND prd.routine_id = ` + taskAlias + `.routine_id)`
+}
+
 func RoutineRolesSQL(taskAlias string) string {
 	return `(SELECT prd.assignee_roles FROM pen_routine_definitions prd WHERE prd.tenant_id = ` + taskAlias + `.tenant_id AND prd.routine_id = ` + taskAlias + `.routine_id)::text[]`
 }
@@ -67,7 +81,7 @@ func RoutineRolesSQL(taskAlias string) string {
 // task's routine roles for the task's park", as an EXISTS semijoin (a user holding several
 // matching grants never multiplies the task row). The task's park IS its routine's park.
 func CallerHoldsRoutineRoleSQL(taskAlias, userBind string) string {
-	return `EXISTS (SELECT 1 ` + RoleHoldersFromSQL(taskAlias+".tenant_id", RoutineRolesSQL(taskAlias), taskAlias+".park_id") + `
+	return `EXISTS (SELECT 1 ` + RoleHoldersFromSQL(taskAlias+".tenant_id", RoutineRolesSQL(taskAlias), taskAlias+".park_id", RoutineAssigneeSQL(taskAlias)) + `
   AND rg.user_id = ` + userBind + `)`
 }
 
@@ -78,7 +92,7 @@ func CallerHoldsRoutineRoleSQL(taskAlias, userBind string) string {
 func RoutinesHeldBySQL(taskAlias, tenantBind, userBind string) string {
 	return taskAlias + `.routine_id IN (SELECT prd.routine_id FROM pen_routine_definitions prd
   WHERE prd.tenant_id = ` + tenantBind + `
-    AND EXISTS (SELECT 1 ` + RoleHoldersFromSQL("prd.tenant_id", "prd.assignee_roles", "prd.park_id") + `
+    AND EXISTS (SELECT 1 ` + RoleHoldersFromSQL("prd.tenant_id", "prd.assignee_roles", "prd.park_id", "prd.assignee_user_id") + `
       AND rg.user_id = ` + userBind + `))`
 }
 
@@ -90,7 +104,7 @@ const maxPeoplePreview = 50
 // display_name}] ordered by name, for the task projection (d is the joined definition).
 var assigneesJSONSQL = `COALESCE((SELECT jsonb_agg(jsonb_build_object('user_id', h.user_id, 'display_name', h.display_name) ORDER BY h.display_name, h.user_id)
   FROM (SELECT DISTINCT rg.user_id::text AS user_id, COALESCE(rm.display_name, '') AS display_name ` +
-	RoleHoldersFromSQL("t.tenant_id", "d.assignee_roles", "t.park_id") + `) h), '[]'::jsonb)`
+	RoleHoldersFromSQL("t.tenant_id", "d.assignee_roles", "t.park_id", "d.assignee_user_id") + `) h), '[]'::jsonb)`
 
 // sqlRoutineAssignees is the batched preview: for each routine id, the people holding one of
 // its roles in its park, each once, labelled with the FIRST of the routine's roles they hold in
@@ -123,7 +137,7 @@ WHERE %[3]s
 ORDER BY d.routine_id, h.display_name, h.user_id`
 
 func routineAssigneesSQL(where string) string {
-	return fmt.Sprintf(routineAssigneesSQLTemplate, RoleHoldersFromSQL("d.tenant_id", "d.assignee_roles", "d.park_id"), maxPeoplePreview, where)
+	return fmt.Sprintf(routineAssigneesSQLTemplate, RoleHoldersFromSQL("d.tenant_id", "d.assignee_roles", "d.park_id", "d.assignee_user_id"), maxPeoplePreview, where)
 }
 
 // sqlRoleHoldersForPark answers, per assignable role ($3, in order), who holds it for one park.
@@ -141,7 +155,37 @@ CROSS JOIN LATERAL (
   ORDER BY x.display_name, x.user_id
   LIMIT %d
 ) h
-ORDER BY r.ord, h.display_name, h.user_id`, RoleHoldersFromSQL("$1::uuid", "ARRAY[r.role]", "$2::uuid"), maxPeoplePreview)
+ORDER BY r.ord, h.display_name, h.user_id`, RoleHoldersFromSQL("$1::uuid", "ARRAY[r.role]", "$2::uuid", "NULL::uuid"), maxPeoplePreview)
+
+// sqlAssigneeRolesAtPark answers which of the assignable roles ($3) the ONE chosen person ($4)
+// holds for a park ($2): the roles through which they may do the routine. None = they cannot
+// (a park head of the other park, or a person whose role was taken away).
+//
+// projection-review: membership=user_scope_grants of ONE user x the closed role vocabulary for ONE park; group_key=role -- DISTINCT; join_cardinality=grants->members at most 1:1 (partial unique active (tenant,user)); pagination=none, bounded by the 8-role vocabulary; scope=tenant_id + park_id + user_id
+var sqlAssigneeRolesAtPark = `SELECT DISTINCT rg.role ` + RoleHoldersFromSQL("$1::uuid", "$3::text[]", "$2::uuid", "$4::uuid") + `
+ORDER BY rg.role`
+
+// assigneeRolesAtPark resolves the roles a chosen person holds for a park, in vocabulary order.
+func assigneeRolesAtPark(ctx context.Context, q querier, tenantID, parkID, userID string) ([]string, error) {
+	bound := sqlbind.MustBind(sqlAssigneeRolesAtPark, tenantID, parkID, domain.AssignableRoles, userID)
+	rows, err := q.Query(ctx, bound.SQL(), bound.Args()...)
+	if err != nil {
+		return nil, fmt.Errorf("pen routine: assignee roles: %w", err)
+	}
+	defer rows.Close()
+	var roles []string
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, fmt.Errorf("pen routine: scan assignee role: %w", err)
+		}
+		roles = append(roles, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pen routine: assignee roles: %w", err)
+	}
+	return domain.SortRoles(roles), nil
+}
 
 // ListRoutineAssignees implements ports.Repository.
 func (r *Repository) ListRoutineAssignees(ctx context.Context, tenantID string, routineIDs []string) (map[string][]domain.Assignee, error) {

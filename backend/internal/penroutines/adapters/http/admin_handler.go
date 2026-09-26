@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -94,6 +95,7 @@ func (h *AdminHandler) Catalog(w http.ResponseWriter, r *http.Request) {
 	out := catalogPayload{
 		Pens:      make([]catalogPenPayload, 0, len(c.Pens)),
 		Roles:     make([]catalogRolePayload, 0, len(c.Roles)),
+		People:    []catalogPersonPayload{},
 		WorkKinds: workKindOptions(),
 		QuestionKinds: options(
 			[2]string{domain.QuestionYesNo, "Yes / No"},
@@ -140,6 +142,7 @@ func (h *AdminHandler) Catalog(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Roles = append(out.Roles, catalogRolePayload{Key: role.Role, Label: domain.RoleLabel(role.Role), People: people})
 	}
+	out.People = catalogPeople(c.Roles)
 	httpresponse.WriteJSON(w, http.StatusOK, out)
 }
 
@@ -278,4 +281,41 @@ func writeParams(r *http.Request, key string) ports.WriteParams {
 		IdempotencyKey: key,
 		TraceID:        traceID(r),
 	}
+}
+
+// catalogPeople flattens the per-role holders into the "who does it" list: each person once, their
+// titles in role-vocabulary order, people ordered by their first role and then by name. c.Roles
+// already arrives in vocabulary order, so first-seen order is role order.
+func catalogPeople(roles []ports.RoleHolders) []catalogPersonPayload {
+	type entry struct {
+		name   string
+		titles []string
+		rank   int
+	}
+	byUser := map[string]*entry{}
+	order := []string{}
+	for rank, role := range roles {
+		for _, p := range role.People {
+			e, ok := byUser[p.UserID]
+			if !ok {
+				e = &entry{name: p.DisplayName, rank: rank}
+				byUser[p.UserID] = e
+				order = append(order, p.UserID)
+			}
+			e.titles = append(e.titles, domain.RoleLabel(role.Role))
+		}
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := byUser[order[i]], byUser[order[j]]
+		if a.rank != b.rank {
+			return a.rank < b.rank
+		}
+		return strings.ToLower(a.name) < strings.ToLower(b.name)
+	})
+	out := make([]catalogPersonPayload, 0, len(order))
+	for _, id := range order {
+		e := byUser[id]
+		out = append(out, catalogPersonPayload{UserID: id, DisplayName: e.name, Title: strings.Join(e.titles, ", ")})
+	}
+	return out
 }

@@ -2588,7 +2588,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.presence":                  "Pen check-in",
 			"field.min":                       "At least",
 			"field.max":                       "At most",
-			"hint.assignee_roles":             "Pick roles. Whoever holds a role for this park gets the task; one of them doing it is enough.",
+			"hint.assignee_roles":             "Choose one person, like a task. A park head is listed only for their own park.",
 			"hint.park_scope":                 "One task for the whole park, not one per pen.",
 			"table.people.preview":            "Currently",
 			"empty.role_people":               "Nobody holds this role for this park yet.",
@@ -2621,11 +2621,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.park.all":         "All parks",
 			// The redesigned drawer (maintainer report 2026-09-26: the assigning part was the worst
 			// of it). Numbered steps, a line naming everyone the chosen roles reach, a pen search.
-			"section.details":        "Details",
-			"section.capture":        "What to record",
-			"summary.goes_to":        "Goes to {names}",
-			"summary.no_roles":       "Pick at least one role. Until then nobody gets this routine.",
-			"summary.no_holders":     "Nobody holds the chosen roles for this park yet, so nobody would get it.",
+			"section.details": "Details",
+			"section.capture": "What to record",
+			// "Who does it" is ONE person (maintainer decision 2026-09-26), picked like a task.
+			"assignee.search":        "Type a name",
+			"assignee.none":          "Nobody by that name.",
+			"assignee.placeholder":   "Choose a person",
+			"assignee.unavailable":   "No longer does routines at this park. Choose someone else.",
 			"count.pens_occupied":    "{occupied} of {total} pens have animals",
 			"count.pens_chosen":      "{chosen} of {total} chosen",
 			"filter.pens_search":     "Find a pen",
