@@ -263,7 +263,7 @@ export async function VerificationReviewPage({
   const allStatusOption = statuses.find((option) => !option.status);
 
   return (
-    <>
+    <div className="screen on">
         <PageHeader
           title={pageContract.title}
           crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -425,7 +425,7 @@ export async function VerificationReviewPage({
         />
 
       {queue.ok ? null : (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error">
           <b>{copy(pageContract, "state.queue_unavailable")}</b>
           <Typography variant="body2" sx={{ mt: 0.5 }}>
             {copy(pageContract, "state.queue_unavailable_body")}
@@ -444,7 +444,7 @@ export async function VerificationReviewPage({
           drawer / panel params are not watched: opening one never blanks the queue. */}
       <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<Box sx={{ mb: { xs: 3, md: 5 } }}><StatStripSkeleton count={4} meta /></Box>}>
       {queue.ok && statusOptionsWithStatus.length ? (
-        <Card sx={{ mb: { xs: 3, md: 5 } }}>
+        <Card>
           <Scrollbar sx={{ minHeight: 108 }}>
             <Stack divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2, flexDirection: "row" }}>
               {allStatusOption ? (
@@ -741,7 +741,7 @@ export async function VerificationReviewPage({
         pageContract={pageContract}
         statusLabels={statusLabelRecord}
       />
-    </>
+    </div>
   );
 }
 

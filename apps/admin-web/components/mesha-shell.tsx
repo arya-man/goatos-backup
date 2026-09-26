@@ -970,7 +970,14 @@ export function MeshaShell({
           <span />
         </div>
         {/* `main` = the page-content class contract the page CSS is scoped to; see layouts/mesha-layout.css. */}
-        <DashboardContent maxWidth={false} className="main msh-content">
+        {/* Phone (<=620px, where Ask Mesha stays a floating 56px bubble instead of docking in the
+            header): the content ends with room for the bubble, so the last row, pager or action
+            scrolls clear of it instead of sitting under it (FJ1-P1-2). guard: phone-fab-clearance */}
+        <DashboardContent
+          maxWidth={false}
+          className="main msh-content"
+          sx={{ "@media (max-width:620px)": { "--layout-dashboard-content-pb": "calc(var(--sp-6) * 3)" } }}
+        >
           <ScrollEdges />
           {/* `.wrap` keeps the page frame rules (frame.css) the page bodies are built on; the template
               DashboardContent owns the gutters, so the wrap's own padding is zeroed in layouts/mesha-layout.css. */}

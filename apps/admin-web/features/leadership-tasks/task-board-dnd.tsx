@@ -308,7 +308,7 @@ export function TaskBoardColumns({
                 }}
               >
                 <ColumnRoot
-                  className={over ? kanbanColumnState.taskOver : droppable ? kanbanColumnState.columnOver : draggingTask ? kanbanColumnState.dragging : undefined}
+                  className={over ? kanbanColumnState.taskOver : draggingTask && droppable ? kanbanColumnState.columnOver : draggingTask ? kanbanColumnState.dragging : undefined}
                   sx={{ flexGrow: 1 }}
                 >
                   <Box

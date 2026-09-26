@@ -346,3 +346,4 @@ Full pattern → guard table and the how-to-add-a-page ordering: `docs/design/RE
   axis with the year or range in the select; no plot scrolls sideways inside its card. A shared (whole-column) tooltip stays at
   most `SHARED_TIP_MAX_SERIES` (6) rows; a stacked chart with more series uses the per-segment
   tooltip (`shared: false, intersect: true`) so it never outgrows its card (test `chart-tooltip-fits`).
+- **Page rhythm / raw codes / phone FAB / blur / preflight (R3OPS).** Page root = `screen on` grid, never a fragment starting with PageHeader (r2 audit `rhythm|header-gap`). No snake_case backend code in a Label/Chip (`rhythm|raw-code-label`; humanizeEnum/optionLabel). Shell keeps <=620px bottom clearance for the floating Ask Mesha bubble (`phone-fab-clearance`). No backdrop blur on scrims/veils (`no-blur-scrim`). Template pseudo elements that set `borderWidth` also set `borderStyle` (Tailwind preflight; `preflight-pseudo-border`).

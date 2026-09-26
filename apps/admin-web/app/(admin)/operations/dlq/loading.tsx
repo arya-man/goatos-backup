@@ -1,14 +1,19 @@
-import { ControlsCardSkeleton, FilterCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, StatStripSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
 
-/** /operations/dlq: header + Open audit, four KPI cards, status tabs + search card, the events table card. */
+/** /operations/dlq: header + Open audit, the InvoiceAnalytic status strip, the list card (tabs, toolbar, events table, readout footer). */
 export default function Loading() {
   return (
     <PageSkeleton>
       <PageHeaderSkeleton actions={1} />
-      <KpiRowSkeleton count={4} />
-      <ControlsCardSkeleton tabs={<TabsSkeleton count={3} counts />} toolbar={<FilterCardSkeleton inCard fields={["search", 200, 200]} actions={1} />} />
-      {/* Contract table "dlq-events": 6 columns, one read of 100 rows, no pager. */}
-      <TableSkeleton columns={6} rows={10} pager={false} />
+      <StatStripSkeleton count={4} meta />
+      {/* Contract table "dlq-events": 6 columns, one read of 100 rows. */}
+      <TableSkeleton
+        header={false}
+        columns={6}
+        rows={10}
+        tabs={<TabsSkeleton count={3} counts />}
+        toolbar={<FilterCardSkeleton inCard fields={[200, 200, "search"]} actions={1} />}
+      />
     </PageSkeleton>
   );
 }

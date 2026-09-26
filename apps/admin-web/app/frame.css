@@ -412,9 +412,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* Tasks board cards as Minimal cards: 16px radius, the spec two-layer card shadow at rest and the
    hover shadow on hover, Minimal 250ms easing. The status-coloured column header block is approved
    and untouched. */
-@media(min-width:768px){.lt-page .ltb-card{padding:16px}}
-.lt-page .ltb-card{border-radius:16px;box-shadow:var(--shadow-card);transition:box-shadow .25s cubic-bezier(.4,0,.2,1),border-color .25s cubic-bezier(.4,0,.2,1),background-color .25s cubic-bezier(.4,0,.2,1),transform .25s cubic-bezier(.4,0,.2,1)}
-.lt-page .ltb-card:hover{box-shadow:var(--shadow-card-hover,var(--shadow-card))}
 /* Tasks toolbar, laptop: 14px text on main's one-row, --lt-ctl (40px) controls (invariants
    860bd8d95 / 673ba2509: one row at 1440 with Dates in it; no 36px override, no wrap, main's
    130-300px search). Values are 600, never the 15px bold Sort value. */

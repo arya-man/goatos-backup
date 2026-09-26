@@ -436,3 +436,4 @@ style nit — it lies to an operator about herd state. Require explicit states.
 - [ ] r2-visual-audit `chart-hover` (P0) is clean: hovered tooltip never clipped, no raw
       "chart with N data series" text.
 
+- **Page rhythm / raw codes / phone FAB / blur / preflight (R3OPS).** Page root = `screen on` grid, never a fragment starting with PageHeader (r2 audit `rhythm|header-gap`). No snake_case backend code in a Label/Chip (`rhythm|raw-code-label`; humanizeEnum/optionLabel). Shell keeps <=620px bottom clearance for the floating Ask Mesha bubble (`phone-fab-clearance`). No backdrop blur on scrims/veils (`no-blur-scrim`). Template pseudo elements that set `borderWidth` also set `borderStyle` (Tailwind preflight; `preflight-pseudo-border`).

@@ -21,6 +21,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { actionDriveLabel, actionWorkTitle } from "./work-board";
 import { stageLabel } from "@/lib/stage-labels";
+import { humanizeEnum } from "@/lib/format";
 import Alert from "@mui/material/Alert";
 
 // Template order details view (sections/order/view/order-details-view.tsx): OrderDetailsToolbar
@@ -69,7 +70,7 @@ function chainTimeline(nodes: WorkflowNode[]): OrderHistoryItem[] {
       tone,
       body: (
         <Box component="span" sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
-          <Tag tone={nodeTone(node.state)}>{node.state}</Tag>
+          <Tag tone={nodeTone(node.state)}>{humanizeEnum(node.state)}</Tag>
           {who ? <span>{who}</span> : null}
           {node.evidence ? (
             <Tag tone="teal">

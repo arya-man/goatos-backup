@@ -45,7 +45,7 @@ export async function ToxinReviewScreen({
   const returnTo = hrefWith(sp, { tx_status: null, tx_code: null });
 
   return (
-    <>
+    <div className="screen on">
       <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />
 
       {page.ok ? null : (
@@ -89,7 +89,7 @@ export async function ToxinReviewScreen({
           />
         ) : null}
       </Card>
-    </>
+    </div>
   );
 }
 
