@@ -30,7 +30,6 @@ import { FCRTab } from "./fcr-tab";
 import { assumptionValue, bandEdgesParam, DEFAULT_SALE_READY_LOWER_KG, fillKg } from "./assumption-copy";
 import { PensTable, type PensTableRow } from "./pens-table";
 import { FeedWeightBandCard } from "./feed-weight-band-card";
-import type { GainTrendPoint } from "./weights-kpi-deck";
 import { PenWeekGainTable, type PenWeekGainPoint } from "./pen-week-gain-table";
 import { LoadWeekGainTable, type LoadWeekGainPoint } from "./load-week-gain-table";
 import { ORIGIN_KEYS, canonicalOriginRedirect, originFromParam } from "@/lib/animal-origin";
@@ -136,6 +135,9 @@ function compareKg(actual: number, op: string, wanted: number): boolean {
 const DEFAULT_LIMIT = WEIGHTS_DEFAULT_LIMIT;
 /** These three figures have no per-week series behind them, so the widget draws no sparkline. */
 const NO_SPARK = { categories: [], series: [] };
+
+/** One week of the weekly gain series (General + Time-wise), labelled DD/MM/YYYY. */
+type GainTrendPoint = { week: string; label: string; gain: number; animals: number };
 
 const TABS = WEIGHTS_TABS;
 

@@ -6,12 +6,17 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
 import { useState } from "react";
-import { Caption } from "@/components/app/caption";
-import { EmptyState } from "@/components/app/empty-state";
-import { Scale } from "lucide-react";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
 
+import { EmptyState } from "@/components/app/empty-state";
+import { ChartSelect } from "@/components/minimal/chart";
+import { TablePaginationCustom } from "@/components/minimal/table";
+import { AnalyticsConversionRates } from "@/components/minimal/sections/overview/analytics/analytics-conversion-rates";
 import { Tag } from "@/components/ui-primitives";
-import { WeightBars, type WeightBar } from "./weight-bars";
+import type { WeightBar } from "./weight-bars";
+import { stageLabel } from "@/lib/stage-labels";
 
 type Metric = "adg" | "weight";
 
@@ -27,6 +32,7 @@ type MetricSeries = {
   chartLabel: string;
 };
 
+/** The template chart-card select (CardHeader action): daily gain or weight, client state only. */
 function MetricToggle({
   current,
   labels,
@@ -37,19 +43,28 @@ function MetricToggle({
   onChange: (next: Metric) => void;
 }) {
   return (
-    <span className="chips" aria-label="Chart metric">
-      {(["adg", "weight"] as const).map((option) => (
-        <button
-          className={`chip${option === current ? " on" : ""}`}
-          key={option}
-          onClick={() => onChange(option)}
-          type="button"
-        >
-          {labels[option]}
-        </button>
-      ))}
-    </span>
+    <ChartSelect
+      options={[labels.adg, labels.weight]}
+      value={labels[current]}
+      onChange={(next) => onChange(next === labels.weight ? "weight" : "adg")}
+    />
   );
+}
+
+/** The bars as the template conversion-rates chart: one category per bar, its chip in the tooltip. */
+function barChart(active: MetricSeries, name: string) {
+  return {
+    categories: active.data.map((bar) => stageLabel(bar.label)),
+    unit: active.unit,
+    digits: active.unit === "kg" ? 1 : 0,
+    series: [
+      {
+        name,
+        data: active.data.map((bar) => bar.value),
+        notes: active.data.map((bar) => bar.modeLabel ?? null),
+      },
+    ],
+  };
 }
 
 export function MetricChart({
@@ -60,7 +75,6 @@ export function MetricChart({
   series,
   size = "short",
   wide = false,
-  className = "card wchart",
 }: {
   initialMetric: Metric;
   labels: MetricLabels;
@@ -69,26 +83,22 @@ export function MetricChart({
   series: Record<Metric, MetricSeries>;
   size?: "tall" | "short";
   wide?: boolean;
-  className?: string;
 }) {
   const [metric, setMetric] = useState<Metric>(initialMetric);
   const active = series[metric];
+  void size;
+  void wide;
   return (
-    <section className={className} aria-label={active.chartLabel}>
-      <h2 className="h">
-        {title[metric]}
-        <MetricToggle current={metric} labels={labels} onChange={setMetric} />
-      </h2>
-      {caption ? <Caption>{caption}</Caption> : null}
-      <WeightBars
-        data={active.data}
-        emptyLabel={active.emptyLabel}
-        unit={active.unit}
-        chartLabel={active.chartLabel}
-        size={size}
-        wide={wide}
-      />
-    </section>
+    <AnalyticsConversionRates
+      key={metric}
+      aria-label={active.chartLabel}
+      title={title[metric]}
+      subheader={caption}
+      action={<MetricToggle current={metric} labels={labels} onChange={setMetric} />}
+      empty={<EmptyState title={active.emptyLabel} />}
+      chart={barChart(active, labels[metric])}
+      sx={{ height: 1 }}
+    />
   );
 }
 
@@ -170,12 +180,6 @@ function ShedMetricTable({
   metric: Metric;
   pager: ShedTablePagerLabels;
 }) {
-  // Page state is LOCAL, not a URL param: every row is already in the browser, so paging is a
-  // slice rather than a fetch, and a server round trip here would cost a page render and throw the
-  // reader back up the page for a purely visual step. The metric toggle remounts this component
-  // (`key={metric}`), which is what resets the reader to page 1 when the row set changes under
-  // them -- the gain view drops every shed without a second weigh, so page 3 of one metric is not
-  // page 3 of the other.
   const [page, setPage] = useState(0);
   const rows = active.columns.flatMap((col) => col.rows.map((row) => ({ park: col.heading, row })));
   const pageCount = Math.max(1, Math.ceil(rows.length / SHED_TABLE_PAGE_SIZE));
@@ -183,107 +187,66 @@ function ShedMetricTable({
   const start = current * SHED_TABLE_PAGE_SIZE;
   const visible = rows.slice(start, start + SHED_TABLE_PAGE_SIZE);
   if (rows.length === 0) {
-    return (
-      <EmptyState title={active.emptyLabel} />
-    );
+    return <EmptyState title={active.emptyLabel} />;
   }
+  // A pen holding more than one cohort lists each on its own line, aligned across the breed, sex
+  // and count cells, so a reader can pair a breed with its sex and head count. The GAIN stays on
+  // the row and is never repeated per cohort: a whole-shed average cannot be split across breed or
+  // sex. Sex collapses to ONE line only when the whole pen is one sex (maintainer 2026-09-01).
+  const lines = (items: readonly string[], key: string) =>
+    items.map((item, index) => (
+      <Box component="span" key={`${key}|${index}`} sx={{ display: "block" }}>
+        {item}
+      </Box>
+    ));
   return (
-    <div className="tablewrap">
-      {/* Fixed layout, and the shed cell is the only one allowed to wrap. A pen label carries its
-          whole breed/sex composition, which runs past a hundred characters on a mixed pen, so an
-          auto-layout table sized itself to that one cell and pushed the basis and the VALUE — the
-          column the card exists for — off the card's right edge behind a scrollbar. */}
-      <Table className="tbl wsgtable" aria-label={active.chartLabel}>
-        <TableHead>
-          <TableRow>
-            <TableCell component="th" className="wsg-park">{columns.park}</TableCell>
-            <TableCell component="th">{columns.shed}</TableCell>
-            <TableCell component="th" className="wsg-breed">{columns.breed}</TableCell>
-            <TableCell component="th" className="wsg-sex">{columns.sex}</TableCell>
-            <TableCell component="th" className="num wsg-count">{columns.count}</TableCell>
-            <TableCell component="th" className="wsg-basis">{columns.basis}</TableCell>
-            <TableCell component="th" className="num wsg-val">{columns.value[metric]}</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {visible.map(({ park, row }) => (
-            <TableRow key={row.key}>
-              <TableCell className="wsg-park">{park}</TableCell>
-              <TableCell className="wsg-shed">
-                <b>{row.shedName ?? row.label}</b>
-              </TableCell>
-              {/* A pen holding more than one cohort lists each on its own line, aligned across
-                  the three cells, so a reader can pair a breed with its sex and head count.
-                  The GAIN stays on the row and is never repeated per cohort: a whole-shed
-                  average cannot be split across breed or sex, and a per-animal shed's figure
-                  is the pen's, not any one breed's. */}
-              <TableCell className="wsg-breed">
-                {(row.cohorts ?? []).map((cohort, index) => (
-                  <span className="wsg-line" key={`${row.key}|breed|${index}`}>
-                    {cohort.breed}
-                  </span>
-                ))}
-              </TableCell>
-              {/* One line when the whole pen is one sex, every line the moment ONE cohort
-                  differs (maintainer request 2026-09-01). Repeating "male" five times down a
-                  pen that is entirely male is noise, and it buried the mixed pens -- which are
-                  the ones a reader has to look at -- among identical columns. Collapsing is
-                  therefore all-or-nothing: a pen with a single female in it lists every line,
-                  so the collapsed cell can only ever mean "this pen is all of this sex".
-                  Breed and count never collapse: two cohorts really can share a breed (Godel
-                  1 - Part 7 carries Osmanabadi three times), and each carries its own count. */}
-              <TableCell className="wsg-sex">
-                {sexLines(row.cohorts).map((sex, index) => (
-                  <span className="wsg-line" key={`${row.key}|sex|${index}`}>
-                    {sex}
-                  </span>
-                ))}
-              </TableCell>
-              <TableCell className="num wsg-count">
-                {(row.cohorts ?? []).map((cohort, index) => (
-                  <span className="wsg-line" key={`${row.key}|count|${index}`}>
-                    {cohort.animals.toLocaleString("en-IN")}
-                  </span>
-                ))}
-              </TableCell>
-              <TableCell className="wsg-basis">
-                {row.modeLabel ? <Tag tone={row.modeTone ?? "mut"}>{row.modeLabel}</Tag> : null}
-              </TableCell>
-              <TableCell className={`num wsg-val${row.value < 0 ? " neg" : ""}`}>
-                {row.valueLabel ??
-                  `${row.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${active.unit}`}
-              </TableCell>
+    <>
+      <Box sx={{ overflowX: "auto" }}>
+        <Table aria-label={active.chartLabel}>
+          <TableHead>
+            <TableRow>
+              <TableCell component="th">{columns.park}</TableCell>
+              <TableCell component="th">{columns.shed}</TableCell>
+              <TableCell component="th">{columns.breed}</TableCell>
+              <TableCell component="th">{columns.sex}</TableCell>
+              <TableCell component="th" align="right">{columns.count}</TableCell>
+              <TableCell component="th">{columns.basis}</TableCell>
+              <TableCell component="th" align="right">{columns.value[metric]}</TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      {/* The mock's pager footer: range and page on the left, the two steps on the right. Buttons
-          rather than links, because nothing navigates -- and the ends are disabled rather than
-          hidden, so the control does not change shape as the reader walks the pages. */}
-      {rows.length > 0 ? (
-        <div className="pager2">
-          <span className="small muted" style={{ marginRight: "auto" }}>
-            {`${start + 1}-${start + visible.length} ${rows.length === 1 ? pager.noun : `${pager.noun}s`} · ${pager.page} ${current + 1} ${pager.of} ${pageCount}`}
-          </span>
-          <button
-            className="btn sm"
-            type="button"
-            disabled={current === 0}
-            onClick={() => setPage(current - 1)}
-          >
-            {pager.previous}
-          </button>
-          <button
-            className="btn sm"
-            type="button"
-            disabled={current >= pageCount - 1}
-            onClick={() => setPage(current + 1)}
-          >
-            {pager.next}
-          </button>
-        </div>
-      ) : null}
-    </div>
+          </TableHead>
+          <TableBody>
+            {visible.map(({ park, row }) => (
+              <TableRow key={row.key} hover>
+                <TableCell>{park}</TableCell>
+                <TableCell sx={{ typography: "subtitle2" }}>{row.shedName ?? row.label}</TableCell>
+                <TableCell>{lines((row.cohorts ?? []).map((cohort) => cohort.breed), `${row.key}|breed`)}</TableCell>
+                <TableCell>{lines(sexLines(row.cohorts), `${row.key}|sex`)}</TableCell>
+                <TableCell align="right">
+                  {lines((row.cohorts ?? []).map((cohort) => cohort.animals.toLocaleString("en-IN")), `${row.key}|count`)}
+                </TableCell>
+                <TableCell>{row.modeLabel ? <Tag tone={row.modeTone ?? "mut"}>{row.modeLabel}</Tag> : null}</TableCell>
+                <TableCell align="right" sx={{ typography: "subtitle2", ...(row.value < 0 ? { color: "error.main" } : {}) }}>
+                  {row.valueLabel ?? `${row.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${active.unit}`}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+      {/* The template table pagination, client-side over the rows already served (nothing
+          navigates): range and arrows, ends disabled rather than hidden. */}
+      <TablePaginationCustom
+        count={rows.length}
+        page={current}
+        rowsPerPage={SHED_TABLE_PAGE_SIZE}
+        rowsPerPageOptions={[SHED_TABLE_PAGE_SIZE]}
+        onPageChange={(_event, next) => setPage(next)}
+        labelDisplayedRows={({ from, to, count }) =>
+          `${from}-${to} ${count === 1 ? pager.noun : `${pager.noun}s`} · ${pager.page} ${current + 1} ${pager.of} ${pageCount}`
+        }
+        getItemAriaLabel={(type) => (type === "previous" ? pager.previous : pager.next)}
+      />
+    </>
   );
 }
 
@@ -311,40 +274,30 @@ export function ShedMetricChart({
 }) {
   const [metric, setMetric] = useState<Metric>(initialMetric);
   const active = series[metric];
+  if (view === "chart") {
+    // One chart over every park column, each bar named with its park (the column heading).
+    const data = active.columns.flatMap((col) => col.rows.map((row) => ({ ...row, label: `${col.heading} · ${row.label}` })));
+    return (
+      <AnalyticsConversionRates
+        key={metric}
+        aria-label={active.chartLabel}
+        title={title[metric]}
+        subheader={active.caption}
+        action={<MetricToggle current={metric} labels={labels} onChange={setMetric} />}
+        empty={<EmptyState title={active.emptyLabel} />}
+        chart={barChart({ ...active, data }, labels[metric])}
+      />
+    );
+  }
   return (
-    <section className="card wchart" aria-label={active.chartLabel}>
-      <h2 className="h">
-        <Scale className="ic" size={15} aria-hidden /> {title[metric]}
-        <MetricToggle current={metric} labels={labels} onChange={setMetric} />
-      </h2>
-      <Caption>{active.caption}</Caption>
-      {view === "table" ? (
-        <ShedMetricTable key={metric} active={active} columns={tableColumns} metric={metric} pager={tablePager} />
-      ) : active.columns.length === 0 ? (
-        <WeightBars
-          data={[]}
-          emptyLabel={active.emptyLabel}
-          unit={active.unit}
-          chartLabel={active.chartLabel}
-          size={active.size}
-        />
-      ) : (
-        <div className="wcols">
-          {active.columns.map((col, index) => (
-            <div key={`${col.heading}|${index}`}>
-              <h3 className="wcol-h">{col.heading}</h3>
-              <WeightBars
-                data={col.rows}
-                domain={active.domain}
-                emptyLabel={active.emptyLabel}
-                unit={active.unit}
-                chartLabel={active.chartLabel}
-                size={active.size}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
+    <Card aria-label={active.chartLabel}>
+      <CardHeader
+        title={title[metric]}
+        subheader={active.caption}
+        action={<MetricToggle current={metric} labels={labels} onChange={setMetric} />}
+        sx={{ mb: 3 }}
+      />
+      <ShedMetricTable key={metric} active={active} columns={tableColumns} metric={metric} pager={tablePager} />
+    </Card>
   );
 }

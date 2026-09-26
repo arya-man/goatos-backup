@@ -946,7 +946,6 @@
   /* Drilldown sections inside the record drawer. The inline panel's block styles were removed
      with the panel, but the drawer still renders these sections -- without them the heading ran
      straight into its own body text. */
-  
   /* Closed, No Dose tile is an entry point when it has animals behind it, and visibly inert when
      it does not — the affordance must never promise a list that is empty. */
   .kpi.kpi-clickable{cursor:pointer}
@@ -1607,7 +1606,6 @@
     .main{height:100%;overflow:auto}
     .wrap{padding:16px 14px 56px}
     .parkpick [data-park="ALL"]{display:none}
-    
     /* THE NOTIFICATION BELL'S FOOTPRINT. Until this slice the bell was a DISABLED button that
        `.top .iconbtn[disabled]{display:none}` (below) deleted outright; live it is a real 36px
        control, and it is the item that tips this bar over. Measured in Chromium against this
@@ -2160,40 +2158,24 @@ select:disabled { opacity: .45 }
 /* Weights page bar-list boxes (the kit BarList root and its empty state carry these classes).
    Fixed height + internal scroll, so a chart with forty rows takes the same page space as one
    with four. */
-.wbars-tall{height:300px}
-.wbars-short{height:150px}
+
 /* A FIXED-ROW list sizes to its content. The six weight bands never change in number and the card
    has no chart toggle, so a fixed box only ever left dead space under the last bar. max-height
    keeps the scroll safety if the band set ever grows. */
-.wbars-bands{height:auto;max-height:320px;overflow-y:auto}
+
 /* The empty state has no rows to size to, so height:auto would collapse it to nothing and the
    "No data available" note would sit on top of the caption. Keep a box. */
-.wbars-empty.wbars-bands{min-height:150px}
 
 /* Weights gain marks, grouped bars. One row per breed: a label column carrying the
    breed and its head count, then the three marks as separate bars so a single mark can
    be scanned down the chart. Height follows the content — the breed vocabulary is
    bounded by the herd catalogue, so this never becomes an unbounded list. */
-.gmarks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
-.gmark{display:grid;grid-template-columns:minmax(0,clamp(150px,24%,230px)) minmax(180px,1fr);align-items:center;gap:14px}
-.gmark .gml{min-width:0;color:var(--ink);font-weight:600;line-height:1.2}
-.gmark .gml-sub{display:block;margin-top:3px;color:var(--muted);font-weight:600;font-size:11.5px;font-variant-numeric:tabular-nums}
-.gmark .gmrows{display:flex;flex-direction:column;gap:3px;min-width:0}
-.gmrow{display:grid;grid-template-columns:minmax(0,1fr) 46px 40px;align-items:center;gap:6px}
-.gmrow .gmt{min-width:0}
-.gmrow .gmv{font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink);text-align:right;padding-left:4px}
+
 /* Its own column, so counts align under counts and never blur into the percentage
    beside them. Recessive: the percentage is what the bar encodes, the count is the
    evidence behind it. */
-.gmrow .gmn{color:var(--muted);font-weight:600;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+
 /* Legend: three ordered steps, always present, so the marks are never colour-alone. */
-.gmlegend{display:flex;flex-wrap:wrap;gap:14px;margin:14px 0 14px;font-size:13.5px;color:var(--muted)}
-.gmlegend span{display:inline-flex;align-items:center;gap:6px}
-.gmlegend i{width:8px;height:8px;border-radius:50%;flex:none;background:var(--gain-lo)}
-.gmlegend .hi i{background:var(--gain-hi)}
-.gmlegend .mid i{background:var(--gain-mid)}
-.gmlegend .under i{background:var(--gain-under)}
-@media(max-width:900px){.gmark{grid-template-columns:minmax(0,120px) minmax(96px,1fr);gap:10px}.gmrow{grid-template-columns:minmax(0,1fr) 44px 38px;gap:5px}}
 
 /* Per-chart metric toggle. Links, not buttons, so the page stays a server
    component and each chart's choice survives a reload and a shared URL. */
@@ -2208,7 +2190,7 @@ select:disabled { opacity: .45 }
 .metricseg button:hover{color:var(--brand-d)}
 .metricseg button.on{background:var(--brand);color:var(--on-brand)}
 .card .h{display:flex;align-items:center;gap:8px}
-.wbars-empty{display:grid;place-items:center;text-align:center;padding:0 14px}
+
 /* Grouped bars for the Weights analytics page: several named groups, each holding one or more
    comparable bars. Series colours are theme tokens only -- `s0` is the page's own brand green
    (daily gain, the number the screen exists to answer), `s1` a muted slate beside it so the
@@ -2269,10 +2251,10 @@ select:disabled { opacity: .45 }
    so a chart with no caption (sex, stage) gets the same gap as one with a caption
    (shed, breed, load), and the empty state keeps the same box position as the
    populated list so toggling weight/gain never shifts the card. */
-.wchart .wbars-empty{margin-top:12px}
+
 /* Footnote under a chart ("N sheds are not counted here…") — it butted straight up
    against the bars above it. */
-.wchart .wbars-empty + .muted{margin-top:10px}
+
 .wchart .muted.small,
 .wtable > p.muted.small{color:color-mix(in srgb,var(--muted) 76%,var(--ink))}
 /* The full-width shed chart's two ranked columns — one per park, or the single
@@ -2280,10 +2262,7 @@ select:disabled { opacity: .45 }
    themselves, so the generic `.wchart .wbars` top margin is zeroed inside: the gap
    above the bars belongs between the caption and the COLUMN ROW, not under each
    column heading. */
-.wcols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 24px;margin-top:12px}
-.wcols .wbars-empty{margin-top:8px}
-.wcol-h{margin:0;font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
-@media(max-width:900px){.wcols{grid-template-columns:1fr;gap:14px}}
+
 /* The two TABLE cards (Sheds, Kids losing weight). `.card` resolves to 0 padding on this page, so
    their title, caption, pager row and footnote all sat 1px off the frame — the heading touching the
    top border and the pager touching the bottom-left corner.
@@ -2326,19 +2305,12 @@ select:disabled { opacity: .45 }
    itself to that one cell, pushing the basis chip and the VALUE off the card's right edge behind a
    horizontal scrollbar. The shed cell is therefore the only one that wraps; the three fixed columns
    keep the number where the eye expects it. */
-.weights-page table.wsgtable{width:100%;table-layout:fixed}
+
 /* The five fixed columns alone are ~500px, so at phone width `width:100%` left the pen and breed
    columns ZERO: "Castro 1" rendered one letter per line and the Pen/Breed/Gender headers painted
    over each other. A floor keeps every column readable; below it the table pans inside its own
    `.tablewrap` (overflow-x:auto) and the page body never scrolls sideways. */
-.weights-page table.wsgtable{min-width:720px}
-.weights-page table.wsgtable th.wsg-park,
-.weights-page table.wsgtable td.wsg-park{width:78px}
-.weights-page table.wsgtable th.wsg-basis,
-.weights-page table.wsgtable td.wsg-basis{width:112px}
-.weights-page table.wsgtable th.wsg-val,
-.weights-page table.wsgtable td.wsg-val{width:132px;font-variant-numeric:tabular-nums}
-.weights-page table.wsgtable td.wsg-shed{white-space:normal;overflow-wrap:anywhere}
+
 /* Breed / gender / count are their own columns (maintainer request 2026-09-01), so the shed cell
    is back to a plain pen name. A pen holding several cohorts stacks one line per cohort in each
    of the three, and they stay index-aligned because every cell renders the same list in the same
@@ -2351,15 +2323,11 @@ select:disabled { opacity: .45 }
    Gender is wide enough for "unknown sex" on ONE line — the three cells pair up by line index,
    so a cell that wraps shifts every count below it against the wrong breed. That is also why
    each line is `nowrap` + ellipsis rather than wrapping: one cohort is always one line. */
-.weights-page table.wsgtable th.wsg-sex,
-.weights-page table.wsgtable td.wsg-sex{width:104px}
-.weights-page table.wsgtable th.wsg-count,
-.weights-page table.wsgtable td.wsg-count{width:70px;font-variant-numeric:tabular-nums}
-.weights-page table.wsgtable .wsg-line{display:block;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
 /* A loss reads as a loss in both views: the same `--danger` the bar list paints a negative bar
    and its value with (the kit BarList's negative row), so switching to the table cannot quietly turn a losing
    pen into an ordinary black number. */
-.weights-page table.wsgtable td.wsg-val.neg{color:var(--danger)}
+
 /* PHONE. `table-layout:fixed` + `width:100%` meant the seven columns divided a 326px card
    instead of scrolling: Pen and Breed measured 22px and wrapped ONE CHARACTER PER LINE, and the
    card grew to ~4700px tall. Inside `.tablewrap` (overflow-x:auto) the table is allowed to be
@@ -2371,13 +2339,9 @@ select:disabled { opacity: .45 }
      together -- breed settled at 50px and ellipsised "Anantapur Sheep" away. Wrapping cannot
      fix it: breed / sex / count pair up BY LINE INDEX, so a cell that wraps shifts every count
      against the wrong breed. The floor now fits both names (the longest breed measures 114px) and the wrapper scrolls. */
-  .weights-page table.wsgtable{min-width:820px}
-  .weights-page table.wsgtable td.wsg-shed{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
-  .weights-page .tablewrap:has(table.wsgtable){-webkit-overflow-scrolling:touch}
+  
 }
-.wcomp-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;max-width:340px}
-.wcomp-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 76%,var(--bg));color:var(--muted);border-radius:6px;padding:2px 7px;font-size:10.5px;font-weight:750;line-height:1.25;white-space:nowrap}
-.wcomp-chip span{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 5px;border-radius:999px;background:var(--brand-soft);color:var(--brand-d);font-size:10px;font-weight:850}
+
 .wtable table.tbl th:last-child,
 .wtable table.tbl td:last-child{padding-right:16px}
 /* Feed by weight band (ADG Analytics, Weight-wise tab). The title's ⓘ reuses the Pen-wise
@@ -2445,13 +2409,6 @@ select:disabled { opacity: .45 }
    above, `.lt-tablewrap` below), including `scrollbar-gutter:stable` so the last column does not
    twitch as the scrollbar appears. Scoped to this page rather than made global: `.tablewrap` is a
    bare name and a global overflow rule would silently change any future page that reuses it. */
-.weights-page .tablewrap{
-  min-width:0;
-  max-width:100%;
-  overflow-x:auto;
-  -webkit-overflow-scrolling:touch;
-  scrollbar-gutter:stable
-}
 
 /* ---- Fair fight: the cohort standings board -------------------------------------------------
    Full width since the Slow-growth watchlist was removed from its right half. Cohorts sit in an
@@ -2461,14 +2418,9 @@ select:disabled { opacity: .45 }
 /* `align-items:start` so a 2-shed cohort is a 2-shed-tall card. Grid stretches items to the row
    by default, which gave a five-row board a half-card of empty space under it whenever its
    neighbour held seven — the spread line floated away from the standings it summarises. */
-.ffboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin-top:12px;align-items:start;max-height:680px;overflow-y:auto;padding-right:2px;scrollbar-gutter:stable}
-.ffboard::-webkit-scrollbar{width:8px}
-.ffboard::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+
 /* Each cohort is its own bounded surface so two adjacent boards cannot be misread as one list. */
-.ffmatch{border:1px solid var(--line);border-radius:var(--r2);padding:12px 12px 10px;background:var(--panel-2);min-width:0}
-.ffhead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
-.ffcohort{font-size:13px}
-.ffstand{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+
 /* TWO LINES PER ROW, and the split is what makes this readable rather than clever. A shed's
    identity is "park · shed · pen" — 30-plus characters — so putting it in a column beside a bar
    truncated it to "Channapatna ·", naming the park and hiding the shed. Line one is therefore
@@ -2476,45 +2428,23 @@ select:disabled { opacity: .45 }
    standing chip. The rank spans both, so it reads as one entry.
    `minmax(0,1fr)` on the name column is load-bearing: without it a long name widens the grid
    past the card instead of truncating — the same overflow defect the tables above just had. */
-.ffrow{
-  display:grid;
-  grid-template-columns:22px minmax(0,1fr) auto;
-  grid-template-rows:auto auto;
-  align-items:center;
-  column-gap:8px;
-  row-gap:3px;
-  padding:4px 0
-}
-.ffrank{grid-row:1 / span 2;align-self:center;font-variant-numeric:tabular-nums;font-size:12px;color:var(--faint);text-align:right}
-.ffshed{grid-column:2;grid-row:1;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ffval{grid-column:3;grid-row:1;font-variant-numeric:tabular-nums;font-size:12.5px;text-align:right;white-space:nowrap;font-weight:600}
-.ffval.neg{color:var(--danger)}
-.fftrack{grid-column:2;grid-row:2}
+
 /* n and the chip share ONE cell on the bar line. Giving the chip its own column would steal the
    width of "Behind" from every name on every row, including the middle rows that never show one. */
-.ffmeta{grid-column:3;grid-row:2;display:flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap}
-.ffn{font-size:11px}
+
 /* The leader is marked by weight and a brand tint, never by colour alone — the chip carries the
    word. A shed at the top of a cohort everyone is losing weight in is still the leader, so this
    deliberately says nothing about whether the number is good. */
-.ffrow.ffwin .ffshed{font-weight:650}
-.ffrow.ffwin .ffrank{color:var(--brand);font-weight:700}
-.ffspread{margin:10px 0 0;padding-top:8px;border-top:1px dashed var(--line)}
+
 @media(max-width:600px){
-  body:has(.weights-page) .main{padding-bottom:92px}
-  .ffboard{grid-template-columns:minmax(0,1fr);overflow-x:hidden}
-  .ffhead{align-items:flex-start;flex-direction:column;gap:3px}
+  
   /* On a phone the name WRAPS instead of truncating. A shed is "park · shed · pen" and the tail
      is the pen — the half that says which door to walk to — so an ellipsis here removes exactly
      the part an operator came for. Two lines of name cost less than a name that cannot be read.
      Measured at 480px: 28 of 34 names truncated before this. */
-  .ffshed{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}
-  .ffrow{grid-template-columns:22px minmax(0,1fr);grid-template-rows:auto auto auto;column-gap:6px}
-  .ffrank{grid-row:1 / span 3}
-  .ffshed{grid-column:2;grid-row:1}
-  .ffval{grid-column:2;grid-row:1;align-self:start;justify-self:end;margin-left:8px;background:linear-gradient(90deg,transparent,var(--panel-2) 22%)}
-  .fftrack{grid-column:2;grid-row:2}
-  .ffmeta{grid-column:2;grid-row:3;justify-content:space-between}
+  
+  
+  
   /* Touch targets. The segmented range/tab control is a 23px-tall pill on desktop, which is
      right for a mouse and below the 40px minimum for a thumb. Raising it ONLY here keeps the
      desktop control at the mock's compact size — the same rule the top-bar controls follow. */

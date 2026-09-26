@@ -1,8 +1,14 @@
-import { WeightBars } from "./weight-bars";
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
-import { Caption } from "@/components/app/caption";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Typography from "@mui/material/Typography";
+
 import { EmptyState } from "@/components/app/empty-state";
-import { ProgressBar } from "@/components/app/progress-bar";
+import { Label } from "@/components/minimal/label";
+import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ApiResult, GrowthDirectorWeightsResponse } from "@/lib/api/server";
 
@@ -42,189 +48,137 @@ export function GrowthDirectorSection({
   // dashboard above is independent and stays useful without this block.
   if (!result.ok) {
     return (
-      <section className="card wchart" aria-label={gd(pageContract, "section.aria")}>
-        <h2 className="h">{gd(pageContract, "error.title")}</h2>
-        <p className="muted small">{gd(pageContract, "error.body")}</p>
-      </section>
+      <Alert severity="error" variant="outlined" aria-label={gd(pageContract, "section.aria")}>
+        <AlertTitle>{gd(pageContract, "error.title")}</AlertTitle>
+        {gd(pageContract, "error.body")}
+      </Alert>
     );
   }
 
   const { road_to_sale: road, fair_fight: fairFight } = result.data;
   // `feed_problems`, `trust`, `slow_growth` and `feed_vs_growth` are still served by the
   // backend, but the Feed sheet problems table, the trust-panel KPI row, the Slow-growth
-  // watchlist and the Feed given vs growth table were removed from this page — the contract
-  // keeps them so the widgets can be restored without a backend change. The watchlist went on
-  // 2026-08-15 (maintainer decision): it answered the same question as Fair fight from a
-  // narrower angle, ranking a group against a fixed target instead of against the other sheds
-  // holding the same kind of kid, and it was the reason that row was split two-up. Fair fight
-  // now takes the full width. The Feed given vs growth table went on 2026-08-17 (maintainer
-  // decision): mostly "No data available" rows until pens carry a second weigh.
+  // watchlist and the Feed given vs growth table were removed from this page (maintainer
+  // decisions 2026-08-15 / 2026-08-17); the contract keeps them so they can be restored.
   const noData = copy(pageContract, "empty.no_data.title");
+  const bandTotal = road.bands.reduce((sum, band) => sum + band.animal_count, 0);
+  const kidsNoun = gd(pageContract, "fair_fight.pair_noun");
 
   return (
-    <>
-      <h2 className="h" aria-label={gd(pageContract, "section.aria")}>
-        {gd(pageContract, "section.title")}
-      </h2>
+    <Grid container spacing={3} component="section" aria-label={gd(pageContract, "section.aria")}>
+      <Grid size={12}>
+        <Typography variant="h5" component="h2">
+          {gd(pageContract, "section.title")}
+        </Typography>
+      </Grid>
 
-      {/* ---------------- Road to sale weight ---------------- */}
-      <section className="card wchart" aria-label={gd(pageContract, "road.title")}>
-        <h2 className="h">{gd(pageContract, "road.title")}</h2>
-        <Caption>{gd(pageContract, "road.caption")}</Caption>
-        {/* Total animals · lump-sum · pair denominator · moved up · held · slipped: one strip, so the
-            three movement figures visibly sum to the pairs cell beside them. */}
-        <StatStrip
-          ariaLabel={gd(pageContract, "road.title")}
-          cells={[
-            { key: "total", label: <span title={gd(pageContract, "road.identities.sub")}>{gd(pageContract, "road.identities.sub")}</span>, value: nf(road.total_animals), tone: "primary" as const },
-            { key: "lump", label: <span title={gd(pageContract, "road.lump.sub")}>{gd(pageContract, "road.lump.sub")}</span>, value: nf(road.lump_sum_animals), tone: "info" as const, share: road.total_animals > 0 ? (road.lump_sum_animals / road.total_animals) * 100 : undefined },
-            { key: "pairs", label: <span title={gd(pageContract, "road.pairs.sub")}>{gd(pageContract, "road.pairs.sub")}</span>, value: nf(road.movement.pair_animals), tone: "neutral" as const },
-            { key: "up", label: <span title={gd(pageContract, "road.moved_up")}>{gd(pageContract, "road.moved_up")}</span>, value: nf(road.movement.moved_up), tone: "success" as const, share: road.movement.pair_animals > 0 ? (road.movement.moved_up / road.movement.pair_animals) * 100 : undefined },
-            { key: "held", label: <span title={gd(pageContract, "road.held")}>{gd(pageContract, "road.held")}</span>, value: nf(road.movement.held), tone: "warning" as const, share: road.movement.pair_animals > 0 ? (road.movement.held / road.movement.pair_animals) * 100 : undefined },
-            { key: "down", label: <span title={gd(pageContract, "road.moved_down")}>{gd(pageContract, "road.moved_down")}</span>, value: nf(road.movement.moved_down), tone: road.movement.moved_down > 0 ? ("error" as const) : ("neutral" as const), share: road.movement.pair_animals > 0 ? (road.movement.moved_down / road.movement.pair_animals) * 100 : undefined },
-          ]}
-        />
-        <WeightBars
+      {/* ---------------- Road to sale weight ----------------
+          Total animals · lump-sum · pair denominator · moved up · held · slipped: one template
+          InvoiceAnalytic strip, so the three movement figures visibly sum to the pairs cell. */}
+      <Grid size={12}>
+        <Card aria-label={gd(pageContract, "road.title")}>
+          <CardHeader title={gd(pageContract, "road.title")} subheader={gd(pageContract, "road.caption")} sx={{ mb: 1 }} />
+          <StatStrip
+            ariaLabel={gd(pageContract, "road.title")}
+            cells={[
+              { key: "total", label: gd(pageContract, "road.identities.sub"), value: nf(road.total_animals), tone: "primary" as const },
+              { key: "lump", label: gd(pageContract, "road.lump.sub"), value: nf(road.lump_sum_animals), tone: "info" as const, share: road.total_animals > 0 ? (road.lump_sum_animals / road.total_animals) * 100 : undefined },
+              { key: "pairs", label: gd(pageContract, "road.pairs.sub"), value: nf(road.movement.pair_animals), tone: "neutral" as const },
+              { key: "up", label: gd(pageContract, "road.moved_up"), value: nf(road.movement.moved_up), tone: "success" as const, share: road.movement.pair_animals > 0 ? (road.movement.moved_up / road.movement.pair_animals) * 100 : undefined },
+              { key: "held", label: gd(pageContract, "road.held"), value: nf(road.movement.held), tone: "warning" as const, share: road.movement.pair_animals > 0 ? (road.movement.held / road.movement.pair_animals) * 100 : undefined },
+              { key: "down", label: gd(pageContract, "road.moved_down"), value: nf(road.movement.moved_down), tone: road.movement.moved_down > 0 ? ("error" as const) : ("neutral" as const), share: road.movement.pair_animals > 0 ? (road.movement.moved_down / road.movement.pair_animals) * 100 : undefined },
+            ]}
+          />
+        </Card>
+      </Grid>
+      {/* The six bands ARE the distribution: all six rows, each its share of the kids banded. */}
+      <Grid size={{ xs: 12, md: 6 }}>
+        <EcommerceSalesOverview
+          title={gd(pageContract, "road.title")}
+          subheader={gd(pageContract, "period.note")}
           data={road.bands.map((band) => ({
             key: band.band,
             label: band.band,
-            value: band.animal_count,
+            value: bandTotal > 0 ? (band.animal_count / bandTotal) * 100 : 0,
+            display: `${nf(band.animal_count)} ${kidsNoun}`,
           }))}
-          emptyLabel={copy(pageContract, "empty.no_data.body")}
-          unit={gd(pageContract, "fair_fight.pair_noun")}
-          chartLabel={gd(pageContract, "road.title")}
-          // SIZED TO ITS ROWS. This chart has a FIXED SIX bands and they are the whole point: the
-          // bands are a distribution and a reader judges it by its shape. `short` is a 150px scroll
-          // box that fits four, which was survivable while the top two bands were empty and stopped
-          // being so the moment whole-shed pens joined the board (2026-09-01) and put 218 kids in
-          // 30-35 and 35+ — bars a reader has to scroll to find no longer visibly add up to the
-          // head count above them. `tall` showed all six but is a 300px box, which left dead space
-          // under the last bar. A fixed row count needs neither.
-          size="bands"
-        />
-        <p className="muted small">
-          {gd(pageContract, "road.note.pairs")} {gd(pageContract, "road.note.lump")}{" "}
-          {gd(pageContract, "road.note.unmatched")}
-        </p>
-        <Caption>{gd(pageContract, "period.note")}</Caption>
-      </section>
+          sx={{ height: 1 }}
+        >
+          {bandTotal === 0 ? <EmptyState title={copy(pageContract, "empty.no_data.body")} /> : null}
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {gd(pageContract, "road.note.pairs")} {gd(pageContract, "road.note.lump")} {gd(pageContract, "road.note.unmatched")}
+          </Typography>
+        </EcommerceSalesOverview>
+      </Grid>
 
-      {/* ---------------- Fair fight ---------------- */}
-      {/* FULL WIDTH, and it earns it. This was the left half of a two-up row whose right half
-          was the Slow-growth watchlist; that card is gone (maintainer decision 2026-08-15) and
-          its width came here rather than to whitespace.
-          Each cohort renders as STANDINGS, because that is what the data already is: the
-          backend returns a cohort's sheds ordered by median gain DESC (growth_cohorts.go
-          `ORDER BY breed, sex, median_adg_g_day DESC`), so position IS the rank and nothing is
-          sorted or ranked on the client. The spread between first and last is the line that
-          decides whether a cohort is worth a walk -- sheds within a few grams of each other are
-          not a shed problem, however low the whole cohort sits. */}
-      <section className="card wchart ffcard" aria-label={gd(pageContract, "fair_fight.title")}>
-        <h2 className="h">{gd(pageContract, "fair_fight.title")}</h2>
-        <Caption>{gd(pageContract, "fair_fight.caption")}</Caption>
-        {fairFight.cohorts.length === 0 ? (
-          <EmptyState title={noData} description={gd(pageContract, "fair_fight.empty")} />
-        ) : (
-          <div className="ffboard" tabIndex={0} aria-label={gd(pageContract, "fair_fight.title")}>
-            {fairFight.cohorts.map((cohort) => {
-              // The backend ranks these sheds fastest-first; the board LISTS them
-              // alphabetically (maintainer decision 2026-08-24), like every other shed list on
-              // the page, so a reader can find the pen they came here for.
-              //
-              // The numbers count the LIST, 1..n straight down (maintainer, 2026-08-24): a
-              // badge reading "1" three rows down looked like a mistake every time the eye
-              // passed it. The standing did not disappear with it — the leader/behind chips
-              // and the spread are still computed from the backend's ranked array, by VALUE,
-              // so "this pen is the fastest of its cohort" is still on the row that earned it.
-              const ranked = cohort.sheds;
-              const best = ranked[0];
-              const last = ranked[ranked.length - 1];
-              const rankByKey = new Map(ranked.map((shed, index) => [shed.operational_key, index]));
-              const sheds = [...ranked].sort((a, b) =>
-                a.shed_display_name.localeCompare(b.shed_display_name, undefined, { numeric: true }),
-              );
-              const spread = ranked.length > 1 ? best.median_adg_g_per_day - last.median_adg_g_per_day : null;
-              const kids = ranked.reduce((sum, shed) => sum + shed.pair_identities, 0);
-              return (
-                <div className="ffmatch" key={`${cohort.breed}-${cohort.sex}`}>
-                  <div className="ffhead">
-                    <b className="ffcohort">
-                      {cohort.breed} · {cohort.sex}
-                    </b>
-                    <span className="muted small">
-                      {nf(sheds.length)} {gd(pageContract, "fair_fight.shed_noun")} · {nf(kids)}{" "}
-                      {gd(pageContract, "fair_fight.pair_noun")}
-                    </span>
-                  </div>
-                  <ol className="ffstand" aria-label={`${gd(pageContract, "fair_fight.title")} — ${cohort.breed} ${cohort.sex}`}>
-                    {sheds.map((shed, index) => {
-                      // Standing by KEY (this list is alphabetical); the badge counts the list.
-                      const standing = rankByKey.get(shed.operational_key) ?? 0;
-                      // The bar is drawn against the cohort's OWN best, so every board reads
-                      // "share of the leader" rather than being scaled to a page-wide maximum
-                      // that would flatten a close race into identical bars. A non-positive
-                      // leader leaves every track empty, which is honest: there is no gain to
-                      // take a share of.
-                      const share =
-                        best.median_adg_g_per_day > 0
-                          ? Math.max(0, (shed.median_adg_g_per_day / best.median_adg_g_per_day) * 100)
-                          : 0;
-                      const isLeader = standing === 0 && ranked.length > 1;
-                      const isLast = standing === ranked.length - 1 && ranked.length > 1;
-                      return (
-                        <li className={`ffrow${isLeader ? " ffwin" : ""}`} key={shed.operational_key}>
-                          <span className="ffrank" aria-label={gd(pageContract, "fair_fight.rank_label")}>
-                            {index + 1}
-                          </span>
-                          {/* The name gets a LINE OF ITS OWN, because a shed's identity here is
-                              park + shed + pen — thirty-odd characters — and that does not fit
-                              beside a bar. Squeezed into a column it truncated after the park,
-                              naming the farm and hiding the one thing the row is about. `title`
-                              still carries the full string for a name that outruns even a line. */}
-                          <span className="ffshed" title={shed.shed_display_name}>
-                            {shed.shed_display_name}
-                          </span>
-                          <span className={`ffval${shed.median_adg_g_per_day < 0 ? " neg" : ""}`}>
-                            {nf(shed.median_adg_g_per_day)} g
-                          </span>
-                          {/* Template LinearProgress (kit ProgressBar); a losing shed keeps the
-                              danger tone (339302965). */}
-                          <ProgressBar
-                            value={Math.max(share, 0.6)}
-                            color={shed.median_adg_g_per_day < 0 ? "var(--danger)" : "var(--brand)"}
-                            className="fftrack"
-                          />
-                          {/* n and the standing chip share one cell so the chip never takes a
-                              column off every name — including the middle rows that carry no
-                              chip — and the kid count stays visible on the leader and last rows,
-                              which are exactly the two an operator checks the sample size of. */}
-                          <span className="ffmeta">
-                            <span className="muted ffn">
-                              {nf(shed.pair_identities)} {gd(pageContract, "fair_fight.pair_noun")}
-                            </span>
-                            {isLeader ? (
-                              <span className="tag t-ok ffchip">{gd(pageContract, "fair_fight.leader")}</span>
-                            ) : isLast ? (
-                              <span className="tag t-mut ffchip">{gd(pageContract, "fair_fight.behind")}</span>
-                            ) : null}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                  {spread === null ? null : (
-                    <p className="ffspread muted small">
-                      {gd(pageContract, "fair_fight.spread")} <b>{nf(spread)} g</b>
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        <Caption>{gd(pageContract, "fair_fight.note")}</Caption>
-      </section>
-
-    </>
+      {/* ---------------- Fair fight ----------------
+          Each cohort is STANDINGS on the template sales-overview card: the backend returns a
+          cohort's sheds ordered by median gain DESC, so the leader/behind Labels and the spread
+          come from that ranked array by VALUE, while the rows are LISTED alphabetically
+          (maintainer decision 2026-08-24) so a reader can find the pen they came for. Each bar
+          is drawn against the cohort's OWN best ("share of the leader"). */}
+      <Grid size={{ xs: 12, md: 6 }}>
+        <Card aria-label={gd(pageContract, "fair_fight.title")} sx={{ height: 1 }}>
+          <CardHeader title={gd(pageContract, "fair_fight.title")} subheader={gd(pageContract, "fair_fight.caption")} />
+          <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
+            {gd(pageContract, "fair_fight.note")}
+          </Typography>
+          {fairFight.cohorts.length === 0 ? <EmptyState title={noData} description={gd(pageContract, "fair_fight.empty")} /> : null}
+        </Card>
+      </Grid>
+      {fairFight.cohorts.map((cohort) => {
+        const ranked = cohort.sheds;
+        const best = ranked[0];
+        const last = ranked[ranked.length - 1];
+        const rankByKey = new Map(ranked.map((shed, index) => [shed.operational_key, index]));
+        const sheds = [...ranked].sort((a, b) =>
+          a.shed_display_name.localeCompare(b.shed_display_name, undefined, { numeric: true }),
+        );
+        const spread = ranked.length > 1 ? best.median_adg_g_per_day - last.median_adg_g_per_day : null;
+        const kids = ranked.reduce((sum, shed) => sum + shed.pair_identities, 0);
+        return (
+          <Grid key={`${cohort.breed}-${cohort.sex}`} size={{ xs: 12, md: 6 }}>
+            <EcommerceSalesOverview
+              aria-label={`${gd(pageContract, "fair_fight.title")} — ${cohort.breed} ${cohort.sex}`}
+              title={`${cohort.breed} · ${cohort.sex}`}
+              subheader={`${nf(sheds.length)} ${gd(pageContract, "fair_fight.shed_noun")} · ${nf(kids)} ${kidsNoun}`}
+              data={sheds.map((shed) => {
+                const standing = rankByKey.get(shed.operational_key) ?? 0;
+                const isLeader = standing === 0 && ranked.length > 1;
+                const isLast = standing === ranked.length - 1 && ranked.length > 1;
+                return {
+                  key: shed.operational_key,
+                  label: shed.shed_display_name,
+                  // A non-positive leader leaves every track empty: there is no gain to share.
+                  value: best.median_adg_g_per_day > 0 ? Math.max(0, (shed.median_adg_g_per_day / best.median_adg_g_per_day) * 100) : 0,
+                  display: `${nf(shed.median_adg_g_per_day)} g`,
+                  color: shed.median_adg_g_per_day < 0 ? ("error" as const) : isLeader ? ("primary" as const) : ("info" as const),
+                  caption: (
+                    <>
+                      {nf(shed.pair_identities)} {kidsNoun}{" "}
+                      {isLeader ? (
+                        <Label color="success" variant="soft">{gd(pageContract, "fair_fight.leader")}</Label>
+                      ) : isLast ? (
+                        <Label variant="soft">{gd(pageContract, "fair_fight.behind")}</Label>
+                      ) : null}
+                    </>
+                  ),
+                };
+              })}
+              sx={{ height: 1 }}
+            >
+              {spread === null ? null : (
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  {gd(pageContract, "fair_fight.spread")}{" "}
+                  <Typography component="span" variant="subtitle2" sx={{ color: "text.primary" }}>
+                    {nf(spread)} g
+                  </Typography>
+                </Typography>
+              )}
+            </EcommerceSalesOverview>
+          </Grid>
+        );
+      })}
+    </Grid>
   );
 }

@@ -187,7 +187,7 @@ select option{background:var(--paper);color:var(--fg)}
 /* ---------- Tabs as underline strip (left aligned, sliding feel) ---------- */
 
 /* Captions and section headings on analytics pages. */
-.weights-page>p.muted.small{font-size:14px!important;font-weight:600;color:var(--fg-muted);margin:0 0 16px!important}
+
 .card>h2.h{font-size:18px;line-height:28px;font-weight:600;display:flex;align-items:center;gap:8px;margin:0}
 .card>h2.h+p.muted.small{margin:4px 0 20px;font-size:14px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 

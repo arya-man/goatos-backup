@@ -112,7 +112,7 @@ export function AnalyticsConversionRates({ title, subheader, action, empty, char
             pl: 1,
             py: 2.5,
             pr: 2.5,
-            height: Math.max(360, rows * ROW_HEIGHT * Math.max(1, chart.series.length) + 64),
+            height: Math.max(rows <= 3 ? 220 : 360, rows * ROW_HEIGHT * Math.max(1, chart.series.length) + 64),
           }}
         />
       ) : (

@@ -311,12 +311,10 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   // The sixth card printed the SAME number, denominator and sub-line as the "All parks — daily
   // gain" card in the row below it. Its copy keys are deleted too, so the duplicate cannot be
   // reinstated by pasting the markup back.
-  // The headline row is the kit KpiGrid deck (auto-fit columns, no `.g5` ladder): exactly five
-  // items in the first WeightsKpiDeck, and no sixth gain card.
-  const deckStart = source.indexOf("<WeightsKpiDeck");
-  const deckEnd = source.indexOf("/>", deckStart);
-  const headlineDeck = source.slice(deckStart, deckEnd);
-  assert.equal((headlineDeck.match(/\bkey: "/g) ?? []).length, 5, "the headline deck is five cards");
+  // The headline row is four template widgets (kids, total, average, the scope's daily gain)
+  // plus ONE sale-line ring card: the gain is stated once, never a sixth "median gain" card.
+  assert.equal((source.match(/<EcommerceWidgetSummary\b/g) ?? []).length, 4, "four headline widgets");
+  assert.equal((source.match(/<EcommerceSaleByGender\b/g) ?? []).length, 1, "the sale lines share one ring card");
   assert.doesNotMatch(source, /className="grid g6 kpi-row"/);
   assert.doesNotMatch(source, /"kpi\.gain\.label"/);
   assert.doesNotMatch(contract, /"kpi\.gain\.label":/);
@@ -328,9 +326,6 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   assert.equal((analyticsSource.match(/<EcommerceWidgetSummary\b/g) ?? []).length, 3, "three headline widgets");
   assert.equal((analyticsSource.match(/<EcommerceSaleByGender\b/g) ?? []).length, 1, "the sale lines share one ring card");
   assert.equal((analyticsSource.match(/<EcommerceCurrentBalance\b/g) ?? []).length, 1, "the gain is stated once");
-  assert.match(readFileSync(new URL("./weights-kpi-deck.tsx", import.meta.url), "utf8"), /<KpiGrid min=\{min\}>/);
-  const grid = readFileSync(new URL("../../components/minimal/widgets/kpi-grid.tsx", import.meta.url), "utf8");
-  assert.match(grid, /<Grid container spacing=\{3\}/);
 });
 
 test("daily gain survives a park-scoped page", () => {
@@ -393,16 +388,16 @@ test("weighed shed rows render breed and sex composition chips from the backend 
   // sheds table chips have always shown.
   assert.match(source, /× \$\{chip\.animals\.toLocaleString\("en-IN"\)\}/);
   assert.doesNotMatch(source, /shed avg/);
-  assert.match(source, /className="wcomp-chips"/);
-  assert.match(source, /className="wcomp-chip"/);
+  // The table chips are template soft Labels in a flex row (no legacy .wcomp-chip CSS).
+  assert.match(source, /aria-label="Breed and sex composition"/);
+  assert.match(source, /<Label key=\{`\$\{chip\.breed \?\? ""\}\|\$\{chip\.sex \?\? ""\}\|\$\{chipIndex\}`\} variant="soft">/);
   assert.match(source, /compositionLabel\(chip, pageContract\)/);
   assert.match(source, /copy\(pageContract, "composition\.unknown_breed"\)/);
   assert.match(source, /copy\(pageContract, "composition\.unknown_sex"\)/);
   assert.match(contract, /"composition\.unknown_breed":/);
   assert.match(contract, /"composition\.unknown_sex":/);
   assert.doesNotMatch(source, /composition\.source === "scanned_tags"/);
-  assert.match(css, /\.wcomp-chips\{/);
-  assert.match(css, /\.wcomp-chip\{/);
+  assert.doesNotMatch(source, /className="wcomp-chip/);
 });
 
 test("small shed charts do not reserve the tall empty panel height", () => {
@@ -453,9 +448,9 @@ test("the shed table reads breed, gender and count as columns, not out of the pe
   assert.doesNotMatch(client, /wcomp-chip/);
   // The gain stays on the ROW: a shed average is never repeated per cohort, which would read
   // as a per-breed figure nobody measured.
-  assert.doesNotMatch(client, /cohorts[\s\S]{0,200}wsg-val/);
-  assert.match(css, /table\.wsgtable th\.wsg-sex,/);
-  assert.match(css, /table\.wsgtable \.wsg-line\{/);
+  // One value cell per row (template table, right-aligned subtitle2), never one per cohort line.
+  assert.equal((client.match(/row\.valueLabel \?\?/g) ?? []).length, 1);
+  assert.doesNotMatch(css, /wsgtable/);
 });
 
 test("gender is written once for a single-sex pen and every line for a mixed one", () => {
@@ -477,8 +472,8 @@ test("gender is written once for a single-sex pen and every line for a mixed one
   assert.deepEqual(sexLines(undefined), [], "a pen with no composition has no lines");
   // Breed and count must NOT collapse: two cohorts really can share a breed, and each carries
   // its own head count.
-  assert.match(client, /\(row\.cohorts \?\? \[\]\)\.map\(\(cohort, index\) => \([\s\S]{0,120}cohort\.breed/);
-  assert.match(client, /\(row\.cohorts \?\? \[\]\)\.map\(\(cohort, index\) => \([\s\S]{0,160}cohort\.animals/);
+  assert.match(client, /\(row\.cohorts \?\? \[\]\)\.map\(\(cohort\) => cohort\.breed\)/);
+  assert.match(client, /\(row\.cohorts \?\? \[\]\)\.map\(\(cohort\) => cohort\.animals\.toLocaleString\("en-IN"\)\)/);
 });
 
 test("the shed gain card offers no Table/Chart switch", () => {
@@ -499,7 +494,8 @@ test("chart metric switches are local state, not route reloads", () => {
   const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
   assert.match(client, /"use client"/);
   assert.match(client, /useState<Metric>/);
-  assert.match(client, /type="button"/);
+  // The switch is the template chart-card select (ChartSelect in the CardHeader action).
+  assert.match(client, /<ChartSelect\b/);
   assert.match(source, /series=\{\{\s*adg:/);
   assert.doesNotMatch(source, /hrefWith\(params, \{ \[param\]: option \}\)/);
   assert.doesNotMatch(source, /breed_metric"\} current/);
@@ -512,8 +508,6 @@ test("full-width shed chart labels fit without overlapping rows", () => {
   // on the `.wbar` grid are asserted on that item now.
   const item = readFileSync(new URL("../../components/minimal/progress-list/progress-item.tsx", import.meta.url), "utf8");
   const barList = readFileSync(new URL("../../components/bar-list.tsx", import.meta.url), "utf8");
-  const weightBars = readFileSync(new URL("./weight-bars.tsx", import.meta.url), "utf8");
-  assert.match(weightBars, /<BarList[\s\S]*wide=\{wide\}/);
   // A long pen label wraps to TWO lines and is then cut, never collapsed to "C..": the clamped text
   // carries display:-webkit-box + line-clamp 2, hides overflow and may break anywhere.
   assert.match(item, /className=\{`\$\{hook\}-label-text`\}[\s\S]*?display: "-webkit-box"/);
@@ -546,20 +540,12 @@ test("full-width shed chart labels fit without overlapping rows", () => {
   assert.match(item, /height: \{ xs: "auto", sm: box \}, overflowY: \{ xs: "visible", sm: "auto" \}/);
 });
 
-test("the two table cards are inset without losing their full-bleed tables", () => {
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
-  assert.match(source, /className="card wtable" aria-label=\{copy\(pageContract, "section\.sheds\.aria"\)\}/);
-  assert.match(source, /className="card wtable" aria-label=\{copy\(pageContract, "section\.losing\.aria"\)\}/);
-  // Vertical padding on the CARD, horizontal on its children — never on the card itself, which
-  // would inset the table away from its own header rule and row separators.
-  assert.match(css, /\.wtable\{padding:14px 0\}/);
-  // `.twrap` joined `.tablewrap` in the exclusion when the loads ledger took this card treatment
-  // (2026-09-21): it is the same wrapper one class over and owns its own horizontal scroll, so
-  // insetting it would pull that table away from its own header rule.
-  assert.match(css, /\.wtable > :not\(\.tablewrap\):not\(\.twrap\)\{padding-left:16px;padding-right:16px\}/);
-  // The outer columns match the card's own 17px text edge; a cell padding, so the rules still reach
-  // the frame.
-  assert.match(css, /\.wtable table\.tbl th:first-child,\s*\n\.wtable table\.tbl td:first-child\{padding-left:16px\}/);
+test("the two table cards are template table cards", () => {
+  // Card + CardHeader, the table scrolling sideways in its own box: never the legacy
+  // `.card.wtable` section whose padding lived in mesha-theme.css.
+  assert.match(source, /<Card aria-label=\{copy\(pageContract, "section\.sheds\.aria"\)\}>/);
+  assert.match(source, /<Card aria-label=\{copy\(pageContract, "section\.losing\.aria"\)\}>/);
+  assert.doesNotMatch(source, /className="card/);
 });
 
 test("every visible string on the weighing calendar is backend-contract copy", () => {

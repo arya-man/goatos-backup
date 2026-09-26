@@ -91,20 +91,15 @@ test("the card opens on the chart and the toggle only changes the view", () => {
 });
 
 test("every bar states its share, its count, and the animals behind it on hover", () => {
-  const bars = readFileSync(new URL("./gain-threshold-bars.tsx", import.meta.url), "utf8");
-  // Share then count in the row's own cell — the percentage is what the bar encodes, the
-  // count is the evidence under it, so a share standing on two kids can never read as a
-  // share standing on a hundred.
-  assert.match(bars, /<span className="gmv">\{mark\.pct\.toFixed\(1\)\}%<\/span>/);
-  assert.match(bars, /<span className="gmn">\(\{mark\.count\.toLocaleString\("en-IN"\)\}\)<\/span>/);
-  // Head count under the breed name.
-  assert.match(bars, /className="gml-sub"[\s\S]{0,120}row\.animals\.toLocaleString/);
-  // Count on hover, against the breed's own denominator — never a page-wide total.
-  assert.match(bars, /title=\{`\$\{mark\.count\.toLocaleString\("en-IN"\)\} \$\{ofLabel\} \$\{row\.animals/);
-  // Disjoint bands could legitimately be stacked, but a stack cannot be compared band
-  // for band across breeds — which is the whole point of the card. One bar per band.
-  assert.doesNotMatch(bars, /reduce\(/);
-  assert.doesNotMatch(bars, /cumulativeWidth|stackOffset/);
+  // The chart is the template BankingBalanceStatistics: one series per band (grouped, NEVER
+  // stacked -- a stack cannot be compared band for band across breeds, the card's whole point),
+  // the bar length is the breed's SHARE, the category names the breed with its head count, and
+  // each bar's tooltip carries the count against the breed's OWN denominator.
+  assert.match(source, /<BankingBalanceStatistics\s[\s\S]{0,200}section\.gain_thresholds\.aria/);
+  assert.match(source, /categories: gainThresholdRows\.map\(\(row\) => `\$\{row\.breed\} \(\$\{row\.animals\.toLocaleString\("en-IN"\)\} \$\{gainKidsLabel\}\)`\)/);
+  assert.match(source, /unit: "%"/);
+  assert.match(source, /\$\{\(row\.marks\[index\]\?\.count \?\? 0\)\.toLocaleString\("en-IN"\)\} \$\{copy\(pageContract, "value\.gain_thresholds\.of"\)\} \$\{row\.animals\.toLocaleString\("en-IN"\)\}/);
+  assert.doesNotMatch(source, /stacked: true/);
 });
 
 test("the chart renders no copy of its own", () => {

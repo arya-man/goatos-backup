@@ -9,18 +9,24 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { Gauge, TrendingDown, Warehouse } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 
 import { GrowthDirectorSection } from "./growth-director";
-import { WeightsKpiDeck } from "./weights-kpi-deck";
-import { splitParts } from "@/components/minimal/widgets";
+import { Label } from "@/components/minimal/label";
+import { BankingBalanceStatistics } from "@/components/minimal/sections/overview/banking/banking-balance-statistics";
+import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
 import { SegmentedLinks } from "@/components/segmented-links";
-import { GainThresholdBars, type GainThresholdRow } from "./gain-threshold-bars";
+import { GAIN_STEP_COLOR, type GainThresholdRow } from "./gain-threshold-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { Tag } from "@/components/ui-primitives";
-import { Caption } from "@/components/app/caption";
-import { InfoHint } from "@/components/app/info-hint";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
@@ -57,6 +63,8 @@ import { assumptionValue, bandEdgesParam, DEFAULT_SALE_READY_LOWER_KG, fillKg } 
 const PAGE_PATH = "/weighing/weights";
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_LIMIT = 10;
+/** These figures have no per-week series behind them, so the widget draws no sparkline. */
+const NO_SPARK = { categories: [], series: [] };
 
 function boundedLimit(raw: string | undefined): number {
   const parsed = Number(raw);
@@ -332,10 +340,10 @@ export async function WeighingWeightsPage({
   // while the tenant's may differ is a wrong number shown as valid, not a graceful fallback.
   if (!assumptions.ok) {
     return (
-      <section className="card">
-        <h2 className="h">{copy(pageContract, "error.load.title")}</h2>
-        <p className="muted small">{copy(pageContract, "error.load.body")}</p>
-      </section>
+      <Alert severity="error" variant="outlined">
+        <AlertTitle>{copy(pageContract, "error.load.title")}</AlertTitle>
+        {copy(pageContract, "error.load.body")}
+      </Alert>
     );
   }
   const assumptionRows = assumptions.data.values;
@@ -363,10 +371,10 @@ export async function WeighingWeightsPage({
 
   if (!weights.ok) {
     return (
-      <section className="card">
-        <h2 className="h">{copy(pageContract, "error.load.title")}</h2>
-        <p className="muted small">{copy(pageContract, "error.load.body")}</p>
-      </section>
+      <Alert severity="error" variant="outlined">
+        <AlertTitle>{copy(pageContract, "error.load.title")}</AlertTitle>
+        {copy(pageContract, "error.load.body")}
+      </Alert>
     );
   }
 
@@ -858,6 +866,18 @@ export async function WeighingWeightsPage({
   // figures answer that more slowly than six rows of bars. The exact counts are one
   // click away and the chart carries them on hover, so nothing is hidden by the default.
   const gainThresholdView = one(params, GAIN_VIEW_PARAM) === "table" ? "table" : "chart";
+  // Top-right (or under the chart), URL-driven like every other toggle on this page, so the
+  // choice survives a reload and travels in a shared link.
+  const gainViewSwitch = (
+    <SegmentedLinks
+      ariaLabel={copy(pageContract, "section.gain_thresholds.view_aria")}
+      current={gainThresholdView}
+      options={[
+        { value: "chart", label: copy(pageContract, "view.chart"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: null }) },
+        { value: "table", label: copy(pageContract, "view.table"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: "table" }) },
+      ]}
+    />
+  );
   // Table first here, unlike the card above: the reader asked for the exact per-shed numbers,
   // and with ~40 pens the bars answer "which pen" more slowly than a sorted list of figures.
   // The card is TABLE-ONLY (maintainer request 2026-09-01): the Table/Chart control is no longer
@@ -881,8 +901,18 @@ export async function WeighingWeightsPage({
   }
   const exportSheds = [...exportShedsById.values()].sort((a, b) => a.label.localeCompare(b.label));
 
+  const noData = copy(pageContract, "empty.no_data.title");
+  const hasSummary = summary.animals_weighed > 0;
+  const thresholdBasis = summary.threshold_basis_animals;
+  const shareOf = (count: number) => (thresholdBasis > 0 ? Math.round((count / thresholdBasis) * 1000) / 10 : 0);
+  const kidsSplitNames = copy(pageContract, "kpi.kids.split.label").split(" · ");
+  const kidsSplit = [summary.individual_animals_weighed, summary.lump_sum_animals_weighed]
+    .map((value, index) => `${value.toLocaleString("en-IN")} ${kidsSplitNames[index] ?? ""}`.trim())
+    .join(" · ");
+  const bandNames = gainThresholdRows[0]?.marks.map((mark) => mark.label) ?? [];
+
   return (
-    <div className="weights-page">
+    <Stack spacing={3}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb", "Weighing") }, { label: pageContract.title }]}
@@ -903,9 +933,8 @@ export async function WeighingWeightsPage({
         }
       />
       {/* The Sex control sits IN LINE with the filters, beside Weighing, and is shaped like the
-          fields next to it — but it is held in client state, not the URL: all three grains arrive
-          in one response, so it changes nothing the server has to fetch and must not cost a page
-          render. See gain-sex-scope. */}
+          fields next to it -- held in client state, not the URL: all three grains arrive in one
+          response, so it changes nothing the server has to fetch. See gain-sex-scope. */}
       <WorklistFilters
         basePath={PAGE_PATH}
         pageParam="offset"
@@ -915,510 +944,489 @@ export async function WeighingWeightsPage({
 
       {/* Every figure below the filters (guard: url-keyed-panel): a filter / toggle / page change
           swaps it to its skeleton at once; header and filters stay on screen. */}
-      <UrlSuspense searchParams={params} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<PanelSkeleton kpis={5} charts={3} table={10} spark />}>
-      <p className="muted small" style={{ margin: "0 0 -4px" }}>
-        {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}
-        {" · "}
-        {fmtDate(periodStart)} – {fmtDate(periodEnd)}
-      </p>
+      <UrlSuspense searchParams={params} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<PanelSkeleton kpis={4} charts={3} table={10} />}>
 
-      {/* Five cards, not six (maintainer, 2026-08-12). The sixth was Median daily gain, which
-          printed the SAME number, the same denominator and the same sub-line as the "All parks —
-          daily gain" card in the row below it — one figure stated twice, costing a sixth of the
-          headline row. The gain row below is now unconditional so removing it here loses nothing in
-          any scope. */}
-      <WeightsKpiDeck
-        ariaLabel={copy(pageContract, "section.sheds.aria")}
-        items={[
-          {
-            key: "kids",
-            // Two readings, two labels (template split card): the contract label names both halves in
-            // order ("Individual · Lump-sum"); the card title is the whole count.
-            label: `${summary.animals_weighed.toLocaleString("en-IN")} ${copy(pageContract, "kpi.kids.split.total_sub")}`,
-            value: summary.animals_weighed,
-            parts: splitParts(copy(pageContract, "kpi.kids.split.label"), [summary.individual_animals_weighed, summary.lump_sum_animals_weighed]),
-            noDataText: copy(pageContract, "empty.no_data.title"),
-            icon: "kids",
-            tone: "info",
-          },
-          {
-            key: "total",
-            label: copy(pageContract, "kpi.total.label"),
-            value: summary.total_weight_kg,
-            noDataText: copy(pageContract, "empty.no_data.title"),
-            unit: "kg",
-            icon: "total",
-            hint: copy(pageContract, "kpi.total.sub"),
-          },
-          {
-            // Null average means nothing was weighed: never render 0.0 kg.
-            key: "average",
-            label: copy(pageContract, "kpi.average.label"),
-            value: summary.average_weight_kg ?? null,
-            noDataText: copy(pageContract, "empty.no_data.title"),
-            digits: 1,
-            unit: "kg",
-            icon: "average",
-            tone: "violet",
-            hint: copy(pageContract, "kpi.average.sub"),
-          },
-          {
-            // Threshold counts carry their OWN denominator (whole-shed weighs contribute nothing).
-            key: "over30",
-            label: fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG),
-            value: summary.at_or_above_30kg,
-            noDataText: copy(pageContract, "empty.no_data.title"),
-            icon: "over30",
-            tone: "success",
-            hint: `${summary.threshold_basis_animals.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`,
-          },
-          {
-            key: "over35",
-            label: fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg),
-            value: summary.at_or_above_35kg,
-            noDataText: copy(pageContract, "empty.no_data.title"),
-            icon: "over35",
-            tone: "warning",
-            hint: `${summary.threshold_basis_animals.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`,
-          },
-        ]}
-      />
-
-      {/* Daily gain, ALWAYS rendered, naming the CURRENT scope. insufficient_data is a real state:
-          no gain renders the no-data text, never 0 g/day. */}
-      <WeightsKpiDeck
-        ariaLabel={copy(pageContract, "section.park_gain.aria")}
-        min={260}
-        items={[
-          {
-            key: "headline",
-            label: `${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`,
-            value: headlineGain == null ? null : Math.round(headlineGain),
-            noDataText: copy(pageContract, "empty.no_data.title"),
-            unit: "g",
-            icon: "gain",
-            sparkline: weeklyGainSpark,
-            trend: headlineGain == null ? null : weeklyGainDelta,
-            trendSuffix: " g",
-            hint:
+      <Grid container spacing={3}>
+        {/* Four widgets, no sixth "median gain" card (maintainer, 2026-08-12): the daily gain is
+            stated ONCE, in its own widget naming the CURRENT scope, and always rendered --
+            insufficient_data renders the no-data text, never 0 g/day. */}
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <EcommerceWidgetSummary
+            title={`${copy(pageContract, "kpi.kids.label")} ${copy(pageContract, "kpi.kids.sub")}`}
+            total={hasSummary ? summary.animals_weighed : noData}
+            caption={hasSummary ? kidsSplit : undefined}
+            chart={NO_SPARK}
+            sx={{ height: 1 }}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <EcommerceWidgetSummary
+            title={copy(pageContract, "kpi.total.label")}
+            total={hasSummary ? `${kg(summary.total_weight_kg, 0)} kg` : noData}
+            caption={copy(pageContract, "kpi.total.sub")}
+            chart={NO_SPARK}
+            sx={{ height: 1 }}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <EcommerceWidgetSummary
+            title={copy(pageContract, "kpi.average.label")}
+            total={summary.average_weight_kg == null ? noData : `${kg(summary.average_weight_kg)} kg`}
+            caption={copy(pageContract, "kpi.average.sub")}
+            chart={NO_SPARK}
+            sx={{ height: 1 }}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <EcommerceWidgetSummary
+            aria-label={copy(pageContract, "section.park_gain.aria")}
+            title={`${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`}
+            total={headlineGain == null ? noData : `${Math.round(headlineGain).toLocaleString("en-IN")} g`}
+            caption={
               headlineGain == null
                 ? copy(pageContract, "kpi.gain.none")
-                : `${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`,
-          },
-        ]}
-      />
-
-      {/* Row 1 — the true growth charts. These sit before shed/scale movement because
-          their daily gain is same-tag-twice ADG, not lump-sum average movement. */}
-      <div className="grid g3">
-        <MetricChart
-          initialMetric={breedMetric}
-          labels={metricLabels}
-          title={{ adg: copy(pageContract, "chart.breed.title_gain"), weight: copy(pageContract, "chart.breed.title") }}
-          caption={copy(pageContract, "section.demographics.caption")}
-          series={{
-            adg: {
-              data: dimensionBars("adg", demo?.by_breed ?? [], demo?.gain_by_breed ?? []),
-              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
-              unit: "g",
-              chartLabel: copy(pageContract, "chart.breed.aria"),
-            },
-            weight: {
-              data: dimensionBars("weight", demo?.by_breed ?? [], demo?.gain_by_breed ?? []),
-              emptyLabel: copy(pageContract, "empty.demographics.body"),
-              unit: "kg",
-              chartLabel: copy(pageContract, "chart.breed.aria"),
-            },
-          }}
-          size="short"
-        />
-        <MetricChart
-          initialMetric={sexMetric}
-          labels={metricLabels}
-          title={{ adg: copy(pageContract, "chart.sex.title_gain"), weight: copy(pageContract, "chart.sex.title") }}
-          series={{
-            adg: {
-              data: dimensionBars("adg", demo?.by_sex ?? [], demo?.gain_by_sex ?? [], sexName),
-              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
-              unit: "g",
-              chartLabel: copy(pageContract, "chart.sex.aria"),
-            },
-            weight: {
-              data: dimensionBars("weight", demo?.by_sex ?? [], demo?.gain_by_sex ?? [], sexName),
-              emptyLabel: copy(pageContract, "empty.demographics.body"),
-              unit: "kg",
-              chartLabel: copy(pageContract, "chart.sex.aria"),
-            },
-          }}
-          size="short"
-        />
-        <MetricChart
-          initialMetric={stageMetric}
-          labels={metricLabels}
-          title={{ adg: copy(pageContract, "chart.stage.title_gain"), weight: copy(pageContract, "chart.stage.title") }}
-          series={{
-            adg: {
-              data: dimensionBars("adg", demo?.by_stage ?? [], demo?.gain_by_stage ?? []),
-              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
-              unit: "g",
-              chartLabel: copy(pageContract, "chart.stage.aria"),
-            },
-            weight: {
-              data: dimensionBars("weight", demo?.by_stage ?? [], demo?.gain_by_stage ?? []),
-              emptyLabel: copy(pageContract, "empty.demographics.body"),
-              unit: "kg",
-              chartLabel: copy(pageContract, "chart.stage.aria"),
-            },
-          }}
-          size="short"
-        />
-      </div>
-
-      {/* Row 2 — shed/partition chart. In gain mode this intentionally mixes two
-          operational signals, so each row carries a Per animal/Lump sum chip. */}
-      <ShedMetricChart
-        initialMetric={shedMetric}
-        labels={metricLabels}
-        title={{ adg: copy(pageContract, "chart.gain.title"), weight: copy(pageContract, "chart.average.title") }}
-        series={shedSeries}
-        view={shedGainView}
-        tablePager={{
-          previous: copy(pageContract, "action.previous"),
-          next: copy(pageContract, "action.next"),
-          page: copy(pageContract, "pager.page"),
-          of: copy(pageContract, "pager.of"),
-          noun: copy(pageContract, "pager.noun"),
-        }}
-        tableColumns={{
-          park: copy(pageContract, "table.shed_gain.park"),
-          shed: copy(pageContract, "table.shed_gain.shed"),
-          breed: copy(pageContract, "table.shed_gain.breed"),
-          sex: copy(pageContract, "table.shed_gain.sex"),
-          count: copy(pageContract, "table.shed_gain.count"),
-          basis: copy(pageContract, "table.shed_gain.basis"),
-          value: {
-            adg: copy(pageContract, "table.shed_gain.gain"),
-            weight: copy(pageContract, "table.shed_gain.weight"),
-          },
-        }}
-      />
-
-      {/* Row 2b — kids clearing each daily gain mark, by breed. A breed median says where the
-          middle kid sits; it cannot say how many of the breed are actually growing well, which
-          is the question this answers. Sits directly above the load chart because both read as
-          "who is growing", one by breed and one by supplier.
-
-          Every column header is the backend table contract's, and the caption says each kid is
-          counted once — the four bands are a real distribution that adds to the denominator. */}
-      <section className="card wtable" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
-        <h2 className="h">
-          <Gauge className="ic" size={15} aria-hidden /> {copy(pageContract, "section.gain_thresholds.title")}
-          {/* Top-right, and URL-driven like every other toggle on this page, so the choice
-              survives a reload and travels in a shared link. SegmentedLinks keeps the reader
-              beside the card instead of throwing them back to the top of a long page. */}
-          <SegmentedLinks
-            ariaLabel={copy(pageContract, "section.gain_thresholds.view_aria")}
-            current={gainThresholdView}
-            options={[
-              { value: "chart", label: copy(pageContract, "view.chart"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: null }) },
-              { value: "table", label: copy(pageContract, "view.table"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: "table" }) },
-            ]}
+                : `${weeklyGainDelta == null ? "" : `${weeklyGainDelta > 0 ? "+" : ""}${Math.round(weeklyGainDelta)} g · `}${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`
+            }
+            chart={{ categories: [], series: weeklyGainSpark }}
+            sx={{ height: 1 }}
           />
-        </h2>
-        <Caption>{gainCaption}</Caption>
-        {gainThresholdView === "chart" ? (
-          <GainThresholdBars
-            rows={gainThresholdRows}
-            chartLabel={copy(pageContract, "chart.gain_thresholds.aria")}
-            emptyLabel={gainEmptyLabel}
-            kidsLabel={gainKidsLabel}
-            ofLabel={copy(pageContract, "value.gain_thresholds.of")}
+        </Grid>
+
+        {/* Threshold counts carry their OWN denominator: both sale lines out of the kids the
+            counts were taken over, in one template ring card. */}
+        <Grid size={{ xs: 12, md: 6, lg: 4 }}>
+          <EcommerceSaleByGender
+            title={copy(pageContract, "assumption.sale_ready_threshold_kg.label")}
+            subheader={`${thresholdBasis.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")} · ${copy(pageContract, "kpi.sheds.label")}: ${summary.sheds_weighed} / ${summary.sheds_in_scope} · ${fmtDate(periodStart)} – ${fmtDate(periodEnd)}`}
+            total={thresholdBasis.toLocaleString("en-IN")}
+            totalLabel={copy(pageContract, "kpi.kids.label")}
+            chart={{
+              series: [
+                {
+                  label: fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG),
+                  value: shareOf(summary.at_or_above_30kg),
+                  display: summary.at_or_above_30kg.toLocaleString("en-IN"),
+                },
+                {
+                  label: fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg),
+                  value: shareOf(summary.at_or_above_35kg),
+                  display: summary.at_or_above_35kg.toLocaleString("en-IN"),
+                },
+              ],
+            }}
+            sx={{ height: 1 }}
           />
-        ) : gainThresholdRows.length === 0 ? (
-          <EmptyState title={gainEmptyLabel} />
-        ) : (
-          <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
-            <Table className="tbl" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
-              <TableHead>
-                <TableRow>
-                  {gainThresholdColumns.map((label, index) => (
-                    <TableCell component="th" key={label} className={index >= 1 ? "num" : undefined}>
-                      {label}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {gainThresholdRows.map((row) => (
-                  <TableRow key={row.key}>
-                    <TableCell>
-                      <b>{row.breed}</b>
-                    </TableCell>
-                    <TableCell className="num">{row.animals.toLocaleString("en-IN")}</TableCell>
-                    {row.marks.map((mark) => (
-                      <TableCell key={mark.step} className="num">
-                        {mark.count.toLocaleString("en-IN")}{" "}
-                        <span className="muted">({mark.pct.toFixed(1)}%)</span>
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </section>
+        </Grid>
 
-      {/* Row 3 — growth by purchase load, full width: the label carries both the load
-          number and the supplier, which does not fit a half-width card. */}
-      <div>
-        <MetricChart
-          initialMetric={loadMetric}
-          labels={metricLabels}
-          title={{ adg: copy(pageContract, "chart.load.title"), weight: copy(pageContract, "chart.load.title_weight") }}
-          caption={copy(pageContract, "chart.load.caption")}
-          series={{
-            adg: {
-              data: loadGainBars,
-              emptyLabel: byLoad.length === 0 ? copy(pageContract, "empty.load.body") : copy(pageContract, "empty.metric.no_gain"),
-              unit: "g",
-              chartLabel: copy(pageContract, "chart.load.aria"),
-            },
-            weight: {
-              data: loadWeightBars,
-              emptyLabel: copy(pageContract, "empty.load.body"),
-              unit: "kg",
-              chartLabel: copy(pageContract, "chart.load.aria"),
-            },
-          }}
-          size="short"
-          wide
-        />
-        {loadUnattributed > 0 ? (
-          <Typography
-            component="p"
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: "flex", justifyContent: "flex-end", m: 0 }}
-          >
-            <InfoHint text={`${loadUnattributed.toLocaleString("en-IN")} ${copy(pageContract, "note.load.unmapped")}`} />
-          </Typography>
-        ) : null}
-      </div>
-
-      {/* Row 3b — WHERE each load sits. The chart above says a supplier's stock is
-          growing; without this a reader cannot tell which park or shed grew it, and
-          cannot walk from a load bar down to the shed table.
-
-          Every row is rendered from the backend's own placement entries — the park
-          name, the shed label and the head count all arrive composed, so this never
-          re-derives an operational location client-side (AGENTS.md rule 5). The load
-          list is bounded by the authored tag estate, so it is not paged. */}
-      <section className="card wtable" aria-label={copy(pageContract, "section.load_placements.aria")}>
-        <h2 className="h">
-          <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load_placements.title")}
-        </h2>
-        <Caption>{copy(pageContract, "section.load_placements.caption")}</Caption>
-        {loadPlacementRows.length === 0 ? (
-          <EmptyState title={copy(pageContract, "empty.load_placements.body")} />
-        ) : (
-          <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.load_placements.aria")}>
-            <Table className="tbl" aria-label={copy(pageContract, "section.load_placements.aria")}>
-              <TableHead>
-                <TableRow>
-                  {placementColumns.map((label) => (
-                    <TableCell component="th" key={label}>{label}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loadPlacementRows.map((row) => (
-                  <TableRow key={row.key}>
-                    <TableCell>
-                      <b>{row.loadRef}</b>
-                      {row.ownerName ? <div className="muted small">{row.ownerName}</div> : null}
-                    </TableCell>
-                    <TableCell>{row.parks.join(", ")}</TableCell>
-                    <TableCell>
-                      {row.sheds.map((shed) => (
-                        <Tag key={shed.key} tone="mut">
-                          {shed.label}
-                        </Tag>
-                      ))}
-                    </TableCell>
-                    <TableCell>{row.animals.toLocaleString("en-IN")}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </section>
-
-      {demo ? (
-        <p className="muted small">
-          {copy(pageContract, "note.demographics.coverage")}
-          {demo.unresolved_animals > 0
-            ? ` ${demo.unresolved_animals} weighed kid(s) are not in the herd register.`
-            : ""}
-        </p>
-      ) : null}
-
-      <section className="card wtable" aria-label={copy(pageContract, "section.sheds.aria")}>
-        <h2 className="h">
-          <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.sheds.title")}
-        </h2>
-        <Caption>{copy(pageContract, "note.total_weight")}</Caption>
-
-        {slice.length === 0 ? (
-          <EmptyState
-            title={hasAnyData ? copy(pageContract, "empty.filtered.title") : copy(pageContract, "empty.no_data.title")}
-            description={hasAnyData ? copy(pageContract, "empty.filtered.body") : copy(pageContract, "empty.no_data.body")}
-          />
-        ) : (
-          <>
-            <div
-              className="tablewrap"
-              tabIndex={0}
-              role="group"
-              aria-label={copy(pageContract, "section.sheds.aria")}
+        {/* Kids clearing each daily gain mark, by breed: the four bands are a real distribution
+            that adds to the denominator (each kid counted once). Chart first; the exact counts are
+            one URL-driven switch away (SegmentedLinks, so the choice survives a reload). */}
+        <Grid size={{ xs: 12, md: 6, lg: 8 }}>
+          {gainThresholdView === "chart" ? (
+            <BankingBalanceStatistics
+              aria-label={copy(pageContract, "section.gain_thresholds.aria")}
+              title={copy(pageContract, "section.gain_thresholds.title")}
+              subheader={gainCaption}
+              empty={<EmptyState title={gainEmptyLabel} />}
+              chart={{
+                colors: gainThresholdRows[0]?.marks.map((mark) => GAIN_STEP_COLOR[mark.step]),
+                series: [
+                  {
+                    name: copy(pageContract, "section.gain_thresholds.title"),
+                    categories: gainThresholdRows.map((row) => `${row.breed} (${row.animals.toLocaleString("en-IN")} ${gainKidsLabel})`),
+                    unit: "%",
+                    digits: 1,
+                    data: bandNames.map((label, index) => ({
+                      name: label,
+                      data: gainThresholdRows.map((row) => Number(row.marks[index]?.pct.toFixed(1) ?? 0)),
+                      notes: gainThresholdRows.map(
+                        (row) => `${(row.marks[index]?.count ?? 0).toLocaleString("en-IN")} ${copy(pageContract, "value.gain_thresholds.of")} ${row.animals.toLocaleString("en-IN")} ${gainKidsLabel}`,
+                      ),
+                    })),
+                  },
+                ],
+              }}
+              sx={{ height: 1 }}
             >
-              <Table className="tbl">
-                <TableHead>
-                  <TableRow>
-                    {shedColumns.map((label) => (
-                      <TableCell component="th" key={label}>{label}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {slice.map((row) => {
-                    const mode = modeTag(row, pageContract);
-                    const composition = compositionByShed.get(shedKey(row.location_id, row.partition_label));
-                    return (
-                      <TableRow key={shedKey(row.location_id, row.partition_label)}>
-                        <TableCell>{row.park_name}</TableCell>
+              <Box sx={{ px: 3, pb: 3 }}>{gainViewSwitch}</Box>
+            </BankingBalanceStatistics>
+          ) : (
+            <Card aria-label={copy(pageContract, "section.gain_thresholds.aria")} sx={{ height: 1 }}>
+              <CardHeader title={copy(pageContract, "section.gain_thresholds.title")} subheader={gainCaption} action={gainViewSwitch} sx={{ mb: 3 }} />
+              {gainThresholdRows.length === 0 ? (
+                <EmptyState title={gainEmptyLabel} />
+              ) : (
+                <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
+                  <Table aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
+                    <TableHead>
+                      <TableRow>
+                        {gainThresholdColumns.map((label, index) => (
+                          <TableCell component="th" key={label} align={index >= 1 ? "right" : undefined}>
+                            {label}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {gainThresholdRows.map((row) => (
+                        <TableRow key={row.key} hover>
+                          <TableCell sx={{ typography: "subtitle2" }}>{row.breed}</TableCell>
+                          <TableCell align="right">{row.animals.toLocaleString("en-IN")}</TableCell>
+                          {row.marks.map((mark) => (
+                            <TableCell key={mark.step} align="right">
+                              {mark.count.toLocaleString("en-IN")}{" "}
+                              <Box component="span" sx={{ color: "text.secondary" }}>
+                                ({mark.pct.toFixed(1)}%)
+                              </Box>
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+              )}
+            </Card>
+          )}
+        </Grid>
+
+        {/* The true growth charts: same-tag-twice ADG or weight, per breed, sex and stage. */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <MetricChart
+            initialMetric={breedMetric}
+            labels={metricLabels}
+            title={{ adg: copy(pageContract, "chart.breed.title_gain"), weight: copy(pageContract, "chart.breed.title") }}
+            caption={copy(pageContract, "section.demographics.caption")}
+            series={{
+              adg: {
+                data: dimensionBars("adg", demo?.by_breed ?? [], demo?.gain_by_breed ?? []),
+                emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+                unit: "g",
+                chartLabel: copy(pageContract, "chart.breed.aria"),
+              },
+              weight: {
+                data: dimensionBars("weight", demo?.by_breed ?? [], demo?.gain_by_breed ?? []),
+                emptyLabel: copy(pageContract, "empty.demographics.body"),
+                unit: "kg",
+                chartLabel: copy(pageContract, "chart.breed.aria"),
+              },
+            }}
+            size="short"
+          />
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <MetricChart
+            initialMetric={sexMetric}
+            labels={metricLabels}
+            title={{ adg: copy(pageContract, "chart.sex.title_gain"), weight: copy(pageContract, "chart.sex.title") }}
+            series={{
+              adg: {
+                data: dimensionBars("adg", demo?.by_sex ?? [], demo?.gain_by_sex ?? [], sexName),
+                emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+                unit: "g",
+                chartLabel: copy(pageContract, "chart.sex.aria"),
+              },
+              weight: {
+                data: dimensionBars("weight", demo?.by_sex ?? [], demo?.gain_by_sex ?? [], sexName),
+                emptyLabel: copy(pageContract, "empty.demographics.body"),
+                unit: "kg",
+                chartLabel: copy(pageContract, "chart.sex.aria"),
+              },
+            }}
+            size="short"
+          />
+        </Grid>
+        <Grid size={{ xs: 12, md: 4 }}>
+          <MetricChart
+            initialMetric={stageMetric}
+            labels={metricLabels}
+            title={{ adg: copy(pageContract, "chart.stage.title_gain"), weight: copy(pageContract, "chart.stage.title") }}
+            series={{
+              adg: {
+                data: dimensionBars("adg", demo?.by_stage ?? [], demo?.gain_by_stage ?? []),
+                emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+                unit: "g",
+                chartLabel: copy(pageContract, "chart.stage.aria"),
+              },
+              weight: {
+                data: dimensionBars("weight", demo?.by_stage ?? [], demo?.gain_by_stage ?? []),
+                emptyLabel: copy(pageContract, "empty.demographics.body"),
+                unit: "kg",
+                chartLabel: copy(pageContract, "chart.stage.aria"),
+              },
+            }}
+            size="short"
+          />
+        </Grid>
+
+        {/* Shed/partition figures. In gain mode this intentionally mixes two operational
+            signals, so each row carries a Per animal/Lump sum chip. */}
+        <Grid size={12}>
+          <ShedMetricChart
+            initialMetric={shedMetric}
+            labels={metricLabels}
+            title={{ adg: copy(pageContract, "chart.gain.title"), weight: copy(pageContract, "chart.average.title") }}
+            series={shedSeries}
+            view={shedGainView}
+            tablePager={{
+              previous: copy(pageContract, "action.previous"),
+              next: copy(pageContract, "action.next"),
+              page: copy(pageContract, "pager.page"),
+              of: copy(pageContract, "pager.of"),
+              noun: copy(pageContract, "pager.noun"),
+            }}
+            tableColumns={{
+              park: copy(pageContract, "table.shed_gain.park"),
+              shed: copy(pageContract, "table.shed_gain.shed"),
+              breed: copy(pageContract, "table.shed_gain.breed"),
+              sex: copy(pageContract, "table.shed_gain.sex"),
+              count: copy(pageContract, "table.shed_gain.count"),
+              basis: copy(pageContract, "table.shed_gain.basis"),
+              value: {
+                adg: copy(pageContract, "table.shed_gain.gain"),
+                weight: copy(pageContract, "table.shed_gain.weight"),
+              },
+            }}
+          />
+        </Grid>
+
+        {/* Growth by purchase load, full width: the label carries the load number and the
+            supplier, which does not fit a half-width card. */}
+        <Grid size={12}>
+          <MetricChart
+            initialMetric={loadMetric}
+            labels={metricLabels}
+            title={{ adg: copy(pageContract, "chart.load.title"), weight: copy(pageContract, "chart.load.title_weight") }}
+            caption={
+              loadUnattributed > 0
+                ? `${copy(pageContract, "chart.load.caption")} ${loadUnattributed.toLocaleString("en-IN")} ${copy(pageContract, "note.load.unmapped")}`
+                : copy(pageContract, "chart.load.caption")
+            }
+            series={{
+              adg: {
+                data: loadGainBars,
+                emptyLabel: byLoad.length === 0 ? copy(pageContract, "empty.load.body") : copy(pageContract, "empty.metric.no_gain"),
+                unit: "g",
+                chartLabel: copy(pageContract, "chart.load.aria"),
+              },
+              weight: {
+                data: loadWeightBars,
+                emptyLabel: copy(pageContract, "empty.load.body"),
+                unit: "kg",
+                chartLabel: copy(pageContract, "chart.load.aria"),
+              },
+            }}
+            size="short"
+            wide
+          />
+        </Grid>
+
+        {/* WHERE each load sits: every row is the backend's own placement entries (park, shed
+            label and head count arrive composed -- AGENTS.md rule 5). Bounded by the authored tag
+            estate, so it is not paged. */}
+        <Grid size={12}>
+          <Card aria-label={copy(pageContract, "section.load_placements.aria")}>
+            <CardHeader
+              title={copy(pageContract, "section.load_placements.title")}
+              subheader={copy(pageContract, "section.load_placements.caption")}
+              sx={{ mb: 3 }}
+            />
+            {loadPlacementRows.length === 0 ? (
+              <EmptyState title={copy(pageContract, "empty.load_placements.body")} />
+            ) : (
+              <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.load_placements.aria")}>
+                <Table aria-label={copy(pageContract, "section.load_placements.aria")}>
+                  <TableHead>
+                    <TableRow>
+                      {placementColumns.map((label) => (
+                        <TableCell component="th" key={label}>{label}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {loadPlacementRows.map((row) => (
+                      <TableRow key={row.key} hover>
                         <TableCell>
-                          <b>{row.operational_location_display || row.shed_display_name}</b>
-                          {composition?.chips.length ? (
-                            <span className="wcomp-chips" aria-label="Breed and sex composition">
-                              {composition.chips.map((chip, chipIndex) => (
-                                // breed|sex alone is NOT unique — the backend can emit two chips
-                                // for the same breed+sex (one per resident cohort), and Godel 1
-                                // - Part 7 really does carry "Osmanabadi - female" twice. The
-                                // list is render-only (never reordered or edited in place), so
-                                // the index disambiguates safely.
-                                <span className="wcomp-chip" key={`${chip.breed ?? ""}|${chip.sex ?? ""}|${chipIndex}`}>
-                                  {compositionLabel(chip, pageContract)}
-                                  <span>{chip.animals.toLocaleString("en-IN")}</span>
-                                </span>
-                              ))}
-                            </span>
+                          <Box component="span" sx={{ display: "block", typography: "subtitle2" }}>
+                            {row.loadRef}
+                          </Box>
+                          {row.ownerName ? (
+                            <Box component="span" sx={{ display: "block", typography: "body2", color: "text.secondary" }}>
+                              {row.ownerName}
+                            </Box>
                           ) : null}
                         </TableCell>
+                        <TableCell>{row.parks.join(", ")}</TableCell>
                         <TableCell>
-                          <Tag tone={mode.tone}>{mode.label}</Tag>
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                            {row.sheds.map((shed) => (
+                              <Tag key={shed.key} tone="mut">
+                                {shed.label}
+                              </Tag>
+                            ))}
+                          </Box>
                         </TableCell>
-                        <TableCell className="num">{row.animals_weighed.toLocaleString("en-IN")}</TableCell>
-                        <TableCell className="num">{kg(row.average_weight_kg)} kg</TableCell>
-                        <TableCell className="num">{kg(row.total_weight_kg, 0)} kg</TableCell>
-                        <TableCell className="num">
-                          {row.last_weighed_date ? fmtDate(row.last_weighed_date) : (
-                            <span className="muted">
-                              {copy(pageContract, "value.never_weighed")}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>{workflowLabel(row.bucket_status, pageContract)}</TableCell>
+                        <TableCell>{row.animals.toLocaleString("en-IN")}</TableCell>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-            <WorklistPager
-              pageContract={pageContract}
-              offset={offset}
-              limit={limit}
-              rowCount={slice.length}
-              hasMore={offset + slice.length < visibleRows.length}
-              noun={copy(pageContract, "pager.noun")}
-              pageSizeOptions={PAGE_SIZE_OPTIONS}
-              hrefForOffset={(next) => hrefWith(params, { offset: String(next) })}
-              hrefForLimit={(next) => hrefWith(params, { limit: String(next), offset: null })}
-            />
-          </>
-        )}
-
-        <Caption>{copy(pageContract, "note.threshold_basis")}</Caption>
-      </section>
-
-      <section className="card wtable" aria-label={copy(pageContract, "section.losing.aria")}>
-        <h2 className="h">
-          <TrendingDown className="ic" size={15} aria-hidden />{" "}
-          {copy(pageContract, "section.losing.title")}
-        </h2>
-        <Caption>{copy(pageContract, "section.losing.caption")}</Caption>
-
-        {losingSlice.length === 0 ? (
-          <EmptyState
-            title={copy(pageContract, "empty.losing.title")}
-            description={copy(pageContract, "empty.losing.body")}
-          />
-        ) : (
-          <>
-            <div
-              className="tablewrap"
-              tabIndex={0}
-              role="group"
-              aria-label={copy(pageContract, "section.losing.aria")}
-            >
-              <Table className="tbl">
-                <TableHead>
-                  <TableRow>
-                    {losingColumns.map((label) => (
-                      <TableCell component="th" key={label}>{label}</TableCell>
                     ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {losingSlice.map((animal) => (
-                    <TableRow key={`${animal.scanned_identifier}-${animal.latest_weigh_date}`}>
-                      <TableCell>
-                        <b>{animal.scanned_identifier}</b>
-                      </TableCell>
-                      <TableCell>{animal.operational_location_display || animal.shed_display_name}</TableCell>
-                      <TableCell className="num">{kg(animal.previous_weight_kg)} kg</TableCell>
-                      <TableCell className="num">{kg(animal.latest_weight_kg)} kg</TableCell>
-                      <TableCell className="num">
-                        <Tag tone="dng">
-                          {kg(animal.latest_weight_kg - animal.previous_weight_kg)} kg
-                        </Tag>
-                      </TableCell>
-                      <TableCell className="num">{Math.round(animal.days_between)}</TableCell>
-                      <TableCell className="num">{fmtDate(animal.latest_weigh_date)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <WorklistPager
-              pageContract={pageContract}
-              offset={losingOffset}
-              limit={DEFAULT_LIMIT}
-              rowCount={losingSlice.length}
-              hasMore={losingOffset + losingSlice.length < losingAll.length}
-              noun={copy(pageContract, "pager.losing_noun")}
-              pageSizeOptions={[DEFAULT_LIMIT]}
-              hrefForOffset={(next) => hrefWith(params, { losing_offset: String(next) })}
-              hrefForLimit={() => hrefWith(params, {})}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+            {demo ? (
+              <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
+                {copy(pageContract, "note.demographics.coverage")}
+                {demo.unresolved_animals > 0 ? ` ${demo.unresolved_animals} weighed kid(s) are not in the herd register.` : ""}
+              </Typography>
+            ) : null}
+          </Card>
+        </Grid>
+
+        <Grid size={12}>
+          <Card aria-label={copy(pageContract, "section.sheds.aria")}>
+            <CardHeader
+              title={copy(pageContract, "section.sheds.title")}
+              subheader={copy(pageContract, "note.total_weight")}
+              action={<Label variant="soft">{visibleRows.length.toLocaleString("en-IN")}</Label>}
+              sx={{ mb: 3 }}
             />
-          </>
-        )}
-      </section>
+            {slice.length === 0 ? (
+              <EmptyState
+                title={hasAnyData ? copy(pageContract, "empty.filtered.title") : copy(pageContract, "empty.no_data.title")}
+                description={hasAnyData ? copy(pageContract, "empty.filtered.body") : copy(pageContract, "empty.no_data.body")}
+              />
+            ) : (
+              <>
+                <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.aria")}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        {shedColumns.map((label, index) => (
+                          <TableCell component="th" key={label} align={index >= 3 && index <= 6 ? "right" : undefined}>
+                            {label}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {slice.map((row) => {
+                        const mode = modeTag(row, pageContract);
+                        const composition = compositionByShed.get(shedKey(row.location_id, row.partition_label));
+                        return (
+                          <TableRow key={shedKey(row.location_id, row.partition_label)} hover>
+                            <TableCell>{row.park_name}</TableCell>
+                            <TableCell>
+                              <Box component="span" sx={{ display: "block", typography: "subtitle2" }}>
+                                {row.operational_location_display || row.shed_display_name}
+                              </Box>
+                              {composition?.chips.length ? (
+                                <Box component="span" aria-label="Breed and sex composition" sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                                  {composition.chips.map((chip, chipIndex) => (
+                                    // breed|sex alone is NOT unique -- the backend can emit two chips for
+                                    // the same breed+sex (one per resident cohort) -- and the list is
+                                    // render-only, so the index disambiguates safely.
+                                    <Label key={`${chip.breed ?? ""}|${chip.sex ?? ""}|${chipIndex}`} variant="soft">
+                                      {compositionLabel(chip, pageContract)} · {chip.animals.toLocaleString("en-IN")}
+                                    </Label>
+                                  ))}
+                                </Box>
+                              ) : null}
+                            </TableCell>
+                            <TableCell>
+                              <Tag tone={mode.tone}>{mode.label}</Tag>
+                            </TableCell>
+                            <TableCell align="right">{row.animals_weighed.toLocaleString("en-IN")}</TableCell>
+                            <TableCell align="right">{kg(row.average_weight_kg)} kg</TableCell>
+                            <TableCell align="right">{kg(row.total_weight_kg, 0)} kg</TableCell>
+                            <TableCell align="right">
+                              {row.last_weighed_date ? (
+                                fmtDate(row.last_weighed_date)
+                              ) : (
+                                <Box component="span" sx={{ color: "text.secondary" }}>
+                                  {copy(pageContract, "value.never_weighed")}
+                                </Box>
+                              )}
+                            </TableCell>
+                            <TableCell>{workflowLabel(row.bucket_status, pageContract)}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </Box>
+                <WorklistPager
+                  pageContract={pageContract}
+                  offset={offset}
+                  limit={limit}
+                  rowCount={slice.length}
+                  hasMore={offset + slice.length < visibleRows.length}
+                  noun={copy(pageContract, "pager.noun")}
+                  pageSizeOptions={PAGE_SIZE_OPTIONS}
+                  hrefForOffset={(next) => hrefWith(params, { offset: String(next) })}
+                  hrefForLimit={(next) => hrefWith(params, { limit: String(next), offset: null })}
+                />
+              </>
+            )}
+            <Typography variant="body2" sx={{ p: 3, color: "text.secondary" }}>
+              {copy(pageContract, "note.threshold_basis")}
+            </Typography>
+          </Card>
+        </Grid>
+
+        <Grid size={12}>
+          <Card aria-label={copy(pageContract, "section.losing.aria")}>
+            <CardHeader title={copy(pageContract, "section.losing.title")} subheader={copy(pageContract, "section.losing.caption")} sx={{ mb: 3 }} />
+            {losingSlice.length === 0 ? (
+              <EmptyState title={copy(pageContract, "empty.losing.title")} description={copy(pageContract, "empty.losing.body")} />
+            ) : (
+              <>
+                <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.losing.aria")}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        {losingColumns.map((label, index) => (
+                          <TableCell component="th" key={label} align={index >= 2 ? "right" : undefined}>
+                            {label}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {losingSlice.map((animal) => (
+                        <TableRow key={`${animal.scanned_identifier}-${animal.latest_weigh_date}`} hover>
+                          <TableCell sx={{ typography: "subtitle2" }}>{animal.scanned_identifier}</TableCell>
+                          <TableCell>{animal.operational_location_display || animal.shed_display_name}</TableCell>
+                          <TableCell align="right">{kg(animal.previous_weight_kg)} kg</TableCell>
+                          <TableCell align="right">{kg(animal.latest_weight_kg)} kg</TableCell>
+                          <TableCell align="right">
+                            <Tag tone="dng">{kg(animal.latest_weight_kg - animal.previous_weight_kg)} kg</Tag>
+                          </TableCell>
+                          <TableCell align="right">{Math.round(animal.days_between)}</TableCell>
+                          <TableCell align="right">{fmtDate(animal.latest_weigh_date)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+                <WorklistPager
+                  pageContract={pageContract}
+                  offset={losingOffset}
+                  limit={DEFAULT_LIMIT}
+                  rowCount={losingSlice.length}
+                  hasMore={losingOffset + losingSlice.length < losingAll.length}
+                  noun={copy(pageContract, "pager.losing_noun")}
+                  pageSizeOptions={[DEFAULT_LIMIT]}
+                  hrefForOffset={(next) => hrefWith(params, { losing_offset: String(next) })}
+                  hrefForLimit={() => hrefWith(params, {})}
+                />
+              </>
+            )}
+          </Card>
+        </Grid>
+      </Grid>
       <GrowthDirectorSection result={growthDirector} pageContract={pageContract} />
       </UrlSuspense>
-    </div>
+    </Stack>
   );
 }
 
