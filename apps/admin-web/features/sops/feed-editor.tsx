@@ -101,6 +101,7 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
     const block = rows.stages[stage]!;
     return (
       <SlotCard
+        kindLabel={copy(pc, "fsop.proofs")}
         key={p.id}
         pc={pc}
         index={i}
@@ -318,9 +319,12 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
 }
 
 export function SlotCard({
-  pc, index, count, slot, proofKinds, takenKeys, savedKeys, onChange, onMove, onRemove,
+  pc, kindLabel, index, count, slot, proofKinds, takenKeys, savedKeys, onChange, onMove, onRemove,
 }: {
   pc: AdminUiPageContract;
+  /** Label of the capture-kind select, from the RENDERING page's own contract (the pages that share
+   *  this card carry different copy namespaces). */
+  kindLabel: string;
   index: number;
   count: number;
   slot: RemovalProofRow;
@@ -338,7 +342,7 @@ export function SlotCard({
         <span className="qnum">{index + 1}</span>
         <span className="qtype">
           <InlineSelect
-            label={copy(pc, "fsop.proofs")}
+            label={kindLabel}
             value={slot.kind}
             minWidth={168}
             options={proofKinds.map((k) => ({ value: k.key, label: k.label }))}

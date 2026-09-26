@@ -26,3 +26,25 @@ test("every copy key read by the SOP screens is declared in the backend copy map
   }
   assert.deepEqual([...new Set(missing)], []);
 });
+
+// The shared SlotCard (feed-editor.tsx) renders on the Feed, Preventive Care and capture editors,
+// whose contracts carry DIFFERENT namespaces. A literal key inside SlotCard must therefore exist in
+// the Preventive Care copy too, or /pc-care/sops Edit hits the error boundary (FJ3 P0-1: the card
+// once labelled its kind select with fsop.proofs, which only the Feed page serves). Page-specific
+// wording comes in through props (kindLabel) instead.
+test("SlotCard only reads copy keys the Preventive Care SOP contract also carries", () => {
+  const feed = readFileSync(new URL("feed-editor.tsx", dir), "utf8");
+  const start = feed.indexOf("export function SlotCard(");
+  assert.ok(start > 0, "SlotCard not found");
+  const body = feed.slice(start);
+  const keys = [...new Set([...body.matchAll(/copy\(pc, "([a-z0-9_.]+)"\)/g)].map((m) => m[1]))];
+  const fn = backend.indexOf("func pcCareSOPEditorCopy()");
+  assert.ok(fn > 0, "pcCareSOPEditorCopy not found");
+  const pcCare = backend.slice(fn, backend.indexOf("\n}\n", fn));
+  const pcCareDeclared = new Set([...pcCare.matchAll(/"([a-z0-9_.]+)":\s+"/g)].map((m) => m[1]));
+  // Keys pcCareSOPEditorCopy inherits from the shared inspection editor copy.
+  const shared = keys.filter((k) => k.startsWith("inspection."));
+  const missing = keys.filter((k) => !k.startsWith("inspection.") && !pcCareDeclared.has(k));
+  assert.deepEqual(missing, []);
+  for (const k of shared) assert.ok(declared.has(k), k);
+});

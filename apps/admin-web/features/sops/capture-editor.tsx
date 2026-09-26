@@ -103,6 +103,7 @@ export function CaptureCardEditor({ pageContract: pc, basePath, sopId, sopName, 
               {rows.proofs.length === 0 ? <p className="muted">{copy(pc, "capture.proofs.empty")}</p> : null}
               {rows.proofs.map((p, i) => (
                 <SlotCard
+                  kindLabel={copy(pc, "capture.proofs")}
                   key={p.id}
                   pc={pc}
                   index={i}

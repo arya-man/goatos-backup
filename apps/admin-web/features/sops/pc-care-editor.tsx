@@ -131,6 +131,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
     return (
       <div key={p.id}>
         <SlotCard
+          kindLabel={copy(pc, "pcsop.flow.capture")}
           pc={pc}
           index={i}
           count={block.proofs.length}
