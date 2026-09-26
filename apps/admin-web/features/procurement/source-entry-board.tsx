@@ -31,7 +31,7 @@ import { Scrollbar } from "@/components/minimal/scrollbar";
 import { Iconify } from "@/components/minimal/iconify";
 import { TableHeadCustom } from "@/components/minimal/table";
 import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
-import { LinkFiltersResult, type LinkFilterChip } from "./link-filters-result";
+import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
 import { phoneLoadCardsSx } from "./procurement-sx";
 
 const LOAD_CARDS_SX = phoneLoadCardsSx("source-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 9, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1 / -1", row: 2, secondary: true }]);

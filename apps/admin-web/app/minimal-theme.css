@@ -210,7 +210,6 @@ button.scrim,div.scrim{position:fixed!important;inset:0!important;z-index:1202!i
 /* Modals that sit BESIDE their scrim in the DOM must clear the lifted scrim. */
 .modal{z-index:1210!important}
 /* Same for the Tasks phone filter sheet: it sat at z 151 under its own 1200 scrim, so the whole sheet rendered blurred and untappable. */
-.lt-page .lt-fsheet-host .lt-fgroup.open{z-index:1210!important}
 /* Scrims and modals still on the pre-MUI 150/151 layer painted UNDER the MUI header (1101) and nav
    (1201): the Work Board card modal lost its left edge behind the nav and its top behind the bar. */
 .lt-page .lt-fscrim{z-index:1202!important}

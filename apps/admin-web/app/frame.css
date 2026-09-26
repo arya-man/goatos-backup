@@ -425,12 +425,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 @media(min-width:641px){
   .lt-page .lt-fsheet-host .lt-fsearch,.lt-page .lt-fsheet-host .lt-fsearch input,
   .lt-page .lt-fsheet-host .lt-fsel,.lt-page .lt-fsheet-host .lt-fdrop>button{font-size:14px}
-  .lt-page .lt-fsheet-host .lt-fsearch input{min-height:0}
-  .lt-page .lt-seg a,.lt-page .lt-seg a *{font-size:14px!important}
-  .lt-page .lt-seg a{padding:0 10px;font-weight:500}
-  .lt-page .lt-seg a.on{font-weight:600}
-  .lt-page .lt-scopebar .metricseg a{display:inline-flex;align-items:center;min-height:0;height:auto;padding:0 12px;font-size:14px;font-weight:500}
-  .lt-page .lt-scopebar .metricseg a.on{font-weight:600}
 }
 
 /* Audit Log toolbar: search and "Anomalies only" share one row, the status tabs take the row

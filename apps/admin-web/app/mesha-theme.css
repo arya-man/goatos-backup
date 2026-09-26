@@ -2573,8 +2573,6 @@ select:disabled { opacity: .45 }
 .lt-page .lt-tasklink:hover b{text-decoration:underline}
 .lt-page .lt-empty{display:flex;align-items:center;gap:12px;padding:18px 16px;flex-wrap:wrap}
 .lt-page .lt-emptynote{margin-bottom:14px}
-.lt-page .lt-scopebar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-.lt-page .lt-scopebar .subtabs{margin-bottom:0}
 /* The generic `.metricseg` carries `margin-left:auto`; on this bar the SCOPE tabs are the
    page's primary navigation and sit at the left, the Board / List pair at the right. */
 /* ---- ONE STICKY GROUP (/tasks): the scope tabs and the filter bar pin together. `.lt-fbar`
@@ -2585,18 +2583,12 @@ select:disabled { opacity: .45 }
    the gap between the two rows. NO `backdrop-filter` and NO `transform` here: either would
    make this the containing block for the phone's `position:fixed` sheet (see the 760px
    block). At phone width only the scope bar stays pinned (see the 760px block). */
-.lt-page .lt-fsticky{position:sticky;top:0;z-index:12;margin:0 0 14px;padding-top:2px;background:var(--bg)}
-.lt-page .lt-fsticky .lt-scopebar{margin-bottom:10px}
-.lt-page .lt-fsticky .lt-fbar{position:static;margin-bottom:0}
 .lt-page .lt-empty-state{display:flex;align-items:flex-start;gap:13px;padding:26px 24px;min-height:140px;background:linear-gradient(180deg,color-mix(in srgb,var(--panel-2) 48%,transparent),transparent)}
 .lt-page .lt-empty-state .ic{width:22px;height:22px;color:var(--brand);margin-top:1px}
 .lt-page .lt-empty-state b{display:block;font-size:15px;margin-bottom:5px}
 .lt-page .lt-empty-state p{max-width:620px;margin:0;color:var(--muted);font-size:13px;line-height:1.55}
 /* The no-hits empty state's way back (Gate-1 #2): "Clear the filters" is a real link and looks
    like one -- brand colour, underlined, 44px-tall hit box on a phone via padding. */
-.lt-page .lt-empty-state .lt-empty-clear{color:var(--brand);font-weight:700;text-decoration:underline;text-underline-offset:2px;display:inline-block;padding:4px 0}
-.lt-page .lt-empty-state .lt-empty-clear:hover{color:var(--brand-d)}
-.lt-page .lt-empty-state .lt-empty-clear:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
 
 /* Page head: the mock's own top bar collapses into the page head, since brand,
    park/date scope and theme are the app shell's job. */
@@ -2616,8 +2608,6 @@ select:disabled { opacity: .45 }
 .lt-page .lt-fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
 .lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;max-width:210px}
 .lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
-.lt-page .lt-chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
-.lt-page .lt-chips .achip.clr{font:inherit;font-size:11.5px}
 /* Wraps when it has to: a long note (the live tracker's "Park, vaccine, operator ... both") ran past
    the card's right edge at 1440 as one unbroken line. */
 .lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:normal;min-width:0;flex:0 1 auto;text-align:right}
@@ -2638,7 +2628,6 @@ select:disabled { opacity: .45 }
    The ring is repeated rather than inherited because the wider bar is `box-shadow:none` from
    `@media(min-width:761px)` at a specificity this rule has to clear, or the laptop would be left
    with no busy signal at all. */
-.lt-page .lt-fbar.lt-fsheet-host.wfbusy{box-shadow:0 0 0 2px var(--ring);opacity:1;pointer-events:auto}
 
 /* ---- Tasks desk toolbar (/tasks). Same `.lt-fbar` / `.lt-fsel` / `.lt-chips` / `.lt-fnote`
    anatomy as the live-tracker bar above, plus ONE extra behaviour: on a phone the whole control
@@ -2664,7 +2653,6 @@ select:disabled { opacity: .45 }
    second line instead of a clip below that. The phone rule further down restates `nowrap`, which
    is correct there: at <=760px the only two children are the search box and the Filters opener,
    and they must compress rather than split. */
-.lt-page .lt-fbar.lt-fsheet-host{flex-wrap:wrap;gap:8px;row-gap:8px}
 /* ---- ONE CONTROL LANGUAGE. Measured at 2000/1440/1180 before this block: search 34.3px,
    status segment 29.4px, person pills 34px, the sort box 47px, the date disclosures 32px --
    five heights, plus "Assignee" / "Raised by" as floating text beside pills that read only
@@ -2674,7 +2662,6 @@ select:disabled { opacity: .45 }
    ("Assignee · All", "Sort · Newest first", "Deadline · any"). This is the herd-signals
    `.fbar` / `.fsel` anatomy (`.fsel select{padding:0;line-height:normal}` is what keeps the
    native select from stretching its box to 47px). Tokens only, no new palette. */
-.lt-page .lt-fsheet-host{--lt-ctl:40px}
 .lt-page .lt-fsheet-host .lt-fsearch,
 .lt-page .lt-fsheet-host .lt-chips.lt-seg,
 .lt-page .lt-fsheet-host .lt-fsel,
@@ -2682,54 +2669,25 @@ select:disabled { opacity: .45 }
 .wb .lt-fdrop>button,
 .lt-page .lt-fsheet-host .btn.lt-fmore{box-sizing:border-box;height:var(--lt-ctl);min-height:var(--lt-ctl);border-radius:8px;border:1px solid var(--line);background:var(--bg);padding-top:0;padding-bottom:0;font-size:12.5px}
 /* The person-picker slots: containers the bar owns so a different picker can drop in. */
-.lt-page .lt-fsheet-host .lt-fslot{display:contents}
-.lt-page .lt-fsheet-host .lt-fkey,.wb .lt-fkey{color:var(--muted);font-weight:650;white-space:nowrap}
-.lt-page .lt-fsheet-host .lt-fkey::after,.wb .lt-fkey::after{content:"\00b7";margin-left:6px;color:var(--faint)}
 .lt-page .lt-fsheet-host .lt-fsel select,
 .lt-page .lt-fsheet-host .lt-fsel input[type=date],
 .lt-page .lt-fsheet-host .lt-fsearch input{min-height:0;height:auto;padding:0;line-height:normal}
-.lt-page .lt-fsheet-host .lt-fsearch{display:inline-flex;align-items:center;gap:7px;flex:1 1 190px;min-width:0;max-width:250px;padding:0 10px;color:var(--muted)}
-.lt-page .lt-fsheet-host .lt-fsearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);width:100%;min-width:0}
-.lt-page .lt-fsheet-host .lt-fsearch input::placeholder{color:var(--fg-faint);opacity:1}
-.lt-page .lt-fsheet-host .lt-fsel{padding:0 9px}
-.lt-page .lt-fsheet-host .lt-fsel select{max-width:130px}
 .lt-page .lt-fsheet-host .lt-fdrop>button,.wb .lt-fdrop{--lt-ctl:36px}
 .wb .lt-fdrop>button{padding:0 9px;display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer}
-.lt-page .lt-fsheet-host .lt-seg a{padding:0 9px;font-size:12.5px}
-.lt-page .lt-fsheet-host .lt-fsearch input::-webkit-search-cancel-button{display:none}
-.lt-page .lt-fsheet-host .lt-qclr{border:0;background:transparent;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;padding:2px;border-radius:5px}
-.lt-page .lt-fsheet-host .lt-qclr:hover{color:var(--ink)}
 /* `display:contents`, not a nested flex box. As a box it was a second wrapping container INSIDE the
    bar, which is what stacked the controls into five rows (search alone with dead space above it,
    chips and the people selects on a second line, sort on a third, four raw date inputs on a fourth,
    a lone Apply on a fifth). With `contents` its children are flex items of the BAR, so the whole
    toolbar is one dense row that wraps item by item. At <=760px the phone rules below give it a box
    again -- there it IS the bottom sheet, and a sheet needs one. */
-.lt-page .lt-fsheet-host .lt-fgroup{display:contents}
-.lt-page .lt-fsheet-host .lt-franges{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px;flex:none;min-width:0}
-.lt-page .lt-fsheet-host .lt-fsel input[type=date]{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);min-width:0}
-.lt-page .lt-fsheet-host .lt-fclear{text-decoration:none}
 
 /* ---- STATUS, as one segmented group. These are alternatives -- exactly one is current -- and a
    segment is how the rest of this app says so (see `.metricseg`). As free-floating `.achip` pills
    they read as five unrelated things on a line of their own. Tokens only: `--brand` through
    color-mix for the current segment, `--line` for the seams. */
-.lt-page .lt-chips.lt-seg{display:inline-flex;flex-wrap:nowrap;align-items:stretch;gap:0;flex:none;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.lt-page .lt-seg a{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-left:1px solid var(--line);font-size:12px;font-weight:650;color:var(--muted);text-decoration:none;white-space:nowrap}
-.lt-page .lt-seg a:first-child{border-left:0}
-.lt-page .lt-seg a:hover{color:var(--ink);background:color-mix(in srgb,var(--brand) 7%,transparent)}
-.lt-page .lt-seg a.on{background:color-mix(in srgb,var(--brand) 14%,var(--panel));color:var(--brand-d);font-weight:800}
-.lt-page .lt-seg a b{font-weight:700;font-variant-numeric:tabular-nums;color:var(--faint)}
-.lt-page .lt-seg a.on b{color:var(--brand-d)}
-.lt-page .lt-seg a:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
 /* The Overdue chip is a LENS over the two working statuses and the one chip that names a
    problem: it borrows the deadline pill's danger tone (`.lt-clock-late`) so it reads as the same
    signal the late cards carry, at rest and when it is the current chip. */
-.lt-page .lt-seg a[data-filter="overdue"]{color:color-mix(in srgb,var(--danger) 80%,var(--ink))}
-.lt-page .lt-seg a[data-filter="overdue"] b{color:var(--danger)}
-.lt-page .lt-seg a[data-filter="overdue"]:hover{background:color-mix(in srgb,var(--danger) 8%,transparent)}
-.lt-page .lt-seg a[data-filter="overdue"].on{background:var(--dangerx);color:var(--danger)}
-.lt-page .lt-seg a[data-filter="overdue"].on b{color:var(--danger)}
 
 /* ONE ROW, the Work Board's shape (CEO review 2026-09-18). `.wb .tbar` is a bare flex row on the
    page ground -- no card box, no padding, a hairline under it -- so this bar is the same box from
@@ -2737,35 +2695,23 @@ select:disabled { opacity: .45 }
    stacks, ONE dates disclosure, sort. The stack avatars are 24px here (the size the board's own
    menu rows use; its toolbar stack is 30px, its cards 22px) so two stacks of nine people fit
    beside a five-chip segment at 1440px; every other rule is the board's own, scoped by the `wb` class on the slot. */
-.lt-page .lt-fsheet-host .lt-fslot.wb{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;position:relative}
-.lt-page .lt-fsheet-host .lt-fslot.wb::before{content:attr(data-key);font-size:9px;line-height:1;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);white-space:nowrap}
 @media (min-width:761px){
-  .lt-page .lt-fbar.lt-fsheet-host{padding:0 0 10px;border:0;border-bottom:1px solid var(--line2);border-radius:0;background:transparent;box-shadow:none;gap:8px}
   @supports
   ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .lt-page .lt-fbar.lt-fsheet-host{backdrop-filter:none;-webkit-backdrop-filter:none}
 }
-  .lt-page .lt-fsticky .lt-fbar.lt-fsheet-host{margin-bottom:0}
   /* Widths at 1440 with the 28px stacks (Gate-1 #6): search 120 + segment 414 + two stacks of
      116 + sort 181 + dates 133 + five 8px gaps = 1120 in a 1132px bar. The search floor and the
      segment's padding each gave up a little so the bar stays ONE row with no filter applied. */
-  .lt-page .lt-fsheet-host .lt-fsearch{flex:1 1 120px;min-width:120px;max-width:300px}
-  .lt-page .lt-fsheet-host .lt-seg a{padding:0 7px;font-size:12px;gap:4px}
-  .lt-page .lt-fsheet-host .lt-fsel select{max-width:118px}
-  .lt-page .lt-fsheet-host .lt-fslot.wb .avs{height:var(--lt-ctl)}
   /* The two stacks are told apart by a small CAPTION over the avatars, drawn from the slot's own
      `data-key` (the contract's "Assignee" / "Raised by") in the `.ltd-statuslab` treatment. It
      sits inside the control's 40px (9px caption + 24px stack) so it costs the row no width.
      The stack's own height rule above is released so the caption and the avatars share it. */
-  .lt-page .lt-fsheet-host .lt-fslot.wb{height:var(--lt-ctl)}
-  .lt-page .lt-fsheet-host .lt-fslot.wb .avs{height:auto}
   /* LEGIBLE INITIALS (Gate-1 #6). At 24px with a 10px overlap each circle showed 14px of itself
      and the next circle's 2px border cut every letter in half ("D M D M A R" read as "D N C N A
      R"). The Work Board's stack is the reference: 30px circles, 12px bold, 8px overlap, so 22px
      of every circle stays visible. The same geometry here, one size down so two stacks still
      sit beside a five-chip segment at 1440: 28px circles, 11px bold, 6px overlap -- 22px
      visible per circle, the board's own figure. */
-  .lt-page .lt-fsheet-host .lt-fslot.wb .avs .more{width:28px;height:28px;margin-left:-6px;font-size:11px}
 }
 /* The ONE dates disclosure: both spans inside, each its own labelled group, ONE Apply and ONE
    Clear for the four fields. Each field is the console's themed calendar (`.move-date-*`): a
@@ -2776,15 +2722,7 @@ select:disabled { opacity: .45 }
 .lt-page .lt-fdrop-pop.lt-fdrop-dates{min-width:352px;gap:12px}
 .lt-page .lt-fdrop-range{display:grid;gap:8px}
 .lt-page .lt-fdrop-range+.lt-fdrop-range{padding-top:12px;border-top:1px solid var(--line2)}
-.lt-page .lt-fdrop-rangekey{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--faint)}
-.lt-page .lt-fdrop-span{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.lt-page .lt-fdrop-date{display:grid;gap:4px;min-width:0}
-.lt-page .lt-fdrop-datekey{font-size:11px;font-weight:650;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lt-page .lt-fdrop-date .move-date-button{height:36px;font-size:12.5px}
-.lt-page .lt-fdrop-date .move-date-button>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lt-page .lt-fdrop-to .move-date-popover{left:auto;right:0}
 /* Hung from the trigger's LEFT edge when the bar has wrapped and the trigger sits at the left. */
-.lt-page .lt-fdrop-pop.lt-fdrop-pop-left{right:auto;left:0}
 
 /* ---- A DATE SPAN, collapsed. Four raw `dd/mm/yyyy` inputs across a row, plus a lone Apply
    beneath them, dominated a bar whose reader almost never touches a date. Each span is now one
@@ -2810,15 +2748,12 @@ select:disabled { opacity: .45 }
    "Clear" always sit together on their own line under the controls and never reflow the bar
    above them. On a phone it is a block inside the sheet's grid, where the same children keep
    their own phone rules. */
-.lt-page .lt-fapplied{display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:1 0 100%;width:100%;min-width:0}
-.lt-page .lt-fapplied .lt-factive{flex:0 1 auto}
 .lt-page .lt-factive{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;flex:1 1 auto}
 .lt-page .lt-factive .achip{max-width:100%;min-width:0}
 .lt-page .lt-factive .achip>button{display:inline-flex;align-items:center;justify-content:center;border:0;padding:0;background:transparent;color:inherit;font:inherit;line-height:1;opacity:.6;cursor:pointer;border-radius:4px}
 .lt-page .lt-factive .achip>button:hover{opacity:1}
 .lt-page .lt-factive .achip>button:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
 /* The sheet's own header and opener exist only at phone width. */
-.lt-page .lt-fsheet-host .lt-fsheet-hd,.lt-page .lt-fsheet-host .lt-fmore{display:none}
 @media(max-width:760px){
   /* The backdrop blur reset (`none`) is load-bearing: the desktop bar's blur(8px) backdrop makes it
      the CONTAINING BLOCK for every `position:fixed` descendant, so the sheet below was "fixed" to
@@ -2829,41 +2764,15 @@ select:disabled { opacity: .45 }
      opens a sheet, and pinning both would hold ~190px of a 390px screen). The wrapper becomes
      `display:contents` so the scope bar is a child of the page and can stick the whole way
      down, not just within the wrapper's own ~200px box. */
-  .lt-page .lt-fsticky{display:contents}
-  .lt-page .lt-fsticky .lt-scopebar{position:sticky;top:0;z-index:12;margin:0 0 12px;padding:2px 0 8px;background:var(--bg)}
-  .lt-page .lt-scopebar{display:grid;gap:8px;margin-bottom:10px}
-  .lt-page .lt-scopebar .subtabs{width:100%;overflow-x:auto;scrollbar-width:none;border-radius:10px;padding:3px}
-  .lt-page .lt-scopebar .subtabs::-webkit-scrollbar{display:none}
   .lt-page .lt-scopebar .metricseg a,
   .lt-page .lt-scopebar .subtabs a,
   .lt-page .lt-scopebar .subtabs button{min-height:40px;padding:0 12px;font-size:13px;white-space:nowrap}
-  .lt-page .lt-scopebar .ltb-viewswitch{width:100%}
-  .lt-page .lt-fsticky .lt-fbar{margin-bottom:14px}
-  .lt-page .lt-fbar:not(.lt-fsheet-host){position:static;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0 0 14px;padding:12px;border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);border-color:var(--line2)}
-  .lt-page .lt-fbar:not(.lt-fsheet-host) .lt-fsel{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;min-width:0;width:100%;padding:0;border:0;background:transparent}
-  .lt-page .lt-fbar:not(.lt-fsheet-host) .lt-fsel>.ic{grid-column:1;grid-row:1;color:var(--muted);width:16px!important;height:16px!important}
-  .lt-page .lt-fbar:not(.lt-fsheet-host) .lt-chips{grid-column:1 / -1;gap:7px}
-  .lt-page .lt-fbar:not(.lt-fsheet-host) .lt-chips:empty{display:none}
-  .lt-page .lt-fbar:not(.lt-fsheet-host) .lt-chips .achip{min-height:34px;padding:4px 10px;font-size:12px}
-  .lt-page .lt-fbar:not(.lt-fsheet-host) .lt-fnote{grid-column:1 / -1;margin-left:0;white-space:normal}
-  .lt-page .lt-fbar.lt-fsheet-host{position:static;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:8px;--lt-ctl:42px;border-radius:12px}
   @supports
   ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .lt-page .lt-fbar.lt-fsheet-host{backdrop-filter:none;-webkit-backdrop-filter:none}
 }
-  .lt-page .lt-fsheet-host .lt-fsearch{max-width:none}
-  .lt-page .lt-fsheet-host .lt-fmore{display:inline-flex;flex:none}
-  .lt-page .lt-fsheet-host .lt-fgroup{display:none}
   /* `vh` first as the fallback for engines without `dvh`, then `dvh`: the WhatsApp in-app browser
      retracts its chrome, so a `vh` box is measured against a viewport that is not the one the
      reader has and the bottom of the sheet becomes unreachable. */
-  .lt-page .lt-fsheet-host .lt-fgroup.open{display:grid;gap:11px;position:fixed;left:0;right:0;bottom:0;z-index:151;max-height:84vh;max-height:84dvh;overflow-y:auto;padding:14px 16px calc(16px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;box-shadow:var(--shadow)}
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsheet-hd{display:flex;align-items:center;gap:9px;font-size:14px}
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel{width:100%;justify-content:space-between}
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel select,.lt-page .lt-fsheet-host .lt-fgroup.open .lt-fsel input[type=date]{width:100%;max-width:100%;text-align:right}
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-franges{display:grid;grid-template-columns:1fr;gap:8px}
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-chips{gap:7px}
-  .lt-page .lt-fsheet-host .lt-fnote{margin-left:0;white-space:normal}
   .lt-page .lt-fscrim{z-index:150}
   /* TAP TARGETS, at the SAME breakpoint as the sheet (see the breakpoint note above).
      The status chips are this page's primary filter affordance and are `<a class="achip">`
@@ -2872,11 +2781,9 @@ select:disabled { opacity: .45 }
      page keeps its own size, and only inside this query, so the desktop bar is unchanged. */
   .lt-page .lt-fsheet-host .lt-chips .achip,
   .lt-page .lt-fsheet-host .achip.lt-fclear{min-height:40px;padding:4px 12px;font-size:12.5px}
-  .lt-page .lt-fsheet-host .achip.lt-fclear{justify-content:center}
   .lt-page .lt-fsheet-host .btn,
   .lt-page .lt-fsheet-host .btn.sm,
   .lt-page .lt-fsheet-host button{min-height:44px}
-  .lt-page .lt-fsheet-host .lt-qclr{min-width:44px;min-height:44px;justify-content:center}
   .lt-page .lt-fsheet-host .lt-fsearch,
   .lt-page .lt-fsheet-host .lt-fsel{min-height:var(--lt-ctl)}
   /* ---- The new anatomy inside the SHEET. A popover cannot hang off a fixed sheet without being
@@ -2890,32 +2797,11 @@ select:disabled { opacity: .45 }
      which is for the ACTIVE-filter pills and not for a bordered segment. */
   .lt-page .lt-fsheet-host .lt-chips.lt-seg,
   .lt-page .lt-fsheet-host .lt-fgroup.open .lt-chips.lt-seg{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:0;width:100%}
-  .lt-page .lt-fsheet-host .lt-chips.lt-seg{height:auto}
-  .lt-page .lt-fsheet-host .lt-seg a{min-height:40px;min-height:var(--lt-ctl);justify-content:center;padding:4px 10px;font-size:12.5px;border-left:0;min-width:0}
-  .lt-page .lt-fsheet-host .lt-seg a:nth-child(even){border-left:1px solid var(--line)}
-  .lt-page .lt-fsheet-host .lt-seg a:nth-child(n+3){border-top:1px solid var(--line)}
-  .lt-page .lt-fsheet-host .lt-seg a:last-child:nth-child(odd){grid-column:1 / -1;border-left:0}
-  .lt-page .lt-fsheet-host .lt-franges{display:grid;grid-template-columns:1fr;gap:8px;width:100%}
-  .lt-page .lt-fsheet-host .lt-fdrop{width:100%;display:grid;grid-template-columns:1fr;gap:8px}
-  .lt-page .lt-fsheet-host .lt-fdrop>button{width:100%;justify-content:space-between}
-  .lt-page .lt-fsheet-host .lt-fdrop>button>.lt-fkey{margin-right:auto}
   /* In the sheet the key sits at the left edge and the value at the right, so the glue dot
      between them would float alone in the middle of the row. */
-  .lt-page .lt-fsheet-host .lt-fgroup.open .lt-fkey::after{content:none}
-  .lt-page .lt-fsheet-host .lt-fdrop-pop{position:static;min-width:0;width:100%;box-shadow:none;border-color:var(--line2)}
   /* The Work Board's picker inside the SHEET: full-width stack row, the list opening IN PLACE
      (a popover cannot hang off a fixed sheet without being clipped), 44px rows. */
-  .lt-page .lt-fsheet-host .lt-fslot.wb{display:flex;width:100%;gap:6px}
-  .lt-page .lt-fsheet-host .lt-fslot.wb::before{font-size:10px}
-  .lt-page .lt-fsheet-host .lt-fslot.wb .avs{flex-wrap:wrap;gap:6px 0;min-height:44px}
-  .lt-page .lt-fsheet-host .lt-fdrop-act .btn{flex:1}
   /* The dates disclosure in the sheet: one field per row, 44px buttons, the calendar in flow. */
-  .lt-page .lt-fsheet-host .lt-fdrop-span{grid-template-columns:1fr}
-  .lt-page .lt-fsheet-host .lt-fdrop-date .move-date-button{height:44px}
-  .lt-page .lt-fsheet-host .lt-fdrop-date .move-date-popover{position:static;width:100%;margin-top:8px;box-shadow:none;border-color:var(--line2)}
-  .lt-page .lt-fsheet-host .lt-factive{width:100%}
-  .lt-page .lt-fsheet-host .lt-factive .achip{min-height:40px;padding:4px 12px;font-size:12.5px}
-  .lt-page .lt-fsheet-host .lt-factive .achip>button{min-width:40px;min-height:40px}
   /* THE REST OF THIS PAGE'S CONTROLS, at the SAME 760px breakpoint. The page was unified on 760px
      but the app-wide touch floor still lives at `@media(max-width:560px)`, so from 561 to 760px --
      which includes a 375x667 phone held in landscape -- these went back to their compact desktop
@@ -3008,23 +2894,6 @@ select:disabled { opacity: .45 }
 /* The deadline countdown (maintainer decision 2026-09-14): ONE number of days left, green while
    more than two days remain, red from two days out and once overdue. Tone classes come from
    the backend's deadline_tone (ok -> green, near/over -> red). */
-.lt-page .lt-clock{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;margin:0 0 14px;min-width:0}
-.lt-page .lt-clock-ok{background:var(--okx);border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
-.lt-page .lt-clock-late{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
-.lt-page .lt-clock-num{display:flex;align-items:baseline;gap:5px;flex:none;font-variant-numeric:tabular-nums;line-height:1}
-.lt-page .lt-clock-num b{font-size:26px;font-weight:850;letter-spacing:-.4px}
-.lt-page .lt-clock-num span{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
-.lt-page .lt-clock-ok .lt-clock-num{color:var(--ok)}
-.lt-page .lt-clock-late .lt-clock-num{color:var(--danger)}
-.lt-page .lt-clock-meta{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:11.5px;line-height:1.25}
-.lt-page .lt-clock-state{font-weight:750;color:var(--ink)}
-.lt-page .lt-clock-deadline{color:var(--muted);overflow-wrap:anywhere}
-.lt-page .lt-clock-compact{margin:0;padding:6px 10px;gap:2px;border-radius:8px;flex-direction:column;align-items:flex-start;width:max-content}
-.lt-page .lt-clock-compact .lt-clock-num b{font-size:20px}
-.lt-page .lt-clock-compact .lt-clock-num span{font-size:10px}
-.lt-page .lt-clock-compact .lt-clock-meta{font-size:10px}
-.lt-page .lt-clock-compact .lt-clock-state{display:none}
-.lt-page .lt-clock-compact .lt-clock-deadline{white-space:nowrap}
 .lt-page table.lt-task-table td.lt-days-col{min-width:0;white-space:nowrap}
 .lt-page .lt-clock-inline{display:none;margin-top:6px}
 /* 760px, the same breakpoint as the filter sheet and the tap targets above. */
@@ -3347,7 +3216,6 @@ select:disabled { opacity: .45 }
   .lt-live-page .lt-fsel{min-height:44px;padding:4px 8px;border-radius:10px}
   .lt-live-page .lt-fsel .ic{width:13px!important;height:13px!important}
   .lt-live-page .lt-chips,.lt-live-page .lt-fnote{grid-column:1 / -1}
-  .lt-live-page .lt-chips .achip{min-height:32px;font-size:11.5px}
   /* The shared bar turns position:static here, which drops it UNDER the positioned table card;
      the Pen dropdown hangs below the bar, so without this the card paints over it and eats taps. */
   .lt-page .lt-fbar.cc-fbar{position:relative;z-index:20}
@@ -4173,11 +4041,9 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .ltb{display:block;min-width:0}
 
 /* The Board / List pair, at the right-hand end of the scope bar. */
-.lt-page .lt-scopebar .ltb-viewswitch{flex:none}
 
 /* ---- the column track. Wider than the screen is FINE here and only here: this box owns the
         sideways scroll, the page never does. */
-.lt-page .ltb-scroll{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-gutter:stable;padding:2px 0 8px;margin:0 -2px;min-width:0}
 .lt-page .ltb-cols{display:flex;align-items:stretch;gap:12px;padding:0 2px;min-width:0}
 
 /* `flex:1 1 0` with a 262px floor: four columns FIT the card at 1440 and share the slack on a
@@ -4228,24 +4094,11 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    ZERO, the card's grid got a 0px first row, its children overflowed the box, and every card
    rendered its title invisible under an overlapping assignee name. The standard `line-clamp`
    shorthand is also deliberately absent — in Chrome 121+ it resets `display` too. */
-.lt-page .ltb-card-title{display:block;min-width:0;font-size:13px;font-weight:650;line-height:1.36;color:var(--ink);overflow-wrap:anywhere}
-.lt-page .ltb-card-titletx{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 /* The deadline clock IS this product's priority indicator; it sits where Jira puts its label chip. */
-.lt-page .ltb-card-clock{display:block}
-.lt-page .ltb-card-clock .lt-clock-compact{max-width:100%}
 
 /* Avatar AND name: our readers know each other by name, so the name is text and truncates
    rather than wrapping the card to twice its height. */
-.lt-page .ltb-card-people{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:9px;min-width:0}
-.lt-page .ltb-card-who{display:grid;min-width:0;gap:1px}
-.lt-page .ltb-card-name{display:block;min-width:0;font-size:12.5px;font-weight:750;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lt-page .ltb-card-raiser{display:block;min-width:0;font-size:10.5px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-.lt-page .ltb-card-foot{display:flex;align-items:center;gap:8px;padding-top:7px;border-top:1px dashed color-mix(in srgb,var(--line) 72%,transparent);color:var(--muted);font-size:11px;font-weight:650}
-.lt-page .ltb-card-key{flex:none;padding:1px 6px;border-radius:5px;background:color-mix(in srgb,var(--brand) 10%,transparent);color:var(--brand-d);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;font-weight:800;letter-spacing:.2px}
-.lt-page .ltb-card-age{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lt-page .ltb-card-att{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:4px}
-.lt-page .ltb-card-att .ic{width:13px;height:13px}
 
 @media(max-width:760px){
   /* Columns stay SIDE BY SIDE and the reader swipes between them, exactly as the Work Board does
@@ -4257,8 +4110,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
      BODY still has no nested scroller here: a scroll region inside the page scroll is a trap in
      the WhatsApp in-app webview, so the page scrolls vertically once and the track only sideways.
      The header block of each column (`.ltb-colhd` / `.ltb-colmeta`) is not touched. */
-  .lt-page .ltb-scroll{scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding:2px 0 6px;margin:0 -2px;scrollbar-width:none}
-  .lt-page .ltb-scroll::-webkit-scrollbar{display:none}
   .lt-page .ltb-cols{gap:10px;padding:0 2px}
   .lt-page .ltb-col{flex:0 0 min(85vw,100% - 28px);width:min(85vw,100% - 28px);min-width:0;max-width:none;scroll-snap-align:start}
   /* The empty Cancelled rail stays the slim upright rail it is on desktop (56px, title written up
@@ -4267,10 +4118,7 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   .lt-page .ltb-colbd{max-height:none;overflow-y:visible}
   /* Tap targets: the card and the column meta line are >=40px. */
   .lt-page .ltb-card{min-height:56px;padding:11px 12px}
-  .lt-page .ltb-card-title{font-size:13.5px}
     .lt-page .ltb-colmeta{min-height:40px}
-  .lt-page .lt-scopebar{flex-wrap:wrap}
-  .lt-page .lt-scopebar .ltb-viewswitch{width:100%}
 }
 
 /* ============================================================================================
@@ -4303,19 +4151,11 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-panel:has([data-mention-popup]){overflow:visible}
 
 /* ------------------------------------------------------------------ header: breadcrumb + key */
-.ltd-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 16px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel-2) 55%,transparent)}
-.ltd-crumb{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;font-size:11.5px;line-height:1.3;color:var(--muted)}
-.ltd-crumb-sep{color:color-mix(in srgb,var(--muted) 55%,transparent)}
-.ltd-key{color:var(--ink);font-weight:750;font-variant-numeric:tabular-nums;letter-spacing:.2px}
 .ltd-top-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
 /* Tap targets: the smoke rule is 40px, and this page opens in the WhatsApp in-app webview. */
 .ltd-top-actions .btn{min-height:40px;padding-inline:13px}
 
 /* ---------------------------------------------------------- the big title + the status control */
-.ltd-head{padding:16px 18px 14px}
-.ltd-title{margin:0;font-size:21px;line-height:1.28;font-weight:640;letter-spacing:-.012em;color:var(--ink);overflow-wrap:anywhere}
-.ltd-statusrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:13px}
-.ltd-statuslab{font-size:10px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
 /* Jira's status button: a filled, slightly raised pill with a caret. It is a STATEMENT of the
    current status; the transitions beside it are the buttons that change it. */
 .ltd-status{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 13px;border-radius:9px;font-size:12.5px;font-weight:780;letter-spacing:.1px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink)}
@@ -4330,37 +4170,22 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-statusmenu .ltd-status{cursor:pointer;font:inherit;font-size:12.5px;font-weight:780}
 .ltd-statusmenu .ltd-status:hover,.ltd-statusmenu .ltd-status.on{filter:brightness(1.12)}
 .ltd-statusmenu .ltd-status:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-.ltd-statusrow .ltd-status-refusal{flex-basis:100%;margin:2px 0 0}
 .ltd-statusmenu .ltd-status[aria-busy="true"]{cursor:progress;opacity:.85}
 .ltd-statusmenu .ltd-status-saving{width:11px;height:11px;flex:none;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:ltd-status-spin .7s linear infinite}
 @keyframes ltd-status-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.ltd-statusmenu .ltd-status-saving{animation:none;border-right-color:currentColor;opacity:.5}}
-.ltd-statusrow .lt-status-actions{margin:0;gap:8px}
-.ltd-statusrow .lt-status-actions .btn{min-height:40px}
 
 /* --------------------------------------------------------------------------- the two columns */
-.ltd-body{display:flex;flex-direction:column;gap:16px;padding:0 18px 18px}
-.ltd-main{min-width:0;display:flex;flex-direction:column;gap:22px}
 /* Two columns as soon as the panel itself is wide enough. A CONTAINER query, not a viewport one:
    the panel is a grid child whose width does not follow the viewport, so a media query would put
    two columns into a 360px rail. */
 @container (min-width:540px){
-  .ltd-body{display:grid;grid-template-columns:minmax(0,1fr) 232px;gap:24px;align-items:start}
 }
 
 /* --------------------------------------------------------------------- Description / Activity */
-.ltd-sec{min-width:0}
-.ltd-sec-hd{display:flex;align-items:center;gap:8px;margin:0 0 9px;font-size:12px;font-weight:750;letter-spacing:.2px;color:var(--ink)}
-.ltd-sec-count{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 6px;border-radius:999px;font-size:10.5px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--muted);background:color-mix(in srgb,var(--muted) 16%,transparent)}
-.ltd-prose{margin:0;font-size:13.5px;line-height:1.62;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .ltd-quiet{margin:0;font-size:12.5px;line-height:1.55;color:var(--muted);overflow-wrap:anywhere}
 
 /* ------------------------------------------------------------------------------- attachments */
-.ltd-atts{display:flex;flex-direction:column;gap:7px}
-.ltd-att{display:flex;align-items:center;gap:9px;min-height:40px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);color:var(--ink);font-size:12.5px;text-decoration:none;min-width:0}
-.ltd-att:hover{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:color-mix(in srgb,var(--brand) 9%,var(--panel-2))}
-.ltd-att .ic{width:15px;height:15px;flex:none;color:var(--brand)}
-.ltd-att-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ---------------------------------------------------------------------------------- activity */
 .ltd-activity{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:14px}
@@ -4394,15 +4219,8 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-av-sm{width:26px;height:26px;font-size:10.5px}
 .ltd-av-me{color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,var(--panel));border-color:color-mix(in srgb,var(--brand) 40%,var(--line))}
 .ltd-av-me .ic{width:13px;height:13px}
-.ltd-av-t0{background:color-mix(in srgb,var(--brand) 20%,var(--panel));border-color:color-mix(in srgb,var(--brand) 42%,var(--line));color:color-mix(in srgb,var(--brand) 72%,var(--ink))}
-.ltd-av-t1{background:color-mix(in srgb,var(--info) 20%,var(--panel));border-color:color-mix(in srgb,var(--info) 42%,var(--line));color:color-mix(in srgb,var(--info) 72%,var(--ink))}
-.ltd-av-t2{background:color-mix(in srgb,var(--purple) 20%,var(--panel));border-color:color-mix(in srgb,var(--purple) 42%,var(--line));color:color-mix(in srgb,var(--purple) 72%,var(--ink))}
-.ltd-av-t3{background:color-mix(in srgb,var(--warn) 20%,var(--panel));border-color:color-mix(in srgb,var(--warn) 42%,var(--line));color:color-mix(in srgb,var(--warn) 76%,var(--ink))}
-.ltd-av-t4{background:color-mix(in srgb,var(--ok) 20%,var(--panel));border-color:color-mix(in srgb,var(--ok) 42%,var(--line));color:color-mix(in srgb,var(--ok) 72%,var(--ink))}
-.ltd-av-t5{background:color-mix(in srgb,var(--danger) 20%,var(--panel));border-color:color-mix(in srgb,var(--danger) 42%,var(--line));color:color-mix(in srgb,var(--danger) 76%,var(--ink))}
 
 /* ------------------------------------------------------------------ the boxed Details panel */
-.ltd-details{min-width:0;border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--panel-2) 62%,var(--panel));overflow:hidden}
 /* IN-PLACE comment composer (task-activity-composer.tsx) — Builder J, 2026-09-18. A mention a
    note NAMED draws as a brand-toned chip; a comment still travelling to the server is dimmed and
    says "just now"; a refused send reads its sentence under the field, with the text kept. */
@@ -4413,36 +4231,12 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .ltd-composer .btn[aria-busy="true"]{opacity:.7;cursor:progress}
 /* Phones see Details directly under the title and status, not at the bottom of the activity
    feed: the deadline is the urgency signal on this screen and it must not be scrolled to. */
-.ltd-details{order:-1}
 @container (min-width:540px){.ltd-details{order:0;position:sticky;top:12px}}
-.ltd-details-hd{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 13px;cursor:pointer;list-style:none;font-size:11px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid transparent}
-.ltd-details-hd::-webkit-details-marker{display:none}
-.ltd-details[open] .ltd-details-hd{border-bottom-color:var(--line)}
-.ltd-details-hd:hover{color:var(--ink)}
-.ltd-details-caret{margin-left:auto;width:0;height:0;flex:none;border-left:4.5px solid transparent;border-right:4.5px solid transparent;border-top:5px solid currentColor;transition:transform .14s ease}
-.ltd-details:not([open]) .ltd-details-caret{transform:rotate(-90deg)}
-.ltd-details-bd{display:flex;flex-direction:column;padding:4px 13px 11px}
-.ltd-row{display:flex;flex-direction:column;gap:5px;padding:10px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
-.ltd-row:last-child{border-bottom:0}
-.ltd-row-k{font-size:10px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--muted)}
-.ltd-row-v{min-width:0;font-size:13px;line-height:1.4}
-.ltd-val{color:var(--ink);font-weight:640;overflow-wrap:anywhere}
-.ltd-person{display:flex;align-items:center;gap:9px;min-width:0}
-.ltd-person-tx{display:flex;flex-direction:column;gap:1px;min-width:0}
-.ltd-person-tx b{font-size:13px;font-weight:700;color:var(--ink);overflow-wrap:anywhere}
-.ltd-person-tx span{font-size:10.5px;color:var(--muted)}
 /* The deadline chip is `deadline-clock.tsx` in its compact form; only its box is nudged to sit
    flush in a Details row. Its colour and wording stay the backend's. */
-.ltd-row-v .lt-clock-compact{width:100%;max-width:100%}
 
 /* ------------------------------------------------------------------------ the no-selection state */
 .ltd-panel-empty{background:linear-gradient(180deg,color-mix(in srgb,var(--panel-2) 55%,transparent),transparent),var(--panel)}
-.ltd-blank{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:9px;padding:44px 26px;min-height:240px}
-.ltd-blank-badge{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:13px;background:color-mix(in srgb,var(--brand) 13%,var(--panel-2));border:1px solid color-mix(in srgb,var(--brand) 32%,var(--line))}
-.ltd-blank-badge .ic{width:21px;height:21px;color:var(--brand)}
-.ltd-blank b{font-size:15px;font-weight:700;color:var(--ink)}
-.ltd-blank p{margin:0;max-width:34ch;font-size:12.5px;line-height:1.6;color:var(--muted)}
-.ltd-blank-hint{color:color-mix(in srgb,var(--muted) 80%,var(--ink))}
 
 /* ---------------------------------------------------------------------------- phone width */
 /* The activity feed is NOT given its own scrollbox at phone width: a nested scroll region inside
@@ -4451,22 +4245,12 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    progressive upgrade — WhatsApp's chrome retracts, and a bare `dvh` cap clips mid-scroll. */
 @media(max-width:760px){
   .ltd-panel{border-radius:12px}
-  .ltd-top{padding:10px 13px}
-  .ltd-head{padding:14px 14px 12px}
-  .ltd-title{font-size:18.5px}
-  .ltd-body{padding:0 14px 16px;gap:16px}
-  .ltd-main{gap:20px}
   .ltd-activity{max-height:none}
-  .ltd-blank{padding:34px 20px;min-height:180px}
   /* A long file name or a long person name wraps instead of pushing the page sideways. */
-  .ltd-att-name{white-space:normal;overflow:visible;overflow-wrap:anywhere}
 }
 @media(max-width:400px){
   .ltd-top-actions{margin-left:0;width:100%}
   .ltd-top-actions .btn{flex:1;justify-content:center}
-  .ltd-statusrow .lt-status-actions{width:100%}
-  .ltd-statusrow .lt-status-actions form{flex:1;min-width:0}
-  .ltd-statusrow .lt-status-actions .btn{width:100%;justify-content:center}
 }
 
 /* ------------------------------------------------------------- the detail as a DRAWER (.ltd-drawer)
@@ -4518,7 +4302,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 @media (prefers-reduced-motion: reduce){.lt-page .ltb-card.is-dragging,.lt-page .ltb-card.is-moving{transition:none}}
 
 /* The sentence that says the drag is optional and names the non-drag path. */
-.lt-page .ltb-dndhint{margin:9px 2px 0;padding:0 2px;color:var(--faint);font-size:11px;line-height:1.5}
 /* The move-in-flight announcement. Reachable by a screen reader, not laid out for a sighted
    reader: the card's own brand ring already says it on screen. Not `display:none`, which would
    take it out of the accessibility tree along with the announcement. */
@@ -4526,21 +4309,15 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    static position (~1037px down) while its containing block was the BODY, not the scrolling
    `.main`, so it extended the DOCUMENT by ~238px and let the whole layout -- top bar, sidebar,
    the sticky scope tabs -- scroll off the window (measured at 1180/1440 before the fix). */
-.lt-page .ltb-dndlive{position:absolute;top:0;left:0;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 
 @media(max-width:760px){
   /* Drag is not offered at phone width, so the sentence describing it would be a lie. */
-  .lt-page .ltb-dndhint{display:none}
 }
 
 /* ---- BOARD ON THE PAGE GROUND, JIRA-COMPACT CARDS (CEO, 2026-09-18 13:30) -----------------
    The board's columns are the structure: no card box, no "Team progress · 408" header, no
    "N on this page" line, no hint paragraphs. The card itself keeps its earlier anatomy (deadline
    block, assignee + raised-by, key + date) -- the CEO asked for that back. */
-.lt-page .ltb-ground{display:grid;gap:12px;min-width:0}
-.lt-page .ltb-ground .ltb{padding:0}
-.lt-page .ltb-ground .ltb-col{background:color-mix(in srgb,var(--paper-2) 58%,transparent)}
-.lt-page .ltb-card-titletx{-webkit-line-clamp:2}
 
 /* ---- PEOPLE FILTERS ARE A PLAIN DROPDOWN OF CHECKBOXES (CEO, 2026-09-18 13:50) ---------------
    "Assignee · All" opens a list: All, then every person, each with a REAL tick box. No avatar
@@ -4558,7 +4335,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .lt-page .lt-people-name,.wb .lt-people-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lt-page .lt-people-title,.wb .lt-people-title{color:var(--muted);font-weight:500}
 @media (max-width:760px){
-  .lt-page .lt-fsheet-host .lt-people-pop{position:static;width:100%;margin-top:6px;box-shadow:none;border-color:var(--line2)}
   .lt-page .lt-people-row{min-height:44px}
   .wb .lt-people{--lt-ctl:40px;display:grid;grid-template-columns:1fr;width:min(280px,calc(100vw - 32px))}
   .wb .lt-people>button{width:100%;justify-content:space-between}
@@ -4566,7 +4342,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
   .wb .lt-people-row{min-height:44px}
 }
 /* Phone Filters button: a count badge while any filter is applied (Judge A, D2). */
-.lt-page .lt-fmore-badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:999px;background:var(--brand);color:var(--on-brand);font-size:11px;font-weight:750;line-height:1}
 /* Every column body keeps the same floor so four columns read as four equal lanes, whether
    a column holds cards, a sentence, or nothing under a status filter (Judge A, D4). */
 .lt-page .ltb-colbd{min-height:120px}
