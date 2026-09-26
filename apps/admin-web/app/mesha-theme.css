@@ -6,13 +6,14 @@
     --f:var(--font-sans);
     /* Radius/motion/spacing tokens: app/minimal-tokens.css (single source of truth). */
     /* ===== DARK (default) — Mesha green-black shell with Minimal-style component anatomy ===== */
-    /* Mesha green-tinted neutrals (locked, = origin/main mesha-theme.css). Minimal gives structure only. */
-    --bg:#0E1512; --bg-subtle:#121A16; --paper:#161F1A; --paper-2:#1D2820;
-    --fg:#E9F1EA; --fg-muted:#94A89A; --fg-faint:#6E8377;
+    /* Template neutrals (Ravi 2026-09-27): surfaces, ink and lines are the Minimal template's dark
+       scheme (grey scale in minimal-tokens.css); only brand/status hues are Mesha. */
+    --bg:#141A21; --bg-subtle:#141A21; --paper:#1C252E; --paper-2:#28323D;
+    --fg:#FFFFFF; --fg-muted:#919EAB; --fg-faint:#637381;
     --panel:var(--paper); --panel-2:var(--paper-2); --ink:var(--fg); --muted:var(--fg-muted); --faint:var(--fg-faint);
-    --line:#26332B; --line2:#1C261F; --line-strong:color-mix(in srgb,var(--muted) 36%,transparent);
-    /* Neutral alpha base for hovers/shadows = Mesha muted, so no blue-grey leaks into the shell. */
-    --g500-rgb:148 168 154;
+    --line:rgb(145 158 171/.2); --line2:rgb(145 158 171/.12); --line-strong:color-mix(in srgb,var(--muted) 36%,transparent);
+    /* Neutral alpha base for hovers/shadows = template grey-500. */
+    --g500-rgb:145 158 171;
     --g500:var(--grey-500); --g600:var(--grey-600);
     --primary:var(--brand); --primary-fg:var(--on-brand); --primary-soft:var(--brand-soft); --primary-ink:var(--brand);
     --info:#5B9BE8; --info-soft:rgba(91,155,232,.16); --info-ink:#9CC3F2;
@@ -21,7 +22,7 @@
     --success:#7CCB45; --success-soft:rgba(124,203,69,.17); --success-ink:#A6E07A;
     --violet:#A78BF5; --violet-soft:rgba(167,139,245,.16); --violet-ink:#C9B8FF;
     --brand:#7CCB45; --brand-d:#69BA37; --brand-soft:rgba(124,203,69,.15);
-    --sidebar:#0A0F0C; --sidebar-2:#18211A; --sidebar-ink:#9FB6A6; --sidebar-ink2:#eaf3ee;
+    --sidebar:#141A21; --sidebar-2:#1C252E; --sidebar-ink:#919EAB; --sidebar-ink2:#FFFFFF;
     --ok:#7CCB45; --okx:rgba(124,203,69,.17); --warn:#E0A53A; --warnx:rgba(224,165,58,.16); --danger:#F0635F; --dangerx:rgba(240,99,95,.16);
     --infox:rgba(91,155,232,.16); --purple:#A78BF5; --purplex:rgba(167,139,245,.16); --teal:#34C2A6; --tealx:rgba(52,194,166,.16);
     --gain-hi:#C6ECA3; --gain-mid:#8FD65A; --gain-lo:#4E8F27; --gain-under:#F0A19E;
@@ -50,12 +51,11 @@
      stays pastel in both modes) reads the same light tokens. */
   .kit-scheme-light,
   :root.light{
-    /* Mesha light green-tinted neutrals (locked, = origin/main). Minimal gives structure only;
-       hover/shadow alphas use Mesha muted. */
-    --bg:#F4F7F2; --bg-subtle:#F1F5EF; --paper:#FFFFFF; --paper-2:#F1F5EF;
-    --fg:#16201B; --fg-muted:#5E6E64; --fg-faint:#8A998F; --faint:var(--fg-faint);
-    --line:#E2E8E1; --line2:#EEF2ED; --line-strong:color-mix(in srgb,var(--muted) 36%,transparent);
-    --g500-rgb:94 110 100;
+    /* Template neutrals, light scheme (Ravi 2026-09-27). */
+    --bg:#FFFFFF; --bg-subtle:#F9FAFB; --paper:#FFFFFF; --paper-2:#F4F6F8;
+    --fg:#1C252E; --fg-muted:#637381; --fg-faint:#919EAB; --faint:var(--fg-faint);
+    --line:rgb(145 158 171/.2); --line2:rgb(145 158 171/.12); --line-strong:color-mix(in srgb,var(--muted) 36%,transparent);
+    --g500-rgb:145 158 171;
     --bg-neutral:var(--paper-2);
     --primary:var(--brand); --primary-fg:var(--on-brand); --primary-soft:var(--brand-soft); --primary-ink:var(--brand-d);
     --info:#2B66B8; --info-soft:#E5EFFB; --info-ink:#1F4C8C;
@@ -64,7 +64,7 @@
     --success:#3F9A28; --success-soft:#ECF7E0; --success-ink:#2F7A1C;
     --violet:#7A5BD1; --violet-soft:#EDE7FB; --violet-ink:#5B3FAE;
     --brand:#54A02C; --brand-d:#44831F; --brand-soft:#ECF7E0;
-    --sidebar:#ECF1E8; --sidebar-2:#DDE7D8; --sidebar-ink:#46564B; --sidebar-ink2:#13201A;
+    --sidebar:#FFFFFF; --sidebar-2:#F4F6F8; --sidebar-ink:#637381; --sidebar-ink2:#1C252E;
     --ok:#3F9A28; --okx:#ECF7E0; --warn:#B5791A; --warnx:#FBF1DE; --danger:#CC3D3D; --dangerx:#FBE6E6;
     --infox:#E5EFFB; --purple:#7A5BD1; --purplex:#EDE7FB; --teal:#13816F; --tealx:#DEF3EF;
     --gain-hi:#20470E; --gain-mid:#45871F; --gain-lo:#7BC13F; --gain-under:#D06A67;
@@ -756,12 +756,12 @@
 
   /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
      .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
-  .vr-thumb{width:86px;height:52px;border-radius:10px;background:linear-gradient(135deg,#1b2b1e,#233a4d 60%,#12211a);display:grid;place-items:center;color:#E9F1EA;flex:none;position:relative;border:1px solid var(--line)}
+  .vr-thumb{width:86px;height:52px;border-radius:10px;background:linear-gradient(135deg,#1b2b1e,#233a4d 60%,#12211a);display:grid;place-items:center;color:#FFFFFF;flex:none;position:relative;border:1px solid var(--line)}
   .vr-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}
   .vr-thumb img + .ic{filter:drop-shadow(0 1px 4px rgba(0,0,0,.7))}
   .vr-thumb .ic{width:18px;height:18px;position:relative;z-index:1}
   .vr-thumb .n{position:absolute;bottom:4px;right:5px;font-size:10px;font-weight:750;background:rgba(0,0,0,.62);color:#fff;border-radius:5px;padding:0 5px}
-  .vr-player{background:#0a0f0c;border:1px solid var(--line);border-radius:12px;width:100%;aspect-ratio:16/9;max-height:44vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
+  .vr-player{background:#000000;border:1px solid var(--line);border-radius:12px;width:100%;aspect-ratio:16/9;max-height:44vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
   /* position:absolute + inset:0 is what actually pins the video TO the stage. With plain
      width/height:100% the height does not resolve against an aspect-ratio parent, so the element
      fell back to the clip's intrinsic ratio -- a 720x1280 portrait proof rendered 852x1515 and
@@ -772,7 +772,7 @@
   .vr-image-proof{display:block;width:100%;height:100%;object-fit:contain;background:#000}
   .vr-player:fullscreen{max-height:none;width:100vw;height:100vh;height:100dvh;border-radius:0;border:0}
   .vr-player-empty{display:grid;place-items:center;color:var(--muted);font-size:13px;height:100%}
-  .vr-media-open{position:absolute;inset:0;border:0;background:linear-gradient(135deg,#0b120e,#14221a 54%,#101b16);color:#E9F1EA;display:grid;place-items:center;align-content:center;gap:12px;font-size:17px;font-weight:750;cursor:pointer}
+  .vr-media-open{position:absolute;inset:0;border:0;background:linear-gradient(135deg,#0b120e,#14221a 54%,#101b16);color:#FFFFFF;display:grid;place-items:center;align-content:center;gap:12px;font-size:17px;font-weight:750;cursor:pointer}
   .vr-media-open:hover{background:linear-gradient(135deg,#0d1711,#1a2d22 54%,#13211a)}
   /* Animal purchases -- a card recorded under the Procurement SOP questionnaire. Media column
      fixed, answers fill the rest in two flowing columns so up to thirty rows fit one screen. */
@@ -819,7 +819,7 @@
   .vr-media-open:disabled{cursor:wait;opacity:.78}
   .vr-media-open-mark{width:54px;height:54px;border-radius:999px;background:rgba(156,213,88,.18);border:1px solid rgba(156,213,88,.48);display:grid;place-items:center}
   .vr-media-open-mark .ic{width:26px;height:26px}
-  .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#E9F1EA;background:rgba(0,0,0,.5);border:0;z-index:2}
+  .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#FFFFFF;background:rgba(0,0,0,.5);border:0;z-index:2}
   .vr-fsbtn:hover{background:rgba(0,0,0,.72)}
   .vr-fsbtn .ic{width:15px;height:15px}
   .vr-proofstrip{display:flex;gap:9px;flex-wrap:wrap}
@@ -1317,13 +1317,13 @@
   .kpi[aria-disabled="true"]{cursor:default}
   .cbm-closed-table{width:100%;border-collapse:collapse;font-size:12.5px}
   .cbm-closed-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-  .cbm-closed-table td{padding:8px;border-bottom:1px solid #182219;vertical-align:top}
+  .cbm-closed-table td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
   /* The verification drawer carries five columns inside a 498px panel. Laid out as a normal table
      it overflowed and put ANIMAL -- the only column that identifies the goat -- off the left edge
      behind a horizontal scrollbar, leaving five visible rows of identical text. Each row is
      therefore a two-line CARD: identity on top, facts beneath, nothing to scroll sideways for. */
   .cbm-verify-table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
-  .cbm-verify-table td{padding:11px 14px;border-bottom:1px solid #182219;vertical-align:top;word-break:break-word}
+  .cbm-verify-table td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top;word-break:break-word}
   /* Both ear tags sit side by side, monospaced and tabular so a 15-digit RFID can be scanned down
      the column digit by digit -- the way someone actually matches a number to the tag in their hand.
      Proportional digits made every row look the same length and the eye had nothing to lock onto. */
@@ -1347,10 +1347,10 @@
   .cbm-cohort-note{margin:2px 0 10px;font-size:11.5px;color:var(--muted)}
   .cbm-cohort-detail-table{width:100%;border-collapse:collapse;font-size:12px}
   .cbm-cohort-detail-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-  .cbm-cohort-detail-table td{padding:6px 8px;border-bottom:1px solid #182219;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .cbm-cohort-detail-table td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-variant-numeric:tabular-nums}
   .cbm-queue-table{width:100%;border-collapse:collapse;font-size:12.5px}
   .cbm-queue-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
-  .cbm-queue-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted);white-space:nowrap}
+  .cbm-queue-table td{padding:9px 10px;border-bottom:1px solid var(--line);color:var(--muted);white-space:nowrap}
   .cbm-queue-table td:first-child{color:var(--ink)}
   .cbm-celllink{cursor:pointer}.cbm-celllink:hover{color:var(--brand)}
   .cbm-pill{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600}
@@ -1360,7 +1360,7 @@
   .cbm-queue-num{font-variant-numeric:tabular-nums}
   .cbm-cohort-table{width:100%;border-collapse:collapse;font-size:12.5px}
   .cbm-cohort-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
-  .cbm-cohort-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted)}
+  .cbm-cohort-table td{padding:9px 10px;border-bottom:1px solid var(--line);color:var(--muted)}
   .cbm-cohort-table td:first-child{color:var(--ink)}
   .cbm-cohort-num{font-variant-numeric:tabular-nums;text-align:right}.cbm-cohort-num.cbm-cohort-pending{color:var(--danger);font-weight:600}
   .cbm-cohort-title{margin:0 0 14px;font-size:13px;font-weight:650}
@@ -4154,11 +4154,11 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
 .herd-signals-page .gwh .sp{flex:1}
 
 /* --- Mock parity: three token bugs with page-wide reach (pixel judge, 2026-08-22) ---
-   1. NEUTRAL chips resolved to --bg (#0E1512) where the mock uses --panel-2 (#1D2820). Inside the
+   1. NEUTRAL chips resolved to --bg where the mock uses --panel-2. Inside the
       drawer -- whose background was also --bg -- a neutral chip was literally invisible: same
       colour on same colour. Hit every quiet dBm chip, Unmapped, No, OK, the baseline chip and the
       row-count chip.
-   2. The DRAWER surface used --bg where the mock uses --panel (#161F1A), so the drawer did not
+   2. The DRAWER surface used --bg where the mock uses --panel, so the drawer did not
       read as a raised surface over the page.
    3. Card titles rendered 14.5px/400 against the mock's 13.5px/720 -- on every card, every tab. */
 .herd-signals-page .tag.t-mut{background:var(--panel-2);color:var(--muted)}

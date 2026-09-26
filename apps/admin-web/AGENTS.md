@@ -196,6 +196,10 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   AnalyticsWidgetSummary tint in dark); lists use the template table anatomy (Card, Tabs + Label counts,
   toolbar, TableHeadCustom, pagination). `design:guard` rule `page-template-map` fails when a mapped page
   stops importing one of its listed template modules or a mapped file disappears.
+- **Neutrals are the template's, brand is Mesha (Ravi 2026-09-27).** Grey scale, surfaces, text,
+  divider and action values are exactly the MUI Minimal template's (dark bg `#141A21`, paper `#1C252E`);
+  primary/status hues stay Mesha. P0 `template-neutrals` pins `theme/theme-config.ts` +
+  `app/minimal-tokens.css`; P0 `retired-neutral-literal` bans the old green-tinted neutrals everywhere.
 - **Surfaces and colours come from the theme, in BOTH modes.** KPI/widget cards are the template
   widget summaries: `KpiCard` = EcommerceWidgetSummary (paper Card, chart right) by default and
   CourseWidgetSummary (icon corner) with an icon; AnalyticsWidgetSummary (pastel in dark too, exactly

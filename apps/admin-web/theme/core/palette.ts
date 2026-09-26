@@ -170,8 +170,6 @@ const basePalette: ColorSystemOptions['palette'] = {
 export const palette: SchemesRecord<ColorSystemOptions['palette']> = {
   light: {
     ...basePalette,
-    divider: surfaces.light.divider,
-    TableCell: { border: surfaces.light.divider },
     text: text.light,
     background: background.light,
     action: action('light'),
@@ -179,8 +177,6 @@ export const palette: SchemesRecord<ColorSystemOptions['palette']> = {
   dark: {
     ...basePalette,
     ...dark,
-    divider: surfaces.dark.divider,
-    TableCell: { border: surfaces.dark.divider },
     text: text.dark,
     background: background.dark,
     action: action('dark'),

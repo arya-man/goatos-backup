@@ -24,7 +24,6 @@ export type ThemeConfig = {
 export type MeshaSurfaces = {
   background: { default: string; paper: string; neutral: string };
   text: { primary: string; secondary: string; disabled: string };
-  divider: string;
   sidebar: string;
 };
 
@@ -106,20 +105,19 @@ export const themeConfig: ThemeConfig = {
       darker: '#8F1D1D',
       contrastText: '#FFFFFF',
     },
-    // Mesha has no cool-grey scale: its neutrals are green-tinted. Each Minimal grey step maps to the
-    // nearest locked Mesha neutral (app/mesha-theme.css), light to dark, so action/hover/selected,
-    // outlines and the backdrop (all derived from grey here) stay on the Mesha palette.
+    // Template greys (Ravi 2026-09-27): neutrals are exactly the Minimal template's; only the brand
+    // and status hues above/below are Mesha. design:guard `template-neutrals` pins these values.
     grey: {
-      50: '#F4F7F2', // --bg (light)
-      100: '#F1F5EF', // --panel-2 (light)
-      200: '#ECF1E8', // --sidebar (light)
-      300: '#E2E8E1', // --line (light)
-      400: '#9FB6A6', // --sidebar-ink (dark)
-      500: '#94A89A', // --muted (dark)
-      600: '#6E8377', // --faint (dark)
-      700: '#46564B', // --sidebar-ink (light)
-      800: '#1D2820', // --panel-2 (dark)
-      900: '#0E1512', // --bg (dark)
+      50: '#FCFDFD',
+      100: '#F9FAFB',
+      200: '#F4F6F8',
+      300: '#DFE3E8',
+      400: '#C4CDD5',
+      500: '#919EAB',
+      600: '#637381',
+      700: '#454F5B',
+      800: '#1C252E',
+      900: '#141A21',
     },
     common: {
       black: '#000000',
@@ -177,19 +175,21 @@ export const themeConfig: ThemeConfig = {
       contrastText: '#08130B',
     },
   },
-  /** Mesha surfaces + ink per scheme (app/mesha-theme.css). */
+  /**
+   * Surfaces + ink per scheme: exactly the template's (theme/core/palette.ts text/background, from the
+   * grey scale above). The divider is derived like the template (grey-500 at 20%) in core/palette.ts.
+   * The nav sits on background.default, as in the template.
+   */
   surfaces: {
     light: {
-      background: { default: '#F4F7F2', paper: '#FFFFFF', neutral: '#F1F5EF' },
-      text: { primary: '#16201B', secondary: '#5E6E64', disabled: '#8A998F' },
-      divider: '#E2E8E1',
-      sidebar: '#ECF1E8',
+      background: { default: '#FFFFFF', paper: '#FFFFFF', neutral: '#F4F6F8' },
+      text: { primary: '#1C252E', secondary: '#637381', disabled: '#919EAB' },
+      sidebar: '#FFFFFF',
     },
     dark: {
-      background: { default: '#0E1512', paper: '#161F1A', neutral: '#1D2820' },
-      text: { primary: '#E9F1EA', secondary: '#94A89A', disabled: '#6E8377' },
-      divider: '#26332B',
-      sidebar: '#0A0F0C',
+      background: { default: '#141A21', paper: '#1C252E', neutral: '#28323D' },
+      text: { primary: '#FFFFFF', secondary: '#919EAB', disabled: '#637381' },
+      sidebar: '#141A21',
     },
   },
 };

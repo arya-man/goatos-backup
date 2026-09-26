@@ -29,8 +29,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { muiPaletteLockFindings } from "./lib/mui-palette-lock.mjs";
-import { BRAND_LOCK, TOKEN_FILE, isDriftRemoval, minimalGreyFindings, primaryStateFindings, themeLockFindings } from "./lib/design-palette.mjs";
+import { muiPaletteLockFindings, templateNeutralFindings } from "./lib/mui-palette-lock.mjs";
+import { BRAND_LOCK, TOKEN_FILE, isDriftRemoval, retiredNeutralFindings, primaryStateFindings, themeLockFindings } from "./lib/design-palette.mjs";
 import {
   RATCHET_CHECKS,
   cssDeclFindings,
@@ -146,7 +146,8 @@ const CHECKS = {
   "theme-token-drift": { tier: "p0", why: "a colour value in the theme files was removed vs origin/main" },
   "brand-lock": { tier: "p0", why: "a locked Mesha brand/neutral token (dark or light) changed or is missing in app/mesha-theme.css" },
   "non-brand-selected": { tier: "p0", why: "a primary/selected/active state must fill with var(--brand)/var(--primary) and use var(--on-brand) text" },
-  "minimal-grey-literal": { tier: "p0", why: "Minimal cool greys are banned everywhere (token file and inline SVG data URIs included): use var(--grey-N) / rgb(var(--gN-rgb)/a), which map to the locked Mesha neutrals" },
+  "retired-neutral-literal": { tier: "p0", why: "the old Mesha green-tinted neutrals are retired (Ravi 2026-09-27): neutrals are the template greys; use the theme (background/text/divider/grey) or var(--grey-N) / rgb(var(--g500-rgb)/a)" },
+  "template-neutrals": { tier: "p0", why: "theme/theme-config.ts grey + surfaces/ink and app/minimal-tokens.css --grey-N must be exactly the MUI Minimal template's values" },
   "light-surface-literal": { tier: "p0", why: "a white/near-white surface literal (common.white, #fff, grey.50-200) is a light box in dark mode; use the theme surface (Card/Paper = background.paper) or a varAlpha tint of a palette channel. Only the template AnalyticsWidgetSummary may" },
   "legacy-css-mui-colour": { tier: "p0", why: "a legacy stylesheet (frame/minimal-theme/mesha-theme/menu-surface/globals.css) selects a .Mui* class and sets a colour/background/border; MUI colours come from the theme palette only" },
   "google-fonts-link": { tier: "p0", why: "fonts are self-hosted via next/font; no Google Fonts link" },
@@ -194,7 +195,7 @@ function runGuard(root, { themeDiff }) {
       if (FOREIGN_PALETTE.test(line)) findings.push(finding("foreign-palette", file.rel, index + 1, line));
       if (GOOGLE_FONTS.test(line)) findings.push(finding("google-fonts-link", file.rel, index + 1, line));
     });
-    for (const hit of minimalGreyFindings(file.rel, text)) findings.push(finding("minimal-grey-literal", file.rel, hit.line, hit.snippet));
+    for (const hit of retiredNeutralFindings(file.rel, text)) findings.push(finding("retired-neutral-literal", file.rel, hit.line, hit.snippet));
     if (STYLE_EXT.has(ext) || file.rel.endsWith("-styles.tsx")) {
       for (const hit of primaryStateFindings(text)) findings.push(finding("non-brand-selected", file.rel, hit.line, hit.snippet));
     }
@@ -437,6 +438,7 @@ function runGuard(root, { themeDiff }) {
   // allowed template code and are NOT in SCAN_DIRS, but their palette is still the locked Mesha one:
   // brand/surface hexes must match app/mesha-theme.css and no Minimal default brand hex may survive.
   for (const msg of muiPaletteLockFindings(root)) findings.push(finding("brand-lock", "theme/theme-config.ts", 1, msg));
+  for (const msg of templateNeutralFindings(root)) findings.push(finding("template-neutrals", "theme/theme-config.ts", 1, msg));
 
   if (themeDiff) {
     for (const theme of THEME_FILES) {
@@ -659,6 +661,7 @@ async function selfTest() {
     mkdirSync(join(root, dirname(rel)), { recursive: true });
     writeFileSync(join(root, rel), text);
   };
+  put("theme/theme-config.ts", "grey: {\n      50: '#F4F7F2',\n    },\n  surfaces: {}\n");
   put("components/app/page-header.tsx", 'export function PageHeader() { return null; }\n');
   put("components/kit/index.ts", 'export { BarList } from "./bar-list";\n');
   put("components/bad.tsx", [
@@ -693,7 +696,7 @@ async function selfTest() {
     '<Card sx={{ backgroundColor: "common.white" }} />',
   ].join("\n"));
   put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n");
-  put("components/bad.css", ".x { color: #abcdef; }\n.g{background:rgb(244 246 248)}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");
+  put("components/bad.css", ".x { color: #abcdef; }\n.g{background:#0E1512}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");
   // Template code: ratchet-tier sizes are exempt, a foreign palette is still P0.
   put("components/minimal/tpl.tsx", 'const t = <div style={{ fontSize: 13, borderRadius: 10, padding: 12 }} />;\n');
   put("components/app/bad.tsx", 'import styles from "./bad.module.css";\nexport function Bad() { return <div className={styles.x} />; }\n');

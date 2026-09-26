@@ -57,13 +57,12 @@
   /* Page frame (Minimal Container lg, compactLayout). */
   --page-max:1200px; --page-px-xs:16px; --page-px-sm:24px; --page-px-lg:40px; --page-pt:8px; --page-pb:64px;
   --card-head-pad:24px 24px 0;
-  /* Grey scale. Mesha has no cool-grey scale, so each Minimal grey step is the nearest locked Mesha
-     neutral (app/mesha-theme.css), exactly as theme/theme-config.ts palette.grey. The Minimal
-     cool-grey values are banned everywhere (design:guard minimal-grey-literal). */
-  --grey-50:#F4F7F2; --grey-100:#F1F5EF; --grey-200:#ECF1E8; --grey-300:#E2E8E1; --grey-400:#9FB6A6;
-  --grey-500:#94A89A; --grey-600:#6E8377; --grey-700:#46564B; --grey-800:#1D2820; --grey-900:#0E1512;
+  /* Grey scale: exactly the Minimal template's (theme/theme-config.ts palette.grey; design:guard
+     template-neutrals). The retired green-tinted neutrals are banned (retired-neutral). */
+  --grey-50:#FCFDFD; --grey-100:#F9FAFB; --grey-200:#F4F6F8; --grey-300:#DFE3E8; --grey-400:#C4CDD5;
+  --grey-500:#919EAB; --grey-600:#637381; --grey-700:#454F5B; --grey-800:#1C252E; --grey-900:#141A21;
   --g300:var(--grey-300); --g700:var(--grey-700);
-  --g400-rgb:159 182 166; --g500-rgb:148 168 154; --g800-rgb:29 40 32;
+  --g400-rgb:196 205 213; --g500-rgb:145 158 171; --g800-rgb:28 37 46;
   /* Kanban (sections/kanban): column 336 wide. */
   --kanban-col-w:336px;
   --header-h:64px; --header-h-lg:72px;

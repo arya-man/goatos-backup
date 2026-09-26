@@ -1,40 +1,47 @@
 // Palette policy for design:guard (scripts/check-design-system.mjs).
 //
-// - BRAND_LOCK: Mesha green/primary/accent values plus the locked dark backgrounds. They must stay
-//   verbatim in app/mesha-theme.css (P0).
-// - MINIMAL_GREYS: the MUI Minimal cool-grey scale (template theme/core/palette.ts). BANNED in every
-//   file, the token file included: app/minimal-tokens.css maps --grey-N / --gN-rgb onto the locked
-//   Mesha neutrals (same steps as theme/theme-config.ts palette.grey), and everything else uses
-//   var(--grey-N) or rgb(var(--gN-rgb)/alpha). Hex, rgb() and bare-channel spellings are caught,
-//   so a colour cannot be re-spelled past the check.
-// - THEME_LOCK: per-theme token -> exact value in app/mesha-theme.css (= origin/main's Mesha
-//   palette). Brand AND the green-tinted neutrals are locked in both themes; Minimal supplies
-//   structure/motion only (P0 brand-lock, not waivable).
+// Ravi 2026-09-27: neutrals are the MUI Minimal TEMPLATE's; brand + status hues stay Mesha.
+// - BRAND_LOCK: Mesha brand greens plus the template dark/light surfaces. They must stay verbatim in
+//   app/mesha-theme.css (P0).
+// - TEMPLATE_GREYS / TEMPLATE_SURFACES: the template grey scale (theme/core/palette.ts) and the
+//   surfaces/ink it derives. theme/theme-config.ts and app/minimal-tokens.css must carry exactly
+//   these (P0 template-neutrals, scripts/lib/mui-palette-lock.mjs).
+// - RETIRED_MESHA_NEUTRALS: the old green-tinted neutral scale. BANNED in every file (P0
+//   retired-neutral-literal); hex, rgb() and bare-channel spellings are caught.
+// - THEME_LOCK: per-theme token -> exact value in app/mesha-theme.css (P0 brand-lock).
 // - PRIMARY_STATE: selected/primary/active selectors must paint with brand tokens (P0 non-brand-selected).
-// - RETIRED_NEUTRALS: legacy avatar fills only (the green neutrals are back and locked).
+// - RETIRED_NEUTRALS: colours whose removal from the theme files is not drift.
 
 export const TOKEN_FILE = "app/minimal-tokens.css";
 
+export const TEMPLATE_GREYS = {
+  50: "#FCFDFD", 100: "#F9FAFB", 200: "#F4F6F8", 300: "#DFE3E8", 400: "#C4CDD5",
+  500: "#919EAB", 600: "#637381", 700: "#454F5B", 800: "#1C252E", 900: "#141A21",
+};
+
+export const TEMPLATE_SURFACES = {
+  light: { background: { default: "#FFFFFF", paper: "#FFFFFF", neutral: "#F4F6F8" }, text: { primary: "#1C252E", secondary: "#637381", disabled: "#919EAB" } },
+  dark: { background: { default: "#141A21", paper: "#1C252E", neutral: "#28323D" }, text: { primary: "#FFFFFF", secondary: "#919EAB", disabled: "#637381" } },
+};
+
 export const BRAND_LOCK = [
   // brand greens / primary
-  "#7CCB45", "#69BA37", "#54A02C", "#44831F", "#08130B",
-  // locked dark backgrounds + neutrals
-  "#0E1512", "#161F1A", "#1D2820", "#0A0F0C", "#E9F1EA", "#94A89A", "#6E8377", "#26332B", "#1C261F",
-  // locked light neutrals
-  "#F4F7F2", "#F1F5EF", "#16201B", "#5E6E64", "#8A998F", "#E2E8E1", "#EEF2ED", "#ECF7E0",
+  "#7CCB45", "#69BA37", "#54A02C", "#44831F", "#08130B", "#ECF7E0",
+  // template surfaces + ink (dark, light)
+  "#141A21", "#1C252E", "#28323D", "#919EAB", "#637381", "#F4F6F8", "#FFFFFF",
 ];
 
 export const THEME_LOCK = {
   dark: {
     "--logo": "#7CCB45", "--brand": "#7CCB45", "--brand-d": "#69BA37", "--on-brand": "#08130B",
-    "--bg": "#0E1512", "--paper": "#161F1A", "--paper-2": "#1D2820", "--fg": "#E9F1EA", "--fg-muted": "#94A89A",
-    "--fg-faint": "#6E8377", "--line": "#26332B", "--line2": "#1C261F", "--sidebar": "#0A0F0C",
+    "--bg": "#141A21", "--paper": "#1C252E", "--paper-2": "#28323D", "--fg": "#FFFFFF", "--fg-muted": "#919EAB",
+    "--fg-faint": "#637381", "--line": "rgb(145 158 171/.2)", "--sidebar": "#141A21", "--g500-rgb": "145 158 171",
     "--primary": "var(--brand)", "--primary-fg": "var(--on-brand)",
   },
   light: {
     "--brand": "#54A02C", "--brand-d": "#44831F", "--brand-soft": "#ECF7E0", "--on-brand": "#FFFFFF",
-    "--bg": "#F4F7F2", "--paper": "#FFFFFF", "--paper-2": "#F1F5EF", "--fg": "#16201B", "--fg-muted": "#5E6E64",
-    "--fg-faint": "#8A998F", "--line": "#E2E8E1", "--line2": "#EEF2ED", "--sidebar": "#ECF1E8",
+    "--bg": "#FFFFFF", "--paper": "#FFFFFF", "--paper-2": "#F4F6F8", "--fg": "#1C252E", "--fg-muted": "#637381",
+    "--fg-faint": "#919EAB", "--line": "rgb(145 158 171/.2)", "--sidebar": "#FFFFFF", "--g500-rgb": "145 158 171",
     "--primary": "var(--brand)", "--primary-fg": "var(--on-brand)",
   },
 };
@@ -78,13 +85,16 @@ export function primaryStateFindings(text) {
   return out;
 }
 
-export const MINIMAL_GREYS = {
-  "grey-50": "#FCFDFD", "grey-100": "#F9FAFB", "grey-200": "#F4F6F8", "grey-300": "#DFE3E8", "grey-400": "#C4CDD5",
-  "grey-500": "#919EAB", "grey-600": "#637381", "grey-700": "#454F5B", "grey-800": "#1C252E", "grey-900": "#141A21",
-  "grey-neutral-dark": "#28323D",
-};
+// The pre-2026-09-27 Mesha green-tinted neutral scale (surfaces, ink, lines, grey mapping).
+export const RETIRED_MESHA_NEUTRALS = [
+  "#0E1512", "#121A16", "#161F1A", "#1D2820", "#0A0F0C", "#18211A", "#E9F1EA", "#94A89A", "#6E8377",
+  "#26332B", "#1C261F", "#9FB6A6", "#EAF3EE", "#F4F7F2", "#F1F5EF", "#16201B", "#5E6E64", "#8A998F",
+  "#E2E8E1", "#EEF2ED", "#ECF1E8", "#DDE7D8", "#46564B", "#13201A", "#182219",
+];
+const RETIRED_CHANNELS = ["148 168 154", "94 110 100", "159 182 166", "29 40 32"];
 
 export const RETIRED_NEUTRALS = new Set([
+  ...RETIRED_MESHA_NEUTRALS.map((h) => h.toLowerCase()),
   "#edf2ea", "#cfd9cc", "#33463a",
   // legacy .av avatar fills, replaced by kit Avatar (grey-300 / grey-700)
   "#26384d", "#2e4a63",
@@ -98,14 +108,11 @@ export const RETIRED_NEUTRALS = new Set([
 ]);
 
 const hexToTriple = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-const GREY_HEX = new RegExp(`#(?:${Object.values(MINIMAL_GREYS).map((h) => h.slice(1)).join("|")})\\b`, "i");
-const GREY_RGB = new RegExp(
-  `rgba?\\(\\s*(?:${Object.values(MINIMAL_GREYS).map((h) => hexToTriple(h).join("[\\s,]+")).join("|")})\\b`,
-);
-// A bare channel triple (`--x:145 158 171`) outside rgb().
-const GREY_CHANNELS = new RegExp(
-  `:\\s*(?:${Object.values(MINIMAL_GREYS).map((h) => hexToTriple(h).join("\\s+")).join("|")})\\s*[;}]`,
-);
+const RETIRED_TRIPLES = [...RETIRED_MESHA_NEUTRALS.map((h) => hexToTriple(h).join(" ")), ...RETIRED_CHANNELS];
+const RETIRED_HEX = new RegExp(`#(?:${RETIRED_MESHA_NEUTRALS.map((h) => h.slice(1)).join("|")})\\b`, "i");
+const RETIRED_RGB = new RegExp(`rgba?\\(\\s*(?:${RETIRED_TRIPLES.map((t) => t.split(" ").join("[\\s,]+")).join("|")})\\b`);
+// A bare channel triple (`--x:148 168 154`) outside rgb().
+const RETIRED_BARE = new RegExp(`:\\s*(?:${RETIRED_TRIPLES.map((t) => t.split(" ").join("\\s+")).join("|")})\\s*[;}]`);
 
 // Base64 payloads are [A-Za-z0-9+/=]; URL-encoded payloads carry spaces and quotes, so they run to
 // the closing `"`, backtick or `)` (or the end of the line).
@@ -129,17 +136,17 @@ export function withDecodedDataUris(text) {
   return decoded.length ? `${text}\n${decoded.join("\n")}` : text;
 }
 
-/** True when a line spells a Minimal grey as a literal (hex, rgb()/rgba(), or bare channels), data URIs decoded. */
-export function hasMinimalGreyLiteral(line) {
-  const src = withDecodedDataUris(line);
-  return GREY_HEX.test(src) || GREY_RGB.test(src) || GREY_CHANNELS.test(src);
+/** True when a line spells a retired Mesha neutral (hex, rgb()/rgba(), or bare channels), data URIs decoded. */
+export function hasRetiredNeutralLiteral(line) {
+  const src = withDecodedDataUris(line).replace(/%23([0-9a-f]{6})\b/gi, "#$1");
+  return RETIRED_HEX.test(src) || RETIRED_RGB.test(src) || RETIRED_BARE.test(src);
 }
 
-/** Minimal cool greys are banned everywhere, the token file included. */
-export function minimalGreyFindings(rel, text) {
+/** The retired green-tinted neutrals are banned everywhere, the token file included. */
+export function retiredNeutralFindings(rel, text) {
   const hits = [];
   text.split("\n").forEach((line, i) => {
-    if (hasMinimalGreyLiteral(line)) hits.push({ line: i + 1, snippet: line });
+    if (hasRetiredNeutralLiteral(line)) hits.push({ line: i + 1, snippet: line });
   });
   return hits;
 }

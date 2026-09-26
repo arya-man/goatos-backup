@@ -351,6 +351,8 @@ submit — is a write path and inherits the repo idempotency contract. Check:
 
 ## Theme colours (admin-web checklist)
 
+- [ ] Neutrals are the template greys/surfaces (P0 `template-neutrals`); no retired green neutral
+  (`#0E1512`, `#161F1A`, `#94A89A`, `#F4F7F2` …, P0 `retired-neutral-literal`).
 - [ ] No surface literal `common.white` / `#fff` / `grey.50-200` in sx (P0 `light-surface-literal`):
   a KPI/widget card is `KpiCard` (template Ecommerce/Course widget summary on the theme paper).
 - [ ] No legacy stylesheet rule selecting `.Mui*` that sets colour/background/border

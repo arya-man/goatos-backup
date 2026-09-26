@@ -4,8 +4,7 @@ import { varAlpha } from 'minimal-shared/utils';
 
 // ----------------------------------------------------------------------
 
-// Mesha: template bullet greys mapped to the locked Mesha line colours (--line dark / --line2 light).
-export const bulletColor = { dark: '#26332B', light: '#EEF2ED' };
+export const bulletColor = { dark: '#282F37', light: '#EDEFF2' };
 
 function colorVars(theme: Theme, variant?: 'vertical' | 'mini' | 'horizontal') {
   const {

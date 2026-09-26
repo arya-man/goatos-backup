@@ -184,6 +184,8 @@ chapters below; do not review from the summary.
   refuses recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts — charts are Apex (via
   `components/minimal/chart` or `components/kit`) or the two inline helpers (`svg-bars`, `svg-series`).
   Full pattern → guard table: `docs/design/README.md` §5b.
+- Green-tinted neutrals or hand-picked greys: neutrals are the template's (P0 `template-neutrals`,
+  `retired-neutral-literal`).
 - Pastel/white KPI boxes in dark mode and legacy CSS recolouring MUI parts (R2). KPI/widget cards are the template
   widget summaries: `KpiCard` = EcommerceWidgetSummary (paper Card, chart right) by default and
   CourseWidgetSummary (icon corner) with an icon; AnalyticsWidgetSummary (pastel in dark too, exactly

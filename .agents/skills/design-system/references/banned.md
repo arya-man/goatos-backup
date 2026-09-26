@@ -57,4 +57,4 @@ into its summary with `--with-webview-static`.
 Waivers: `apps/admin-web/visual-baselines/{stories,routes}/waivers.json`, key
 `check|context|target`; rewritten only by the lane's `--update-baseline`.
 
-Minimal greys (`--grey-50…900`, `#F4F6F8` = `--grey-200`) are tokens written only in `app/minimal-tokens.css`; anywhere else use `var(--grey-N)` / `rgb(var(--gN-rgb)/a)` (P0 `minimal-grey-literal`).
+Neutrals are the MUI Minimal TEMPLATE's (Ravi 2026-09-27): grey scale `--grey-50…900` = `#FCFDFD…#141A21`, dark surfaces `#141A21` / paper `#1C252E` / neutral `#28323D`, light `#FFFFFF` / neutral `#F4F6F8`, text and divider as the template derives them; only brand + status hues are Mesha. `theme/theme-config.ts` and `app/minimal-tokens.css` must carry exactly those values (P0 `template-neutrals`); the retired green-tinted neutrals (`#0E1512`, `#161F1A`, `#94A89A`, `#F4F7F2` …) fail everywhere (P0 `retired-neutral-literal`). Write greys as `var(--grey-N)` / `rgb(var(--g500-rgb)/a)` or theme tokens.

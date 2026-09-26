@@ -21,6 +21,7 @@ test("MUI theme palette carries the locked Mesha palette (reads theme-config)", 
   assert.deepEqual(themeConfig.surfaces.light.background, { default: L.bg, paper: L.paper, neutral: L.neutral });
   assert.deepEqual(themeConfig.surfaces.dark.background, { default: D.bg, paper: D.paper, neutral: D.neutral });
   assert.equal(themeConfig.surfaces.dark.sidebar, D.sidebar);
+  assert.equal(themeConfig.surfaces.light.sidebar, L.sidebar);
   assert.equal(themeConfig.modeStorageKey, "mesha.shell.theme");
   assert.equal(themeConfig.cssVariables.colorSchemeSelector, "data-theme");
 });
@@ -36,10 +37,10 @@ test("the lock fails on Minimal colours anywhere under app/ and components/, dat
     cpSync(join(appRoot, "theme", "theme-config.ts"), join(root, "theme", "theme-config.ts"));
     cpSync(join(appRoot, "app", "mesha-theme.css"), join(root, "app", "mesha-theme.css"));
     assert.deepEqual(muiPaletteLockFindings(root), []);
-    // The old Minimal grey scale in the token file (Judge 3 P1-B).
-    writeFileSync(join(root, "app", "minimal-tokens.css"), ":root{--grey-500:#919EAB;--g800-rgb:28 37 46}");
-    // A Minimal grey in a kit module.
-    writeFileSync(join(root, "components", "kit", "avatar.module.css"), ".a{background:rgb(69 79 91)}");
+    // A retired green neutral in the token file.
+    writeFileSync(join(root, "app", "minimal-tokens.css"), ":root{--grey-500:#94A89A;--g800-rgb:29 40 32}");
+    // A retired green neutral in a kit module.
+    writeFileSync(join(root, "components", "kit", "avatar.module.css"), ".a{background:rgb(29 40 32)}");
     // The template paper mixin: Minimal cyan inside a base64 SVG (Judge 3 P1-A).
     const cyan = Buffer.from('<svg><stop stop-color="#00B8D9"/></svg>').toString("base64");
     writeFileSync(join(root, "theme", "core", "mixins", "paper.ts"), `const s = 'data:image/svg+xml;base64,${cyan}';`);
@@ -47,14 +48,13 @@ test("the lock fails on Minimal colours anywhere under app/ and components/, dat
     writeFileSync(join(root, "components", "kit", "select.module.css"), `.s{background:url("data:image/svg+xml,%3Csvg stroke='%23123456'%3E%3C/svg%3E")}`);
     // The template empty-state illustration in public/.
     mkdirSync(join(root, "public", "minimal"), { recursive: true });
-    writeFileSync(join(root, "public", "minimal", "ic-content.svg"), '<svg><path fill="#DFE3E8"/></svg>');
+    writeFileSync(join(root, "public", "minimal", "ic-content.svg"), '<svg><path fill="#E2E8E1"/></svg>');
     const out = muiPaletteLockFindings(root).join("\n");
-    assert.match(out, /app\/minimal-tokens\.css carries a Minimal cool-grey value/);
-    assert.match(out, /app\/minimal-tokens\.css carries #919EAB/);
-    assert.match(out, /components\/kit\/avatar\.module\.css carries a Minimal cool-grey value/);
+    assert.match(out, /app\/minimal-tokens\.css carries a retired Mesha green neutral/);
+    assert.match(out, /components\/kit\/avatar\.module\.css carries a retired Mesha green neutral/);
     assert.match(out, /theme\/core\/mixins\/paper\.ts carries Minimal default colour #00B8D9/);
     assert.match(out, /components\/kit\/select\.module\.css carries #123456/);
-    assert.match(out, /public\/minimal\/ic-content\.svg carries a Minimal cool-grey value/);
+    assert.match(out, /public\/minimal\/ic-content\.svg carries a retired Mesha green neutral/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
