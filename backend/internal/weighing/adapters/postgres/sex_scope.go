@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
@@ -186,13 +187,17 @@ func resolveSexScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, p
 		return out, nil
 	}
 
-	q := sexScopeQuery
+	// Bound, so the six placeholders and the six arguments are checked against each other.
+	bound, err := sqlbind.Bind(sexScopeQuery, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime)
+	if err != nil {
+		return SexScope{}, err
+	}
 
 	// The two bucket arrays are aggregated under the SAME ORDER BY over the same rows, so index
 	// i names one bucket in both. Built any other way — one DISTINCT and its partner not, or two
 	// differently ordered aggregates — every index would silently shift and pair a location with
 	// another bucket's partition.
-	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime).Scan(
+	if err := pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(
 		&out.Tags, &out.AllTimeTags, &out.LocationIDs, &out.PartitionLabels,
 	); err != nil {
 		return SexScope{}, err

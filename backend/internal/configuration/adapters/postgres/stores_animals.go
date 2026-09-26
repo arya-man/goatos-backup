@@ -260,9 +260,11 @@ func (stageStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) erro
 // tenant). Each dimension row names exactly one value ('all' is the wildcard), so an exact,
 // case-insensitive match is the whole test. Drafts and retired versions do not hold a row.
 const sqlPublishedRuleUsage = `
-SELECT count(DISTINCT d.rule_id) FROM protocol_rule_dimensions d
-JOIN protocol_versions v ON v.tenant_id = d.tenant_id AND v.protocol_version_id = d.protocol_version_id AND v.status = 'published'
-WHERE d.tenant_id = $1 AND lower(btrim(d.%[1]s)) = lower(btrim(%[2]s))`
+SELECT count(*) FROM (
+  SELECT DISTINCT d.rule_id FROM protocol_rule_dimensions d
+  JOIN protocol_versions v ON v.tenant_id = d.tenant_id AND v.protocol_version_id = d.protocol_version_id AND v.status = 'published'
+  WHERE d.tenant_id = $1 AND lower(btrim(d.%[1]s)) = lower(btrim(%[2]s))
+) rules`
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
 const (
