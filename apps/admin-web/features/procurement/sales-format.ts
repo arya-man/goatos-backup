@@ -32,6 +32,18 @@ export function quantityAtRate(quantity: number | null | undefined, unit: string
   return `${amount} at ${inr(rate, Number.isInteger(rate) ? 0 : 2)}${u ? `/${u}` : ""}`;
 }
 
+/**
+ * The breed worth showing beside a product, or null when there is none. A manure line's "breed" is
+ * only its own name again, so the drawer, the ledger and the price chart read "Manure · Manure"
+ * (seen 2026-09-26). The phone says it once (Android productAndBreed); so does the web.
+ */
+export function breedBeyondProduct(product: string | null | undefined, breed: string | null | undefined): string | null {
+  const b = (breed ?? "").trim();
+  if (b === "") return null;
+  if (b.toLowerCase() === (product ?? "").trim().toLowerCase()) return null;
+  return b;
+}
+
 /** Indian-grouped, one decimal at most, whole numbers without a fraction: 2000 -> "2,000", 12.5 -> "12.5". */
 function num1(value: number): string {
   return value.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 1 });

@@ -14,6 +14,7 @@ import {
   num,
   numCompact,
   numCompactWhole,
+  breedBeyondProduct,
   quantityAtRate,
   resolveFarm,
   trimEmptyMonthlyStart,
@@ -257,4 +258,18 @@ test("a line sold by the unit shows its quantity and rate, as the phone does", (
   assert.equal(quantityAtRate(12, "kg", null), "12 kg");
   assert.equal(quantityAtRate(null, "", null), "");
   assert.equal(quantityAtRate(undefined, undefined, undefined), "");
+});
+
+test("a product whose breed is only its own name says it once (Manure, not Manure · Manure)", () => {
+  assert.equal(breedBeyondProduct("Manure", "Manure"), null);
+  assert.equal(breedBeyondProduct("manure", " Manure "), null);
+  assert.equal(breedBeyondProduct("Goat", "Beetal"), "Beetal");
+  assert.equal(breedBeyondProduct("Goat", ""), null);
+  assert.equal(breedBeyondProduct("Goat", null), null);
+  // Every place the web shows a product beside its breed goes through the helper, so no screen
+  // can put "Manure" twice: the drawer rollup + lines table, the Sold ledger, the price-band chart.
+  const drawer = readFileSync(new URL("./sales-record-drawer.tsx", import.meta.url), "utf8");
+  const sold = readFileSync(new URL("./sales-sold.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(drawer, /\{\s*(line|deal)\.breed\s*\}|cell\(field\("breed"\), deal\.breed\)/);
+  assert.doesNotMatch(sold, /dealCell\(deal\.breed\)|`\$\{band\.breed\} · /);
 });

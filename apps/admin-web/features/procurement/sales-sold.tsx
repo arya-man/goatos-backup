@@ -35,6 +35,7 @@ import {
   num,
   numCompactWhole,
   trimEmptyMonthlyStart,
+  breedBeyondProduct,
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SALES_DEFAULT_FARM, SalesFarmToggle, SalesPageHeader, hrefWithQuery, readSalesParkScope } from "./sales-chrome";
@@ -256,7 +257,9 @@ function SoldSections({
             <HBarList
               data={overview.price_bands.map((band) => ({
                 key: `${band.product_type}|${band.breed}`,
-                label: `${band.breed} · ${seriesLabel(band.product_type)}`,
+                label: [breedBeyondProduct(band.product_type, band.breed), seriesLabel(band.product_type)]
+                  .filter(Boolean)
+                  .join(" · "),
                 value: Math.round(band.avg_price_per_kg),
                 display: inr(Math.round(band.avg_price_per_kg)),
               }))}
@@ -480,7 +483,7 @@ export async function SalesSoldPage({
                       {dealCell(deal.farm)}
                       {dealCell(<b>{deal.buyer_name}</b>)}
                       {dealCell(deal.product_type)}
-                      {dealCell(deal.breed)}
+                      {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? none)}
                       {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "num")}
                       {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
                       {dealCell(inr(deal.sales_value), "num")}
