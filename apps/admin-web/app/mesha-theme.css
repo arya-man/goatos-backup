@@ -2117,9 +2117,6 @@
   .drive-card .chips{margin-top:0;padding-top:0;border-top:0}
   .dhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .dhd b{font-size:14px}
-  .dring .rbg{fill:none;stroke:var(--line2);stroke-width:7}
-  .dring .rfg{fill:none;stroke:var(--brand);stroke-width:7;stroke-linecap:round}
-  .rtx{fill:var(--ink);font-size:15px;font-weight:700;font-family:ui-monospace}
   .pill{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;background:#1e2822;color:var(--muted)}
   .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
   .sc{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}

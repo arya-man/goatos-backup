@@ -12,13 +12,20 @@ import MuiGrid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
 import Typography from "@mui/material/Typography";
-import Link from "@/components/no-prefetch-link";
+import Button from "@mui/material/Button";
+import CardHeader from "@mui/material/CardHeader";
+import TextField from "@mui/material/TextField";
+import InputAdornment from "@mui/material/InputAdornment";
+import LinearProgress from "@mui/material/LinearProgress";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { LinkButton } from "@/components/minimal/link-button";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { PageHeader } from "@/components/app/page-header";
 import { type AdminUiPageContract, copy, optionLabel } from "@/lib/admin-ui-contract";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
-import { fmtDate as fmtIstDate } from "@/lib/format";
+import { fmtDate as fmtIstDate, humanizeEnum, joinParts } from "@/lib/format";
 import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "@/features/counts";
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { driveSummaryOf, type CalendarDriveTarget } from "./calendar-contract";
@@ -160,10 +167,6 @@ export async function VaccinationDriveDetail({
   const coverage = driveVisibleProgress(summary);
   const pct = drivePctFor(summary, coverage);
   const chips = driveStatusChips(summary);
-  const ringRadius = 29;
-  const ringCircumference = 2 * Math.PI * ringRadius;
-  const ringOffset = ringCircumference * (1 - pct / 100);
-
   const rosterItems = targets && targets.ok ? listOrEmpty(targets.data.items) : [];
   const nextCursor = targets && targets.ok ? targets.data.next_cursor : undefined;
   const targetsError = targets && !targets.ok ? targets.error : null;
@@ -186,119 +189,68 @@ export async function VaccinationDriveDetail({
     reproductiveStatus: item.stage,
   }));
 
+
+  const cell = { whiteSpace: "nowrap" } as const;
+  const headers = [
+    "calendar.drive.display_id_header",
+    "calendar.drive.shed_header",
+    "calendar.drive.tag_1_header",
+    "calendar.drive.tag_2_header",
+    "calendar.drive.stage_header",
+    "calendar.drive.lifecycle_header",
+    "calendar.drive.health_header",
+    "calendar.drive.reason_header",
+    "calendar.drive.status_header",
+  ];
+  const statusText = (status: string) => optionLabel(pageContract, "calendar_status", status) || status;
+  const pager = (
+    <Stack direction="row" spacing={1.5} sx={{ p: 2, alignItems: "center", justifyContent: "flex-end", borderTop: 1, borderColor: "divider" }}>
+      {prevHref ? (
+        <LinkButton href={prevHref} variant="outlined" color="inherit" startIcon={<ChevronLeft className="ic" />} sx={{ minHeight: 44 }}>
+          {copy(pageContract, "calendar.drive.previous_page")}
+        </LinkButton>
+      ) : (
+        <Button disabled variant="outlined" color="inherit" startIcon={<ChevronLeft className="ic" />} sx={{ minHeight: 44 }}>
+          {copy(pageContract, "calendar.drive.previous_page")}
+        </Button>
+      )}
+      <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>
+        {copy(pageContract, "calendar.drive.page_label")} {page}
+      </Typography>
+      {nextHref ? (
+        <LinkButton href={nextHref} variant="contained" endIcon={<ChevronRight className="ic" />} sx={{ minHeight: 44 }}>
+          {copy(pageContract, "calendar.drive.next_page")}
+        </LinkButton>
+      ) : (
+        <Button disabled variant="contained" endIcon={<ChevronRight className="ic" />} sx={{ minHeight: 44 }}>
+          {copy(pageContract, "calendar.drive.next_page")}
+        </Button>
+      )}
+    </Stack>
+  );
+
   return (
-    <div className="kit-enter screen on">
+    <div className="screen on">
       {crumb}
       <MuiGrid container spacing={3}>
         <MuiGrid size={{ xs: 12, md: 8 }}>
-          <Box sx={{ gap: 3, display: "flex", flexDirection: { xs: "column-reverse", md: "column" } }}>
-            <section className="card">
-              <div className="hd"><h3>{event.title} · {summary.park_name}</h3></div>
-              <div className="bd">
-                <div className="ddhero">
-                  <svg className="dring" viewBox="0 0 70 70" width="92" height="92" aria-hidden="true">
-                    <circle className="rbg" cx="35" cy="35" r={ringRadius} />
-                    <circle className="rfg" cx="35" cy="35" r={ringRadius} strokeDasharray={ringCircumference.toFixed(1)} strokeDashoffset={ringOffset.toFixed(1)} transform="rotate(-90 35 35)" />
-                    <text x="35" y="35" className="rtx" textAnchor="middle" dominantBaseline="central">{pct}%</text>
-                  </svg>
-                  <div>
-                    <div style={{ fontSize: 22, fontWeight: 700 }}>
-                      <span className="mono">{coverage.completed}</span>{" "}
-                      <span style={{ fontSize: 15, color: "var(--muted)" }}>
-                        {copy(pageContract, "calendar.drive.of")} {coverage.total} {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}
-                      </span>
-                    </div>
-                    <div className="metric" style={{ marginTop: 6 }}>
-                      <span><b style={{ color: "var(--ink)" }}>{summary.sheds_completed}</b> {copy(pageContract, "calendar.drive.of")} {summary.shed_count} {copy(pageContract, "calendar.drive.sheds_done_suffix")} · {copy(pageContract, "calendar.drive.owner")} {summary.owner_label}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="card">
-        <div className="bd">
-          <div className="lt">{copy(pageContract, "calendar.drive.animal_roster")}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between", flexWrap: "wrap", margin: "0 0 14px" }}>
-            <form action={detailPath} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 320, flex: "1 1 420px" }}>
-              {hiddenInputs(sp, new Set(["q", "cursor", "page", "cursor_stack"]))}
-              <label className="searchbox" style={{ flex: "1 1 280px", display: "flex", alignItems: "center", gap: 8 }}>
-                <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-                <input
-                  name="q"
-                  defaultValue={targetSearch}
-                  placeholder={copy(pageContract, "calendar.drive.search_placeholder")}
-                  style={{ width: "100%", background: "transparent", border: 0, outline: 0, color: "inherit" }}
-                />
-              </label>
-              <button type="submit" className="btn btn-primary">{copy(pageContract, "calendar.drive.search_action")}</button>
-              {targetSearch ? <Link href={clearSearchHref} className="btn">{copy(pageContract, "calendar.drive.clear_search")}</Link> : null}
-            </form>
-            <div className="sub" style={{ whiteSpace: "nowrap" }}>
-              {copy(pageContract, "calendar.drive.page_label")} {page} · {rosterItems.length} {copy(pageContract, "calendar.drive.rows_label")}
-            </div>
-          </div>
-          {targetsError ? (
-            <div style={{ padding: 16, textAlign: "center", color: "var(--danger)" }}>
-              <b>{targetsError.code ?? targetsError.kind}</b>&nbsp;{targetsError.message}
-            </div>
-          ) : (
-            <>
-              <div className="tablewrap" style={{ overflowX: "auto" }}>
-                <Table className="rostertbl">
-                  <TableHead><TableRow><TableCell component="th">{copy(pageContract, "calendar.drive.display_id_header")}</TableCell><TableCell component="th">{copy(pageContract, "calendar.drive.shed_header")}</TableCell><TableCell component="th">{copy(pageContract, "calendar.drive.tag_1_header")}</TableCell><TableCell component="th">{copy(pageContract, "calendar.drive.tag_2_header")}</TableCell><TableCell component="th">{copy(pageContract, "calendar.drive.stage_header")}</TableCell><TableCell component="th">{copy(pageContract, "calendar.drive.lifecycle_header")}</TableCell><TableCell component="th">{copy(pageContract, "calendar.drive.health_header")}</TableCell><TableCell component="th">{copy(pageContract, "calendar.drive.reason_header")}</TableCell><TableCell component="th">{copy(pageContract, "calendar.drive.status_header")}</TableCell></TableRow></TableHead>
-                  <TableBody className="mono">
-                    {rosterItems.length ? rosterItems.map((item) => {
-                      const passportHref = hrefWithParam(detailPath, sp, "goat_passport", item.animal_id);
-                      return (
-                        <TableRow key={item.animal_id}>
-                          <TableCell>
-                            <LocalOverlayLink href={passportHref} className="celllink" scroll={false}>
-                              <span className="gid">{item.display_id || "—"}</span>
-                            </LocalOverlayLink>
-                          </TableCell>
-                          <TableCell><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{targetLocationLabel(item)}</LocalOverlayLink></TableCell>
-                          <TableCell><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.animal_identifier_1 || "—"}</LocalOverlayLink></TableCell>
-                          <TableCell><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.animal_identifier_2 || "—"}</LocalOverlayLink></TableCell>
-                          <TableCell><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{stageLabel(item.stage) || "—"}</LocalOverlayLink></TableCell>
-                          <TableCell><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.lifecycle_status || "—"}</LocalOverlayLink></TableCell>
-                          <TableCell><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.health_status || "—"}</LocalOverlayLink></TableCell>
-                          <TableCell><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{targetReason(item) || "—"}</LocalOverlayLink></TableCell>
-                          <TableCell><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{optionLabel(pageContract, "calendar_status", item.status).toLowerCase() || item.status}</LocalOverlayLink></TableCell>
-                        </TableRow>
-                      );
-                    }) : (
-                      <TableRow><TableCell colSpan={9} style={{ padding: 10, textAlign: "center", color: "var(--muted)" }}>{copy(pageContract, "calendar.drive.no_animals")}</TableCell></TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              <div style={{ padding: 12, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid var(--border)" }}>
-                {prevHref ? (
-                  <Link href={prevHref} className="btn">
-                    <ChevronLeft className="ic" /> {copy(pageContract, "calendar.drive.previous_page")}
-                  </Link>
-                ) : (
-                  <span className="btn" aria-disabled="true" style={{ opacity: 0.45, pointerEvents: "none" }}>
-                    <ChevronLeft className="ic" /> {copy(pageContract, "calendar.drive.previous_page")}
-                  </span>
-                )}
-                <span className="sub">{copy(pageContract, "calendar.drive.page_label")} {page}</span>
-                {nextHref ? (
-                  <Link href={nextHref} className="btn btn-primary">
-                    {copy(pageContract, "calendar.drive.next_page")} <ChevronRight className="ic" />
-                  </Link>
-                ) : (
-                  <span className="btn" aria-disabled="true" style={{ opacity: 0.45, pointerEvents: "none" }}>
-                    {copy(pageContract, "calendar.drive.next_page")} <ChevronRight className="ic" />
-                  </span>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-            </section>
-          </Box>
+          <Card>
+            <CardHeader title={`${event.title} · ${summary.park_name}`} />
+            <Stack spacing={1.5} sx={{ p: 3 }}>
+              <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", flexWrap: "wrap" }}>
+                <Typography variant="h3">{pct}%</Typography>
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  {coverage.completed} {copy(pageContract, "calendar.drive.of")} {coverage.total}{" "}
+                  {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}
+                </Typography>
+              </Stack>
+              <LinearProgress variant="determinate" value={pct} color="primary" sx={{ height: 8 }} />
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                <Box component="b" sx={{ color: "text.primary" }}>{summary.sheds_completed}</Box> {copy(pageContract, "calendar.drive.of")} {summary.shed_count}{" "}
+                {copy(pageContract, "calendar.drive.sheds_done_suffix")} · {copy(pageContract, "calendar.drive.owner")} {summary.owner_label}
+              </Typography>
+            </Stack>
+          </Card>
         </MuiGrid>
 
         <MuiGrid size={{ xs: 12, md: 4 }}>
@@ -327,9 +279,9 @@ export async function VaccinationDriveDetail({
                   <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4, mb: 1, display: "block" }}>
                     Vaccines
                   </Typography>
-                  <div className="vchips">
-                    {summary.vaccine_labels.map((label) => (<span key={label} className="tag t-mut">{label}</span>))}
-                  </div>
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+                    {summary.vaccine_labels.map((label) => (<Label key={label} variant="soft">{label}</Label>))}
+                  </Stack>
                 </Box>
               </>
             ) : null}
@@ -352,6 +304,122 @@ export async function VaccinationDriveDetail({
                 </Box>
               </>
             ) : null}
+          </Card>
+        </MuiGrid>
+
+        <MuiGrid size={12}>
+          <Card>
+            <CardHeader
+              title={copy(pageContract, "calendar.drive.animal_roster")}
+              action={
+                <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>
+                  {copy(pageContract, "calendar.drive.page_label")} {page} · {rosterItems.length} {copy(pageContract, "calendar.drive.rows_label")}
+                </Typography>
+              }
+              sx={{ "& .MuiCardHeader-action": { alignSelf: "center" } }}
+            />
+            <Box
+              component="form"
+              action={detailPath}
+              sx={{ p: 2.5, gap: 1.5, display: "flex", flexWrap: "wrap", alignItems: "center" }}
+            >
+              {hiddenInputs(sp, new Set(["q", "cursor", "page", "cursor_stack"]))}
+              <TextField
+                name="q"
+                defaultValue={targetSearch}
+                placeholder={copy(pageContract, "calendar.drive.search_placeholder")}
+                sx={{ flex: "1 1 260px" }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search className="ic" style={{ width: 18 }} aria-hidden="true" />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
+              <Button type="submit" variant="contained" size="large" sx={{ minHeight: 48 }}>
+                {copy(pageContract, "calendar.drive.search_action")}
+              </Button>
+              {targetSearch ? (
+                <LinkButton href={clearSearchHref} variant="outlined" color="inherit" size="large" sx={{ minHeight: 48 }}>
+                  {copy(pageContract, "calendar.drive.clear_search")}
+                </LinkButton>
+              ) : null}
+            </Box>
+            {targetsError ? (
+              <Alert severity="error" sx={{ mx: 2.5, mb: 2.5 }}>
+                <b>{targetsError.code ?? targetsError.kind}</b>&nbsp;{targetsError.message}
+              </Alert>
+            ) : (
+              <>
+                {/* Laptop: the template table kit (Scrollbar + Table minWidth, nowrap identity cells). */}
+                <Box sx={{ display: { xs: "none", md: "block" } }}>
+                  <Scrollbar>
+                    <Table sx={{ minWidth: 960, "& th, & td, & td .celllink": { overflowWrap: "normal", wordBreak: "normal" }, "& td .celllink": { whiteSpace: "nowrap" } }}>
+                      <TableHead>
+                        <TableRow>
+                          {headers.map((key) => (
+                            <TableCell key={key} component="th" sx={cell}>{copy(pageContract, key)}</TableCell>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {rosterItems.length ? rosterItems.map((item) => {
+                          const passportHref = hrefWithParam(detailPath, sp, "goat_passport", item.animal_id);
+                          const linked = (value: React.ReactNode) => (
+                            <LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{value}</LocalOverlayLink>
+                          );
+                          return (
+                            <TableRow key={item.animal_id} hover>
+                              <TableCell sx={cell}>{linked(<span className="gid">{item.display_id || "—"}</span>)}</TableCell>
+                              <TableCell sx={cell}>{linked(targetLocationLabel(item))}</TableCell>
+                              <TableCell sx={{ ...cell, fontVariantNumeric: "tabular-nums" }}>{linked(item.animal_identifier_1 || "—")}</TableCell>
+                              <TableCell sx={{ ...cell, fontVariantNumeric: "tabular-nums" }}>{linked(item.animal_identifier_2 || "—")}</TableCell>
+                              <TableCell sx={cell}>{linked(stageLabel(item.stage) || "—")}</TableCell>
+                              <TableCell sx={cell}>{linked(humanizeEnum(item.lifecycle_status) || "—")}</TableCell>
+                              <TableCell sx={cell}>{linked(humanizeEnum(item.health_status) || "—")}</TableCell>
+                              <TableCell>{linked(targetReason(item) || "—")}</TableCell>
+                              <TableCell sx={cell}>{linked(<Label variant="soft">{statusText(item.status)}</Label>)}</TableCell>
+                            </TableRow>
+                          );
+                        }) : (
+                          <TableRow>
+                            <TableCell colSpan={headers.length} sx={{ textAlign: "center", color: "text.secondary" }}>{copy(pageContract, "calendar.drive.no_animals")}</TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </Scrollbar>
+                </Box>
+                {/* Phone: stacked rows, one animal per row (identity line, location + stage, status). */}
+                <Box sx={{ display: { xs: "block", md: "none" }, borderTop: 1, borderColor: "divider" }}>
+                  {rosterItems.length ? rosterItems.map((item) => {
+                    const passportHref = hrefWithParam(detailPath, sp, "goat_passport", item.animal_id);
+                    return (
+                      <LocalOverlayLink key={item.animal_id} href={passportHref} className="celllink" scroll={false}>
+                        <Stack spacing={0.5} sx={{ px: 2.5, py: 1.5, minHeight: 44, borderBottom: 1, borderColor: "divider" }}>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: "center", justifyContent: "space-between" }}>
+                            <span className="gid">{item.display_id || "—"}</span>
+                            <Label variant="soft">{statusText(item.status)}</Label>
+                          </Stack>
+                          <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {item.animal_identifier_1 || "—"}{item.animal_identifier_2 ? ` · ${item.animal_identifier_2}` : ""}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                            {joinParts([item.shed_name ? targetLocationLabel(item) : null, stageLabel(item.stage), item.lifecycle_status ? humanizeEnum(item.lifecycle_status) : null, item.health_status ? humanizeEnum(item.health_status) : null, targetReason(item)])}
+                          </Typography>
+                        </Stack>
+                      </LocalOverlayLink>
+                    );
+                  }) : (
+                    <Typography variant="body2" sx={{ p: 2.5, textAlign: "center", color: "text.secondary" }}>{copy(pageContract, "calendar.drive.no_animals")}</Typography>
+                  )}
+                </Box>
+                {pager}
+              </>
+            )}
           </Card>
         </MuiGrid>
       </MuiGrid>
