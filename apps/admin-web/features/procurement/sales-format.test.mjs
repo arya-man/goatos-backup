@@ -14,6 +14,7 @@ import {
   num,
   numCompact,
   numCompactWhole,
+  quantityAtRate,
   resolveFarm,
   trimEmptyMonthlyStart,
 } from "./sales-format.ts";
@@ -245,4 +246,15 @@ test("the planned sale date shows only when it differs from the sale date", asyn
   assert.equal(plannedSaleDateIfDifferent({ sale_date: "2026-09-25", planned_sale_date: null }), null);
   assert.equal(plannedSaleDateIfDifferent({ sale_date: "2026-09-25" }), null);
   assert.equal(plannedSaleDateIfDifferent({ sale_date: "2026-09-25", planned_sale_date: "  " }), null);
+});
+
+// A feed or manure line in the sale drawer said only its value -- "Feed · Dry Masoor Bhusa ₹510"
+// with no amount -- so nobody could see how much was sold. It now reads like the phone does.
+test("a line sold by the unit shows its quantity and rate, as the phone does", () => {
+  assert.equal(quantityAtRate(20, "kg", 40), "20 kg at ₹40/kg");
+  assert.equal(quantityAtRate(2000, "kg", 21), "2,000 kg at ₹21/kg");
+  assert.equal(quantityAtRate(25.5, "kg", 20), "25.5 kg at ₹20/kg");
+  assert.equal(quantityAtRate(12, "kg", null), "12 kg");
+  assert.equal(quantityAtRate(null, "", null), "");
+  assert.equal(quantityAtRate(undefined, undefined, undefined), "");
 });

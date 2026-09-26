@@ -15,7 +15,7 @@ import type { SalesDeal, SalesOptions } from "@/lib/api/procurement";
 import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
-import { dealStatusTone, inr, num, plannedSaleDateIfDifferent } from "./sales-format";
+import { dealStatusTone, inr, num, plannedSaleDateIfDifferent, quantityAtRate } from "./sales-format";
 import { newSaleLine, type SaleLineDraft } from "./sale-lines";
 import { SaleLinesEditor } from "./sale-lines-editor";
 import {
@@ -601,6 +601,7 @@ export function SalesRecordDrawer({
                     <th>{field("breed")}</th>
                     <th className="num">{copy(pageContract, "field.line_animal_count")}</th>
                     <th className="num">{copy(pageContract, "field.line_total_weight_kg")}</th>
+                    <th className="num">{copy(pageContract, "field.line_quantity_rate")}</th>
                     <th className="num">{copy(pageContract, "field.sales_value")}</th>
                   </tr>
                 </thead>
@@ -611,6 +612,7 @@ export function SalesRecordDrawer({
                       <td>{line.breed}</td>
                       <td className="num">{line.animal_count == null ? none : num(line.animal_count)}</td>
                       <td className="num">{line.total_weight_kg == null ? none : num(line.total_weight_kg, 1)}</td>
+                      <td className="num">{quantityAtRate(line.quantity, line.unit, line.rate_per_unit) || none}</td>
                       <td className="num">{inr(line.sales_value)}</td>
                     </tr>
                   ))}

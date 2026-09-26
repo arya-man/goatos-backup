@@ -20,6 +20,24 @@ export function num(value: number, fractionDigits = 0): string {
 }
 
 /**
+ * A line priced by the unit, as the phone writes it: "20 kg at ₹40/kg", "2,000 kg at ₹21/kg",
+ * "3 number at ₹50/number". Empty when the line has no quantity (an animal line), so the cell shows
+ * absence rather than a made-up figure. Mirrors Android quantityAtRate so both surfaces read alike.
+ */
+export function quantityAtRate(quantity: number | null | undefined, unit: string | null | undefined, rate: number | null | undefined): string {
+  if (quantity == null) return "";
+  const u = (unit ?? "").trim();
+  const amount = u ? `${num1(quantity)} ${u}` : num1(quantity);
+  if (rate == null) return amount;
+  return `${amount} at ${inr(rate, Number.isInteger(rate) ? 0 : 2)}${u ? `/${u}` : ""}`;
+}
+
+/** Indian-grouped, one decimal at most, whole numbers without a fraction: 2000 -> "2,000", 12.5 -> "12.5". */
+function num1(value: number): string {
+  return value.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+}
+
+/**
  * The selected farm scope: the raw ?farm= value when it names a served option key, otherwise the
  * default key. A hand-edited URL must not take the page down or leak an unvalidated value into the
  * API call.
