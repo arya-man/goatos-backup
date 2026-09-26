@@ -173,3 +173,14 @@ Machine gates added 2026-09-25: `make scale-guard` rules `count-distinct-sort`,
 `cte-self-join`, `hand-rolled-read-cache`, `non-sargable-cast` (now `::text IN`),
 and `make admin-web-heavy-client-imports-guard`. Baselines only shrink.
 Apply the review-only rows (PP-7..PP-21) by hand when reviewing a hot read.
+
+## Page ↔ template map (guard: page-template-map)
+
+- Every admin-web route has a row in `docs/design/page-template-map.md`: route → template page → the
+  template section components per block, and the feature files that must import them. Build pages by
+  composing those sections (copied verbatim into `components/minimal/`), fed our data and labels.
+- Anti-pattern: hand-made KPI boxes / pastel `AnalyticsWidgetSummary` tint cards in dark, hand-built
+  list cards instead of the template table anatomy (Card, Tabs with Label counts, toolbar,
+  TableHeadCustom, TablePaginationCustom/Links). Use EcommerceWidgetSummary/CourseWidgetSummary/BankingWidgetSummary.
+- Review check: a changed page that drops a mapped template import, or a new page with no map row, is a
+  blocker; `design:guard` (`page-template-map`, p0) enforces the listed imports.

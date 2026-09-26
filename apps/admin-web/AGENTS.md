@@ -163,6 +163,13 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   SECTION in `docs/design/route-template-map.json`; a NEW page must add its area in the same change
   or fail `route-template-map-missing`. Palette is the locked Mesha green — template gives structure,
   density, motion and interaction patterns only, never brand colours, images or copy.
+- **Every page names its template page and composes its section components.** `docs/design/page-template-map.md`
+  maps route → template page (overview/user/order/kanban/calendar…) → the template section components
+  per block, copied verbatim under `components/minimal/` (with `template-sources.json` entries). KPI rows are
+  `EcommerceWidgetSummary` / `CourseWidgetSummary` / `BankingWidgetSummary` (never the pastel
+  AnalyticsWidgetSummary tint in dark); lists use the template table anatomy (Card, Tabs + Label counts,
+  toolbar, TableHeadCustom, pagination). `design:guard` rule `page-template-map` fails when a mapped page
+  stops importing one of its listed template modules or a mapped file disappears.
 - **Production bug CLASSES are automated guards.** `scripts/lib/visual-pattern-guards.mjs` (route
   visual lane) adds `P-text-icon-overlap`, `P-wide-table-no-wrapper`, `P-chart-axis-tiny` (<11px),
   `P-pinned-bar-blur-flicker`, `P-drawer-filter-mismatch` and `P-chart-hover-remount`. `raw-chart-lib`

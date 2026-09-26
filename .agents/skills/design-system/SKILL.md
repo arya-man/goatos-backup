@@ -175,3 +175,14 @@ checks, wired into the route visual lane so a new instance fails at push, not in
 `docs/design/route-template-map.json` maps every admin-web area to its MUI Minimal v7.7.0 template
 section (template lives at `~/mesha/mui/Minimal_TypeScript_v7.7.0`; licensed, **not** committed).
 Full pattern → guard table and the how-to-add-a-page ordering: `docs/design/README.md` §5b + §5c.
+
+## Page ↔ template map (guard: page-template-map)
+
+- Every admin-web route has a row in `docs/design/page-template-map.md`: route → template page → the
+  template section components per block, and the feature files that must import them. Build pages by
+  composing those sections (copied verbatim into `components/minimal/`), fed our data and labels.
+- Anti-pattern: hand-made KPI boxes / pastel `AnalyticsWidgetSummary` tint cards in dark, hand-built
+  list cards instead of the template table anatomy (Card, Tabs with Label counts, toolbar,
+  TableHeadCustom, TablePaginationCustom/Links). Use EcommerceWidgetSummary/CourseWidgetSummary/BankingWidgetSummary.
+- Review check: a changed page that drops a mapped template import, or a new page with no map row, is a
+  blocker; `design:guard` (`page-template-map`, p0) enforces the listed imports.

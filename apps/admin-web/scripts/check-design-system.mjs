@@ -138,6 +138,7 @@ const CHECKS = {
   "raw-chart-lib": { tier: "waivable", why: "only Apex (components/minimal/chart, components/kit) and the two inline helpers (svg-bars/svg-series) are palette-locked and hover-proven; recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts are refused" },
   "route-template-map-missing": { tier: "waivable", why: "every route in scripts/smoke-visual-live.mjs must have an entry in docs/design/route-template-map.json so the MUI Minimal template section it is built on is discoverable" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
+  "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
   "app-wrapper-css-import": { tier: "p0", why: "components/app/ holds thin behaviour wrappers over template + MUI components only; they must not import .css / .module.css — style through the template component's props/theme instead" },
   // MUI Minimal kit + token enforcement (scripts/lib/design-kit-ratchet.mjs). Ratchet tier:
@@ -305,6 +306,40 @@ function runGuard(root, { themeDiff }) {
       }
     } else if (!existsSync(manifestFile)) {
       findings.push(finding("unsourced-minimal-file", "docs/design/template-sources.json", 1, "template-sources.json is missing"));
+    }
+  }
+
+  // docs/design/page-template-map.md: route -> template page -> template section components.
+  // Machine-read rows are `| /route | template page | feature files | section modules |` where the
+  // last two columns are comma-separated backticked paths. The union of the feature files' imports
+  // must include every listed section module (matched as an import specifier `@/<module>` prefix),
+  // so a page cannot silently fall back to hand-made cards after it was mapped.
+  {
+    const local = join(root, "docs", "design", "page-template-map.md");
+    const mapFile = existsSync(local) ? local : resolve(root, "../../docs/design/page-template-map.md");
+    if (existsSync(mapFile)) {
+      const mapRel = existsSync(local) ? "docs/design/page-template-map.md" : "../../docs/design/page-template-map.md";
+      readFileSync(mapFile, "utf8").split("\n").forEach((line, index) => {
+        const cells = line.split("|").map((c) => c.trim());
+        if (cells.length < 6 || !cells[1].startsWith("`/")) return;
+        const ticks = (cell) => [...cell.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+        const route = ticks(cells[1])[0];
+        const files = ticks(cells[3]);
+        const modules = ticks(cells[4]);
+        let imports = "";
+        for (const file of files) {
+          const abs = join(root, file);
+          if (!existsSync(abs)) {
+            findings.push(finding("page-template-map", mapRel, index + 1, `${route}: mapped file ${file} does not exist`));
+            continue;
+          }
+          imports += readFileSync(abs, "utf8");
+        }
+        for (const mod of modules) {
+          const spec = new RegExp(`from\\s+["']@/${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:["'/])`);
+          if (!spec.test(imports)) findings.push(finding("page-template-map", mapRel, index + 1, `${route}: none of ${files.join(", ")} imports @/${mod}`));
+        }
+      });
     }
   }
 
@@ -630,6 +665,8 @@ async function selfTest() {
   put("components/app/bad.tsx", 'import styles from "./bad.module.css";\nexport function Bad() { return <div className={styles.x} />; }\n');
   put("components/kit/lonely.tsx", "export function Lonely() { return null; }\n");
   put("features/uses-kit.tsx", 'import { Card } from "@/components/kit";\nexport const x = Card;\n');
+  put("docs/design/page-template-map.md", "| Route | Template | Files | Sections |\n|---|---|---|---|\n| `/foo` | user list | `features/foo-page.tsx` | `components/minimal/table` |\n");
+  put("features/foo-page.tsx", 'import { KpiCard } from "@/components/minimal/widgets";\nexport const x = KpiCard;\n');
   put("app/(admin)/foo/page.tsx", 'export default function Page() { return <div />; }\n');
   put("app/(admin)/ok/page.tsx", 'import { PageHeader } from "@/components/app/page-header";\nexport default function Page() { return <div className="kit-page"><PageHeader /></div>; }\n');
   put("app/(admin)/ok/loading.tsx", "export default function L() { return null; }\n");
