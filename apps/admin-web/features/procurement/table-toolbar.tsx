@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Columns3, Download, SlidersHorizontal, X } from "lucide-react";
+import { Columns3, Download, Trash2, X } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import { useRouter } from "next/navigation";
 import { usePopover } from "minimal-shared/hooks";
 import Checkbox from "@mui/material/Checkbox";
 import MenuItem from "@mui/material/MenuItem";
@@ -69,6 +71,7 @@ export function ProcurementTableToolbar({
   actions?: readonly ToolbarAction[];
   children?: React.ReactNode;
 }) {
+  const router = useRouter();
   // The template menu popover (CustomPopover + MenuList): MUI portals it, keeps it in the
   // viewport and closes it on an outside tap and on Escape.
   const columnsMenu = usePopover();
@@ -161,10 +164,6 @@ export function ProcurementTableToolbar({
           rowGap: 1.25,
           columnGap: 1.25,
           mb: 1.75,
-          "& .proc-toolbar-chips": { rowGap: 0.75, columnGap: 0.75 },
-          "& .proc-toolbar-chips-ic": { display: "none" },
-          "& .proc-chip": { maxWidth: "100%", minHeight: "var(--tap-min)" },
-          "& .proc-chip span": { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
         },
       })}
     >
@@ -227,20 +226,32 @@ export function ProcurementTableToolbar({
         ) : null}
       </Box>
       {chips && chips.length > 0 ? (
-        <div className="proc-toolbar-chips" role="list" aria-label={`${ariaLabel} — applied filters`}>
-          <SlidersHorizontal className="proc-toolbar-chips-ic" aria-hidden="true" />
+        // Template filters-result: soft small Chips with their own delete affordance, then a
+        // "Clear" Button. Each chip's delete lands on the URL without that filter.
+        <Box
+          role="list"
+          aria-label={`${ariaLabel} — applied filters`}
+          sx={{ flex: "1 0 100%", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}
+        >
           {chips.map((chip) => (
-            <Link key={chip.id} role="listitem" href={chip.href} scroll={false} className="proc-chip" title={`Remove ${chip.label}`}>
-              <span>{chip.label}</span>
-              <X aria-hidden="true" />
-            </Link>
+            <Box component="span" role="listitem" key={chip.id} sx={{ display: "inline-flex", maxWidth: "100%", minWidth: 0 }}>
+              <Chip
+                size="small"
+                variant="soft"
+                label={chip.label}
+                title={chip.label}
+                onDelete={() => router.push(chip.href, { scroll: false })}
+                deleteIcon={<X aria-label={`Remove ${chip.label}`} role="button" />}
+                sx={{ maxWidth: "100%" }}
+              />
+            </Box>
           ))}
           {clearHref ? (
-            <Link href={clearHref} scroll={false} className="proc-chip-clear">
+            <Button component={Link} href={clearHref} scroll={false} color="error" size="small" startIcon={<Trash2 aria-hidden="true" size={16} />}>
               {clearLabel}
-            </Link>
+            </Button>
           ) : null}
-        </div>
+        </Box>
       ) : null}
     </Box>
   );
