@@ -41,7 +41,10 @@ export function CalendarFullView({
   viewOptions,
   noEventsText,
   toolbarCopy,
+  header,
 }: {
+  /** First row inside the card (the workstream Tabs, as the template list's status Tabs). */
+  header?: React.ReactNode;
   events: EventInput[];
   initialAsOf: string;
   // Scope + owner/status ride in as plain data so the client can build hrefs itself.
@@ -151,6 +154,7 @@ export function CalendarFullView({
         minHeight: { xs: "70vh", md: "calc(100dvh - 220px)" },
       }}
     >
+      {header}
       <CalendarRoot sx={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0 }}>
         <CalendarToolbar
           view={view}

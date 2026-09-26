@@ -1,13 +1,12 @@
 import { FilterChip } from "@/components/minimal/list/filter-chip";
 import { listOrEmpty } from "@/lib/list-or-empty";
-import Link from "@/components/no-prefetch-link";
 import { copy, actionFeedbackCopy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { todayIso } from "@/lib/format";
 import { PageHeader } from "@/components/app/page-header";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
-import { Tag } from "@/components/ui-primitives";
+import { LinkButton } from "@/components/minimal/link-button";
 import {
   fallbackCalendarPresentation,
   ownerMetaFromPresentation,
@@ -23,6 +22,9 @@ import { historyWindow, monthWindow } from "./calendar-window";
 import { toFullCalendarEvents } from "./calendar-fullcalendar-events";
 import { CalendarFullView, type CalendarViewOption } from "./calendar-full-view";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import ButtonGroup from "@mui/material/ButtonGroup";
 
 const PATH = "/calendar";
 
@@ -182,96 +184,95 @@ export async function VaccinationCalendarPage({
   const renderableEvents = events.filter(isRenderableCalendarEvent);
   const fcEvents = toFullCalendarEvents(renderableEvents, ownerMeta);
 
+  const workstreamTabs = presentation.workstream_tabs.length ? (
+    <AnimatedTabs
+      variant="underline"
+      scrollButtons="auto"
+      sx={{ px: { md: 2.5 } }}
+      ariaLabel={copy(pageContract, "filter.workstream.aria")}
+      value={presentation.workstream_tabs.find((tab) => tab.active)?.key ?? ""}
+      items={presentation.workstream_tabs.map((tab) => ({
+        value: tab.key,
+        label: tab.label,
+        href: tab.enabled && !tab.active ? hrefForWorkstreamTab(tab) : undefined,
+        disabled: !tab.enabled,
+      }))}
+    />
+  ) : null;
+
+  // Template calendar view (sections/calendar/view/calendar-view): heading row with the page
+  // action on the right, the filter result chips, then ONE Card holding CalendarRoot → toolbar →
+  // FullCalendar. The upcoming/history switch is the heading action; owner scope rides as the
+  // template's filter chips above the card; the workstream strip is the card's first row.
   return (
-    <div className="kit-enter screen on">
-      <div>
-        <PageHeader
-          className="calendar-page-head"
-          title={presentation.page_title || pageContract.title}
-          crumbs={[{ label: pageContract.title }]}
-          actions={
-            <div className="subtabs calview-tabs" style={{ margin: 0 }}>
-              <Link href={weekHref} replace scroll={false} className={!historyMode ? "on" : ""}>
-                {weekTabLabel}
-              </Link>
-              <Link href={historyHref} replace scroll={false} className={historyMode ? "on" : ""}>
-                {historyTabLabel}
-              </Link>
-            </div>
-          }
-        />
-      </div>
+    <Stack spacing={3}>
+      <PageHeader
+        className="calendar-page-head"
+        title={presentation.page_title || pageContract.title}
+        crumbs={[{ label: pageContract.title }]}
+        actions={
+          <ButtonGroup variant="outlined" color="inherit" aria-label={copy(pageContract, "filter.view.aria", weekTabLabel)}>
+            <LinkButton href={weekHref} replace scroll={false} variant={historyMode ? "outlined" : "contained"} color={historyMode ? "inherit" : "primary"} aria-current={historyMode ? undefined : "page"}>
+              {weekTabLabel}
+            </LinkButton>
+            <LinkButton href={historyHref} replace scroll={false} variant={historyMode ? "contained" : "outlined"} color={historyMode ? "primary" : "inherit"} aria-current={historyMode ? "page" : undefined}>
+              {historyTabLabel}
+            </LinkButton>
+          </ButtonGroup>
+        }
+      />
 
-      {/* Owner scope as filter chips — the workstream strip below is the page's ONE tab component. */}
-      <div style={{ margin: "0 0 10px" }}>
-        <div className="kit-chiprow" role="group" aria-label={copy(pageContract, "filter.owner.aria")}>
-          {presentation.owner_tabs.map((tab) => {
-            const on = tab.active || (!presentation.owner_tabs.some((t) => t.active) && tab.key === activeOwnerKey);
-            return tab.enabled ? (
-              <FilterChip key={tab.key} href={hrefForOwnerTab(tab)} on={on} replace label={tab.label} />
-            ) : (
-              <FilterChip key={tab.key} on={on} disabled label={tab.label} />
-            );
-          })}
-        </div>
-      </div>
-
-      {presentation.workstream_tabs.length ? (
-        <div style={{ margin: "0 0 14px" }}>
-          <AnimatedTabs
-            variant="underline"
-            ariaLabel={copy(pageContract, "filter.workstream.aria")}
-            value={presentation.workstream_tabs.find((tab) => tab.active)?.key ?? ""}
-            items={presentation.workstream_tabs.map((tab) => ({
-              value: tab.key,
-              label: tab.label,
-              href: tab.enabled && !tab.active ? hrefForWorkstreamTab(tab) : undefined,
-              disabled: !tab.enabled,
-            }))}
-          />
-        </div>
-      ) : null}
+      {/* Owner scope as the template's filter chips (CalendarFiltersResult row). */}
+      <Box role="group" aria-label={copy(pageContract, "filter.owner.aria")} sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+        {presentation.owner_tabs.map((tab) => {
+          const on = tab.active || (!presentation.owner_tabs.some((t) => t.active) && tab.key === activeOwnerKey);
+          return tab.enabled ? (
+            <FilterChip key={tab.key} href={hrefForOwnerTab(tab)} on={on} replace label={tab.label} />
+          ) : (
+            <FilterChip key={tab.key} on={on} disabled label={tab.label} />
+          );
+        })}
+      </Box>
 
       {actionStatus ? (
         actionStatus === "success" ? (
-          <div className="note" style={{ marginBottom: 14 }}>
-            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
+          <Alert severity="success">
+            <b>{copy(pageContract, "action.success_tag")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+          </Alert>
         ) : (
-          <Alert severity="error" style={{ marginBottom: 14 }}>
+          <Alert severity="error">
             <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </Alert>
         )
       ) : null}
 
       {!list.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error">
           <b>{list.error.code ?? list.error.kind}</b>&nbsp;{list.error.message}
         </Alert>
       ) : null}
       {selectedEventId && detail && !detail.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error">
           <b>{detail.error.code ?? detail.error.kind}</b>&nbsp;{detail.error.message}
         </Alert>
       ) : null}
 
-      <div>
-        <CalendarFullView
-          events={fcEvents}
-          initialAsOf={anchorKey}
-          scope={scope}
-          ownerKey={activeOwnerKey}
-          status={requestedStatus}
-          viewOptions={viewOptions}
-          noEventsText={copy(pageContract, "calendar.week.empty", presentation.week.empty_message || "No drives in this window")}
-          toolbarCopy={{
-            today: copy(pageContract, "calendar.toolbar.today", "Today"),
-            previous: copy(pageContract, "action.previous"),
-            next: copy(pageContract, "action.next"),
-            viewGroupAria: copy(pageContract, "calendar.toolbar.view_group_aria", "Calendar view"),
-          }}
-        />
-      </div>
+      <CalendarFullView
+        header={workstreamTabs}
+        events={fcEvents}
+        initialAsOf={anchorKey}
+        scope={scope}
+        ownerKey={activeOwnerKey}
+        status={requestedStatus}
+        viewOptions={viewOptions}
+        noEventsText={copy(pageContract, "calendar.week.empty", presentation.week.empty_message || "No drives in this window")}
+        toolbarCopy={{
+          today: copy(pageContract, "calendar.toolbar.today", "Today"),
+          previous: copy(pageContract, "action.previous"),
+          next: copy(pageContract, "action.next"),
+          viewGroupAria: copy(pageContract, "calendar.toolbar.view_group_aria", "Calendar view"),
+        }}
+      />
 
       <CalendarEventDrawer
         initialData={initialDrawerData}
@@ -285,6 +286,6 @@ export async function VaccinationCalendarPage({
         ownerMeta={ownerMeta}
         pageContract={pageContract}
       />
-    </div>
+    </Stack>
   );
 }

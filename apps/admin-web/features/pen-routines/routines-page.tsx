@@ -1,5 +1,4 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -8,18 +7,21 @@ import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import { listOrEmpty } from "@/lib/list-or-empty";
-import { AlarmClock, CalendarCheck2, ClipboardCheck, ListChecks, Plus, RotateCcw, Send } from "lucide-react";
+import { ListChecks } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
-import type { KitTone } from "@/lib/tone";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import Grid from "@mui/material/Grid";
+import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { Tag, type Tone } from "@/components/ui-primitives";
 import { controlEnabled, copy, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   PenRoutineCatalog,
@@ -30,6 +32,7 @@ import type {
   PenRoutineTaskRow,
 } from "@/lib/api/pen-routines-server";
 import type { ApiResult } from "@/lib/api/server";
+import type { PaletteColorKey } from "@/theme/core";
 import { fmtDate, todayIso } from "@/lib/format";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { RoutineDrawerForm, RoutineSaveFooter } from "./routine-drawer";
@@ -73,8 +76,8 @@ const PARAM_ASSIGNEE = "assignee";
 const PARAM_TO = "to";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-const STATUS_TONE: Record<PenRoutineRow["status"], Tone> = { active: "ok", paused: "warn", retired: "mut" };
-const STATE_TONE: Record<PenRoutineTaskRow["state_tone"], Tone> = { info: "info", review: "info", danger: "dng", success: "ok", muted: "mut" };
+const STATUS_COLOR: Record<PenRoutineRow["status"], LabelColor> = { active: "success", paused: "warning", retired: "default" };
+const STATE_COLOR: Record<PenRoutineTaskRow["state_tone"], LabelColor> = { info: "info", review: "info", danger: "error", success: "success", muted: "default" };
 
 /** Columns whose value is a count: right-aligned, tabular numerals (spec §3). */
 const NUMERIC_ROUTINE_COLUMNS = new Set(["open_today", "delayed"]);
@@ -360,17 +363,17 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         );
       }
       case "status":
-        return <Tag tone={STATUS_TONE[routine.status]}>{routine.status_label}</Tag>;
+        return <Label variant="soft" color={STATUS_COLOR[routine.status]}>{routine.status_label}</Label>;
       case "open_today":
         return (
-          <span style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+          <Box component="span" sx={{ display: "inline-flex", gap: 0.75, alignItems: "center", justifyContent: "flex-end" }}>
             <Box component="span" sx={{ fontWeight: "fontWeightBold", fontVariantNumeric: "tabular-nums" }}>{routine.open_today}</Box>
             {routine.delayed > 0 ? (
-              <Tag tone="dng">
+              <Label variant="soft" color="error">
                 {routine.delayed} {c("summary.delayed")}
-              </Tag>
+              </Label>
             ) : null}
-          </span>
+          </Box>
         );
       default:
         return null;
@@ -388,7 +391,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       case "assignee":
         return row.assignee_names.length ? row.assignee_names.join(", ") : c("label.placeholder");
       case "state_chip":
-        return <Tag tone={STATE_TONE[row.state_tone] ?? "mut"}>{row.state_chip}</Tag>;
+        return <Label variant="soft" color={STATE_COLOR[row.state_tone] ?? "default"}>{row.state_chip}</Label>;
       case "due":
         return fmtDate(row.due_business_date);
       default:
@@ -397,24 +400,23 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   };
 
   // The Today strip: the backend's own whole-filter aggregates, one KPI tile each, in the order
-  // the reader works through them. Tone and icon are presentation; every number and word is the
-  // backend's.
-  const summaryTiles: { key: keyof NonNullable<typeof tasks>["summary"]; copyKey: string; tone: KitTone; icon: React.ReactNode }[] = [
-    { key: "due", copyKey: "summary.due", tone: "primary", icon: <CalendarCheck2 /> },
-    { key: "delayed", copyKey: "summary.delayed", tone: "error", icon: <AlarmClock /> },
-    { key: "in_review", copyKey: "summary.in_review", tone: "info", icon: <ClipboardCheck /> },
-    { key: "sent_back", copyKey: "summary.sent_back", tone: "warning", icon: <RotateCcw /> },
-    { key: "done", copyKey: "summary.done", tone: "success", icon: <Send /> },
+  // the reader works through them. Every number and word is the backend's.
+  const summaryTiles: { key: keyof NonNullable<typeof tasks>["summary"]; copyKey: string; icon: string; color: PaletteColorKey }[] = [
+    { key: "due", copyKey: "summary.due", icon: COURSE_WIDGET_ICONS.progress, color: "primary" },
+    { key: "delayed", copyKey: "summary.delayed", icon: COURSE_WIDGET_ICONS.certificates, color: "error" },
+    { key: "in_review", copyKey: "summary.in_review", icon: COURSE_WIDGET_ICONS.progress, color: "info" },
+    { key: "sent_back", copyKey: "summary.sent_back", icon: COURSE_WIDGET_ICONS.certificates, color: "warning" },
+    { key: "done", copyKey: "summary.done", icon: COURSE_WIDGET_ICONS.completed, color: "success" },
   ];
 
   return (
-    <div className="screen on proc-mx routines-page">
+    <Box className="screen on routines-page">
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: c("crumb") }, { label: pageContract.title }]}
         actions={
           canCreate && catalogParkId ? (
-            <Button component={LocalOverlayLink} href={editHref("new")} scroll={false} variant="contained" color="primary" startIcon={<Plus size={16} aria-hidden="true" />}>
+            <Button component={LocalOverlayLink} href={editHref("new")} scroll={false} variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" />}>
               {c("action.create_routine.label")}
             </Button>
           ) : null
@@ -430,27 +432,25 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
 
         {/* A deck of zeros is a wall, not a reading: the tiles render only once a day has counts. */}
         {tasks && summaryTiles.some((tile) => Number(tasks.summary[tile.key]) > 0) ? (
-          <KpiGrid>
+          // Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid.
+          <Grid container spacing={3}>
             {summaryTiles.map((tile) => (
-              <KpiCard key={tile.key} label={c(tile.copyKey)} value={tasks.summary[tile.key]} tone={tile.tone} icon={tile.icon} />
+              <Grid key={tile.key} size={{ xs: 12, sm: 6, md: 4, lg: "grow" }}>
+                <CourseWidgetSummary title={c(tile.copyKey)} total={tasks.summary[tile.key]} icon={tile.icon} color={tile.color} />
+              </Grid>
             ))}
-          </KpiGrid>
+          </Grid>
         ) : null}
 
         <Card className="kit-tablecard" aria-label={routinesTable.title}>
             <CardHeader
               sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
-              title={
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <ListChecks className="ic" style={{ width: 18, color: "var(--primary)" }} aria-hidden="true" />
-                  {routinesTable.title}
-                </span>
-              }
-              action={routines.length ? <Tag tone="info">{filteredRoutines.length}</Tag> : null}
+              title={routinesTable.title}
+              action={routines.length ? <Label variant="soft" color="info">{filteredRoutines.length}</Label> : null}
             />
             {!canConfigure ? <Alert severity="info" sx={{ mx: 3, mb: 1.5 }}>{c("configure.disabled_no_access")}</Alert> : null}
             {routines.length === 0 ? (
-              <EmptyState icon={<ListChecks className="ic" aria-hidden="true" />} title={c("empty.routines")} sx={{ mx: 3, mb: 3 }} />
+              <EmptyState title={c("empty.routines")} sx={{ mx: 3, mb: 3 }} />
             ) : (
               <RoutinesTableChrome
                 tableAriaLabel={routinesTable.title}
@@ -500,18 +500,10 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                 labels={chromeLabels}
               >
                 <Table stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      {routineColumns.map((column) => (
-                        <TableCell component="th" key={column.key} align={NUMERIC_ROUTINE_COLUMNS.has(column.key) ? "right" : undefined}>
-                          {column.label}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
+                  <TableHeadCustom headCells={routineColumns.map((column) => ({ id: column.key, label: column.label, sortable: false, align: NUMERIC_ROUTINE_COLUMNS.has(column.key) ? "right" : undefined }))} />
                   <TableBody>
                     {filteredRoutines.map((routine) => (
-                      <TableRow key={routine.routine_id}>
+                      <TableRow hover key={routine.routine_id}>
                         {routineColumns.map((column) => (
                           <TableCell key={column.key} align={NUMERIC_ROUTINE_COLUMNS.has(column.key) ? "right" : undefined} sx={NUMERIC_ROUTINE_COLUMNS.has(column.key) ? { fontVariantNumeric: "tabular-nums" } : undefined}>
                             {routineCell(routine, column.key)}
@@ -528,13 +520,9 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         <Card className="kit-tablecard" aria-label={tasksTable.title}>
             <CardHeader
               sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
-              title={
-                <>
-                  {tasksTable.title}
-                  {data.todayPark ? <span className="muted"> · {data.todayPark.name}</span> : null}
-                </>
-              }
-              action={data.todayPark ? <Tag tone="info">{taskRows.length}</Tag> : null}
+              title={tasksTable.title}
+              subheader={data.todayPark?.name}
+              action={data.todayPark ? <Label variant="soft" color="info">{taskRows.length}</Label> : null}
             />
             {data.tasks && !data.tasks.ok ? (
               <Alert severity="error" sx={{ mx: 3, mb: 2 }}>
@@ -542,7 +530,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
               </Alert>
             ) : null}
             {allTaskRows.length === 0 ? (
-              <EmptyState icon={<CalendarCheck2 className="ic" aria-hidden="true" />} title={c("empty.tasks")} sx={{ mx: 3, mb: 3 }} />
+              <EmptyState title={c("empty.tasks")} sx={{ mx: 3, mb: 3 }} />
             ) : (
               <RoutinesTableChrome
                 tableAriaLabel={tasksTable.title}
@@ -601,16 +589,10 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                 labels={chromeLabels}
               >
                 <Table stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      {taskColumns.map((column) => (
-                        <TableCell component="th" key={column.key}>{column.label}</TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
+                  <TableHeadCustom headCells={taskColumns.map((column) => ({ id: column.key, label: column.label, sortable: false }))} />
                   <TableBody>
                     {taskRows.map((row) => (
-                      <TableRow key={row.task_id}>
+                      <TableRow hover key={row.task_id}>
                         {taskColumns.map((column) => (
                           <TableCell key={column.key}>{taskCell(row, column.key)}</TableCell>
                         ))}
@@ -625,7 +607,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       </Stack>
 
       <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={c("drawer.routine.title")} closeLabel={c("action.close")} />
-    </div>
+    </Box>
   );
 }
 

@@ -17,6 +17,7 @@
   "template_root": "~/mesha/mui/Minimal_TypeScript_v7.7.0/next-ts",
   "sources": {
     "components/minimal/index.ts": "src/components/index.ts",
+    "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
 
     "components/minimal/_shared/config.ts": "src/global-config.ts",
     "components/minimal/_shared/format-number.ts": "src/utils/format-number.ts",

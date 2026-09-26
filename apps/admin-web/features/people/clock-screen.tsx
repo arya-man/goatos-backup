@@ -1,39 +1,52 @@
 import Form from "next/form";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import InputAdornment from "@mui/material/InputAdornment";
+import Alert from "@mui/material/Alert";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 import { PeopleFormSelect } from "./people-form-select";
-import { Clock } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listAdminClockEntries, type ClockEntry } from "@/lib/api/server";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { PaletteColorKey } from "@/theme/core";
 import { ClockEntryDrawer } from "./clock-entry-drawer";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
-import Alert from "@mui/material/Alert";
 
 const PAGE_SIZE = 25;
 
-/** Flag tones only — the visible label is the backend flag label verbatim. */
-function flagTone(key: string): Tone {
+/** Flag colours only — the visible label is the backend flag label verbatim. */
+function flagColor(key: string): LabelColor {
   switch (key) {
     case "offline":
       return "info";
     case "no_location":
-      return "warn";
+      return "warning";
     case "not_clocked_out":
-      return "dng";
+      return "error";
     default:
-      return "mut";
+      return "default";
   }
 }
 
@@ -95,43 +108,66 @@ export async function ClockScreen({
   const designations = result.ok ? listOrEmpty(result.data.designations) : [];
   const none = copy(pageContract, "clock.value.none");
 
-  const tiles: { key: string; label: string; value: number }[] = [
-    { key: "working", label: copy(pageContract, "clock.summary.working"), value: summary.working },
-    { key: "clocked_out", label: copy(pageContract, "clock.summary.clocked_out"), value: summary.clocked_out },
-    { key: "not_clocked_in", label: copy(pageContract, "clock.summary.not_clocked_in"), value: summary.not_clocked_in },
-    { key: "flagged", label: copy(pageContract, "clock.summary.flagged"), value: summary.flagged },
+  const tiles: { key: string; label: string; value: number; color: PaletteColorKey; icon: string }[] = [
+    { key: "working", label: copy(pageContract, "clock.summary.working"), value: summary.working, color: "success", icon: COURSE_WIDGET_ICONS.progress },
+    { key: "clocked_out", label: copy(pageContract, "clock.summary.clocked_out"), value: summary.clocked_out, color: "info", icon: COURSE_WIDGET_ICONS.completed },
+    { key: "not_clocked_in", label: copy(pageContract, "clock.summary.not_clocked_in"), value: summary.not_clocked_in, color: "warning", icon: COURSE_WIDGET_ICONS.certificates },
+    { key: "flagged", label: copy(pageContract, "clock.summary.flagged"), value: summary.flagged, color: "error", icon: COURSE_WIDGET_ICONS.certificates },
   ];
 
   return (
-    <>
+    <Stack spacing={3}>
       {!result.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error">
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
         </Alert>
       ) : null}
 
-      {/* Whole-filter summary tiles; tapping one narrows the list to that bucket. */}
-      <KpiGrid min={180}>
-        {tiles.map((tile) => (
-          <KpiCard
-            key={tile.key}
-            label={tile.label}
-            value={tile.value}
-            tone={bucket === tile.key ? "info" : "neutral"}
-            href={hrefWithQuery(pathname, sp, { bucket: bucket === tile.key ? null : tile.key, cursor: null })}
-            hint={bucket === tile.key ? "Filtering \u00b7 click to clear" : undefined}
-          />
-        ))}
-      </KpiGrid>
+      {/* Template course overview KPI row (CourseWidgetSummary); tapping a tile narrows the list
+          to that bucket, tapping it again clears it. */}
+      <Grid container spacing={3}>
+        {tiles.map((tile) => {
+          const selected = bucket === tile.key;
+          return (
+            <Grid key={tile.key} size={{ xs: 6, md: 3 }}>
+              <Link
+                href={hrefWithQuery(pathname, sp, { bucket: selected ? null : tile.key, cursor: null })}
+                scroll={false}
+                aria-pressed={selected}
+                style={{ display: "block", height: "100%", color: "inherit", textDecoration: "none" }}
+              >
+                <CourseWidgetSummary
+                  title={tile.label}
+                  total={tile.value}
+                  color={tile.color}
+                  icon={tile.icon}
+                  sx={selected ? { height: 1, outline: 2, outlineColor: `${tile.color}.main` } : { height: 1 }}
+                />
+              </Link>
+            </Grid>
+          );
+        })}
+      </Grid>
 
-      {/* Native GET form: filters round-trip through the URL. tab=clock is
-          preserved so submitting stays on this tab. */}
-      <Form action={pathname} prefetch={false} className="card people-filter-card">
-        <input type="hidden" name="tab" value="clock" />
-        {bucket ? <input type="hidden" name="bucket" value={bucket} /> : null}
-        <div className="people-filter-grid">
-          <div className="fld">
-            <label>{copy(pageContract, "clock.filter.date")}</label>
+      {/* Template user list card: toolbar (next/form GET, soft navigation; filters round-trip through the URL and
+          tab=clock keeps the tab) → TableHeadCustom table → pagination. */}
+      <Card>
+        <CardHeader
+          title={copy(pageContract, "clock.tab.title")}
+          action={
+            <Label variant="soft" color={items.length ? "info" : "default"}>
+              {items.length} {copy(pageContract, "summary.count")}
+            </Label>
+          }
+          sx={{ "& .MuiCardHeader-action": { alignSelf: "center" } }}
+        />
+        <Form action={pathname} prefetch={false}>
+        <Box
+          sx={{ p: 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center", flexDirection: { xs: "column", md: "row" }, "& > *": { width: { xs: 1, md: "auto" } } }}
+        >
+          <input type="hidden" name="tab" value="clock" />
+          {bucket ? <input type="hidden" name="bucket" value={bucket} /> : null}
+          <Box sx={{ flexShrink: 0 }}>
             <ThemedDatePicker
               name="date"
               label={copy(pageContract, "clock.filter.date")}
@@ -140,20 +176,10 @@ export async function ClockScreen({
               nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
               invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
             />
-          </div>
-          <div className="fld" style={{ minWidth: 200, flex: 1 }}>
-            <label htmlFor="clock-search">{copy(pageContract, "filter.search_label")}</label>
-            <input
-              id="clock-search"
-              name="search"
-              defaultValue={search}
-              placeholder={copy(pageContract, "filter.search_placeholder")}
-              maxLength={200}
-            />
-          </div>
+          </Box>
           <PeopleFormSelect
-            className="fld"
             name="park_id"
+            minWidth={200}
             label={copy(pageContract, "filter.park")}
             defaultValue={parkId}
             options={[
@@ -162,8 +188,8 @@ export async function ClockScreen({
             ]}
           />
           <PeopleFormSelect
-            className="fld"
             name="designation"
+            minWidth={200}
             label={copy(pageContract, "column.designation")}
             defaultValue={designation}
             options={[
@@ -171,42 +197,47 @@ export async function ClockScreen({
               ...designations.map((option) => ({ value: option.id, label: option.label })),
             ]}
           />
-          <div className="fld">
-            <label aria-hidden="true">&nbsp;</label>
-            <button type="submit" className="btn">
-              {copy(pageContract, "filter.apply", "Apply")}
-            </button>
-          </div>
-        </div>
-      </Form>
-
-      <section className="card">
-        <div className="hd">
-          <Clock className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "clock.tab.title")}</h3>
-          <Tag tone={items.length ? "info" : "mut"}>
-            {items.length} {copy(pageContract, "summary.count")}
-          </Tag>
-        </div>
+          <TextField
+            id="clock-search"
+            name="search"
+            defaultValue={search}
+            placeholder={copy(pageContract, "filter.search_placeholder")}
+            sx={{ flex: "1 1 240px", minWidth: 0 }}
+            slotProps={{
+              htmlInput: { maxLength: 200, "aria-label": copy(pageContract, "filter.search_label") },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+          <Button type="submit" variant="outlined" color="inherit" size="large" sx={{ minHeight: 56, flexShrink: 0 }}>
+            {copy(pageContract, "filter.apply", "Apply")}
+          </Button>
+        </Box>
+        </Form>
 
         {items.length === 0 ? (
           <EmptyState title={copy(pageContract, "clock.empty")} />
         ) : (
-          <div className="twrap tablewrap" tabIndex={0} role="region" aria-label={copy(pageContract, "clock.tab.title")}>
-            <Table className="people-table" aria-label={copy(pageContract, "clock.tab.title")}>
-              <TableHead>
-                <TableRow>
-                  <TableCell component="th">{copy(pageContract, "clock.column.person")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.park")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.designation")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.clock_in")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.clock_out")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.hours")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.location")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.device")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.flags")}</TableCell>
-                </TableRow>
-              </TableHead>
+          <Scrollbar>
+            <Table sx={{ minWidth: 960 }} aria-label={copy(pageContract, "clock.tab.title")}>
+              <TableHeadCustom
+                headCells={[
+                  { id: "person", label: copy(pageContract, "clock.column.person"), sortable: false },
+                  { id: "park", label: copy(pageContract, "clock.column.park"), sortable: false },
+                  { id: "designation", label: copy(pageContract, "clock.column.designation"), sortable: false },
+                  { id: "in", label: copy(pageContract, "clock.column.clock_in"), sortable: false },
+                  { id: "out", label: copy(pageContract, "clock.column.clock_out"), sortable: false },
+                  { id: "hours", label: copy(pageContract, "clock.column.hours"), sortable: false },
+                  { id: "location", label: copy(pageContract, "clock.column.location"), sortable: false },
+                  { id: "device", label: copy(pageContract, "clock.column.device"), sortable: false },
+                  { id: "flags", label: copy(pageContract, "clock.column.flags"), sortable: false },
+                ]}
+              />
               <TableBody>
                 {items.map((entry) => {
                   // A not-clocked-in roster row has no entry id and nothing to
@@ -223,26 +254,26 @@ export async function ClockScreen({
                       content
                     );
                   return (
-                    <TableRow key={`${entry.workforce_member_id}:${entry.business_date}`}>
-                      <TableCell>{cell(<b>{entry.person_name}</b>)}</TableCell>
-                      <TableCell>{cell(entry.park_label ?? none)}</TableCell>
-                      <TableCell>{cell(entry.designation || none)}</TableCell>
-                      <TableCell>{cell(entry.clock_in_label || none)}</TableCell>
-                      <TableCell>{cell(entry.clock_out_label ?? none)}</TableCell>
-                      <TableCell>{cell(entry.hours_label || none)}</TableCell>
-                      <TableCell className="muted">{cell(entry.location_label || none)}</TableCell>
-                      <TableCell className="muted">{cell(entry.device_label || none)}</TableCell>
+                    <TableRow hover key={`${entry.workforce_member_id}:${entry.business_date}`}>
+                      <TableCell>{cell(<Typography variant="subtitle2" component="span">{entry.person_name}</Typography>)}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{cell(entry.park_label ?? none)}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{cell(entry.designation || none)}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{cell(entry.clock_in_label || none)}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{cell(entry.clock_out_label ?? none)}</TableCell>
+                      <TableCell sx={{ whiteSpace: "nowrap" }}>{cell(entry.hours_label || none)}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>{cell(entry.location_label || none)}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>{cell(entry.device_label || none)}</TableCell>
                       <TableCell>
                         {entry.flags.length === 0
                           ? cell(none)
                           : cell(
-                              <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                              <Box component="span" sx={{ display: "inline-flex", gap: 0.5, flexWrap: "wrap" }}>
                                 {entry.flags.map((flag) => (
-                                  <Tag key={flag.key} tone={flagTone(flag.key)}>
+                                  <Label key={flag.key} variant="soft" color={flagColor(flag.key)}>
                                     {flag.label}
-                                  </Tag>
+                                  </Label>
                                 ))}
-                              </span>,
+                              </Box>,
                             )}
                       </TableCell>
                     </TableRow>
@@ -250,35 +281,25 @@ export async function ClockScreen({
                 })}
               </TableBody>
             </Table>
-          </div>
+          </Scrollbar>
         )}
 
         {cursor || nextCursor ? (
-          <div className="pager2" style={{ paddingRight: 56 }}>
-            {cursor ? (
-              <Link href={hrefWithQuery(pathname, sp, { cursor: null })} scroll={false} className="btn">
-                {copy(pageContract, "action.prev_page")}
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.prev_page")}
-              </span>
-            )}
-            {nextCursor ? (
-              <Link href={hrefWithQuery(pathname, sp, { cursor: nextCursor })} scroll={false} className="btn">
-                {copy(pageContract, "action.next_page")}
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.next_page")}
-              </span>
-            )}
-          </div>
+          <TablePaginationLinks
+            page={cursor ? 1 : 0}
+            rowsPerPage={limit}
+            count={-1}
+            prevHref={cursor ? hrefWithQuery(pathname, sp, { cursor: null }) : null}
+            nextHref={nextCursor ? hrefWithQuery(pathname, sp, { cursor: nextCursor }) : null}
+            rangeLabel={`${items.length} ${copy(pageContract, "summary.count")}`}
+            prevLabel={copy(pageContract, "action.prev_page")}
+            nextLabel={copy(pageContract, "action.next_page")}
+          />
         ) : null}
-      </section>
+      </Card>
 
       {/* Always mounted (LocalOverlayLink changes the URL without an RSC request). */}
       <ClockEntryDrawer pageContract={pageContract} listHref={hrefWithQuery(pathname, sp, { clocking: null })} />
-    </>
+    </Stack>
   );
 }

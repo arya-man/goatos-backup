@@ -3,6 +3,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { PageHeader } from "@/components/app/page-header";
 import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { PeopleBoard } from "./people-board";
+import { PeopleAddButton } from "./people-add-button";
 import { ClockScreen } from "./clock-screen";
 import { NotificationsScreen } from "./notifications-screen";
 import { getAdminWebBootstrap } from "@/lib/api/server";
@@ -59,7 +60,12 @@ export async function PeoplePage({
   return (
     <div className="kit-enter screen on">
       <div>
-        <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />
+        {/* Template user list: the primary "Add" action sits on the breadcrumbs row. */}
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+          actions={active === "all" ? <PeopleAddButton href={addPersonHref(searchParams)} label={copy(pageContract, "action.add_person")} /> : undefined}
+        />
       </div>
 
       <AnimatedTabs
@@ -89,4 +95,14 @@ export async function PeoplePage({
       </TabPanel>
     </div>
   );
+}
+
+function addPersonHref(sp: RouteSearchParams): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(sp)) {
+    const single = Array.isArray(value) ? value[0] : value;
+    if (single) query.set(key, single);
+  }
+  query.set("person", "new");
+  return `/people?${query.toString()}`;
 }

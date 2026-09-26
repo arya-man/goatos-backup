@@ -1,5 +1,4 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -8,18 +7,19 @@ import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
-import MuiCard from "@mui/material/Card";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import Grid from "@mui/material/Grid";
+import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { Label, type LabelColor } from "@/components/minimal/label";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { redirect } from "next/navigation";
-import { CalendarCheck2, CalendarOff, CircleAlert, CircleCheck, CircleDot, CircleSlash, Undo2 } from "lucide-react";
 
-import { Tag, type Tone } from "@/components/ui-primitives";
 import { controlEnabled, control, copy, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -39,6 +39,12 @@ import { LeaveTableChrome } from "./leave-toolbar";
 const PATHNAME = "/leave";
 const DEFAULT_PAGE_SIZE = 20;
 const STATUS_FILTERS = ["", "pending", "approved", "rejected", "withdrawn"] as const;
+const LEAVE_TILES = [
+  { key: "pending", icon: COURSE_WIDGET_ICONS.progress, color: "warning" },
+  { key: "approved", icon: COURSE_WIDGET_ICONS.completed, color: "success" },
+  { key: "rejected", icon: COURSE_WIDGET_ICONS.certificates, color: "error" },
+  { key: "withdrawn", icon: COURSE_WIDGET_ICONS.progress, color: "info" },
+] as const;
 
 // Table cell presentation (template user-table-row: Avatar + name over muted secondary lines).
 const PERSON_SX = { display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 } as const;
@@ -125,7 +131,7 @@ export async function LeavePage({
   const feedbackText = feedbackCopy(pageContract, feedback.status, feedback.code);
 
   return (
-    <div className="screen on leave-page">
+    <Box className="screen on leave-page">
       <LeaveActionTelemetry status={feedback.status} code={feedback.code} />
       <PageHeader
         title={t("page.title")}
@@ -136,7 +142,6 @@ export async function LeavePage({
         {feedbackText ? (
           <Alert
             severity={feedback.status === "error" ? "error" : "success"}
-            icon={feedback.status === "error" ? <CircleAlert size={18} aria-hidden="true" /> : <CircleCheck size={18} aria-hidden="true" />}
             data-testid="leave-feedback"
             role="status"
           >
@@ -145,46 +150,35 @@ export async function LeavePage({
         ) : null}
 
         {mayList && Object.values(statusCounts).some((n) => Number(n) > 0) ? (
-          // Spec §5 strip over the status taxonomy the tabs already use; hidden while every count is 0.
-          // Template invoice list: the InvoiceAnalytic row inside its own Card.
-          <MuiCard>
-            <StatStrip
-              cells={[
-                { key: "pending", icon: <CircleDot aria-hidden="true" />, label: t("filter.status.pending"), value: String(statusCounts.pending), tone: "warning" },
-                { key: "approved", icon: <CircleCheck aria-hidden="true" />, label: t("filter.status.approved"), value: String(statusCounts.approved), tone: "success" },
-                { key: "rejected", icon: <CircleSlash aria-hidden="true" />, label: t("filter.status.rejected"), value: String(statusCounts.rejected), tone: "error" },
-                { key: "withdrawn", icon: <Undo2 aria-hidden="true" />, label: t("filter.status.withdrawn"), value: String(statusCounts.withdrawn), tone: "neutral" },
-              ]}
-            />
-          </MuiCard>
+          // Counts over the status taxonomy the tabs already use; hidden while every count is 0.
+          // Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid.
+          <Grid container spacing={3}>
+            {LEAVE_TILES.map(({ key, icon, color }) => (
+              <Grid key={key} size={{ xs: 12, sm: 6, md: 3 }}>
+                <CourseWidgetSummary title={t(`filter.status.${key}`)} total={statusCounts[key]} icon={icon} color={color} />
+              </Grid>
+            ))}
+          </Grid>
         ) : null}
 
         {mayConfigure && config?.ok ? (
-          <div>
             <LeaveConfigPanel config={config.data.config} pageContract={pageContract} />
-          </div>
         ) : null}
 
         {mayDecide ? (
-          <div>
             <Card className="kit-tablecard" data-testid="leave-queue">
               <CardHeader
                 sx={{ pt: 2.5, px: 3, pb: 1.5, mb: 2, alignItems: "center" }}
-                title={
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                    <CalendarCheck2 className="ic" style={{ width: 18, color: "var(--primary)" }} aria-hidden="true" />
-                    {queueTable.title}
-                  </span>
-                }
-                action={queueRows.length ? <Tag tone="info">{queueRows.length}</Tag> : null}
+                title={queueTable.title}
+                action={queueRows.length ? <Label variant="soft" color="info">{queueRows.length}</Label> : null}
               />
               {queue && !queue.ok ? (
-                <Alert severity="error" icon={<CircleAlert size={18} aria-hidden="true" />} role="alert" sx={{ mx: 3, mb: 2 }}>
+                <Alert severity="error" role="alert" sx={{ mx: 3, mb: 2 }}>
                   <b>{queue.error.code ?? queue.error.kind}</b> · {queue.error.message}
                 </Alert>
               ) : null}
               {queueRows.length === 0 ? (
-                <EmptyState icon={<CalendarOff className="ic" aria-hidden="true" />} title={t("queue.empty")} sx={{ mx: 3, mb: 3 }} />
+                <EmptyState title={t("queue.empty")} sx={{ mx: 3, mb: 3 }} />
               ) : (
                 <LeaveTableChrome
                   tableAriaLabel={queueTable.title}
@@ -214,13 +208,7 @@ export async function LeavePage({
                   }}
                 >
                   <Table stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        {queueLabels.map((label) => (
-                          <TableCell component="th" key={label}>{label}</TableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
+                    <TableHeadCustom headCells={queueLabels.map((label, index) => ({ id: `c${index}`, label, sortable: false }))} />
                     <TableBody>
                       {queueRows.map((row) => (
                         <TableRow key={row.leave_request_id} data-testid="leave-queue-row">
@@ -243,7 +231,7 @@ export async function LeavePage({
                             <Box component="span" sx={CLAMP_SX} title={row.reason}>{row.reason}</Box>
                           </TableCell>
                           <TableCell>
-                            {row.my_slot_label ? <Tag tone="info">{row.my_slot_label}</Tag> : null}
+                            {row.my_slot_label ? <Label variant="soft" color="info">{row.my_slot_label}</Label> : null}
                             <Box component="span" sx={{ ...SUB_SX, mt: 0.5 }}>
                               {row.status_line}
                             </Box>
@@ -284,11 +272,9 @@ export async function LeavePage({
                 </LeaveTableChrome>
               )}
             </Card>
-          </div>
         ) : null}
 
         {mayList ? (
-          <div>
             <Card className="kit-tablecard" data-testid="leave-list">
               <CardHeader
                 sx={{ pt: 2.5, px: 3, pb: 1.5, alignItems: "center" }}
@@ -310,12 +296,12 @@ export async function LeavePage({
                     }))}
               />
               {list && !list.ok ? (
-                <Alert severity="error" icon={<CircleAlert size={18} aria-hidden="true" />} role="alert" sx={{ mx: 3, mb: 2 }}>
+                <Alert severity="error" role="alert" sx={{ mx: 3, mb: 2 }}>
                   <b>{list.error.code ?? list.error.kind}</b> · {list.error.message}
                 </Alert>
               ) : null}
               {listRows.length === 0 ? (
-                <EmptyState icon={<CalendarOff className="ic" aria-hidden="true" />} title={t("list.empty")} sx={{ mx: 3, mb: 3 }} />
+                <EmptyState title={t("list.empty")} sx={{ mx: 3, mb: 3 }} />
               ) : (
                 <LeaveTableChrome
                   tableAriaLabel={listTable.title}
@@ -345,13 +331,7 @@ export async function LeavePage({
                   }}
                 >
                   <Table stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        {listLabels.map((label) => (
-                          <TableCell component="th" key={label}>{label}</TableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
+                    <TableHeadCustom headCells={listLabels.map((label, index) => ({ id: `c${index}`, label, sortable: false }))} />
                     <TableBody>
                       {listRows.map((row) => (
                         <TableRow key={row.leave_request_id} data-testid="leave-list-row">
@@ -370,7 +350,7 @@ export async function LeavePage({
                             <Box component="span" sx={CLAMP_SX} title={row.reason}>{row.reason}</Box>
                           </TableCell>
                           <TableCell>
-                            <Tag tone={statusTone(row.status)}>{row.status_label}</Tag>
+                            <Label variant="soft" color={statusColor(row.status)}>{row.status_label}</Label>
                             <Box component="span" sx={{ ...SUB_SX, mt: 0.5 }}>
                               {row.status_line}
                             </Box>
@@ -383,14 +363,11 @@ export async function LeavePage({
                 </LeaveTableChrome>
               )}
             </Card>
-          </div>
         ) : !mayDecide ? (
-          <div>
             <Alert severity="error">{control(pageContract, "leave_list").disabled_reason ?? ""}</Alert>
-          </div>
         ) : null}
       </Stack>
-    </div>
+    </Box>
   );
 }
 
@@ -464,16 +441,16 @@ function initials(name: string): string {
 }
 
 
-function statusTone(status: LeaveRequest["status"]): Tone {
+function statusColor(status: LeaveRequest["status"]): LabelColor {
   switch (status) {
     case "approved":
-      return "ok";
+      return "success";
     case "rejected":
-      return "dng";
+      return "error";
     case "withdrawn":
-      return "mut";
+      return "default";
     default:
-      return "warn";
+      return "warning";
   }
 }
 

@@ -1,3 +1,5 @@
+'use client';
+
 // Copied from the licensed MUI Minimal template (sections/overview/course/course-widget-summary.tsx).
 // Change: values accept pre-formatted strings (WidgetValue).
 import type { CardProps } from '@mui/material/Card';

@@ -1,12 +1,11 @@
-import Link from "@/components/no-prefetch-link";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { ArrowLeftRight, Clock3, HeartPulse, ListChecks } from "lucide-react";
 
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
+import { TablePaginationLinks } from "@/components/minimal/table";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
-import { reviewQueueStyles as rq } from "@/components/review-queue/review-queue-ui";
 
 import { LinkSelect } from "@/components/app/link-select";
 import {
@@ -26,8 +25,11 @@ import { ApprovalsDrawer } from "./approvals-drawer";
 import { ApprovalsDateFilter } from "./approvals-date-filter";
 import { ApprovalsQueueTable, approvalsHref } from "./approvals-queue-table";
 import { approvalDateRange, approvalSubject, approvalSuccessSentence } from "./approval-display";
-import ap from "./approvals.module.css";
 import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 
 const PATHNAME = "/approvals";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -92,129 +94,144 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   // still in the list) can never carry the confirmation. It lives at page level instead.
   const successSentence = approvalSuccessSentence(feedback.status, feedback.code);
 
+  const clearRow = { ap_row: null, ap_status: null, ap_code: null } as const;
+  const kpis = [
+    { key: "pending", title: COPY.kpi.pendingInView, total: countStatus(items, "pending"), icon: COURSE_WIDGET_ICONS.progress, color: "warning" as const },
+    { key: "birth-death", title: COPY.kpi.birthDeathInView, total: items.filter((i) => i.request_type === "birth" || i.request_type === "death").length, icon: COURSE_WIDGET_ICONS.completed, color: "info" as const },
+    { key: "shifting", title: COPY.kpi.shiftingInView, total: items.filter((i) => i.request_type === "shifting").length, icon: COURSE_WIDGET_ICONS.certificates, color: "secondary" as const },
+    { key: "rows", title: COPY.kpi.rowsInView, total: items.length, icon: COURSE_WIDGET_ICONS.completed, color: "primary" as const },
+  ];
+
   return (
-    <div className={`screen on ${rq.root}`}>
+    <Box className="screen on">
       <PageHeader title={COPY.title} crumbs={[{ label: COPY.title }]} />
 
-      {successSentence ? (
-        <Alert severity="success" role="status" style={{ marginBottom: "var(--sp-1h)" }}>
-          <b>{successSentence}</b>
-        </Alert>
-      ) : null}
+      <Stack spacing={3}>
+        {successSentence ? (
+          <Alert severity="success" role="status">
+            <b>{successSentence}</b>
+          </Alert>
+        ) : null}
 
-      {queue.ok ? null : (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
-          <b>{COPY.error.queueUnavailable}</b>
-          <div className="small" style={{ marginTop: 4 }}>
+        {queue.ok ? null : (
+          <Alert severity="error">
+            <AlertTitle>{COPY.error.queueUnavailable}</AlertTitle>
             {COPY.error.queueUnavailableBody}
-          </div>
-        </Alert>
-      )}
+          </Alert>
+        )}
 
-      {/* A deck of zeros is a wall, not a reading: the tiles render only once the view has rows. */}
-      {items.length > 0 ? (
-      <div className={rq.kpis}>
-        <KpiGrid min={200}>
-          <KpiCard label={COPY.kpi.pendingInView} value={countStatus(items, "pending")} tone="warning" icon={<Clock3 />} />
-          <KpiCard
-            label={COPY.kpi.birthDeathInView}
-            value={items.filter((i) => i.request_type === "birth" || i.request_type === "death").length}
-            tone="info"
-            icon={<HeartPulse />}
-          />
-          <KpiCard label={COPY.kpi.shiftingInView} value={items.filter((i) => i.request_type === "shifting").length} tone="violet" icon={<ArrowLeftRight />} />
-          <KpiCard label={COPY.kpi.rowsInView} value={items.length} tone="success" icon={<ListChecks />} />
-        </KpiGrid>
-      </div>
-      ) : null}
+        {/* A deck of zeros is a wall, not a reading: the tiles render only once the view has rows.
+            Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid. */}
+        {items.length > 0 ? (
+          <Grid container spacing={3}>
+            {kpis.map((kpi) => (
+              <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
+                <CourseWidgetSummary title={kpi.title} total={kpi.total} icon={kpi.icon} color={kpi.color} />
+              </Grid>
+            ))}
+          </Grid>
+        ) : null}
 
-      {/* One toolbar row, MUI list style: the request-type tabs, then the status, farm and date
-          filters on the same line (they wrap under the tabs on a phone). The type tabs carry no
-          counts: the server applies the type filter, so the fetched page cannot count other types. */}
-      <div className={`${rq.tabs} ${ap.toolbar}`}>
-        <AnimatedTabs
-          className={`kit-count-tabs ${ap.typeTabs}`}
-          ariaLabel="Request type"
-          value={typeFilter}
-          items={TYPE_TABS.map((key) => ({
-            value: key,
-            label: COPY.typeTab[key],
-            href: hrefWith(sp, { type: key === "all" ? null : key, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null }),
-          }))}
+        {/* Template order list: the request-type Tabs are the card's first row, the status, farm and
+            date filters the toolbar row under them. The type tabs carry no counts: the server applies
+            the type filter, so the fetched page cannot count other types. */}
+        <ApprovalsQueueTable
+          items={items}
+          ok={queue.ok}
+          searchParams={sp}
+          subjects={subjects}
+          tabs={
+            <AnimatedTabs
+              ariaLabel="Request type"
+              value={typeFilter}
+              sx={{ px: { md: 2.5 } }}
+              items={TYPE_TABS.map((key) => ({
+                value: key,
+                label: COPY.typeTab[key],
+                href: hrefWith(sp, { type: key === "all" ? null : key, ap_cursor: null, ...clearRow }),
+              }))}
+            />
+          }
+          toolbar={
+            <Box
+              sx={{
+                p: 2.5,
+                gap: 2,
+                display: "flex",
+                pr: { xs: 2.5, md: 1 },
+                flexDirection: { xs: "column", md: "row" },
+                alignItems: { xs: "stretch", md: "center" },
+                "& > *": { width: { xs: 1, md: "auto" } },
+              }}
+            >
+              <LinkSelect
+                label={COPY.filter.status}
+                value={status}
+                minWidth={160}
+                options={STATUS_TABS.map((key) => ({
+                  value: key,
+                  label: COPY.statusTab[key],
+                  href: hrefWith(sp, { status: key, ap_cursor: null, ...clearRow }),
+                }))}
+              />
+              {/* Farm filter: the top-level park each request belongs to (Coimbatore / Channapatna). */}
+              <LinkSelect
+                label={COPY.filter.farm}
+                value={farmFilter === "" ? "__all" : farmFilter}
+                minWidth={200}
+                options={[
+                  { value: "__all", label: COPY.farmTab.all, href: hrefWith(sp, { farm: null, ap_cursor: null, ...clearRow }) },
+                  ...farms.map((farm) => ({
+                    value: farm.id,
+                    label: farm.name,
+                    href: hrefWith(sp, { farm: farm.id, ap_cursor: null, ...clearRow }),
+                  })),
+                ]}
+              />
+              <ApprovalsDateFilter
+                labels={{
+                  field: COPY.dateFilter.field,
+                  today: COPY.dateFilter.today,
+                  single: COPY.dateFilter.single,
+                  range: COPY.dateFilter.range,
+                  aria: COPY.dateFilter.aria,
+                  previousMonth: COPY.dateFilter.previousMonth,
+                  nextMonth: COPY.dateFilter.nextMonth,
+                  rangeStartHint: COPY.dateFilter.rangeStartHint,
+                  rangeEndHint: COPY.dateFilter.rangeEndHint,
+                  rangeSeparator: COPY.dateFilter.rangeSeparator,
+                }}
+                from={dateRange.from}
+                to={dateRange.to}
+                today={todayIso()}
+                anyLabel={COPY.dateFilter.any}
+                clearLabel={COPY.dateFilter.clear}
+                basePath={PATHNAME}
+              />
+            </Box>
+          }
+          footer={
+            cursor || nextCursor ? (
+              // Template TablePaginationCustom footer; the queue pages by cursor, so there is no total
+              // (count -1) and "first" returns to the newest page.
+              <TablePaginationLinks
+                page={cursor ? 1 : 0}
+                rowsPerPage={20}
+                count={-1}
+                rangeLabel={`${COPY.kpi.rowsInView}: ${items.length}`}
+                prevHref={cursor ? hrefWith(sp, { ap_cursor: null, ...clearRow }) : null}
+                nextHref={nextCursor ? hrefWith(sp, { ap_cursor: nextCursor, ...clearRow }) : null}
+                prevLabel={COPY.pager.first}
+                nextLabel={COPY.pager.next}
+                replace
+              />
+            ) : null
+          }
         />
-        <div className={ap.filters}>
-          <LinkSelect
-            label={COPY.filter.status}
-            value={status}
-            minWidth={140}
-            options={STATUS_TABS.map((key) => ({
-              value: key,
-              label: COPY.statusTab[key],
-              href: hrefWith(sp, { status: key, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null }),
-            }))}
-          />
-          {/* Farm filter: the top-level park each request belongs to (Coimbatore / Channapatna). */}
-          <LinkSelect
-            label={COPY.filter.farm}
-            value={farmFilter === "" ? "__all" : farmFilter}
-            minWidth={160}
-            options={[
-              { value: "__all", label: COPY.farmTab.all, href: hrefWith(sp, { farm: null, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null }) },
-              ...farms.map((farm) => ({
-                value: farm.id,
-                label: farm.name,
-                href: hrefWith(sp, { farm: farm.id, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null }),
-              })),
-            ]}
-          />
-          <ApprovalsDateFilter
-            labels={{
-              field: COPY.dateFilter.field,
-              today: COPY.dateFilter.today,
-              single: COPY.dateFilter.single,
-              range: COPY.dateFilter.range,
-              aria: COPY.dateFilter.aria,
-              previousMonth: COPY.dateFilter.previousMonth,
-              nextMonth: COPY.dateFilter.nextMonth,
-              rangeStartHint: COPY.dateFilter.rangeStartHint,
-              rangeEndHint: COPY.dateFilter.rangeEndHint,
-              rangeSeparator: COPY.dateFilter.rangeSeparator,
-            }}
-            from={dateRange.from}
-            to={dateRange.to}
-            today={todayIso()}
-            anyLabel={COPY.dateFilter.any}
-            clearLabel={COPY.dateFilter.clear}
-            basePath={PATHNAME}
-          />
-        </div>
-      </div>
-
-      <ApprovalsQueueTable
-        items={items}
-        ok={queue.ok}
-        searchParams={sp}
-        subjects={subjects}
-        footer={
-          cursor || nextCursor ? (
-            <div className="pager" style={{ padding: "var(--sp-1) var(--sp-1h)", justifyContent: "flex-end", flexWrap: "wrap" }}>
-              {cursor ? (
-                <Link href={hrefWith(sp, { ap_cursor: null, ap_row: null, ap_status: null, ap_code: null })} replace scroll={false} className="btn sm">
-                  {COPY.pager.first}
-                </Link>
-              ) : null}
-              {nextCursor ? (
-                <Link href={hrefWith(sp, { ap_cursor: nextCursor, ap_row: null, ap_status: null, ap_code: null })} replace scroll={false} className="btn sm">
-                  {COPY.pager.next}
-                </Link>
-              ) : null}
-            </div>
-          ) : null
-        }
-      />
+      </Stack>
 
       <ApprovalsDrawer items={drawerItems} initialSelectedId={selectedId} searchParams={sp} feedback={feedback} locationNames={locationNames} />
-    </div>
+    </Box>
   );
 }
 

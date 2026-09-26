@@ -82,7 +82,7 @@ export const Phone390: Story = {
     const reviews = await canvas.findAllByRole("link", { name: "Review" });
     await expect(reviews).toHaveLength(3);
     // The visual lane also renders this story at 1440; the card rules apply at phone width only.
-    if (canvasElement.ownerDocument.defaultView!.innerWidth > 640) return;
+    if (canvasElement.ownerDocument.defaultView!.innerWidth >= 600) return;
     for (const link of reviews) {
       const r = link.getBoundingClientRect();
       await expect(r.height).toBeGreaterThanOrEqual(44);

@@ -616,32 +616,6 @@ td.kit-rowactions,td.kit-check{position:relative;z-index:3}
 /* The sidebar is a scrolling flex column: without flex-shrink:0 its overflow:hidden section
    eyebrows ("Overview", "Modules") were squeezed to 0px and vanished. Minimal subheader metrics. */
 
-/* Approvals queue at phone width: each request is one card (the 5-column table was clipped by its
-   card at 390px). Type and status chips share the top line, the subject reads in full below them,
-   then who raised it and when, then a full-width 44px Review. The empty-state row keeps its full-width
-   cell. Pinned by stories/approvals-queue.stories.tsx. */
-@media(max-width:640px){
-  .main table.ap-queue-table{min-width:0;width:100%}
-  .main table.ap-queue-table thead{display:none}
-  .main table.ap-queue-table tbody{display:block;width:100%}
-  .main table.ap-queue-table tr{display:block;width:100%;padding:0;border-bottom:1px solid var(--line)}
-  .main table.ap-queue-table tr:has(td[data-label]){display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"type status" "subject subject" "by by" "raised raised" "action action";gap:6px 12px;align-items:center;padding:16px 20px}
-  .main table.ap-queue-table tr:last-child{border-bottom:0}
-  .main table.ap-queue-table td{display:block;width:auto;height:auto;min-height:0;padding:0;border:0;text-align:left}
-  /* The live page sits inside the review-queue root, whose generic phone rule turns every labelled
-     td into a label|value grid; this card lays out its own cells, so it opts out of both. */
-  .main table.ap-queue-table td[data-label]{display:block;white-space:normal!important;overflow-wrap:anywhere;min-width:0;padding:0;border-bottom:0}
-  .main table.ap-queue-table td[data-label]::before{content:none}
-  .main table.ap-queue-table td[data-label]:nth-child(1){grid-area:type}
-  .main table.ap-queue-table td[data-label]:nth-child(2){grid-area:subject;font-size:14px;line-height:22px;font-weight:600;color:var(--fg)}
-  .main table.ap-queue-table td[data-label]:nth-child(3){grid-area:by;font-size:13px;line-height:20px}
-  .main table.ap-queue-table td[data-label]:nth-child(3):empty{display:none}
-  .main table.ap-queue-table td[data-label]:nth-child(4){grid-area:raised;font-size:13px;line-height:20px}
-  .main table.ap-queue-table td[data-label]:nth-child(5){grid-area:status;justify-self:end}
-  .main table.ap-queue-table td[data-label]:nth-child(6){grid-area:action;margin-top:6px}
-  .main table.ap-queue-table td[data-label] .btn{display:flex;width:100%;min-height:44px;align-items:center;justify-content:center}
-}
-
 /* Feed Analytics: every card heading is the Minimal card title (18/28, 600), whether it sits
    directly in the card or beside a control; sub-section h3s inside a card step down to 16/24. */
 .feed-analytics-page .card h2.h{font-size:18px;line-height:28px;font-weight:600;margin:0}

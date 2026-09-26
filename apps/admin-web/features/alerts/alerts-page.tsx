@@ -1,41 +1,44 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import Grid from "@mui/material/Grid";
+import IconButton from "@mui/material/IconButton";
+import MuiLink from "@mui/material/Link";
+import Stack from "@mui/material/Stack";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { BellRing, Settings2, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
-import Box from "@mui/material/Box";
-import Card from "@mui/material/Card";
-import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { LinkSelect } from "@/components/app/link-select";
+import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
 import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { Tag, type Tone } from "@/components/ui-primitives";
 import { control, controlEnabled, copy, optionGroup, table, tableLabels, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getAlertRuleConfig, listAlerts, type AlertRow, type AlertRuleConfigList, type AlertsPage as AlertsPageData } from "@/lib/api/alerts-server";
 import { firstAuthRequiredError, type ApiResult } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { runBounded } from "@/lib/bounded-runner";
-import { istDayPlus, todayIso } from "@/lib/format";
+import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
 import { AlertsConfigure } from "./alerts-configure";
 import { alertsEmptyState, ALERTS_PATH, PARAM_CONFIGURE } from "./alerts-model";
-import Alert from "@mui/material/Alert";
 
 const PARAM_PARK = "park";
 const PARAM_DATE = "date";
 const PARAM_SEVERITY = "severity";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function severityTone(severity: string): Tone {
-  return severity === "critical" ? "dng" : "warn";
-}
 
 /**
  * /alerts (maintainer decision 2026-09-16): what is off today, directly below the Work Board.
@@ -104,162 +107,163 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const configureHref = href({ [PARAM_CONFIGURE]: "1" });
   const closeHref = href({ [PARAM_CONFIGURE]: undefined });
 
+  const severityColor = (key: string): LabelColor => (key === "critical" ? "error" : "warning");
+  const kpis = [
+    { key: "total", title: t("kpi.total"), total, className: "kpi-total", icon: COURSE_WIDGET_ICONS.progress, color: critical > 0 ? ("error" as const) : ("primary" as const) },
+    { key: "critical", title: t("kpi.critical"), total: critical, className: "kpi-critical", icon: COURSE_WIDGET_ICONS.certificates, color: "error" as const },
+    { key: "rules", title: t("kpi.rules"), total: rulesRun.size, className: undefined, icon: COURSE_WIDGET_ICONS.completed, color: "info" as const },
+  ];
+  const head = labels.map((label, index) => ({ id: `c${index}`, label, sortable: false }));
+
   return (
-    <div className="kit-enter screen on alerts-page">
-      <div>
-        <PageHeader
-          title={t("title")}
-          crumbs={[{ label: t("crumb"), href: "/" }, { label: t("title") }]}
-          actions={
-            mayConfigure ? (
-              <LocalOverlayLink href={configureHref} scroll={false} className="btn primary" data-testid="alerts-configure-open">
-                <Settings2 className="ic" aria-hidden="true" /> {configureControl.label}
-              </LocalOverlayLink>
-            ) : (
-              <button type="button" className="btn" disabled aria-disabled title={configureControl.disabled_reason ?? undefined} data-testid="alerts-configure-open">
-                <Settings2 className="ic" aria-hidden="true" /> {configureControl.label}
-              </button>
-            )
-          }
-        />
-      </div>
-
-      <KpiGrid min={220}>
-        <KpiCard
-          label={t("kpi.total")}
-          value={total}
-          tone={critical > 0 ? "error" : "primary"}
-          icon={<BellRing />}
-          className="kpi-total"
-        />
-        <KpiCard label={t("kpi.critical")} value={critical} tone="error" icon={<TriangleAlert />} className="kpi-critical" />
-        <KpiCard
-          label={t("kpi.rules")}
-          value={rulesRun.size}
-          tone="info"
-          icon={<ShieldCheck />}
-        />
-      </KpiGrid>
-
-      <Card className="kit-tablecard" data-testid="alerts-table">
-        <CardHeader
-          title={alertsTable.title}
-          sx={{
-            pt: 2.5,
-            px: 3,
-            pb: 2,
-            alignItems: "center",
-            flexWrap: "wrap",
-            rowGap: 1.5,
-            [`& .${cardHeaderClasses.action}`]: { m: 0, flex: { xs: "1 1 100%", sm: "0 1 auto" }, minWidth: 0, maxWidth: "100%" },
-          }}
-          action={
-            <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 1.5 }}>
-              <AnimatedTabs
-                variant="pill"
-                ariaLabel={t("filter.park")}
-                value={chosenPark?.key ?? "all"}
-                items={[
-                  { value: "all", label: t("filter.park.all"), href: href({ [PARAM_PARK]: null }) },
-                  ...parks.map((park) => ({ value: park.key, label: park.label, href: href({ [PARAM_PARK]: park.key }) })),
-                ]}
-              />
-              <AnimatedTabs
-                variant="pill"
-                ariaLabel={t("filter.severity")}
-                value={severity || "all"}
-                items={[
-                  { value: "all", label: t("filter.severity.all"), count: allRows.length, href: href({ [PARAM_SEVERITY]: null }) },
-                  ...severities.map((option) => ({
-                    value: option.key,
-                    label: option.label,
-                    // Counted over the UNFILTERED day, so every badge keeps its number when one severity is picked.
-                    count: allRows.filter((row) => row.severity === option.key).length,
-                    href: href({ [PARAM_SEVERITY]: option.key }),
-                  })),
-                ]}
-              />
-              <AnimatedTabs
-                variant="pill"
-                ariaLabel={t("filter.date")}
-                value="day"
-                items={[
-                  { value: "prev", label: "\u2039", href: href({ [PARAM_DATE]: istDayPlus(businessDate, -1) }) },
-                  { value: "day", label: isToday ? t("filter.date.today") : businessDate, href: href({ [PARAM_DATE]: null }) },
-                  { value: "next", label: "\u203a", href: href({ [PARAM_DATE]: istDayPlus(businessDate, 1) }) },
-                ]}
-              />
+    <Box className="screen on alerts-page">
+      <PageHeader
+        title={t("title")}
+        crumbs={[{ label: t("crumb"), href: "/" }, { label: t("title") }]}
+        actions={
+          mayConfigure ? (
+            <Button
+              component={LocalOverlayLink}
+              href={configureHref}
+              scroll={false}
+              variant="contained"
+              color="primary"
+              startIcon={<Iconify icon="solar:settings-bold" />}
+              data-testid="alerts-configure-open"
+            >
+              {configureControl.label}
+            </Button>
+          ) : (
+            <Box component="span" title={configureControl.disabled_reason ?? undefined}>
+              <Button variant="outlined" color="inherit" disabled startIcon={<Iconify icon="solar:settings-bold" />} data-testid="alerts-configure-open">
+                {configureControl.label}
+              </Button>
             </Box>
-          }
-        />
+          )
+        }
+      />
 
-        {/* Park / severity / date all re-fetch the list. Keyed on the three of them together, the
-            body cross-fades instead of snapping, which is what makes a filter feel applied rather
-            than the page feel reloaded. */}
-        <TabPanel tabKey={`${chosenPark?.key ?? "all"}|${severity || "all"}|${businessDate}`}>
-        {allFailed ? (
-          <Alert severity="error" style={{ margin: 12 }} role="status">
-            {t("state.error")} <Link href={href({})}>{t("action.retry")}</Link>
-          </Alert>
-        ) : null}
+      <Stack spacing={3}>
+        {/* Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid. */}
+        <Grid container spacing={3}>
+          {kpis.map((kpi) => (
+            <Grid key={kpi.key} size={{ xs: 12, sm: 4 }}>
+              <CourseWidgetSummary title={kpi.title} total={kpi.total} className={kpi.className} icon={kpi.icon} color={kpi.color} />
+            </Grid>
+          ))}
+        </Grid>
 
-        {partial ? (
-          <Alert severity="error" style={{ margin: 12 }} role="status">
-            {t("state.partial")} {[...failedParks, ...Array.from(degraded).map((key) => ruleLabels[key] ?? "")].filter(Boolean).join(", ")}. <Link href={href({})}>{t("action.retry")}</Link>
-          </Alert>
-        ) : null}
+        {/* Template order list: severity Tabs with Label counts, then the toolbar row (park, day),
+            then the table. Counts are over the UNFILTERED day, so every badge keeps its number when
+            one severity is picked. */}
+        <Card data-testid="alerts-table" aria-label={alertsTable.title}>
+          <AnimatedTabs
+            ariaLabel={t("filter.severity")}
+            value={severity || "all"}
+            sx={{ px: { md: 2.5 } }}
+            items={[
+              { value: "all", label: t("filter.severity.all"), count: allRows.length, href: href({ [PARAM_SEVERITY]: null }) },
+              ...severities.map((option) => ({
+                value: option.key,
+                label: option.label,
+                count: allRows.filter((row) => row.severity === option.key).length,
+                href: href({ [PARAM_SEVERITY]: option.key }),
+              })),
+            ]}
+          />
 
-        {skipped.length > 0 ? (
-          <div className="note muted small" style={{ margin: "0 12px 8px" }} role="status" data-testid="alerts-skipped">
-            {skipped.map((row) => `${row.label}: ${row.reason}`).join(" ")}
-          </div>
-        ) : null}
+          <Box
+            sx={{
+              p: 2.5,
+              gap: 2,
+              display: "flex",
+              flexDirection: { xs: "column", md: "row" },
+              alignItems: { xs: "stretch", md: "center" },
+            }}
+          >
+            <LinkSelect
+              label={t("filter.park")}
+              value={chosenPark?.key ?? "all"}
+              minWidth={200}
+              options={[
+                { value: "all", label: t("filter.park.all"), href: href({ [PARAM_PARK]: null }) },
+                ...parks.map((park) => ({ value: park.key, label: park.label, href: href({ [PARAM_PARK]: park.key }) })),
+              ]}
+            />
+            <Box role="group" aria-label={t("filter.date")} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              <IconButton component={Link} href={href({ [PARAM_DATE]: istDayPlus(businessDate, -1) })} scroll={false} aria-label={t("filter.date.previous")} title={t("filter.date.previous")}>
+                <Iconify icon="eva:arrow-ios-back-fill" />
+              </IconButton>
+              <Button component={Link} href={href({ [PARAM_DATE]: null })} scroll={false} variant="outlined" color="inherit" sx={{ minWidth: 120 }}>
+                {isToday ? t("filter.date.today") : fmtDate(businessDate)}
+              </Button>
+              <IconButton component={Link} href={href({ [PARAM_DATE]: istDayPlus(businessDate, 1) })} scroll={false} aria-label={t("filter.date.next")} title={t("filter.date.next")}>
+                <Iconify icon="eva:arrow-ios-forward-fill" />
+              </IconButton>
+            </Box>
+          </Box>
 
-        {emptyState ? (
-          <EmptyState icon={<ShieldCheck className="ic" aria-hidden="true" />} title={<span data-testid="alerts-empty">{t(emptyState)}</span>} />
-        ) : null}
+          {/* Park / severity / date all re-fetch the list. Keyed on the three of them together, the
+              body cross-fades instead of snapping. */}
+          <TabPanel tabKey={`${chosenPark?.key ?? "all"}|${severity || "all"}|${businessDate}`}>
+            <Stack spacing={2} sx={{ px: 2.5, pb: allFailed || partial || skipped.length > 0 || emptyState ? 2.5 : 0 }}>
+              {allFailed ? (
+                <Alert severity="error" role="status">
+                  {t("state.error")} <Link href={href({})}>{t("action.retry")}</Link>
+                </Alert>
+              ) : null}
 
-        {rows.length > 0 ? (
-          <div className="tablewrap" style={{ overflowX: "auto" }}>
-            <Table className="tbl">
-              <TableHead>
-                <TableRow>
-                  {labels.map((label) => (
-                    <TableCell component="th" key={label}>{label}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.key} data-testid="alerts-row" data-severity={row.severity}>
-                    <TableCell>
-                      <Tag tone={severityTone(row.severity)}>{t(`severity.${row.severity}`)}</Tag>
-                    </TableCell>
-                    <TableCell style={{ maxWidth: 360, whiteSpace: "normal" }}>
-                      <b>{row.title}</b>
-                    </TableCell>
-                    <TableCell>{row.park_label}</TableCell>
-                    <TableCell>{row.operational_location_display || <span className="muted">—</span>}</TableCell>
-                    <TableCell style={{ maxWidth: 420, whiteSpace: "normal" }} className="small">
-                      {row.detail}
-                      {row.href ? (
-                        <>
-                          {" "}
-                          <Link href={row.href} className="small alerts-open-link">
-                            {t("action.open")}
-                          </Link>
-                        </>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="small muted">{row.rule_label}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : null}
-        </TabPanel>
-      </Card>
+              {partial ? (
+                <Alert severity="error" role="status">
+                  {t("state.partial")} {[...failedParks, ...Array.from(degraded).map((key) => ruleLabels[key] ?? "")].filter(Boolean).join(", ")}. <Link href={href({})}>{t("action.retry")}</Link>
+                </Alert>
+              ) : null}
+
+              {skipped.length > 0 ? (
+                <Alert severity="info" role="status" data-testid="alerts-skipped">
+                  {skipped.map((row) => `${row.label}: ${row.reason}`).join(" ")}
+                </Alert>
+              ) : null}
+
+              {emptyState ? <EmptyState title={<span data-testid="alerts-empty">{t(emptyState)}</span>} /> : null}
+            </Stack>
+
+            {rows.length > 0 ? (
+              <Scrollbar>
+                <Table sx={{ minWidth: 960 }}>
+                  <TableHeadCustom headCells={head} />
+                  <TableBody>
+                    {rows.map((row) => (
+                      <TableRow hover key={row.key} data-testid="alerts-row" data-severity={row.severity}>
+                        <TableCell>
+                          <Label variant="soft" color={severityColor(row.severity)}>
+                            {t(`severity.${row.severity}`)}
+                          </Label>
+                        </TableCell>
+                        <TableCell sx={{ maxWidth: 360, typography: "subtitle2" }}>{row.title}</TableCell>
+                        <TableCell>{row.park_label}</TableCell>
+                        <TableCell>{row.operational_location_display || <Box component="span" sx={{ color: "text.disabled" }}>—</Box>}</TableCell>
+                        <TableCell sx={{ maxWidth: 420, color: "text.secondary" }}>
+                          {row.detail}
+                          {row.href ? (
+                            <>
+                              {" "}
+                              <MuiLink component={Link} href={row.href} className="alerts-open-link" underline="hover" sx={{ fontWeight: "fontWeightSemiBold" }}>
+                                {t("action.open")}
+                              </MuiLink>
+                            </>
+                          ) : null}
+                        </TableCell>
+                        <TableCell sx={{ color: "text.secondary" }}>{row.rule_label}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Scrollbar>
+            ) : null}
+          </TabPanel>
+        </Card>
+      </Stack>
 
       {mayConfigure ? (
         <AlertsConfigure
@@ -271,6 +275,6 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
           closeHref={closeHref}
         />
       ) : null}
-    </div>
+    </Box>
   );
 }
