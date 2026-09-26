@@ -305,3 +305,45 @@ func TestSalesWriteFlagFollowsTheSalesLevel(t *testing.T) {
 		})
 	}
 }
+
+// TestSalesTagFlagFollowsTheAllocationAuthority: tagging a sale's animals is gated server-side on
+// sales.allocate_animals, not sales.write, so the phone's sales_tag flag follows THAT permission
+// (with the Sales module) and never sales_write. A Sales "View" person ticked Sale Animal
+// Allocation may tag without recording; a Sales "Do" person without it may record without tagging.
+func TestSalesTagFlagFollowsTheAllocationAuthority(t *testing.T) {
+	cases := []struct {
+		name      string
+		sales     []string
+		allocate  bool
+		wantTag   bool
+		wantWrite bool
+	}{
+		{"view plus allocation", []string{permissions.LevelView}, true, true, false},
+		{"do without allocation", []string{permissions.LevelView, permissions.LevelDo}, false, false, true},
+		{"view only", []string{permissions.LevelView}, false, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assignments := []permissions.ModuleAssignment{
+				{Module: "sales", Surface: permissions.SurfaceMobile, Capabilities: tc.sales},
+				{Module: "sales", Surface: permissions.SurfaceWeb, Capabilities: tc.sales},
+			}
+			if tc.allocate {
+				assignments = append(assignments, permissions.ModuleAssignment{
+					Module: "sale_allocation", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelDo},
+				})
+			}
+			repo := &fakeRepo{profile: profile("active"), grants: operatorGrants(), personAssignments: assignments}
+			resp, err := NewService(repo).Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+			if err != nil {
+				t.Fatalf("bootstrap: %v", err)
+			}
+			if got := resp.FeatureFlags["sales_tag"]; got != tc.wantTag {
+				t.Fatalf("sales_tag = %v, want %v", got, tc.wantTag)
+			}
+			if got := resp.FeatureFlags["sales_write"]; got != tc.wantWrite {
+				t.Fatalf("sales_write = %v, want %v", got, tc.wantWrite)
+			}
+		})
+	}
+}

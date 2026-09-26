@@ -1341,6 +1341,15 @@ func canWriteSalesScoped(scope navScope, grantedModules []string, fromTicks bool
 	return scope.hasAny([]string{permissions.SalesWrite}) && canUseModuleFrom(scope.grants, grantedModules, "sales", fromTicks)
 }
 
+// canTagSalesScoped says whether the phone may OFFER tagging the animals of a sale -- the sale
+// detail's Tag animals, the hosted tagging screen, and the sale workflow's "Tag the animals sold"
+// step. Tagging is its OWN authority server-side (every /admin/goats/sale-* route is gated on
+// sales.allocate_animals, not sales.write), so it gets its own flag rather than riding
+// sales_write: a person may record sales without tagging, or tag without recording.
+func canTagSalesScoped(scope navScope, grantedModules []string, fromTicks bool) bool {
+	return scope.hasAny([]string{permissions.SalesAllocateAnimals}) && canUseModuleFrom(scope.grants, grantedModules, "sales", fromTicks)
+}
+
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
 	return canUseModuleFrom(grants, grantedModules, module, false)
 }
