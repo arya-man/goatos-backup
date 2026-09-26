@@ -399,12 +399,18 @@ func TestAdvanceReceiptMarkerBackfillMatchesThe000447Rows(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(raw)
+	// The statement ends at its own last predicate: a ";" inside one of its SQL comments is not
+	// the end of the statement.
+	const tail = "AND NOT p.is_advance;"
 	start := strings.Index(body, "UPDATE public.sales_deal_payments p")
-	end := strings.Index(body[start:], ";")
-	if start < 0 || end < 0 {
+	if start < 0 {
 		t.Fatal("000448 backfill UPDATE not found")
 	}
-	backfill := body[start : start+end]
+	end := strings.Index(body[start:], tail)
+	if end < 0 {
+		t.Fatal("000448 backfill UPDATE not found")
+	}
+	backfill := body[start : start+end+len(tail)-1]
 
 	var dealID string
 	if err := repo.pool.QueryRow(ctx, `
