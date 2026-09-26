@@ -7,6 +7,7 @@ import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
 
 import { usePathname } from '@/layouts/template/routes/hooks';
+import { useBackCloses } from '@/components/use-back-closes';
 
 import { Logo } from '@/layouts/template/logo';
 import { Scrollbar } from '@/layouts/template/scrollbar';
@@ -36,6 +37,9 @@ export function NavMobile({
   ...other
 }: NavMobileProps) {
   const pathname = usePathname();
+
+  // Mesha: Android Back closes the phone menu instead of leaving the page (house drawer rule).
+  useBackCloses(open, onClose);
 
   useEffect(() => {
     if (open) {

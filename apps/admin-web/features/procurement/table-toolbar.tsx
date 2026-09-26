@@ -13,6 +13,7 @@ import MenuList from "@mui/material/MenuList";
 import { CustomPopover } from "@/components/minimal/custom-popover";
 import { TAP_MIN } from "@/components/minimal/_shared/tap";
 import { RowMenu } from "@/components/app/row-menu";
+import { useBackCloses } from "@/components/use-back-closes";
 
 export type ToolbarChip = {
   id: string;
@@ -72,6 +73,8 @@ export function ProcurementTableToolbar({
   // viewport and closes it on an outside tap and on Escape.
   const columnsMenu = usePopover();
   const columnsOpen = columnsMenu.open;
+  // Back closes the Columns sheet instead of leaving the page.
+  useBackCloses(columnsOpen, columnsMenu.onClose);
   const [headers, setHeaders] = useState<string[]>([]);
   const [hidden, setHidden] = useState<number[]>([]);
 

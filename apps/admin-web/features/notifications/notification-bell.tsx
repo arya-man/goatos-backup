@@ -32,6 +32,7 @@ import { Bell } from "lucide-react";
 import Drawer from "@mui/material/Drawer";
 import { NotificationSkeleton } from "./notification-skeleton";
 import { markNotificationsReadAction, type NotificationFeedActionResult } from "./notification-actions";
+import { useBackCloses } from "@/components/use-back-closes";
 import { fetchNotificationBadge, fetchNotificationFeed } from "./notification-feed-client";
 import { resolveNotificationCentreCopy } from "./notification-copy";
 import {
@@ -223,6 +224,8 @@ export function NotificationBell({
   const closePanel = useCallback(() => {
     setOpen(false);
   }, []);
+  // Back closes the drawer (house drawer rule: X, Escape, scrim and Back).
+  useBackCloses(open, closePanel);
 
   // The popover closes with the rest of the top bar's menus: a click outside any menu root, or
   // Escape. `data-menu-root` on the wrapper is the shell's own convention.
