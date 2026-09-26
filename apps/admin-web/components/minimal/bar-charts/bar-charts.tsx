@@ -251,6 +251,8 @@ export type StackedBarRow = {
   label: string;
   /** Printed at the bar end: the head count and its split, e.g. "41 · 28 female · 13 male". */
   totalLabel: string;
+  /** The head count alone, printed instead when the split would not fit beside the bar (phone). */
+  totalShort?: string;
 };
 
 export function StackedHorizontalBars({
@@ -266,9 +268,16 @@ export function StackedHorizontalBars({
   const [hostRef, hostW] = useHostWidth();
   const width = hostW || 600;
   const labelPx = labelColumnPx(width);
-  const valuePx = rows.reduce((m, r) => Math.max(m, r.totalLabel.length), 1) * VALUE_CHAR_PX + VALUE_OFFSET_PX + 8;
+  const plotPx = Math.max(80, width - labelPx - 32);
+  const labelPxOf = (pick: (r: StackedBarRow) => string) =>
+    rows.reduce((m, r) => Math.max(m, pick(r).length), 1) * VALUE_CHAR_PX + VALUE_OFFSET_PX + 8;
+  // A split that would take more than half the plot is clipped at the card edge on a phone: print
+  // the head count alone there; the split stays in the (tap) tooltip, the legend names the colours.
+  const compact = labelPxOf((r) => r.totalLabel) > plotPx * 0.5 && rows.every((r) => r.totalShort);
+  const valueText = (r: StackedBarRow | undefined) => (r ? (compact ? (r.totalShort ?? r.totalLabel) : r.totalLabel) : "");
+  const valuePx = labelPxOf((r) => valueText(r));
   const totals = rows.map((_, j) => series.reduce((sum, s) => sum + Math.max(0, s.values[j] ?? 0), 0));
-  const domain = valueDomain(totals, Math.max(80, width - labelPx - 32), valuePx);
+  const domain = valueDomain(totals, plotPx, valuePx);
 
   const chartOptions = useChart({
     chart: { stacked: true },
@@ -288,7 +297,7 @@ export function StackedHorizontalBars({
           total: {
             enabled: true,
             offsetX: VALUE_OFFSET_PX,
-            formatter: (_v: unknown, opts?: FormatterOpts) => rows[opts?.dataPointIndex ?? -1]?.totalLabel ?? "",
+            formatter: (_v: unknown, opts?: FormatterOpts) => valueText(rows[opts?.dataPointIndex ?? -1]),
             style: { fontSize: "12px", fontWeight: 600, color: theme.vars.palette.text.primary },
           },
         },
@@ -340,7 +349,7 @@ export function StackedHorizontalBars({
           type="bar"
           series={series.map((s) => ({ name: s.name, data: s.values }))}
           options={chartOptions}
-          deps={[rows, series]}
+          deps={[rows, series, compact]}
           sx={{ height: barsViewHeight(rows.length) }}
         />
       </BarsWindow>

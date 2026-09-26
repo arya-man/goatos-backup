@@ -541,9 +541,10 @@ test("full-width shed chart labels fit without overlapping rows", () => {
   assert.match(barList, /const axis = lo < 0 \|\| refValue != null;/);
   assert.match(barList, /row\.color \?\? \(row\.value < 0 \? "var\(--danger\)" : "var\(--brand\)"\)/);
   assert.match(item, /color: negative \? "var\(--danger\)" : undefined/);
-  // Fixed boxes: tall 300 / short 150, scrolling inside.
+  // Fixed boxes from sm up: tall 300 / short 150, scrolling inside; on phone the list grows (no
+  // nested scroller, webview rule).
   assert.match(item, /size === "tall" \? 300 : size === "short" \? 150 : null/);
-  assert.match(item, /height: box, overflowY: "auto"/);
+  assert.match(item, /height: \{ xs: "auto", sm: box \}, overflowY: \{ xs: "visible", sm: "auto" \}/);
 });
 
 test("the two table cards are inset without losing their full-bleed tables", () => {

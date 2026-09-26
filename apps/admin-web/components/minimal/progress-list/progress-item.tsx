@@ -320,8 +320,8 @@ export type ProgressListSize = "auto" | "tall" | "short";
 /**
  * The list box the items sit in. Template: EcommerceSalesOverview's column flex box. Mesha: rows
  * are contiguous (padding, not a gap) so the tooltip hands over without closing, and a "tall"
- * (300px) or "short" (150px) list is a fixed box that scrolls inside itself, so a chart with 40
- * pens occupies exactly as much page as one with 4.
+ * (300px) or "short" (150px) list is a fixed box that scrolls inside itself from sm up, so a chart
+ * with 40 pens occupies exactly as much page as one with 4; on phone it grows (no scroll trap).
  */
 export function progressListSx(size: ProgressListSize): SxProps<Theme> {
   const box = size === "tall" ? 300 : size === "short" ? 150 : null;
@@ -329,7 +329,8 @@ export function progressListSx(size: ProgressListSize): SxProps<Theme> {
     display: "flex",
     flexDirection: "column",
     minWidth: 0,
-    ...(box ? { height: box, overflowY: "auto", overscrollBehavior: "contain", pr: 0.75 } : {}),
+    // Phone: never a nested scroller (webview rule: no scroll traps) -- the list grows with the page.
+    ...(box ? { height: { xs: "auto", sm: box }, overflowY: { xs: "visible", sm: "auto" }, overscrollBehavior: { sm: "contain" }, pr: { sm: 0.75 } } : {}),
   };
 }
 

@@ -194,7 +194,7 @@ export function SvgStackedBars({
   const rows: StackedBarRow[] = bars.map((datum) => {
     const breakdown = segmentText(datum);
     const figure = datum.total.toLocaleString("en-IN");
-    return { key: datum.key, label: datum.label, totalLabel: breakdown ? `${figure} · ${breakdown}` : figure };
+    return { key: datum.key, label: datum.label, totalLabel: breakdown ? `${figure} · ${breakdown}` : figure, totalShort: figure };
   });
 
   return <StackedHorizontalBars rows={rows} series={series} chartLabel={chartLabel} />;
