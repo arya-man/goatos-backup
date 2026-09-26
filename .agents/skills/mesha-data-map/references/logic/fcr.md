@@ -21,7 +21,8 @@ psql vars: `-v from=2026-08-03 -v to=2026-09-23 -v cat= -v sex=male -v origin=` 
 ```sql
 WITH prm AS (SELECT '00000000-0000-4000-8000-000000000001'::uuid t,
   ARRAY['00000000-0000-4000-8000-000000003001','00000000-0000-4000-8000-000000003002']::uuid[] parks,
-  :'from'::date fd, (:'to'::date + 1) td, :'cat'::text cat, :'sex'::text sx, :'origin'::text org),
+  :'from'::date fd, (:'to'::date + 1) td, :'cat'::text cat, :'sex'::text sx,
+  CASE WHEN :'origin'::text='purchased' THEN 'procured_load' ELSE :'origin'::text END org),
 idm AS (
   SELECT tag, canonical_tag FROM (
     SELECT i.tag, first_value(i.tag) OVER (PARTITION BY i.goat_id ORDER BY (i.identifier_type='animal_identifier_1') DESC, i.tag) canonical_tag,
