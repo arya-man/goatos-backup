@@ -18,6 +18,10 @@ import (
 
 type sortBuyerRepo struct{ facts []domain.BuyerDealFact }
 
+func (r sortBuyerRepo) ListParkCodes(context.Context, string) ([]string, error) {
+	return []string{"CBE"}, nil
+}
+
 func (r sortBuyerRepo) ClosedBuyerDeals(context.Context, string, string) ([]domain.BuyerDealFact, error) {
 	return r.facts, nil
 }

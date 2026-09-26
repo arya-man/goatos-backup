@@ -48,6 +48,12 @@ Land PR #445, "Sales: end-to-end audit fixes (web, phone, backend) and nine main
   - Resolved by marking the action `server-action-read-only` without adding fake idempotency to the non-mutating path.
 - Failed frontend-foundations step rerun and passed:
   - `GOATOS_CI_ONLY_STEP='frontend-foundations-guard' tools/ci/run-local-ci.sh admin-web`
+- Fourth landing gate failed before push after 95s:
+  - Admin-web dependency setup had been missing; after `npm install`, `admin-web lint` and `admin-web typecheck` reruns passed. The root `package-lock.json` rewrite from local npm was reverted because no dependency source change was intended.
+  - `backend go vet` flagged `sortBuyerRepo` missing the newer dynamic `ListParkCodes` method after the rebase.
+  - Resolved by adding `ListParkCodes` to the test fake.
+- Failed backend vet step rerun and passed:
+  - `GOATOS_CI_ONLY_STEP='backend go vet' tools/ci/run-local-ci.sh backend`
 
 ## Pending
 
