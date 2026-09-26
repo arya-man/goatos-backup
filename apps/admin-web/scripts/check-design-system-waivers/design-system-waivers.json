@@ -1,6 +1,6 @@
 {
   "note": "Accepted design-system debt. Every entry is a KNOWN violation of .agents/skills/design-system/SKILL.md that a future change must not multiply. Shrink this list; never grow it to land a change. P0 checks (foreign-palette, theme-token-drift, google-fonts-link) can never be waived.",
-  "updated_at": "2026-09-26T17:20:26.903Z",
+  "updated_at": "2026-09-26T17:22:37.179Z",
   "waived": [
     "f2-literal|features/counts/counts-summary-cards.ts|fattening: [\"F2\", \"F2-Male\", \"F2-Female\", \"Fattening\", \"Fattening male\", \"Fattening female\"],",
     "f2-literal|lib/admin-ui-contract.ts|{ key: \"F2\", label: \"Fattening\", title: \"\", tone: \"\", enabled: true, disabled_reason: \"\" },",
@@ -100,7 +100,7 @@
   },
   "ratchet": {
     "fixed-overlay-no-portal|features/ceo-ai/ceo-ai-styles.tsx": {
-      "allowed": 2,
+      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
     },
     "fixed-overlay-no-portal|features/feed/range-coverage-note.tsx": {
@@ -156,7 +156,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
     "raw-button|features/calendar/calendar-event-drawer.tsx": {
-      "allowed": 7,
+      "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
     "raw-button|features/ceo-ai/ceo-ai-attachments.tsx": {
@@ -276,7 +276,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
     "raw-button|features/people/vaccination-operators-screen.tsx": {
-      "allowed": 10,
+      "allowed": 3,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
     "raw-button|features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx": {
@@ -500,10 +500,6 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
     },
     "raw-dialog|features/calendar/calendar-event-drawer.tsx": {
-      "allowed": 2,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
-    },
-    "raw-dialog|features/people/vaccination-operators-screen.tsx": {
       "allowed": 2,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
     },
@@ -1444,7 +1440,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/people/vaccination-operators-screen.tsx": {
-      "allowed": 18,
+      "allowed": 17,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/preventive-care-vaccination/cohort-detail.tsx": {

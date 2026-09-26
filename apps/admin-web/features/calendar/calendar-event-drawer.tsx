@@ -11,7 +11,11 @@ import {
   currentHistoryEntryIsLocalOverlay,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { ArrowLeft, ArrowRight, Bell, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bell } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import { MinimalDrawer } from "@/components/minimal/drawer";
 import { Tag } from "@/components/ui-primitives";
 import { dateTime, fmtDateTime } from "@/lib/format";
 import { scopeHref, type Scope } from "@/lib/scope";
@@ -57,6 +61,9 @@ export type CalendarDrawerLoadResult = {
 type CalendarDrawerLoader = {
   (eventId: string, includeTargets: boolean, targetsCursor?: string): Promise<CalendarDrawerLoadResult>;
 };
+
+/** Detail drawer paper width from sm up (the template MinimalDrawer; phones get the full width). */
+const DRAWER_WIDTH = 380;
 
 function MetaCell({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -173,7 +180,6 @@ export function CalendarEventDrawer({
   const [targetsCursor, setTargetsCursor] = useState<string | undefined>(undefined);
   const [targetsCursorStack, setTargetsCursorStack] = useState<Array<string | undefined>>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const selectedIdRef = useRef(initialSelectedEventId ?? initialData?.eventId);
   const requestSequenceRef = useRef(0);
@@ -244,12 +250,10 @@ export function CalendarEventDrawer({
     };
   }, [displayedData, hideDrawer, includeTargets, loadDrawer, showDrawer]);
 
+  // The MUI Drawer focuses itself on open and restores focus on close; this covers a close that
+  // comes from the URL (Back) instead.
   useEffect(() => {
-    if (drawerOpen) {
-      const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-      return () => window.cancelAnimationFrame(frame);
-    }
-    previousFocusRef.current?.focus();
+    if (!drawerOpen) previousFocusRef.current?.focus();
   }, [drawerOpen]);
 
   const closeDrawer = useCallback(() => {
@@ -261,16 +265,8 @@ export function CalendarEventDrawer({
     replaceLocalOverlayUrl(closeHref);
   }, [closeHref, hideDrawer]);
 
-  useEffect(() => {
-    if (!drawerOpen) return undefined;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeDrawer();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closeDrawer, drawerOpen]);
+  // Escape, the scrim and X are the MinimalDrawer's own onClose (closeDrawer). A second document
+  // listener here would step the local-overlay history back twice.
 
   const loadTargetsPage = useCallback(async (cursor: string | undefined, page: number, stack: Array<string | undefined>) => {
     const eventId = selectedIdRef.current;
@@ -310,7 +306,6 @@ export function CalendarEventDrawer({
       data={displayedData}
       open={drawerOpen}
       closeDrawer={closeDrawer}
-      closeButtonRef={closeButtonRef}
       targetsPage={targetsPage}
       targetsLoading={targetsLoading}
       onPreviousTargets={previousTargetsPage}
@@ -328,7 +323,6 @@ function CalendarEventDrawerPanel({
   data,
   open,
   closeDrawer,
-  closeButtonRef,
   targetsPage,
   targetsLoading,
   onPreviousTargets,
@@ -342,7 +336,6 @@ function CalendarEventDrawerPanel({
   data: CalendarDrawerLoadResult;
   open: boolean;
   closeDrawer: () => void;
-  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
   targetsPage: number;
   targetsLoading: boolean;
   onPreviousTargets: () => void;
@@ -358,20 +351,20 @@ function CalendarEventDrawerPanel({
 
   if (!detail) {
     return (
-      <>
-        <button type="button" className="veil" hidden={!open} aria-label={copy(pageContract, "drawer.event.close_label")} onClick={closeDrawer} />
-        <aside className={`drawer${open ? " on" : ""}`} role="dialog" aria-hidden={!open} inert={!open} aria-label={copy(pageContract, "drawer.event.aria")}>
-          <div className="dh">
-            <div>
-              <div className="mt">{copy(pageContract, "drawer.event.eyebrow")}</div>
-              <h2>{copy(pageContract, "drawer.event.aria")}</h2>
-            </div>
-            <span className="sp" style={{ flex: 1 }} />
-            <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.event.close_label")} onClick={closeDrawer}><X className="ic" /></button>
-          </div>
-          <div className="dc"><Alert severity="error">{data.detailError}</Alert></div>
-        </aside>
-      </>
+      <MinimalDrawer
+        open={open}
+        onClose={closeDrawer}
+        title={copy(pageContract, "drawer.event.aria")}
+        closeLabel={copy(pageContract, "drawer.event.close_label")}
+        width={DRAWER_WIDTH}
+        role="dialog"
+        aria-label={copy(pageContract, "drawer.event.aria")}
+      >
+        <Box sx={{ p: 2.5 }}>
+          <Typography variant="overline" component="div" sx={{ color: "text.secondary", mb: 1 }}>{copy(pageContract, "drawer.event.eyebrow")}</Typography>
+          <Alert severity="error">{data.detailError}</Alert>
+        </Box>
+      </MinimalDrawer>
     );
   }
 
@@ -432,50 +425,65 @@ function CalendarEventDrawerPanel({
   // snooze_until (default +24h) is computed in the snooze server action — Date.now() is an impure call and
   // is not allowed on the render path.
 
+  // Template MinimalDrawer (portalled MUI Drawer): focus trapped and restored, X / Escape / scrim
+  // close through closeDrawer, and the #calendar_event hash keeps Back closing it. The event body
+  // keeps its existing .drawer .dc content styles inside the portal.
   return (
-    <>
-      <button
-        type="button"
-        className="veil"
-        hidden={!open}
-        aria-label={copy(pageContract, "drawer.event.close_label")}
-        onClick={closeDrawer}
-      />
-      <aside
-        className={`drawer${open ? " on" : ""}`}
-        role="dialog"
-        aria-label={copy(pageContract, "drawer.event.aria")}
-        aria-hidden={!open}
-        inert={!open}
-      >
-        <div className="dh">
-          <span
-            className="fic"
-            style={{
-              background: `color-mix(in srgb, ${accent} 18%, var(--panel))`,
-              color: accent,
-            }}
+    <MinimalDrawer
+      open={open}
+      onClose={closeDrawer}
+      title={event.title}
+      closeLabel={copy(pageContract, "drawer.event.close_label")}
+      width={DRAWER_WIDTH}
+      role="dialog"
+      aria-label={copy(pageContract, "drawer.event.aria")}
+      footer={
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, width: 1, justifyContent: "flex-end" }}>
+          {!isClosedHistory && !isCatchupSummary ? (
+            <>
+              <Box component="form" action={sendNudgeAction} sx={{ flex: "1 1 auto", display: "flex" }}>
+                <input type="hidden" name="event_id" value={event.event_id} />
+                <input type="hidden" name="idempotency_key" value={nudgeKey} />
+                <input type="hidden" name="return_to" value={returnTo} />
+                <Button type="submit" variant="contained" fullWidth startIcon={<Bell size={16} aria-hidden="true" />}>
+                  {copy(pageContract, "action.send_nudge")}
+                </Button>
+              </Box>
+              <Box component="form" action={snoozeAction} sx={{ display: "flex" }}>
+                <input type="hidden" name="event_id" value={event.event_id} />
+                <input type="hidden" name="idempotency_key" value={snoozeKey} />
+                <input type="hidden" name="return_to" value={returnTo} />
+                <Button type="submit" variant="outlined" color="inherit">
+                  {copy(pageContract, "action.snooze")}
+                </Button>
+              </Box>
+            </>
+          ) : null}
+          {primaryOpen ? (
+            <Button component={Link} href={primaryOpen.href} variant="outlined" color="inherit">
+              {primaryOpen.label}
+            </Button>
+          ) : null}
+          <Button variant="outlined" color="inherit" onClick={closeDrawer}>
+            {copy(pageContract, "action.close")}
+          </Button>
+        </Box>
+      }
+    >
+      <Box className="drawer">
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 2.5, pt: 2 }}>
+          <Box
+            component="span"
+            aria-hidden="true"
+            sx={{ display: "inline-flex", p: 1, borderRadius: "50%", flex: "none" }}
+            style={{ background: `color-mix(in srgb, ${accent} 18%, var(--panel))`, color: accent }}
           >
             <TypeIcon className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">
-              {copy(pageContract, "drawer.event.eyebrow")}
-            </div>
-            <h2>{event.title}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button
-            ref={closeButtonRef}
-            type="button"
-            className="iconbtn"
-            aria-label={copy(pageContract, "drawer.event.close_label")}
-            onClick={closeDrawer}
-          >
-            <X className="ic" />
-          </button>
-        </div>
-
+          </Box>
+          <Typography variant="overline" sx={{ color: "text.secondary" }}>
+            {copy(pageContract, "drawer.event.eyebrow")}
+          </Typography>
+        </Box>
         <div className="dc">
           <div className="chipset" style={{ marginBottom: 14 }}>
             <Tag tone="mut">{typeMeta.label}</Tag>
@@ -803,39 +811,9 @@ function CalendarEventDrawerPanel({
           ) : null}
         </div>
 
-        {/* Footer — Send nudge / Snooze are real idempotent backend actions; Open drive/workflow deep-links. */}
-        <div className="df">
-          {!isClosedHistory && !isCatchupSummary ? (
-            <>
-              <form action={sendNudgeAction} style={{ flex: 1, display: "flex" }}>
-                <input type="hidden" name="event_id" value={event.event_id} />
-                <input type="hidden" name="idempotency_key" value={nudgeKey} />
-                <input type="hidden" name="return_to" value={returnTo} />
-                <button type="submit" className="btn p" style={{ flex: 1 }}>
-                  <Bell className="ic" aria-hidden="true" />
-                  {copy(pageContract, "action.send_nudge")}
-                </button>
-              </form>
-              <form action={snoozeAction}>
-                <input type="hidden" name="event_id" value={event.event_id} />
-                <input type="hidden" name="idempotency_key" value={snoozeKey} />
-                <input type="hidden" name="return_to" value={returnTo} />
-                <button type="submit" className="btn">
-                  {copy(pageContract, "action.snooze")}
-                </button>
-              </form>
-            </>
-          ) : null}
-          {primaryOpen ? (
-            <Link href={primaryOpen.href} className="btn">
-              {primaryOpen.label}
-            </Link>
-          ) : null}
-          <button type="button" className="btn" onClick={closeDrawer}>
-            {copy(pageContract, "action.close")}
-          </button>
-        </div>
-      </aside>
-    </>
+        {/* Footer (MinimalDrawer footer above) — Send nudge / Snooze are real idempotent backend
+            actions; Open drive/workflow deep-links. */}
+      </Box>
+    </MinimalDrawer>
   );
 }
