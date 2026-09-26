@@ -19,8 +19,8 @@ assert.match(
 
 assert.match(
   css,
-  /@media\(max-width:860px\)\{[\s\S]*\.herd-signals-page table\.resp tbody\{[^}]*display:grid[^}]*gap:10px[^}]*padding:10px[^}]*\}/,
-  "herd signals mobile table must become spaced card rows",
+  /@media\(max-width:860px\)\{[\s\S]*\.herd-signals-page table\.resp tbody tr\{[^}]*display:grid[^}]*border-bottom:1px solid[^}]*\}/,
+  "herd signals mobile rows are divider-separated field grids inside the card, not bordered cards in a card",
 );
 
 assert.match(

@@ -823,14 +823,19 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     </div>
   );
 
+  // Three page-level blocks, never a card inside a card (AUDIT1 P1-14): the Command Board card with
+  // its filter toolbar, the KPI deck as page-level template widgets (the filters above drive it),
+  // then the matrices card.
   return (
+    <>
     <section className="card cbm" style={{ maxWidth: "100%", minWidth: 0 }}>
       <div className="hd">
         <h2>{copy(pageContract, "section.command_board.title")}</h2>
       </div>
-      <div className="bd" tabIndex={0} role="region" aria-label={copy(pageContract, "section.command_board.title")}>
-        {filterBar}
-        {/* KPI deck — kit cards: count-up value, tone icon badge, click drills into the matrix. */}
+      <div className="bd">{filterBar}</div>
+    </section>
+        {/* KPI deck — template widget cards: count-up value, tone icon badge, click drills into the matrix. */}
+        <Box sx={{ mb: 3 }}>
         <KpiGrid min={200}>
           <KpiCard
             label={copy(pageContract, "command_board.kpi.targets")}
@@ -905,6 +910,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             onClick={closedWithoutDoseCount > 0 ? openClosedDrawer : undefined}
           />
         </KpiGrid>
+        </Box>
+    <section className="card cbm" style={{ maxWidth: "100%", minWidth: 0 }} aria-label={copy(pageContract, "section.command_board.title")}>
+      <div className="bd" tabIndex={0} role="region" aria-label={copy(pageContract, "section.command_board.title")}>
 
         {/* Shed × Vaccine, dose collapsed, red/green only.
             This sits ABOVE the dose-qualified matrix on purpose. The dose matrix answers "how much
@@ -1776,6 +1784,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         </MinimalDrawer>
       )}
     </section>
+    </>
   );
 
 }
