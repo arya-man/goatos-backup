@@ -924,9 +924,9 @@ export function firstAuthRequiredError(
 // Items & settings route, so Register animal kept serving the old species list until its own TTL
 // ran out (61 s measured on 2026-09-26). It stays authority-keyed inside, exactly as before.
 const adminBootstrapCacheHolder = globalThis as typeof globalThis & {
-  __goatosAdminBootstrapCache?: AdminBootstrapCache<AdminWebBootstrapResponse>;
+  __meshaAdminBootstrapCache?: AdminBootstrapCache<AdminWebBootstrapResponse>;
 };
-const adminBootstrapCache = (adminBootstrapCacheHolder.__goatosAdminBootstrapCache ??=
+const adminBootstrapCache = (adminBootstrapCacheHolder.__meshaAdminBootstrapCache ??=
   new AdminBootstrapCache<AdminWebBootstrapResponse>());
 
 /**
