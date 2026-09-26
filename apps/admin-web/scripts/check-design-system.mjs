@@ -94,12 +94,39 @@ const RAW_UNIT_TEMPLATE = /\$\{(?![^}]*(?:fmt|format|Format|dash|num\(|kg\(|toLo
 // A white / near-white surface literal paints a light box inside the dark shell (the pastel KPI
 // cards Ravi flagged on /sales/sold). Surfaces come from the theme (Card = background.paper). Only
 // the template's AnalyticsWidgetSummary (pastel in both modes, contents on the light scheme) may.
+// rgb()/rgba() literals in TSX/TS are colours outside the theme just like hex (health-types'
+// `var(--line, rgba(255,255,255,.08))` fallback, a black `rgba(0,0,0,.6)` scrim): use var(--token)
+// or the theme palette with varAlpha().
+const RGB_COLOUR = /rgba?\(\s*\d{1,3}\s*[,\s]\s*\d{1,3}/;
 const LIGHT_SURFACE = /(?:bgcolor|backgroundColor|background)\s*:\s*["'`](?:common\.white|#fff(?:fff)?|white|grey\.(?:50|100|200))["'`]/;
 const LIGHT_SURFACE_ALLOWED = new Set(["components/minimal/widgets/analytics-widget-summary.tsx", "components/minimal/widgets/kpi-card.tsx"]);
 // Legacy stylesheets only shrink; a rule there that selects a MUI class and sets a colour fights the
 // theme in one of the two modes. MUI colours come from the theme palette (theme/core).
 const LEGACY_CSS = new Set(["app/frame.css", "app/minimal-theme.css", "app/mesha-theme.css", "app/menu-surface.css", "app/globals.css"]);
 const COLOUR_DECL = /(?:^|[;{\s])(?:color|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left))?(?:-color)?|fill|stroke|outline(?:-color)?)\s*:/;
+// A legacy rule that paints a bare th/td/tr also paints every MUI TableCell/TableRow (element +
+// class specificity beats the theme's single class), so MUI tables stop matching the template in
+// one mode. New ones must exclude MUI parts: `td:not(.MuiTableCell-root)`, `tr:not(.MuiTableRow-root)`.
+const TABLE_TAIL = /(?:^|[\s>+~])(?:th|td|tr)(?:\[[^\]]*\]|\.[\w-]+|:[\w-]+(?:\([^()]*\))?)*$/;
+function legacyTablePaintFindings(text) {
+  const out = [];
+  const src = text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const selector = m[1].trim();
+    if (selector.startsWith("@")) continue;
+    const paints = m[2].split(";").filter((decl) => COLOUR_DECL.test(` ${decl}`) && !/:\s*(?:transparent|none|0|0px|inherit|initial|unset|currentcolor)\s*(?:!important)?\s*$/i.test(decl));
+    if (!paints.length) continue;
+    for (const part of selector.split(",")) {
+      const sel = part.trim();
+      if (/Mui/.test(sel) || !TABLE_TAIL.test(sel)) continue;
+      const line = src.slice(0, m.index + m[0].indexOf(selector)).split("\n").length;
+      out.push({ line, snippet: sel.slice(0, 160) });
+    }
+  }
+  return out;
+}
 function legacyMuiColourFindings(text) {
   const out = [];
   const src = text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
@@ -149,12 +176,14 @@ const CHECKS = {
   "retired-neutral-literal": { tier: "p0", why: "the old Mesha green-tinted neutrals are retired (Ravi 2026-09-27): neutrals are the template greys; use the theme (background/text/divider/grey) or var(--grey-N) / rgb(var(--g500-rgb)/a)" },
   "template-neutrals": { tier: "p0", why: "theme/theme-config.ts grey + surfaces/ink and app/minimal-tokens.css --grey-N must be exactly the MUI Minimal template's values" },
   "light-surface-literal": { tier: "p0", why: "a white/near-white surface literal (common.white, #fff, grey.50-200) is a light box in dark mode; use the theme surface (Card/Paper = background.paper) or a varAlpha tint of a palette channel. Only the template AnalyticsWidgetSummary may" },
+  "legacy-table-paint": { tier: "waivable", why: "a legacy stylesheet rule paints a bare th/td/tr, which also repaints MUI TableCell/TableRow; exclude MUI parts (td:not(.MuiTableCell-root)) or move the table to the template table" },
   "legacy-css-mui-colour": { tier: "p0", why: "a legacy stylesheet (frame/minimal-theme/mesha-theme/menu-surface/globals.css) selects a .Mui* class and sets a colour/background/border; MUI colours come from the theme palette only" },
   "google-fonts-link": { tier: "p0", why: "fonts are self-hosted via next/font; no Google Fonts link" },
   "native-select": { tier: "waivable", why: "use MUI TextField select / LinkSelect / template CustomPopover + MenuList" },
   "native-date-input": { tier: "waivable", why: "use kit DateRangeField" },
   "window-confirm": { tier: "waivable", why: "use kit Dialog (confirm) — never window.confirm/alert" },
   "hex-colour-in-code": { tier: "waivable", why: "use var(--token); no colour literals in TSX/TS" },
+  "rgb-colour-in-code": { tier: "waivable", why: "no rgb()/rgba() colour literals in TSX/TS; use var(--token) or varAlpha(theme.vars.palette.<c>.<x>Channel, a)" },
   "hex-colour-in-css": { tier: "waivable", why: "only the two theme files may define colour literals" },
   "tailwind-palette-class": { tier: "waivable", why: "no raw Tailwind palette classes; tokens only" },
   "f2-literal": { tier: "waivable", why: "never show the legacy 'F2' code; lifecycle names only" },
@@ -222,6 +251,7 @@ function runGuard(root, { themeDiff }) {
 
     if (STYLE_EXT.has(ext)) {
       if (LEGACY_CSS.has(file.rel)) for (const hit of legacyMuiColourFindings(text)) findings.push(finding("legacy-css-mui-colour", file.rel, hit.line, hit.snippet));
+      if (LEGACY_CSS.has(file.rel)) for (const hit of legacyTablePaintFindings(text)) findings.push(finding("legacy-table-paint", file.rel, hit.line, hit.snippet));
       if (isTheme) continue;
       lines.forEach((line, index) => {
         if (isComment(line)) return;
@@ -260,6 +290,7 @@ function runGuard(root, { themeDiff }) {
       if (NATIVE_DATE.test(code)) findings.push(finding("native-date-input", file.rel, lineNo, raw));
       if (WINDOW_CONFIRM.test(code)) findings.push(finding("window-confirm", file.rel, lineNo, raw));
       if (hasPaletteHex(stripUrls(code))) findings.push(finding("hex-colour-in-code", file.rel, lineNo, raw));
+      if (RGB_COLOUR.test(code) && !isTemplateCode(file.rel)) findings.push(finding("rgb-colour-in-code", file.rel, lineNo, raw));
       if (LIGHT_SURFACE.test(code) && !LIGHT_SURFACE_ALLOWED.has(file.rel)) findings.push(finding("light-surface-literal", file.rel, lineNo, raw));
       if (TAILWIND_PALETTE.test(code)) findings.push(finding("tailwind-palette-class", file.rel, lineNo, raw));
       if (F2_LITERAL.test(code) && !F2_ALLOWED.has(file.rel)) findings.push(finding("f2-literal", file.rel, lineNo, raw));
@@ -807,8 +838,9 @@ async function selfTest() {
     '<div className="parkmenu" role="menu" />',
     'import { LineChart } from "recharts";',
     '<Card sx={{ backgroundColor: "common.white" }} />',
+    '<div style={{ background: "rgba(0,0,0,.6)" }} />',
   ].join("\n"));
-  put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n");
+  put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n.main th{color:var(--fg-muted)}\n.main td:not(.MuiTableCell-root){border-bottom:1px dashed var(--line)}\n");
   put("components/bad.css", ".x { color: #abcdef; }\n.g{background:#0E1512}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");
   // Template code: ratchet-tier sizes are exempt, a foreign palette is still P0.
   put("components/minimal/sections/order/server-fn-sx.tsx", 'import Box from "@mui/material/Box";\nexport const X = () => <Box sx={(theme) => ({ color: theme.palette.text.primary })} />;\n');
@@ -843,6 +875,10 @@ async function selfTest() {
     process.exit(1);
   }
   // A `:where(:not(.Mui…))` selector excludes MUI parts: it must not count as a MUI colour rule.
+  if (findings.some((f) => f.check === "legacy-table-paint" && f.line === 5)) {
+    console.error("design_system_self_test=FAIL legacy-table-paint flagged a td:not(.MuiTableCell-root) rule");
+    process.exit(1);
+  }
   if (findings.some((f) => f.check === "legacy-css-mui-colour" && f.line !== 1)) {
     console.error("design_system_self_test=FAIL legacy-css-mui-colour flagged a :not(.Mui…) exclusion or a transparent reset");
     process.exit(1);

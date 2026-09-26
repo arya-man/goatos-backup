@@ -357,6 +357,8 @@ submit — is a write path and inherits the repo idempotency contract. Check:
   a KPI/widget card is `KpiCard` (template Ecommerce/Course widget summary on the theme paper).
 - [ ] No legacy stylesheet rule selecting `.Mui*` that sets colour/background/border
   (P0 `legacy-css-mui-colour`); legacy CSS only shrinks.
+- [ ] No legacy rule painting bare `th`/`td`/`tr` without `:not(.MuiTableCell-root)` (`legacy-table-paint`);
+  no `rgb()`/`rgba()` literal in TSX (`rgb-colour-in-code`).
 - [ ] Changed pages checked at 1440 dark, 1440 light and 390 dark next to the template page.
 ## Template fidelity (guards: `components/app/template-fidelity-guards.test.mjs`)
 

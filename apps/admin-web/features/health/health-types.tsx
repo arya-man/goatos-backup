@@ -215,7 +215,7 @@ export async function HealthTypesSection({
                   alignItems: "center",
                   gap: 8,
                   paddingBottom: 12,
-                  borderBottom: "1px solid var(--line, rgba(255,255,255,.08))",
+                  borderBottom: "1px solid var(--line)",
                 }}
               >
                 <div style={{ minWidth: 160 }}>

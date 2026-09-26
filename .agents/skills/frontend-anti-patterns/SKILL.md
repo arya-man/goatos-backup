@@ -201,7 +201,9 @@ chapters below; do not review from the summary.
   light box) and never select a `.Mui*` class in the legacy stylesheets to set a colour, background
   or border (P0 `legacy-css-mui-colour`; frame/minimal-theme/mesha-theme/menu-surface/globals.css
   only shrink). Tints are `varAlpha(theme.vars.palette.<c>.<x>Channel, a)` over the paper.
-  Source test: `components/kpi-card-anatomy.test.mjs`.
+  Source test: `components/kpi-card-anatomy.test.mjs`. A legacy rule that paints a bare `th`/`td`/`tr` repaints MUI tables too: exclude MUI parts
+  (`td:not(.MuiTableCell-root)`, waivable `legacy-table-paint`), and no `rgb()`/`rgba()` colour
+  literal in TSX (waivable `rgb-colour-in-code`).
  in `scripts/smoke-visual-live.mjs`
   matches a `route_prefixes` entry in `docs/design/route-template-map.json`; a NEW page must add its
   area in the same change or fail `route-template-map-missing`. Template lives at

@@ -73,7 +73,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 
 /* ---------------- Tables ---------------- */
 .main .tablewrap{border-radius:var(--r-lg)}
-.screen th,.main th{background:var(--paper-2);color:var(--fg-muted);font-size:14px;font-weight:600;letter-spacing:0;text-transform:none;padding:14px 16px;border-bottom:0;white-space:nowrap}
+.screen th:not(.MuiTableCell-root),.main th:not(.MuiTableCell-root){background:var(--paper-2);color:var(--fg-muted);font-size:14px;font-weight:600;letter-spacing:0;text-transform:none;padding:14px 16px;border-bottom:0;white-space:nowrap}
 .main thead th{position:sticky;top:0;z-index:2}
 /* Sticky heads for the tables that are not inside `.main`/`.tablewrap`: the weighing, health and
    herd-signals screens use bare `.tbl`/`.feed-table`/`.resp`/`.loadwise-table`, so their headers
@@ -81,7 +81,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 .tbl thead th,.feed-table thead th,table.resp thead th,.loadwise-table thead th{position:sticky;top:0;z-index:2;background:var(--paper-2)}
 .screen th:first-child,.main thead th:first-child{border-top-left-radius:var(--r-md);border-bottom-left-radius:var(--r-md)}
 .screen th:last-child,.main thead th:last-child{border-top-right-radius:var(--r-md);border-bottom-right-radius:var(--r-md)}
-.screen td{padding:14px 16px;border-bottom:1px dashed var(--line);height:56px}
+.screen td:not(.MuiTableCell-root){padding:14px 16px;border-bottom:1px dashed var(--line);height:56px}
 .screen tbody tr,.main tbody tr{transition:background-color var(--dur-fast) var(--ease)}
 .screen tbody tr:hover>td,.main tbody tr:hover>td{background:color-mix(in srgb,var(--fg) 4%,transparent)}
 .main tr[aria-selected="true"]>td,.main tr.on>td,.main tr.sel>td{background:var(--primary-soft)}
@@ -201,9 +201,9 @@ select option{background:var(--paper);color:var(--fg)}
 
 /* ---------- Tables ---------- */
 .screen th,.main th{background:rgb(var(--g500-rgb)/.08);color:var(--fg-muted);font-size:14px;font-weight:600;padding:16px}
-:root:not(.light) .screen th,:root:not(.light) .main th{background:rgb(var(--g500-rgb)/.16)}
+:root:not(.light) .screen th:not(.MuiTableCell-root),:root:not(.light) .main th:not(.MuiTableCell-root){background:rgb(var(--g500-rgb)/.16)}
 .screen th:first-child,.main thead th:first-child,.screen th:last-child,.main thead th:last-child{border-radius:0}
-.screen td,.main td{height:56px;padding:12px 16px;font-weight:400;border-bottom:1px dashed var(--line)}
+.screen td:not(.MuiTableCell-root),.main td:not(.MuiTableCell-root){height:56px;padding:12px 16px;font-weight:400;border-bottom:1px dashed var(--line)}
 .main tbody tr:hover>td{background:rgb(var(--g500-rgb)/.08)}
 .feed-purchases-table td b,.feed-purchases-table td strong{font-weight:400}
 .feed-purchases-table td:first-child,.feed-purchases-table td:first-child b{font-weight:600}
@@ -396,7 +396,7 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
 
 /* -- Table: opaque sticky header, touch feedback, scrollable wrapper -- */
 .tablewrap thead th{background:var(--paper-2);background-clip:padding-box}
-:root:not(.light) .tablewrap thead th{background:var(--paper-2)}
+:root:not(.light) .tablewrap thead th:not(.MuiTableCell-root){background:var(--paper-2)}
 @media(hover:none){
   .tablewrap tbody tr:active>td{background:color-mix(in srgb,var(--fg) 8%,transparent)}
 }
@@ -407,9 +407,9 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
   .tablewrap,.kit-tablecard .tablewrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
   /* identity + action columns stay reachable while the row scrolls sideways */
   .tablewrap th:first-child,.tablewrap td:first-child{position:sticky;left:0;z-index:2;background:var(--paper)}
-  .tablewrap thead th:first-child{z-index:3;background:var(--paper-2)}
+  .tablewrap thead th:not(.MuiTableCell-root):first-child{z-index:3;background:var(--paper-2)}
   .tablewrap th:last-child,.tablewrap td:last-child{position:sticky;right:0;z-index:2;background:var(--paper)}
-  .tablewrap thead th:last-child{z-index:3;background:var(--paper-2)}
+  .tablewrap thead th:not(.MuiTableCell-root):last-child{z-index:3;background:var(--paper-2)}
 
   /* pagination footer: wrap as rows, never wrap words */
   /* the kit checkbox keeps its drawn size; the cell carries the tap target */
@@ -468,7 +468,7 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
 /* -- tables: sticky header needs an opaque band and a scroll box ----- */
 /* Head band = Minimal background.neutral (opaque, so sticky heads still cover rows). */
 .tablewrap thead th{background:var(--paper-2)}
-.kit-tablecard .tablewrap thead th{background:var(--paper-2)!important}
+.kit-tablecard .tablewrap thead th:not(.MuiTableCell-root){background:var(--paper-2)!important}
 @media(max-width:640px){
   /* No vertical scroll box on phones (56b3da919 / 89a0c2f62): a scroll region inside the page
      scroll traps touch in the WhatsApp/Android webview. The table scrolls sideways only. */

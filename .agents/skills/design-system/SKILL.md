@@ -194,7 +194,9 @@ Neutrals are the MUI Minimal TEMPLATE's (Ravi 2026-09-27): grey scale `--grey-50
   light box) and never select a `.Mui*` class in the legacy stylesheets to set a colour, background
   or border (P0 `legacy-css-mui-colour`; frame/minimal-theme/mesha-theme/menu-surface/globals.css
   only shrink). Tints are `varAlpha(theme.vars.palette.<c>.<x>Channel, a)` over the paper.
-  Source test: `components/kpi-card-anatomy.test.mjs`.
+  Source test: `components/kpi-card-anatomy.test.mjs`. A legacy rule that paints a bare `th`/`td`/`tr` repaints MUI tables too: exclude MUI parts
+  (`td:not(.MuiTableCell-root)`, waivable `legacy-table-paint`), and no `rgb()`/`rgba()` colour
+  literal in TSX (waivable `rgb-colour-in-code`).
 ## Template-fidelity guards (AFIX12, 2026-09-27)
 
 `components/app/template-fidelity-guards.test.mjs` (runs in `npm test`), one rule id per recurring

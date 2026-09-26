@@ -218,7 +218,9 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   light box) and never select a `.Mui*` class in the legacy stylesheets to set a colour, background
   or border (P0 `legacy-css-mui-colour`; frame/minimal-theme/mesha-theme/menu-surface/globals.css
   only shrink). Tints are `varAlpha(theme.vars.palette.<c>.<x>Channel, a)` over the paper.
-  Source test: `components/kpi-card-anatomy.test.mjs`.
+  Source test: `components/kpi-card-anatomy.test.mjs`. A legacy rule that paints a bare `th`/`td`/`tr` repaints MUI tables too: exclude MUI parts
+  (`td:not(.MuiTableCell-root)`, waivable `legacy-table-paint`), and no `rgb()`/`rgba()` colour
+  literal in TSX (waivable `rgb-colour-in-code`).
 - **Production bug CLASSES are automated guards.** `scripts/lib/visual-pattern-guards.mjs` (route
   visual lane) adds `P-text-icon-overlap`, `P-wide-table-no-wrapper`, `P-chart-axis-tiny` (<11px),
   `P-pinned-bar-blur-flicker`, `P-drawer-filter-mismatch` and `P-chart-hover-remount`. `raw-chart-lib`

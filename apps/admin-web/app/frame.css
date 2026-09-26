@@ -55,7 +55,7 @@
 .tablewrap table,.twrap table,.kit-tablecard table{width:100%;border-collapse:separate;border-spacing:0;min-width:640px}
 .wrap thead th{background:var(--paper-2);color:var(--fg-muted);font-weight:600;padding:14px 16px;border-bottom:0;white-space:nowrap;text-align:left;position:sticky;top:0;z-index:1}
 .wrap thead th.num,.wrap th.num,.wrap td.num{text-align:right;font-variant-numeric:tabular-nums}
-.wrap tbody td{height:54px;padding:11px 16px;border-bottom:1px dashed var(--line);vertical-align:middle;font-size:14px}
+.wrap tbody td:not(.MuiTableCell-root){height:54px;padding:11px 16px;border-bottom:1px dashed var(--line);vertical-align:middle;font-size:14px}
 .wrap tbody tr:last-child td{border-bottom:0}
 .wrap tbody tr{transition:background-color 150ms var(--ease)}
 .wrap tbody tr:hover>td{background:color-mix(in srgb,var(--fg) 4%,transparent)}
@@ -85,7 +85,7 @@
   .herd-signals-page .tblwrap th:first-child,.herd-signals-page .tblwrap td:first-child,
   .feed-scroll th:first-child,.feed-scroll td:first-child,.health-scroll th:first-child,.health-scroll td:first-child,
   .cbm-hm th:first-child,.cbm-hm td:first-child,[data-scroll-x] th:first-child,[data-scroll-x] td:first-child{position:sticky;left:0;z-index:2;background:var(--paper)}
-  .card>.tablewrap th:first-child,.card>.twrap th:first-child,.kit-tablecard .tablewrap th:first-child,.herd-signals-page .tblwrap th:first-child,.feed-scroll th:first-child,.health-scroll th:first-child,.cbm-hm th:first-child,[data-scroll-x] th:first-child{z-index:3;background:var(--paper-2)}
+  .card>.tablewrap th:not(.MuiTableCell-root):first-child,.card>.twrap th:not(.MuiTableCell-root):first-child,.kit-tablecard .tablewrap th:not(.MuiTableCell-root):first-child,.herd-signals-page .tblwrap th:not(.MuiTableCell-root):first-child,.feed-scroll th:not(.MuiTableCell-root):first-child,.health-scroll th:not(.MuiTableCell-root):first-child,.cbm-hm th:not(.MuiTableCell-root):first-child,[data-scroll-x] th:not(.MuiTableCell-root):first-child{z-index:3;background:var(--paper-2)}
   .card>.tablewrap tbody tr:hover>td:first-child,.card>.twrap tbody tr:hover>td:first-child,.kit-tablecard .tablewrap tbody tr:hover>td:first-child,.herd-signals-page .tblwrap tbody tr:hover>td:first-child{background:color-mix(in srgb,var(--fg) 4%,var(--paper))}
 }
 
