@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { operationalLocationLabel } from "@/lib/operational-location";
+import Grid from "@mui/material/Grid";
 import { FormSelect } from "./form-select";
 import { listOptions } from "./option-utils";
 
@@ -61,6 +62,8 @@ export function ParkLocationSelect({
     <FormSelect
       label={label}
       name={name}
+      size="small"
+      fullWidth
       required={required}
       defaultValue=""
       disabled={disabled}
@@ -93,6 +96,8 @@ export function OptionalLocationSelect({
     <FormSelect
       label={label}
       name={name}
+      size="small"
+      fullWidth
       defaultValue={defaultValue}
       disabled={disabled}
       title={disabled ? copy(pageContract, "location.no_origins") : undefined}
@@ -129,8 +134,10 @@ export function ParkShedLocationSelects({
 
   return (
     <>
-      <div className="fld" style={{ flex: 1, minWidth: 180 }}>
+      <Grid size={{ xs: 12, sm: 6 }}>
         <FormSelect
+          size="small"
+          fullWidth
           label={copy(pageContract, "field.park_location_id")}
           name="park_location_id"
           required
@@ -148,11 +155,13 @@ export function ParkShedLocationSelects({
             parkDisabled ? copy(pageContract, "location.no_parks") : copy(pageContract, "location.select_park"),
           )}
         />
-      </div>
-      <div className="fld" style={{ flex: 1, minWidth: 180 }}>
+      </Grid>
+      <Grid size={{ xs: 12, sm: 6 }}>
         <input type="hidden" name="shed_location_id" value={selectedShed?.id ?? ""} />
         <input type="hidden" name="partition_label" value={selectedShed?.partitionLabel ?? ""} />
         <FormSelect
+          size="small"
+          fullWidth
           label={copy(pageContract, "field.shed_location_id")}
           required
           value={shedKey}
@@ -170,7 +179,7 @@ export function ParkShedLocationSelects({
                 : copy(pageContract, "location.select_shed"),
           )}
         />
-      </div>
+      </Grid>
     </>
   );
 }

@@ -21,7 +21,7 @@ import { SourceEntryLocalDrawer, type SourceEntryDrawerItem } from "./source-ent
 import { VaccinationFilterButton, VisibleTableSearch } from "@/features/preventive-care-vaccination";
 import { PageHeader } from "@/components/app/page-header";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
-import { OpenDisclosureButton } from "./open-disclosure-button";
+import { getProcurementOrigins } from "./load-detail";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import { phoneLoadCardsSx } from "./procurement-sx";
@@ -169,11 +169,14 @@ export async function SourceEntryBoardPage({
   const actionKey = one(sp, "action_key");
   const selectedLoadId = one(sp, "source_load");
 
-  const result = await listProcurementLoads({
-    status: statusFilter === "all" ? undefined : statusFilter,
-    limit: PAGE_SIZE,
-    cursor,
-  });
+  const [result, origins] = await Promise.all([
+    listProcurementLoads({
+      status: statusFilter === "all" ? undefined : statusFilter,
+      limit: PAGE_SIZE,
+      cursor,
+    }),
+    getProcurementOrigins(),
+  ]);
   const authError = firstAuthRequiredError(result);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
@@ -187,6 +190,9 @@ export async function SourceEntryBoardPage({
     const selectedDetail = await getProcurementLoad(selectedLoadId);
     if (selectedDetail.ok) detailByLoad.set(selectedLoadId, selectedDetail.data.detail);
   }
+  const suppliers = Array.from(
+    new Map(loads.filter((load) => load.source_party_name).map((load) => [load.source_party_id, { id: load.source_party_id, name: load.source_party_name as string }])).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name));
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
   const prevHref = hrefPreviousCursor(pathname, sp);
@@ -234,7 +240,7 @@ export async function SourceEntryBoardPage({
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
-        actions={<OpenDisclosureButton targetId="new-load" label={copy(pageContract, "form.new_load.title")} />}
+        actions={<NewLoadForm returnTo={hrefWithQuery(pathname, sp, { source_load: null })} pageContract={pageContract} origins={origins} suppliers={suppliers} />}
         tabs={
           <Box sx={{ mb: 1.75 }}>
             <AnimatedTabs
@@ -267,8 +273,6 @@ export async function SourceEntryBoardPage({
           </Alert>
         )
       ) : null}
-
-      <NewLoadForm returnTo={hrefWithQuery(pathname, sp, { source_load: null })} pageContract={pageContract} />
 
       {!result.ok ? (
         <Alert severity="error" style={{ marginBottom: 14 }}>
@@ -335,13 +339,13 @@ export async function SourceEntryBoardPage({
                       <TableRow key={load.load_id}>
                         <TableCell>
                           <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                            <b>{shortId(load.load_id)}</b>
+                            <b>{sourcePartyLabel(load)}</b>
+                            {load.purchase_date ? <div className="muted small">{fmtDate(load.purchase_date)}</div> : null}
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>
                           <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                             <b>{sourceLocationLabel(load, pageContract)}</b>
-                            <div className="muted small">{copy(pageContract, "label.supplier_prefix")} {sourcePartyLabel(load)}</div>
                           </LocalOverlayLink>
                         </TableCell>
                         <TableCell>

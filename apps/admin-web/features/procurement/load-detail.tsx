@@ -6,6 +6,7 @@ import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
@@ -24,7 +25,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError, listLocations, type LocationSummary } from "@/lib/api/server";
+import { firstAuthRequiredError, getProtocolVersion, listLocations, listProtocolConfigs, type LocationSummary } from "@/lib/api/server";
 import { listAllFeedConfigPens } from "@/lib/api/herd-locations";
 import { getProcurementLoad } from "@/lib/api/procurement-server";
 import type {
@@ -44,6 +45,7 @@ import { actionFeedbackCopy, copy, optionLabel, optionTitle, optionTone, optiona
 import { Tag } from "@/components/ui-primitives";
 import type { Tone } from "@/components/ui-primitives";
 import { LoadWriteActions } from "./load-forms";
+import type { HfRuleOption } from "./hf-rule-picker";
 import type { ProcurementLocationOption, ProcurementLocations } from "./location-selects";
 import {
   TONE_SWATCH,
@@ -57,55 +59,7 @@ import type { SxProps, Theme } from "@mui/material/styles";
 // Load write surface: a block heading + accordion cards on the page ground. Every field in the
 // accordions floats its label over an outlined control — the template TextField (outlined) anatomy,
 // applied to the server-rendered form fields so they read as one family with the selects.
-const LW_ACTIONS_SX: SxProps<Theme> = {
-  display: "grid",
-  gap: 1.5,
-  "& details.card": { m: "0 !important" },
-  "& details.card > summary.hd": { py: 2, px: 3 },
-  "& details.card[open] > summary.hd": { pb: 1 },
-  "& .fld": { position: "relative", m: 0, mb: 2 },
-  "& .fld > label:not(:has(input))": {
-    position: "absolute",
-    left: "10px",
-    top: "-8px",
-    zIndex: 2,
-    m: 0,
-    px: 0.5,
-    py: 0,
-    // Theme caption scale (size + line height) in place of the retired --fs/--lh-caption tokens.
-    typography: "caption",
-    fontWeight: 600,
-    color: "text.secondary",
-    bgcolor: "background.paper",
-    borderRadius: "var(--r-sm)",
-    pointerEvents: "none",
-  },
-  "& .fld > input, & .fld > textarea": {
-    height: "calc(5 * var(--spacing))", // theme spacing(5): template small-input height (TextField size="small")
-    px: 1.75,
-    py: 0,
-    border: "1px solid var(--line-strong)",
-    borderRadius: "var(--r-md)",
-    bgcolor: "transparent",
-    fontSize: "var(--fs-body2)",
-    fontWeight: 500,
-    color: "text.primary",
-    width: "100%",
-  },
-  "& .fld > textarea": { height: "auto", minHeight: "4.5rem", py: 1.25, px: 1.75 },
-  "& .fld > input:focus, & .fld > textarea:focus": { outline: "none", borderColor: "primary.main", boxShadow: "0 0 0 3px var(--primary-soft)" },
-  "& .fld > label:has(input)": {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 1,
-    minHeight: "calc(5 * var(--spacing))",
-    fontSize: "var(--fs-body2)",
-    color: "text.primary",
-    fontWeight: 500,
-  },
-  "& .fld > label:has(input) input": { width: "1.125rem", height: "1.125rem", m: 0, accentColor: "var(--primary)" },
-  "& .kit-datetime": { mt: 0.5 },
-};
+const LW_ACTIONS_SX: SxProps<Theme> = { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.5, p: 1 };
 
 
 function goatLabel(goat: ProcurementLoadGoat): string {
@@ -143,6 +97,43 @@ function sourceLocationOption(load: ProcurementLoadDetail["load"]): ProcurementL
     name,
     parentId: null,
   };
+}
+
+/** Farms and parks a load can come from: the New load drawer's source location picker. */
+export async function getProcurementOrigins(): Promise<ProcurementLocationOption[]> {
+  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=fixed two-call location taxonomy request; cardinality does not depend on returned rows
+  const [farmsResult, parksResult] = await Promise.all([
+    listLocations({ type: "farm", status: "active" }),
+    listLocations({ type: "park", status: "active" }),
+  ]);
+  return [
+    ...(farmsResult.ok ? listOrEmpty(farmsResult.data.items).map(toLocationOption) : []),
+    ...(parksResult.ok ? listOrEmpty(parksResult.data.items).map(toLocationOption) : []),
+  ];
+}
+
+/**
+ * The published vaccination schedule's doses, for the holding-farm evidence form's dose picker
+ * (the evidence endpoint keys on protocol version + rule; nobody should type those ids).
+ */
+async function getHfRuleOptions(): Promise<HfRuleOption[]> {
+  const configs = await listProtocolConfigs("vaccination");
+  if (!configs.ok) return [];
+  const published = (configs.data.items ?? []).filter((item) => item.status === "published" && item.protocol_version_id);
+  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=one read per published vaccination protocol (a handful), not per row
+  const versions = await Promise.all(published.map((item) => getProtocolVersion(item.protocol_version_id)));
+  return published.flatMap((item, index) => {
+    const version = versions[index];
+    if (!version?.ok) return [];
+    return [...(version.data.rules ?? [])]
+      .sort((a, b) => (a.sort_order ?? a.sequence) - (b.sort_order ?? b.sequence))
+      .map((rule) => ({
+        protocolVersionId: item.protocol_version_id,
+        ruleId: rule.rule_id,
+        doseCode: rule.dose_code,
+        label: `${item.name} · ${rule.dose_code}`,
+      }));
+  });
 }
 
 function shedUsable(location: LocationSummary): boolean {
@@ -218,9 +209,10 @@ function timelineStateLabel(pageContract: AdminUiPageContract, event: Procuremen
   }
   return readableOptionKey(state);
 }
-function TimelineCard({ events, pageContract }: { events: ProcurementTimelineEvent[]; pageContract: AdminUiPageContract }) {
+function TimelineCard({ events, goats, pageContract }: { events: ProcurementTimelineEvent[]; goats: ProcurementLoadGoat[]; pageContract: AdminUiPageContract }) {
+  const goatById = new Map(goats.map((goat) => [goat.goat_id, goat]));
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card">
       <div className="hd">
         <ClipboardCheck className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.timeline.title")}</h3>
@@ -245,7 +237,7 @@ function TimelineCard({ events, pageContract }: { events: ProcurementTimelineEve
                   {event.state ? <Tag tone="info">{timelineStateLabel(pageContract, event)}</Tag> : null}
                   {event.occurred_at ? <span className="muted small">{fmtDateTime(event.occurred_at)}</span> : null}
                 </div>
-                {event.goat_id ? <div className="muted small" style={{ marginTop: 3 }}>{copy(pageContract, "label.goat_prefix")} {shortId(event.goat_id)}</div> : null}
+                {event.goat_id ? <div className="muted small" style={{ marginTop: 3 }}>{copy(pageContract, "label.goat_prefix")} {goatById.has(event.goat_id) ? goatLabel(goatById.get(event.goat_id) as ProcurementLoadGoat) : shortId(event.goat_id)}</div> : null}
               </div>
             </div>
           ))
@@ -259,7 +251,7 @@ function TimelineCard({ events, pageContract }: { events: ProcurementTimelineEve
 function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageContract: AdminUiPageContract }) {
   const goatCols = tableLabels(pageContract, "load-goats");
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card">
       <div className="hd">
         <Warehouse className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.goats.title")}</h3>
@@ -337,7 +329,7 @@ function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageC
 function DecisionCard({ decisions, pageContract }: { decisions: ProcurementDecision[]; pageContract: AdminUiPageContract }) {
   const labels = tableLabels(pageContract, "pre-dispatch-decisions");
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card">
       <div className="hd">
         <Flag className="ic" style={{ color: "var(--amber)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.pre_dispatch.title")}</h3>
@@ -384,7 +376,7 @@ function DecisionCard({ decisions, pageContract }: { decisions: ProcurementDecis
 function ArrivalGateCard({ reviews, pageContract }: { reviews: ProcurementArrivalReview[]; pageContract: AdminUiPageContract }) {
   const labels = tableLabels(pageContract, "arrival-goats");
   return (
-    <section className="card" style={{ marginBottom: 16, borderColor: "color-mix(in srgb,var(--purple) 28%,var(--line))" }}>
+    <section className="card" style={{ borderColor: "color-mix(in srgb,var(--purple) 28%,var(--line))" }}>
       <div className="hd">
         <Flag className="ic" style={{ color: "var(--purple)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.arrival_gate.title")}</h3>
@@ -449,7 +441,7 @@ function TransitCard({ handoffs, pageContract }: { handoffs: ProcurementTransitH
   if (handoffs.length === 0) return null;
   const labels = tableLabels(pageContract, "transit-handoffs");
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card">
       <div className="hd">
         <Truck className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.transit.title")}</h3>
@@ -486,7 +478,7 @@ function HoldingCard({ stays, pageContract }: { stays: ProcurementHoldingStay[];
   if (stays.length === 0) return null;
   const labels = tableLabels(pageContract, "holding-stays");
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card">
       <div className="hd">
         <Warehouse className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.holding.title")}</h3>
@@ -531,7 +523,7 @@ function HealthCard({ checks, pageContract }: { checks: ProcurementSourceHealthC
   if (checks.length === 0) return null;
   const labels = tableLabels(pageContract, "source-health-checks");
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card">
       <div className="hd">
         <HeartPulse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.source_health.title")}</h3>
@@ -567,7 +559,7 @@ function HandoffCard({ handoffs, pageContract }: { handoffs: ProcurementPCHandof
   if (handoffs.length === 0) return null;
   const labels = tableLabels(pageContract, "pc-handoffs");
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card">
       <div className="hd">
         <PackageCheck className="ic" style={{ color: "var(--brand-d)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.pc_handoffs.title")}</h3>
@@ -619,7 +611,7 @@ export async function ProcurementLoadDetailPage({
   searchParams?: RouteSearchParams;
   pageContract: AdminUiPageContract;
 }) {
-  const [result, locations] = await Promise.all([getProcurementLoad(loadId), getProcurementLocations()]);
+  const [result, locations, hfRuleOptions] = await Promise.all([getProcurementLoad(loadId), getProcurementLocations(), getHfRuleOptions()]);
   const authError = firstAuthRequiredError(result);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
@@ -674,7 +666,7 @@ export async function ProcurementLoadDetailPage({
       <PageHeader
         title={title}
         backHref={backHref}
-        crumbs={[{ label: copy(pageContract, "fallback.title"), href: backHref }, { label: `${copy(pageContract, "label.load")} ${shortId(load.load_id)}` }]}
+        crumbs={[{ label: copy(pageContract, "fallback.title"), href: backHref }, { label: [sourceParty, fmtDate(load.purchase_date ?? undefined)].filter(Boolean).join(" · ") }]}
         actions={headerActions}
       />
 
@@ -692,24 +684,25 @@ export async function ProcurementLoadDetailPage({
 
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, md: 8 }}>
-          <Box sx={{ gap: "var(--sp-3)", display: "flex", flexDirection: { xs: "column-reverse", md: "column" } }}>
+          <Stack spacing={3}>
             <GoatRows goats={goats} pageContract={pageContract} />
 
             {/* Operator write surface — every control submits a real server action (idempotency-keyed). */}
-            <Box component="section" className="lw-actions" aria-label={copy(pageContract, "section.actions.title")} sx={LW_ACTIONS_SX}>
-              <Typography variant="h6" component="h3">
-                {copy(pageContract, "section.actions.title")}
-              </Typography>
+            <Card component="section" className="lw-actions" aria-label={copy(pageContract, "section.actions.title")}>
+              <CardHeader title={copy(pageContract, "section.actions.title")} slotProps={{ title: { component: "h3" } }} />
+              <Box sx={LW_ACTIONS_SX}>
               <LoadWriteActions
                 loadId={load.load_id}
                 goats={goats}
                 hfEvidence={hfEvidence}
+                hfRuleOptions={hfRuleOptions}
                 returnTo={returnTo}
                 pageContract={pageContract}
                 locations={loadLocations}
                 defaultFromLocationId={load.source_location_id ?? ""}
               />
-            </Box>
+              </Box>
+            </Card>
 
             {/* Empty 0-count cards are not rendered: a card that only says "nothing yet" is a slot
                 without content; the journey timeline below still shows every step. */}
@@ -719,8 +712,8 @@ export async function ProcurementLoadDetailPage({
             <HoldingCard stays={holdingStays} pageContract={pageContract} />
             <HealthCard checks={sourceHealthChecks} pageContract={pageContract} />
             <HandoffCard handoffs={pcHandoffs} pageContract={pageContract} />
-            <TimelineCard events={timeline} pageContract={pageContract} />
-          </Box>
+            <TimelineCard events={timeline} goats={goats} pageContract={pageContract} />
+          </Stack>
         </Grid>
 
         <Grid size={{ xs: 12, md: 4 }}>

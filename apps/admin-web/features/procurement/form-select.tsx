@@ -51,6 +51,8 @@ export function FormSelect({
   minWidth,
   className,
   style,
+  size,
+  fullWidth = false,
 }: {
   label: string;
   name?: string;
@@ -66,6 +68,9 @@ export function FormSelect({
   minWidth?: number;
   className?: string;
   style?: React.CSSProperties;
+  size?: "small" | "medium";
+  /** Template form fields fill their grid cell (product create/edit `Field.Select`). */
+  fullWidth?: boolean;
 }) {
   const [own, setOwn] = useState(defaultValue);
   // A caller that swaps its option list (park -> shed) can leave the held value with no matching
@@ -92,6 +97,8 @@ export function FormSelect({
       <TextField
         select
         label={label}
+        size={size}
+        fullWidth={fullWidth}
         value={options.some((option) => option.value === current) ? current : ""}
         disabled={disabled}
         title={title}
