@@ -4,9 +4,11 @@ import MuiCardHeader from "@mui/material/CardHeader";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import { Check, ShieldPlus } from "lucide-react";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
@@ -39,16 +41,11 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
-// Template card header (icon + title, legend in the action slot), as on the vaccination matrix.
+// Template card header (title, chart-legend dots in the action slot).
 function CardHeader({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
     <MuiCardHeader
-      title={
-        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
-          <ShieldPlus className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          {copy(pageContract, "section.matrix.title")}
-        </Box>
-      }
+      title={copy(pageContract, "section.matrix.title")}
       action={
         <Box component="span" sx={{ display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
           <LegendDot color="primary.main" label={copy(pageContract, "legend.done")} />
@@ -64,26 +61,36 @@ function PageHead({ pageContract }: { pageContract: AdminUiPageContract }) {
   return <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />;
 }
 
+// A done job: the template soft success circle with a check, the done date as a caption under it.
+// Not done: a disabled dash. Each cell keeps its accessible "done / not done" text.
 function DoneCell({ done, date, label, pageContract }: { done: boolean; date?: string; label: string; pageContract: AdminUiPageContract }) {
   if (!done) {
     return (
-      <span className="cc-miss" title={`${label} — ${copy(pageContract, "label.not_done")}`}>
+      <Box component="span" sx={{ color: "text.disabled" }} title={`${label} — ${copy(pageContract, "label.not_done")}`}>
         <span aria-hidden="true">—</span>
-        <span className="sr-only">{copy(pageContract, "label.not_done")}</span>
-      </span>
+        <Box component="span" sx={visuallyHidden}>{copy(pageContract, "label.not_done")}</Box>
+      </Box>
     );
   }
   const dateText = date ? fmtDate(date) : "";
   return (
-    <span className="cc-done" title={dateText ? `${label} — ${copy(pageContract, "label.done_on")} ${dateText}` : `${label} — ${copy(pageContract, "label.done")}`}>
-      <span className="cc-tick">
-        <Check className="ic" aria-hidden="true" />
-        <span className="sr-only">{copy(pageContract, "label.done")}</span>
-      </span>
-      {dateText ? <span className="muted small cc-date">{dateText}</span> : null}
-    </span>
+    <Box
+      component="span"
+      sx={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 0.5 }}
+      title={dateText ? `${label} — ${copy(pageContract, "label.done_on")} ${dateText}` : `${label} — ${copy(pageContract, "label.done")}`}
+    >
+      <Iconify icon="solar:check-circle-bold" width={24} sx={{ color: "success.main" }} />
+      <Box component="span" sx={visuallyHidden}>{copy(pageContract, "label.done")}</Box>
+      {dateText ? (
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          {dateText}
+        </Typography>
+      ) : null}
+    </Box>
   );
 }
+
+const visuallyHidden = { border: 0, clip: "rect(0 0 0 0)", height: 1, width: 1, margin: -1, overflow: "hidden", padding: 0, position: "absolute", whiteSpace: "nowrap" } as const;
 
 export async function CareCoverageBoard({
   searchParams,
@@ -121,9 +128,9 @@ export async function CareCoverageBoard({
   const clearAllHref = scope.parkId || pens.length > 0 ? allParksHref : null;
 
   return (
-    <div className="screen on">
+    <Box className="screen on">
       <PageHead pageContract={pageContract} />
-      <Card sx={{ mb: 2 }}>
+      <Card>
         <CardHeader pageContract={pageContract} />
         <CareCoverageFilters
           parkChoices={parkChoices}
@@ -143,29 +150,31 @@ export async function CareCoverageBoard({
           />
         ) : (
           <>
-            <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.matrix.aria")}>
-              <Table className="vaccination-status-matrix-table care-coverage-table">
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{labels[0] ?? copy(pageContract, "label.pen")}</TableCell>
-                    {categories.map((category) => (
-                      <TableCell component="th" key={category.key}>{category.label}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
+            <Scrollbar>
+              <Table sx={{ minWidth: 760 }} aria-label={copy(pageContract, "section.matrix.aria")}>
+                <TableHeadCustom
+                  headCells={[
+                    { id: "pen", label: labels[0] ?? copy(pageContract, "label.pen") },
+                    ...categories.map((category) => ({ id: category.key, label: category.label, align: "center" as const, width: 140 })),
+                  ]}
+                />
                 <TableBody>
                   {rows.map((row) => {
                     const cells = new Map(row.cells.map((cell) => [cell.category, cell]));
                     return (
-                      <TableRow key={`${row.park_id}|${row.shed_id}|${row.partition_label}`}>
-                        <TableCell>
-                          <b>{row.operational_location_display || row.shed_name}</b>
-                          <div className="muted small">{row.park_name}</div>
+                      <TableRow hover key={`${row.park_id}|${row.shed_id}|${row.partition_label}`}>
+                        <TableCell sx={{ minWidth: 180 }}>
+                          <Typography variant="subtitle2" component="span" sx={{ display: "block" }}>
+                            {row.operational_location_display || row.shed_name}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                            {row.park_name}
+                          </Typography>
                         </TableCell>
                         {categories.map((category) => {
                           const cell = cells.get(category.key);
                           return (
-                            <TableCell key={category.key}>
+                            <TableCell key={category.key} align="center" sx={{ position: "relative" }}>
                               <DoneCell done={Boolean(cell?.done)} date={cell?.last_done_business_date} label={category.label} pageContract={pageContract} />
                             </TableCell>
                           );
@@ -175,10 +184,10 @@ export async function CareCoverageBoard({
                   })}
                 </TableBody>
               </Table>
-            </Box>
-            <Box className="note" sx={{ mx: 1.75, my: 1.5 }}>
+            </Scrollbar>
+            <Typography variant="caption" component="p" sx={{ px: 3, py: 2, color: "text.secondary" }}>
               {copy(pageContract, "section.matrix.note")}
-            </Box>
+            </Typography>
             {/* Cursor-paged: the backend never counts pages, so the arrows are "first page" and
                 "next page", and the page size is a link like every other server-paged table. */}
             <TablePaginationLinks
@@ -197,6 +206,6 @@ export async function CareCoverageBoard({
           </>
         )}
       </Card>
-    </div>
+    </Box>
   );
 }
