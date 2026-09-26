@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
@@ -109,18 +110,25 @@ shed_targets AS MATERIALIZED (
 ),
 `
 
-// normalizeSexFilter accepts the two values the herd register carries and rejects everything
-// else, rather than passing an arbitrary string into a predicate. An unknown value is an
-// error, never a silent "no filter": silently widening a filter shows a reader more kids than
-// they asked for under a heading that says otherwise.
+// normalizeSexFilter accepts any value shaped like a gender code and rejects everything else,
+// rather than passing an arbitrary string into a predicate. An unknown value is an error, never
+// a silent "no filter": silently widening a filter shows a reader more kids than they asked for
+// under a heading that says otherwise.
+//
+// It used to accept male and female only, so a gender the farm added on Configuration > Items &
+// settings (OPEN UP TO NEW SPECIES, 2026-09-25) answered 400 on every Weights read (audit
+// 2026-09-26). Weighing does NOT check the code against the farm's gender list: that list lives
+// outside weighing, and this file's exemption covers goats alone. A well-shaped code nobody
+// carries simply matches no animal, which is an honest empty page, not a wrong one.
 func normalizeSexFilter(sex string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(sex)) {
-	case "":
+	code := strings.ToLower(strings.TrimSpace(sex))
+	switch {
+	case code == "":
 		return "", nil
-	case "male":
-		return "male", nil
-	case "female":
-		return "female", nil
+	// "all" is the page's own word for "no filter" and never a gender, so it stays refused here
+	// exactly as before rather than filtering on an animal whose sex is literally "all".
+	case code != "all" && animalvocab.ValidCodeShape(code):
+		return code, nil
 	default:
 		// WRAPPED IN ErrInvalidArgument so the HTTP layer answers 400, not 500. A bare fmt.Errorf
 		// fell through every errors.Is arm of the weighing error mapper and landed on the

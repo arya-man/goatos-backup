@@ -6,6 +6,7 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { redirect } from "next/navigation";
 import { hrefWithWindow } from "./landing-href.mjs";
+import { sexFilterFromUrl } from "@/features/weighing/sex-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +38,7 @@ async function landingHref(landing: { href: string; copy?: Record<string, string
   const selectedTo = one(params, WINDOW_TO_PARAM);
   if (selectedFrom && selectedTo) return hrefWithWindow(landing.href, params, selectedFrom, selectedTo);
 
-  const rawSex = one(params, "sex");
-  const sexFilter = rawSex === "female" ? "female" : rawSex === "all" ? "" : "male";
+  const sexFilter = sexFilterFromUrl(one(params, "sex"));
   const rawOrigin = one(params, "origin");
   const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
   const modeFilter = weighingModeFilter(one(params, "weighing"));

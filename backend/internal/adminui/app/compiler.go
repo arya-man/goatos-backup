@@ -2213,6 +2213,7 @@ var animalVocabularyGroups = []struct {
 	{"herd_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
 	{"herd_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
 	{"herd_filter_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"weights_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
 	{"proc_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
 	{"proc_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
 	{"farm_born_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
@@ -2244,7 +2245,6 @@ func compileAnimalVocabularyGroups(groups []domain.OptionGroup, families Referen
 	return out
 }
 
-// activeReferences drops the archived rows of a register family (listed with tone "warn").
 // uniqueReferenceKeys keeps the first option per key, for a species-less list built from a family
 // that carries one row per (key, species).
 func uniqueReferenceKeys(refs []ReferenceOption) []ReferenceOption {
@@ -2260,6 +2260,7 @@ func uniqueReferenceKeys(refs []ReferenceOption) []ReferenceOption {
 	return out
 }
 
+// activeReferences drops the archived rows of a register family (listed with tone "warn").
 func activeReferences(refs []ReferenceOption) []ReferenceOption {
 	out := make([]ReferenceOption, 0, len(refs))
 	for _, r := range refs {

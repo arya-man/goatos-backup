@@ -10,6 +10,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	"github.com/vgoats/goatos/backend/internal/growthdirector/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
@@ -33,10 +34,9 @@ func (s *Service) GetFeedWeightBand(ctx context.Context, actor domain.Actor, par
 	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
 		return domain.FeedWeightBand{}, ports.ErrInvalidArgument
 	}
+	// Any configured gender, not male and female alone (audit 2026-09-26).
 	sex = strings.ToLower(strings.TrimSpace(sex))
-	switch sex {
-	case "", "all", "male", "female":
-	default:
+	if sex != "" && sex != "all" && !animalvocab.ValidCodeShape(sex) {
 		return domain.FeedWeightBand{}, ports.ErrInvalidArgument
 	}
 	if sex == "all" {

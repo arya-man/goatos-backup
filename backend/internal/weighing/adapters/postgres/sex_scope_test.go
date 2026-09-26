@@ -18,7 +18,9 @@ import (
 // A pure unit test on purpose: this is the one rule in this file that needs no database, and it
 // must run in every environment, including the ones where the Postgres suite is opted out.
 func TestNormalizeSexFilterRejectsUnknownValuesAsInvalidArgument(t *testing.T) {
-	for _, bad := range []string{"foo", "m", "unknown", "all", "0", "both"} {
+	// A gender the farm configures is any well-shaped code (audit 2026-09-26), so what is refused
+	// is a value no gender code can be -- and "all", which the page means as "no filter".
+	for _, bad := range []string{"Male!", "0", "all", "1x", "drop table", "a-b"} {
 		got, err := normalizeSexFilter(bad)
 		if err == nil {
 			t.Fatalf("normalizeSexFilter(%q) must fail, got %q", bad, got)
@@ -32,7 +34,7 @@ func TestNormalizeSexFilterRejectsUnknownValuesAsInvalidArgument(t *testing.T) {
 
 	// And the three the page really sends still resolve. An EMPTY sex is "no filter", never an
 	// error: it is what every page load carries until a reader picks a side.
-	for _, in := range []struct{ raw, want string }{{"", ""}, {"male", "male"}, {"female", "female"}, {" MALE ", "male"}} {
+	for _, in := range []struct{ raw, want string }{{"", ""}, {"male", "male"}, {"female", "female"}, {" MALE ", "male"}, {"castrated", "castrated"}} {
 		got, err := normalizeSexFilter(in.raw)
 		if err != nil {
 			t.Fatalf("normalizeSexFilter(%q): %v", in.raw, err)

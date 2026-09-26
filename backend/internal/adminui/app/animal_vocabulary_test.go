@@ -9,7 +9,9 @@ type vocabularyFamilies struct{ fakeFamilies }
 
 func (vocabularyFamilies) LoadContractFamilies(ctx context.Context, tenantID string) (ReferenceFamilies, error) {
 	f, err := fakeFamilies{}.LoadContractFamilies(ctx, tenantID)
-	f.AllBreeds = []ReferenceOption{{Key: "Sojat", Label: "Sojat"}, {Key: "Nellore", Label: "Nellore"}}
+	// Nellore is kept under two species: one choice where no species is picked, one per species
+	// where it is.
+	f.AllBreeds = []ReferenceOption{{Key: "Sojat", Label: "Sojat", Group: "goat"}, {Key: "Nellore", Label: "Nellore", Group: "goat"}, {Key: "Nellore", Label: "Nellore", Group: "sheep"}}
 	f.Species = []ReferenceOption{{Key: "goat", Label: "Goat"}, {Key: "sheep", Label: "Sheep"}, {Key: "alpaca", Label: "Alpaca"}}
 	f.Sexes = []ReferenceOption{{Key: "female", Label: "Female"}, {Key: "male", Label: "Male"}, {Key: "castrated", Label: "Castrated male"}}
 	return f, err
@@ -45,7 +47,10 @@ func TestAnimalPickersAreCompiledFromConfiguration(t *testing.T) {
 		}
 	}
 	if got := vocabKeys(t, groups, "herd_filter_breeds"); len(got) != 2 || got[1] != "Nellore" {
-		t.Fatalf("herd_filter_breeds = %v, want the breed register", got)
+		t.Fatalf("herd_filter_breeds = %v, want the breed register, one choice per name", got)
+	}
+	if got := vocabKeys(t, groups, "herd_breeds"); len(got) != 3 {
+		t.Fatalf("herd_breeds = %v, want one choice per (breed, species) so each species keeps its Nellore", got)
 	}
 	join := func(keys []string) string {
 		out := ""
@@ -62,7 +67,7 @@ func TestAnimalPickersAreCompiledFromConfiguration(t *testing.T) {
 			t.Fatalf("%s = %s, want Configuration's species", id, got)
 		}
 	}
-	for _, id := range []string{"herd_sex", "herd_filter_sexes", "proc_sex", "farm_born_sexes", "counts_gender", "assumption_sexes"} {
+	for _, id := range []string{"herd_sex", "herd_filter_sexes", "proc_sex", "farm_born_sexes", "counts_gender", "assumption_sexes", "weights_sexes"} {
 		if got := join(vocabKeys(t, groups, id)); got != "female,male,castrated" {
 			t.Fatalf("%s = %s, want Configuration's genders", id, got)
 		}

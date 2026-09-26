@@ -567,7 +567,8 @@ test("lump marker proxy reads a calendar window independently of the report rang
   assert.match(route, /url\.searchParams\.get\("origin"\)/);
   assert.match(route, /url\.searchParams\.get\("weighing"\)/);
   assert.match(route, /getWeighingDates\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*from,\s*\n\s*to,/);
-  assert.match(route, /sex: sex === "male" \|\| sex === "female" \? sex : undefined,/);
+  // Any gender the farm configured narrows the markers; "all" and a malformed value do not.
+  assert.match(route, /sex: sex && sex !== "all" && sexFilterFromUrl\(sex\) === sex \? sex : undefined,/);
   assert.match(route, /origin: origin === "farm_born" \|\| origin === "purchased" \? origin : undefined,/);
   assert.match(route, /weighing_category:\s*\n\s*weighing === "individual_animal" \|\| weighing === "per_shed_partition" \? weighing : undefined,/);
   assert.match(route, /dates: result\.data\.lump_weighing_dates/);

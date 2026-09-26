@@ -209,8 +209,12 @@ func TestGetFeedWeightBandGateWindowAndFilters(t *testing.T) {
 	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "2026-13-01", "", "", "", ""); err != ports.ErrInvalidArgument {
 		t.Fatalf("bad date must be rejected, got %v", err)
 	}
-	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "unknown", "", ""); err != ports.ErrInvalidArgument {
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "Not a code!", "", ""); err != ports.ErrInvalidArgument {
 		t.Fatalf("bad sex must be rejected, got %v", err)
+	}
+	// A gender the farm configured on Items & settings is a valid filter, not a bad request.
+	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "castrated", "", ""); err == ports.ErrInvalidArgument {
+		t.Fatalf("a configured third gender must be accepted, got %v", err)
 	}
 	if _, err := svc.GetFeedWeightBand(tenantWide, gdActor(), "", "", "", "", "imported", ""); err != ports.ErrInvalidArgument {
 		t.Fatalf("bad origin must be rejected, got %v", err)

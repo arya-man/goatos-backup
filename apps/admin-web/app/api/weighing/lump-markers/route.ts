@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getWeighingDates } from "@/lib/api/server";
+import { sexFilterFromUrl } from "@/features/weighing/sex-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,9 @@ export async function GET(request: Request) {
     park_id: parkID || undefined,
     from,
     to,
-    sex: sex === "male" || sex === "female" ? sex : undefined,
+    // Any gender the farm configured, not male and female alone (audit 2026-09-26); "all" and a
+    // malformed value mean no narrowing, as before.
+    sex: sex && sex !== "all" && sexFilterFromUrl(sex) === sex ? sex : undefined,
     origin: origin === "farm_born" || origin === "purchased" ? origin : undefined,
     weighing_category:
       weighing === "individual_animal" || weighing === "per_shed_partition" ? weighing : undefined,

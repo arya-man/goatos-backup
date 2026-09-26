@@ -1640,6 +1640,11 @@ func weighingWeightsCopy() map[string]string {
 		// actually counted. Reusing the combined caption under the male view would tell a
 		// reader the bands add up to the kids weighed twice when they add up to the MALE kids
 		// weighed twice.
+		// A gender the farm added on Items & settings has no sentence of its own, so it reads
+		// these, with {sex} replaced by that gender's name.
+		"section.gain_thresholds.caption_other":  "Counted from {sex} kids weighed twice, at each kid's own daily gain, plus pens holding only {sex} kids weighed as one total, whose kids all sit in the band that pen's average movement falls in. Each kid is counted in one band only.",
+		"value.gain_thresholds.kids_other":       "{sex} kids",
+		"empty.gain_thresholds.other":            "No {sex} kid matched to a breed has a second weigh in this period yet.",
 		"section.gain_thresholds.caption_male":   "Counted from male kids weighed twice, at each kid's own daily gain, plus all-male pens weighed as one total, whose kids all sit in the band that pen's average movement falls in. Each kid is counted in one band only.",
 		"section.gain_thresholds.caption_female": "Counted from female kids weighed twice, at each kid's own daily gain, plus all-female pens weighed as one total, whose kids all sit in the band that pen's average movement falls in. Each kid is counted in one band only.",
 		"value.gain_thresholds.kids_male":        "male kids",
@@ -11882,6 +11887,17 @@ func weighingWeightsOptionGroups() []domain.OptionGroup {
 		// window is now picked from a calendar, and a stale option group reads to the next author as
 		// a control that still exists somewhere.
 		{ID: "weighing_parks", Options: []domain.Option{}},
+		// The Sex filter's choices: the farm's genders from Configuration > Items & settings,
+		// compiled over this literal by compileAnimalVocabularyGroups (audit 2026-09-26 -- the
+		// filter used to offer male and female only, typed into the page). The literal is only
+		// the fallback for a farm with no Gender list yet.
+		{
+			ID: "weights_sexes",
+			Options: []domain.Option{
+				option("male", "Male", "", ""),
+				option("female", "Female", "", ""),
+			},
+		},
 		{
 			// The Time-wise tab's column width (maintainer request 2026-09-21). MONTHLY is a
 			// rolling 30-day block counted back from the selected period's last day -- the last 30
