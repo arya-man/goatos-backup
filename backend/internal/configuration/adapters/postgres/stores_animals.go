@@ -19,14 +19,24 @@ import (
 // what goats.species / goats.sex store. The built-in rows are flagged and never leave.
 
 type codeLookupStore struct {
+	register string // the register key, for domain.IsBuiltinCode
 	table    string
 	codeCol  string
-	goatCol  string
+	goatCol  string // the goats column AND the protocol_rule_dimensions column naming the code
 	breedCol string // set when breeds also name the code (species)
 }
 
 func (s codeLookupStore) projection() projection {
-	return projection{sql: fmt.Sprintf(sqlCodeLookupProjection, s.table, s.codeCol, s.goatCol)}
+	return projection{sql: fmt.Sprintf(sqlCodeLookupProjection, s.table, s.codeCol, s.goatCol), decorate: s.decorate}
+}
+
+// decorate marks a row the product names literally as built in even when its is_builtin flag was
+// never set (a tenant whose lookup rows were not seeded by 000346), so archive and delete refuse
+// it the same way.
+func (s codeLookupStore) decorate(row *domain.Row) {
+	if domain.IsBuiltinCode(s.register, row.ID) {
+		row.IsBuiltin = true
+	}
 }
 
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
@@ -57,7 +67,12 @@ func (s codeLookupStore) options(ctx context.Context, q querier, t string) ([]po
 }
 
 func (s codeLookupStore) usage(ctx context.Context, q querier, t, id string) (domain.Usage, error) {
-	checks := []usageCheck{{"animals", fmt.Sprintf(`SELECT count(*) FROM goats WHERE tenant_id = $1 AND %s = $2 AND lifecycle_status = 'alive'`, s.goatCol)}}
+	checks := []usageCheck{
+		{"animals", fmt.Sprintf(`SELECT count(*) FROM goats WHERE tenant_id = $1 AND %s = $2 AND lifecycle_status = 'alive'`, s.goatCol)},
+		// A published vaccination rule aimed at this code would silently match nobody once the code
+		// is gone, so it holds the row like an animal does.
+		{"vaccination rules", fmt.Sprintf(sqlPublishedRuleUsage, s.goatCol, "$2")},
+	}
 	if s.breedCol != "" {
 		// A farm's breeds name their species by its code (breeds are per farm since 000442).
 		checks = append(checks, usageCheck{"breeds", fmt.Sprintf(`SELECT count(*) FROM breeds WHERE tenant_id = $1 AND %s = $2 AND status = 'active'`, s.breedCol)})
@@ -137,7 +152,7 @@ SELECT l.animal_stage_id::text AS id,
        CASE WHEN l.status = 'active' THEN 'active' ELSE 'archived' END AS status,
        l.row_version,
        false AS is_builtin,
-       jsonb_build_object('name', l.name, 'code', l.stage_code, 'min_age_days', l.min_age_days, 'max_age_days', l.max_age_days, 'sort_order', l.sort_order) AS fields,
+       jsonb_strip_nulls(jsonb_build_object('name', l.name, 'code', l.stage_code, 'min_age_days', l.min_age_days, 'max_age_days', l.max_age_days, 'age_band', l.age_band, 'sort_order', l.sort_order)) AS fields,
        '{}'::jsonb AS labels,
        jsonb_build_object(
          'animals', (SELECT count(*) FROM goats g WHERE g.tenant_id = l.tenant_id AND g.management_stage = l.stage_code AND g.lifecycle_status = 'alive'),
@@ -145,7 +160,15 @@ SELECT l.animal_stage_id::text AS id,
        ) AS counts,
        lpad(l.sort_order::text, 6, '0') || ' ' || lower(l.name) AS sort_key
 FROM animal_stage_lookup l
-WHERE l.tenant_id = $1`}
+WHERE l.tenant_id = $1`, decorate: decorateStage}
+
+// decorateStage marks the stages the product names in code (K0, Flushing, the growth ladder) as
+// built in: they may be renamed or re-banded, never archived or deleted.
+func decorateStage(row *domain.Row) {
+	if domain.IsBuiltinCode(domain.RegStages, domain.FieldString(row.Fields, "code")) {
+		row.IsBuiltin = true
+	}
+}
 
 func (stageStore) count(ctx context.Context, q querier, t string) (int, error) {
 	return stageProjection.count(ctx, q, t)
@@ -163,6 +186,7 @@ func (stageStore) usage(ctx context.Context, q querier, t, id string) (domain.Us
 	return usageOf(ctx, q, t, id,
 		usageCheck{"animals", `SELECT count(*) FROM goats g JOIN animal_stage_lookup l ON l.tenant_id = g.tenant_id AND l.stage_code = g.management_stage WHERE g.tenant_id = $1 AND l.animal_stage_id = $2::uuid AND g.lifecycle_status = 'alive'`},
 		usageCheck{"pens", `SELECT count(*) FROM shed_profiles WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`},
+		usageCheck{"vaccination rules", fmt.Sprintf(sqlPublishedRuleUsage, "animal_stage", `(SELECT stage_code FROM animal_stage_lookup WHERE tenant_id = $1 AND animal_stage_id = $2::uuid)`)},
 	)
 }
 
@@ -172,7 +196,7 @@ func (stageStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]
 		sort = 100
 	}
 	var id string
-	err := tx.QueryRow(ctx, sqlAnimals1, t, domain.FieldString(f, "code"), domain.FieldString(f, "name"), nullInt(f, "min_age_days"), nullInt(f, "max_age_days"), sort).Scan(&id)
+	err := tx.QueryRow(ctx, sqlAnimals1, t, domain.FieldString(f, "code"), domain.FieldString(f, "name"), nullInt(f, "min_age_days"), nullInt(f, "max_age_days"), sort, nullText(f, "age_band")).Scan(&id)
 	return id, err
 }
 
@@ -181,6 +205,7 @@ func (stageStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[str
 		{"name", "name", textOrEmpty("name")},
 		{"min_age_days", "min_age_days", intArg("min_age_days")},
 		{"max_age_days", "max_age_days", intArg("max_age_days")},
+		{"age_band", "age_band", textArg("age_band")},
 		{"sort_order", "sort_order", func(m map[string]any) any {
 			if v, ok := domain.FieldInt(m, "sort_order"); ok {
 				return v
@@ -230,11 +255,20 @@ func (stageStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) erro
 	return fenced(ctx, tx, tag.RowsAffected(), `SELECT 1 FROM animal_stage_lookup WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, t, id)
 }
 
+// sqlPublishedRuleUsage counts the PUBLISHED vaccination rules one of whose compiled dimensions
+// names a code. Formatted with the dimension column and the SQL expression for the code ($1 is the
+// tenant). Each dimension row names exactly one value ('all' is the wildcard), so an exact,
+// case-insensitive match is the whole test. Drafts and retired versions do not hold a row.
+const sqlPublishedRuleUsage = `
+SELECT count(DISTINCT d.rule_id) FROM protocol_rule_dimensions d
+JOIN protocol_versions v ON v.tenant_id = d.tenant_id AND v.protocol_version_id = d.protocol_version_id AND v.status = 'published'
+WHERE d.tenant_id = $1 AND lower(btrim(d.%[1]s)) = lower(btrim(%[2]s))`
+
 // SQL hoisted to package level so the scale guard and query-plan tests can reach it.
 const (
 	sqlAnimals1 = `
-INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, min_age_days, max_age_days, sort_order, status)
-VALUES ($1, $2, $3, $4, $5, $6, 'active')
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, min_age_days, max_age_days, sort_order, status, age_band)
+VALUES ($1, $2, $3, $4, $5, $6, 'active', $7)
 RETURNING animal_stage_id::text`
 )
 
@@ -393,7 +427,10 @@ func (breedStore) usage(ctx context.Context, q querier, t, id string) (domain.Us
 	if !isUUID(id) {
 		return domain.Usage{}, ports.ErrNotFound
 	}
-	return usageOf(ctx, q, t, id, usageCheck{"animals", sqlBreedUsage})
+	return usageOf(ctx, q, t, id,
+		usageCheck{"animals", sqlBreedUsage},
+		usageCheck{"vaccination rules", fmt.Sprintf(sqlPublishedRuleUsage, "breed", `(SELECT canonical_name FROM breeds WHERE tenant_id = $1::uuid AND breed_id = $2::uuid)`)},
+	)
 }
 
 func (breedStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]any) (string, error) {
@@ -472,6 +509,13 @@ func (breedStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[str
 		if _, err := tx.Exec(ctx, sqlBreedRenameGoats, t, id, domain.FieldString(f, "name"), oldName); err != nil {
 			return "", err
 		}
+		// Feed direction finds an adult animal's ration group by its breed TEXT
+		// (feed_ration_groups.breed_key), so without this every animal of a renamed breed lost
+		// its ration and was blocked off the feed sheet. The mapping follows the breed unless the
+		// new name already has one of its own, which is kept.
+		if _, err := tx.Exec(ctx, sqlBreedRenameRationGroup, t, oldName, domain.FieldString(f, "name")); err != nil {
+			return "", err
+		}
 	}
 	return "", nil
 }
@@ -522,4 +566,9 @@ WHERE g.tenant_id = $1 AND g.lifecycle_status = 'alive'
 	sqlBreedInsert      = `INSERT INTO breeds (tenant_id, species, canonical_name, status, review_notes) VALUES ($1, $2, $3, 'active', $4) RETURNING breed_id::text`
 	sqlBreedName        = `SELECT canonical_name FROM breeds WHERE tenant_id = $1 AND breed_id = $2::uuid`
 	sqlBreedRenameGoats = `UPDATE goats SET breed = $3 WHERE tenant_id = $1 AND (breed_id = $2::uuid OR (breed_id IS NULL AND lower(btrim(breed)) = lower(btrim($4))))`
+	sqlBreedRenameRationGroup = `
+UPDATE feed_ration_groups g SET breed_label = $3, updated_at = now()
+WHERE g.tenant_id = $1::uuid AND g.breed_key = feed_config_norm($2)
+  AND feed_config_norm($2) <> feed_config_norm($3)
+  AND NOT EXISTS (SELECT 1 FROM feed_ration_groups x WHERE x.tenant_id = $1::uuid AND x.breed_key = feed_config_norm($3))`
 )

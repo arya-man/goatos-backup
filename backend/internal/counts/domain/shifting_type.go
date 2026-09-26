@@ -722,3 +722,33 @@ const (
 	shiftCopyGroupStageUnknown = "An animal in this group has no tag, so the group's tag cannot be carried"
 	shiftCopyGroupStageMixed   = "These animals carry different tags, so one tag cannot be carried for the group"
 )
+
+// ProductNamedStageCodes is every stage code this package names literally: the newborn stage
+// births are recorded at, the flushing cohort, and every rung of the growth ladder. The
+// Configuration register protects these rows from archive and delete (a farm may still rename
+// them), because removing one silently breaks births, flushing or a growth step. Pinned by
+// configuration/domain's TestProtectedStageCodesCoverEveryStageTheProductNames.
+func ProductNamedStageCodes() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	add := func(code string) {
+		key := strings.ToLower(strings.TrimSpace(code))
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, code)
+	}
+	add(NewbornStageCode)
+	add(FlushingStageName)
+	for stage, nexts := range growthForwardEdges {
+		add(stage)
+		for _, next := range nexts {
+			add(next)
+		}
+	}
+	for stage := range growthStageSex {
+		add(stage)
+	}
+	return out
+}

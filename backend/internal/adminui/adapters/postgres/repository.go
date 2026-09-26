@@ -323,10 +323,14 @@ func (r *Repository) listAllBreeds(ctx context.Context, q querier, tenantID stri
 			return nil, "", err
 		}
 		rev.WriteString(name + "|" + species + "|" + status + "|" + updated + "\n")
-		if seen[name] {
+		// One option per (breed, species), not per name: a farm may keep the same breed name
+		// under two species, and Register animal offers only the chosen species' breeds, so
+		// dropping the second copy hid it from that species entirely. Species-less lists dedupe
+		// by name themselves (herdFilterBreeds).
+		if seen[species+"\x00"+name] {
 			continue
 		}
-		seen[name] = true
+		seen[species+"\x00"+name] = true
 		tone := ""
 		if status == "review" {
 			tone = "warn"
@@ -608,14 +612,22 @@ WHERE tenant_id = $1::uuid
 ORDER BY name, item_id
 LIMIT 500`
 
+// sqlListBreeds is the species-less breed list (feed_breeds, counts_breed, rule_breeds): every
+// species' breeds, one option per breed NAME. It was goat-only until the 2026-09-26 audit, which
+// left a sheep -- or any configured species -- unable to be corrected to its own breed on Counts.
+// A name the farm keeps under two species is one option; the write that takes it resolves the
+// breed within each animal's own species.
 const sqlListBreeds = `
 SELECT canonical_name, status, updated_at::text
-FROM breeds
-WHERE tenant_id = $1::uuid
-  AND species = 'goat'
-  AND status IN ('active', 'review')
+FROM (
+  SELECT DISTINCT ON (lower(btrim(canonical_name))) canonical_name, status, updated_at
+  FROM breeds
+  WHERE tenant_id = $1::uuid
+    AND status IN ('active', 'review')
+  ORDER BY lower(btrim(canonical_name)), CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC
+) b
 ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, canonical_name
-LIMIT 200`
+LIMIT 500`
 
 const sqlListStatuses = `
 SELECT status_code, short_label, COALESCE(description, ''), updated_at::text

@@ -1115,7 +1115,9 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
 			// vocabularies are. Contract code declares the group; the values are tenant rows.
-			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "counts_breed", optionsFromReferences(families.Breeds, ""))
+			// A correction writes a breed, so an archived (review) breed is not offered; the write
+			// refuses it anyway.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "counts_breed", optionsFromReferences(activeReferences(families.Breeds), ""))
 		}
 	}
 	return out
@@ -2203,7 +2205,8 @@ var animalVocabularyGroups = []struct {
 	family  func(ReferenceFamilies) []ReferenceOption
 	withAll bool
 }{
-	{"herd_filter_breeds", func(f ReferenceFamilies) []ReferenceOption { return f.AllBreeds }, false},
+	// The filter names a breed, not a species, so a name kept under two species is one choice.
+	{"herd_filter_breeds", func(f ReferenceFamilies) []ReferenceOption { return uniqueReferenceKeys(f.AllBreeds) }, false},
 	// Register animal names a breed a new animal is registered under, so an archived breed (a
 	// review row, tone warn) is not offered; the herd FILTER above keeps it to find old animals.
 	{"herd_breeds", func(f ReferenceFamilies) []ReferenceOption { return activeReferences(f.AllBreeds) }, false},
@@ -2242,6 +2245,21 @@ func compileAnimalVocabularyGroups(groups []domain.OptionGroup, families Referen
 }
 
 // activeReferences drops the archived rows of a register family (listed with tone "warn").
+// uniqueReferenceKeys keeps the first option per key, for a species-less list built from a family
+// that carries one row per (key, species).
+func uniqueReferenceKeys(refs []ReferenceOption) []ReferenceOption {
+	out := make([]ReferenceOption, 0, len(refs))
+	seen := make(map[string]bool, len(refs))
+	for _, r := range refs {
+		if seen[r.Key] {
+			continue
+		}
+		seen[r.Key] = true
+		out = append(out, r)
+	}
+	return out
+}
+
 func activeReferences(refs []ReferenceOption) []ReferenceOption {
 	out := make([]ReferenceOption, 0, len(refs))
 	for _, r := range refs {

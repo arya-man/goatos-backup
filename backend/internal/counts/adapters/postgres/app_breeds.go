@@ -14,37 +14,47 @@ import (
 // Configuration used to be missing here until some animal carried it -- which no newborn ever could,
 // because this list is the only way the phone names a breed.
 //
-// The herd side is the same source and grain as the Counts Breakdown `breeds` facet (`goats.breed`
-// over alive, non-merged goats), so the value an operator picks is exactly the value that screen
-// shows and the birth write stores. The register is matched by name, case-insensitively; a register
-// breed nobody carries reads 0. Blank breed is excluded. The register is the farm's own breed list
-// (breeds.tenant_id, 000442), the same list the web breed pickers read (adminui allBreedsSQL).
+// A breed the farm ARCHIVED on Configuration is not offered even while older animals still carry
+// it (audit 2026-09-26): archiving is how the farm says "no new animal gets this breed", and the
+// herd side used to put it straight back. A carried breed the register has never heard of (legacy
+// text) is still offered, as before. The grain is (breed, species), so a name the farm keeps under
+// two species is two options and the phone's species filter shows the right one.
 //
-// projection-review: membership=tenant live non-merged goats with a nonblank breed UNION active breed-register rows; group_key=lower(breed name); join_cardinality=herd side is pre-aggregated to one row per lower(breed) and the register side to one row per lower(canonical_name) before the FULL JOIN, so it is 1:1; pagination=whole bounded vocabulary independent of page size; scope=tenant_id plus alive and non-merged predicates on the herd side
-//   - producer unique key: herd `lower(g.breed)` (GROUP BY), register `lower(canonical_name)` (DISTINCT ON).
-//     consumer match key: lower(name) on both sides.
+// The herd side is the same source as the Counts Breakdown `breeds` facet (`goats.breed` over
+// alive, non-merged goats), so the value an operator picks is exactly the value that screen shows
+// and the birth write stores. The register is matched by name, case-insensitively, within a
+// species; a register breed nobody carries reads 0. Blank breed is excluded. The register is the
+// farm's own breed list (breeds.tenant_id, 000442), the same list the web breed pickers read.
+//
+// projection-review: membership=tenant live non-merged goats with a nonblank breed UNION non-archived breed-register rows; group_key=(lower(breed name), species); join_cardinality=herd side is pre-aggregated to one row per (lower(breed), species) and the register side to one row per (lower(canonical_name), species) before the FULL JOIN, so it is 1:1; pagination=whole bounded vocabulary independent of page size; scope=tenant_id plus alive and non-merged predicates on the herd side
+//   - producer unique key: herd (lower(g.breed), g.species) (GROUP BY); register (lower(canonical_name), species)
+//     (GROUP BY; breeds is unique on (tenant, species, canonical_name)).
+//     consumer match key: (lower(name), species) on both sides.
 //   - multiplicity: each side is one row per key before the join; count(*) ranges over goat rows only.
 //   - numerator/denominator: n/a (no ratio/cap).
 const appActiveBreedsQuery = `
 WITH herd AS (
-  SELECT lower(g.breed) AS k, min(g.breed) AS breed, max(g.species) AS species, count(*) AS head_count
+  SELECT lower(g.breed) AS k, g.species AS sp, min(g.breed) AS breed, count(*) AS head_count
   FROM goats g
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND g.lifecycle_status = 'alive'
     AND btrim(COALESCE(g.breed, '')) <> ''
-  GROUP BY lower(g.breed)
+  GROUP BY lower(g.breed), g.species
 ), register AS (
-  SELECT DISTINCT ON (lower(b.canonical_name)) lower(b.canonical_name) AS k, b.canonical_name, b.species
+  SELECT lower(b.canonical_name) AS k, b.species AS sp, min(b.canonical_name) AS canonical_name,
+         bool_or(b.status = 'active') AS offered, bool_and(b.status = 'inactive') AS archived
   FROM breeds b
-  WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(b.canonical_name) <> ''
-  ORDER BY lower(b.canonical_name), b.species
+  WHERE b.tenant_id = $1::uuid AND btrim(b.canonical_name) <> ''
+  GROUP BY lower(b.canonical_name), b.species
 )
 SELECT COALESCE(h.breed, r.canonical_name) AS breed,
-       COALESCE(r.species, h.species, '') AS species,
+       COALESCE(r.sp, h.sp, '') AS species,
        COALESCE(h.head_count, 0) AS head_count
 FROM herd h
-FULL JOIN register r ON r.k = h.k
+FULL JOIN register r ON r.k = h.k AND r.sp = h.sp
+WHERE NOT COALESCE(r.archived, false)
+  AND (h.k IS NOT NULL OR r.offered)
 ORDER BY head_count DESC, breed`
 
 // ActiveBreeds lists the breeds an operator may give a newborn (see appActiveBreedsQuery). Key and

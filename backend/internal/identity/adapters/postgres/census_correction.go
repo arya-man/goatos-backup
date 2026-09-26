@@ -168,13 +168,18 @@ func (r *Repository) applyCensusSliceCorrection(ctx context.Context, tx pgx.Tx, 
 		// would make them disagree for every reader that joins through it. ORDER BY breed_id keeps
 		// the pick deterministic -- the catalog currently holds a duplicate canonical_name, and a
 		// correction must not resolve to a different row on a retry.
+		//
+		// The breed is resolved WITHIN EACH ANIMAL'S OWN SPECIES (audit 2026-09-26): breeds are per
+		// (farm, species), and the same name can be a goat breed and a sheep breed. Resolving by name
+		// alone could link a sheep to the goat row. assertCensusSliceValue has already refused a
+		// breed that some animal's species does not carry, so the subquery always finds a row.
 		statement = `
 UPDATE goats
 SET breed = (SELECT btrim(b.canonical_name) FROM breeds b
-             WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
+             WHERE b.tenant_id = $1::uuid AND b.species = goats.species AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
              ORDER BY b.breed_id LIMIT 1),
     breed_id = (SELECT b.breed_id FROM breeds b
-                WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
+                WHERE b.tenant_id = $1::uuid AND b.species = goats.species AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
                 ORDER BY b.breed_id LIMIT 1),
     updated_at = now()
 WHERE goat_id IN (SELECT g.goat_id ` + censusSliceScopeSQL + `)`
@@ -218,15 +223,26 @@ func (r *Repository) assertCensusSliceValue(ctx context.Context, tx pgx.Tx, cmd 
 	if cmd.Field != "breed" {
 		return nil
 	}
-	var known bool
-	if err := tx.QueryRow(ctx, `
+	// The breed must be an active breed OF EVERY ANIMAL'S OWN SPECIES in the slice: the dashboard
+	// offers every species' breeds, and a goat corrected to a sheep breed is a wrong fact, not a
+	// correction. It must also exist at all, which the first half answers for an empty slice.
+	var known, fitsEverySpecies bool
+	partitionKey := oploc.NormalizePartition(stringValue(cmd.PartitionLabel))
+	bound := sqlbind.MustBind(`
 SELECT EXISTS (
-  SELECT 1 FROM breeds b
-  WHERE b.tenant_id = $2::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($1::text)))`,
-		cmd.Value, cmd.TenantID).Scan(&known); err != nil {
+         SELECT 1 FROM breeds b
+         WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))),
+       NOT EXISTS (
+         SELECT 1 `+censusSliceScopeSQL+`
+           AND NOT EXISTS (
+             SELECT 1 FROM breeds b
+             WHERE b.tenant_id = g.tenant_id AND b.species = g.species AND b.status = 'active'
+               AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))))`,
+		cmd.TenantID, cmd.ShedID, partitionKey, cmd.ManagementStage, cmd.Breed, cmd.Sex, cmd.Value)
+	if err := tx.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&known, &fitsEverySpecies); err != nil {
 		return fmt.Errorf("identity: correct census slice: validate breed: %w", err)
 	}
-	if !known {
+	if !known || !fitsEverySpecies {
 		return ports.ErrCensusCorrectionValue
 	}
 	return nil
