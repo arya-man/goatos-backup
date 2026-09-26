@@ -155,7 +155,7 @@ func (s *Service) GetRound(ctx context.Context, actor domain.Actor, roundID stri
 		return ports.RoundRow{}, ports.ErrStoreUnavailable
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
-	round, err := s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkSlice(parks), tenantWide)
+	round, err := s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkList(parks), tenantWide)
 	if err != nil {
 		return ports.RoundRow{}, err
 	}
@@ -181,7 +181,7 @@ func (s *Service) CloseRound(ctx context.Context, actor domain.Actor, roundID, r
 		return ports.ErrStoreUnavailable
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planCapabilities...)
-	round, err := s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkSlice(parks), tenantWide)
+	round, err := s.rounds.GetRound(ctx, actor.TenantID, roundID, authorizedParkList(parks), tenantWide)
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func (s *Service) ListRoundCards(ctx context.Context, actor domain.Actor, parkID
 	}
 	page, err := s.rounds.ListRoundCards(ctx, ports.ListRoundCardsQuery{
 		TenantID:          actor.TenantID,
-		AuthorizedParkIDs: authorizedParkSlice(parks),
+		AuthorizedParkIDs: authorizedParkList(parks),
 		TenantWide:        tenantWide,
 		ParkID:            parkID,
 		Category:          category,

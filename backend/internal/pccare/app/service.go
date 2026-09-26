@@ -285,8 +285,8 @@ func checkParkScopeForAnyCapability(ctx context.Context, tenantID, parkID string
 	return ports.ErrNotFound
 }
 
-// authorizedParkSlice renders the set as the slice the store's clamped reads take.
-func authorizedParkSlice(parks map[string]struct{}) []string {
+// authorizedParkList renders the set as the list the store's clamped reads take.
+func authorizedParkList(parks map[string]struct{}) []string {
 	out := make([]string, 0, len(parks))
 	for id := range parks {
 		out = append(out, id)
@@ -627,7 +627,7 @@ func (s *Service) plannableTaskForLifecycle(ctx context.Context, actor domain.Ac
 		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planCapabilities...)
-	task, err := s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkSlice(parks), tenantWide)
+	task, err := s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkList(parks), tenantWide)
 	if err != nil {
 		return ports.TaskRow{}, err
 	}
@@ -698,7 +698,7 @@ func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkI
 	return s.coverage.PenCareCoverage(ctx, ports.PenCareCoverageQuery{
 		Pens:              penFilter,
 		TenantID:          actor.TenantID,
-		AuthorizedParkIDs: authorizedParkSlice(parks),
+		AuthorizedParkIDs: authorizedParkList(parks),
 		TenantWide:        tenantWide,
 		ParkID:            parkID,
 		Limit:             limit,
@@ -735,7 +735,7 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 	}
 	page, err := s.store.ListTasks(ctx, ports.ListTasksQuery{
 		TenantID:          actor.TenantID,
-		AuthorizedParkIDs: authorizedParkSlice(parks),
+		AuthorizedParkIDs: authorizedParkList(parks),
 		TenantWide:        tenantWide,
 		ParkID:            parkID,
 		Category:          category,
@@ -771,7 +771,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 	}
 	page, err := s.store.ListTasks(ctx, ports.ListTasksQuery{
 		TenantID:          actor.TenantID,
-		AuthorizedParkIDs: authorizedParkSlice(parks),
+		AuthorizedParkIDs: authorizedParkList(parks),
 		TenantWide:        tenantWide,
 		Category:          category,
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
@@ -801,7 +801,7 @@ func (s *Service) GetTask(ctx context.Context, actor domain.Actor, taskID string
 		return ports.TaskRow{}, ports.ErrInvalidArgument
 	}
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, taskReadCapabilities...)
-	task, err := s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkSlice(parks), tenantWide)
+	task, err := s.store.GetTask(ctx, actor.TenantID, taskID, authorizedParkList(parks), tenantWide)
 	if err != nil {
 		return ports.TaskRow{}, err
 	}
@@ -1266,7 +1266,7 @@ func (s *Service) RecordStockVerdict(ctx context.Context, actor domain.Actor, in
 	}
 
 	parks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.PCCareStockApprove)
-	task, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, authorizedParkSlice(parks), tenantWide)
+	task, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, authorizedParkList(parks), tenantWide)
 	if err != nil {
 		return ports.TaskRow{}, err
 	}
@@ -1295,7 +1295,7 @@ func (s *Service) RecordStockVerdict(ctx context.Context, actor domain.Actor, in
 		return ports.TaskRow{}, err
 	}
 
-	refreshed, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, authorizedParkSlice(parks), tenantWide)
+	refreshed, err := s.store.GetTask(ctx, actor.TenantID, in.TaskID, authorizedParkList(parks), tenantWide)
 	if err != nil {
 		return ports.TaskRow{}, err
 	}
