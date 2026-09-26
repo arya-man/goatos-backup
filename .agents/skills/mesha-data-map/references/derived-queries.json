@@ -11,7 +11,7 @@
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/weight_demographics.go",
-          "sha256": "a955fb62efd94e4167082fab57803cc0d2fc96bdc7a331c15bf887e8a98f8f14"
+          "sha256": "db029c24e1bee7bb3bd217aedb80ddb3c4d58452afde670ce74eea958f8c4d84"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/identity_scope.go",
@@ -65,7 +65,7 @@
       "derived_from": [
         {
           "path": "backend/internal/feeddirection/adapters/postgres/analytics.go",
-          "sha256": "c8475f8405eb950ce51f4fffc785b493750aa36fcaf515d6d5b917835b583e02"
+          "sha256": "59bcb830a74449f595bfe8b1ae4a8d5b76036fdbea227c071477859806a7376a"
         },
         {
           "path": "backend/internal/feeddirection/domain/stock_family_merge.go",
