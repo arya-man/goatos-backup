@@ -19,10 +19,10 @@ test("the rulebook tabs navigate through the console's Link, never a bare anchor
   assert.ok(strip, "RulebookTabs must still exist");
   const body = strip[0];
 
-  assert.match(body, /<Link className=\{tab === "treatment" \? "btn" : "btn ghost"\} href=\{href\("treatment"\)\}>/);
-  assert.match(body, /<Link className=\{tab === "diagnosis" \? "btn" : "btn ghost"\} href=\{href\("diagnosis"\)\}>/);
+  assert.match(body, /<Link href=\{href\("treatment"\)\}>/);
+  assert.match(body, /<Link href=\{href\("diagnosis"\)\}>/);
   // The third tab (migration 000395): who is judged by which rulebook.
-  assert.match(body, /<Link className=\{tab === "types" \? "btn" : "btn ghost"\} href=\{href\("types"\)\}>/);
+  assert.match(body, /<Link href=\{href\("types"\)\}>/);
 
   // The regression itself: no raw anchor may carry a tab href again.
   assert.doesNotMatch(body, /<a\s/, "a bare <a> in the tab strip reloads the document");

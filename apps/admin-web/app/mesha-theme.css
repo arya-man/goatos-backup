@@ -1113,7 +1113,7 @@
      the top bar for park scope. Space BELOW it so the KPI cards do not sit flush against
      the control, and the popover has room to open over the page rather than the cards. */
   .main .ha-filter{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:12px}
-  .main .ha-filter-hint{margin:0}
+
   .main table.health-analytics-table{width:100%;min-width:760px}
   .main table.health-analytics-table th,
   .main table.health-analytics-table td{white-space:nowrap;vertical-align:top}
@@ -1124,7 +1124,7 @@
   .main .card:has(table.health-analytics-table) > p.muted.small{color:color-mix(in srgb,var(--muted) 76%,var(--ink))}
   @media(max-width:600px){
     .main .ha-filter{gap:8px}
-    .main .ha-filter-hint{flex:1 1 100%}
+
     .main table.health-analytics-table{min-width:680px}
   }
 

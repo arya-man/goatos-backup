@@ -3,7 +3,6 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import { Tag } from "@/components/ui-primitives";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
@@ -34,6 +33,16 @@ import { AddDiseaseForm, BackToListButton, DraftEditor, ProtocolActionButton } f
 import { InfoHint } from "@/components/app/info-hint";
 import { PageHeader } from "@/components/app/page-header";
 import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import TableContainer from "@mui/material/TableContainer";
+import { visuallyHidden } from "@mui/utils";
+import { Label } from "@/components/minimal/label";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { LinkButton } from "@/components/minimal/link-button";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
 // age band, the day-by-day course of medicines, actions and critical handoffs.
@@ -67,12 +76,9 @@ function SectionError({
 }) {
   if (!result || result.ok) return null;
   return (
-    <Alert severity="error" style={{ marginBottom: 16 }}><div>
-        <b>{copy(pageContract, "action.error_backend")}</b>
-        <div className="small muted">
-          {result.error.code ?? result.error.kind}&nbsp;{result.error.message}
-        </div>
-      </div>
+    <Alert severity="error">
+      <AlertTitle>{copy(pageContract, "action.error_backend")}</AlertTitle>
+      {result.error.code ?? result.error.kind}&nbsp;{result.error.message}
     </Alert>
   );
 }
@@ -92,15 +98,15 @@ function LiveVersion({
   pageContract: AdminUiPageContract;
 }) {
   if (!row.published_version_id) {
-    return <Tag tone="warn">{copy(pageContract, "status.no_live")}</Tag>;
+    return <Label variant="soft" color="warning">{copy(pageContract, "status.no_live")}</Label>;
   }
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-      <Tag tone="ok">{copy(pageContract, "status.live")}</Tag>
-      <span className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, whiteSpace: "nowrap" }}>
+      <Label variant="soft" color="success">{copy(pageContract, "status.live")}</Label>
+      <Box component="span" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
         v{row.published_version}
-      </span>
-    </span>
+      </Box>
+    </Box>
   );
 }
 
@@ -137,13 +143,13 @@ function RulebookTabs({
   };
   return (
     <RulebookTabStrip activeHref={href(tab)}>
-      <Link className={tab === "treatment" ? "btn" : "btn ghost"} href={href("treatment")}>
+      <Link href={href("treatment")}>
         {copy(pageContract, "tab.protocols")}
       </Link>
-      <Link className={tab === "diagnosis" ? "btn" : "btn ghost"} href={href("diagnosis")}>
+      <Link href={href("diagnosis")}>
         {copy(pageContract, "tab.registers")}
       </Link>
-      <Link className={tab === "types" ? "btn" : "btn ghost"} href={href("types")}>
+      <Link href={href("types")}>
         {copy(pageContract, "tab.types")}
       </Link>
     </RulebookTabStrip>
@@ -276,7 +282,7 @@ export async function HealthConfigPage({
 
   if (tab === "types") {
     return (
-      <div className="screen on">
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
         <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "tab.types") }]} />
 
         <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
@@ -286,7 +292,7 @@ export async function HealthConfigPage({
           mayWrite={mayWrite}
           writeDisabledReason={writeDisabledReason}
         />
-      </div>
+      </Stack>
     );
   }
 
@@ -297,7 +303,7 @@ export async function HealthConfigPage({
       return `${PAGE_PATH}?${params.toString()}`;
     })();
     return (
-      <div className="screen on">
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
         <PageHeader
           title={pageContract.title}
           crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "tab.registers") }]}
@@ -320,13 +326,13 @@ export async function HealthConfigPage({
           writeDisabledReason={writeDisabledReason}
           listHref={registerListHref}
         />
-      </div>
+      </Stack>
     );
   }
 
   if (detail) {
     return (
-      <div className="screen on">
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
         {/* One <h1> per page (spec 1): the section rides in the breadcrumb, the protocol name is the title. */}
         <PageHeader
           title={`${detail.display_name} · ${copy(pageContract, detail.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}`}
@@ -347,12 +353,12 @@ export async function HealthConfigPage({
           writeDisabledReason={writeDisabledReason}
           listHref={listHref}
         />
-      </div>
+      </Stack>
     );
   }
 
   return (
-    <div className="screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <PageHeader
         title={pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.catalog.title") }]}
@@ -374,10 +380,9 @@ export async function HealthConfigPage({
       <SectionError result={effectiveCatalogResult} pageContract={pageContract} />
 
       {/* ------------------------------------------------------------------ the protocol catalog */}
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="hd">
-          <h3>{copy(pageContract, "section.catalog.title")}</h3>
-        </div>
+      {/* Template user-list anatomy: Card, CardHeader, toolbar (search + filters), table, footer. */}
+      <Card>
+        <CardHeader title={copy(pageContract, "section.catalog.title")} />
 
         {/* Disease search. A plain GET form, not a WorklistFilters field: that component has no text
             kind, and the server-rendered form is what the other keyset-paged authority screens
@@ -399,57 +404,58 @@ export async function HealthConfigPage({
           pageContract={pageContract}
         />
 
-        <div
-          className="bd health-scroll tablewrap feed-stock-tablewrap feed-scroll"
-          style={{ padding: 0, overflowX: "auto" }}
+        <TableContainer
           tabIndex={0}
           role="group"
           aria-label={copy(pageContract, "section.catalog.aria")}
         >
-          <Table className="feed-table" aria-label={copy(pageContract, "section.catalog.aria")}>
+          <Table sx={{ minWidth: 960 }} aria-label={copy(pageContract, "section.catalog.aria")}>
             <TableHead>
               <TableRow>
                 {catalogCols.map((col) => (
                   <TableCell component="th" key={col}>{col}</TableCell>
                 ))}
-                <TableCell component="th" className="kit-th-actions"><span className="sr-only">{copy(pageContract, "action.edit_protocol")}</span></TableCell>
+                <TableCell component="th" align="right" sx={{ width: 88 }}><Box component="span" sx={visuallyHidden}>{copy(pageContract, "action.edit_protocol")}</Box></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={catalogCols.length + 1}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {catalogResult?.ok
-                        ? hasFilter
-                          ? copy(pageContract, "empty.search")
-                          : copy(pageContract, "empty.catalog")
-                        : copy(pageContract, "action.error_backend")}
-                    </div>
+                  <TableCell colSpan={catalogCols.length + 1} sx={{ p: 0 }}>
+                    <EmptyContent
+                      sx={{ py: 5 }}
+                      title={
+                        catalogResult?.ok
+                          ? hasFilter
+                            ? copy(pageContract, "empty.search")
+                            : copy(pageContract, "empty.catalog")
+                          : copy(pageContract, "action.error_backend")
+                      }
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
                 rows.map((row) => (
                   <TableRow key={`${row.disease_key}:${row.age_band}`}>
                     <TableCell>{row.display_name}</TableCell>
-                    <TableCell className="muted">
+                    <TableCell sx={{ color: "text.secondary" }}>
                       {copy(pageContract, row.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}
                     </TableCell>
-                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.duration_days}</TableCell>
-                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.step_count}</TableCell>
-                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.medication_count}</TableCell>
-                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.critical_action_count}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{row.duration_days}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{row.step_count}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{row.medication_count}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{row.critical_action_count}</TableCell>
                     <TableCell>
                       <LiveVersion row={row} pageContract={pageContract} />
                     </TableCell>
                     <TableCell>
                       {row.has_draft ? (
-                        <Tag tone="info">{copy(pageContract, "status.draft_open")}</Tag>
+                        <Label variant="soft" color="info">{copy(pageContract, "status.draft_open")}</Label>
                       ) : (
-                        <span className="muted">{copy(pageContract, "status.draft_none")}</span>
+                        <Box component="span" sx={{ color: "text.secondary" }}>{copy(pageContract, "status.draft_none")}</Box>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell align="right">
                       <ProtocolActionButton
                         pageContract={pageContract}
                         action={openDraft}
@@ -467,28 +473,29 @@ export async function HealthConfigPage({
               )}
             </TableBody>
           </Table>
-        </div>
+        </TableContainer>
 
-        <div className="pager2">
-          <span className="small muted" style={{ marginRight: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+        {/* Template table footer: row count left, keyset Restart / Next right. */}
+        <Stack direction="row" sx={{ px: 2.5, py: 1.5, gap: 1, alignItems: "center", borderTop: 1, borderColor: "divider" }}>
+          <Typography variant="body2" sx={{ mr: "auto", display: "inline-flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}>
             {rows.length} {copy(pageContract, "pager.rows").toLowerCase()}
             <InfoHint text={copy(pageContract, "pager.rows_note")} />
-          </span>
+          </Typography>
           {cursor ? (
-            <a className="btn sm" href={restartHref}>
+            <LinkButton href={restartHref} variant="outlined" size="small">
               {copy(pageContract, "pager.restart")}
-            </a>
+            </LinkButton>
           ) : null}
           {nextHref ? (
-            <a className="btn sm" href={nextHref}>
+            <LinkButton href={nextHref} variant="outlined" size="small">
               {copy(pageContract, "pager.next")}
-            </a>
+            </LinkButton>
           ) : null}
-        </div>
-      </section>
+        </Stack>
+      </Card>
 
       {/* ------------------------------------------------------------------- the selected course */}
-    </div>
+    </Stack>
   );
 }
 
@@ -509,18 +516,16 @@ function SelectedProtocolEditor({
   listHref: string;
 }) {
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <div className="hd" style={{ flexWrap: "wrap", alignItems: "flex-start", gap: 8 }}>
-        <h3>
-          {detail.display_name} ·{" "}
-          {copy(pageContract, detail.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}
-        </h3>
-        <span className="small muted">{copy(pageContract, "section.steps.caption")}</span>
-      </div>
+    // Template order-details anatomy: Card, CardHeader, content Stack, item table, history list.
+    <Card>
+      <CardHeader
+        title={`${detail.display_name} · ${copy(pageContract, detail.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}`}
+        subheader={copy(pageContract, "section.steps.caption")}
+      />
 
-      <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <span className={detail.status === "published" ? "tag t-ok" : detail.status === "draft" ? "tag t-info" : "tag t-mut"}>
+      <Stack spacing={2} sx={{ p: 3 }}>
+        <Stack direction="row" sx={{ gap: 1.25, flexWrap: "wrap", alignItems: "center" }}>
+          <Label variant="soft" color={detail.status === "published" ? "success" : detail.status === "draft" ? "info" : "default"}>
             {copy(
               pageContract,
               detail.status === "published"
@@ -529,18 +534,18 @@ function SelectedProtocolEditor({
                   ? "status.draft"
                   : "status.retired",
             )}
-          </span>
-          <span className="muted small" style={{ fontVariantNumeric: "tabular-nums" }}>
+          </Label>
+          <Typography variant="body2" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
             v{detail.version}
-          </span>
-          <span className="small muted">
+          </Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "label.open_cases")}: {detail.open_case_count}
-          </span>
-        </div>
+          </Typography>
+        </Stack>
 
-        <p className="small muted" style={{ margin: 0, lineHeight: 1.6 }}>
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {copy(pageContract, "note.publish_effect")}
-        </p>
+        </Typography>
 
         {detail.status === "draft" ? (
           <>
@@ -552,7 +557,7 @@ function SelectedProtocolEditor({
               enabled={mayWrite}
               disabledReason={writeDisabledReason}
             />
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+            <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap", alignItems: "flex-start" }}>
               <ProtocolActionButton
                 pageContract={pageContract}
                 action={publishDraft}
@@ -574,13 +579,13 @@ function SelectedProtocolEditor({
                 enabled={mayWrite}
                 disabledReason={writeDisabledReason}
               />
-            </div>
+            </Stack>
           </>
         ) : (
           // A published or retired version is read-only, and that is a business rule rather
           // than a permission: goats are being treated from it. Editing goes through a draft.
-          <div className="bd tablewrap feed-stock-tablewrap feed-scroll" style={{ padding: 0, overflowX: "auto" }}>
-            <Table className="feed-table" aria-label={copy(pageContract, "section.steps.aria")}>
+          <TableContainer sx={{ mx: -3, width: "auto" }}>
+            <Table sx={{ minWidth: 1080 }} aria-label={copy(pageContract, "section.steps.aria")}>
               <TableHead>
                 <TableRow>
                   {tableLabels(pageContract, "protocol-steps").map((col) => (
@@ -591,17 +596,15 @@ function SelectedProtocolEditor({
               <TableBody>
                 {(detail.steps ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9}>
-                      <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
-                        {copy(pageContract, "empty.steps")}
-                      </div>
+                    <TableCell colSpan={9} sx={{ p: 0 }}>
+                      <EmptyContent sx={{ py: 5 }} title={copy(pageContract, "empty.steps")} />
                     </TableCell>
                   </TableRow>
                 ) : (
                   (detail.steps ?? []).map((step) => (
                     <TableRow key={step.step_id ?? `${step.day_no}-${step.seq}`}>
-                      <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{step.day_no}</TableCell>
-                      <TableCell className="muted">
+                      <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{step.day_no}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>
                         {copy(pageContract, `label.session.${step.session === "unscheduled" ? "unscheduled" : step.session}`)}
                       </TableCell>
                       <TableCell>
@@ -615,10 +618,10 @@ function SelectedProtocolEditor({
                         )}
                       </TableCell>
                       <TableCell>{step.medicine_name ?? ""}</TableCell>
-                      <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{step.dosage_text ?? ""}</TableCell>
-                      <TableCell className="muted">{step.dosage_denominator ?? ""}</TableCell>
+                      <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{step.dosage_text ?? ""}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>{step.dosage_denominator ?? ""}</TableCell>
                       <TableCell>{step.medicine_route ?? ""}</TableCell>
-                      <TableCell style={{ whiteSpace: "pre-wrap", minWidth: 260 }}>{step.instruction ?? ""}</TableCell>
+                      <TableCell sx={{ whiteSpace: "pre-wrap", minWidth: 260 }}>{step.instruction ?? ""}</TableCell>
                       <TableCell>
                         {step.critical_action_type
                           ? copy(
@@ -634,16 +637,16 @@ function SelectedProtocolEditor({
                 )}
               </TableBody>
             </Table>
-          </div>
+          </TableContainer>
         )}
 
         {(detail.history ?? []).length > 0 ? (
-          <div>
-            <h4 style={{ margin: "6px 0" }}>{copy(pageContract, "section.history.title")}</h4>
-            <p className="small muted" style={{ margin: "0 0 8px", lineHeight: 1.6 }}>
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{copy(pageContract, "section.history.title")}</Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
               {copy(pageContract, "section.history.note")}
-            </p>
-            <ul className="small" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+            </Typography>
+            <Box component="ul" sx={{ m: 0, pl: 2.25, typography: "body2", lineHeight: 1.8 }}>
               {/* Every number here is labelled. A bare "v1 · Draft · 0 · 2" tells a reader
                   nothing about which figure is steps and which is days — and on a screen whose
                   subject is dosages, an unlabelled number is worse than no number. */}
@@ -663,11 +666,11 @@ function SelectedProtocolEditor({
                   {version.published_at ? ` · ${version.published_at.slice(0, 10)}` : ""}
                 </li>
               ))}
-            </ul>
-          </div>
+            </Box>
+          </Box>
         ) : null}
-      </div>
-    </section>
+      </Stack>
+    </Card>
   );
 }
 

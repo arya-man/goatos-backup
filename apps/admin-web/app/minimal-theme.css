@@ -636,9 +636,7 @@ input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
 /* Phone breadcrumbs: one line, the trail ellipsizes instead of wrapping into columns. */
 /* Health Analytics with nothing recorded: KPI cards at content height (no reserved sparkline
    slot, no stretched grid rows) instead of tall empty cards. */
-.ha-kpi-empty [class*="kpi"]{min-height:0!important;height:auto!important}
-.ha-kpi-empty [class*="spark"]{display:none!important}
-.ha-kpi-empty>div{align-items:start}
+
 /* A chip is one line: a long label truncates with an ellipsis inside the row, and wrapped rows keep
    a gap so a chip never touches the one below it. */
 .chip{max-width:100%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

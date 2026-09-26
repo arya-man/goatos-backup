@@ -95,7 +95,6 @@
    field/card rhythm. Deprecated surfaces stay out of this sweep. */
 @media(max-width:640px){
 
-
   /* Counts: KPI tiles should scan like compact dashboard stats, with the table/farm section sooner. */
   .counts-breakdown-page .counts-breakdown-kpi-deck,
   .counts-breakdown-page .kit-kpi-wrap,
@@ -343,7 +342,7 @@ aside.drawer{border-radius:16px 0 0 16px;box-shadow:var(--shadow-dialog);border:
 /* Section eyebrows scroll with the list (Minimal subheaders are not sticky). The sticky top:-16px
    version let the previous row show cut off above the label when the rail auto-scrolled. */
 .kit-row-edit{width:32px;height:32px}
-.kit-th-actions{width:56px}
+
 /* Every form label on the kit label anatomy (12px/600 sentence case), whatever the legacy screen styled. */
 .wrap label:not(.kit-check):not(.pen-routine-check):not(.kit-chip):not(.btn):not(.MuiFormLabel-root):not(.MuiFormControlLabel-root){text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;color:var(--fg-muted)}
 /* Legacy `.pager2` table footers take the kit footer anatomy. */
@@ -527,7 +526,6 @@ body aside.drawer .dc .k,body aside.drawer .dc .lbl,body aside.drawer .dc .fld>l
 @media(max-width:767px){
   .wb .parkpick{height:auto!important;min-height:44px}
 }
-
 
 /* Weighing SOP assumptions drawer, phone: the "prices by stage" disclosure summary sits outside
    `.main`, so the generic touch floor never reached it (27px). */

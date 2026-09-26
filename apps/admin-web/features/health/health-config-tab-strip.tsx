@@ -23,7 +23,7 @@ export function RulebookTabStrip({ activeHref, children }: { activeHref: string;
   const shown = shownTabValue(activeHref, pendingValue);
   const known = tabs.some((tab) => tab.href === shown);
   return (
-    <MuiTabs value={known ? shown : false} aria-busy={pendingValue !== null || undefined} sx={{ mb: { xs: 3, md: 5 } }} variant="scrollable" allowScrollButtonsMobile>
+    <MuiTabs value={known ? shown : false} aria-busy={pendingValue !== null || undefined} variant="scrollable" allowScrollButtonsMobile>
       {tabs.map((tab) => (
         <Tab key={tab.href} component={Link} value={tab.href} href={tab.href} label={tab.label} onClick={(event: React.MouseEvent<HTMLElement>) => navigate(event, tab.href, tab.href)} />
       ))}
