@@ -5,9 +5,8 @@ import {
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { FileIcon, ImageIcon, Maximize, Minimize, PlayCircle } from "lucide-react";
+import { FileIcon, ImageIcon, Maximize, Minimize, PlayCircle, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, useMemo, useTransition } from "react";
-import { createPortal } from "react-dom";
 
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { VerificationQueueItem } from "@/lib/api/server";
@@ -21,6 +20,16 @@ import { submitVerificationReviewEvents } from "./review-events-server";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import type { Theme } from "@mui/material/styles";
 
 /* The re-assign roster machinery that used to live here is GONE with the authority panels it fed.
    It was originally an unconditional SSR fetch of 500 staff positions on every Actions page load,
@@ -97,11 +106,7 @@ export function VerificationReviewDrawer({
   pageContract: AdminUiPageContract;
   statusLabels: Record<string, string>;
 }) {
-  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time DOM lookup after mount
-    setPortalHost(document.body);
-  }, []);
+  const fullScreen = useMediaQuery((theme: Theme) => theme.breakpoints.down("sm"));
   const initialItem = items.find((item) => item.item_id === initialSelectedId);
   const [activeId, setActiveId] = useState(initialItem?.item_id);
   const [displayedId, setDisplayedId] = useState(initialItem?.item_id);
@@ -184,16 +189,7 @@ export function VerificationReviewDrawer({
     replaceLocalOverlayUrl(closeHref);
   }, [closeHref]);
 
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeDrawer();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeDrawer, drawerOpen]);
+  // Escape and the backdrop close through the MUI Dialog's onClose below (one close, one history step).
 
 
 
@@ -208,18 +204,18 @@ export function VerificationReviewDrawer({
   // queue done.
   const nextRowId = currentIndex >= 0 ? (items[currentIndex + 1]?.item_id ?? "") : "";
 
-  // Portaled to <body>: the review modal is position:fixed and needs the viewport as its
-  // containing block. SSR renders nothing (the modal is closed until a row is chosen).
-  if (!portalHost) return null;
-  return createPortal(
-    <>
-      <div
-        className={`vr-modal-scrim${drawerOpen ? " on" : ""}`}
-        aria-label={copy(pageContract, "drawer.close_label")}
-        aria-hidden={!drawerOpen}
-        onClick={closeDrawer}
-        role="presentation"
-      />
+  // Template MUI Dialog (portalled, theme backdrop, focus trap and return; full screen below sm).
+  return (
+    <Dialog
+      open={drawerOpen}
+      onClose={closeDrawer}
+      fullWidth
+      maxWidth="md"
+      fullScreen={fullScreen}
+      scroll="paper"
+      className="vr-review-dialog"
+      slotProps={{ paper: { "aria-label": copy(pageContract, "drawer.aria") } as object }}
+    >
       <VerificationReviewDrawerPanel
         item={item}
         actionTypeLabel={actionTypeLabels[item.category] ?? item.category}
@@ -240,8 +236,7 @@ export function VerificationReviewDrawer({
         canGoForward={canGoForward}
         onStepItem={stepItem}
       />
-    </>,
-    portalHost,
+    </Dialog>
   );
 }
 
@@ -608,24 +603,25 @@ function VerificationReviewDrawerPanel({
   }
   const varianceUnconfirmed = Object.keys(activeVarianceWarnings).length > 0 && !varianceAcknowledged;
 
+  void open;
   return (
-      <div className={`vr-modal${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
-        <div className="vr-modal-hd">
-          <div>
+      <>
+        <DialogTitle component="div" sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
             {/* This heading used to be the raw category token joined to a shortened item id, over
                 the raw module/vertical pair -- a config token plus a UUID as the headline of the
                 review surface. The locked spec bans rendering an id as a label, and the raw
                 vertical/module pair is the same leak just removed from the queue table. The
                 verifier needs the sentence she clicked: pen, animal/tag, vaccine. */}
-            <h2>{subjectHeading}</h2>
-            <div className="sb">{actionTypeLabel}</div>
-          </div>
-          <button ref={closeButtonRef} type="button" className="x" aria-label={text("drawer.close_label")} onClick={onClose}>
-            &times;
-          </button>
-        </div>
+            <Typography variant="h6" component="h2">{subjectHeading}</Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>{actionTypeLabel}</Typography>
+          </Box>
+          <IconButton ref={closeButtonRef} aria-label={text("drawer.close_label")} onClick={onClose} sx={{ mt: -0.5, mr: -1 }}>
+            <X size={20} aria-hidden="true" />
+          </IconButton>
+        </DialogTitle>
 
-        <div className="vr-modal-bd">
+        <DialogContent dividers className="vr-review-body" sx={{ display: "flex", flexDirection: "column", gap: 1.75, "& > *": { flexShrink: 0 } }}>
           <VerificationReviewActionTelemetry status={feedback.status} code={feedback.code} />
           {feedback.status ? (
             <Alert severity={feedback.status === "success" ? "success" : "warning"} style={{ marginBottom: 12 }}>
@@ -1003,22 +999,22 @@ function VerificationReviewDrawerPanel({
               Rework and Re-assign remain real and wired (requestSopTaskRework / assignSopTask in
               ./actions.ts, kept for the authority surface that owns them). Only their placement on
               the verifier's review screen is removed. */}
-        </div>
+        </DialogContent>
 
-        <div className="vr-modal-ft">
+        <DialogActions sx={{ flexWrap: "wrap", gap: 1.5, "& > :not(style) ~ :not(style)": { ml: 0 } }}>
           {/* Position indicator and navigation */}
-          <span className="pos">{currentIndex >= 0 ? `${currentIndex + 1} of ${totalItems}` : ""}</span>
+          <Typography variant="subtitle2" component="span" sx={{ color: "text.secondary", mr: "auto" }}>{currentIndex >= 0 ? `${currentIndex + 1} of ${totalItems}` : ""}</Typography>
 
           {/* Prev/Next buttons on left */}
-          <button type="button" className="btn" onClick={() => onStepItem(-1)} disabled={!canGoBack} title="Previous item">
+          <Button variant="outlined" color="inherit" onClick={() => onStepItem(-1)} disabled={!canGoBack} title="Previous item">
             ← Prev
-          </button>
-          <button type="button" className="btn" onClick={() => onStepItem(1)} disabled={!canGoForward} title="Next item">
+          </Button>
+          <Button variant="outlined" color="inherit" onClick={() => onStepItem(1)} disabled={!canGoForward} title="Next item">
             Next →
-          </button>
+          </Button>
 
           {/* Spacer */}
-          <div style={{ marginLeft: "auto" }} />
+          <Box sx={{ ml: "auto" }} />
 
           {/* Reject and Accept buttons on right (shown only for verifiers) */}
           {mayReview ? (
@@ -1027,7 +1023,9 @@ function VerificationReviewDrawerPanel({
                   button that opens/refocuses the field, so an empty rejection cannot be POSTed at
                   all -- the server's 422 becomes unreachable from the UI instead of something the
                   verifier has to read and recover from. */}
-              <button
+              <Button
+                variant="outlined"
+                color="inherit"
                 type={reasonReady ? "submit" : "button"}
                 onClick={
                   reasonReady
@@ -1040,18 +1038,17 @@ function VerificationReviewDrawerPanel({
                 form="verdict-form"
                 name="decision"
                 value="rejected"
-                className="btn"
                 disabled={verdictSettled}
                 title={verdictSettled ? text("verdict.disabled_not_pending") : undefined}
               >
                 Reject
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="contained"
                 type="submit"
                 form="verdict-form"
                 name="decision"
                 value="approved"
-                className="btn p"
                 disabled={verdictSettled || !hasEvidence || measurementMissing || varianceUnconfirmed}
                 title={
                   !hasEvidence
@@ -1066,11 +1063,11 @@ function VerificationReviewDrawerPanel({
                 }
               >
                 Accept
-              </button>
+              </Button>
             </>
           ) : null}
-        </div>
-      </div>
+        </DialogActions>
+      </>
   );
 }
 
