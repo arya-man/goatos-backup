@@ -45,4 +45,15 @@ class SaleTaggingRulesTest {
         assertNull(SaleTaggingRules.exactMatch("12345678", rows) { it.ids })
         assertNull(SaleTaggingRules.exactMatch("", rows) { it.ids })
     }
+
+    @Test
+    fun `a failed submit whose animals are all already on the sale landed`() {
+        // The phone lost the reply after the server tagged the sale: every basket animal is on it.
+        assertTrue(SaleTaggingRules.confirmLanded(listOf("a", "b"), setOf("a", "b", "c")))
+        // A genuine refusal: nothing, or only some, of the basket is on the sale.
+        assertFalse(SaleTaggingRules.confirmLanded(listOf("a", "b"), emptySet()))
+        assertFalse(SaleTaggingRules.confirmLanded(listOf("a", "b"), setOf("a")))
+        // An empty basket never reads as landed.
+        assertFalse(SaleTaggingRules.confirmLanded(emptyList(), setOf("a")))
+    }
 }

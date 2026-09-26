@@ -52,6 +52,15 @@ object SaleTaggingRules {
         return exact.singleOrNull()
     }
 
+    /**
+     * Whether a submit that came back as an ERROR had in fact landed: every animal in the basket is
+     * already tagged to this sale. A reply lost on a weak signal in the pen leaves the server with
+     * the sale tagged and the phone with an error; a retry would then be refused "Already sold".
+     * Reading the sale back and checking this turns that into the Done screen instead.
+     */
+    fun confirmLanded(basketGoatIds: List<String>, allocatedGoatIds: Set<String>): Boolean =
+        basketGoatIds.isNotEmpty() && basketGoatIds.all { it in allocatedGoatIds }
+
     const val HINT_EMPTY = "Scan or type a tag to start"
     const val HINT_BLOCKED = "Remove the animals that cannot be sold"
     const val HINT_FIGURES = "Enter a weight and a rate for every animal"

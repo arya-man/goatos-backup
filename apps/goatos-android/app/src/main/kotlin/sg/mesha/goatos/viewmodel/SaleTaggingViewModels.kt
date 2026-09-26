@@ -439,6 +439,25 @@ class SaleTaggingViewModel @Inject constructor(
                     repository.refreshTaggingQueue()
                 }
                 is AppResult.Err -> {
+                    // The reply may have been lost AFTER the server tagged the sale (a weak signal in
+                    // the pen). Read the sale back: if every basket animal is already on it, the
+                    // submit landed and this is the Done screen, not an error.
+                    val landed = (repository.saleAllocation(dealId) as? AppResult.Ok)?.value
+                    if (landed != null && SaleTaggingRules.confirmLanded(ids, landed.animals.map { it.goatId }.toSet())) {
+                        analytics.track(AnalyticsEventsVendors.VENDORS_TAGGING_SUBMITTED, mapOf(AnalyticsEvents.Params.REASON to "recovered_${ids.size}"))
+                        local.update {
+                            it.copy(
+                                submitInFlight = false,
+                                done = true,
+                                basket = emptyList(),
+                                alreadyTagged = landed.animals,
+                                allocationRead = true,
+                                doneLine = "${ids.size} ${if (ids.size == 1) "animal" else "animals"} tagged and marked sold.",
+                            )
+                        }
+                        repository.refreshTaggingQueue()
+                        return@launch
+                    }
                     result.cause?.let { crashReporter.recordException(it, "sale tagging confirm failed") }
                     analytics.track(AnalyticsEventsVendors.VENDORS_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message.take(120)))
                     // A refused confirm gets a FRESH key: the server may have recorded a partial
