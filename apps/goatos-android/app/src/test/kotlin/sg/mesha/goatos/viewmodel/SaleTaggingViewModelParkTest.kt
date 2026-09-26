@@ -5,8 +5,6 @@ import androidx.paging.PagingData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -25,7 +23,7 @@ import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
-import sg.mesha.goatos.core.data.SalesDealTotals
+import sg.mesha.goatos.core.data.SalesDealScopeMeta
 import sg.mesha.goatos.core.data.SalesLeadSide
 import sg.mesha.goatos.core.data.SalesRepository
 import sg.mesha.goatos.core.network.dto.SaleAllocationDto
@@ -129,7 +127,7 @@ private class ParkRaceSalesRepository : SalesRepository {
     override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = AppResult.Ok(SaleAllocationDto(salesDealId = dealId))
 
     override fun deals(farm: String): Flow<PagingData<SalesDealDto>> = flowOf(PagingData.from(emptyList()))
-    override val dealTotals: StateFlow<SalesDealTotals> = MutableStateFlow(SalesDealTotals())
+    override fun observeDealScope(farm: String): Flow<SalesDealScopeMeta?> = flowOf(null)
     override suspend fun invalidateDeals(farm: String) = Unit
     override fun observeDeal(dealId: String): Flow<SalesDealDto?> = flowOf(null)
     override fun observeOptions(): Flow<SalesOptionsDto?> = flowOf(null)
@@ -140,7 +138,7 @@ private class ParkRaceSalesRepository : SalesRepository {
     override fun buyerLeads(search: String, status: String): Flow<PagingData<SalesBuyerLeadDto>> = flowOf(PagingData.from(emptyList()))
     override fun fpoLeads(search: String, status: String): Flow<PagingData<SalesFpoLeadDto>> = flowOf(PagingData.from(emptyList()))
     override fun observeLeadMeta(side: SalesLeadSide, search: String, status: String): Flow<SalesLeadBoardMetaDto?> = flowOf(null)
-    override suspend fun refreshLeadMeta(side: SalesLeadSide) = Unit
+    override suspend fun refreshLeadMeta(side: SalesLeadSide) = true
     override suspend fun invalidateLeads(side: SalesLeadSide, search: String, status: String) = Unit
     override suspend fun persistServerBuyerLead(lead: SalesBuyerLeadDto) = Unit
     override suspend fun persistServerFpoLead(lead: SalesFpoLeadDto) = Unit

@@ -1,7 +1,7 @@
 # Park heads tag animals to a sale, and nothing else of Sales
 
 **Maintainer decision, 2026-09-11.** Status: implemented; rebuilt on main 2026-09-26 (migration
-`000443`).
+`000454`).
 
 ## The decision
 
@@ -21,7 +21,7 @@ anything ... They should just see the sale there."
 web that permission is the tag-animals drawer inside the Sales pages; a park head holds no
 `admin_web.bootstrap`, so the web is unaffected. The capability module `sale_allocation` is now
 on both surfaces; the mobile row is written for every park head already backfilled by migration
-`000443` (the `000245`/`000272` shape, with a ledger so Down removes exactly what Up wrote), and
+`000454` (the `000245`/`000272` shape, with a ledger so Down removes exactly what Up wrote), and
 the same row is added to the `park_head` job's default ticks (`designation_module_defaults`), so
 picking "Park head" for a new person on `/people` pre-fills it.
 

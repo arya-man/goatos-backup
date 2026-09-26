@@ -86,7 +86,7 @@ carries NO buyer and NO money. Every allocation route is clamped to the caller's
 animals AND for the sale's own farm (`403 park_out_of_scope`). The phone tags by Bluetooth reader
 or typed tag, takes each animal's weight (required) and NO price, and submits only when the sale is filled
 exactly.
-Migration `000443` also writes the tick for every park head already on /people and as the
+Migration `000454` also writes the tick for every park head already on /people and as the
 `park_head` job default. Do not "simplify" by granting the park head `sales.read` so the queue
 can show the buyer: that lights up the whole Sales module. Canonical prose:
 `docs/decisions/sale-tagging-park-head.md`.

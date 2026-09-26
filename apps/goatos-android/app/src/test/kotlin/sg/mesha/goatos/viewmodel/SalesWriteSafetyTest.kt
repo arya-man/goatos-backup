@@ -30,15 +30,26 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.SaleAllocationDto
+import sg.mesha.goatos.core.network.dto.SaleAllocationAnimalDto
+import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
+import sg.mesha.goatos.core.network.dto.SaleCandidateDto
+import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
 import sg.mesha.goatos.core.network.dto.SalesDealDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.SalesProductOptionDto
 import sg.mesha.goatos.core.network.dto.SalesStatusOptionDto
+import sg.mesha.goatos.core.network.dto.SaleLocationEntryDto
+import sg.mesha.goatos.core.network.dto.SaleLocationParkDto
+import sg.mesha.goatos.core.network.dto.SaleLocationsDto
+import sg.mesha.goatos.core.network.dto.SalePreviewDto
+import sg.mesha.goatos.core.network.dto.SaleShedGroupDto
 import sg.mesha.goatos.core.network.dto.VendorOptionDto
 import sg.mesha.goatos.core.network.dto.VendorOptionsDto
 import sg.mesha.goatos.feature.vendors.SaleCreateEvent
 import sg.mesha.goatos.feature.vendors.SaleDetailEvent
+import sg.mesha.goatos.feature.vendors.SaleTagAnimalsEvent
+import sg.mesha.goatos.feature.vendors.SaleTagStep
 import sg.mesha.goatos.feature.vendors.SaleField
 import sg.mesha.goatos.feature.vendors.SaleLineField
 import sg.mesha.goatos.feature.vendors.SalePaymentField
@@ -155,6 +166,10 @@ class SalesWriteSafetyTest {
         SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "deal-1")), FakeSales(), sync, NoWorkflows, NoAnalytics, NoCrash,
     )
 
+    private fun tagVm(repo: FakeSales) = SaleTagAnimalsViewModel(
+        SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "deal-1")), repo, NoAnalytics, NoCrash,
+    )
+
     private fun SaleDetailViewModel.typePayment(amount: String) {
         onEvent(SaleDetailEvent.OpenPayment(""))
         onEvent(SaleDetailEvent.PaymentFieldChanged(SalePaymentField.AMOUNT, amount))
@@ -238,6 +253,24 @@ class SalesWriteSafetyTest {
         val vm = SaleDetailViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "deal-1")), animalSale, SalesSync(), NoWorkflows, NoAnalytics, NoCrash)
         backgroundScope.launch { vm.state.collect {} }
         assertEquals("Tagged animals show when the phone is online.", vm.state.value.taggedLine)
+    }
+
+    @Test
+    fun `lost tag confirm reply reads back landed animals instead of rotating the key`() = runTest(dispatcher) {
+        val repo = FakeSales(allocation = landedAllocation())
+        val vm = tagVm(repo)
+        backgroundScope.launch { vm.state.collect {} }
+
+        vm.onEvent(SaleTagAnimalsEvent.ToggleAnimal("goat-1"))
+        vm.onEvent(SaleTagAnimalsEvent.Review)
+        vm.onEvent(SaleTagAnimalsEvent.WeightChanged("goat-1", "31.5"))
+        vm.onEvent(SaleTagAnimalsEvent.Confirm)
+
+        val state = vm.state.value
+        assertEquals(SaleTagStep.DONE, state.step)
+        assertEquals("1 animal marked sold.", state.doneLine)
+        assertEquals("the old sale-detail route recovers from read-back instead of showing the transport error", null, state.message)
+        assertEquals("31.5", repo.confirmRequests.single().animalWeightsKg["goat-1"])
     }
 
     @Test
@@ -395,10 +428,21 @@ private object NoWorkflows : WorkflowsRepository by unused<WorkflowsRepository>(
     override fun observeDetail(workflowId: String, lens: String, date: String) = flowOf(null)
 }
 
+private fun landedAllocation(): AppResult<SaleAllocationDto> = AppResult.Ok(
+    SaleAllocationDto(
+        salesDealId = "deal-1",
+        allocated = 1,
+        shedGroups = listOf(SaleShedGroupDto(operationalLocationDisplay = "CPT · Godel 1 - Part 1", animals = 1, tagNumbers = listOf("RFID-1"))),
+        animals = listOf(SaleAllocationAnimalDto(goatId = "goat-1", tagNumber = "RFID-1")),
+    ),
+)
+
 private class FakeSales(
     private val deal: (String) -> SalesDealDto = { SalesDealDto(dealId = it, buyerName = "Ramesh Traders") },
     private val metaReached: Boolean = true,
+    private val allocation: AppResult<SaleAllocationDto> = AppResult.Err("offline"),
 ) : SalesRepository by unused<SalesRepository>() {
+    val confirmRequests = mutableListOf<SaleAllocationRequestDto>()
     private val options = SalesOptionsDto(
         farms = listOf("CPT"),
         productTypes = listOf("Goat", "Feed"),
@@ -418,7 +462,23 @@ private class FakeSales(
     override fun observeDeal(dealId: String): Flow<SalesDealDto?> = flowOf(deal(dealId))
     override suspend fun invalidateDeals(farm: String) = Unit
     override suspend fun refreshDeal(dealId: String) = sg.mesha.goatos.core.data.SaleRefreshResult.UNREACHABLE
-    override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = AppResult.Err("offline")
+    override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = allocation
+    override suspend fun saleLocations(): AppResult<SaleLocationsDto> = AppResult.Ok(
+        SaleLocationsDto(
+            parks = listOf(SaleLocationParkDto("park-1", "CPT")),
+            locations = listOf(SaleLocationEntryDto(shedId = "shed-1", parkId = "park-1", partitionLabel = "Part 1", operationalLocationDisplay = "CPT · Godel 1 - Part 1")),
+        ),
+    )
+    override suspend fun saleCandidates(parkId: String, shedId: String?, partitionLabels: List<String>, query: String?, cursor: String?): AppResult<SaleCandidatePageDto> = AppResult.Ok(
+        SaleCandidatePageDto(candidates = listOf(SaleCandidateDto(goatId = "goat-1", displayId = "G-1", tagNumber = "RFID-1", operationalLocationDisplay = "CPT · Godel 1 - Part 1"))),
+    )
+    override suspend fun previewAllocation(request: SaleAllocationRequestDto): AppResult<SalePreviewDto> = AppResult.Ok(
+        SalePreviewDto(salesDealId = request.salesDealId, declaredAnimalCount = 1, sellable = 1, shedGroups = listOf(SaleShedGroupDto(operationalLocationDisplay = "CPT · Godel 1 - Part 1", animals = 1, tagNumbers = listOf("RFID-1")))),
+    )
+    override suspend fun confirmAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): AppResult<SaleAllocationDto> {
+        confirmRequests += request
+        return AppResult.Err("network dropped after save")
+    }
     override fun observeLeadMeta(side: sg.mesha.goatos.core.data.SalesLeadSide, search: String, status: String) = flowOf(null)
     override suspend fun refreshLeadMeta(side: sg.mesha.goatos.core.data.SalesLeadSide) = metaReached
     override suspend fun invalidateLeads(side: sg.mesha.goatos.core.data.SalesLeadSide, search: String, status: String) = Unit

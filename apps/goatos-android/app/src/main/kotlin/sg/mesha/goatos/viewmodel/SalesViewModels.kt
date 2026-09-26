@@ -1628,6 +1628,23 @@ class SaleTagAnimalsViewModel @Inject constructor(
                     }
                 }
                 is AppResult.Err -> {
+                    // The reply may have been lost after the server saved the allocation. SalesRead
+                    // users use this sale-detail route instead of the tag-only queue, so recover the
+                    // same way: read back the sale before rotating the idempotency key.
+                    val landed = (repository.saleAllocation(dealId) as? AppResult.Ok)?.value
+                    if (landed != null && ids.all { id -> landed.animals.any { it.goatId == id } }) {
+                        analytics.track(AnalyticsEventsVendors.VENDORS_TAG_ANIMALS_CONFIRMED, mapOf(AnalyticsEvents.Params.REASON to "recovered_${ids.size}"))
+                        local.update {
+                            it.copy(
+                                confirmInFlight = false,
+                                step = SaleTagStep.DONE,
+                                reviewGroups = landed.shedGroups.map { g -> g.toUi() },
+                                doneLine = "${ids.size} ${if (ids.size == 1) "animal" else "animals"} marked sold.",
+                                alreadyTagged = landed.allocated,
+                            )
+                        }
+                        return@launch
+                    }
                     result.cause?.let { crashReporter.recordException(it, "sale allocation confirm failed") }
                     analytics.track(AnalyticsEventsVendors.VENDORS_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message.take(120)))
                     // A refused confirm gets a FRESH key: the server may have recorded a partial
