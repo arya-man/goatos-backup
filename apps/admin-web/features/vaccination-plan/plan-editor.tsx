@@ -3,8 +3,8 @@
 /**
  * Vaccination plan editor — screen 2 of the console.
  *
- * Markup and class names follow the approved mock; styles live in
- * app/mesha-theme.css under `.vp`.
+ * Template product new/edit anatomy: selector column (md 4) beside the form column (md 8), Card +
+ * CardHeader sections, MUI Switch / ToggleButtonGroup / Chip / Dialog, a pinned action Paper.
  *
  * Everything on this screen edits a DRAFT. Nothing here reaches the field until
  * Publish, which is why the action bar is pinned to the bottom rather than
@@ -14,11 +14,29 @@
 
 import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, X } from "lucide-react";
 import MuiButton from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import MuiTextField from "@mui/material/TextField";
 import Switch from "@mui/material/Switch";
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Grid from "@mui/material/Grid";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemText from "@mui/material/ListItemText";
+import Paper from "@mui/material/Paper";
+import Radio from "@mui/material/Radio";
+import Stack from "@mui/material/Stack";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import Typography from "@mui/material/Typography";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
 
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -27,6 +45,7 @@ import DialogActions from "@mui/material/DialogActions";
 import { PageHeader } from "@/components/app/page-header";
 import MenuItem from "@mui/material/MenuItem";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type React from "react";
 
 import { DurationField, formatDays } from "./duration-field";
 import type { AnchorConfig, EditorPlan, EditorVaccine, NewVaccineInput, ProcurementPurpose } from "./editor-model";
@@ -227,475 +246,449 @@ export function VaccinationPlanEditor(props: Props) {
 
   if (!current) {
     return (
-      <div className="vplan">
-        <section className="card">
-          <div className="card-b">
-            <p>This draft has no vaccines in it.</p>
-          </div>
-        </section>
-      </div>
+      <Box className="screen on">
+        <Card>
+          <CardHeader title="Company vaccination plan" subheader="This draft has no vaccines in it." sx={{ pb: 3 }} />
+        </Card>
+      </Box>
     );
   }
 
+  const publishBlockedReason = !blockedReason && !props.canPublish ? (props.cannotPublishReason ?? "Your role cannot publish the vaccination plan.") : null;
+
   return (
-    <div className="vplan">
-      <header className="head">
-        <PageHeader
-          title="Company vaccination plan"
-          crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan", href: "/vaccination/plan" }, { label: props.draftLabel }]}
-          actions={
-            <>
-              <span className="pill">
-                <span className="dot" />
-                Draft · not live yet
-              </span>
-              <Link
-                className="btn"
-                href="/vaccination/plan"
-                onClick={(e) => {
-                  if (!dirty) return;
-                  e.preventDefault();
-                  setLeaveConfirm(true);
-                }}
-              >
-                <ArrowLeft size={15} aria-hidden /> Back to plans
-              </Link>
-            </>
-          }
-        />
-        <Dialog fullWidth maxWidth="xs" open={leaveConfirm} onClose={() => setLeaveConfirm(false)} slotProps={{ paper: { "aria-label": "Leave without saving" } }}>
-            <DialogTitle sx={{ pb: 2 }}>Leave without saving?</DialogTitle>
-            <DialogContent sx={{ typography: "body2" }}>Your changes to this draft will be lost.</DialogContent>
-            <DialogActions>
-              <MuiButton color="primary" variant="text" onClick={() => setLeaveConfirm(false)}>Stay here</MuiButton>
-              <MuiButton
-                color="primary"
-                variant="contained"
-                onClick={() => {
-                  setLeaveConfirm(false);
-                  router.push("/vaccination/plan");
-                }}
-              >
-                Discard changes
-              </MuiButton>
-            </DialogActions>
-        </Dialog>
-        <div className="scope">
-          <div>
-            <div className="k">Applies to</div>
-            <div className="vv">{props.scopeType === "park" ? "One park" : "Both parks"}</div>
-          </div>
-          <div>
-            <div className="k">Vaccines switched on</div>
-            <div className="vv num">
-              {onCount} of {plan.vaccines.length}
-            </div>
-          </div>
-          <div>
-            <div className="k">Replaces</div>
-            <div className="vv verline">
-              {props.liveLabel ? (
-                <span>
-                  {props.liveLabel}
-                  {props.liveSince ? ` · live since ${props.liveSince}` : ""}
-                </span>
-              ) : (
-                <span>Nothing — this is the first plan</span>
-              )}
-            </div>
-          </div>
-        </div>
-        {error ? (
-          <Alert severity="error" style={{ marginTop: 16, marginBottom: 0 }}>
-            <span className="ic">!</span>
-            <span>{error}</span>
-          </Alert>
-        ) : null}
-      </header>
-
-      <div className="panes">
-        <div className="leftcol">
-          <nav className="rail" aria-label="Vaccines">
-            <div className="rail-h">
-              <div className="t">Vaccines</div>
-              <div className="s">
-                {onCount} on · {plan.vaccines.length - onCount} off
-              </div>
-            </div>
-            <ul className="vlist">
-              {plan.vaccines.map((v) => (
-                <li key={v.code}>
-                  <button
-                    className={`v-item${v.on ? "" : " off"}`}
-                    aria-current={!selectedSetting && v.code === current.code}
-                    onClick={() => setSelected(v.code)}
-                    type="button"
-                  >
-                    <span className="sw">{initials(v.name)}</span>
-                    <span className="v-txt">
-                      <span className="v-name">{v.name}</span>
-                      <span className="v-sched">{summarise(v)}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <MuiButton className="vp-addvac" type="button" variant="text" size="small" onClick={() => setAddingVaccine(true)}>
-              + Add a vaccine
+    <Box className="screen on" sx={{ pb: 12 }}>
+      <PageHeader
+        title="Company vaccination plan"
+        crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan", href: "/vaccination/plan" }, { label: props.draftLabel }]}
+        actions={
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+            <Label variant="soft" color="warning">
+              Draft · not live yet
+            </Label>
+            <MuiButton
+              component={Link}
+              href="/vaccination/plan"
+              variant="outlined"
+              color="inherit"
+              startIcon={<Iconify icon="eva:arrow-ios-back-fill" />}
+              onClick={(e: React.MouseEvent<HTMLElement>) => {
+                if (!dirty) return;
+                e.preventDefault();
+                setLeaveConfirm(true);
+              }}
+            >
+              Back to plans
             </MuiButton>
-          </nav>
-          <nav className="rail" aria-label="Plan settings">
-            <div className="rail-h">
-              <div className="t">Plan settings</div>
-              <div className="s">Shared rules</div>
-            </div>
-            <ul className="vlist">
-              <li>
-                <button
-                  className="v-item setting"
-                  aria-current={selected === "__procurement"}
-                  onClick={() => setSelected("__procurement")}
-                  type="button"
-                >
-                  <span className="sw">PH</span>
-                  <span className="v-txt">
-                    <span className="v-name">Procurement holding</span>
-                    <span className="v-sched">breeding/fattening waves</span>
-                  </span>
-                </button>
-              </li>
-              <li>
-                <button
-                  className="v-item setting"
-                  aria-current={selected === "__safety"}
-                  onClick={() => setSelected("__safety")}
-                  type="button"
-                >
-                  <span className="sw">SR</span>
-                  <span className="v-txt">
-                    <span className="v-name">Automatic safety rules</span>
-                    <span className="v-sched">spacing and defer rules</span>
-                  </span>
-                </button>
-              </li>
-            </ul>
-          </nav>
-        </div>
-
-        <div>
-          {selected === "__procurement" ? (
-            <ProcurementCard plan={plan} setPlan={setPlan} onEdit={() => setSaved(false)} />
-          ) : selected === "__safety" ? (
-            <SafetyCard plan={plan} />
-          ) : (
-          <>
-          <section className="card">
-            <div className="card-h">
-              <div>
-                <h2>
-                  {current.name}
-                  <span className="prio">{current.vaccineClass || "—"}</span>
-                </h2>
-                {current.disease ? <p className="s">{current.disease}</p> : null}
-              </div>
-              <span className="vp-switchrow">
-                <span className="vp-switchlabel">{current.on ? "In this plan" : "Switched off"}</span>
-                <Switch
-                  className="sws"
-                  checked={current.on}
-                  slotProps={{ input: { "aria-label": `Include ${current.name}` } }}
-                  onChange={() => updateVaccine(current.code, (v) => ({ ...v, on: !v.on }))}
-                />
-              </span>
-            </div>
-
-            <div className={current.on ? "card-b" : "card-b vp-off"}>
-              {current.on && current.kidDoses.length === 0 && current.driveDoses.length === 0 ? (
-                <p className="hintline" style={{ margin: "0 0 14px" }}>
-                  This vaccine is in the plan but has no doses yet. Add at least one below, or
-                  switch it off.
-                </p>
-              ) : null}
-
-              {current.on && currentAnchorRows.length > 0 ? (
-                <div className="dose" style={{ marginBottom: 18 }}>
-                  <div className="sec-label">Optional anchor/base dates</div>
-                  <VaccinationAnchorPanel rows={currentAnchorRows} anchors={current.anchors ?? {}} onChange={updateAnchor} />
-                </div>
-              ) : null}
-
-              {current.kidDoses.length > 0 ? (
-                <>
-                  <div className="sec-label">
-                    {current.kidDoses.length > 1
-                      ? "The doses a young animal gets"
-                      : "The dose a young animal gets"}
-                  </div>
-                  {current.kidDoses.map((dose, index) => (
-                    <div className="dose" key={dose.doseCode}>
-                      <div className="dose-h">
-                        <span className={index > 0 ? "dose-n bo" : "dose-n"}>
-                          {index === 0
-                            ? current.kidDoses.length > 1
-                              ? "First dose"
-                              : "Only dose"
-                            : "Booster"}
-                        </span>
-                        <span className="lbl">
-                          Give it when the animal is{" "}
-                          <DurationField
-                            days={dose.offsetDays}
-                            title="Give this dose at"
-                            disabled={!current.on}
-                            onChange={(days) =>
-                              updateVaccine(current.code, (v) => ({
-                                ...v,
-                                kidDoses: v.kidDoses.map((d, i) =>
-                                  i === index ? { ...d, offsetDays: days } : d,
-                                ),
-                              }))
-                            }
-                          />{" "}
-                          old
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : null}
-
-              {current.on ? (
-                <MuiButton
-                  className="addrow"
-                  type="button"
-                  variant="text"
-                  size="small"
-                  onClick={() =>
-                    updateVaccine(current.code, (v) => ({
-                      ...v,
-                      kidDoses: [
-                        ...v.kidDoses,
-                        {
-                          // A new dose starts three weeks after the last one, the
-                          // minimum booster gap the safety rules enforce anyway.
-                          offsetDays: (v.kidDoses.at(-1)?.offsetDays ?? 0) + 21,
-                          triggerType: "birth_age",
-                          doseCode: `new-kid-${v.kidDoses.length + 1}`,
-                        },
-                      ],
-                    }))
-                  }
-                >
-                  + Add a dose from date of birth
-                </MuiButton>
-              ) : null}
-
-              {current.driveDoses.length > 0 ? (
-                <>
-                  <div className="sec-label" style={{ marginTop: 24 }}>
-                    Doses given on a drive
-                  </div>
-                  {current.driveDoses.map((dose, index) => (
-                    <div className="dose" key={dose.doseCode}>
-                      <div className="dose-h">
-                        <span className="dose-n">{index === 0 ? "First visit" : "Next visit"}</span>
-                        <span className="lbl">
-                          {index === 0 ? "Due " : "Then "}
-                          <DurationField
-                            days={dose.offsetDays}
-                            title={index === 0 ? "Due after the drive starts" : "After the previous dose"}
-                            disabled={!current.on}
-                            onChange={(days) =>
-                              updateVaccine(current.code, (v) => ({
-                                ...v,
-                                driveDoses: v.driveDoses.map((d, i) =>
-                                  i === index ? { ...d, offsetDays: days } : d,
-                                ),
-                              }))
-                            }
-                          />{" "}
-                          {index === 0 ? "after the drive starts" : "after the previous dose"}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : null}
-
-              {current.maxLateDays === null && current.on ? (
-                <MuiButton
-                  className="addrow"
-                  type="button"
-                  variant="text"
-                  size="small"
-                  style={{ marginTop: 14 }}
-                  onClick={() => updateVaccine(current.code, (v) => ({ ...v, maxLateDays: 7 }))}
-                >
-                  + Set how late a dose may be
-                </MuiButton>
-              ) : null}
-
-              {current.maxLateDays !== null ? (
-                <div className="dose" style={{ marginTop: 14 }}>
-                  <div className="dose-h">
-                    <span className="dose-n">Deadline</span>
-                    <span className="lbl">
-                      Any dose can be up to{" "}
-                      <DurationField
-                        days={current.maxLateDays}
-                        title="Can be given up to … late"
-                        disabled={!current.on}
-                        onChange={(days) => updateVaccine(current.code, (v) => ({ ...v, maxLateDays: days }))}
-                      />{" "}
-                      late
-                    </span>
-                  </div>
-                  <Timeline lateDays={current.maxLateDays} />
-                </div>
-              ) : null}
-
-              {current.repeatDays !== null ? (
-                <div className="repeat">
-                  <div className="rt">How often to repeat it</div>
-                  <div className="sent">
-                    <span className="lead">Repeat</span>
-                    Do it again every{" "}
-                    <DurationField
-                      days={current.repeatDays}
-                      title="Repeat every"
-                      disabled={!current.on}
-                      onChange={(days) => updateVaccine(current.code, (v) => ({ ...v, repeatDays: days }))}
-                    />{" "}
-                    after the last dose was given.
-                  </div>
-                  <div className="presets" role="group" aria-label="Common intervals">
-                    {/* Values the picker can express exactly, so clicking a
-                        preset and then reading the chip agree. */}
-                    {[90, 180, 270, 365, 1095].map((days) => (
-                      <MuiButton
-                        className="preset"
-                        key={days}
-                        type="button"
-                        size="small"
-                        variant={current.repeatDays === days ? "contained" : "outlined"}
-                        aria-pressed={current.repeatDays === days}
-                        disabled={!current.on}
-                        onClick={() => updateVaccine(current.code, (v) => ({ ...v, repeatDays: days }))}
-                      >
-                        {humanDays(days)}
-                      </MuiButton>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <>
-                    {current.on ? (
-                    <MuiButton
-                      className="addrow"
-                      type="button"
-                      variant="text"
-                      size="small"
-                      onClick={() => updateVaccine(current.code, (v) => ({ ...v, repeatDays: 365 }))}
-                    >
-                      + Make it repeat
-                    </MuiButton>
-                  ) : null}
-                </>
-              )}
-            </div>
-          </section>
-
-          <ProofCard mode={plan.proofMode} />
-          <ImpactCard impact={props.impact} />
-          </>
-          )}
-        </div>
-      </div>
-
-      <div className="actionbar">
-        <div className="ab-in">
-          <span className="pill">
-            <span className="dot" />
-            {props.draftLabel} · draft
-          </span>
-          <span className={saved && !dirty ? "saved-note show" : "saved-note"}>Draft saved.</span>
-          {blockedReason ? <span className="ab-block">{blockedReason}</span> : null}
-          {!blockedReason && !props.canPublish ? (
-            <span className="ab-block">
-              {props.cannotPublishReason ?? "Your role cannot publish the vaccination plan."}
-            </span>
-          ) : null}
-          <span className="ab-spacer" />
+          </Stack>
+        }
+      />
+      <Dialog fullWidth maxWidth="xs" open={leaveConfirm} onClose={() => setLeaveConfirm(false)} slotProps={{ paper: { "aria-label": "Leave without saving" } }}>
+        <DialogTitle sx={{ pb: 2 }}>Leave without saving?</DialogTitle>
+        <DialogContent sx={{ typography: "body2" }}>Your changes to this draft will be lost.</DialogContent>
+        <DialogActions>
+          <MuiButton color="inherit" variant="outlined" onClick={() => setLeaveConfirm(false)}>
+            Stay here
+          </MuiButton>
           <MuiButton
-            type="button"
-            variant="outlined"
-            size="small"
-            disabled={pending || !dirty}
+            color="error"
+            variant="contained"
             onClick={() => {
-              setPlan(props.initialPlan);
-              setSaved(false);
+              setLeaveConfirm(false);
+              router.push("/vaccination/plan");
             }}
           >
-            Reset
+            Discard changes
           </MuiButton>
-          <MuiButton
-            type="button"
-            variant="outlined"
-            disabled={pending || !dirty || blockedReason !== null}
-            title={blockedReason ?? undefined}
-            onClick={onSave}
-          >
-            {pending ? "Working…" : "Save draft"}
-          </MuiButton>
-          <MuiButton
-            type="button"
-            variant="contained" color="primary"
-            disabled={pending || blockedReason !== null || !props.canPublish}
-            title={
-              blockedReason ??
-              (props.canPublish ? undefined : (props.cannotPublishReason ?? "Your role cannot publish the vaccination plan."))
-            }
-            onClick={onPublish}
-          >
-            Publish plan
-          </MuiButton>
-        </div>
-      </div>
+        </DialogActions>
+      </Dialog>
 
-      {addingVaccine ? (
-        <AddVaccineModal onSave={onAddVaccine} onCancel={() => setAddingVaccine(false)} />
-      ) : null}
-    </div>
+      <Stack spacing={3}>
+        {/* Template invoice-analytic strip: the draft's scope facts. */}
+        <Card>
+          <Stack direction={{ xs: "column", md: "row" }} divider={<Divider flexItem orientation="vertical" sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
+            <StripCell icon="solar:users-group-rounded-bold" label="Applies to" value={props.scopeType === "park" ? "One park" : "Both parks"} />
+            <StripCell icon="solar:medical-kit-bold" label="Vaccines switched on" value={`${onCount} of ${plan.vaccines.length}`} />
+            <StripCell
+              icon="solar:restart-bold"
+              label="Replaces"
+              value={props.liveLabel ? `${props.liveLabel}${props.liveSince ? ` · live since ${props.liveSince}` : ""}` : "Nothing — this is the first plan"}
+            />
+          </Stack>
+        </Card>
+
+        {error ? <Alert severity="error">{error}</Alert> : null}
+
+        {/* Template product new/edit: md 4 selector column beside the md 8 form column. */}
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <Stack spacing={3}>
+              <Card component="nav" aria-label="Vaccines">
+                <CardHeader title="Vaccines" subheader={`${onCount} on · ${plan.vaccines.length - onCount} off`} />
+                <List sx={{ p: 1.5, display: { xs: "flex", md: "block" }, gap: 1, overflowX: { xs: "auto", md: "visible" } }}>
+                  {plan.vaccines.map((v) => (
+                    <RailItem
+                      key={v.code}
+                      selected={!selectedSetting && v.code === current.code}
+                      initials={initials(v.name)}
+                      primary={v.name}
+                      secondary={summarise(v)}
+                      muted={!v.on}
+                      onClick={() => setSelected(v.code)}
+                    />
+                  ))}
+                </List>
+                <Divider sx={{ borderStyle: "dashed" }} />
+                <Box sx={{ p: 1.5 }}>
+                  <MuiButton fullWidth color="primary" startIcon={<Iconify icon="mingcute:add-line" />} onClick={() => setAddingVaccine(true)}>
+                    Add a vaccine
+                  </MuiButton>
+                </Box>
+              </Card>
+              <Card component="nav" aria-label="Plan settings">
+                <CardHeader title="Plan settings" subheader="Shared rules" />
+                <List sx={{ p: 1.5 }}>
+                  <RailItem selected={selected === "__procurement"} initials="PH" primary="Procurement holding" secondary="breeding/fattening waves" onClick={() => setSelected("__procurement")} />
+                  <RailItem selected={selected === "__safety"} initials="SR" primary="Automatic safety rules" secondary="spacing and defer rules" onClick={() => setSelected("__safety")} />
+                </List>
+              </Card>
+            </Stack>
+          </Grid>
+
+          <Grid size={{ xs: 12, md: 8 }}>
+            {selected === "__procurement" ? (
+              <ProcurementCard plan={plan} setPlan={setPlan} onEdit={() => setSaved(false)} />
+            ) : selected === "__safety" ? (
+              <SafetyCard plan={plan} />
+            ) : (
+              <Stack spacing={3}>
+                <Card>
+                  <CardHeader
+                    title={
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                        {current.name}
+                        <Label variant="soft">{current.vaccineClass || "—"}</Label>
+                      </Box>
+                    }
+                    subheader={current.disease || undefined}
+                    action={
+                      <FormControlLabel
+                        labelPlacement="start"
+                        label={current.on ? "In this plan" : "Switched off"}
+                        control={
+                          <Switch
+                            checked={current.on}
+                            slotProps={{ input: { "aria-label": `Include ${current.name}` } }}
+                            onChange={() => updateVaccine(current.code, (v) => ({ ...v, on: !v.on }))}
+                          />
+                        }
+                        sx={{ mr: 0, "& .MuiFormControlLabel-label": { typography: "body2", color: "text.secondary" } }}
+                      />
+                    }
+                  />
+
+                  <Stack spacing={3} sx={{ p: 3, opacity: current.on ? 1 : 0.64 }}>
+                    {current.on && current.kidDoses.length === 0 && current.driveDoses.length === 0 ? (
+                      <Alert severity="warning">This vaccine is in the plan but has no doses yet. Add at least one below, or switch it off.</Alert>
+                    ) : null}
+
+                    {current.on && currentAnchorRows.length > 0 ? (
+                      <Box>
+                        <SectionLabel>Optional anchor/base dates</SectionLabel>
+                        <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+                          <VaccinationAnchorPanel rows={currentAnchorRows} anchors={current.anchors ?? {}} onChange={updateAnchor} />
+                        </Paper>
+                      </Box>
+                    ) : null}
+
+                    {current.kidDoses.length > 0 || current.on ? (
+                      <Box>
+                        {current.kidDoses.length > 0 ? (
+                          <SectionLabel>{current.kidDoses.length > 1 ? "The doses a young animal gets" : "The dose a young animal gets"}</SectionLabel>
+                        ) : null}
+                        <Stack spacing={1.5}>
+                          {current.kidDoses.map((dose, index) => (
+                            <DoseRow key={dose.doseCode} tag={index === 0 ? (current.kidDoses.length > 1 ? "First dose" : "Only dose") : "Booster"} tone={index > 0 ? "info" : "default"}>
+                              Give it when the animal is{" "}
+                              <DurationField
+                                days={dose.offsetDays}
+                                title="Give this dose at"
+                                disabled={!current.on}
+                                onChange={(days) =>
+                                  updateVaccine(current.code, (v) => ({
+                                    ...v,
+                                    kidDoses: v.kidDoses.map((d, i) => (i === index ? { ...d, offsetDays: days } : d)),
+                                  }))
+                                }
+                              />{" "}
+                              old
+                            </DoseRow>
+                          ))}
+                          {current.on ? (
+                            <AddRow
+                              label="Add a dose from date of birth"
+                              onClick={() =>
+                                updateVaccine(current.code, (v) => ({
+                                  ...v,
+                                  kidDoses: [
+                                    ...v.kidDoses,
+                                    {
+                                      // A new dose starts three weeks after the last one, the
+                                      // minimum booster gap the safety rules enforce anyway.
+                                      offsetDays: (v.kidDoses.at(-1)?.offsetDays ?? 0) + 21,
+                                      triggerType: "birth_age",
+                                      doseCode: `new-kid-${v.kidDoses.length + 1}`,
+                                    },
+                                  ],
+                                }))
+                              }
+                            />
+                          ) : null}
+                        </Stack>
+                      </Box>
+                    ) : null}
+
+                    {current.driveDoses.length > 0 ? (
+                      <Box>
+                        <SectionLabel>Doses given on a drive</SectionLabel>
+                        <Stack spacing={1.5}>
+                          {current.driveDoses.map((dose, index) => (
+                            <DoseRow key={dose.doseCode} tag={index === 0 ? "First visit" : "Next visit"}>
+                              {index === 0 ? "Due " : "Then "}
+                              <DurationField
+                                days={dose.offsetDays}
+                                title={index === 0 ? "Due after the drive starts" : "After the previous dose"}
+                                disabled={!current.on}
+                                onChange={(days) =>
+                                  updateVaccine(current.code, (v) => ({
+                                    ...v,
+                                    driveDoses: v.driveDoses.map((d, i) => (i === index ? { ...d, offsetDays: days } : d)),
+                                  }))
+                                }
+                              />{" "}
+                              {index === 0 ? "after the drive starts" : "after the previous dose"}
+                            </DoseRow>
+                          ))}
+                        </Stack>
+                      </Box>
+                    ) : null}
+
+                    {current.maxLateDays === null && current.on ? (
+                      <AddRow label="Set how late a dose may be" onClick={() => updateVaccine(current.code, (v) => ({ ...v, maxLateDays: 7 }))} />
+                    ) : null}
+
+                    {current.maxLateDays !== null ? (
+                      <DoseRow tag="Deadline" tone="warning" footer={<Timeline lateDays={current.maxLateDays} />}>
+                        Any dose can be up to{" "}
+                        <DurationField
+                          days={current.maxLateDays}
+                          title="Can be given up to … late"
+                          disabled={!current.on}
+                          onChange={(days) => updateVaccine(current.code, (v) => ({ ...v, maxLateDays: days }))}
+                        />{" "}
+                        late
+                      </DoseRow>
+                    ) : null}
+
+                    {current.repeatDays !== null ? (
+                      <Box>
+                        <SectionLabel>How often to repeat it</SectionLabel>
+                        <DoseRow
+                          tag="Repeat"
+                          tone="primary"
+                          footer={
+                            <Box role="group" aria-label="Common intervals" sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 2 }}>
+                              {/* Values the picker can express exactly, so clicking a preset and then reading the chip agree. */}
+                              {[90, 180, 270, 365, 1095].map((days) => (
+                                <Chip
+                                  key={days}
+                                  label={humanDays(days)}
+                                  color={current.repeatDays === days ? "primary" : "default"}
+                                  variant={current.repeatDays === days ? "filled" : "outlined"}
+                                  aria-pressed={current.repeatDays === days}
+                                  disabled={!current.on}
+                                  onClick={() => updateVaccine(current.code, (v) => ({ ...v, repeatDays: days }))}
+                                />
+                              ))}
+                            </Box>
+                          }
+                        >
+                          Do it again every{" "}
+                          <DurationField
+                            days={current.repeatDays}
+                            title="Repeat every"
+                            disabled={!current.on}
+                            onChange={(days) => updateVaccine(current.code, (v) => ({ ...v, repeatDays: days }))}
+                          />{" "}
+                          after the last dose was given.
+                        </DoseRow>
+                      </Box>
+                    ) : current.on ? (
+                      <AddRow label="Make it repeat" onClick={() => updateVaccine(current.code, (v) => ({ ...v, repeatDays: 365 }))} />
+                    ) : null}
+                  </Stack>
+                </Card>
+
+                <ProofCard mode={plan.proofMode} />
+                <ImpactCard impact={props.impact} />
+              </Stack>
+            )}
+          </Grid>
+        </Grid>
+      </Stack>
+
+      {/* Pinned action bar: publishing is decided after reading the whole draft, not before. */}
+      <Paper
+        elevation={0}
+        sx={{
+          position: "sticky",
+          bottom: 16,
+          zIndex: 5,
+          mt: 3,
+          p: 2,
+          gap: 1.5,
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          pr: { xs: 2, sm: 11 },
+          boxShadow: (theme) => theme.vars.customShadows.z16,
+        }}
+      >
+        <Label variant="soft" color="warning">
+          {props.draftLabel} · draft
+        </Label>
+        {saved && !dirty ? (
+          <Typography variant="body2" sx={{ color: "success.main" }} role="status">
+            Draft saved.
+          </Typography>
+        ) : null}
+        {blockedReason ? (
+          <Typography variant="body2" sx={{ color: "warning.main" }}>
+            {blockedReason}
+          </Typography>
+        ) : null}
+        {publishBlockedReason ? (
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {publishBlockedReason}
+          </Typography>
+        ) : null}
+        <Box sx={{ flexGrow: 1 }} />
+        <MuiButton
+          variant="outlined"
+          color="inherit"
+          disabled={pending || !dirty}
+          onClick={() => {
+            setPlan(props.initialPlan);
+            setSaved(false);
+          }}
+        >
+          Reset
+        </MuiButton>
+        <MuiButton variant="outlined" color="inherit" disabled={pending || !dirty || blockedReason !== null} title={blockedReason ?? undefined} onClick={onSave}>
+          {pending ? "Working…" : "Save draft"}
+        </MuiButton>
+        <MuiButton
+          variant="contained"
+          color="primary"
+          disabled={pending || blockedReason !== null || !props.canPublish}
+          title={blockedReason ?? (props.canPublish ? undefined : (props.cannotPublishReason ?? "Your role cannot publish the vaccination plan."))}
+          onClick={onPublish}
+        >
+          Publish plan
+        </MuiButton>
+      </Paper>
+
+      <AddVaccineModal open={addingVaccine} onSave={onAddVaccine} onCancel={() => setAddingVaccine(false)} />
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Template parts used above.
+
+function StripCell({ icon, label, value }: { icon: IconifyName; label: string; value: string }) {
+  return (
+    <Box sx={{ flex: "1 1 0", px: 3, py: { xs: 1, md: 0 }, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+      <Avatar sx={{ width: 48, height: 48, bgcolor: "background.neutral", color: "primary.main" }}>
+        <Iconify icon={icon} width={24} />
+      </Avatar>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          {label}
+        </Typography>
+        <Typography variant="subtitle1" sx={{ overflowWrap: "anywhere" }}>
+          {value}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
+function RailItem({ selected, initials: text, primary, secondary, muted, onClick }: { selected: boolean; initials: string; primary: string; secondary: string; muted?: boolean; onClick: () => void }) {
+  return (
+    <ListItemButton
+      selected={selected}
+      aria-current={selected}
+      onClick={onClick}
+      sx={{ borderRadius: "var(--r-sm)", gap: 1.5, py: 1, flexShrink: 0, minWidth: { xs: 220, md: 0 }, opacity: muted ? 0.56 : 1 }}
+    >
+      <Avatar variant="rounded" sx={{ width: 36, height: 36, typography: "subtitle2", bgcolor: selected ? "primary.main" : "background.neutral", color: selected ? "primary.contrastText" : "text.secondary" }}>
+        {text}
+      </Avatar>
+      <ListItemText
+        primary={primary}
+        secondary={secondary}
+        slotProps={{ primary: { sx: { typography: "subtitle2" } }, secondary: { sx: { typography: "caption" } } }}
+      />
+    </ListItemButton>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography variant="overline" component="h3" sx={{ display: "block", mb: 1.5, color: "text.secondary" }}>
+      {children}
+    </Typography>
+  );
+}
+
+function DoseRow({ tag, tone = "default", children, footer }: { tag: string; tone?: LabelColor; children: React.ReactNode; footer?: React.ReactNode }) {
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", typography: "body2" }}>
+        <Label variant="soft" color={tone} sx={{ minWidth: 88 }}>
+          {tag}
+        </Label>
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 0.5 }}>
+          {children}
+        </Box>
+      </Box>
+      {footer}
+    </Paper>
+  );
+}
+
+function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <MuiButton fullWidth variant="outlined" color="inherit" startIcon={<Iconify icon="mingcute:add-line" />} onClick={onClick} sx={{ borderStyle: "dashed", color: "text.secondary" }}>
+      {label}
+    </MuiButton>
   );
 }
 
 /**
- * "Add a vaccine to this plan" — the panel behind the rail's "+ Add a vaccine"
- * button, matching docs/preventive-care-vaccination/design/vaccination-plan-console.mock.html
- * (#newVacModal).
- *
- * Every duration here is a DurationField, not a native `<select>` of canned
- * options: MOCK-BEHAVIOUR-SPEC.md §6 bans a fixed list for a duration, and a
- * first dose of 17 weeks or a deadline of 5 months must both be entered exactly.
- * Live/killed, bacterial/viral, species and one-dose-or-two are finite,
- * backend-defined enumerations (vaccine-taxonomy.ts) -- not durations -- so a
- * plain `<select>` is the right control for those.
+ * "Add a vaccine to this plan" — the rail's "Add a vaccine" action, as a template Dialog (portal,
+ * backdrop, Escape). Every duration is a DurationField, never a canned list (MOCK-BEHAVIOUR-SPEC §6);
+ * live/killed, bacterial/viral, species and one-dose-or-two are finite enumerations (MUI selects).
  */
-function AddVaccineModal({
-  onSave,
-  onCancel,
-}: {
-  onSave: (input: NewVaccineInput) => string | null;
-  onCancel: () => void;
-}) {
+function AddVaccineModal({ open, onSave, onCancel }: { open: boolean; onSave: (input: NewVaccineInput) => string | null; onCancel: () => void }) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [disease, setDisease] = useState("");
   const [vaccineType, setVaccineType] = useState<"live" | "killed">("killed");
   const [pathogenClass, setPathogenClass] = useState<"bacterial" | "viral">("bacterial");
   const [species, setSpecies] = useState<"goat" | "sheep" | "both">("both");
-  const [procurementPurpose, setProcurementPurpose] =
-    useState<"all" | "breeding" | "fattening" | "non_breeding">("all");
+  const [procurementPurpose, setProcurementPurpose] = useState<"all" | "breeding" | "fattening" | "non_breeding">("all");
   const [courseType, setCourseType] = useState<"single" | "booster">("single");
   const [firstDoseDays, setFirstDoseDays] = useState(84); // 12 weeks, the mock's own default
   const [boosterGapDays, setBoosterGapDays] = useState(21); // 3 weeks
@@ -703,21 +696,6 @@ function AddVaccineModal({
   const [repeatDays, setRepeatDays] = useState(365);
   const [maxLateDays, setMaxLateDays] = useState(14); // 2 weeks
   const [err, setErr] = useState<string | null>(null);
-  const nameRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const t = setTimeout(() => nameRef.current?.focus(), 40);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
 
   function handleSave() {
     const result = onSave({
@@ -737,253 +715,159 @@ function AddVaccineModal({
     if (result) setErr(result);
   }
 
+  const grid = { display: "grid", gap: 2.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" } } as const;
+  const selectProps = { inputLabel: { shrink: true }, select: { MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } } as const;
+
   return (
-    <div
-      className="vp-modal"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
-    >
-      <div className="vp-sheet" role="dialog" aria-modal="true" aria-label="Add a vaccine to this plan">
-        <div className="vp-head">
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 4 }}>
-              New vaccine
-            </div>
-            <h2>Add a vaccine to this plan</h2>
-          </div>
-          <IconButton className="vp-x" type="button" onClick={onCancel} aria-label="Close" size="small">
-            <X size={15} aria-hidden />
-          </IconButton>
-        </div>
-        <div className="vp-body">
-
-          <div className="vp-nvsec">Basics</div>
-          <div className="vp-nvgrid">
-            <div className="vp-nvf">
-              <span>
-                Name <b>required</b>
-              </span>
-              <MuiTextField
-                inputRef={nameRef}
-                fullWidth
-                size="small"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Brucella"
-                slotProps={{ inputLabel: { shrink: true } }}
-              />
-            </div>
-            <div className="vp-nvf">
-              <span>
-                Short code <b>required</b>
-              </span>
-              <MuiTextField
-                fullWidth
-                size="small"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="e.g. BRU"
-                slotProps={{ inputLabel: { shrink: true } }}
-              />
-            </div>
-            <div className="vp-nvf vp-nvwide">
-              <span>What it protects against</span>
-              <MuiTextField
-                fullWidth
-                size="small"
-                value={disease}
-                onChange={(e) => setDisease(e.target.value)}
-                placeholder="e.g. Brucellosis"
-                slotProps={{ inputLabel: { shrink: true } }}
-              />
-            </div>
-          </div>
-
-          <div className="vp-nvsec">Biology — this decides the spacing rules</div>
-          <div className="vp-nvgrid">
-            <label className="vp-nvf">
-              <span>
-                Live or killed <b>required</b>
-              </span>
-              <MuiTextField
-                select
-                label="Live or killed"
-                value={vaccineType}
-                onChange={({ target: { value: next } }) => setVaccineType(next as "live" | "killed")}
-                sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
-                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-              >
+    <Dialog open={open} onClose={onCancel} fullWidth maxWidth="md" className="vp-add-vaccine" slotProps={{ paper: { "aria-label": "Add a vaccine to this plan" } }}>
+      <DialogTitle sx={{ pr: 7 }}>
+        <Typography variant="overline" component="div" sx={{ color: "text.secondary" }}>
+          New vaccine
+        </Typography>
+        Add a vaccine to this plan
+        <IconButton onClick={onCancel} aria-label="Close" sx={{ position: "absolute", top: 12, right: 12 }}>
+          <Iconify icon="mingcute:close-line" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        <Stack spacing={3} sx={{ pt: 1 }}>
+          <Box>
+            <SectionLabel>Basics</SectionLabel>
+            <Box sx={grid}>
+              <MuiTextField autoFocus required label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Brucella" slotProps={{ inputLabel: { shrink: true } }} />
+              <MuiTextField required label="Short code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. BRU" slotProps={{ inputLabel: { shrink: true } }} />
+              <MuiTextField label="What it protects against" value={disease} onChange={(e) => setDisease(e.target.value)} placeholder="e.g. Brucellosis" slotProps={{ inputLabel: { shrink: true } }} sx={{ gridColumn: { sm: "1 / -1" } }} />
+            </Box>
+          </Box>
+          <Box>
+            <SectionLabel>Biology — this decides the spacing rules</SectionLabel>
+            <Box sx={grid}>
+              <MuiTextField select required label="Live or killed" value={vaccineType} onChange={({ target: { value: next } }) => setVaccineType(next as "live" | "killed")} slotProps={selectProps}>
                 <MenuItem value="killed">Killed</MenuItem>
                 <MenuItem value="live">Live</MenuItem>
               </MuiTextField>
-            </label>
-            <label className="vp-nvf">
-              <span>
-                Bacterial or viral <b>required</b>
-              </span>
-              <MuiTextField
-                select
-                label="Bacterial or viral"
-                value={pathogenClass}
-                onChange={({ target: { value: next } }) => setPathogenClass(next as "bacterial" | "viral")}
-                sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
-                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-              >
+              <MuiTextField select required label="Bacterial or viral" value={pathogenClass} onChange={({ target: { value: next } }) => setPathogenClass(next as "bacterial" | "viral")} slotProps={selectProps}>
                 <MenuItem value="bacterial">Bacterial</MenuItem>
                 <MenuItem value="viral">Viral</MenuItem>
               </MuiTextField>
-            </label>
-          </div>
-
-          <div className="vp-nvsec">Who gets it</div>
-          <div className="vp-nvgrid">
-            <label className="vp-nvf">
-              <span>
-                Species <b>required</b>
-              </span>
-              <MuiTextField
-                select
-                label="Species"
-                value={species}
-                onChange={({ target: { value: next } }) => setSpecies(next as "goat" | "sheep" | "both")}
-                sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
-                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-              >
+            </Box>
+          </Box>
+          <Box>
+            <SectionLabel>Who gets it</SectionLabel>
+            <Box sx={grid}>
+              <MuiTextField select required label="Species" value={species} onChange={({ target: { value: next } }) => setSpecies(next as "goat" | "sheep" | "both")} slotProps={selectProps}>
                 <MenuItem value="both">Goats and sheep</MenuItem>
                 <MenuItem value="goat">Goats only</MenuItem>
                 <MenuItem value="sheep">Sheep only</MenuItem>
               </MuiTextField>
-            </label>
-            <label className="vp-nvf vp-nvwide">
-              <span>Procurement purpose</span>
-              <span className="vp-seg" role="group" aria-label="Procurement purpose">
-                {[
-                  ["all", "All purposes"],
-                  ["breeding", "Breeding"],
-                  ["fattening", "Fattening"],
-                  ["non_breeding", "Non-breeding"],
-                ].map(([value, label]) => (
-                  <MuiButton
-                    key={value}
-                    type="button"
-                    size="small"
-                    variant={procurementPurpose === value ? "contained" : "text"}
-                    className={procurementPurpose === value ? "is-on" : ""}
-                    aria-pressed={procurementPurpose === value}
-                    onClick={() =>
-                      setProcurementPurpose(value as "all" | "breeding" | "fattening" | "non_breeding")
-                    }
-                  >
-                    {label}
-                  </MuiButton>
-                ))}
-              </span>
-            </label>
-          </div>
-
-          <div className="vp-nvsec">The course</div>
-          <div className="vp-nvgrid">
-            <label className="vp-nvf">
-              <span>
-                One dose or two <b>required</b>
-              </span>
-              <MuiTextField
-                select
-                label="One dose or two"
-                value={courseType}
-                onChange={({ target: { value: next } }) => setCourseType(next as "single" | "booster")}
-                sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
-                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-              >
+              <Box>
+                <Typography variant="caption" component="div" sx={{ color: "text.secondary", mb: 0.75 }}>
+                  Procurement purpose
+                </Typography>
+                <ToggleButtonGroup
+                  exclusive
+                  size="small"
+                  aria-label="Procurement purpose"
+                  value={procurementPurpose}
+                  onChange={(_, value) => {
+                    if (value) setProcurementPurpose(value as "all" | "breeding" | "fattening" | "non_breeding");
+                  }}
+                  sx={{ flexWrap: "wrap" }}
+                >
+                  {[
+                    ["all", "All purposes"],
+                    ["breeding", "Breeding"],
+                    ["fattening", "Fattening"],
+                    ["non_breeding", "Non-breeding"],
+                  ].map(([value, label]) => (
+                    <ToggleButton key={value} value={value} aria-pressed={procurementPurpose === value}>
+                      {label}
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </Box>
+            </Box>
+          </Box>
+          <Box>
+            <SectionLabel>The course</SectionLabel>
+            <Box sx={grid}>
+              <MuiTextField select required label="One dose or two" value={courseType} onChange={({ target: { value: next } }) => setCourseType(next as "single" | "booster")} slotProps={selectProps}>
                 <MenuItem value="single">One dose only</MenuItem>
                 <MenuItem value="booster">First dose + booster</MenuItem>
               </MuiTextField>
-            </label>
-            <label className="vp-nvf">
-              <span>First dose at</span>
-              <DurationField days={firstDoseDays} onChange={setFirstDoseDays} title="First dose at" />
-            </label>
-            {courseType === "booster" ? (
-              <label className="vp-nvf">
-                <span>Booster, after the first dose</span>
-                <DurationField days={boosterGapDays} onChange={setBoosterGapDays} title="Booster, after the first dose" />
-              </label>
-            ) : null}
-            <label className="vp-nvf">
-              <span>Repeat every</span>
-              {repeats ? (
-                <span className="durrow" style={{ alignItems: "center" }}>
-                  <DurationField days={repeatDays} onChange={setRepeatDays} title="Repeat every" />
-                  <MuiButton className="addrow" type="button" variant="text" size="small" style={{ marginTop: 0 }} onClick={() => setRepeats(false)}>
-                    Does not repeat
+              <FieldRow label="First dose at">
+                <DurationField days={firstDoseDays} onChange={setFirstDoseDays} title="First dose at" />
+              </FieldRow>
+              {courseType === "booster" ? (
+                <FieldRow label="Booster, after the first dose">
+                  <DurationField days={boosterGapDays} onChange={setBoosterGapDays} title="Booster, after the first dose" />
+                </FieldRow>
+              ) : null}
+              <FieldRow label="Repeat every">
+                {repeats ? (
+                  <>
+                    <DurationField days={repeatDays} onChange={setRepeatDays} title="Repeat every" />
+                    <MuiButton size="small" color="inherit" onClick={() => setRepeats(false)}>
+                      Does not repeat
+                    </MuiButton>
+                  </>
+                ) : (
+                  <MuiButton size="small" color="primary" startIcon={<Iconify icon="mingcute:add-line" />} onClick={() => setRepeats(true)}>
+                    Make it repeat
                   </MuiButton>
-                </span>
-              ) : (
-                <MuiButton className="addrow" type="button" variant="text" size="small" style={{ marginTop: 0 }} onClick={() => setRepeats(true)}>
-                  + Make it repeat
-                </MuiButton>
-              )}
-            </label>
-            <label className="vp-nvf">
-              <span>Can be given up to … late</span>
-              <DurationField days={maxLateDays} onChange={setMaxLateDays} title="Can be given up to … late" />
-            </label>
-          </div>
+                )}
+              </FieldRow>
+              <FieldRow label="Can be given up to … late">
+                <DurationField days={maxLateDays} onChange={setMaxLateDays} title="Can be given up to … late" />
+              </FieldRow>
+            </Box>
+          </Box>
+          {err ? <Alert severity="error">{err}</Alert> : null}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <MuiButton variant="outlined" color="inherit" onClick={onCancel}>
+          Cancel
+        </MuiButton>
+        <MuiButton variant="contained" color="primary" onClick={handleSave}>
+          Add to the draft
+        </MuiButton>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
-          <div className="vp-nvfoot">
-            <span className="hintline">{err}</span>
-            <span className="ab-spacer" />
-            <MuiButton type="button" variant="outlined" size="small" onClick={onCancel}>
-              Cancel
-            </MuiButton>
-            <MuiButton type="button" variant="contained" color="primary" onClick={handleSave}>
-              Add to the draft
-            </MuiButton>
-          </div>
-        </div>
-      </div>
-    </div>
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Box>
+      <Typography variant="caption" component="div" sx={{ color: "text.secondary", mb: 0.75 }}>
+        {label}
+      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>{children}</Box>
+    </Box>
   );
 }
 
 /**
- * The deadline, drawn.
- *
- * Green is the due day, amber is the window in which a late dose is still
- * accepted. There is no red segment before the due day: the window runs forward
- * only, and drawing anything to the left would suggest a dose can be early.
+ * The deadline, drawn. Success is the due day, warning the window in which a late dose is still
+ * accepted. No segment before the due day: the window runs forward only.
  */
 function Timeline({ lateDays }: { lateDays: number }) {
   return (
-    <div className="tl">
-      <div className="tl-bar">
-        <div className="tl-seg g" style={{ flex: 1 }}>
-          <span>Due day</span>
-        </div>
-        <div className="tl-seg a" style={{ flex: 3 }}>
-          <span>Still accepted — up to {formatDays(lateDays)} late</span>
-        </div>
-      </div>
-      <p className="tl-cap">
+    <Box sx={{ mt: 2 }}>
+      <Box sx={{ display: "flex", borderRadius: "var(--r-sm)", overflow: "hidden", typography: "caption", fontWeight: "fontWeightSemiBold" }}>
+        <Box sx={{ flex: 1, py: 0.75, textAlign: "center", bgcolor: "success.main", color: "success.contrastText" }}>Due day</Box>
+        <Box sx={{ flex: 3, py: 0.75, textAlign: "center", bgcolor: "warning.main", color: "warning.contrastText" }}>Still accepted — up to {formatDays(lateDays)} late</Box>
+      </Box>
+      <Typography variant="caption" component="p" sx={{ mt: 1, color: "text.secondary" }}>
         After <b>{formatDays(lateDays)}</b> the task is missed and goes to Preventive Care review.
-      </p>
-    </div>
+      </Typography>
+    </Box>
   );
 }
 
-function ProcurementCard({
-  plan,
-  setPlan,
-  onEdit,
-}: {
-  plan: EditorPlan;
-  setPlan: (fn: (p: EditorPlan) => EditorPlan) => void;
-  onEdit: () => void;
-}) {
-  const { warmupNoVaccinationDays, kidsNormalScheduleUntilWeeks, adultPriorVaccinationAllowed } =
-    plan.procurement;
+function ProcurementCard({ plan, setPlan, onEdit }: { plan: EditorPlan; setPlan: (fn: (p: EditorPlan) => EditorPlan) => void; onEdit: () => void }) {
+  const { warmupNoVaccinationDays, kidsNormalScheduleUntilWeeks, adultPriorVaccinationAllowed } = plan.procurement;
   const [activePurpose, setActivePurpose] = useState<ProcurementPurpose>("breeding");
   const procurementPurposeOptions = [
     ["breeding", "Breeding · 843"],
@@ -996,149 +880,109 @@ function ProcurementCard({
   const sheepSecondWave = activePurposePlan.sheepSecondWave;
 
   return (
-    <section className="card">
-      <div className="card-h">
-        <div>
-          <h2>Procurement holding</h2>
-          <p className="s">
-            Only vaccines given by us, in our parks or a supervised procurement holding park with
-            proof, count as trusted history. Anything else starts the normal schedule once the
-            animal reaches our pens.
-          </p>
-        </div>
-      </div>
-      <div className="card-b">
+    <Card>
+      <CardHeader
+        title="Procurement holding"
+        subheader="Only vaccines given by us, in our parks or a supervised procurement holding park with proof, count as trusted history. Anything else starts the normal schedule once the animal reaches our pens."
+      />
+      <Stack spacing={2.5} sx={{ p: 3 }}>
         {warmupNoVaccinationDays !== null ? (
-          <div className="sent">
-            <span className="lead">Settle in</span>
+          <DoseRow tag="Settle in">
             After it arrives, give no vaccine for{" "}
             <DurationField
               days={warmupNoVaccinationDays}
               title="Settle-in period"
               onChange={(days) => {
                 onEdit();
-                setPlan((p) => ({
-                  ...p,
-                  procurement: { ...p.procurement, warmupNoVaccinationDays: days },
-                }));
+                setPlan((p) => ({ ...p, procurement: { ...p.procurement, warmupNoVaccinationDays: days } }));
               }}
             />
             .
-          </div>
+          </DoseRow>
         ) : null}
 
         {kidsNormalScheduleUntilWeeks !== null ? (
-          <div className="sent">
-            <span className="lead">Kid or adult</span>
+          <DoseRow tag="Kid or adult">
             Anything younger than{" "}
             <DurationField
               days={kidsNormalScheduleUntilWeeks * 7}
               title="Still counts as a kid until"
               onChange={(days) => {
                 onEdit();
-                setPlan((p) => ({
-                  ...p,
-                  procurement: {
-                    ...p.procurement,
-                    kidsNormalScheduleUntilWeeks: Math.max(1, Math.round(days / 7)),
-                  },
-                }));
+                setPlan((p) => ({ ...p, procurement: { ...p.procurement, kidsNormalScheduleUntilWeeks: Math.max(1, Math.round(days / 7)) } }));
               }}
             />{" "}
             follows the normal kid schedule above. Older animals use the waves below.
-          </div>
+          </DoseRow>
         ) : null}
 
         {adultPriorVaccinationAllowed !== null ? (
-          <div className="sent">
-            <span className="lead">Prior doses</span>
+          <DoseRow tag="Prior doses">
             Vaccinations the seller claims they already gave:
-            <span className="seg" role="group" aria-label="Prior doses">
-              <MuiButton
-                className="segb"
-                type="button"
-                size="small"
-                variant={adultPriorVaccinationAllowed ? "contained" : "text"}
-                aria-pressed={adultPriorVaccinationAllowed}
-                onClick={() => {
-                  onEdit();
-                  setPlan((p) => ({
-                    ...p,
-                    procurement: { ...p.procurement, adultPriorVaccinationAllowed: true },
-                  }));
-                }}
-              >
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              aria-label="Prior doses"
+              value={adultPriorVaccinationAllowed ? "count" : "ignore"}
+              onChange={(_, value) => {
+                if (!value) return;
+                onEdit();
+                setPlan((p) => ({ ...p, procurement: { ...p.procurement, adultPriorVaccinationAllowed: value === "count" } }));
+              }}
+              sx={{ ml: 1 }}
+            >
+              <ToggleButton value="count" aria-pressed={adultPriorVaccinationAllowed}>
                 Count them
-              </MuiButton>
-              <MuiButton
-                className="segb"
-                type="button"
-                size="small"
-                variant={!adultPriorVaccinationAllowed ? "contained" : "text"}
-                aria-pressed={!adultPriorVaccinationAllowed}
-                onClick={() => {
-                  onEdit();
-                  setPlan((p) => ({
-                    ...p,
-                    procurement: { ...p.procurement, adultPriorVaccinationAllowed: false },
-                  }));
-                }}
-              >
+              </ToggleButton>
+              <ToggleButton value="ignore" aria-pressed={!adultPriorVaccinationAllowed}>
                 Ignore them
-              </MuiButton>
-            </span>
-          </div>
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </DoseRow>
         ) : null}
 
-        <div className="proc-purpose">
-          <div className="sec-label">What we bought them for</div>
-          <span className="seg" role="group" aria-label="Procurement animal purpose">
+        <Box>
+          <SectionLabel>What we bought them for</SectionLabel>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            aria-label="Procurement animal purpose"
+            value={activePurpose}
+            onChange={(_, value) => {
+              if (value) setActivePurpose(value as ProcurementPurpose);
+            }}
+          >
             {procurementPurposeOptions.map(([value, label]) => (
-              <MuiButton
-                key={value}
-                type="button"
-                size="small"
-                className="segb"
-                variant={activePurpose === value ? "contained" : "text"}
-                aria-pressed={activePurpose === value}
-                onClick={() => setActivePurpose(value)}
-              >
+              <ToggleButton key={value} value={value} aria-pressed={activePurpose === value}>
                 {label}
-              </MuiButton>
+              </ToggleButton>
             ))}
-          </span>
-        </div>
-
-        <p className="proc-note">
-          Breeding stock stays for years, so it needs the full schedule. Fattening animals are sold
-          before most repeats come round, so long-interval vaccines can waste doses.
-        </p>
+          </ToggleButtonGroup>
+          <Typography variant="body2" sx={{ mt: 1.5, color: "text.secondary" }}>
+            Breeding stock stays for years, so it needs the full schedule. Fattening animals are sold before most repeats come round, so long-interval vaccines can waste doses.
+          </Typography>
+        </Box>
 
         <ProcurementWave
-          title={
-            activePurpose === "fattening"
-              ? "First wave for fattening animals"
-              : "First wave for breeding stock"
-          }
+          title={activePurpose === "fattening" ? "First wave for fattening animals" : "First wave for breeding stock"}
           vaccines={vaccineChips}
           selected={firstWave}
           onToggle={(vaccine) => {
             onEdit();
             setPlan((p) => ({
               ...p,
-                procurement: {
-                  ...p.procurement,
-                  purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
-                    firstWave: toggleVaccineSelection(p.procurement.purposePlans[activePurpose].firstWave, vaccine),
-                  }),
+              procurement: {
+                ...p.procurement,
+                purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
+                  firstWave: toggleVaccineSelection(p.procurement.purposePlans[activePurpose].firstWave, vaccine),
+                }),
               },
             }));
           }}
         />
 
         {activePurposePlan.secondWaveAfterDays !== null ? (
-          <div className="sent">
-            <span className="lead">Gap</span>
+          <DoseRow tag="Gap">
             Wait{" "}
             <DurationField
               days={activePurposePlan.secondWaveAfterDays}
@@ -1147,25 +991,19 @@ function ProcurementCard({
                 onEdit();
                 setPlan((p) => ({
                   ...p,
-                  procurement: {
-                    ...p.procurement,
-                    purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
-                      secondWaveAfterDays: days,
-                    }),
-                  },
+                  procurement: { ...p.procurement, purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, { secondWaveAfterDays: days }) },
                 }));
               }}
             />{" "}
             after the first wave before the second visit.
-          </div>
+          </DoseRow>
         ) : null}
 
-        <p className="proc-note">
-          Live vaccines in the second wave still wait out the live-to-live spacing window. ET + TT
-          dose 2 uses its own course gap.
-        </p>
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          Live vaccines in the second wave still wait out the live-to-live spacing window. ET + TT dose 2 uses its own course gap.
+        </Typography>
 
-        <div className="proc-waves">
+        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" } }}>
           <ProcurementWave
             title="Goat second wave"
             vaccines={vaccineChips}
@@ -1177,10 +1015,7 @@ function ProcurementCard({
                 procurement: {
                   ...p.procurement,
                   purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
-                    goatSecondWave: toggleVaccineSelection(
-                      p.procurement.purposePlans[activePurpose].goatSecondWave,
-                      vaccine,
-                    ),
+                    goatSecondWave: toggleVaccineSelection(p.procurement.purposePlans[activePurpose].goatSecondWave, vaccine),
                   }),
                 },
               }));
@@ -1197,55 +1032,39 @@ function ProcurementCard({
                 procurement: {
                   ...p.procurement,
                   purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
-                    sheepSecondWave: toggleVaccineSelection(
-                      p.procurement.purposePlans[activePurpose].sheepSecondWave,
-                      vaccine,
-                    ),
+                    sheepSecondWave: toggleVaccineSelection(p.procurement.purposePlans[activePurpose].sheepSecondWave, vaccine),
                   }),
                 },
               }));
             }}
           />
-        </div>
-      </div>
-    </section>
+        </Box>
+      </Stack>
+    </Card>
   );
 }
 
-function ProcurementWave({
-  title,
-  vaccines,
-  selected,
-  onToggle,
-}: {
-  title: string;
-  vaccines: Array<{ code: string; name: string }>;
-  selected: string[];
-  onToggle: (vaccineName: string) => void;
-}) {
+function ProcurementWave({ title, vaccines, selected, onToggle }: { title: string; vaccines: Array<{ code: string; name: string }>; selected: string[]; onToggle: (vaccineName: string) => void }) {
   if (vaccines.length === 0) return null;
   const active = new Set(selected.map((item) => normaliseVaccineName(item)));
-  const isActive = (vaccine: { code: string; name: string }) =>
-    active.has(normaliseVaccineName(vaccine.code)) || active.has(normaliseVaccineName(vaccine.name));
+  const isActive = (vaccine: { code: string; name: string }) => active.has(normaliseVaccineName(vaccine.code)) || active.has(normaliseVaccineName(vaccine.name));
   return (
-    <div className="proc-wave">
-      <div className="sec-label">{title}</div>
-      <div className="proc-chips">
+    <Box>
+      <SectionLabel>{title}</SectionLabel>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
         {vaccines.map((vaccine) => (
-          <MuiButton
-            type="button"
-            size="small"
-            variant={isActive(vaccine) ? "contained" : "outlined"}
-            className={isActive(vaccine) ? "proc-chip on" : "proc-chip"}
-            aria-pressed={isActive(vaccine)}
+          <Chip
             key={vaccine.code}
+            label={vaccine.name}
+            color={isActive(vaccine) ? "primary" : "default"}
+            variant={isActive(vaccine) ? "filled" : "outlined"}
+            aria-pressed={isActive(vaccine)}
+            icon={isActive(vaccine) ? <Iconify icon="eva:checkmark-fill" width={16} /> : undefined}
             onClick={() => onToggle(vaccine.name)}
-          >
-            {vaccine.name}
-          </MuiButton>
+          />
         ))}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 
@@ -1314,11 +1133,8 @@ function ruleRowsForVaccine(vaccine: EditorVaccine | undefined): Array<{
 }
 
 /**
- * The rules that run whatever this plan says.
- *
- * Read-only and read from the document, not typed in here. A hardcoded list
- * would keep displaying "28 days" after someone changed the stored gap, which is
- * worse than showing nothing.
+ * The rules that run whatever this plan says. Read-only and read from the document, not typed in
+ * here: a hardcoded list would keep displaying "28 days" after someone changed the stored gap.
  */
 function SafetyCard({ plan }: { plan: EditorPlan }) {
   const s = plan.safety;
@@ -1326,9 +1142,7 @@ function SafetyCard({ plan }: { plan: EditorPlan }) {
   if (s.maxVaccinesPerSession) lines.push(`At most ${s.maxVaccinesPerSession} vaccines per animal per visit.`);
   if (s.liveToLiveGapDays) lines.push(`Live to live: at least ${humanDays(s.liveToLiveGapDays)} apart.`);
   if (s.liveToKilledGapDays && s.killedToKilledGapDays) {
-    lines.push(
-      `Live to killed and killed to killed: at least ${humanDays(s.liveToKilledGapDays)} apart unless the same-day rule allows it.`,
-    );
+    lines.push(`Live to killed and killed to killed: at least ${humanDays(s.liveToKilledGapDays)} apart unless the same-day rule allows it.`);
   }
   if (s.kidBoosterMinGapDays) lines.push(`A booster is never closer than ${humanDays(s.kidBoosterMinGapDays)} to its first dose.`);
   if (s.skipFromPregnancyMonth && s.skipThroughPregnancyMonth) {
@@ -1339,130 +1153,113 @@ function SafetyCard({ plan }: { plan: EditorPlan }) {
     );
   }
   if (s.deferStates.length > 0) lines.push(`Deferred while: ${s.deferStates.join(", ").replace(/_/g, " ")}.`);
-  if (s.maxBatchingHoldDays) {
-    lines.push(`A drive may wait up to ${humanDays(s.maxBatchingHoldDays)} to batch; the safety window always wins.`);
-  }
+  if (s.maxBatchingHoldDays) lines.push(`A drive may wait up to ${humanDays(s.maxBatchingHoldDays)} to batch; the safety window always wins.`);
 
   if (lines.length === 0) return null;
 
   return (
-    <section className="card">
-      <div className="card-h">
-        <div>
-          <h2>
-            Automatic safety rules <span className="ro">read-only</span>
-          </h2>
-          <p className="s">
-            These are part of the plan and run after everything above, on every vaccine in it.
-          </p>
-        </div>
-      </div>
-      <div className="card-b">
-        <ul className="safety">
-          {lines.map((line) => (
-            <li key={line}>
-              <span className="sy"><Check size={10} aria-hidden /></span>
-              {line}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </section>
+    <Card>
+      <CardHeader
+        title={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            Automatic safety rules <Label variant="soft">read-only</Label>
+          </Box>
+        }
+        subheader="These are part of the plan and run after everything above, on every vaccine in it."
+      />
+      <Stack component="ul" spacing={1.5} sx={{ p: 3, m: 0, listStyle: "none" }}>
+        {lines.map((line) => (
+          <Box component="li" key={line} sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, typography: "body2" }}>
+            <Iconify icon="solar:check-circle-bold" width={20} sx={{ color: "success.main", flexShrink: 0 }} />
+            {line}
+          </Box>
+        ))}
+      </Stack>
+    </Card>
   );
 }
 
 /**
- * How the operator proves it. Read-only here.
- *
- * The choice is stored on the version's proof policy, which the editor does not
- * write, so this states what is in force rather than offering a control that
- * would not save. Showing it matters: it decides what the phone asks for on
- * every vaccination task in this plan.
+ * How the operator proves it. Read-only: the choice lives on the version's proof policy, which the
+ * editor does not write, so this states what is in force (template radio-card anatomy, disabled).
  */
 function ProofCard({ mode }: { mode: "shed" | "animal" | null }) {
   if (!mode) return null;
+  const options = [
+    { value: "shed", title: "One video per pen", body: "The operator scans every animal's tag as it is done, then records one video covering the whole pen. A 200-animal pen produces 1 clip." },
+    { value: "animal", title: "One video per animal", body: "The operator scans a tag and records that animal's injection, one at a time. A 200-animal pen produces 200 clips." },
+  ] as const;
   return (
-    <section className="card">
-      <div className="card-h">
-        <div>
-          <h2>
-            How the operator proves it <span className="ro">read-only</span>
-          </h2>
-        </div>
-      </div>
-      <div className="card-b">
-        <div className="proofpick">
-          <div className="pc" aria-pressed={mode === "shed"}>
-            <span className="pc-h">
-              <span className="pc-r" />
-              <span className="pc-t">One video per pen</span>
-            </span>
-            <span className="pc-d">
-              The operator scans every animal&apos;s tag as it is done, then records one video
-              covering the whole pen. A 200-animal pen produces 1 clip.
-            </span>
-          </div>
-          <div className="pc" aria-pressed={mode === "animal"}>
-            <span className="pc-h">
-              <span className="pc-r" />
-              <span className="pc-t">One video per animal</span>
-            </span>
-            <span className="pc-d">
-              The operator scans a tag and records that animal&apos;s injection, one at a time. A
-              200-animal pen produces 200 clips.
-            </span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <Card>
+      <CardHeader
+        title={
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            How the operator proves it <Label variant="soft">read-only</Label>
+          </Box>
+        }
+      />
+      <Box sx={{ p: 3, display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" } }}>
+        {options.map((option) => {
+          const on = mode === option.value;
+          return (
+            <Paper
+              key={option.value}
+              variant="outlined"
+              aria-pressed={on}
+              sx={{ p: 2.5, borderColor: on ? "primary.main" : "divider", borderWidth: on ? 2 : 1 }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                <Radio checked={on} disabled size="small" sx={{ p: 0 }} slotProps={{ input: { "aria-label": option.title } }} />
+                <Typography variant="subtitle2">{option.title}</Typography>
+              </Box>
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                {option.body}
+              </Typography>
+            </Paper>
+          );
+        })}
+      </Box>
+    </Card>
   );
 }
 
 /**
- * What publishing will change.
- *
- * Measured against the CURRENT herd by the backend's own eligibility rollup, so
- * it is the same arithmetic the drive planner uses rather than a second estimate
- * that could disagree with it. It describes the size of the work, not which
- * dates move -- that depends on each animal's own history.
+ * What publishing will change, measured against the CURRENT herd by the backend's own eligibility
+ * rollup (the same arithmetic the drive planner uses).
  */
 function ImpactCard({ impact }: { impact: ImpactSummary | null }) {
   if (!impact) return null;
-  const overCap = impact.capacityStatus && impact.capacityStatus !== "within_cap";
+  const overCap = Boolean(impact.capacityStatus && impact.capacityStatus !== "within_cap");
+  const cells = [
+    { key: "animals", value: impact.eligibleAnimals.toLocaleString("en-IN"), label: "animals in scope", warn: false },
+    { key: "pens", value: String(impact.affectedSheds), label: "pens affected", warn: false },
+    { key: "days", value: String(impact.estimatedDays), label: `operator-days at ${impact.dailyCap}/day`, warn: overCap },
+  ];
   return (
-    <section className="card">
-      <div className="card-h">
-        <div>
-          <h2>What publishing will change</h2>
-        </div>
-      </div>
-      <div className="card-b">
-        <div className="impact">
-          <div className="stat">
-            <div className="n num">{impact.eligibleAnimals.toLocaleString("en-IN")}</div>
-            <div className="l">animals in scope</div>
-          </div>
-          <div className="stat">
-            <div className="n num">{impact.affectedSheds}</div>
-            <div className="l">pens affected</div>
-          </div>
-          <div className={overCap ? "stat warn" : "stat"}>
-            <div className="n num">{impact.estimatedDays}</div>
-            <div className="l">operator-days at {impact.dailyCap}/day</div>
-          </div>
-        </div>
+    <Card>
+      <CardHeader title="What publishing will change" />
+      <Box sx={{ p: 3 }}>
+        <Paper variant="outlined" sx={{ borderStyle: "dashed" }}>
+          <Stack direction={{ xs: "column", sm: "row" }} divider={<Divider flexItem orientation="vertical" sx={{ borderStyle: "dashed" }} />}>
+            {cells.map((cell) => (
+              <Box key={cell.key} sx={{ flex: "1 1 0", p: 2.5 }}>
+                <Typography variant="h4" sx={{ color: cell.warn ? "warning.main" : "text.primary" }}>
+                  {cell.value}
+                </Typography>
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  {cell.label}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Paper>
         {overCap ? (
-          <div className="spike" style={{ marginTop: 14 }}>
-            <span className="sx">!</span>
-            <span>
-              This does not fit in one day at the current cap of{" "}
-              <b>{impact.dailyCap}</b> animals. It will be split across{" "}
-              <b>{impact.estimatedDays}</b> days inside the safe window.
-            </span>
-          </div>
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            This does not fit in one day at the current cap of <b>{impact.dailyCap}</b> animals. It will be split across <b>{impact.estimatedDays}</b> days inside the safe window.
+          </Alert>
         ) : null}
-      </div>
-    </section>
+      </Box>
+    </Card>
   );
 }
 

@@ -66,15 +66,6 @@ async function assertViewportFit(page, label, selectors) {
   }
 }
 
-const vaccinationDropdownBody = pageHtml(`
-<main class="vplan">
-  <section class="head"><div class="head-top"><div><div class="eyebrow">Editing V10</div><h1>Company vaccination plan</h1><p class="sub">Dropdown viewport guard.</p></div><div class="hactions"><button class="btn">Open the draft</button></div></div></section>
-  <section class="panes">
-    <aside class="leftcol"><div class="vp-sheet vp-nvf"><div class="field"><span>Vaccine</span><select><option selected>Blue Tongue emergency booster with a very long display value</option></select></div><div class="field"><span>First dose</span><select><option selected>Give from date of birth plus anchor/base campaign date</option></select></div></div></aside>
-    <section class="card"><div class="card-b"><div class="dose"><div class="dose-h"><span class="lbl">Give it when the animal is <span class="vp-dur"><button class="f">4 weeks</button></span> old</span></div></div><div class="seg"><button class="segb" aria-pressed="true">Routine vaccination drive</button><button class="segb">Emergency catch-up campaign</button></div><div class="vp-seg"><button class="is-on">Date of birth</button><button>Manual campaign</button><button>After previous completion</button></div></div></section>
-  </section>
-</main>`);
-
 const herdDropdownBody = pageHtml(`
 <main class="herd-signals-page lt-page proof-main">
   <section class="lt-fbar">
@@ -86,22 +77,8 @@ const herdDropdownBody = pageHtml(`
   <section class="fs proof-static-fs"><div class="fsbd"><div class="daterow"><span class="rowlabel">Range</span><div class="rangepick"><button>1h</button><button>6h</button><button>12h</button><button class="on">24h</button><button>3d</button><button>7d</button><button>30d</button></div><input type="datetime-local" value="2026-09-11T20:24" /><input type="datetime-local" value="2026-09-12T20:24" /></div></div></section>
 </main>`);
 
-// The duration editor itself is the template popover (CustomPopover in duration-field.tsx): MUI clamps
-// its paper to the viewport (marginThreshold + maxWidth calc(100% - 32px)), so it is not in this static fixture.
-test("vaccination dropdown values and duration popover stay inside laptop and mobile viewports", async () => {
-  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-    await withPage(viewport, async (page) => {
-      await page.setContent(vaccinationDropdownBody, { waitUntil: "load" });
-      await assertViewportFit(page, `vaccination dropdown ${viewport.width}px`, [
-        ".vplan .vp-dur",
-        ".vplan .field select",
-        ".vplan .seg",
-        ".vplan .vp-seg",
-      ]);
-    });
-  }
-});
-
+// The vaccination plan editor fixture moved to features/vaccination-plan/responsive-css.test.mjs
+// (vaccination-plan-template): its controls are MUI parts now, not the .vplan markup this fixture drew.
 test("herd signal filters and range controls stay inside laptop and mobile viewports", async () => {
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await withPage(viewport, async (page) => {

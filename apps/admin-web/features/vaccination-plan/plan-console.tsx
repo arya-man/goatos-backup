@@ -12,7 +12,8 @@ import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard } from "@/components/minimal/widgets";
+import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
+import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { Scrollbar } from "@/components/minimal/scrollbar";
@@ -37,6 +38,10 @@ import { useCallback, useState, useTransition } from "react";
 
 import type { ProtocolConfigItem } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
+import type { RouteSearchParams } from "@/lib/search-params";
+import { one } from "@/lib/search-params";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { TableSkeleton } from "@/components/app/skeletons";
 
 import { discardDraft, readVersionSettings, startNewVersion } from "./plan-actions";
 import { describeFirstDoses, describeRepeats, readVaccines, type VaccineGroup } from "./plan-model";
@@ -45,13 +50,17 @@ import { VersionSheet, type VersionSheetData } from "./version-sheet";
 import Alert from "@mui/material/Alert";
 
 type Props = {
+  /** The route search params: the live vaccine table pages on `page` (1-based). */
+  searchParams: RouteSearchParams;
   versions: ProtocolConfigItem[];
   catalog: VaccineGroup[];
   changeNotes: Record<string, string>;
   loadFailed: boolean;
 };
 
-export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFailed }: Props) {
+const LIVE_PAGE_SIZE = 10;
+
+export function VaccinationPlanConsole({ searchParams, versions, catalog, changeNotes, loadFailed }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -128,18 +137,24 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
 
   const draftHref = draft ? `/vaccination/plan/edit?version=${draft.protocol_version_id}` : "#";
   const draftLabel = draft ? draft.version_label || `V${draft.version}` : "";
+  // The live vaccine table pages on `page` (1-based); the panel is keyed by it (guard: url-keyed-panel).
+  const pageCount = Math.max(1, Math.ceil(catalog.length / LIVE_PAGE_SIZE));
+  const livePage = Math.min(pageCount, Math.max(1, Number.parseInt(one(searchParams, "page") ?? "1", 10) || 1));
+  const pageRows = catalog.slice((livePage - 1) * LIVE_PAGE_SIZE, livePage * LIVE_PAGE_SIZE);
+  const pageHref = (n: number) => (n <= 1 ? "/vaccination/plan" : `/vaccination/plan?page=${n}`);
+
   const liveKpis = live
     ? [
-        { key: "since", label: "In force since", value: formatDate(live.effective_from), icon: "solar:calendar-date-bold" as const, tone: "primary" as const },
-        { key: "applies", label: "Applies to", value: appliesTo(live), icon: "solar:users-group-rounded-bold" as const, tone: "info" as const },
-        { key: "vaccines", label: "Vaccines in the plan", value: `${inPlanCount} of ${catalog.length}`, icon: "solar:medical-kit-bold" as const, tone: "success" as const },
+        { key: "since", label: "In force since", value: formatDate(live.effective_from), icon: COURSE_WIDGET_ICONS.progress, tone: "primary" as const },
+        { key: "applies", label: "Applies to", value: appliesTo(live), icon: COURSE_WIDGET_ICONS.completed, tone: "info" as const },
+        { key: "vaccines", label: "Vaccines in the plan", value: `${inPlanCount} of ${catalog.length}`, icon: COURSE_WIDGET_ICONS.certificates, tone: "success" as const },
         {
           // "Published by" promises a person; with no author on the record the tile shows only the date.
           key: "published",
           label: personName(live.published_by) ? "Published by" : "Published",
           value: personName(live.published_by) ?? formatDate(live.published_at),
           hint: personName(live.published_by) ? formatDate(live.published_at) : undefined,
-          icon: "solar:verified-check-bold" as const,
+          icon: COURSE_WIDGET_ICONS.completed,
           tone: "warning" as const,
         },
       ]
@@ -172,11 +187,12 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
             <Grid container spacing={3}>
               {liveKpis.map((kpi) => (
                 <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-                  <KpiCard
-                    label={kpi.label}
-                    // Dates and names are text, not counts: the h4 step keeps DD/MM/YYYY on one line in a quarter-width tile.
-                    value={<Box component="span" sx={{ typography: "h4", whiteSpace: "nowrap" }}>{kpi.value}</Box>}
-                    hint={kpi.hint} tone={kpi.tone} icon={<Iconify icon={kpi.icon} width={32} />} />
+                  <CourseWidgetSummary
+                    title={kpi.hint ? `${kpi.label} · ${kpi.hint}` : kpi.label}
+                    total={kpi.value}
+                    icon={kpi.icon}
+                    color={kpi.tone}
+                  />
                 </Grid>
               ))}
             </Grid>
@@ -234,6 +250,8 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
               />
               {catalog.length > 0 ? (
                 <>
+                  {/* Rows + pager swap to their skeleton on a page click (guard: url-keyed-panel). */}
+                  <UrlSuspense searchParams={searchParams} watch={["page"]} fallback={<TableSkeleton bare header={false} columns={4} rows={pageRows.length || LIVE_PAGE_SIZE} />}>
                   <Scrollbar>
                     <Table sx={{ minWidth: 720 }}>
                       <TableHeadCustom
@@ -245,7 +263,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
                         ]}
                       />
                       <TableBody>
-                        {catalog.map((v) => (
+                        {pageRows.map((v) => (
                           <TableRow hover key={v.code} sx={v.inPlan ? undefined : { "& td": { color: "text.disabled" } }}>
                             <TableCell sx={{ typography: "subtitle2" }}>{v.name}</TableCell>
                             <TableCell>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</TableCell>
@@ -261,14 +279,17 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
                     </Table>
                   </Scrollbar>
                   <TablePaginationLinks
-                    page={0}
-                    rowsPerPage={catalog.length}
+                    page={livePage - 1}
+                    rowsPerPage={LIVE_PAGE_SIZE}
                     count={catalog.length}
-                    hideActions
-                    rangeLabel={`Page 1 · ${catalog.length} vaccine${catalog.length === 1 ? "" : "s"} on this page`}
+                    hideActions={pageCount === 1}
+                    prevHref={livePage > 1 ? pageHref(livePage - 1) : null}
+                    nextHref={livePage < pageCount ? pageHref(livePage + 1) : null}
+                    rangeLabel={`${(livePage - 1) * LIVE_PAGE_SIZE + 1}–${(livePage - 1) * LIVE_PAGE_SIZE + pageRows.length} of ${catalog.length} vaccine${catalog.length === 1 ? "" : "s"}`}
                     prevLabel="Previous"
                     nextLabel="Next"
                   />
+                  </UrlSuspense>
                 </>
               ) : null}
             </Card>

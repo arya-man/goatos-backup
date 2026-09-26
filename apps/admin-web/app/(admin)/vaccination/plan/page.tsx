@@ -1,5 +1,6 @@
 import { describeChange, readVaccines, VaccinationPlanConsole, type VaccineGroup } from "@/features/vaccination-plan";
 import { getProtocolVersion, listProtocolConfigs, requireAdminWebPageContract } from "@/lib/api/server";
+import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,8 @@ const HISTORY_DEPTH = 4;
  * former /vaccination/sops surface. The plan is vaccination-only and the CEO/COO who
  * publishes it works out of Preventive Care, so it lives here.
  */
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
+  const sp = await searchParams;
   const [, configs] = await Promise.all([
     requireAdminWebPageContract("vaccination-plan"),
     listProtocolConfigs("vaccination"),
@@ -77,6 +79,7 @@ export default async function Page() {
 
   return (
     <VaccinationPlanConsole
+      searchParams={sp}
       versions={versions}
       catalog={catalog}
       changeNotes={changeNotes}

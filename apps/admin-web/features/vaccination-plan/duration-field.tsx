@@ -10,7 +10,8 @@
  * value rather than two competing sources of truth.
  */
 
-import { ChevronDown } from "lucide-react";
+import Button from "@mui/material/Button";
+import { Iconify } from "@/components/minimal/iconify";
 import { useEffect, useRef, useState } from "react";
 import { usePopover } from "minimal-shared/hooks";
 import Box from "@mui/material/Box";
@@ -81,17 +82,20 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
   }
 
   return (
-    <span className="vp-dur">
-      <button
-        className={plain ? "f plain" : "f"}
-        type="button"
+    <Box component="span" sx={{ display: "inline-flex", verticalAlign: "middle" }}>
+      <Button
+        size="small"
+        variant={plain ? "text" : "soft"}
+        color="primary"
         onClick={pop.onOpen}
         aria-expanded={open}
         aria-haspopup="dialog"
         disabled={disabled}
+        endIcon={<Iconify icon="eva:arrow-ios-downward-fill" width={16} />}
+        sx={{ mx: 0.5 }}
       >
-        {formatDays(days)} <ChevronDown className="car" size={11} aria-hidden />
-      </button>
+        {formatDays(days)}
+      </Button>
       <CustomPopover
         open={open}
         anchorEl={pop.anchorEl}
@@ -142,6 +146,6 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
             </Typography>
           ) : null}
       </CustomPopover>
-    </span>
+    </Box>
   );
 }

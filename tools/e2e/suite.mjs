@@ -250,7 +250,7 @@ await runCase("C01", "List screen reads the live plan from the database", async 
   results.at(-1).shots.push(await shot("C01-list"));
   // Scoped to the page, not the whole document: the app's own header says
   // "tenant scope", which is chrome this change does not own.
-  const body = await page.locator(".vplan").innerText();
+  const body = await page.locator("main").first().innerText();
   check("live version shown", /V1 Real Vaccination/.test(body), true);
   check("vaccine count is 5 of 7", /5 of 7/.test(body), true);
   check("a switched-off vaccine is still listed", /Blue Tongue/.test(body), true);
@@ -609,7 +609,7 @@ await runCase("C17", "A vaccine switched on with no doses cannot be saved", asyn
   await page.getByRole("switch").first().click();
   await page.waitForTimeout(400);
   results.at(-1).shots.push(await shot("C17-blocked"));
-  check("it says which vaccine and what to do", /PPR .*switched on but .*no doses/i.test(await page.locator(".vplan").innerText()), true);
+  check("it says which vaccine and what to do", /PPR .*switched on but .*no doses/i.test(await page.locator("main").first().innerText()), true);
   check("Save is blocked", await page.getByRole("button", { name: /Save draft/i }).isDisabled(), true);
   check("Publish is blocked too", await page.getByRole("button", { name: /Publish plan/i }).isDisabled(), true);
 
@@ -693,7 +693,7 @@ await runCase("C21", "A very long vaccine name does not break the layout", async
   results.at(-1).shots.push(await shot("C21-long-name"));
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check("the page does not scroll sideways", overflow <= 0, true);
-  check("the long name is on screen", /Extremely Long Vaccine Name/.test(await page.locator(".vplan").innerText()), true);
+  check("the long name is on screen", /Extremely Long Vaccine Name/.test(await page.locator("main").first().innerText()), true);
 });
 
 await runCase("C22", "A vaccine switched off and back on keeps its whole course", async () => {
@@ -719,7 +719,7 @@ await runCase("C22", "A vaccine switched off and back on keeps its whole course"
   // Reload so the editor re-reads the document from the server, which is where the
   // bug lived -- it only appeared on a FRESH read of a switched-off vaccine.
   await page.reload({ waitUntil: "networkidle" });
-  const body = await page.locator(".vplan").innerText();
+  const body = await page.locator("main").first().innerText();
   check("it is switched off", /Switched off/.test(body), true);
   check("but it does NOT claim to have no doses", /no doses yet/i.test(body), false);
 

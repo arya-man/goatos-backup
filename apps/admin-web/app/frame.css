@@ -9,8 +9,8 @@
 .wrap{box-sizing:border-box;width:100%;max-width:var(--page-max);margin:0 auto;padding:var(--page-pt) var(--page-px-xs) var(--page-pb)}
 @media(min-width:600px){.wrap{padding-left:var(--page-px-sm);padding-right:var(--page-px-sm)}}
 @media(min-width:1200px){.wrap{padding-left:var(--page-px-lg);padding-right:var(--page-px-lg)}}
-.wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.herd-signals-page,.wrap>.lt-page,.wrap>.vplan,.kit-page,.kit-enter{display:grid;gap:24px;min-width:0;align-content:start}
-.wrap>.screen>*,.kit-page>*,.kit-enter>*,.wrap>.pagegrid>*,.wrap>.herd-signals-page>*,.wrap>.lt-page>*,.wrap>.vplan>*{margin-top:0;margin-bottom:0;min-width:0}
+.wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.herd-signals-page,.wrap>.lt-page,.kit-page,.kit-enter{display:grid;gap:24px;min-width:0;align-content:start}
+.wrap>.screen>*,.kit-page>*,.kit-enter>*,.wrap>.pagegrid>*,.wrap>.herd-signals-page>*,.wrap>.lt-page>*{margin-top:0;margin-bottom:0;min-width:0}
 /* legacy spacer divs / empty fragments must not consume a rhythm slot */
 .wrap>.screen>:empty:not(.MuiSkeleton-root):not(i):not(hr){display:none}
 
@@ -288,10 +288,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* ---- Drawers (legacy aside.drawer) take the kit Sheet anatomy ---- */
 
 /* ---- Full-screen legacy modals become kit dialogs ---- */
-.vp-sheet{width:min(640px,100%);max-height:calc(100dvh - 48px);border-radius:16px;border:0;box-shadow:var(--shadow-dialog);overflow:auto;padding:24px}
-.vp-sheet .vp-head{padding:0 0 16px;border-bottom:1px solid var(--line);margin-bottom:16px}
-.vp-sheet .vp-head h2{font-family:var(--font-display);font-size:20px;line-height:28px;font-weight:700}
-.vp-sheet label>span,.vp-sheet .lbl{font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--fg-muted)}
 
 /* ---- Shell: user menu, sidebar hover, rail, mobile drawer ---- */
 /* Section eyebrows scroll with the list (Minimal subheaders are not sticky). The sticky top:-16px
@@ -342,7 +338,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 
 /* ---- Filters fold into a sheet on phones ---- */
 
-.vp-sheet label b{text-transform:none;letter-spacing:0;font-size:11px;font-weight:600;color:var(--warning-ink,var(--fg-muted))}
 /* kit tab strips scroll on their own (no page overflow), with a scrollbar-less snap */
 /* The overflow fade stops 2px short of the bottom: it sits right after the last tab even when nothing
    overflows, and painting over the grey rule there was the "broken underline" gap. */
@@ -379,26 +374,15 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 
 /* Vaccination plan: the page frame (.wrap) owns the gutter; the plan's legacy own padding doubled
    it (26px at 390px against 14px on every other route). */
-.wrap>.vplan{padding:0}
 
 /* Herd Signals header at phone width: the live status and the two actions share one wrapping row
    instead of Export and Tag Mapping each stacking on a row of their own. */
 
 /* Vaccination plan status labels: Minimal soft label (24px, 0 6px, 6px radius, 700 12px, no border). */
-.wrap>.vplan .tag{display:inline-flex;align-items:center;height:24px;min-width:24px;padding:0 6px;border-radius:6px;border:0;font-size:12px;font-weight:700;line-height:1;vertical-align:middle;transition:all .2s cubic-bezier(.4,0,.2,1)}
-.wrap>.vplan .tag.on{background:color-mix(in srgb,var(--brand) 16%,transparent);color:var(--brand-d)}
+
 /* One card level (MUI): 16px card radius; the "live right now" stats sit straight on the card instead
    of in a tinted band, labels are sentence-case captions, and the vaccine table runs edge to edge in
    the card body rather than as a second rounded box inside it. */
-.wrap>.vplan .card{border-radius:16px}
-.wrap>.vplan .livegrid{gap:16px 24px;background:none;border:0;border-radius:0}
-.wrap>.vplan .livegrid>div{background:none;padding:0}
-.wrap>.vplan .k{font-size:13px;line-height:20px;letter-spacing:0;text-transform:none}
-@media(min-width:641px){
-  .wrap>.vplan .card-b>.scroll{margin:20px -18px -16px;border-radius:0}
-  .wrap>.vplan .card-b>.scroll:first-child{margin-top:-16px}
-  .wrap>.vplan .card-b>.scroll .tabl th:first-child,.wrap>.vplan .card-b>.scroll .tabl td:first-child{padding-left:24px}
-}
 
 /* Pen execution drilldown work-state grid: Minimal stat tiles (soft neutral fill, 12px radius,
    label top / value bottom so a wrapping label never pushes its number out of line) instead of
@@ -444,7 +428,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 @media(max-width:767px){
   .wb .parkpick{height:auto!important;min-height:44px}
 }
-
 
 /* Sales KPI widgets (MUI widget ~186px). The sparkline gets its own fixed 40px slot under the figure
    so every card in the row is the same height whether its series has drawn yet or not, and the hint

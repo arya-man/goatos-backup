@@ -1,40 +1,45 @@
+// Guard: vaccination-plan-template. /vaccination/plan and /vaccination/plan/edit are composed from
+// template parts (course KPI row, Card + CardHeader, TableHeadCustom, MUI Dialog / Switch /
+// ToggleButtonGroup / Chip, template Grid md 4 / md 8), not the mock's hand-made `.vplan` markup and
+// its 250 lines of namespaced CSS (deleted 2026-09-27). A `.vplan` / `.vp-*` rule or class coming back,
+// a raw <button>/<input>/<select>, or a fixed-position div "modal" fails here.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import test from "node:test";
 
-const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+const files = {
+  console: read("./plan-console.tsx"),
+  sheet: read("./version-sheet.tsx"),
+  editor: read("./plan-editor.tsx"),
+  anchors: read("./anchor-panel.tsx"),
+  duration: read("./duration-field.tsx"),
+};
+const css = ["../../app/mesha-theme.css", "../../app/frame.css", "../../app/minimal-theme.css"].map(read).join("\n");
 
-assert.match(
-  css,
-  /\.vplan \{[^}]*width: min\(100%, 1180px\)[^}]*margin: 0 auto[^}]*min-width: 0[^}]*\}/,
-  "vaccination plan page must fit the available app column instead of carrying a desktop-only width",
-);
+test("vaccination-plan-template: no legacy .vplan / .vp-* CSS rules", () => {
+  const rules = css.split("\n").filter((line) => /\.(vplan|vp-[a-z])[^{]*\{/.test(line) && !/^\s*(\/\*|\*)/.test(line));
+  assert.deepEqual(rules, []);
+});
 
-assert.match(
-  css,
-  /@media \(max-width: 640px\) \{[\s\S]*\.vplan \.vlist \{[^}]*flex-direction: row[^}]*overflow-x: auto[^}]*\}/,
-  "vaccination plan editor vaccine rail must become a horizontal selector on mobile",
-);
+test("vaccination-plan-template: no legacy markup or raw controls", () => {
+  for (const [name, source] of Object.entries(files)) {
+    assert.doesNotMatch(source, /className="(vplan|card|card-h|card-b|scroll|tabl|btn[^"]*|pill[^"]*|dose[^"]*|sec-label|vp-(modal|sheet|head|body|dur|seg|nv[a-z]*))"/, `${name}: legacy class`);
+    assert.doesNotMatch(source, /<(button|select|input)\b(?![^>]*type="hidden")/, `${name}: raw control`);
+  }
+});
 
-assert.match(
-  css,
-  /@media \(max-width: 640px\) \{[\s\S]*\.vplan \.ab-in \{[^}]*display: grid[^}]*grid-template-columns: 1fr 1fr[^}]*\}/,
-  "vaccination plan editor action bar must not force a desktop flex row on mobile",
-);
-
-assert.match(
-  css,
-  /@media \(max-width: 640px\) \{[\s\S]*\.vplan \.field input, \.vplan \.field select, \.vplan \.field textarea,[\s\S]*\.vp-nvf input, \.vp-nvf select \{[^}]*min-width: 0[^}]*max-width: 100%[^}]*\}/,
-  "vaccination plan mobile form controls and dropdown values must stay inside the viewport",
-);
-
-assert.match(
-  readFileSync(new URL("./duration-field.tsx", import.meta.url), "utf8"),
-  /<CustomPopover[\s\S]*?anchorEl=\{pop\.anchorEl\}/,
-  "vaccination plan duration popover is the template popover, which MUI clamps to the viewport on mobile",
-);
-
-assert.match(
-  css,
-  /@media \(max-width: 640px\) \{[\s\S]*\.vp-seg, \.vplan \.seg \{[^}]*display: grid[^}]*grid-template-columns: 1fr[^}]*width: 100%[^}]*\}/,
-  "vaccination plan segmented dropdown-like choices must stack as full-width mobile controls",
-);
+test("vaccination-plan-template: template anatomy", () => {
+  assert.match(files.console, /<CourseWidgetSummary/);
+  assert.doesNotMatch(files.console, /KpiCard/);
+  assert.match(files.console, /<UrlSuspense[^>]*watch=\{\["page"\]\}/, "live table panel keyed by page (url-keyed-panel)");
+  assert.match(files.console, /<TableHeadCustom/);
+  assert.match(files.sheet, /<Dialog\b/);
+  assert.match(files.editor, /size=\{\{ xs: 12, md: 4 \}\}/);
+  assert.match(files.editor, /size=\{\{ xs: 12, md: 8 \}\}/);
+  assert.match(files.editor, /<ToggleButtonGroup/);
+  assert.match(files.editor, /function AddVaccineModal[\s\S]*<Dialog\b/);
+  assert.match(files.anchors, /<TableHeadCustom/);
+  assert.match(files.duration, /<CustomPopover[\s\S]*?anchorEl=\{pop\.anchorEl\}/, "duration popover is the template popover (viewport-clamped on mobile)");
+  assert.match(files.duration, /<Button[\s\S]*?variant=\{plain \? "text" : "soft"\}/);
+});

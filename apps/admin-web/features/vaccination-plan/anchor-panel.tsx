@@ -1,6 +1,5 @@
 "use client";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -14,6 +13,12 @@ import { humanDays, type ScheduleRule, type VaccineGroup } from "./plan-model";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table";
 
 type AnchorState = AnchorConfig;
 
@@ -60,18 +65,18 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
   if (rows.length === 0) return null;
 
   return (
-    <div className="scroll anchor-rule-table" tabIndex={0}>
-      <Table className="tabl">
-        <TableHead>
-          <TableRow>
-            <TableCell component="th">Vaccine</TableCell>
-            <TableCell component="th">Rule/dose</TableCell>
-            <TableCell component="th">Timing</TableCell>
-            <TableCell component="th">Repeat</TableCell>
-            <TableCell component="th">Anchor/base date</TableCell>
-            <TableCell component="th">Action</TableCell>
-          </TableRow>
-        </TableHead>
+    <Scrollbar>
+      <Table sx={{ minWidth: 680 }}>
+        <TableHeadCustom
+          headCells={[
+            { id: "vaccine", label: "Vaccine" },
+            { id: "dose", label: "Rule/dose" },
+            { id: "timing", label: "Timing" },
+            { id: "repeat", label: "Repeat" },
+            { id: "anchor", label: "Anchor/base date" },
+            { id: "action", label: "Action", width: 88 },
+          ]}
+        />
         <TableBody>
           {rows.map((row) => {
             const key = rowKey(row);
@@ -80,33 +85,29 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
             const canSave = isValidIsoDate(state.anchorDate);
             return (
               <Fragment key={key}>
-                <TableRow className={editing ? "selrow" : undefined}>
-                  <TableCell>
-                    <b>{row.vaccine.name}</b>
-                  </TableCell>
+                <TableRow selected={editing} hover>
+                  <TableCell sx={{ typography: "subtitle2" }}>{row.vaccine.name}</TableCell>
                   {/* The dose's farm name, never its rule code ("et_tt_kid_4w"). */}
                   <TableCell>{doseLabel(row.rule)}</TableCell>
                   <TableCell>{ruleTiming(row.rule)}</TableCell>
                   <TableCell>{repeatLabel(row.rule)}</TableCell>
-                  <TableCell>{anchorDate ? fmtDate(anchorDate) : "No anchor"}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap", color: anchorDate ? "text.primary" : "text.secondary" }}>{anchorDate ? fmtDate(anchorDate) : "No anchor"}</TableCell>
                   <TableCell>
-                    <button
-                      className="btn ghost sm icon"
-                      type="button"
+                    <IconButton
+                      color="primary"
                       aria-label={anchorDate ? "Edit anchor" : "Add anchor"}
                       title={anchorDate ? "Edit anchor" : "Add anchor"}
                       onClick={() => openEditor(row)}
                     >
-                      {anchorDate ? <Pencil size={18} strokeWidth={2.6} aria-hidden /> : <Plus size={18} strokeWidth={2.8} aria-hidden />}
-                    </button>
+                      {anchorDate ? <Pencil size={18} strokeWidth={2.4} aria-hidden /> : <Plus size={18} strokeWidth={2.4} aria-hidden />}
+                    </IconButton>
                   </TableCell>
                 </TableRow>
                 {editing ? (
-                  <TableRow className="anchoredit" key={`${key}-editor`}>
-                    <TableCell colSpan={6}>
-                      <div className="anchorform inline">
-                        <div className="field">
-                          <span>Anchor/base date</span>
+                  <TableRow key={`${key}-editor`}>
+                    <TableCell colSpan={6} sx={{ bgcolor: "background.neutral" }}>
+                      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" }, alignItems: "start" }}>
+                        <Box>
                           <ThemedDatePicker
                             name="anchor_date"
                             label="Anchor/base date"
@@ -116,17 +117,11 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                             nextMonthLabel="Next month"
                             invalidDateText=""
                           />
-                        </div>
-                        <label className="field">
-                          <span>Reason</span>
-                          <input value={state.reason} onChange={(event) => update("reason", event.target.value)} />
-                        </label>
-                        <label className="field">
-                          <span>Source reference</span>
-                          <input value={state.sourceRef} onChange={(event) => update("sourceRef", event.target.value)} />
-                        </label>
-                      </div>
-                      <div className="anchorflags" aria-label="Anchor behavior">
+                        </Box>
+                        <TextField fullWidth label="Reason" value={state.reason} onChange={(event) => update("reason", event.target.value)} />
+                        <TextField fullWidth label="Source reference" value={state.sourceRef} onChange={(event) => update("sourceRef", event.target.value)} />
+                      </Box>
+                      <Box aria-label="Anchor behavior" role="group" sx={{ mt: 1.5, display: "flex", flexWrap: "wrap", columnGap: 2 }}>
                         <FormControlLabel
                           control={<Checkbox checked readOnly sx={{ p: { xs: 1.5, sm: 1 } }} />}
                           label={"Apply anchor to this rule's eligible scope"}
@@ -161,11 +156,11 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                           }
                           label="Enforce age eligibility"
                         />
-                      </div>
-                      <div className="anchoractions">
-                        <button
-                          className="btn sm"
-                          type="button"
+                      </Box>
+                      <Box sx={{ mt: 1.5, display: "flex", gap: 1, flexWrap: "wrap" }}>
+                        <Button
+                          variant="contained"
+                          color="primary"
                           disabled={!canSave}
                           onClick={() => {
                             if (!canSave) return;
@@ -174,11 +169,11 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                           }}
                         >
                           Save anchor to draft
-                        </button>
-                        <button className="btn ghost sm" type="button" onClick={() => setEditingKey(null)}>
+                        </Button>
+                        <Button variant="outlined" color="inherit" onClick={() => setEditingKey(null)}>
                           Close
-                        </button>
-                      </div>
+                        </Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -187,7 +182,7 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
           })}
         </TableBody>
       </Table>
-    </div>
+    </Scrollbar>
   );
 }
 
