@@ -10,7 +10,7 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { InfoHint } from "@/components/app/info-hint";
 import { PageHeader, type PageCrumb } from "@/components/app/page-header";
-import { KpiCard } from "@/components/minimal/widgets";
+import { CourseWidgetSummary } from "@/components/minimal/widgets/course-widget-summary";
 import { TableHeadCustom } from "@/components/minimal/table";
 import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
@@ -22,8 +22,9 @@ import CardHeader from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import type { KitTone } from "@/lib/tone";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import type { PaletteColorKey } from "@/theme/core";
+import { UrlTabs } from "@/components/app/url-tabs";
+import { COURSE_WIDGET_ICONS } from "@/lib/minimal-icons";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
 import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -291,41 +292,21 @@ export async function ProtocolAdherencePage({
     { label: pageContract.title },
   ];
 
-  const kpis = [
-    {
-      key: "adherence",
-      label: copy(pageContract, "label.overall_adherence"),
-      value: summary ? Math.round(summary.adherence_percent) : "n/a",
-      unit: summary ? "%" : undefined,
-      hint: copy(pageContract, "label.on_time_correct"),
-      icon: "solar:check-circle-bold" as const,
-      tone: (summary ? (summary.adherence_percent >= 90 ? "success" : summary.adherence_percent >= 70 ? "warning" : "error") : "neutral") as KitTone,
-    },
-    {
-      key: "gaps",
-      label: copy(pageContract, "label.open_process_gaps"),
-      value: summary ? summary.open_gap_count : "n/a",
-      hint: copy(pageContract, "label.across_rules"),
-      icon: "solar:danger-triangle-bold" as const,
-      tone: (summary && summary.open_gap_count > 0 ? "warning" : "neutral") as KitTone,
-    },
-    {
-      key: "deferred",
-      label: copy(pageContract, "label.deferred_explained"),
-      value: summary ? summary.deferred_count : "n/a",
-      hint: copy(pageContract, "label.deferred_scope"),
-      icon: "solar:calendar-date-bold" as const,
-      tone: "info" as KitTone,
-    },
-    {
-      key: "on-track",
-      label: copy(pageContract, "label.on_track"),
-      value: summary ? summary.process_intact_count : "n/a",
-      hint: summary ? `${summary.completed_count}/${summary.expected_count} ${copy(pageContract, "label.done_suffix")}` : copy(pageContract, "label.obligations"),
-      icon: "solar:shield-check-bold" as const,
-      tone: "success" as KitTone,
-    },
-  ];
+  // Template overview/course tiles: a count and its title (CourseWidgetSummary takes numbers only).
+  const kpis: { key: string; title: string; total: number; icon: string; color: PaletteColorKey }[] = summary
+    ? [
+        {
+          key: "adherence",
+          title: `${copy(pageContract, "label.overall_adherence")} (%)`,
+          total: Math.round(summary.adherence_percent),
+          icon: COURSE_WIDGET_ICONS.progress,
+          color: summary.adherence_percent >= 90 ? "success" : summary.adherence_percent >= 70 ? "warning" : "error",
+        },
+        { key: "gaps", title: copy(pageContract, "label.open_process_gaps"), total: summary.open_gap_count, icon: COURSE_WIDGET_ICONS.certificates, color: summary.open_gap_count > 0 ? "warning" : "info" },
+        { key: "deferred", title: copy(pageContract, "label.deferred_explained"), total: summary.deferred_count, icon: COURSE_WIDGET_ICONS.progress, color: "info" },
+        { key: "on-track", title: `${copy(pageContract, "label.on_track")} · ${summary.completed_count}/${summary.expected_count} ${copy(pageContract, "label.done_suffix")}`, total: summary.process_intact_count, icon: COURSE_WIDGET_ICONS.completed, color: "success" },
+      ]
+    : [];
   const head = ledgerLabels.map((label, index) => ({ id: `c${index}`, label, width: LEDGER_WIDTHS[index] }));
 
   return (
@@ -344,7 +325,7 @@ export async function ProtocolAdherencePage({
         <Grid container spacing={3}>
           {kpis.map((kpi) => (
             <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-              <KpiCard label={kpi.label} value={kpi.value} unit={kpi.unit} hint={kpi.hint} tone={kpi.tone} icon={<Iconify icon={kpi.icon} width={32} />} />
+              <CourseWidgetSummary title={kpi.title} total={kpi.total} icon={kpi.icon} color={kpi.color} />
             </Grid>
           ))}
         </Grid>
@@ -373,10 +354,9 @@ export async function ProtocolAdherencePage({
             action={<InfoHint text={copy(pageContract, "section.ledger.note")} />}
             sx={{ mb: 1 }}
           />
-          <AnimatedTabs
+          <UrlTabs
             ariaLabel={copy(pageContract, "label.all_states")}
             value={workStateFilter}
-            sx={{ px: 2.5 }}
             items={[
               { value: "all", label: copy(pageContract, "label.all_states"), count: summary?.expected_count, href: hrefWith({ state: "all", adh_page: "1" }) },
               ...WORK_STATE_ORDER.map((state) => ({ value: state, label: optionLabel(pageContract, "work_state_filter_chips", state), href: hrefWith({ state, adh_page: "1" }) })),
@@ -417,7 +397,6 @@ export async function ProtocolAdherencePage({
 
           {/* Severity and work-state filter ONE ledger. Keyed on both, the body cross-fades. */}
           <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={ledgerLabels.length || 7} rows={requestedPageSize} />}>
-          <TabPanel tabKey={`${severityFilter}|${workStateFilter}`}>
             <Scrollbar>
               <Table sx={{ minWidth: 1080, tableLayout: "fixed" }} aria-label={copy(pageContract, "section.ledger.aria")}>
                 <TableHeadCustom headCells={head} />
@@ -490,7 +469,6 @@ export async function ProtocolAdherencePage({
                 </TableBody>
               </Table>
             </Scrollbar>
-          </TabPanel>
           <VaccinationTablePager
             pageContract={pageContract}
             pageSizeOptions={pageSizeOptions}
