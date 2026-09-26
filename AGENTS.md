@@ -384,22 +384,6 @@ bill, do not guess or redeploy app code first. Read and follow
 The 2026-08-26 maintainer baseline for `goatos-api-stg` is min-instances `2`
 and max-instances `2`.
 
-Agents deploy STG via the `stg-deploy-trigger` workflow (self-hosted runner +
-GitHub OIDC Workload Identity, same Cloud Build trigger `goatos-stg-deploy-main`
-and same substitutions as the Slack button). Never block on Ravi's interactive
-gcloud login for deploys (Claude AND Codex):
-
-```bash
-gh workflow run stg-deploy-trigger.yml -R vgoats/goatos -f mode=backend-web-mobile   # or backend-web | mobile-only | check
-gh run watch -R vgoats/goatos "$(gh run list -R vgoats/goatos -w stg-deploy-trigger.yml -L1 --json databaseId -q '.[0].databaseId')"
-```
-
-It runs only on the self-hosted runner (no paid minutes), refuses non-allowlisted
-actors, a `sha` that is not the current `origin/main` head, and a second deploy
-while one is active. `mode=check` authenticates and describes the trigger without
-running it. It is not a second deployment authority: it is the Slack button's
-trigger call, made from a runner instead of the bot.
-
 Authoritative STG deploy path:
 1. Read `docs/runbooks/stg-deploy.md` (short contract) →
    `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).

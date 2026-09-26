@@ -7,9 +7,7 @@ lives in [`google-cloud-environments.md`](./google-cloud-environments.md).
 
 ## Non-Deploy Paths (NEVER valid for STG deploy)
 
-- GitHub-hosted Actions runners (billing-blocked — validate only via `make ci-local`).
-  The ONE exception is `stg-deploy-trigger.yml` below: it runs on the self-hosted
-  runner (no paid minutes) and only calls the same Cloud Build trigger as Slack.
+- GitHub Actions (billing-blocked FOREVER — validate only via `make ci-local`)
 - main→stg PR as a deployment trigger
 - GitHub MCP / any GitHub identity as the deploy mechanism
 - Slice or Heva GitHub identity for Goat OS
@@ -52,33 +50,7 @@ tools/deploy/stg-clouddeploy-release.sh   # build/create the release
 tools/deploy/stg-clouddeploy-task.sh      # custom-target rollout task
 ```
 
-For Codex/Claude, deploy through the `stg-deploy-trigger` workflow. It needs no
-personal gcloud login: the self-hosted runner authenticates with GitHub OIDC ->
-Workload Identity pool `github-goatos` (condition `repository == vgoats/goatos`)
-as `goatos-github-deploy-stg`, the trigger's own service account, and runs
-`goatos-stg-deploy-main` with the Slack bot's exact substitutions
-(`_DEPLOY_STG`, `_DEPLOY_MOBILE`, `_GOATOS_STG_ZERO_DOWNTIME_DEPLOY=true`,
-`_TRIGGERED_BY`). Mobile modes first commit the same Android version bump the
-Slack button commits (`slack-stg-deploy-bot bump-android-version`, PAT from
-secret `goatos-github-pat`) and run the trigger at that SHA.
-
-```bash
-gh workflow run stg-deploy-trigger.yml -R vgoats/goatos -f mode=backend-web-mobile
-gh run watch -R vgoats/goatos "$(gh run list -R vgoats/goatos -w stg-deploy-trigger.yml -L1 --json databaseId -q '.[0].databaseId')"
-```
-
-Modes: `backend-web`, `backend-web-mobile`, `mobile-only`, `check` (auth + describe
-only). Optional `-f sha=<origin/main head>` is refused if main moved. Allowed
-actors: ravimesha, arya-man, manju-mesha.
-
-IAM it relies on (verified 2026-09-26, no grant was needed):
-`roles/iam.workloadIdentityUser` on `goatos-github-deploy-stg` for
-`principalSet://iam.googleapis.com/projects/514832198871/locations/global/workloadIdentityPools/github-goatos/attribute.repository/vgoats/goatos`;
-`roles/cloudbuild.builds.editor` + `roles/secretmanager.secretAccessor` for that SA
-on `goatos-stg`; `roles/iam.serviceAccountUser` on itself (trigger actAs).
-
-Fallback when the runner is offline (needs a live gcloud login):
-
+For Codex/Claude, prefer the Cloud Build path:
 
 ```bash
 gcloud builds triggers run goatos-stg-deploy-main --project=goatos-stg
