@@ -590,8 +590,6 @@ body aside.drawer .dc .k,body aside.drawer .dc .lbl,body aside.drawer .dc .fld>l
 
 /* People: the filter form lives inside the table card as its toolbar (Minimal list pattern),
    not as a separate card above it. Phone keeps its stacked 44px fields, just card-inset. */
-.people-filter-card.people-filter-incard{margin:0;background:transparent;box-shadow:none;border-radius:0;padding:0 24px 20px}
-@media(max-width:640px){.people-filter-card.people-filter-incard{padding:0 16px 16px;border-radius:0}}
 
 /* Phone tables pin the LAST column on the assumption it is the row action. When it is plain text
    (the Alerts "Rule" column, a status) pinning it covered half the viewport and clipped the columns

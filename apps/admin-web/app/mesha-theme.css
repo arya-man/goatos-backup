@@ -1943,7 +1943,7 @@
   .step .vp{margin-top:6px}
   .thumb{width:62px;height:46px;border-radius:8px;background:linear-gradient(135deg,#26384d,#33536f);display:grid;place-items:center;color:#fff;flex:none}
   .fld{margin-bottom:13px}
-  .fld label:not(.MuiFormLabel-root){display:block;font-size:12px;font-weight:650;margin-bottom:5px;color:var(--ink)}
+  .fld label:where(:not(.MuiFormLabel-root)){display:block;font-size:12px;font-weight:650;margin-bottom:5px;color:var(--ink)}
   .fld input,.fld select,.fld textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;background:var(--panel);outline:0;color:var(--ink)}
   .fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
   .chipset,.chips{display:flex;flex-wrap:wrap;gap:7px}
@@ -2674,7 +2674,7 @@ aside.drawer.wt-assumptions-drawer .dc .fld>label{display:flex;align-items:cente
 .modal .mf { display: flex; justify-content: flex-end; gap: 9px; padding: 14px 18px; border-top: 1px solid var(--line); background: var(--panel-2) }
 .ctl { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; margin: 8px 0 4px }
 .fld { display: flex; flex-direction: column; gap: 5px }
-.fld label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted) }
+.fld label:where(:not(.MuiFormLabel-root)) { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted) }
 select { background: var(--bg); border: 1px solid var(--line); color: var(--ink); border-radius: 9px; padding: 8px 10px; font: inherit; min-width: 170px }
 select:disabled { opacity: .45 }
 .selectgrid { display: flex; flex-wrap: wrap; gap: 10px }

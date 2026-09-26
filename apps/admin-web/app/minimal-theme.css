@@ -309,7 +309,7 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
   .people-filter-card{padding:14px;border-radius:var(--r-lg)}
   .people-filter-grid{display:grid;grid-template-columns:1fr;gap:10px}
   .people-filter-card .fld{min-width:0!important;width:100%;display:grid;gap:6px}
-  .people-filter-card .fld label{font-size:12px;line-height:16px;margin:0}
+  .people-filter-card .fld label:where(:not(.MuiFormLabel-root)){font-size:12px;line-height:16px;margin:0}
   .people-filter-card .fld input,.people-filter-card .fld select,.people-filter-card .move-date-button{width:100%;min-height:44px}
   .people-filter-card .fld:has(button[type="submit"]){align-self:end}
   .people-filter-card .fld:has(button[type="submit"]) label{display:none}

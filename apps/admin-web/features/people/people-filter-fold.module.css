@@ -4,7 +4,7 @@
 
 /* Phone: search + Filters button on one row; the rest opens in the template filters drawer. */
 @media (max-width:640px){
-  .searchRow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px}
+  .searchRow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;width:100%}
   .open{display:inline-flex !important}
   .rest{display:none}
 }

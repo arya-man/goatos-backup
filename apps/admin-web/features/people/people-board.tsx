@@ -5,12 +5,22 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { humanizeEnum } from "@/lib/format";
+import { humanizeEnum, joinParts } from "@/lib/format";
 import { PeopleFormSelect } from "./people-form-select";
 import { PeopleFilterFold } from "./people-filter-fold";
 import pb from "./people-board.module.css";
-import { Users } from "lucide-react";
-import Link from "@/components/no-prefetch-link";
+import { Search } from "lucide-react";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import InputAdornment from "@mui/material/InputAdornment";
+import { Label } from "@/components/minimal/label";
+import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { PeopleAddButton } from "./people-add-button";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listWorkforcePeople, type WorkforcePerson } from "@/lib/api/server";
@@ -101,6 +111,13 @@ export async function PeopleBoard({
     return humanizeEnum(person.role_hint);
   };
 
+  const clockTag = (person: WorkforcePerson) =>
+    person.clock_in_today_label ? (
+      <Tag tone="ok">{copy(pageContract, "clock.chip.clocked_in").replace("%s", person.clock_in_today_label)}</Tag>
+    ) : (
+      <Tag tone="mut">{copy(pageContract, "clock.chip.not_clocked_in")}</Tag>
+    );
+
   return (
     <>
       {actionStatus ? (
@@ -122,46 +139,62 @@ export async function PeopleBoard({
       ) : null}
 
 
-      <section className="card">
-        <div className="hd">
-          <Users className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{copy(pageContract, "section.people.title")}</h3>
-          <Tag tone={people.length ? "info" : "mut"}>
-            {people.length} {copy(pageContract, "summary.count")}
-          </Tag>
-          <div className="sp" style={{ flex: 1 }} />
-          <LocalOverlayLink
-            href={hrefWithQuery(pathname, sp, { person: "new" })}
-            className="btn primary"
-            scroll={false}
-          >
-            {copy(pageContract, "action.add_person")}
-          </LocalOverlayLink>
-        </div>
+      <Card>
+        <CardHeader
+          title={
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <span>{copy(pageContract, "section.people.title")}</span>
+              <Label variant="soft" color={people.length ? "info" : "default"}>
+                {people.length} {copy(pageContract, "summary.count")}
+              </Label>
+            </Stack>
+          }
+          action={<PeopleAddButton href={hrefWithQuery(pathname, sp, { person: "new" })} label={copy(pageContract, "action.add_person")} />}
+          sx={{ "& .MuiCardHeader-action": { alignSelf: "center" } }}
+        />
 
         {/* Native GET form: every filter round-trips through the URL, so the rendered
-            page always matches the address bar and the server-read window. */}
-        <form id="people-filter-form" method="get" action={pathname} className="people-filter-card people-filter-incard">
-          <div className="people-filter-grid">
-            <PeopleFilterFold
-              filtersLabel={copy(pageContract, "filter.sheet_title")}
-              closeLabel={copy(pageContract, "filter.sheet_close")}
-              activeCount={[parkId, departmentId, status].filter(Boolean).length}
-              search={
-            <div className="fld" style={{ minWidth: 220, flex: 1 }}>
-              <label htmlFor="people-search">{copy(pageContract, "filter.search_label")}</label>
-              <input
+            page always matches the address bar and the server-read window. Template
+            UserTableToolbar: search + selects + Apply, one height (56px). */}
+        <Box
+          component="form"
+          id="people-filter-form"
+          method="get"
+          action={pathname}
+          sx={{
+            p: 2.5,
+            gap: 2,
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            "& > *": { flexShrink: 0 },
+          }}
+        >
+          <PeopleFilterFold
+            filtersLabel={copy(pageContract, "filter.sheet_title")}
+            closeLabel={copy(pageContract, "filter.sheet_close")}
+            activeCount={[parkId, departmentId, status].filter(Boolean).length}
+            search={
+              <TextField
                 id="people-search"
                 name="search"
                 defaultValue={search}
                 placeholder={copy(pageContract, "filter.search_placeholder")}
-                maxLength={200}
+                sx={{ flex: "1 1 240px", minWidth: 0 }}
+                slotProps={{
+                  htmlInput: { maxLength: 200, "aria-label": copy(pageContract, "filter.search_label") },
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search size={18} aria-hidden="true" />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
               />
-            </div>
-              }
-            >
+            }
+          >
             <PeopleFormSelect
-              className="fld"
               form="people-filter-form"
               name="park_id"
               label={copy(pageContract, "filter.park")}
@@ -172,7 +205,6 @@ export async function PeopleBoard({
               ]}
             />
             <PeopleFormSelect
-              className="fld"
               form="people-filter-form"
               name="department_id"
               label={copy(pageContract, "filter.department")}
@@ -183,132 +215,136 @@ export async function PeopleBoard({
               ]}
             />
             <PeopleFormSelect
-              className="fld"
               form="people-filter-form"
               name="status"
               label={copy(pageContract, "filter.status")}
               defaultValue={status}
               options={[
                 { value: "", label: copy(pageContract, "filter.all") },
-                ...["candidate", "active", "inactive", "suspended", "left"].map((value) => ({ value, label: value })),
+                ...["candidate", "active", "inactive", "suspended", "left"].map((value) => ({ value, label: humanizeEnum(value) })),
               ]}
             />
-            {/* Wrapped in a .fld with a spacer label so the button top-aligns with the
-                selects instead of hanging at the row baseline. */}
-            <div className="fld">
-              <label aria-hidden="true">&nbsp;</label>
-              <button type="submit" form="people-filter-form" className="btn">
-                {copy(pageContract, "filter.apply", "Apply")}
-              </button>
-            </div>
-            </PeopleFilterFold>
-          </div>
-        </form>
+            <Button type="submit" form="people-filter-form" variant="outlined" color="inherit" size="large" sx={{ minHeight: 56, minWidth: 96 }}>
+              {copy(pageContract, "filter.apply", "Apply")}
+            </Button>
+          </PeopleFilterFold>
+        </Box>
 
         {people.length === 0 ? (
           <EmptyState title={hasAnyFilter ? copy(pageContract, "empty.people") : copy(pageContract, "empty.people.unset")} />
         ) : (
-          <div className={`twrap tablewrap ${pb.scrollCue}`} tabIndex={0} role="region" aria-label={copy(pageContract, "section.people.aria")}>
-            <Table className="people-table" aria-label={copy(pageContract, "section.people.aria")}>
-              <TableHead>
-                <TableRow>
-                  <TableCell component="th">{copy(pageContract, "column.display_name")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.park")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.department")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.designation")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.email")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "column.status")}</TableCell>
-                  <TableCell component="th">{copy(pageContract, "clock.column.clock_in_today")}</TableCell>
-                  {/* Access opens its own overlay rather than the record drawer: it is a
-                      different decision about the same person, and burying it inside the
-                      record drawer hides the screen this rewrite exists to provide. */}
-                  <TableCell component="th">{copy(pageContract, "access.title")}</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {people.map((person) => {
-                  const drawerHref = hrefWithQuery(pathname, sp, { person: person.person_id });
-                  return (
-                    <TableRow key={person.person_id}>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <b>{person.display_name}</b>
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {person.park_label ?? none}
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {person.department_label ?? none}
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {designation(person)}
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {person.email ?? none}
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone={statusTone(person.status)}>{humanizeEnum(person.status)}</Tag>
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {person.clock_in_today_label ? (
-                            <Tag tone="ok">
-                              {copy(pageContract, "clock.chip.clocked_in").replace("%s", person.clock_in_today_label)}
-                            </Tag>
-                          ) : (
-                            <Tag tone="mut">{copy(pageContract, "clock.chip.not_clocked_in")}</Tag>
-                          )}
-                        </LocalOverlayLink>
-                      </TableCell>
-                      <TableCell>
-                        <PersonAccessLauncher
-                          personId={person.person_id}
-                          personName={person.display_name}
-                          pageContract={pageContract}
-                        />
-                      </TableCell>
+          <>
+            {/* Laptop/tablet: the template table; the long free-text columns truncate
+                (people-board.module.css) and the full value stays in the row drawer. */}
+            <Box sx={{ display: { xs: "none", sm: "block" } }}>
+              <div className={`twrap ${pb.scrollCue}`} tabIndex={0} role="region" aria-label={copy(pageContract, "section.people.aria")}>
+                <Table className="people-table" aria-label={copy(pageContract, "section.people.aria")}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">{copy(pageContract, "column.display_name")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "column.park")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "column.department")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "column.designation")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "column.email")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "column.status")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "clock.column.clock_in_today")}</TableCell>
+                      {/* Access opens its own overlay rather than the record drawer: it is a
+                          different decision about the same person, and burying it inside the
+                          record drawer hides the screen this rewrite exists to provide. */}
+                      <TableCell component="th">{copy(pageContract, "access.title")}</TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+                  </TableHead>
+                  <TableBody>
+                    {people.map((person) => {
+                      const drawerHref = hrefWithQuery(pathname, sp, { person: person.person_id });
+                      return (
+                        <TableRow key={person.person_id} hover>
+                          <TableCell>
+                            <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                              <b>{person.display_name}</b>
+                            </LocalOverlayLink>
+                          </TableCell>
+                          <TableCell>
+                            <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                              {person.park_label ?? none}
+                            </LocalOverlayLink>
+                          </TableCell>
+                          <TableCell>
+                            <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                              {person.department_label ?? none}
+                            </LocalOverlayLink>
+                          </TableCell>
+                          <TableCell>
+                            <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                              {designation(person)}
+                            </LocalOverlayLink>
+                          </TableCell>
+                          <TableCell>
+                            <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                              {person.email ?? none}
+                            </LocalOverlayLink>
+                          </TableCell>
+                          <TableCell>
+                            <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                              <Tag tone={statusTone(person.status)}>{humanizeEnum(person.status)}</Tag>
+                            </LocalOverlayLink>
+                          </TableCell>
+                          <TableCell>
+                            <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                              {clockTag(person)}
+                            </LocalOverlayLink>
+                          </TableCell>
+                          <TableCell>
+                            <PersonAccessLauncher personId={person.person_id} personName={person.display_name} pageContract={pageContract} />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </Box>
+
+            {/* Phone: stacked rows (name + status, park · department, designation) with a
+                44px Access icon button, instead of a table clipped at the card edge. */}
+            <Box component="ul" sx={{ display: { xs: "block", sm: "none" }, m: 0, p: 0, listStyle: "none", borderTop: 1, borderColor: "divider" }} aria-label={copy(pageContract, "section.people.aria")}>
+              {people.map((person) => {
+                const drawerHref = hrefWithQuery(pathname, sp, { person: person.person_id });
+                return (
+                  <Box component="li" key={person.person_id} sx={{ display: "flex", alignItems: "center", gap: 1, pl: 2, pr: 1, py: 1.25, borderBottom: 1, borderColor: "divider" }}>
+                    <LocalOverlayLink href={drawerHref} className="celllink" scroll={false} style={{ flex: "1 1 auto", minWidth: 0 }}>
+                      <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+                          <Typography variant="subtitle2" noWrap sx={{ minWidth: 0 }}>{person.display_name}</Typography>
+                          <Tag tone={statusTone(person.status)}>{humanizeEnum(person.status)}</Tag>
+                        </Stack>
+                        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                          {joinParts([person.park_label ?? none, person.department_label, designation(person)])}
+                        </Typography>
+                        <Box>{clockTag(person)}</Box>
+                      </Stack>
+                    </LocalOverlayLink>
+                    <PersonAccessLauncher personId={person.person_id} personName={person.display_name} pageContract={pageContract} compact />
+                  </Box>
+                );
+              })}
+            </Box>
+          </>
         )}
 
         {cursor || nextCursor ? (
-          <div className="pager2" style={{ paddingRight: 56 }}>
-            {cursor ? (
-              <Link href={hrefWithQuery(pathname, sp, { cursor: null })} scroll={false} className="btn">
-                {copy(pageContract, "action.prev_page")}
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.prev_page")}
-              </span>
-            )}
-            {nextCursor ? (
-              <Link href={hrefWithQuery(pathname, sp, { cursor: nextCursor })} scroll={false} className="btn">
-                {copy(pageContract, "action.next_page")}
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.next_page")}
-              </span>
-            )}
-          </div>
+          <TablePaginationLinks
+            page={cursor ? 1 : 0}
+            rowsPerPage={limit}
+            count={-1}
+            prevHref={cursor ? hrefWithQuery(pathname, sp, { cursor: null }) : null}
+            nextHref={nextCursor ? hrefWithQuery(pathname, sp, { cursor: nextCursor }) : null}
+            rangeLabel={`${people.length} ${copy(pageContract, "summary.count")}`}
+            prevLabel={copy(pageContract, "action.prev_page")}
+            nextLabel={copy(pageContract, "action.next_page")}
+          />
         ) : null}
-      </section>
+      </Card>
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request,
           so an overlay gated on a server-read search param would never appear. */}
