@@ -263,7 +263,7 @@ export function NewTaskModal({
                   })}
                 </div>
               </div>
-              <Button type="submit" variant="contained" className="lt-send">
+              <Button type="submit" variant="contained" color="primary" className="lt-send">
                 {text("new.send", "Send")}
               </Button>
             </form>

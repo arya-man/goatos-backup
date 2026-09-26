@@ -561,7 +561,7 @@ export function SalesRecordDrawer({
                   not offer. The route validates the same rule regardless. */}
               <Button
                 type="submit"
-                variant="contained"
+                variant="contained" color="primary"
                 loading={recordPending}
                 disabled={!canPickVendor}
                 title={
@@ -868,7 +868,7 @@ function RecordPaymentForm({
         />
         <div className="muted small">{copy(pageContract, "hint.record_payment")}</div>
       </div>
-      <Button type="submit" variant="contained" disabled={pending} aria-disabled={pending}>
+      <Button type="submit" variant="contained" color="primary" disabled={pending} aria-disabled={pending}>
         {copy(pageContract, "action.record_deal_payment.label")}
       </Button>
     </form>

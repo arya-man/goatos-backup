@@ -93,7 +93,7 @@ function AuditDetailDrawer({
           {record.target.href ? (
             <LinkButton href={record.target.href} variant="contained">{copy(pageContract, "drawer.open_target")}</LinkButton>
           ) : (
-            <Button variant="contained" disabled>{copy(pageContract, "drawer.open_target")}</Button>
+            <Button variant="contained" color="primary" disabled>{copy(pageContract, "drawer.open_target")}</Button>
           )}
           <Button variant="outlined" color="inherit" onClick={closeDrawer}>{copy(pageContract, "action.close")}</Button>
         </>

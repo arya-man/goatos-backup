@@ -142,7 +142,7 @@ export function PersonAddDrawer({
 
   const footer = isAdding ? (
     <>
-      <Button type="submit" form={addFormId} variant="contained" disabled={incomplete}>
+      <Button type="submit" form={addFormId} variant="contained" color="primary" disabled={incomplete}>
         {copy(pageContract, "action.save")}
       </Button>
       <Button type="button" variant="outlined" onClick={close}>

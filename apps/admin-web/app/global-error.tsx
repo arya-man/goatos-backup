@@ -73,7 +73,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
                 </Box>
               ) : null}
               <Box sx={{ mt: 5 }}>
-                <Button size="large" variant="contained" onClick={reset} startIcon={<RotateCcw aria-hidden="true" />}>
+                <Button size="large" variant="contained" color="primary" onClick={reset} startIcon={<RotateCcw aria-hidden="true" />}>
                   Try again
                 </Button>
               </Box>

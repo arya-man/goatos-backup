@@ -1265,7 +1265,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         title={drawerOp?.person_display_name || 'Operator'}
         aria-label={drawerOp?.person_display_name || 'Operator'}
         footer={
-          <Button variant="contained" fullWidth onClick={() => openModal(drawerTarget!)}>
+          <Button variant="contained" color="primary" fullWidth onClick={() => openModal(drawerTarget!)}>
             ＋ Add leave
           </Button>
         }
@@ -1477,7 +1477,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
               <Button size="small" variant="outlined" color="inherit" onClick={closeModal}>
                 Cancel
               </Button>
-              <Button size="small" variant="contained" onClick={addLeave}>
+              <Button size="small" variant="contained" color="primary" onClick={addLeave}>
                 Add leave
               </Button>
             </DialogActions>

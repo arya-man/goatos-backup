@@ -392,7 +392,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                   </span>
                 ),
               )}
-              <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--c-mut)" }}>
+              <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--muted)" }}>
                 {OVERLAY_KINDS.some((kind) => overlaysOn[kind] ?? true)
                   ? `Showing: ${OVERLAY_KINDS.filter((kind) => overlaysOn[kind] ?? true)
                       .map((kind) => KIND_META[kind].label)

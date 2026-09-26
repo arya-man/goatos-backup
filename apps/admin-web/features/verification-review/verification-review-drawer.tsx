@@ -1044,7 +1044,7 @@ function VerificationReviewDrawerPanel({
                 Reject
               </Button>
               <Button
-                variant="contained"
+                variant="contained" color="primary"
                 type="submit"
                 form="verdict-form"
                 name="decision"

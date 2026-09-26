@@ -147,6 +147,32 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   in a transition, the pressed tab selected at once, the header / crumbs / tabs / filters and the old
   panel kept on screen (dimmed at most) until the new page is ready. Never hide the live panel or
   swap the page for a skeleton on a same-route param change; `loading.tsx` is for the first entry.
+- **Template-fidelity guards (`components/app/template-fidelity-guards.test.mjs`, runs in `npm test`).**
+  One rule id per recurring audit defect on PR #294:
+  - `brand-primary-contained`: every contained `Button` names its colour (`color="primary"` for the
+    main action). The theme default is the template's `inherit` (near-black / white), which broke the
+    locked Mesha green on Sign in, Save password, Add disease, Add city.
+  - `mesha-logo-mark`: the logo tile is the shell's `मे` mark (Logo default); no `"M"` override;
+    `global-error` never forces dark, runs `THEME_BOOT_SCRIPT` and loads `theme/fonts.css`.
+  - `form-submit-respects-field-guard`: a form holding a required `ThemedDatePicker` checks
+    `event.defaultPrevented` before posting from `onSubmit` (the picker refuses the submit itself).
+  - `refusal-actions-never-throw`: a server action typed `Promise<…Error | undefined>` returns a
+    refusal for a blank user field; `requiredString` (throws → "Something went wrong") only for `…_id`.
+  - `breakpoint-display-in-sx`: phone/desktop swaps of a `DataTable` use `sx` display breakpoints,
+    never a stylesheet `display:none` on its class (DataTable's emotion styles win).
+  - `css-token-defined`: every `var(--token)` a component reads is defined in a stylesheet, set locally,
+    MUI-generated, or has a fallback. Deleting a token means replacing its readers with theme values.
+  - `chart-ramp-distinct`: the categorical ramp (`components/app/chart-colors.ts`) has 7 distinct hues
+    and no error red.
+  - `page-header-action-slot`: no stylesheet restyles `PageHeader` layout through a className.
+  - `no-card-in-card`: stacked phone table rows are divider rows (`border-bottom`), never bordered,
+    rounded cards inside the table card; a KPI deck never sits inside another card (known offenders
+    are a shrinking list in the test).
+  - `template-filter-toolbar`: filter bars are the template list toolbar (outlined TextField selects,
+    MUI Chips with Clear); rows per page lives only in the table pager.
+  - `routine-drawer-template`, `dark-alert-tint`, `kanban-card-raised`: the routine drawer renders only
+    MUI form parts; dark standard Alerts are a 16% main tint (the locked dark `darker` steps are mid
+    tones); work-board cards are raised paper with the amber needs-attention border.
 - **A restyle never introduces new UI behaviour.** Changing how something looks must not change what it
   does (clicks, routes, fetches, copy, which fields show). Behaviour changes are separate PRs.
 - **Never reopen a regression-guard item.** The invariants in `docs/design/redesign-regression-guard.md` (tooltips

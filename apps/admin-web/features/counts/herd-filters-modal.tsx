@@ -47,7 +47,7 @@ export function HerdFiltersModal({ open, pageContract, searchParams = {}, onClos
           <Button component={Link} href={clearAllHref(searchParams)} replace scroll={false} variant="outlined" color="inherit" onClick={onClose}>
             {copy(pageContract, "filter.clear_all")}
           </Button>
-          <Button type="submit" form={FORM_ID} variant="contained">
+          <Button type="submit" form={FORM_ID} variant="contained" color="primary">
             {copy(pageContract, "filter.apply_filters")}
           </Button>
         </>

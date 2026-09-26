@@ -496,7 +496,7 @@ function MappingDialog({
           Cancel
         </Button>
         <Button
-          variant="contained"
+          variant="contained" color="primary"
           onClick={submit}
           disabled={submitting || blockedReason !== null}
           title={blockedReason ?? undefined}

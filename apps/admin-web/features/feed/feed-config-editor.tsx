@@ -189,7 +189,7 @@ function FeedConfigFormShell({
       <input type="hidden" name="idempotency_key" value={idem.key ?? ""} />
       {children}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <MuiButton type="submit" size="small" variant="contained" loading={pending}>
+        <MuiButton type="submit" size="small" variant="contained" color="primary" loading={pending}>
           {copy(pageContract, "action.apply")}
         </MuiButton>
         {/* Cancel drops a refusal with the form: the message was about values the operator just

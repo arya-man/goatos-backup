@@ -447,7 +447,7 @@ export function PersonAccessModal({
           {/* A disabled button swallows its title, so the reason rides on a wrapping span. */}
           <Box component="span" title={mayEdit ? undefined : cannotEditReason}>
             <Button
-              variant="contained"
+              variant="contained" color="primary"
               onClick={submit}
               disabled={pending || !mayEdit}
               aria-disabled={!mayEdit}

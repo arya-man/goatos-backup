@@ -222,7 +222,7 @@ export async function VaccinationDriveDetail({
           {copy(pageContract, "calendar.drive.next_page")}
         </LinkButton>
       ) : (
-        <Button disabled variant="contained" endIcon={<ChevronRight className="ic" />} sx={{ minHeight: 44 }}>
+        <Button disabled variant="contained" color="primary" endIcon={<ChevronRight className="ic" />} sx={{ minHeight: 44 }}>
           {copy(pageContract, "calendar.drive.next_page")}
         </Button>
       )}
@@ -339,7 +339,7 @@ export async function VaccinationDriveDetail({
                   },
                 }}
               />
-              <Button type="submit" variant="contained" size="large" sx={{ minHeight: 48 }}>
+              <Button type="submit" variant="contained" color="primary" size="large" sx={{ minHeight: 48 }}>
                 {copy(pageContract, "calendar.drive.search_action")}
               </Button>
               {targetSearch ? (

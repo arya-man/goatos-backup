@@ -191,13 +191,13 @@ export function VendorLocalDrawer({
       <Button type="button" variant="outlined" color="inherit" onClick={() => (isAdding ? close() : setEditing(false))}>
         {copy(pageContract, "action.cancel")}
       </Button>
-      <Button type="submit" form={formId} variant="contained">
+      <Button type="submit" form={formId} variant="contained" color="primary">
         {copy(pageContract, "action.save")}
       </Button>
     </>
   ) : vendor ? (
     <Stack direction="row" spacing={1.5} sx={{ width: 1, alignItems: "center", flexWrap: "wrap", rowGap: 1.5 }}>
-      <Button type="button" variant="contained" onClick={() => setEditing(true)}>
+      <Button type="button" variant="contained" color="primary" onClick={() => setEditing(true)}>
         {copy(pageContract, "action.edit")}
       </Button>
       {/* Quick status change, without opening the full form. It posts to the NARROW status

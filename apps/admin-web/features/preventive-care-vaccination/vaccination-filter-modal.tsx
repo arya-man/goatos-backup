@@ -145,7 +145,7 @@ export function VaccinationFilterButton({
               {copy(pageContract, "action.clear")}
             </Button>
             <Button
-              variant="contained"
+              variant="contained" color="primary"
               title={filterReason}
               onClick={() => {
                 applyVisibleTableFilter();

@@ -115,7 +115,7 @@ function Field({
 
 function SubmitButton({ children, disabled, title }: { children: React.ReactNode; disabled?: boolean; title?: string }) {
   return (
-    <Button type="submit" variant="contained" disabled={disabled} title={title} sx={{ alignSelf: "flex-start" }}>
+    <Button type="submit" variant="contained" color="primary" disabled={disabled} title={title} sx={{ alignSelf: "flex-start" }}>
       {children}
     </Button>
   );

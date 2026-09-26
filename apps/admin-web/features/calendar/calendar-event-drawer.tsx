@@ -445,7 +445,7 @@ function CalendarEventDrawerPanel({
                 <input type="hidden" name="event_id" value={event.event_id} />
                 <input type="hidden" name="idempotency_key" value={nudgeKey} />
                 <input type="hidden" name="return_to" value={returnTo} />
-                <Button type="submit" variant="contained" fullWidth startIcon={<Bell size={16} aria-hidden="true" />}>
+                <Button type="submit" variant="contained" color="primary" fullWidth startIcon={<Bell size={16} aria-hidden="true" />}>
                   {copy(pageContract, "action.send_nudge")}
                 </Button>
               </Box>

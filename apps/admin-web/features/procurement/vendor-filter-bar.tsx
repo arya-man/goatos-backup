@@ -180,7 +180,7 @@ export function VendorFilterBar({
       {/* Disabled with nothing staged, so the control tells the truth about whether pressing it
           would change anything. */}
       <Button
-        variant="contained"
+        variant="contained" color="primary"
         onClick={() => apply(draft)}
         disabled={pending || !staged}
         aria-disabled={pending || !staged}

@@ -169,6 +169,35 @@ Minimal greys (`--grey-50…900`, `#F4F6F8` = `--grey-200`) are tokens written o
   or border (P0 `legacy-css-mui-colour`; frame/minimal-theme/mesha-theme/menu-surface/globals.css
   only shrink). Tints are `varAlpha(theme.vars.palette.<c>.<x>Channel, a)` over the paper.
   Source test: `components/kpi-card-anatomy.test.mjs`.
+## Template-fidelity guards (AFIX12, 2026-09-27)
+
+`components/app/template-fidelity-guards.test.mjs` (runs in `npm test`), one rule id per recurring
+audit defect on PR #294:
+
+- `brand-primary-contained`: every contained `Button` names its colour (`color="primary"` for the
+  main action). The theme default is the template's `inherit` (near-black / white), which broke the
+  locked Mesha green on Sign in, Save password, Add disease, Add city.
+- `mesha-logo-mark`: the logo tile is the shell's `मे` mark (Logo default); no `"M"` override;
+  `global-error` never forces dark, runs `THEME_BOOT_SCRIPT` and loads `theme/fonts.css`.
+- `form-submit-respects-field-guard`: a form holding a required `ThemedDatePicker` checks
+  `event.defaultPrevented` before posting from `onSubmit` (the picker refuses the submit itself).
+- `refusal-actions-never-throw`: a server action typed `Promise<…Error | undefined>` returns a
+  refusal for a blank user field; `requiredString` (throws → "Something went wrong") only for `…_id`.
+- `breakpoint-display-in-sx`: phone/desktop swaps of a `DataTable` use `sx` display breakpoints,
+  never a stylesheet `display:none` on its class (DataTable's emotion styles win).
+- `css-token-defined`: every `var(--token)` a component reads is defined in a stylesheet, set locally,
+  MUI-generated, or has a fallback. Deleting a token means replacing its readers with theme values.
+- `chart-ramp-distinct`: the categorical ramp (`components/app/chart-colors.ts`) has 7 distinct hues
+  and no error red.
+- `page-header-action-slot`: no stylesheet restyles `PageHeader` layout through a className.
+- `no-card-in-card`: stacked phone table rows are divider rows (`border-bottom`), never bordered,
+  rounded cards inside the table card; a KPI deck never sits inside another card (known offenders
+  are a shrinking list in the test).
+- `template-filter-toolbar`: filter bars are the template list toolbar (outlined TextField selects,
+  MUI Chips with Clear); rows per page lives only in the table pager.
+- `routine-drawer-template`, `dark-alert-tint`, `kanban-card-raised`: the routine drawer renders only
+  MUI form parts; dark standard Alerts are a 16% main tint (the locked dark `darker` steps are mid
+  tones); work-board cards are raised paper with the amber needs-attention border.
 
 ## Production bug CLASSES as guards (2026-09-26)
 

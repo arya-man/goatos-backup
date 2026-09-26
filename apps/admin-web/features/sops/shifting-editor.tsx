@@ -217,7 +217,7 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
         <MuiButton type="button" variant="outlined" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
         </MuiButton>
-        <MuiButton type="button" variant="contained" startIcon={<Check className="ic" />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+        <MuiButton type="button" variant="contained" color="primary" startIcon={<Check className="ic" />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
           {copy(pc, "inspection.action.publish")}
         </MuiButton>
       </div>

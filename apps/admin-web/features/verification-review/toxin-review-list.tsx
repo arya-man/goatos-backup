@@ -318,7 +318,7 @@ function ToxinDrawer({
           <Button type="submit" form={VERDICT_FORM_ID} name="decision" value="reject" variant="outlined" color="inherit" disabled={!reason.trim()} title={!reason.trim() ? text("toxin.drawer.reject_reason_hint") : undefined}>
             {text("toxin.action.reject")}
           </Button>
-          <Button type="submit" form={VERDICT_FORM_ID} name="decision" value="accept" variant="contained">
+          <Button type="submit" form={VERDICT_FORM_ID} name="decision" value="accept" variant="contained" color="primary">
             {text("toxin.action.accept")}
           </Button>
         </DialogActions>

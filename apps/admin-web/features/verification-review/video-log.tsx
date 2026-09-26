@@ -267,7 +267,7 @@ function VideoLogFilters({
       {/* Grouped so the pair wraps TOGETHER: at the drawer's width the three fields fill the first
           line and Clear was landing alone on a second one, reading as an unrelated control. */}
       <div className="vl-fbtns">
-        <Button type="submit" variant="contained">
+        <Button type="submit" variant="contained" color="primary">
           {copy(pageContract, "video_log.filter.apply")}
         </Button>
         <LinkButton href={clearHref} variant="outlined" color="inherit">

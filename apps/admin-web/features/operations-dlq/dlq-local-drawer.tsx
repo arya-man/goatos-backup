@@ -119,7 +119,7 @@ function DLQDrawer({
           <input type="hidden" name="return_to" value={returnTo} />
           <TextField name="reason" label={copy(pageContract, "form.reason_label")} placeholder={copy(pageContract, "form.reason_placeholder")} multiline rows={2} fullWidth disabled={replayDisabled} slotProps={{ inputLabel: { shrink: true } }} />
           <DrawerNote>{replayDisabledReason || copy(pageContract, "reason.replay")}</DrawerNote>
-          <Button type="submit" variant="contained" disabled={replayDisabled} title={replayDisabledReason} startIcon={<CheckCircle2 size={16} aria-hidden="true" />}>{replayAction.label}</Button>
+          <Button type="submit" variant="contained" color="primary" disabled={replayDisabled} title={replayDisabledReason} startIcon={<CheckCircle2 size={16} aria-hidden="true" />}>{replayAction.label}</Button>
         </Box>
         <Box component="form" action={discardDLQAction} sx={{ display: "grid", gap: 1.5 }}>
           <input type="hidden" name="outbox_id" value={row.outbox_id} />

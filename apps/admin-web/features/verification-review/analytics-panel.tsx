@@ -53,7 +53,7 @@ export function AnalyticsPanel({
         href={`#${ANALYTICS_PANEL_SELECTION_KEY}=${ANALYTICS_PANEL_ID}`}
         replace
         scroll={false}
-        variant="contained"
+        variant="contained" color="primary"
         startIcon={<BarChart3 size={18} aria-hidden="true" />}
         className="vr-analytics-btn"
       >

@@ -495,7 +495,7 @@ export function AddDiseaseForm({
             <MuiButton type="button" variant="outlined" disabled={pending} onClick={() => setIdem(CLOSED_STATE)}>
               {copy(pageContract, "action.cancel")}
             </MuiButton>
-            <MuiButton type="submit" variant="contained" loading={pending}>
+            <MuiButton type="submit" variant="contained" color="primary" loading={pending}>
               {copy(pageContract, "action.apply")}
             </MuiButton>
           </DialogActions>
@@ -953,7 +953,7 @@ export function DraftEditor({
         <MuiButton
           type="submit"
           size="small"
-          variant="contained"
+          variant="contained" color="primary"
           loading={pending}
           disabled={!enabled}
           title={enabled ? undefined : disabledReason}

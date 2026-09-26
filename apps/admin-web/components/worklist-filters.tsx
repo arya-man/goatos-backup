@@ -779,7 +779,7 @@ export function WorklistFilters({
       {/* The bar's ONE commit point when it defers: always rendered, disabled until something is
           staged, so the reader sees before touching anything that this bar waits for a press. */}
       {deferApply ? (
-        <MuiButton variant="contained" disabled={!staged || busy} onClick={applyStaged}>
+        <MuiButton variant="contained" color="primary" disabled={!staged || busy} onClick={applyStaged}>
           {applyLabel}
         </MuiButton>
       ) : null}
@@ -1032,7 +1032,7 @@ function MultiSelectFilter({
         {deferApply && draft.length === 0 ? null : (
           <Box sx={{ display: "flex", gap: 1, p: 1, borderTop: 1, borderColor: "divider", borderStyle: "dashed" }}>
             {deferApply ? null : (
-              <MuiButton size="small" variant="contained" onClick={apply}>
+              <MuiButton size="small" variant="contained" color="primary" onClick={apply}>
                 {applyLabel}
               </MuiButton>
             )}
@@ -1197,7 +1197,7 @@ function CompareFilter({
           buttons waiting to be pressed. Enter in the value box does the same thing. Absent entirely
           on a deferred bar, which has exactly one Apply. */}
       {!deferApply && staged && !disabled ? (
-        <MuiButton variant="contained" onClick={() => commit(opDraft, valueDraft)}>
+        <MuiButton variant="contained" color="primary" onClick={() => commit(opDraft, valueDraft)}>
           {applyLabel}
         </MuiButton>
       ) : null}

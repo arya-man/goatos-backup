@@ -58,7 +58,7 @@ export function VideoLogPanel({
         href={`#${VIDEO_LOG_PANEL_SELECTION_KEY}=${VIDEO_LOG_PANEL_ID}`}
         replace
         scroll={false}
-        variant="contained"
+        variant="contained" color="primary"
         startIcon={<Clock size={18} aria-hidden="true" />}
         className="vr-videolog-btn"
       >

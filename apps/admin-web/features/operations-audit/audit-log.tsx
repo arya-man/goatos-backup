@@ -335,7 +335,7 @@ export async function OperationsAuditPage({
           <Field name="resource_id" label={copy(pageContract, "field.resource_id")} value={filters.resourceId} placeholder={copy(pageContract, "placeholder.uuid")} width={184} />
           <Field name="module" label={copy(pageContract, "field.module")} value={filters.module} placeholder={copy(pageContract, "placeholder.source_entry")} width={150} />
           <Field name="category" label={copy(pageContract, "field.category")} value={filters.category} placeholder={copy(pageContract, "placeholder.accepted_intake")} width={158} />
-          <Button type="submit" variant="contained">
+          <Button type="submit" variant="contained" color="primary">
             {copy(pageContract, "filter.apply")}
           </Button>
           <LinkButton href={clearedHref} replace scroll={false} color="error" startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>

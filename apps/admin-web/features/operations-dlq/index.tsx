@@ -134,7 +134,7 @@ export async function OperationsDLQPage({
             {hiddenInputs(sp, ["event_type", "topic", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
             <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} defaultValue={eventType ?? ""} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
             <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} defaultValue={topic ?? ""} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
-            <Button type="submit" variant="contained">
+            <Button type="submit" variant="contained" color="primary">
               {copy(pageContract, "filter.apply")}
             </Button>
           </Box>

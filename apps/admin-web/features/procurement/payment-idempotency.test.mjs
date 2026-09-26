@@ -145,7 +145,7 @@ test("every payment form is rendered with its key and cannot be submitted while 
   assert.match(drawerSource, /usePaymentFormAction\(\s*updateSalesDealPaymentAction/);
   assert.match(drawerSource, /usePaymentFormAction\(deleteSalesDealPaymentAction/);
   // MUI redesign: the record-payment submit is the template contained Button.
-  assert.match(drawerSource, /variant="contained" disabled=\{pending\}/);
+  assert.match(drawerSource, /variant="contained" color="primary" disabled=\{pending\}/);
   assert.equal((drawerSource.match(/\sdisabled=\{busy\}/g) ?? []).length, 2);
   // Submitted through onSubmit, never an action prop: React resets an action-prop form once the
   // action settles, which wiped a refused receipt's typed amount and note (seen on the live proof).

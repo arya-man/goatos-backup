@@ -649,7 +649,7 @@ export function VaccinationPlanEditor(props: Props) {
           </MuiButton>
           <MuiButton
             type="button"
-            variant="contained"
+            variant="contained" color="primary"
             disabled={pending || blockedReason !== null || !props.canPublish}
             title={
               blockedReason ??
@@ -938,7 +938,7 @@ function AddVaccineModal({
             <MuiButton type="button" variant="outlined" size="small" onClick={onCancel}>
               Cancel
             </MuiButton>
-            <MuiButton type="button" variant="contained" onClick={handleSave}>
+            <MuiButton type="button" variant="contained" color="primary" onClick={handleSave}>
               Add to the draft
             </MuiButton>
           </div>

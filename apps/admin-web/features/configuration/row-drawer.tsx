@@ -307,7 +307,7 @@ export function RowDrawerForm({
 
         {canEdit ? (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <Button type="submit" variant="contained" loading={pending}>
+            <Button type="submit" variant="contained" color="primary" loading={pending}>
               {c("action.save")}
             </Button>
             <Button type="button" variant="outlined" onClick={() => closeOverlay(listHref)} disabled={pending}>

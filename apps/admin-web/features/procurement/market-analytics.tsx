@@ -216,7 +216,7 @@ export async function MarketAnalyticsPage({
                             <TableCell key={q.id} className="num" data-label={q.label} title={`${copy(pageContract, "column.recorded_on")} ${humanDate(cell.business_date)}`}>
                               <Box component="span" sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.25 }}>
                               <b>{priceWithUnit(cell.price, cell.unit_label)}</b>
-                              <span className="small"style={{ color: delta == null ? "var(--mut)" : delta > 0 ? "var(--ok)" : delta < 0 ? "var(--danger)" : "var(--mut)" }}>
+                              <span className="small"style={{ color: delta == null ? "var(--muted)" : delta > 0 ? "var(--ok)" : delta < 0 ? "var(--danger)" : "var(--muted)" }}>
                                 {delta == null
                                   ? copy(pageContract, "value.no_previous")
                                   : `${delta > 0 ? "▲" : delta < 0 ? "▼" : "•"} ${num(Math.abs(delta), Number.isInteger(delta) ? 0 : 2)}`}

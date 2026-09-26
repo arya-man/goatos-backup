@@ -356,6 +356,18 @@ submit — is a write path and inherits the repo idempotency contract. Check:
 - [ ] No legacy stylesheet rule selecting `.Mui*` that sets colour/background/border
   (P0 `legacy-css-mui-colour`); legacy CSS only shrinks.
 - [ ] Changed pages checked at 1440 dark, 1440 light and 390 dark next to the template page.
+## Template fidelity (guards: `components/app/template-fidelity-guards.test.mjs`)
+
+- [ ] Every contained `Button` has an explicit `color` (`brand-primary-contained`)
+- [ ] Logo is the `मे` mark, no `"M"`; global-error follows the stored theme + app font (`mesha-logo-mark`)
+- [ ] `onSubmit` in a form with a required ThemedDatePicker checks `event.defaultPrevented` (`form-submit-respects-field-guard`)
+- [ ] Refusal-returning server actions never `requiredString` a user field (`refusal-actions-never-throw`)
+- [ ] DataTable phone/desktop swap via `sx` breakpoints, not a CSS `display:none` (`breakpoint-display-in-sx`)
+- [ ] No `var(--token)` read without a definition or fallback (`css-token-defined`)
+- [ ] Chart ramp: 7 distinct hues, no error red (`chart-ramp-distinct`)
+- [ ] No stylesheet rule on a `PageHeader` className (`page-header-action-slot`)
+- [ ] Phone stacked rows are dividers, not cards in a card; no KPI deck inside a card (`no-card-in-card`)
+- [ ] Filter bars: outlined selects + MUI Chips, one rows-per-page in the pager (`template-filter-toolbar`)
 
 ## Error, Loading, and Accessibility
 
