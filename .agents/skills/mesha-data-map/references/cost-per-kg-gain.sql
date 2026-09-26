@@ -120,7 +120,9 @@ sh AS (SELECT sg.pen_shed_id,sg.pen_key,sg.d_prev,sg.d,sum(g.h)::float8 head_day
   ON g.pen_shed_id=sg.pen_shed_id AND g.pen_key=sg.pen_key AND g.feed_day>=sg.d_prev AND g.feed_day<sg.d GROUP BY 1,2,3,4),
 sw AS (SELECT sg.pen_shed_id,sg.pen_key,sg.d_prev,sg.d,sum(wf.kg)::float8 wastage FROM segments sg JOIN wfed wf
   ON wf.pen_shed_id=sg.pen_shed_id AND wf.pen_key=sg.pen_key AND wf.feed_day>=sg.d_prev AND wf.feed_day<sg.d GROUP BY 1,2,3,4),
-seg AS (SELECT sg.*, GREATEST(f.feed_kg-COALESCE(w.wastage,0),0) feed_kg, COALESCE(w.wastage,0) wastage_kg, f.cost, f.unpriced, h.head_days,
+seg AS (SELECT sg.*, GREATEST(f.feed_kg-COALESCE(w.wastage,0),0) feed_kg, COALESCE(w.wastage,0) wastage_kg, f.cost,
+  CASE WHEN f.feed_kg > 0 THEN f.unpriced * GREATEST(f.feed_kg-COALESCE(w.wastage,0),0) / f.feed_kg ELSE 0 END unpriced,
+  h.head_days,
   (f.feed_kg IS NOT NULL AND h.head_days>0) ok, sg.adg_g*h.head_days/1000 gain
   FROM segments sg LEFT JOIN sf f USING (pen_shed_id,pen_key,d_prev,d) LEFT JOIN sh h USING (pen_shed_id,pen_key,d_prev,d)
   LEFT JOIN sw w USING (pen_shed_id,pen_key,d_prev,d)),

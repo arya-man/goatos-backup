@@ -55,7 +55,7 @@
         },
         {
           "path": "backend/internal/growthdirector/domain/fcr.go",
-          "sha256": "75258124697b48fd7ce7a8843926790c649701e5857c81ee5eb522f23fd5984e"
+          "sha256": "ce9c32e4ab85199266202ec00b047a4e3443bf35c9045c90f17fb0d9c6a6f232"
         }
       ]
     },
