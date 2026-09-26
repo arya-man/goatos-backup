@@ -8,6 +8,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ConfigurationImportJob, ConfigurationImportRow, ConfigurationRegister } from "@/lib/api/configuration-server";
+import { UploadFile } from "@/components/minimal/upload";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
 
 /**
  * The bulk sheet drawer (maintainer instruction 2026-09-18): DOWNLOAD a register as CSV or
@@ -216,21 +219,28 @@ export function SheetDrawer({
             </a>
           </div>
           <p className="muted small">{c("sheet.template_hint")}</p>
-          <div className="cfg-sheet-file">
-            <input
-              ref={fileRef}
-              type="file"
+          <Stack spacing={1.5}>
+            <UploadFile
+              inputRef={fileRef}
               accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              aria-label={c("sheet.choose_file")}
+              ariaLabel={c("sheet.choose_file")}
+              title={c("sheet.choose_file")}
               disabled={busy}
-              onChange={(event) => setFileName(event.currentTarget.files?.[0]?.name ?? "")}
-              data-testid="sheet-file"
+              onFileChange={(file) => setFileName(file?.name ?? "")}
+              testId="sheet-file"
             />
-            <button type="button" className="btn sm b" disabled={busy || !fileName} onClick={() => void upload()} data-testid="sheet-upload">
-              {phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
+            <Button
+              type="button"
+              variant="contained"
+              disabled={busy || !fileName}
+              onClick={() => void upload()}
+              data-testid="sheet-upload"
+              startIcon={phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
+              sx={{ alignSelf: "flex-start" }}
+            >
               {phase === "uploading" ? c("sheet.uploading") : c("sheet.upload_action")}
-            </button>
-          </div>
+            </Button>
+          </Stack>
 
           {job ? (
             <div className="cfg-sheet-job" data-testid="sheet-job" data-status={job.status}>

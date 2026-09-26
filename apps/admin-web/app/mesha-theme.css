@@ -4547,8 +4547,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
 .cfg-sheet-title { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .cfg-sheet-title.small { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .cfg-sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.cfg-sheet-file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.cfg-sheet-file input[type="file"] { max-width: 100%; font-size: 13px; }
 .cfg-sheet-job { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2, transparent); }
 .cfg-sheet-job-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .cfg-sheet-file-name { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }

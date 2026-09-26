@@ -76,6 +76,9 @@
     "components/minimal/drawer/minimal-drawer.tsx": "src/sections/calendar/calendar-filters.tsx",
     "components/minimal/drawer/index.ts": "src/sections/calendar/index.ts",
 
+    "components/minimal/upload/upload-file.tsx": "src/components/upload/default/upload-default.tsx",
+    "components/minimal/upload/index.ts": "src/components/upload/index.ts",
+
     "components/minimal/empty-content/empty-content.tsx": "src/components/empty-content/empty-content.tsx",
     "components/minimal/empty-content/index.ts": "src/components/empty-content/index.ts",
 

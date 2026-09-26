@@ -4,6 +4,8 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 
 import { currentHistoryEntryIsLocalOverlay, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
@@ -154,7 +156,7 @@ export function RowDrawerForm({
 
   return (
     <>
-      <form action={formAction} aria-busy={pending} className="cfg-form" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <Stack component="form" action={formAction} aria-busy={pending} className="cfg-form" spacing={3}>
         <input type="hidden" name="register" value={register.key} />
         {row ? <input type="hidden" name="row_id" value={row.id} /> : null}
         {row ? <input type="hidden" name="row_version" value={row.row_version} /> : null}
@@ -179,7 +181,8 @@ export function RowDrawerForm({
           const value = draft[column.key];
           const error = fieldErrors[column.key];
           const disabled = readOnly || (column.immutable && isEdit);
-          const label = `${column.label}${column.required ? " *" : ""}`;
+          // MUI adds the one required asterisk from `required`; the label is the column label only.
+          const label = column.label;
           let control: React.ReactNode;
           switch (column.type) {
             case "bool":
@@ -291,11 +294,19 @@ export function RowDrawerForm({
               );
           }
           return (
-            <div className="fld" key={column.key}>
+            <Stack key={column.key} spacing={0.75}>
               {control}
-              {column.hint ? <div className="muted small">{column.hint}</div> : null}
-              {error ? <div className="cfg-ferr">{error}</div> : null}
-            </div>
+              {column.hint ? (
+                <Typography variant="caption" sx={{ color: "text.secondary", px: 1.75 }}>
+                  {column.hint}
+                </Typography>
+              ) : null}
+              {error ? (
+                <Typography variant="caption" className="cfg-ferr" sx={{ color: "error.main", px: 1.75 }}>
+                  {error}
+                </Typography>
+              ) : null}
+            </Stack>
           );
         })}
 
@@ -315,7 +326,7 @@ export function RowDrawerForm({
             </Button>
           </div>
         ) : null}
-      </form>
+      </Stack>
 
       {row && (canSetStatus || canDelete) ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>

@@ -13,6 +13,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ConfigurationImportBundle, ConfigurationImportJob } from "@/lib/api/configuration-server";
+import { UploadFile } from "@/components/minimal/upload";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
 
 /**
  * The onboarding workbook drawer (maintainer instruction 2026-09-19): DOWNLOAD one Excel
@@ -200,21 +203,28 @@ export function WorkbookDrawer({ pageContract, canWrite, registerLabels }: { pag
           </div>
           <p className="muted small">{c("workbook.upload_hint")}</p>
           <p className="muted small">{c("workbook.order_hint")}</p>
-          <div className="cfg-sheet-file">
-            <input
-              ref={fileRef}
-              type="file"
+          <Stack spacing={1.5}>
+            <UploadFile
+              inputRef={fileRef}
               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              aria-label={c("sheet.choose_file")}
+              ariaLabel={c("sheet.choose_file")}
+              title={c("sheet.choose_file")}
               disabled={busy}
-              onChange={(event) => setFileName(event.currentTarget.files?.[0]?.name ?? "")}
-              data-testid="workbook-file"
+              onFileChange={(file) => setFileName(file?.name ?? "")}
+              testId="workbook-file"
             />
-            <button type="button" className="btn sm b" disabled={busy || !fileName} onClick={() => void upload()} data-testid="workbook-upload">
-              {phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
+            <Button
+              type="button"
+              variant="contained"
+              disabled={busy || !fileName}
+              onClick={() => void upload()}
+              data-testid="workbook-upload"
+              startIcon={phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
+              sx={{ alignSelf: "flex-start" }}
+            >
               {phase === "uploading" ? c("sheet.uploading") : c("workbook.upload_action")}
-            </button>
-          </div>
+            </Button>
+          </Stack>
 
           {bundle ? (
             <div className="cfg-sheet-job" data-testid="workbook-bundle" data-status={bundle.status}>
