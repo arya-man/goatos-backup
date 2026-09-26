@@ -190,6 +190,7 @@ const CHECKS = {
   "f2-literal": { tier: "waivable", why: "never show the legacy 'F2' code; lifecycle names only" },
   "fixed-px-width": { tier: "waivable", why: "fixed px width >= 480 cannot fit a 390px phone; use min(…, 100%) (a template drawer width on MinimalDrawer/DetailDrawer is allowed: phones get the full width)" },
   "drawer-off-template": { tier: "waivable", why: "right drawer not on the template temporary Drawer: use MinimalDrawer / DetailDrawer (portal, visible backdrop, template width 320/360/420/480, header+close, Scrollbar body, footer); wide tables scroll in DrawerTableScroll (Ravi R2-4)" },
+  "sx-hidden-full-width": { tier: "p0", why: "an sx visually-hidden box with width: 1 / height: 1 is 100% wide in MUI (1 = 100%), so an absolute live region pushes the page sideways; use visuallyHidden from @mui/utils" },
   "prose-under-title": { tier: "waivable", why: "no explanatory paragraph under a title/card header" },
   "raw-float-format": { tier: "waivable", why: "numbers render through lib/format (max 2 decimals); no toFixed(3+) or raw `${n} kg` templates" },
   "chart-without-tooltip": { tier: "waivable", why: "every chart needs the shared tooltip card" },
@@ -301,6 +302,7 @@ function runGuard(root, { themeDiff }) {
       if (TAILWIND_PALETTE.test(code)) findings.push(finding("tailwind-palette-class", file.rel, lineNo, raw));
       if (F2_LITERAL.test(code) && !F2_ALLOWED.has(file.rel)) findings.push(finding("f2-literal", file.rel, lineNo, raw));
       if (FIXED_PX_WIDTH.test(code) && !/max-?[wW]idth|overflow/.test(code) && !(drawerLines.has(lineNo) && onlyTemplateDrawerWidths(code))) findings.push(finding("fixed-px-width", file.rel, lineNo, raw));
+      if (/position:\s*["']absolute["'][^}]*\bwidth:\s*1\s*,[^}]*\bheight:\s*1\b/.test(code) || /\bwidth:\s*1\s*,\s*height:\s*1\b[^}]*clipPath/.test(code)) findings.push(finding("sx-hidden-full-width", file.rel, lineNo, raw));
       if (CHART_NO_ANIM.test(code)) findings.push(finding("chart-animation-disabled", file.rel, lineNo, raw));
       if (RAW_FLOAT_FIXED.test(code) || RAW_UNIT_TEMPLATE.test(code)) findings.push(finding("raw-float-format", file.rel, lineNo, raw));
       if (RAW_CHART_LIB.test(code)) findings.push(finding("raw-chart-lib", file.rel, lineNo, raw));
@@ -902,6 +904,7 @@ async function selfTest() {
     '<div role="tablist" />',
     '<div role="dialog" aria-modal="true" />',
     '<span role="tooltip">tip</span>',
+    '<Box component="p" role="status" sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }} />',
     '<span className="chip ok">Done</span>',
     '<input type="checkbox" checked={on} />',
     '<div className="alert warn">Careful</div>',

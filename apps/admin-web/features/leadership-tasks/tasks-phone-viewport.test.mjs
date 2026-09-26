@@ -5,13 +5,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
-const css = read("../../app/mesha-theme.css");
 const table = read("./leadership-tasks-table.tsx");
 const dataTable = read("../../components/data-table.tsx");
 const filters = read("./leadership-tasks-filters.tsx");
 const editModal = read("./edit-task-modal.tsx");
 const newModal = read("./new-task-modal.tsx");
-const dialogShell = read("./use-dialog-shell.tsx");
 
 // ---- A hidden column must hide its HEADER with its body.
 // `meta.cellClassName` reaches only the `<td>`s. A column dropped at phone width therefore left
@@ -38,58 +36,33 @@ for (const meta of urgencyMetas) {
   );
 }
 
-// ---- ONE breakpoint for the page: the sheet, the tap targets and the dropped column agree.
-// Three different widths meant 561-760px got the bottom sheet with ~28px controls.
+// ---- ONE phone breakpoint for the page (theme `md`): the urgency column drops, its clock
+// reappears under the title, and the toolbar stacks -- all on the same width, so no band of
+// widths gets the stacked toolbar with a desktop table.
 assert.match(
-  css,
-  /@media\(max-width:760px\)\{\.lt-page \.lt-days-col\{display:none\}/,
-  "the urgency column must drop at the same 760px breakpoint as the filter sheet",
+  table,
+  /\[theme\.breakpoints\.down\("md"\)\]: \{ "& \.lt-days-col": \{ display: "none" \} \}/,
+  "the urgency column (header AND body cells) drops below md",
 );
 assert.match(
-  css,
-  /@media\(max-width:760px\)\{[\s\S]*?\.lt-page \.lt-fbar\.lt-fsheet-host\{/,
-  "the filter sheet must switch at 760px",
+  table,
+  /className="lt-clock-inline" sx=\{\{ display: \{ xs: "block", md: "none" \}/,
+  "the same clock shows under the title exactly where the column is dropped",
 );
-assert.doesNotMatch(
-  css,
-  /@media\(max-width:(?:560|600)px\)\{\.lt-page \./,
-  "no .lt-page rule may introduce a second phone breakpoint beside 760px",
+assert.match(
+  filters,
+  /flexDirection: \{ xs: "column", md: "row" \}/,
+  "the template toolbar stacks its controls at phone width (sections/user/user-table-toolbar.tsx)",
 );
+// No page-owned phone sheet any more: the toolbar is in flow, and every popup it opens is a
+// portalled MUI surface (Select menu, CustomPopover) that owns its own focus and scroll lock.
+assert.doesNotMatch(filters, /lt-fgroup|lt-fsheet|position: "fixed"/, "no hand-made fixed filter sheet");
+assert.match(filters, /<CustomPopover/, "the dates disclosure is the template menu popover (portal)");
 
-// ---- The status chips are the page's PRIMARY filter affordance and are anchors, which the
-// app-wide phone touch block (`.main button,.btn,.btn.sm`) never matched: ~23px tap targets.
-//
-// These are asserted SEPARATELY and by their real selectors on purpose. The chips were
-// `<a class="achip">` when this rule was written and became `.lt-chips.lt-seg > a` in the toolbar
-// rebuild, at which point a single combined pattern naming only `.achip` still PASSED -- satisfied
-// entirely by the Clear chip -- while guarding nothing for the control it was named after. A
-// half-vacuous assertion is worse than a missing one: it reads as coverage. If the markup moves
-// again, each of these must be re-pointed at whatever the control actually renders as.
-assert.match(
-  css,
-  /\.lt-page \.lt-fsheet-host \.lt-seg a\{[^}]*min-height:40px/,
-  "the status chips (.lt-seg a) need a >=40px tap target at phone width",
-);
-assert.match(
-  css,
-  /\.lt-page \.lt-fsheet-host \.achip\.lt-fclear\{[^}]*min-height:40px/,
-  "the Clear chip needs a >=40px tap target at phone width",
-);
-// The active-filter chips and their remove buttons are the third affordance in this family.
-assert.match(
-  css,
-  /\.lt-page \.lt-fsheet-host \.lt-factive \.achip\{[^}]*min-height:40px/,
-  "active-filter chips need a >=40px tap target at phone width",
-);
+// ---- The status tabs scroll sideways inside their own strip at phone width (template Tabs
+// `variant="scrollable"`), never widening the page.
+assert.match(filters, /<Tabs[\s\S]*?variant="scrollable"/, "the status tabs scroll inside their strip");
 
-// ---- `vh` is the WRONG unit in an in-app webview: WhatsApp's chrome retracts, so a vh box is
-// measured against a viewport the reader does not have and the overlay's bottom is unreachable.
-// Both declarations must survive: `vh` first as the fallback, then `dvh`.
-assert.match(
-  css,
-  /\.lt-fgroup\.open\{[^}]*max-height:84vh;max-height:84dvh/,
-  "the filter sheet must use dvh with a vh fallback",
-);
 // ---- The task modals are the template MUI Dialog with scroll="paper": the dialog is sized to
 // the visual viewport by MUI, the header (and its X) stays put and only DialogContent scrolls, so
 // a short phone can always reach Close. They portal above the page and the Ask Mesha button.
@@ -103,10 +76,6 @@ for (const [name, source] of [
 
 // ---- Every overlay on this page owes a phone reader a body scroll lock and a focus trap:
 // without the lock a drag inside the sheet scrolled the LIST behind it.
-assert.match(dialogShell, /document\.body\.style\.overflow = "hidden"/, "scroll lock");
-assert.match(dialogShell, /previousOverflow/, "the scroll lock must restore the previous value");
-assert.match(dialogShell, /event\.key !== "Tab"/, "focus trap");
-assert.match(filters, /useDialogShell\(\{/, "the filter sheet must use the shared dialog shell");
 // The two modals get the lock and the trap from MUI Dialog (Modal), and Back closes them.
 for (const [name, source] of [
   ["the edit modal", editModal],
@@ -115,41 +84,3 @@ for (const [name, source] of [
   assert.match(source, /useBackCloses\(open, closeModal\)/, `${name} must close on browser Back`);
 }
 
-// ---- The pending filter bar must NOT dim, because at phone width it CONTAINS the fixed sheet.
-// The shared `.wfbusy{opacity:.55;pointer-events:none}` is written for a bar holding only its own
-// controls. Here `.lt-fgroup.open` -- `position:fixed`, `z-index:151` -- is a CHILD of the bar, so
-// every filter change took the whole open sheet to 55% opacity for as long as the transition ran:
-// the page read straight through it, and the opacity's stacking context stopped the z-index
-// lifting it clear. Measured at 390px on 2026-09-23 (before: opacity .55, a second pick while
-// loading silently swallowed by `pointer-events:none`; after: opacity 1, both picks land).
-assert.match(
-  filters,
-  /className=\{`lt-fbar lt-fsheet-host\$\{isPending \? " wfbusy" : ""\}`\}/,
-  "the bar carries wfbusy while pending -- the precondition this rule exists for",
-);
-assert.match(
-  filters,
-  /className=\{`lt-fbar lt-fsheet-host[\s\S]*?className=\{`lt-fgroup\$\{sheetOpen \? " open" : ""\}`\}/,
-  "the fixed filter sheet is a DESCENDANT of the bar, which is why dimming the bar dims the sheet",
-);
-const busyRule = css.match(/\.lt-page \.lt-fbar\.lt-fsheet-host\.wfbusy\{[^}]*\}/)?.[0] ?? "";
-assert.match(busyRule, /opacity:1/, "the pending filter bar must never dim -- it holds the sheet");
-assert.match(
-  busyRule,
-  /pointer-events:auto/,
-  "the sheet must stay tappable while loading, or a second pick is swallowed",
-);
-assert.match(busyRule, /box-shadow:0 0 0 2px var\(--ring\)/, "the ring is the busy signal instead");
-
-// ...and the exception stops at this bar. `.lt-page .lt-fbar.wfbusy` also matches the vaccination
-// live tracker's filter bar (live-tracker-filters.tsx), which holds nothing but its own controls
-// and so has none of the problem above -- the shared dimming is the right busy signal there.
-// Folding the two selectors into one list silently drops the dimming from that page too, which is
-// why the generic rule is asserted to carry the ring and NOTHING else.
-const genericBusyRule =
-  css.match(/(?:^|\n)\.lt-page \.lt-fbar\.wfbusy\{[^}]*\}/)?.[0]?.trim() ?? "";
-assert.equal(
-  genericBusyRule,
-  ".lt-page .lt-fbar.wfbusy{box-shadow:0 0 0 2px var(--ring)}",
-  "the live tracker's bar keeps the shared dimming; only the sheet-hosting bar opts out",
-);

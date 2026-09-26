@@ -101,9 +101,6 @@ export function isWorkState(value: string, options: AdminUiOption[]): value is W
 export const PARAM_PARK = "park";
 
 // The mock's epic colour class per module key; unknown modules fall back to the park tint.
-export function moduleClass(module: string): string {
-  return `etag e-${module}`;
-}
 
 // Progress bar segments, from the row's own counts and the SERVER's lane: done is green, a
 // pending remainder is blue while the card is In review, amber while it is In progress, and

@@ -1,8 +1,15 @@
-import { ClipboardList } from "lucide-react";
+import Box from "@mui/material/Box";
+import Tab from "@mui/material/Tab";
+import Card from "@mui/material/Card";
+import Tabs from "@mui/material/Tabs";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
 
-import { SegmentedLinks, type SegmentedOption } from "@/components/segmented-links";
-import { Tag } from "@/components/ui-primitives";
+import Link from "@/components/no-prefetch-link";
+import type { SegmentedOption } from "@/components/segmented-links";
 import { WorklistPager } from "@/components/worklist-pager";
+import { Label } from "@/components/minimal/label";
+import { EmptyContent } from "@/components/minimal/empty-content";
 import {
   copy,
   table,
@@ -23,6 +30,7 @@ import { LeadershipTasksTableLazy as LeadershipTasksTable } from "./leadership-t
 import { PageHeader } from "@/components/app/page-header";
 import { RetryButton } from "@/components/app/retry-button";
 import { NewTaskModal } from "./new-task-modal";
+// The New task / Edit task dialog fields (`.lt-modal .fld` label anatomy) still read this sheet.
 import "./leadership-tasks-kit.css";
 import {
   hasTaskFilters,
@@ -150,18 +158,8 @@ export function LeadershipTasksPage({
           .replace("{shown}", `${shownCount}`)
           .replace("{total}", `${scopeTotal(selectedScope)}`);
 
-  const scopeOptions: SegmentedOption[] = scopes.map((scope) => ({
-    value: scope.key,
-    label: readFailed ? scope.label : `${scope.label} (${scopeTotal(scope)})`,
-    // A scope change restarts paging and drops the selected task: a cursor and a row id from one
-    // scope mean nothing in another.
-    href: tasksHref(
-      basePath,
-      sp,
-      { [TASK_PARAM.scope]: scope.key, [TASK_PARAM.task]: null },
-      { resetPaging: true },
-    ),
-  }));
+  const scopeHref = (key: string) =>
+    tasksHref(basePath, sp, { [TASK_PARAM.scope]: key, [TASK_PARAM.task]: null }, { resetPaging: true });
 
   /**
    * Board / List, Jira's own pair.
@@ -256,40 +254,76 @@ export function LeadershipTasksPage({
    */
   const emptyState =
     narrowed && selectedScope && scopeTotal(selectedScope) > 0 ? (
-            /* NO HITS IS NOT AN EMPTY QUEUE (Gate-1 #2): the scope holds tasks and the reader's
-               search / chip / person / dates hid every one of them, so say that and offer the way
-               back. The scope's own empty_message is for a scope that is truly empty. */
-            <div className="bd lt-empty-state" data-lt-empty="filtered">
-              <ClipboardList className="ic" aria-hidden="true" />
-              <div>
-                <b>{copy(pageContract, "empty.filtered", "No tasks match.")}</b>
-                <p>
-                  <a href={tasksClearedHref(basePath, sp)} className="lt-empty-clear">
-                    {copy(pageContract, "empty.filtered_action", "Clear the filters")}
-                  </a>{" "}
-                  {copy(pageContract, "empty.filtered_rest", "to see all {count}.").replace(
-                    "{count}",
-                    `${scopeTotal(selectedScope)}`,
-                  )}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="bd lt-empty-state">
-              <ClipboardList className="ic" aria-hidden="true" />
-              <div>
-                <b>
-                  {selectedScope?.empty_message ||
-                    copy(pageContract, "empty.tasks")}
-                </b>
-                <p>{copy(pageContract, "empty.tasks_detail")}</p>
-              </div>
-            </div>
-          );
+      /* NO HITS IS NOT AN EMPTY QUEUE (Gate-1 #2): the scope holds tasks and the reader's
+         search / chip / person / dates hid every one of them, so say that and offer the way
+         back. The scope's own empty_message is for a scope that is truly empty. */
+      <EmptyContent
+        data-lt-empty="filtered"
+        title={copy(pageContract, "empty.filtered", "No tasks match.")}
+        description={copy(pageContract, "empty.filtered_rest", "to see all {count}.").replace("{count}", `${scopeTotal(selectedScope)}`)}
+        action={
+          <Button component={Link} href={tasksClearedHref(basePath, sp)} variant="soft" sx={{ mt: 2 }}>
+            {copy(pageContract, "empty.filtered_action", "Clear the filters")}
+          </Button>
+        }
+        sx={{ py: 8 }}
+      />
+    ) : (
+      <EmptyContent
+        title={selectedScope?.empty_message || copy(pageContract, "empty.tasks")}
+        description={copy(pageContract, "empty.tasks_detail")}
+        sx={{ py: 8 }}
+      />
+    );
 
+  const pager = (
+    <WorklistPager
+      pageContract={pageContract}
+      offset={displayOffset}
+      limit={params.limit}
+      rowCount={tasks.length}
+      hasMore={Boolean(nextHref)}
+      noun={copy(pageContract, "table.tasks.noun")}
+      pageSizeOptions={pageSizeOptions}
+      hrefForOffset={hrefForOffset}
+      hrefForLimit={hrefForLimit}
+    />
+  );
+
+  const filters = (
+    <LeadershipTasksFilters
+      pageContract={pageContract}
+      basePath={basePath}
+      q={params.rawQ}
+      assignee={params.assigneeUserID ?? ""}
+      raiser={params.raisedBy ?? ""}
+      assigneeOptions={assigneeChoices}
+      raiserOptions={assigneeChoices}
+      assigneePinned={scopeKey === "assigned_to_me"}
+      raiserPinned={scopeKey === "assigned_by_me"}
+      deadlineFrom={params.deadline.from ?? ""}
+      deadlineTo={params.deadline.to ?? ""}
+      raisedFrom={params.raised.from ?? ""}
+      raisedTo={params.raised.to ?? ""}
+      rangeIncomplete={params.deadline.incomplete || params.raised.incomplete}
+      sort={params.sort}
+      statusChips={statusChips}
+      rows={tasks}
+      hasFilters={hasTaskFilters(params)}
+      clearedHref={tasksClearedHref(basePath, sp)}
+      assigneeCounts={countBy(tasks, (row) => row.assigneeUserID)}
+      raiserCounts={countBy(tasks, (row) => row.raisedByUserID)}
+    />
+  );
+
+  // Template list page (sections/user/view/user-list-view.tsx): CustomBreadcrumbs with the add
+  // action, the page-level scope Tabs (sections/account/account-layout.tsx) with the file-manager
+  // view switch at their end, then ONE Card: status Tabs with Label counts, toolbar, applied
+  // filters and -- in the list view -- the table and its pager. The board view keeps the same card
+  // head and lays the template kanban columns under it on the page ground.
   return (
     <TaskViewProvider initial={params.view}>
-    <div className="screen on lt-page">
+    <Box sx={{ minWidth: 0 }}>
       <PageHeader
         title={page?.title || pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -302,7 +336,7 @@ export function LeadershipTasksPage({
               pageContract={pageContract}
             />
           ) : preview ? (
-            <Tag tone="ok">{copy(pageContract, "state.can_raise")}</Tag>
+            <Label variant="soft" color="success">{copy(pageContract, "state.can_raise")}</Label>
           ) : null
         }
       />
@@ -317,179 +351,120 @@ export function LeadershipTasksPage({
         />
       ) : null}
 
-      {/* AN IGNORED PARAMETER, SAID OUT LOUD.
-          Silently defaulting on a parameter that LOOKS like one of ours is what handed the
-          maintainer a board they thought was a list (`?view=list`, B5). `view` is now read as an
-          alias of `t_view` (`resolveTaskView`); the remaining unprefixed names (`q`, `sort`,
-          `limit`, `page`, ...) are other screens' generic parameters and stay unread, so the page
-          names what it did not read and offers the corrected link. */}
+      {/* AN IGNORED PARAMETER, SAID OUT LOUD. `view` is read as an alias of `t_view`; the
+          remaining unprefixed names (`q`, `sort`, `limit`, `page`, ...) are other screens'
+          generic parameters and stay unread, so the page names what it did not read and offers
+          the corrected link. */}
       {params.ignoredAliases.length ? (
-        <div className="lt-aliasnote" role="status">
-          <span>
-            {copy(
-              pageContract,
-              "state.ignored_params",
-              "This link sets a filter this page does not read. Tasks names its own filters with a t_ prefix.",
-            )}
-          </span>
-          <code>
+        <Alert
+          severity="info"
+          role="status"
+          sx={{ mb: 3 }}
+          action={
+            <Button component={Link} href={tasksAliasFixedHref(basePath, sp, params.ignoredAliases)} color="inherit" size="small">
+              {copy(pageContract, "action.fix_link", "Use the link this page reads")}
+            </Button>
+          }
+        >
+          {copy(
+            pageContract,
+            "state.ignored_params",
+            "This link sets a filter this page does not read. Tasks names its own filters with a t_ prefix.",
+          )}{" "}
+          <Box component="code" sx={{ typography: "caption", fontFamily: "monospace" }}>
             {params.ignoredAliases.map((hint) => `${hint.alias} → ${hint.param}`).join(", ")}
-          </code>
-          <a className="achip" href={tasksAliasFixedHref(basePath, sp, params.ignoredAliases)}>
-            {copy(pageContract, "action.fix_link", "Use the link this page reads")}
-          </a>
-        </div>
+          </Box>
+        </Alert>
       ) : null}
 
-      {/* ONE STICKY GROUP: the scope tabs and the filter bar pin together. The filter bar alone
-          was `position:sticky`, so after the slightest scroll the page's primary navigation (For
-          me / Raised by me / Team progress, and the Board / List pair) slid up behind the toolbar
-          and stayed there -- both of the maintainer's 2000px screenshots show the tabs half
-          clipped. `.lt-fsticky` owns the stickiness now and the bar inside it is static. */}
-      <div className="lt-fsticky">
-      <div className="lt-scopebar">
-        {scopeOptions.length ? (
-          <SegmentedLinks
-            options={scopeOptions}
-            current={scopeKey}
-            ariaLabel={copy(pageContract, "scope.aria")}
-          />
-        ) : null}
-        <div className="ltb-viewswitch">
-          <TaskViewToggle options={viewOptions} ariaLabel={copy(pageContract, "board.view.aria", "Task view")} />
-        </div>
-      </div>
-
-      <LeadershipTasksFilters
-        pageContract={pageContract}
-        basePath={basePath}
-        q={params.rawQ}
-        assignee={params.assigneeUserID ?? ""}
-        raiser={params.raisedBy ?? ""}
-        assigneeOptions={assigneeChoices}
-        raiserOptions={assigneeChoices}
-        // The scope already pins one side of the pair; the backend ignores the parameter rather
-        // than erroring, and an inert control says so instead of pretending to narrow.
-        assigneePinned={scopeKey === "assigned_to_me"}
-        raiserPinned={scopeKey === "assigned_by_me"}
-        deadlineFrom={params.deadline.from ?? ""}
-        deadlineTo={params.deadline.to ?? ""}
-        raisedFrom={params.raised.from ?? ""}
-        raisedTo={params.raised.to ?? ""}
-        rangeIncomplete={params.deadline.incomplete || params.raised.incomplete}
-        sort={params.sort}
-        statusChips={statusChips}
-        rows={tasks}
-        hasFilters={hasTaskFilters(params)}
-        clearedHref={tasksClearedHref(basePath, sp)}
-        // The Work Board's picker shows how many cards on THIS page each person holds; the
-        // filter itself is whole-list, so the roster stays the full assignable list.
-        assigneeCounts={countBy(tasks, (row) => row.assigneeUserID)}
-        raiserCounts={countBy(tasks, (row) => row.raisedByUserID)}
-      />
-      </div>
+      <Box sx={{ mb: { xs: 3, md: 5 }, gap: 2, display: "flex", alignItems: "center", justifyContent: "space-between", minWidth: 0 }}>
+        {scopes.length ? (
+          <Tabs
+            value={scopeKey}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            aria-label={copy(pageContract, "scope.aria")}
+            sx={{ minWidth: 0, flex: "1 1 auto" }}
+          >
+            {scopes.map((scope) => (
+              <Tab
+                key={scope.key}
+                value={scope.key}
+                component={Link}
+                href={scopeHref(scope.key)}
+                aria-current={scope.key === scopeKey ? "page" : undefined}
+                iconPosition="end"
+                label={scope.label}
+                icon={
+                  readFailed ? undefined : (
+                    <Label variant={scope.key === scopeKey ? "filled" : "soft"}>{scopeTotal(scope)}</Label>
+                  )
+                }
+              />
+            ))}
+          </Tabs>
+        ) : (
+          <span />
+        )}
+        <TaskViewToggle options={viewOptions} ariaLabel={copy(pageContract, "board.view.aria", "Task view")} />
+      </Box>
 
       {/* The list READ failed (nothing to show in either view): one proper error state with a
-          retry, in the kit's state card — never a bare chip over an empty ground. The scope strip
-          above keeps the other scopes one click away. */}
+          retry. The scope tabs above keep the other scopes one click away. */}
       {!page && !preview ? (
-        <div className="kit-state lt-unavailable-state" role="alert">
-          <span className="kit-state-icon" aria-hidden="true">
-            <ClipboardList className="ic" />
-          </span>
-          <b className="kit-state-title">{copy(pageContract, "state.unavailable_tasks")}</b>
-          <RetryButton label={copy(pageContract, "action.retry", "Retry")} />
-        </div>
+        <Alert severity="error" role="alert" sx={{ mb: 3 }} action={<RetryButton label={copy(pageContract, "action.retry", "Retry")} />}>
+          {copy(pageContract, "state.unavailable_tasks")}
+        </Alert>
       ) : null}
 
-      {/* The BOARD sits on the page ground like the Work Board's: its columns are the structure,
-          so a card box with a "Team progress · 408" header around them was a frame around a
-          frame. The LIST keeps the card: a table wants an edge. */}
       <TaskViewBody
         board={
           <>
-      {hasBoardTasks ? (
-        <div className="ltb-ground">
-          <LeadershipTasksBoard
-            pageContract={pageContract}
-            rows={boardTasks}
-            filters={page?.filters ?? []}
-            basePath={basePath}
-            sp={sp}
-            scopeKey={scopeKey}
-            activeFilter={params.filter}
-            selectedTaskID={selected?.id}
-          />
-          {hasTasks ? (
-            <WorklistPager
-              pageContract={pageContract}
-              offset={displayOffset}
-              limit={params.limit}
-              rowCount={tasks.length}
-              hasMore={Boolean(nextHref)}
-              noun={copy(pageContract, "table.tasks.noun")}
-              pageSizeOptions={pageSizeOptions}
-              hrefForOffset={hrefForOffset}
-              hrefForLimit={hrefForLimit}
-            />
-          ) : null}
-        </div>
-      ) : (
-        <section className="card lt-card lt-board-empty" style={{ minWidth: 0 }} data-testid="lt-board-empty">
-          {emptyState}
-        </section>
-      )}
+            <Card sx={{ mb: 3 }}>{filters}</Card>
+            {hasBoardTasks ? (
+              <>
+                <LeadershipTasksBoard
+                  pageContract={pageContract}
+                  rows={boardTasks}
+                  filters={page?.filters ?? []}
+                  basePath={basePath}
+                  sp={sp}
+                  scopeKey={scopeKey}
+                  activeFilter={params.filter}
+                  selectedTaskID={selected?.id}
+                />
+                {hasTasks ? <Card sx={{ mt: 1 }}>{pager}</Card> : null}
+              </>
+            ) : (
+              <Card data-testid="lt-board-empty">{emptyState}</Card>
+            )}
           </>
         }
         list={
-          <>
-      {(
-      <div className="lt-grid lt-grid-solo">
-        <section className="card lt-card" style={{ minWidth: 0 }}>
-          <div className="hd">
-            <ClipboardList className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-            <h3>{selectedScope?.label || tableContract.title}</h3>
-            <div className="sp" style={{ flex: 1 }} />
-            <Tag tone="info">{headerCount}</Tag>
-          </div>
-          {hasTasks ? (
-            <div className="bd lt-tablewrap">
-              <LeadershipTasksTable
-                pageContract={pageContract}
-                contract={tableContract}
-                rows={tasks}
-                basePath={basePath}
-                sp={sp}
-                scopeKey={scopeKey}
-                selectedTaskID={selected?.id}
-              />
-              <WorklistPager
-                pageContract={pageContract}
-                offset={displayOffset}
-                limit={params.limit}
-                rowCount={tasks.length}
-                hasMore={Boolean(nextHref)}
-                noun={copy(pageContract, "table.tasks.noun")}
-                pageSizeOptions={pageSizeOptions}
-                hrefForOffset={hrefForOffset}
-                hrefForLimit={hrefForLimit}
-              />
-            </div>
-          ) : (
-            emptyState
-          )}
-        </section>
-
-        {/* No rail in the grid: the selected task's panel renders in the drawer below, outside
-            this grid, and with no selection there is nothing to render (see `hasSidePanel`). */}
-      </div>
-      )}
-
-          </>
+          <Card sx={{ minWidth: 0 }} aria-label={selectedScope?.label || tableContract.title} data-count={headerCount}>
+            {filters}
+            {hasTasks ? (
+              <>
+                <LeadershipTasksTable
+                  pageContract={pageContract}
+                  contract={tableContract}
+                  rows={tasks}
+                  basePath={basePath}
+                  sp={sp}
+                  scopeKey={scopeKey}
+                  selectedTaskID={selected?.id}
+                />
+                {pager}
+              </>
+            ) : (
+              emptyState
+            )}
+          </Card>
         }
       />
       {detailPanel}
-    </div>
+    </Box>
     </TaskViewProvider>
   );
 }

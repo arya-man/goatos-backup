@@ -19,7 +19,16 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(import.meta.url);
 const modules = new Map();
 function load(filename) {
-  if (!path.extname(filename)) filename += existsSync(`${filename}.tsx`) ? ".tsx" : ".ts";
+  if (!path.extname(filename)) {
+    // A directory import (`@/components/minimal/label`) resolves to its index module.
+    filename = existsSync(`${filename}.tsx`)
+      ? `${filename}.tsx`
+      : existsSync(`${filename}.ts`)
+        ? `${filename}.ts`
+        : existsSync(path.join(filename, "index.ts"))
+          ? path.join(filename, "index.ts")
+          : path.join(filename, "index.tsx");
+  }
   if (modules.has(filename)) return modules.get(filename).exports;
   const loaded = { exports: {} };
   modules.set(filename, loaded);
@@ -45,6 +54,9 @@ function load(filename) {
   return loaded.exports;
 }
 const { TaskBoardColumns } = load(path.join(root, "features/leadership-tasks/task-board-dnd.tsx"));
+// The board is the template kanban (MUI styled): render inside the app's own theme.
+const { ThemeProvider } = require("@mui/material/styles");
+const theme = load(path.join(root, "theme/create-theme.ts")).createTheme();
 
 const task = (over) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -84,7 +96,7 @@ const columns = [
 ];
 const render = (rows, activeFilter = "all") =>
   renderToStaticMarkup(
-    React.createElement(TaskBoardColumns, {
+    React.createElement(ThemeProvider, { theme }, React.createElement(TaskBoardColumns, {
       pageContract: contract,
       columns,
       rows,
@@ -93,7 +105,7 @@ const render = (rows, activeFilter = "all") =>
       placeholder: "—",
       action: async () => {},
       returnTo: "/tasks",
-    }),
+    })),
   );
 
 test("Cancelled is a column like the other three: no rail, header pill reads 0, body rendered", () => {
@@ -102,12 +114,12 @@ test("Cancelled is a column like the other three: no rail, header pill reads 0, 
   const html = render([task({ status: "open" })]);
   assert.doesNotMatch(html, /is-rail/);
   assert.doesNotMatch(html, /data-ltb-rail="true"/);
-  const col = html.match(/<section class="ltb-col ltb-col-cancelled[^"]*"[^>]*>([\s\S]*?)<\/section>/);
+  const col = html.match(/<section class="[^"]*ltb-col ltb-col-cancelled[^"]*"[^>]*>([\s\S]*?)<\/section>/);
   assert.ok(col, `no cancelled column in: ${html.slice(0, 400)}`);
-  assert.match(col[1], /class="ltb-colname">Cancelled</);
+  assert.match(col[1], /class="[^"]*ltb-colname[^"]*"[^>]*>Cancelled</);
   // The pill reads "0" like every other header, never a button-looking "—" (Gate-1 #14).
-  assert.match(col[1], /class="ltb-colcount"[^>]*>0</);
-  assert.doesNotMatch(col[1], /class="ltb-colcount"[^>]*>—</);
+  assert.match(col[1], /class="[^"]*ltb-colcount[^"]*"[^>]*>0</);
+  assert.doesNotMatch(col[1], /class="[^"]*ltb-colcount[^"]*"[^>]*>—</);
   assert.equal((col[1].match(/ltb-colhd/g) || []).length, 1);
   assert.match(col[1], /ltb-colbd/);
 });

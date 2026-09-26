@@ -12,6 +12,25 @@ import type {
 // Mock palette tones (all defined in mesha-theme.css).
 export type Tone = "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal";
 
+/** The template Label colour for a tone (soft Label chips on the command screens). */
+export function toneColor(tone: Tone | string | undefined): "success" | "warning" | "error" | "info" | "secondary" | "default" {
+  switch (tone) {
+    case "ok":
+      return "success";
+    case "warn":
+      return "warning";
+    case "dng":
+      return "error";
+    case "info":
+    case "teal":
+      return "info";
+    case "pur":
+      return "secondary";
+    default:
+      return "default";
+  }
+}
+
 interface Meta {
   label: string;
   tone: Tone;

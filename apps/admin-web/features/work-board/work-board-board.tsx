@@ -1,27 +1,38 @@
 "use client";
 
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, Info, Search } from "lucide-react";
-import IconButton from "@mui/material/IconButton";
-import Tooltip from "@mui/material/Tooltip";
 import Box from "@mui/material/Box";
+import Select from "@mui/material/Select";
+import Divider from "@mui/material/Divider";
+import Tooltip from "@mui/material/Tooltip";
+import Checkbox from "@mui/material/Checkbox";
+import MenuItem from "@mui/material/MenuItem";
+import TextField from "@mui/material/TextField";
+import IconButton from "@mui/material/IconButton";
+import InputLabel from "@mui/material/InputLabel";
 import Typography from "@mui/material/Typography";
+import FormControl from "@mui/material/FormControl";
+import InputAdornment from "@mui/material/InputAdornment";
+import type { Theme } from "@mui/material/styles";
 import { varAlpha } from "minimal-shared/utils";
 import { KanbanBoard, KanbanColumn, KanbanItemRoot } from "@/components/minimal/kanban";
+import { ItemContent, ItemInfo, ItemName, ItemStatus, type ItemStatusProps } from "@/components/minimal/sections/kanban/item/styles";
+import { Iconify } from "@/components/minimal/iconify";
 import { Label } from "@/components/minimal/label";
 import { TaskPeopleDropdown } from "@/components/people-dropdown";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useId, useMemo, useState, useTransition } from "react";
 import { copy, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow, WorkBoardSummary } from "@/lib/api/work-board-server";
 import {
+  clockClass,
   dayLabel,
   findOption,
+  initials,
   lanes,
   laneCursorParams,
   laneParkResetParams,
-  moduleClass,
   moduleOptions,
   needsAttention,
   ownerStack,
@@ -34,16 +45,7 @@ import {
   PARAM_OWNER,
   type OwnerOption,
 } from "./work-board-model";
-import { AvatarGroup } from "@/components/app/avatar";
 import { ClockLabel, WorkProgress } from "./work-board-parts";
-import { usePopover } from "minimal-shared/hooks";
-import Checkbox from "@mui/material/Checkbox";
-import Divider from "@mui/material/Divider";
-import MenuItem from "@mui/material/MenuItem";
-import MenuList from "@mui/material/MenuList";
-import type { Theme } from "@mui/material/styles";
-import { CustomPopover } from "@/components/minimal/custom-popover";
-import { TAP_MIN } from "@/components/minimal/_shared/tap";
 
 // The board, in the mock's shape: search · assignee avatars · park pick · date nav · Module menu,
 // the rule line, then four columns of cards. Park, date, module and assignee write the URL and the
@@ -73,129 +75,63 @@ function useUrlWriter() {
     const qs = params.toString();
     startTransition(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
   };
-  return { write, pending };
+  const navigate = (href: string) => startTransition(() => router.replace(href, { scroll: false }));
+  return { write, navigate, pending };
 }
 
-// The mock's assignee picker -- a stack of avatars, a "+N" chip, and a dropdown with a user
-// search -- now lives in `components/assignee-picker.tsx` so the Tasks desk can host the same
-// control as a form field. This board uses its `multi` mode, which is the picker exactly as it
-// shipped here: the backend read takes ONE owner, so picking a person narrows to them, and the
-// stack shows everyone on the page when nobody is picked.
-// The mock's Module menu: a checkbox list of epic tags, "Clear all" / "Select all" at the foot,
-// and the trigger reading "Module · all" or the first chosen tag "+N".
-// `selected` empty means every module; `none` is the explicit empty selection after "Clear all".
-function ModuleMenu({ pageContract, options, selected, none, onChange }: { pageContract: AdminUiPageContract; options: AdminUiOption[]; selected: string[]; none: boolean; onChange: (next: string[]) => void }) {
-  // Template menu popover (CustomPopover + MenuList): MUI keeps it inside the viewport, closes it on
-  // an outside click and on Escape, and hands focus back to the trigger.
-  const menu = usePopover();
+// The Module filter: the template list toolbar's multi-select (sections/user/user-table-toolbar.tsx
+// "Role": outlined FormControl + Select multiple, a Checkbox per row), plus the board's own
+// "Clear all" / "Select all" row at the foot. `selected` empty means every module; `none` is the
+// explicit empty selection after "Clear all".
+const MODULE_TOGGLE = "__toggle";
+const ALL_PARKS = "__all";
+function ModuleSelect({ pageContract, options, selected, none, onChange }: { pageContract: AdminUiPageContract; options: AdminUiOption[]; selected: string[]; none: boolean; onChange: (next: string[]) => void }) {
+  const inputId = useId();
   const all = !none && (selected.length === 0 || selected.length === options.length);
   const chosen = none ? [] : all ? options.map((o) => o.key) : selected;
-  const row = (theme: Theme) => ({ [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } });
+  const label = copy(pageContract, "filter.module");
+  // "Module · all" already names the field; the outlined label says "Module", so drop the prefix.
+  const bare = (text: string) => text.replace(new RegExp(`^${label}\\s*·\\s*`), "");
+  const stated = all
+    ? bare(copy(pageContract, "filter.module.all"))
+    : chosen.length === 0
+      ? bare(copy(pageContract, "filter.module.none"))
+      : `${findOption(options, chosen[0])?.label ?? chosen[0]}${chosen.length > 1 ? ` +${chosen.length - 1}` : ""}`;
   return (
-    <div style={{ position: "relative", display: "inline-flex" }}>
-      <button type="button" className="sel" aria-expanded={menu.open} aria-haspopup="menu" onClick={menu.onOpen}>
-        {all ? (
-          copy(pageContract, "filter.module.all")
-        ) : chosen.length === 0 ? (
-          copy(pageContract, "filter.module.none")
-        ) : (
-          <>
-            <span className={moduleClass(chosen[0])}>{findOption(options, chosen[0])?.label ?? chosen[0]}</span>
-            {chosen.length > 1 ? <span className="muted">+{chosen.length - 1}</span> : null}
-          </>
-        )}
-        <ChevronDown className="ic" aria-hidden="true" />
-      </button>
-      <CustomPopover open={menu.open} anchorEl={menu.anchorEl} onClose={menu.onClose} slotProps={{ arrow: { placement: "top-left" } }}>
-        {/* `.wb` scopes the board's epic-tag colours (`.wb .etag`, `.wb .e-*`) inside the portal. */}
-        <MenuList className="wb" aria-label={copy(pageContract, "filter.module.all")}>
-          {options.map((option) => {
-            const on = chosen.includes(option.key);
-            return (
-              <MenuItem key={option.key} role="menuitemcheckbox" aria-checked={on} selected={on} sx={row} onClick={() => {
-                const next = on ? chosen.filter((k) => k !== option.key) : [...chosen, option.key];
-                onChange(next.length === options.length ? [] : next.length === 0 ? [PARAM_MODULE_NONE] : next);
-              }}>
-                <Checkbox size="small" checked={on} disableRipple tabIndex={-1} slotProps={{ input: { "aria-hidden": true } }} sx={{ p: 0 }} />
-                <span className={moduleClass(option.key)}>{option.label}</span>
-              </MenuItem>
-            );
-          })}
-          <Divider sx={{ borderStyle: "dashed" }} />
-          <MenuItem sx={(theme) => ({ ...row(theme), color: theme.palette.text.secondary, ...theme.typography.body2 })} onClick={() => onChange(all ? [PARAM_MODULE_NONE] : [])}>
-            {all ? copy(pageContract, "filter.assignee.clear") : copy(pageContract, "filter.assignee.select_all")}
+    <FormControl sx={{ flexShrink: 0, width: { xs: 1, md: 200 } }}>
+      <InputLabel htmlFor={inputId} shrink>{label}</InputLabel>
+      <Select
+        multiple
+        displayEmpty
+        label={label}
+        value={chosen}
+        renderValue={() => stated}
+        inputProps={{ id: inputId }}
+        MenuProps={{ slotProps: { paper: { sx: { maxHeight: 360 } } } }}
+        onChange={(event) => {
+          const raw = event.target.value;
+          const next = typeof raw === "string" ? raw.split(",") : raw;
+          if (next.includes(MODULE_TOGGLE)) {
+            onChange(all ? [PARAM_MODULE_NONE] : []);
+            return;
+          }
+          onChange(next.length === options.length ? [] : next.length === 0 ? [PARAM_MODULE_NONE] : next);
+        }}
+      >
+        {options.map((option) => (
+          <MenuItem key={option.key} value={option.key}>
+            <Checkbox disableRipple size="small" checked={chosen.includes(option.key)} />
+            {option.label}
           </MenuItem>
-        </MenuList>
-      </CustomPopover>
-    </div>
+        ))}
+        <Divider sx={{ borderStyle: "dashed" }} />
+        <MenuItem value={MODULE_TOGGLE} sx={{ color: "text.secondary", typography: "body2" }}>
+          {all ? copy(pageContract, "filter.assignee.clear") : copy(pageContract, "filter.assignee.select_all")}
+        </MenuItem>
+      </Select>
+    </FormControl>
   );
 }
-
-// Board presentation (theme tokens only). Column width follows the template's
-// `--kanban-column-width`, fitted so four lanes share a laptop row and a phone swipes one lane at a time.
-const BOARD_SX = {
-  "--kanban-column-width": { xs: "86vw", sm: "clamp(calc(var(--sp-5) * 6), calc((100% - 3 * var(--kanban-column-gap)) / 4), var(--kanban-col-w))" },
-  overscrollBehaviorX: "contain",
-  scrollSnapType: { xs: "x mandatory", md: "none" },
-  "& > section": { scrollSnapAlign: "start" },
-  // Columns grow with their cards (template KanbanColumn): no lane scroller -- the per-column
-  // pager does the paging, so a phone never gets a scroll trap inside the board.
-} as const;
-const CARD_SX = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 1,
-  px: 2,
-  py: 2.5,
-  minWidth: 0,
-  overflow: "hidden",
-  color: "inherit",
-  textDecoration: "none",
-  borderRadius: "inherit",
-} as const;
-const TITLE_SX = { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } as const;
-const COUNTS_SX = {
-  display: "flex",
-  flexWrap: "wrap",
-  columnGap: 1,
-  rowGap: 0.5,
-  minWidth: 0,
-  typography: "caption",
-  fontWeight: "fontWeightSemiBold",
-  color: "text.secondary",
-  "& b": { color: "text.primary" },
-  "& > span": { minWidth: 0, overflowWrap: "anywhere" },
-} as const;
-const META_SX = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-  alignItems: "center",
-  columnGap: 1.25,
-  rowGap: 1,
-  minWidth: 0,
-  "& .stack": { gridColumn: 2, gridRow: 2, justifySelf: "end", overflow: "hidden" },
-} as const;
-const KEY_SX = {
-  gridColumn: "1 / -1",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 0.75,
-  minWidth: 0,
-  typography: "caption",
-  fontWeight: "fontWeightSemiBold",
-  color: "text.secondary",
-  overflowWrap: "anywhere",
-} as const;
-const EMPTY_SX = {
-  listStyle: "none",
-  p: 2,
-  border: 1,
-  borderStyle: "dashed",
-  borderColor: "divider",
-  borderRadius: "var(--r-lg)",
-  typography: "body2",
-  color: "text.disabled",
-} as const;
 
 // Raised card on the neutral column in both schemes: the template ItemRoot is grey[900] in dark (the
 // page colour, darker than the column, no border, no resting shadow), so cards read as sunken.
@@ -212,6 +148,22 @@ const HOT_CARD_SX = (t: Theme) => ({
   borderColor: t.vars.palette.warning.main,
   backgroundImage: `linear-gradient(${varAlpha(t.vars.palette.warning.mainChannel, 0.08)}, ${varAlpha(t.vars.palette.warning.mainChannel, 0.08)})`,
 });
+const EMPTY_SX = {
+  listStyle: "none",
+  p: 2,
+  border: 1,
+  borderStyle: "dashed",
+  borderColor: "divider",
+  borderRadius: "var(--kanban-item-radius)",
+  typography: "body2",
+  color: "text.disabled",
+} as const;
+
+// The template item's priority arrow reads the card's severity: broken / late is high, watch is medium.
+function cardStatus(row: WorkBoardRow): ItemStatusProps["status"] {
+  const cls = clockClass(row);
+  return cls === "brk" ? "high" : cls === "run" ? "medium" : null;
+}
 
 function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContract; row: WorkBoardRow; href: string }) {
   const moduleOpt = findOption(moduleOptions(pageContract), row.module);
@@ -220,49 +172,77 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
   const split = pendingSplit(row);
   const stack = ownerStack(row);
   const ownerLabel = stack.names[0] || (row.owner_state === "pool" ? copy(pageContract, "owner.pool") : copy(pageContract, "owner.missing"));
-  return (
-    // Template kanban item: ItemRoot shell (paper, radius, z8 on hover) + ItemContent padding.
-    <KanbanItemRoot sx={hot ? HOT_CARD_SX : CARD_ROOT_SX}>
-    <Box component={LocalOverlayLink} href={href} scroll={false} aria-label={row.title} title={`${row.title} · ${ownerLabel}`} data-filter-row sx={CARD_SX}>
-      <Typography component="div" variant="subtitle2" sx={TITLE_SX}>{row.title}</Typography>
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
-        <span className={moduleClass(row.module)}>{moduleOpt?.label ?? row.module}</span>
-        <span className="etag park" title={row.park_name || undefined}>{parkLabel(parkOptions(pageContract), row)}</span>
-      </Box>
-      {total > 0 ? <WorkProgress row={row} /> : null}
-      <Box sx={COUNTS_SX}>
-        {total > 0 ? (
-          <span>
-            <b>{row.counts.done}</b>/{total} {copy(pageContract, "card.done")}
-          </span>
-        ) : null}
-        {split ? (
-          <>
-            {split.inReview > 0 ? <Box component="span" sx={{ color: "info.main" }}>{split.inReview} {copy(pageContract, "card.in_review")}</Box> : null}
-            {split.started > 0 ? <span>{split.started} {copy(pageContract, "card.started")}</span> : null}
-            {split.notStarted > 0 ? <span>{split.notStarted} {copy(pageContract, "card.not_started")}</span> : null}
-          </>
-        ) : (
-          <>
-            {row.lane === "in_review" && row.counts.pending > 0 ? <Box component="span" sx={{ color: "info.main" }}>{row.counts.pending} {copy(pageContract, "card.in_review")}</Box> : null}
-            {row.lane === "in_progress" && row.counts.pending > 0 ? <span>{row.counts.pending} {copy(pageContract, "card.started")}</span> : null}
-          </>
-        )}
-        {row.counts.needs_attention > 0 ? <Box component="span" sx={{ color: "warning.main" }}>{row.counts.needs_attention} {copy(pageContract, "card.attention")}</Box> : null}
-      </Box>
-      {/* Meta: the key line spans the card; the clock sits under it with the owner stack at its end. */}
-      <Box sx={META_SX}>
-        <Box component="span" title={row.subtitle || row.pen.operational_location_display || ""} sx={KEY_SX}>
-          <span className={`ti${row.module === "counts" ? " p" : ""}`} aria-hidden="true">{row.module === "counts" ? "✓" : row.module === "vaccination" ? "◆" : "▣"}</span>
-          <Box component="span" sx={{ minWidth: 0 }}>{row.subtitle || row.pen.operational_location_display || (moduleOpt?.label ?? row.module)}</Box>
-        </Box>
-        <Box sx={{ gridColumn: 1, minWidth: 0 }}><ClockLabel row={row} /></Box>
-        <AvatarGroup className="stack" title={ownerLabel} names={stack.names} extra={stack.extra} size={22} empty={row.owner_state === "pool" ? "–" : "!"} emptyTone={row.owner_state === "missing" ? "danger" : undefined} />
-      </Box>
+  const assignee = stack.names.length
+    ? [
+        ...stack.names.map((name) => ({ id: name, name, initial: initials(name) })),
+        ...(stack.extra > 0 ? [{ id: "extra", name: `+${stack.extra}`, initial: `+${stack.extra}` }] : []),
+      ]
+    : [{ id: "none", name: ownerLabel, initial: row.owner_state === "pool" ? "–" : "!", color: row.owner_state === "missing" ? ("error" as const) : ("default" as const) }];
+  const reading = (color: string, text: React.ReactNode, key: string) => (
+    <Box key={key} component="span" sx={{ typography: "caption", fontWeight: "fontWeightSemiBold", color }}>
+      {text}
     </Box>
+  );
+  const readings = [
+    total > 0 ? reading("text.secondary", <><Box component="b" sx={{ color: "text.primary" }}>{row.counts.done}</Box>/{total} {copy(pageContract, "card.done")}</>, "done") : null,
+    ...(split
+      ? [
+          split.inReview > 0 ? reading("info.main", `${split.inReview} ${copy(pageContract, "card.in_review")}`, "rev") : null,
+          split.started > 0 ? reading("text.secondary", `${split.started} ${copy(pageContract, "card.started")}`, "run") : null,
+          split.notStarted > 0 ? reading("text.secondary", `${split.notStarted} ${copy(pageContract, "card.not_started")}`, "new") : null,
+        ]
+      : [
+          row.lane === "in_review" && row.counts.pending > 0 ? reading("info.main", `${row.counts.pending} ${copy(pageContract, "card.in_review")}`, "rev") : null,
+          row.lane === "in_progress" && row.counts.pending > 0 ? reading("text.secondary", `${row.counts.pending} ${copy(pageContract, "card.started")}`, "run") : null,
+        ]),
+    row.counts.needs_attention > 0 ? reading("warning.main", `${row.counts.needs_attention} ${copy(pageContract, "card.attention")}`, "hot") : null,
+  ].filter(Boolean);
+  const where = row.subtitle || row.pen.operational_location_display || "";
+  return (
+    // Template kanban item: ItemRoot shell + ItemContent (priority arrow, name, info row).
+    <KanbanItemRoot sx={hot ? HOT_CARD_SX : CARD_ROOT_SX}>
+      <Box
+        component={LocalOverlayLink}
+        href={href}
+        scroll={false}
+        aria-label={row.title}
+        title={`${row.title} · ${ownerLabel}`}
+        data-filter-row
+        sx={{ display: "block", minWidth: 0, color: "inherit", textDecoration: "none", borderRadius: "inherit" }}
+      >
+        <ItemContent>
+          <ItemStatus status={cardStatus(row)} />
+          <ItemName name={row.title} sx={{ pr: 2.5 }} />
+          {where ? (
+            <Typography component="span" variant="caption" noWrap title={where} sx={{ display: "block", mt: 0.5, color: "text.secondary" }}>
+              {where}
+            </Typography>
+          ) : null}
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 1.5, minWidth: 0 }}>
+            <Label variant="soft" color="primary">{moduleOpt?.label ?? row.module}</Label>
+            <Label variant="soft" title={row.park_name || undefined}>{parkLabel(parkOptions(pageContract), row)}</Label>
+            <ClockLabel row={row} />
+          </Box>
+          {total > 0 ? <Box sx={{ mt: 1.5 }}><WorkProgress row={row} /></Box> : null}
+          <ItemInfo assignee={assignee} assigneeTitle={ownerLabel}>
+            {readings}
+          </ItemInfo>
+        </ItemContent>
+      </Box>
     </KanbanItemRoot>
   );
 }
+
+// Board presentation (theme tokens only). Column width follows the template's
+// `--kanban-column-width`, fitted so four lanes share a laptop row and a phone swipes one lane at a time.
+const BOARD_SX = {
+  "--kanban-column-width": { xs: "86vw", sm: "clamp(calc(var(--sp-5) * 6), calc((100% - 3 * var(--kanban-column-gap)) / 4), var(--kanban-col-w))" },
+  overscrollBehaviorX: "contain",
+  scrollSnapType: { xs: "x mandatory", md: "none" },
+  "& > section": { scrollSnapAlign: "start" },
+  // Columns grow with their cards (template KanbanColumn): no lane scroller -- the per-column
+  // pager does the paging, so a phone never gets a scroll trap inside the board.
+} as const;
 
 // One column's own page: its rows, its Next/Prev, and where in its list it sits.
 export type WorkBoardLaneColumn = {
@@ -293,6 +273,7 @@ export function WorkBoardBoard({
   previousDayHref,
   nextDayHref,
   hrefForRow,
+  empty,
 }: {
   pageContract: AdminUiPageContract;
   columns: WorkBoardLaneColumn[];
@@ -312,8 +293,10 @@ export function WorkBoardBoard({
   previousDayHref: string;
   nextDayHref: string;
   hrefForRow: Record<string, string>;
+  /** The empty board (template EmptyContent): rendered in place of the columns. */
+  empty?: React.ReactNode;
 }) {
-  const { write, pending } = useUrlWriter();
+  const { write, navigate, pending } = useUrlWriter();
   const rows = useMemo(() => laneColumns.flatMap((column) => column.rows), [laneColumns]);
   const [q, setQ] = useState("");
   const shown = useMemo(() => {
@@ -332,54 +315,88 @@ export function WorkBoardBoard({
   const searching = q.trim().length > 0;
   return (
     <>
-      <div className="tbar" style={{ opacity: pending ? 0.7 : 1 }}>
-        <label className="tsearch">
-          <Search className="ic" aria-hidden="true" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={copy(pageContract, "filter.search")} aria-label={copy(pageContract, "filter.search")} />
-        </label>
+      {/* Toolbar: the template list toolbar (sections/user/user-table-toolbar.tsx): outlined
+          multi-select filters, the keyword field with a search adornment, then the calendar
+          toolbar's day stepper (sections/calendar/calendar-toolbar.tsx) and the legend tooltip. */}
+      <Box
+        sx={{
+          mb: 3,
+          gap: 2,
+          display: "flex",
+          flexWrap: { md: "wrap", lg: "nowrap" },
+          flexDirection: { xs: "column", md: "row" },
+          alignItems: { xs: "stretch", md: "center" },
+          opacity: pending ? 0.7 : 1,
+        }}
+      >
         {/* The owner filter is the Tasks page's people dropdown, verbatim (maintainer request,
-            2026-09-19: follow the Tasks page): a labelled dropdown button over real checkboxes,
+            2026-09-19: follow the Tasks page): an outlined multi-select over real checkboxes,
             the everyone row first. The board's URL carries ONE owner, so a second tick swaps the
             pick and the everyone row clears it. Every string comes from the page contract. */}
         {ownRowsOnly ? null : <TaskPeopleDropdown slot="assignee" label={copy(pageContract, "filter.assignee")} allLabel={copy(pageContract, "filter.assignee.all")} options={owners.map((o) => ({ id: o.id, name: o.name, title: `${cardsByOwner[o.id] ?? 0} ${copy(pageContract, "pager.rows")}` }))} selected={selectedOwner ? [selectedOwner] : []} onChange={(next) => write((p) => setParam(p, pageContract, PARAM_OWNER, next.find((id) => id !== selectedOwner)))} />}
         {parks.length > 1 ? (
-          <nav className="parkpick" aria-label={copy(pageContract, "filter.park")}>
-            <Link href={allParksHref} className={selectedPark === "" ? "on" : ""} aria-current={selectedPark === "" ? "true" : undefined}>
-              {copy(pageContract, "filter.park.all")}
-            </Link>
+          <TextField
+            select
+            label={copy(pageContract, "filter.park")}
+            value={selectedPark || ALL_PARKS}
+            onChange={(event) => navigate(event.target.value === ALL_PARKS ? allParksHref : parkHrefs[event.target.value] ?? allParksHref)}
+            sx={{ flexShrink: 0, width: { xs: 1, md: 200 } }}
+          >
+            <MenuItem value={ALL_PARKS}>{copy(pageContract, "filter.park.all")}</MenuItem>
             {parks.map((park) => (
-              <Link key={park.key} href={parkHrefs[park.key] ?? "#"} className={park.key === selectedPark ? "on" : ""} aria-current={park.key === selectedPark ? "true" : undefined}>
+              <MenuItem key={park.key} value={park.key}>
                 {park.label}
-              </Link>
+              </MenuItem>
             ))}
-          </nav>
+          </TextField>
         ) : null}
-        <div className="datenav">
-          <Link href={previousDayHref} aria-label={copy(pageContract, "action.previous")}>‹</Link>
-          <span className="d">
-            <Calendar className="ic" aria-hidden="true" />
-            <span>{dayLabel(businessDate)}</span>
-            {isToday ? <Label variant="soft" color="primary">{copy(pageContract, "filter.date.today")}</Label> : null}
-          </span>
-          <Link href={nextDayHref} aria-label={copy(pageContract, "action.next")}>›</Link>
-        </div>
-        <ModuleMenu pageContract={pageContract} options={visibleModules} selected={selectedModules} none={noneSelected} onChange={(next) => write((p) => setParam(p, pageContract, PARAM_MODULE, next.length ? next.join(",") : undefined))} />
-        {/* Board legend (cd3972443): how a card's column is chosen and what amber means -- an info
-            Tooltip beside the toolbar, not prose under it (FJ1-P2-1). */}
-        <Tooltip
-          title={
-            <>
-              <Box component="span" sx={{ display: "block" }}>{copy(pageContract, "board.rule")}</Box>
-              <Box component="span" sx={{ display: "block", mt: 1 }}>{copy(pageContract, "board.attention")}</Box>
-            </>
-          }
-        >
-          <IconButton aria-label={`${copy(pageContract, "board.rule")} ${copy(pageContract, "board.attention")}`} sx={{ color: "text.secondary" }}>
-            <Info size={20} aria-hidden="true" />
+        <ModuleSelect pageContract={pageContract} options={visibleModules} selected={selectedModules} none={noneSelected} onChange={(next) => write((p) => setParam(p, pageContract, PARAM_MODULE, next.length ? next.join(",") : undefined))} />
+        <TextField
+          fullWidth
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={copy(pageContract, "filter.search")}
+          slotProps={{
+            htmlInput: { "aria-label": copy(pageContract, "filter.search") },
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                </InputAdornment>
+              ),
+            },
+          }}
+          sx={{ minWidth: { md: 200 } }}
+        />
+        <Box sx={{ gap: 0.5, display: "flex", alignItems: "center", flexShrink: 0, justifyContent: { xs: "space-between", md: "flex-start" } }} aria-label={copy(pageContract, "filter.date")} role="group">
+          <IconButton component={Link} href={previousDayHref} aria-label={copy(pageContract, "action.previous")}>
+            <Iconify icon="eva:arrow-ios-back-fill" />
           </IconButton>
-        </Tooltip>
-      </div>
+          <Box sx={{ gap: 1, display: "flex", alignItems: "center" }}>
+            <Typography variant="h6" component="span" noWrap>{dayLabel(businessDate)}</Typography>
+            {isToday ? <Label variant="soft" color="primary">{copy(pageContract, "filter.date.today")}</Label> : null}
+          </Box>
+          <IconButton component={Link} href={nextDayHref} aria-label={copy(pageContract, "action.next")}>
+            <Iconify icon="eva:arrow-ios-forward-fill" />
+          </IconButton>
+          {/* Board legend (cd3972443): how a card's column is chosen and what amber means -- an info
+              Tooltip beside the toolbar, not prose under it (FJ1-P2-1). */}
+          <Tooltip
+            title={
+              <>
+                <Box component="span" sx={{ display: "block" }}>{copy(pageContract, "board.rule")}</Box>
+                <Box component="span" sx={{ display: "block", mt: 1 }}>{copy(pageContract, "board.attention")}</Box>
+              </>
+            }
+          >
+            <IconButton aria-label={`${copy(pageContract, "board.rule")} ${copy(pageContract, "board.attention")}`} sx={{ color: "text.secondary" }}>
+              <Iconify icon="eva:info-outline" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      </Box>
       {/* Template sections/kanban: KanbanBoard track + KanbanColumn (count Label, h6 title) + item shells. */}
+      {empty ? empty : (
       <KanbanBoard role="group" tabIndex={0} aria-label={copy(pageContract, "section.board.aria")} sx={BOARD_SX}>
         {columns.map((column) => {
           const list = byLane.get(column.key) ?? [];
@@ -396,7 +413,7 @@ export function WorkBoardBoard({
               title={
                 <Box component="span" title={column.title} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
                   {column.label}
-                  {column.key === "done" ? <Box component="span" sx={{ color: "success.main" }}>✓</Box> : null}
+                  {column.key === "done" ? <Iconify icon="eva:checkmark-fill" width={16} sx={{ color: "success.main" }} /> : null}
                 </Box>
               }
             >
@@ -413,23 +430,21 @@ export function WorkBoardBoard({
                 <Box component="li" sx={{ listStyle: "none" }}>
                 <Box
                   component="nav"
-                  className="colpager"
                   aria-label={`${column.label}: ${copy(pageContract, "section.board.aria")}`}
-                  sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, minWidth: 0, pt: 1, typography: "caption", color: "text.secondary" }}
+                  sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5, minWidth: 0, typography: "caption", color: "text.secondary" }}
                 >
-                  <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, flex: "none", whiteSpace: "nowrap", width: "100%" }}>
-                    <Box component="span" sx={{ mr: "auto" }}>{first}–{last} {copy(pageContract, "drawer.subtasks.of")} {count}</Box>
-                    {pager?.previousHref ? (
-                      <Link className="iconbtn" href={pager.previousHref} aria-label={`${column.label}: ${copy(pageContract, "action.previous")}`}><ChevronLeft aria-hidden="true" /></Link>
-                    ) : (
-                      <span className="iconbtn" role="link" aria-disabled="true" aria-label={`${column.label}: ${copy(pageContract, "action.previous")}`}><ChevronLeft aria-hidden="true" /></span>
-                    )}
-                    {pager?.nextHref ? (
-                      <Link className="iconbtn" href={pager.nextHref} aria-label={`${column.label}: ${copy(pageContract, "action.next")}`}><ChevronRight aria-hidden="true" /></Link>
-                    ) : (
-                      <span className="iconbtn" role="link" aria-disabled="true" aria-label={`${column.label}: ${copy(pageContract, "action.next")}`}><ChevronRight aria-hidden="true" /></span>
-                    )}
-                  </Box>
+                  <Box component="span" sx={{ mr: "auto", whiteSpace: "nowrap" }}>{first}–{last} {copy(pageContract, "drawer.subtasks.of")} {count}</Box>
+                  {/* Template TablePaginationCustom's arrows: IconButtons, a disabled one when there is no page. */}
+                  {pager?.previousHref ? (
+                    <IconButton component={Link} href={pager.previousHref} aria-label={`${column.label}: ${copy(pageContract, "action.previous")}`}><Iconify icon="eva:arrow-ios-back-fill" /></IconButton>
+                  ) : (
+                    <IconButton disabled aria-label={`${column.label}: ${copy(pageContract, "action.previous")}`}><Iconify icon="eva:arrow-ios-back-fill" /></IconButton>
+                  )}
+                  {pager?.nextHref ? (
+                    <IconButton component={Link} href={pager.nextHref} aria-label={`${column.label}: ${copy(pageContract, "action.next")}`}><Iconify icon="eva:arrow-ios-forward-fill" /></IconButton>
+                  ) : (
+                    <IconButton disabled aria-label={`${column.label}: ${copy(pageContract, "action.next")}`}><Iconify icon="eva:arrow-ios-forward-fill" /></IconButton>
+                  )}
                 </Box>
                 </Box>
               ) : null}
@@ -437,6 +452,7 @@ export function WorkBoardBoard({
           );
         })}
       </KanbanBoard>
+      )}
     </>
   );
 }

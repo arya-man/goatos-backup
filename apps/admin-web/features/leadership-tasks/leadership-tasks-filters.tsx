@@ -1,14 +1,25 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
-import { CalendarRange, ChevronDown, ListFilter, Search, SlidersHorizontal, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { usePopover } from "minimal-shared/hooks";
+import { varAlpha } from "minimal-shared/utils";
 
-import InputBase from "@mui/material/InputBase";
-
-import TextField from "@mui/material/TextField";
+import Box from "@mui/material/Box";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import Chip from "@mui/material/Chip";
+import Button from "@mui/material/Button";
 import MenuItem from "@mui/material/MenuItem";
+import TextField from "@mui/material/TextField";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import InputAdornment from "@mui/material/InputAdornment";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { CustomPopover } from "@/components/minimal/custom-popover";
+import { chipProps } from "@/components/minimal/filters-result";
 import { TaskPeopleDropdown, type TaskPeopleOption } from "@/components/people-dropdown";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -19,11 +30,7 @@ import { taskRowPatch, useTaskRowsVersion } from "./task-row-store";
 import { patchApplies } from "./task-detail-pick";
 import { dateSpanLabel, personFilterLabel } from "./filter-labels";
 import { DEFAULT_TASK_SORT, TASK_SORTS, type TaskSort } from "./task-url";
-import { useDialogShell } from "./use-dialog-shell";
-import { DropdownPaper } from "@/components/app/dropdown-paper";
 
-/** The Dates popover's desktop width (`.lt-fdrop-pop.lt-fdrop-dates` min-width in mesha-theme.css). */
-const DATES_POP_WIDTH = 352;
 
 export type TaskPersonOption = TaskPeopleOption;
 export type TaskStatusChip = {
@@ -39,38 +46,17 @@ export type TaskStatusChip = {
 };
 
 /**
- * The Jira-shaped toolbar: free text, the two people pickers, both date spans, the status chips
- * and the sort control.
+ * The Tasks toolbar: the status tabs, the two people pickers, sort, free text and both date
+ * spans, in the template list anatomy (sections/user/view/user-list-view.tsx card head +
+ * sections/user/user-table-toolbar.tsx).
  *
- * WHY THIS IS HAND-ROLLED rather than `components/worklist-filters.tsx`, which this page would
- * otherwise reuse:
- *   1. That component has NO text-search kind (`features/health/health-config.tsx` renders the
- *      sanctioned hand-rolled search form BESIDE it for exactly this reason), and search here must
- *      be debounced rather than submitted.
- *   2. Its `daterange` kind is the only kind that writes both ends of a span at once — and it
- *      writes them through the app calendar, which needs a `DateRangePickerLabels` set the
- *      leadership-tasks page contract does not declare. Its `date` kind writes ONE end, and this
- *      endpoint answers 400 `invalid_date_range` for half a span, so a per-control push would put
- *      the reader on an error page for every first date they pick.
- *   3. It renders a `.tbar`, which cannot become a sheet. This page is opened inside the WhatsApp
- *      in-app webview at phone width, where a squeezed desktop bar is unusable.
- * The shared `.lt-fbar` / `.lt-fsel` / `.lt-chips` / `.lt-fnote` rules are reused verbatim, and
- * every string still comes from the page contract.
+ * WHY THIS IS NOT `components/worklist-filters.tsx`: that component has no debounced text-search
+ * kind, and its date kinds write ONE end of a span per change -- this endpoint answers 400
+ * `invalid_date_range` for half a span -- so both spans sit behind one disclosure with one Apply.
+ * Every other control applies on change. Every string comes from the page contract.
  *
- * On a phone the SAME DOM becomes a bottom sheet (`.lt-fgroup` → fixed, hidden until `.open`):
- * one control set, two layouts, so there is no second copy of the bar to drift.
- *
- * LAYOUT (rejected once as five stacked rows in a tall empty box, and rebuilt). The bar is ONE
- * dense row that wraps, the way a real issue tracker's is:
- *   search · status segment · assignee · raiser · sort · Deadline ▾ · Raised ▾ · active chips
- * Three things get it there. `.lt-fgroup` is `display:contents` above the sheet breakpoint, so its
- * children join the BAR's flex row instead of forming a second wrapping box inside it — that
- * nested box is what produced the rows and the dead vertical space. The status chips are one
- * segmented group rather than free-floating pills. And the four raw `dd/mm/yyyy` inputs, which
- * most sessions never touch, live behind two compact disclosures that show their span as a chip
- * once it is set; Apply moved INSIDE them, because a span is the only thing here that cannot
- * apply on change (half a span is a 400 on this endpoint) and it is the only thing that still
- * needs a button.
+ * At phone width the toolbar stacks in flow (template xs column); every popup it opens is a
+ * portalled MUI surface, so there is no page-owned overlay to trap focus or scroll.
  */
 /** `a,b,c` -> ids; the toolbar's people filters are checkboxes and the URL carries every tick. */
 function splitIDs(raw: string): string[] {
@@ -131,17 +117,9 @@ export function LeadershipTasksFilters({
   const router = useRouter();
   const routerSearchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  /** Whether the ONE dates disclosure (both spans inside it) is open. */
-  const [openRange, setOpenRange] = useState<"dates" | null>(null);
-  // Which edge of its trigger the Dates popover hangs from. It is right-aligned (the trigger sits
-  // at the bar's right end at 1440), but a bar that has wrapped puts the trigger at the LEFT, and
-  // a 352px popover hung from the right edge of a 130px button then ran under the sidebar. It is
-  // measured on open: left-aligned when there is room for it to the trigger's right.
-  const [datesAlign, setDatesAlign] = useState<"left" | "right">("right");
-  const sheetRef = useRef<HTMLDivElement>(null);
+  /** The ONE dates disclosure (both spans inside it): the template menu popover. */
+  const datesPopover = usePopover();
   const rangesRef = useRef<HTMLDivElement>(null);
-  const moreRef = useRef<HTMLButtonElement>(null);
   const current = routerSearchParams?.toString() ?? "";
 
   /**
@@ -274,43 +252,6 @@ export function LeadershipTasksFilters({
   );
   const chipSelected = (key: string) => (selectedChipKey || "all") === key;
 
-  /**
-   * The sheet is a real overlay on a phone, so it owes the reader the same three things the
-   * modals do: Escape, a body scroll lock (a drag inside it was scrolling the LIST behind it) and
-   * a focus trap. `.lt-fmore` — the only way to open it — is `display:none` above the sheet
-   * breakpoint, so this state is unreachable on a desktop viewport and the lock cannot strand a
-   * wide page. Focus returns to the opener on close.
-   */
-  const closeSheet = useCallback(() => {
-    setSheetOpen(false);
-    moreRef.current?.focus();
-  }, []);
-  useDialogShell({ open: sheetOpen, onClose: closeSheet, containerRef: sheetRef });
-  useEffect(() => {
-    if (!sheetOpen) return;
-    const node = sheetRef.current;
-    const first = node?.querySelector<HTMLElement>("a[href],button:not([disabled])");
-    (first ?? node)?.focus();
-  }, [sheetOpen]);
-
-  useEffect(() => {
-    if (!openRange) return;
-    function onDown(event: MouseEvent) {
-      const element = event.target as HTMLElement | null;
-      if (element && rangesRef.current?.contains(element)) return;
-      setOpenRange(null);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpenRange(null);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [openRange]);
-
   const searchLabel = copy(pageContract, "filter.search_label");
   /**
    * The placeholder and the long-form hint are two keys. At 2000px the search box is ~160px of
@@ -390,407 +331,341 @@ export function LeadershipTasksFilters({
     });
   }
 
+
+  // The date spans, both committed together by ONE Apply (half a span is a 400
+  // `invalid_date_range` on this endpoint, so these are the one set of controls here that cannot
+  // apply on change -- every other control does). ONE Clear drops both.
+  const ranges = [
+    {
+      id: "deadline" as const,
+      label: deadlineLabel,
+      span: deadlineSpan,
+      fromLabel: copy(pageContract, "filter.deadline_from"),
+      toLabel: copy(pageContract, "filter.deadline_to"),
+      from: dates.deadlineFrom,
+      to: dates.deadlineTo,
+      setFrom: (value: string) => setDates((prev) => ({ ...prev, deadlineFrom: value })),
+      setTo: (value: string) => setDates((prev) => ({ ...prev, deadlineTo: value })),
+    },
+    {
+      id: "raised" as const,
+      label: raisedLabel,
+      span: raisedSpan,
+      fromLabel: copy(pageContract, "filter.raised_from"),
+      toLabel: copy(pageContract, "filter.raised_to"),
+      from: dates.raisedFrom,
+      to: dates.raisedTo,
+      setFrom: (value: string) => setDates((prev) => ({ ...prev, raisedFrom: value })),
+      setTo: (value: string) => setDates((prev) => ({ ...prev, raisedTo: value })),
+    },
+  ] as const;
+  const appliedRanges = ranges.filter((range) => range.span);
+  const datesStated = appliedRanges.length
+    ? appliedRanges.map((range) => `${range.label} ${range.span}`).join(" · ")
+    : anyLabel;
+  const commitAll = (next: typeof dates) => ({
+    [TASK_PARAM.deadlineFrom]: next.deadlineFrom,
+    [TASK_PARAM.deadlineTo]: next.deadlineTo,
+    [TASK_PARAM.raisedFrom]: next.raisedFrom,
+    [TASK_PARAM.raisedTo]: next.raisedTo,
+  });
+  const anyPending = Boolean(dates.deadlineFrom || dates.deadlineTo || dates.raisedFrom || dates.raisedTo);
+  const previousMonthLabel = copy(pageContract, "date.previous_month", "Previous month");
+  const nextMonthLabel = copy(pageContract, "date.next_month", "Next month");
+  const clearSearch = () => {
+    setText("");
+    if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+  };
+
+  // Template list card head (sections/user/view/user-list-view.tsx): the status Tabs with Label
+  // counts, the toolbar (sections/user/user-table-toolbar.tsx: outlined multi-select filters, the
+  // keyword field with a search adornment), then the applied-filter chips with one Clear
+  // (sections/user/user-table-filters-result.tsx anatomy). Every control applies on change.
   return (
-    <div
-      className={`lt-fbar lt-fsheet-host${isPending ? " wfbusy" : ""}`}
+    <Box
       role="group"
       aria-label={copy(pageContract, "filter.bar_aria")}
       aria-busy={isPending || undefined}
     >
-      <span className="lt-fsearch" title={searchHint}>
-        <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-        {/* Template's list-toolbar keyword field, kept inside .lt-fsearch so the row layout, clear
-            button and phone sheet chrome stay unchanged. InputBase (not TextField) so the outlined
-            border of the filter bar wraps the search + clear as one control. */}
-        <InputBase
-          type="search"
-          value={text}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder={searchLabel}
-          inputProps={{ "aria-label": searchHint, autoComplete: "off", maxLength: 120 }}
-          sx={{ flex: "1 1 auto", font: "inherit", color: "inherit", "& .MuiInputBase-input": { p: 0 } }}
-        />
-        {text ? (
-          <button
-            type="button"
-            className="lt-qclr"
-            aria-label={copy(pageContract, "action.clear")}
-            onClick={() => {
-              setText("");
-              if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
-              go(paramsWith({ [TASK_PARAM.q]: "" }));
-            }}
-          >
-            <X className="ic" style={{ width: 13 }} aria-hidden="true" />
-          </button>
-        ) : null}
-      </span>
-
-      {/* The phone affordance. Hidden on a wide viewport, where the same controls are the bar. */}
-      <button
-        type="button"
-        ref={moreRef}
-        className="btn sm lt-fmore"
-        aria-expanded={sheetOpen}
-        onClick={() => (sheetOpen ? closeSheet() : setSheetOpen(true))}
+      {/* ONE status group: alternatives, exactly one current -- the template's status tabs. */}
+      <Tabs
+        value={selectedChipKey || "all"}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        aria-label={copy(pageContract, "filter.status_aria", copy(pageContract, "column.status", "Status"))}
+        sx={[
+          (theme) => ({
+            px: { md: 2.5 },
+            boxShadow: `inset 0 -2px 0 0 ${varAlpha(theme.vars.palette.grey["500Channel"], 0.08)}`,
+          }),
+        ]}
       >
-        <SlidersHorizontal className="ic" aria-hidden="true" />
-        {copy(pageContract, "action.filters")}
-        {/* With the sheet closed nothing on the phone said a filter was on (Judge A, D2). */}
-        {activeChips.length > 0 ? (
-          <span className="lt-fmore-badge" aria-label={`${activeChips.length}`}>
-            {activeChips.length}
-          </span>
-        ) : null}
-      </button>
-
-      {sheetOpen ? (
-        <button
-          type="button"
-          className="scrim on lt-fscrim"
-          aria-label={copy(pageContract, "filter.close_label")}
-          onClick={closeSheet}
-        />
-      ) : null}
-
-      <div ref={sheetRef} className={`lt-fgroup${sheetOpen ? " open" : ""}`} tabIndex={-1}>
-        <div className="lt-fsheet-hd">
-          <ListFilter className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          <b>{copy(pageContract, "action.filters")}</b>
-          <span className="sp" style={{ flex: 1 }} />
-          <button
-            type="button"
-            className="btn sm"
-            onClick={closeSheet}
-            aria-label={copy(pageContract, "filter.close_label")}
-          >
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
-
-        {/* ONE segmented group, not a row of floating pills: these are alternatives (exactly one is
-            current), and a segment is how the rest of this app says so -- see `.metricseg`. */}
-        <div className="lt-chips lt-seg" role="group" aria-label={copy(pageContract, "filter.status_aria", copy(pageContract, "column.status", "Status"))}>
-          {statusChips.map((chip) => (
-            <Link
+        {statusChips.map((chip) => {
+          const on = chipSelected(chip.key);
+          return (
+            <Tab
               key={chip.key}
+              value={chip.key}
+              component={Link}
               href={hrefWith({ [TASK_PARAM.filter]: chip.key })}
               replace
               scroll={false}
-              className={chipSelected(chip.key) ? "on" : ""}
-              // The overdue chip carries the deadline pill's danger tone (`.lt-clock-late`): it is
-              // the one chip that names a problem rather than a stage.
               data-filter={chip.key}
-              aria-current={chipSelected(chip.key) ? "true" : undefined}
-              // A real link with a real href, so open-in-new-tab and sharing still work; the
-              // handler only takes over the PLAIN click, to light the segment up before the server
-              // answers. Modified clicks are left to the browser.
-              onClick={(event) => {
-                if (
-                  event.metaKey ||
-                  event.ctrlKey ||
-                  event.shiftKey ||
-                  event.altKey ||
-                  event.button !== 0
-                ) {
+              aria-current={on ? "true" : undefined}
+              iconPosition="end"
+              label={chip.label}
+              icon={
+                <Label variant={chip.key === "all" || on ? "filled" : "soft"} color={chipColor(chip.key)}>
+                  {Math.max(0, chip.count + chipDelta(chip.key))}
+                </Label>
+              }
+              onClick={(event: React.MouseEvent<HTMLElement>) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
                   return;
                 }
                 event.preventDefault();
-                // On a phone the chip lives inside the bottom sheet: the pick closes it, as the
-                // people pickers already do, so the reader SEES the board change instead of the
-                // sheet still covering it. No-op on desktop, where the sheet is never open.
-                if (sheetOpen) closeSheet();
                 go(paramsWith({ [TASK_PARAM.filter]: chip.key }));
               }}
-            >
-              {chip.label}
-              <b>{Math.max(0, chip.count + chipDelta(chip.key))}</b>
-            </Link>
-          ))}
-        </div>
+            />
+          );
+        })}
+      </Tabs>
 
-        {/* THE TWO PERSON FILTERS, both searchable. These were native `<select>`s, and the board
-            carried a THIRD spelling of `t_assignee` as an avatar group whose `+5` overflow was a
-            dead `<span aria-hidden>`. `task-people-filter.tsx` is now the only person filter on
-            this desk; see that file for why the three converged into one. */}
-        {/* `.lt-fslot` is the bar's PERSON-PICKER slot: a `display:contents` container the
-            toolbar owns, so whichever picker component sits in it (this one, or the shared
-            Work Board assignee picker it is due to be replaced by) inherits the bar's row and
-            the sheet's column without the picker knowing either. */}
-        {/* The two slots host the Work Board's OWN assignee picker (`components/assignee-picker.tsx`,
-            multi mode: the avatar stack, `+N`, one pick, per-person counts on this page, the
-            "All" foot) so the two toolbars are one control language. A scope that already pins
-            the person renders NO SLOT AT ALL (Gate-1 #7): the slot's caption is drawn by CSS
-            from `data-key`, so an empty slot left a floating "ASSIGNEE" with nothing under it;
-            the scope tab already says whose tasks these are. The Work Board likewise drops its
-            stack for `ownRowsOnly`. The `wb` class on the slot scopes the board's own `.avs`
-            rules onto it verbatim; `stackSize={4}` is the 28px stack that stays legible beside
-            a five-chip segment at 1440 (Gate-1 #6). */}
+      <Box
+        sx={{
+          p: 2.5,
+          gap: 2,
+          display: "flex",
+          pr: { xs: 2.5, md: 1 },
+          flexDirection: { xs: "column", md: "row" },
+          alignItems: { xs: "stretch", md: "center" },
+          opacity: isPending ? 0.8 : 1,
+        }}
+      >
+        {/* THE TWO PERSON FILTERS. A scope that already pins the person renders none (Gate-1 #7):
+            the scope tab already says whose tasks these are. */}
         {assigneePinned ? null : (
-          <div className="lt-fslot" data-slot="assignee" data-key={assigneeLabel} title={assigneeLabel}>
-            <TaskPeopleDropdown
-              slot="assignee"
-              label={assigneeLabel}
-              allLabel={allOption}
-              options={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
-              selected={splitIDs(fieldValue(TASK_PARAM.assignee, assignee))}
-              onChange={(next) => {
-                // The sheet stays open while people are ticked: a multi-select that closed on
-                // every tick needed one round trip per person (Judge A, D3).
-                go(paramsWith({ [TASK_PARAM.assignee]: next.join(",") }));
-              }}
-            />
-          </div>
+          <TaskPeopleDropdown
+            slot="assignee"
+            label={assigneeLabel}
+            allLabel={allOption}
+            options={assigneeOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
+            selected={splitIDs(fieldValue(TASK_PARAM.assignee, assignee))}
+            onChange={(next) => {
+              go(paramsWith({ [TASK_PARAM.assignee]: next.join(",") }));
+            }}
+          />
         )}
-
         {raiserPinned ? null : (
-          <div className="lt-fslot" data-slot="raiser" data-key={raiserLabel} title={raiserLabel}>
-            <TaskPeopleDropdown
-              slot="raiser"
-              label={raiserLabel}
-              allLabel={allOption}
-              options={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
-              selected={splitIDs(fieldValue(TASK_PARAM.raiser, raiser))}
-              onChange={(next) => {
-                go(paramsWith({ [TASK_PARAM.raiser]: next.join(",") }));
-              }}
-            />
-          </div>
+          <TaskPeopleDropdown
+            slot="raiser"
+            label={raiserLabel}
+            allLabel={allOption}
+            options={raiserOptions.map((option) => ({ id: option.value, name: option.label, title: option.title }))}
+            selected={splitIDs(fieldValue(TASK_PARAM.raiser, raiser))}
+            onChange={(next) => {
+              go(paramsWith({ [TASK_PARAM.raiser]: next.join(",") }));
+            }}
+          />
         )}
 
-        {/* "Sort · Newest first": the label is INSIDE the control, as it is for the two people
-            pickers and the two date disclosures. The bar had three label treatments in one row
-            (floating text beside a pill, a floating label beside a native select, and a bare
-            disclosure); `.lt-fkey` is the one treatment now. */}
-        <div className="lt-fsel lt-fsel-kit">
-          <span className="lt-fkey">{copy(pageContract, "filter.sort")}</span>
-          {/* Kit listbox, not a native <select>: same apply-on-change, same param. */}
-          {/* No outlined label: `.lt-fkey` already says "Sort", a notch label said it twice. An
-              unknown `t_sort` (stale link) shows the default the server applies, never a blank. */}
+        {/* Sort: an outlined select like the person filters. An unknown `t_sort` (stale link)
+            shows the default the server applies, never a blank. */}
+        <TextField
+          select
+          label={copy(pageContract, "filter.sort")}
+          value={shownSort}
+          onChange={({ target: { value } }) => go(paramsWith({ [TASK_PARAM.sort]: value }))}
+          sx={{ flexShrink: 0, width: { xs: 1, md: 180 } }}
+          slotProps={{ select: { MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+        >
+          {TASK_SORTS.map((option) => (
+            <MenuItem key={option} value={option}>
+              {copy(pageContract, `sort.${option}`)}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <Box sx={{ gap: 2, width: 1, flexGrow: 1, display: "flex", alignItems: "center", minWidth: 0 }}>
           <TextField
-            select
-            value={shownSort}
-            onChange={({ target: { value } }) => go(paramsWith({ [TASK_PARAM.sort]: value }))}
-            sx={{ flexShrink: 0, maxWidth: 1 }}
+            fullWidth
+            type="search"
+            value={text}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder={searchLabel}
+            title={searchHint}
             slotProps={{
-              select: {
-                displayEmpty: true,
-                SelectDisplayProps: { "aria-label": copy(pageContract, "filter.sort") } as React.HTMLAttributes<HTMLDivElement>,
-                MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } },
+              htmlInput: { "aria-label": searchHint, autoComplete: "off", maxLength: 120 },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                  </InputAdornment>
+                ),
+                endAdornment: text ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      edge="end"
+                      aria-label={clearLabel}
+                      onClick={() => {
+                        clearSearch();
+                        go(paramsWith({ [TASK_PARAM.q]: "" }));
+                      }}
+                    >
+                      <Iconify icon="mingcute:close-line" width={18} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
               },
             }}
+          />
+
+          {/* THE DATE SPANS, behind ONE disclosure that states what is applied ("Dates · any") without
+              being opened. The four fields are the console's calendar (`ThemedDatePicker`). */}
+          <Button
+            color="inherit"
+            onClick={datesPopover.onOpen}
+            aria-expanded={datesPopover.open}
+            aria-haspopup="true"
+            startIcon={<Iconify icon="solar:calendar-date-bold" />}
+            endIcon={<Iconify icon={datesPopover.open ? "eva:arrow-ios-upward-fill" : "eva:arrow-ios-downward-fill"} />}
+            sx={{ flexShrink: 0, fontWeight: "fontWeightSemiBold", maxWidth: { xs: "50%", md: 320 } }}
           >
-            {TASK_SORTS.map((option) => (
-              <MenuItem key={option} value={option}>
-                {copy(pageContract, `sort.${option}`)}
-              </MenuItem>
-            ))}
-          </TextField>
-        </div>
+            {datesLabel}:
+            <Box component="span" sx={{ ml: 0.5, fontWeight: "fontWeightBold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {datesStated}
+            </Box>
+          </Button>
+        </Box>
+      </Box>
 
-        {/* THE DATE SPANS, behind ONE compact disclosure -- the Work Board's toolbar has one date
-            control, and this bar now has one too. It STATES what is applied ("Dates · any", or
-            "Dates · Deadline 01/09/2026 – 30/09/2026 · Raised …") without being opened; inside,
-            the two spans sit as two labelled groups and ONE Apply commits both whole on one press
-            (half a span is a 400 `invalid_date_range` on this endpoint, so these are the one set
-            of controls here that cannot apply on change -- every other control does). ONE Clear
-            drops both. The four fields are the console's own calendar (`ThemedDatePicker`, the
-            same control the New task / Edit deadline uses), not the browser's `dd/mm/yyyy` box:
-            the page had two date idioms, and the reader met the native one first (gate-1 #13). */}
-        <div className="lt-franges" ref={rangesRef}>
-          {(() => {
-            const ranges = [
-              {
-                id: "deadline" as const,
-                label: deadlineLabel,
-                span: deadlineSpan,
-                fromLabel: copy(pageContract, "filter.deadline_from"),
-                toLabel: copy(pageContract, "filter.deadline_to"),
-                from: dates.deadlineFrom,
-                to: dates.deadlineTo,
-                setFrom: (value: string) => setDates((prev) => ({ ...prev, deadlineFrom: value })),
-                setTo: (value: string) => setDates((prev) => ({ ...prev, deadlineTo: value })),
-              },
-              {
-                id: "raised" as const,
-                label: raisedLabel,
-                span: raisedSpan,
-                fromLabel: copy(pageContract, "filter.raised_from"),
-                toLabel: copy(pageContract, "filter.raised_to"),
-                from: dates.raisedFrom,
-                to: dates.raisedTo,
-                setFrom: (value: string) => setDates((prev) => ({ ...prev, raisedFrom: value })),
-                setTo: (value: string) => setDates((prev) => ({ ...prev, raisedTo: value })),
-              },
-            ] as const;
-            const applied = ranges.filter((range) => range.span);
-            const stated = applied.length
-              ? applied.map((range) => `${range.label} ${range.span}`).join(" · ")
-              : anyLabel;
-            // The URL params are exactly the four the bar always wrote; one press writes all four.
-            const commitAll = (next: typeof dates) => ({
-              [TASK_PARAM.deadlineFrom]: next.deadlineFrom,
-              [TASK_PARAM.deadlineTo]: next.deadlineTo,
-              [TASK_PARAM.raisedFrom]: next.raisedFrom,
-              [TASK_PARAM.raisedTo]: next.raisedTo,
-            });
-            const anyPending = Boolean(dates.deadlineFrom || dates.deadlineTo || dates.raisedFrom || dates.raisedTo);
-            const previousMonthLabel = copy(pageContract, "date.previous_month", "Previous month");
-            const nextMonthLabel = copy(pageContract, "date.next_month", "Next month");
-            return (
-              <div className="lt-fdrop">
-                <button
-                  type="button"
-                  className={applied.length ? "set" : ""}
-                  aria-expanded={openRange === "dates"}
-                  aria-haspopup="true"
-                  onClick={(event) => {
-                    const button = event.currentTarget;
-                    const bar = button.closest(".lt-fbar") ?? document.body;
-                    const barBox = bar.getBoundingClientRect();
-                    const box = button.getBoundingClientRect();
-                    setDatesAlign(box.left + DATES_POP_WIDTH <= barBox.right ? "left" : "right");
-                    setOpenRange((current) => (current === "dates" ? null : "dates"));
-                  }}
-                >
-                  <CalendarRange className="ic" style={{ width: 14 }} aria-hidden="true" />
-                  <span className="lt-fkey">{datesLabel}</span>
-                  <span>{stated}</span>
-                  <ChevronDown className="ic" style={{ width: 13 }} aria-hidden="true" />
-                </button>
-                {openRange === "dates" ? (
-                  <DropdownPaper
-                    className={`lt-fdrop-pop lt-fdrop-dates${datesAlign === "left" ? " lt-fdrop-pop-left" : ""}`}
-                    sx={{ p: 1.5 }}
-                    role="group"
-                    aria-label={datesLabel}
-                    // Escape unwinds ONE layer, as in the New task modal: an open calendar
-                    // swallows the press (the picker closes itself on document keydown); only
-                    // when no calendar is open does the press reach the disclosure and close it.
-                    onKeyDownCapture={(event) => {
-                      if (event.key !== "Escape") return;
-                      const openCalendar = rangesRef.current?.querySelector("details[open]");
-                      if (!openCalendar) return;
-                      event.preventDefault();
-                      event.nativeEvent.stopImmediatePropagation();
-                      (openCalendar as HTMLDetailsElement).open = false;
-                      (openCalendar.querySelector("summary") as HTMLElement | null)?.focus();
-                    }}
-                  >
-                    {ranges.map((range) => (
-                      <div className="lt-fdrop-range" role="group" aria-label={range.label} key={range.id}>
-                        <span className="lt-fdrop-rangekey">{range.label}</span>
-                        <div className="lt-fdrop-span">
-                          <div className="lt-fdrop-date lt-fdrop-from">
-                            <span className="lt-fdrop-datekey">{range.fromLabel}</span>
-                            <ThemedDatePicker
-                              name={`${range.id}_from`}
-                              label={range.fromLabel}
-                              cleared={anyLabel}
-                              value={range.from}
-                              onChange={range.setFrom}
-                              max={range.to || undefined}
-                              previousMonthLabel={previousMonthLabel}
-                              nextMonthLabel={nextMonthLabel}
-                              invalidDateText=""
-                            />
-                          </div>
-                          <div className="lt-fdrop-date lt-fdrop-to">
-                            <span className="lt-fdrop-datekey">{range.toLabel}</span>
-                            <ThemedDatePicker
-                              name={`${range.id}_to`}
-                              label={range.toLabel}
-                              cleared={anyLabel}
-                              value={range.to}
-                              onChange={range.setTo}
-                              min={range.from || undefined}
-                              previousMonthLabel={previousMonthLabel}
-                              nextMonthLabel={nextMonthLabel}
-                              invalidDateText=""
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="lt-fdrop-act">
-                      {applied.length || anyPending ? (
-                        <button
-                          type="button"
-                          className="btn sm"
-                          onClick={() => {
-                            const cleared = { deadlineFrom: "", deadlineTo: "", raisedFrom: "", raisedTo: "" };
-                            setDates(cleared);
-                            setOpenRange(null);
-                            closeSheet();
-                            go(paramsWith(commitAll(cleared)));
-                          }}
-                        >
-                          {clearLabel}
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="btn sm p"
-                        onClick={() => {
-                          setOpenRange(null);
-                          closeSheet();
-                          go(paramsWith(commitAll(dates)));
-                        }}
-                      >
-                        {applyLabel}
-                      </button>
-                    </div>
-                  </DropdownPaper>
-                ) : null}
-              </div>
-            );
-          })()}
-        </div>
+      <CustomPopover
+        open={datesPopover.open}
+        anchorEl={datesPopover.anchorEl}
+        onClose={datesPopover.onClose}
+        slotProps={{ arrow: { placement: "top-right" }, paper: { sx: { p: 2, width: (theme) => theme.spacing(45), maxWidth: "calc(100vw - var(--sp-4))" } } }}
+      >
+        <Box
+          ref={rangesRef}
+          role="group"
+          aria-label={datesLabel}
+          sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+          onKeyDownCapture={(event) => {
+            // An open calendar inside a date field takes the first Escape; the popover the second.
+            if (event.key !== "Escape") return;
+            const openCalendar = rangesRef.current?.querySelector("details[open]");
+            if (!openCalendar) return;
+            event.preventDefault();
+            event.stopPropagation();
+            (openCalendar as HTMLDetailsElement).open = false;
+            (openCalendar.querySelector("summary") as HTMLElement | null)?.focus();
+          }}
+        >
+          {ranges.map((range) => (
+            <Box key={range.id} role="group" aria-label={range.label} sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <Typography variant="subtitle2">{range.label}</Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}>
+                <ThemedDatePicker
+                  name={`${range.id}_from`}
+                  label={range.fromLabel}
+                  cleared={anyLabel}
+                  value={range.from}
+                  onChange={range.setFrom}
+                  max={range.to || undefined}
+                  previousMonthLabel={previousMonthLabel}
+                  nextMonthLabel={nextMonthLabel}
+                  invalidDateText=""
+                />
+                <ThemedDatePicker
+                  name={`${range.id}_to`}
+                  label={range.toLabel}
+                  cleared={anyLabel}
+                  value={range.to}
+                  onChange={range.setTo}
+                  min={range.from || undefined}
+                  previousMonthLabel={previousMonthLabel}
+                  nextMonthLabel={nextMonthLabel}
+                  invalidDateText=""
+                />
+              </Box>
+            </Box>
+          ))}
+          <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1 }}>
+            {appliedRanges.length || anyPending ? (
+              <Button
+                variant="outlined"
+                color="inherit"
+                onClick={() => {
+                  const cleared = { deadlineFrom: "", deadlineTo: "", raisedFrom: "", raisedTo: "" };
+                  setDates(cleared);
+                  datesPopover.onClose();
+                  go(paramsWith(commitAll(cleared)));
+                }}
+              >
+                {clearLabel}
+              </Button>
+            ) : null}
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => {
+                datesPopover.onClose();
+                go(paramsWith(commitAll(dates)));
+              }}
+            >
+              {applyLabel}
+            </Button>
+          </Box>
+        </Box>
+      </CustomPopover>
 
-        {/* WHAT IS NARROWING THE LIST, each chip removing exactly itself -- on a ROW OF ITS OWN
-            under the bar (`.lt-fapplied`, Gate-1 #9). As loose flex items of the bar the chips
-            and "Clear" landed wherever the row had room: beside the Dates control when the
-            chips were narrow (counts at 0), on a second line when they were not, and "Clear"
-            once wrapped alone to the far left. The row exists whenever a filter is active, so
-            the bar above it never changes shape between two searches. */}
-        {activeChips.length > 0 || hasFilters ? (
-        <div className="lt-fapplied">
-        {activeChips.length > 0 ? (
-          <div className="lt-factive" role="group" aria-label={copy(pageContract, "filter.active_aria", copy(pageContract, "action.filters", "Filters"))}>
-            {activeChips.map((chip) => (
-              <span className="achip" key={chip.key}>
-                {chip.label}
-                <button
-                  type="button"
-                  onClick={() => {
-                    // The search box is the one chip with local state behind it, so its pending
-                    // debounce is dropped here rather than being left to fire the old value back.
-                    if (chip.key === TASK_PARAM.q) {
-                      setText("");
-                      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
-                    }
+      {/* WHAT IS NARROWING THE LIST, each chip removing exactly itself, on a row of its own under
+          the toolbar (Gate-1 #9), with ONE Clear. */}
+      {activeChips.length > 0 || hasFilters || rangeIncomplete ? (
+        <Box sx={{ p: 2.5, pt: 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+          {activeChips.length > 0 ? (
+            <Box
+              role="group"
+              aria-label={copy(pageContract, "filter.active_aria", copy(pageContract, "action.filters", "Filters"))}
+              sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}
+            >
+              {activeChips.map((chip) => (
+                <Chip
+                  {...chipProps}
+                  key={chip.key}
+                  label={chip.label}
+                  title={removeLabel}
+                  deleteIcon={<Iconify icon="solar:close-circle-bold" role="button" aria-label={removeLabel} />}
+                  onDelete={() => {
+                    if (chip.key === TASK_PARAM.q) clearSearch();
                     go(paramsWith(chip.overrides));
                   }}
-                  aria-label={removeLabel}
-                  title={removeLabel}
-                >
-                  <X className="ic" style={{ width: 12 }} aria-hidden="true" />
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        {hasFilters ? (
-          <Link href={clearedHref} replace scroll={false} className="achip clr lt-fclear">
-            {clearLabel}
-          </Link>
-        ) : null}
-        </div>
-        ) : null}
-
-        {rangeIncomplete ? <span className="lt-fnote">{rangeNote}</span> : null}
-      </div>
-    </div>
+                />
+              ))}
+            </Box>
+          ) : null}
+          {hasFilters ? (
+            <Button component={Link} href={clearedHref} replace scroll={false} color="error" startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
+              {clearLabel}
+            </Button>
+          ) : null}
+          {rangeIncomplete ? (
+            <Typography variant="caption" sx={{ color: "warning.main", width: 1 }}>
+              {rangeNote}
+            </Typography>
+          ) : null}
+        </Box>
+      ) : null}
+    </Box>
   );
+}
+
+/** Template status-tab Label colours: the same tone a status reads everywhere else on the desk. */
+function chipColor(key: string): "default" | "warning" | "info" | "success" | "error" {
+  if (key === "open") return "warning";
+  if (key === "in_progress") return "info";
+  if (key === "done") return "success";
+  if (key === "overdue") return "error";
+  return "default";
 }

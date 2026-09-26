@@ -1,6 +1,9 @@
 "use client";
 
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import Link from "@/components/no-prefetch-link";
+import { Iconify } from "@/components/minimal/iconify";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { notifyLocalOverlayUrlChange, pushLocalOverlayUrl } from "@/components/local-overlay-link";
@@ -49,27 +52,33 @@ export function TaskViewToggle({
 }) {
   const ctx = useContext(Ctx);
   const view = ctx?.view;
+  // Template file-manager view switch: a small exclusive ToggleButtonGroup of icon buttons (list /
+  // grid), each a real link, labelled for readers who cannot see the icon.
   return (
-    <SegmentTabs
-      className="metricseg"
-      ariaLabel={ariaLabel}
-      value={view ?? ""}
-      tabs={options.map((option) => ({
-        value: option.value,
-        label: option.label,
-        href: option.href,
-        onClick: (event: React.MouseEvent<HTMLElement>) => {
-          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
-          if (!ctx || (option.value !== "board" && option.value !== "list")) return;
-          event.preventDefault();
-          ctx.setView(option.value);
-          const url = new URL(option.href, window.location.href);
-          // A history entry, so Back restores the view the reader left (Judge B, P2-3).
-          pushLocalOverlayUrl(url.pathname + url.search + url.hash);
-          notifyLocalOverlayUrlChange();
-        },
-      }))}
-    />
+    <ToggleButtonGroup size="small" exclusive value={view ?? ""} aria-label={ariaLabel}>
+      {options.map((option) => (
+        <ToggleButton
+          key={option.value}
+          value={option.value}
+          component={Link}
+          href={option.href}
+          aria-label={option.label}
+          title={option.label}
+          aria-current={option.value === view ? "true" : undefined}
+          onClick={(event: React.MouseEvent<HTMLElement>) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+            if (!ctx || (option.value !== "board" && option.value !== "list")) return;
+            event.preventDefault();
+            ctx.setView(option.value);
+            const url = new URL(option.href, window.location.href);
+            pushLocalOverlayUrl(url.pathname + url.search + url.hash);
+            notifyLocalOverlayUrlChange();
+          }}
+        >
+          <Iconify icon={option.value === "list" ? "solar:list-bold" : "mingcute:dot-grid-fill"} />
+        </ToggleButton>
+      ))}
+    </ToggleButtonGroup>
   );
 }
 

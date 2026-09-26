@@ -2,6 +2,10 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import { PageHeader } from "@/components/app/page-header";
 import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
+import Box from "@mui/material/Box";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import { EmptyContent } from "@/components/minimal/empty-content";
 import { actionFeedbackCopy, copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getWorkBoardPage, type WorkBoardLane, type WorkBoardRow, type WorkBoardSummary } from "@/lib/api/work-board-server";
@@ -158,11 +162,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   };
 
   if (activeParks.length === 0) {
-    return (
-      <section className="card">
-        <div className="bd muted">{copy(pageContract, "state.empty")}</div>
-      </section>
-    );
+    return <EmptyContent filled title={copy(pageContract, "state.empty")} sx={{ py: 10 }} />;
   }
 
   const filterScope = { businessDate, modules: selectedModules, states: selectedStates, owner };
@@ -289,22 +289,25 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   // that was never valid) opens nothing; the board says so rather than ignoring it.
   const rowMissing = Boolean(selectedRow) && !error && !rows.some((row) => row.row_key === selectedRow);
 
+  const boardEmpty = !error && !noneSelected && rows.length === 0 && (summary?.total ?? 0) === 0;
+
+  // Template sections/kanban/view/kanban-view.tsx: page heading, then the board track; an empty
+  // board is the template EmptyContent (filled), status lines are MUI Alerts.
   return (
-    <div className="kit-enter wb">
-      <div>
+    <Box sx={{ minWidth: 0 }}>
+      {/* Template CustomBreadcrumbs rhythm: mb { xs: 3, md: 5 } before the first block. */}
+      <Box sx={{ mb: { xs: 3, md: 5 } }}>
         <PageHeader title={copy(pageContract, "board.title")} crumbs={[{ label: copy(pageContract, "crumb") }, { label: roleline }]} />
-      </div>
+      </Box>
 
       {feedback ? (
-        <div className={`tag ${actionStatus === "success" ? "t-ok" : "t-dng"}`} role="status" style={{ display: "inline-block", marginBottom: 10 }}>
+        <Alert severity={actionStatus === "success" ? "success" : "error"} role="status" sx={{ mb: 3 }}>
           {feedback}
-        </div>
+        </Alert>
       ) : null}
 
       {error ? (
-        <section className="card">
-          <div className="bd" style={{ color: "var(--danger)" }}>{copy(pageContract, "state.error")}</div>
-        </section>
+        <Alert severity="error" sx={{ mb: 3 }}>{copy(pageContract, "state.error")}</Alert>
       ) : (
         <WorkBoardBoard
           pageContract={pageContract}
@@ -325,23 +328,28 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
           previousDayHref={dateHref(istDayPlus(businessDate, -1))}
           nextDayHref={dateHref(istDayPlus(businessDate, 1))}
           hrefForRow={hrefForRow}
+          empty={boardEmpty ? <EmptyContent filled title={ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")} sx={{ py: 10 }} /> : null}
         />
       )}
 
       {partial ? (
-        <div className="tag t-dng" role="status" style={{ display: "inline-block", marginTop: 10 }}>
+        <Alert
+          severity="warning"
+          role="status"
+          sx={{ mt: 3 }}
+          action={
+            <Button component={Link} href={retryHref} color="inherit" size="small">{copy(pageContract, "action.retry")}</Button>
+          }
+        >
           {copy(pageContract, "state.partial")}
-          {degradedModules.length ? ` ${degradedModules.map((option) => option.label).join(", ")}.` : ""} <Link href={retryHref}>{copy(pageContract, "action.retry")}</Link>
-        </div>
+          {degradedModules.length ? ` ${degradedModules.map((option) => option.label).join(", ")}.` : ""}
+        </Alert>
       ) : null}
 
-      {!error && !noneSelected && rows.length === 0 && (summary?.total ?? 0) === 0 ? (
-        <div className="note muted small wb-alert" style={{ marginTop: 8 }}>{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>
-      ) : null}
       {rowMissing ? (
-        <div className="note muted small" role="status" style={{ marginTop: 8 }}>
-          {copy(pageContract, "state.row_missing")} <Link href={closeHref}>{copy(pageContract, "action.close")}</Link>
-        </div>
+        <Alert severity="info" role="status" sx={{ mt: 3 }} action={<Button component={Link} href={closeHref} color="inherit" size="small">{copy(pageContract, "action.close")}</Button>}>
+          {copy(pageContract, "state.row_missing")}
+        </Alert>
       ) : null}
 
       <WorkBoardModal
@@ -352,6 +360,6 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
         selectedOwner={owner}
         returnToByRow={Object.fromEntries(rows.map((row) => [row.row_key, hrefWithParams(WORK_BOARD_PATH, sp, { [PARAM_ROW]: row.row_key, action_status: undefined, action_key: undefined })]))}
       />
-    </div>
+    </Box>
   );
 }

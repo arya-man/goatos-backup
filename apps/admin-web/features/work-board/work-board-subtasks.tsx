@@ -1,73 +1,100 @@
 "use client";
 
+import { visuallyHidden } from "@mui/utils";
 import Link from "@/components/no-prefetch-link";
-import { ArrowUpRight } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
+import Box from "@mui/material/Box";
+import List from "@mui/material/List";
+import Avatar from "@mui/material/Avatar";
+import Button from "@mui/material/Button";
+import Collapse from "@mui/material/Collapse";
+import ListItem from "@mui/material/ListItem";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import ListItemText from "@mui/material/ListItemText";
+import ListItemButton from "@mui/material/ListItemButton";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow, WorkBoardSubtask, WorkBoardSubtaskPage } from "@/lib/api/work-board-server";
 import { loadSubtasksAction } from "./actions";
 import { initials, lanes } from "./work-board-model";
-import { Avatar } from "@/components/app/avatar";
 
-// The issue view's subtask list, in the mock's shape: worst first, ten per page, each row with
-// its name, subtitle, step chips, owner and status; a click unfolds the steps. The page is read
-// through a Server Action only while the card is open; nothing here recomputes state, every
-// state and label is the backend's.
+// The issue view's subtask list (template kanban details "Subtasks" tab: the "N of M" line, then
+// the list): worst first, ten per page, each row with its name, subtitle, owner and ONE status
+// Label; a click unfolds the steps. The page is read through a Server Action only while the card
+// is open; nothing here recomputes state, every state and label is the backend's.
 const PAGE = 10;
-
 
 function stepLabel(pageContract: AdminUiPageContract, state: string): string {
   return copy(pageContract, `step.${state}`, state);
+}
+
+type LabelColor = "default" | "success" | "info" | "warning" | "error";
+
+function stepColor(state: string): LabelColor {
+  return state === "done" ? "success" : state === "in_review" || state === "in_progress" ? "info" : state === "rework" ? "warning" : state === "needs_attention" ? "error" : "default";
 }
 
 function SubtaskRow({ pageContract, sub }: { pageContract: AdminUiPageContract; sub: WorkBoardSubtask }) {
   const [open, setOpen] = useState(false);
   const laneOpt = lanes(pageContract).find((lane) => lane.key === sub.lane);
   const status = sub.needs_attention ? copy(pageContract, "tile.attention") : laneOpt?.label ?? sub.lane;
-  const tone = sub.needs_attention ? "t-warn" : sub.lane === "done" ? "t-ok" : sub.lane === "in_review" || sub.lane === "in_progress" ? "t-info" : "t-mut";
+  const color: LabelColor = sub.needs_attention ? "warning" : sub.lane === "done" ? "success" : sub.lane === "in_review" || sub.lane === "in_progress" ? "info" : "default";
   return (
     <>
-      <button type="button" className={`it${sub.needs_attention ? " hot" : ""}${open ? " open" : ""}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="car" aria-hidden="true">▶</span>
-        <span className="nm">
-          <b>{sub.name}</b>
-          {sub.subtitle ? <span className="s">{sub.subtitle}</span> : null}
-          {/* Step pills live in the expanded panel below; the collapsed row is name · owner · ONE status chip. */}
-          <span className="sr-only">{sub.steps.map((step) => `${step.name} ${stepLabel(pageContract, step.state)}`).join(", ")}</span>
-        </span>
-        <span className="who">
+      <ListItem
+        disablePadding
+        secondaryAction={
+          sub.href ? (
+            <IconButton component={Link} href={sub.href} title={copy(pageContract, "drawer.subtasks.open")} aria-label={copy(pageContract, "drawer.subtasks.open")}>
+              <Iconify icon="eva:external-link-fill" />
+            </IconButton>
+          ) : undefined
+        }
+      >
+        <ListItemButton aria-expanded={open} onClick={() => setOpen((v) => !v)} sx={{ gap: 1.5, pr: sub.href ? 7 : 2, borderRadius: "var(--r-sm)" }}>
+          <Iconify icon={open ? "eva:arrow-ios-downward-fill" : "eva:arrow-ios-forward-fill"} width={16} sx={{ color: "text.disabled", flexShrink: 0 }} />
+          <ListItemText
+            primary={sub.name}
+            secondary={
+              <>
+                {sub.subtitle || null}
+                {/* Step labels live in the expanded panel below; the collapsed row is name · owner · ONE status. */}
+                <Box component="span" sx={visuallyHidden}>
+                  {sub.steps.map((step) => `${step.name} ${stepLabel(pageContract, step.state)}`).join(", ")}
+                </Box>
+              </>
+            }
+            slotProps={{ primary: { variant: "subtitle2", noWrap: true }, secondary: { variant: "caption", noWrap: true } }}
+            sx={{ minWidth: 0, m: 0 }}
+          />
           {sub.owner?.name ? (
-            <>
-              <Avatar name={sub.owner.name} initials={initials(sub.owner.name)} size={22} decorative />
-              <span className="n" title={sub.owner.name}>{sub.owner.name}</span>
-            </>
+            <Avatar title={sub.owner.name} sx={{ width: "var(--sp-3)", height: "var(--sp-3)", typography: "caption", flexShrink: 0 }}>
+              {initials(sub.owner.name)}
+            </Avatar>
           ) : null}
-        </span>
-        <span className={`tag ${tone}`}>{status}</span>
-        {sub.href ? (
-          <Link href={sub.href} className="iconbtn kit-row-edit lk" title={copy(pageContract, "drawer.subtasks.open")} aria-label={copy(pageContract, "drawer.subtasks.open")} onClick={(e) => e.stopPropagation()}>
-            <ArrowUpRight className="ic" aria-hidden="true" />
-          </Link>
-        ) : (
-          <span />
-        )}
-      </button>
-      {open ? (
-        <div className="steps">
+          <Label variant="soft" color={color} sx={{ flexShrink: 0 }}>{status}</Label>
+        </ListItemButton>
+      </ListItem>
+      <Collapse in={open} unmountOnExit>
+        <List disablePadding sx={{ pl: 5, pb: 1 }}>
           {sub.steps.map((step, i) => (
-            <div className="step" key={`${step.name}-${i}`}>
-              <span className="n">
-                <span className="arrow">{i + 1}</span>
-                <b>{step.name}</b>
-                {step.detail ? <span className="s">{step.detail}</span> : null}
-              </span>
-              <span className={`tag ${step.state === "done" ? "t-ok" : step.state === "in_review" || step.state === "in_progress" ? "t-info" : step.state === "rework" ? "t-warn" : step.state === "needs_attention" ? "t-dng" : "t-mut"}`}>
+            <ListItem key={`${step.name}-${i}`} sx={{ gap: 1.5, py: 0.75 }}>
+              <Avatar sx={{ width: "var(--sp-2h)", height: "var(--sp-2h)", typography: "caption", bgcolor: "background.neutral", color: "text.secondary" }}>{i + 1}</Avatar>
+              <ListItemText
+                primary={step.name}
+                secondary={step.detail || null}
+                slotProps={{ primary: { variant: "body2" }, secondary: { variant: "caption" } }}
+                sx={{ minWidth: 0, m: 0 }}
+              />
+              <Label variant="soft" color={stepColor(step.state)} sx={{ flexShrink: 0 }}>
                 {stepLabel(pageContract, step.state)}
-              </span>
-            </div>
+              </Label>
+            </ListItem>
           ))}
-        </div>
-      ) : null}
+        </List>
+      </Collapse>
     </>
   );
 }
@@ -99,32 +126,37 @@ export function WorkBoardSubtasks({ pageContract, row, selectedOwner }: { pageCo
   const first = current ? (pageNo - 1) * PAGE + 1 : 0;
   const last = current ? (pageNo - 1) * PAGE + current.subtasks.length : 0;
   const npages = Math.max(1, Math.ceil(total / PAGE));
-  if (error) return <div className="note">{copy(pageContract, "drawer.subtasks.error")}</div>;
-  if (!current) return <div className="note">{copy(pageContract, "drawer.subtasks.loading")}</div>;
-  if (current.subtasks.length === 0) return <div className="note">{copy(pageContract, "drawer.subtasks.empty")}</div>;
+  const note = (text: string) => (
+    <Typography variant="body2" sx={{ color: "text.secondary" }}>
+      {text}
+    </Typography>
+  );
+  if (error) return note(copy(pageContract, "drawer.subtasks.error"));
+  if (!current) return note(copy(pageContract, "drawer.subtasks.loading"));
+  if (current.subtasks.length === 0) return note(copy(pageContract, "drawer.subtasks.empty"));
   return (
-    <div className="items" style={{ opacity: pending ? 0.7 : 1 }}>
-      {current.subtasks.map((sub) => (
-        <SubtaskRow key={sub.key} pageContract={pageContract} sub={sub} />
-      ))}
-      <div className="pager">
-        <span>
-          {copy(pageContract, "drawer.subtasks.showing")} <b>{first}–{last}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{total}</b> {copy(pageContract, "card.total")} · {copy(pageContract, "drawer.subtasks.worst_first")}
-        </span>
-        {npages > 1 ? (
-          <span className="pgnav">
-            <button type="button" className="more" disabled={pageNo <= 1 || pending} onClick={() => setPages((prev) => prev.slice(0, -1))}>
-              ‹ {copy(pageContract, "action.previous")}
-            </button>
-            <span>
-              {copy(pageContract, "drawer.subtasks.page")} <b>{pageNo}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{npages}</b>
-            </span>
-            <button type="button" className="more" disabled={!current.next_cursor || pending} onClick={() => load(current.next_cursor, false)}>
-              {copy(pageContract, "action.next")} ›
-            </button>
+    <Box sx={{ gap: 2, display: "flex", flexDirection: "column", opacity: pending ? 0.7 : 1 }}>
+      <Typography variant="body2">
+        {copy(pageContract, "drawer.subtasks.showing")} <b>{first}–{last}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{total}</b> {copy(pageContract, "card.total")} · {copy(pageContract, "drawer.subtasks.worst_first")}
+      </Typography>
+      <List disablePadding>
+        {current.subtasks.map((sub) => (
+          <SubtaskRow key={sub.key} pageContract={pageContract} sub={sub} />
+        ))}
+      </List>
+      {npages > 1 ? (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, typography: "body2" }}>
+          <Button size="small" color="inherit" disabled={pageNo <= 1 || pending} onClick={() => setPages((prev) => prev.slice(0, -1))} startIcon={<Iconify icon="eva:arrow-ios-back-fill" width={16} />}>
+            {copy(pageContract, "action.previous")}
+          </Button>
+          <span>
+            {copy(pageContract, "drawer.subtasks.page")} <b>{pageNo}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{npages}</b>
           </span>
-        ) : null}
-      </div>
-    </div>
+          <Button size="small" color="inherit" disabled={!current.next_cursor || pending} onClick={() => load(current.next_cursor, false)} endIcon={<Iconify icon="eva:arrow-ios-forward-fill" width={16} />}>
+            {copy(pageContract, "action.next")}
+          </Button>
+        </Box>
+      ) : null}
+    </Box>
   );
 }

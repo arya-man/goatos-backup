@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
-import { Paperclip } from "lucide-react";
+import Box from "@mui/material/Box";
+import Avatar from "@mui/material/Avatar";
+import ListItemText from "@mui/material/ListItemText";
 
 import { columnsFromContract, DataTable } from "@/components/data-table";
-import { Tag } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
 import { copy, type AdminUiPageContract, type AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { DeadlineClock } from "./deadline-clock";
 import { initials, statusTone } from "./task-presentation";
@@ -54,31 +57,34 @@ export function LeadershipTasksTable({
     const patch = taskRowPatch(row.id);
     return patchApplies(row.rowVersion, patch) ? { ...row, ...patch } : row;
   });
+  // Template user-list row anatomy (sections/user/user-table-row.tsx): a ListItemText name cell
+  // (title primary, key secondary) whose link stretches over the whole row, an Avatar + name
+  // people cell, soft Labels for status.
   const taskCell = (task: TaskRow) => (
     <>
-      <Link
-        // The same deep link the board card mints: `task=<id>` ADDED to the current URL, so the
-        // view, status filter, sort, people filters and page survive the click. Building the href
-        // from scratch here dropped `t_view=list`, which is why clicking a list row flipped the
-        // page back to the board.
+      <Box
+        component={Link}
         href={tasksHref(basePath, sp, { [TASK_PARAM.scope]: scopeKey, [TASK_PARAM.task]: task.id })}
         scroll={false}
         className="lt-tasklink"
         aria-label={`${copy(pageContract, "action.open_task")} ${task.number}: ${task.title}`}
         aria-current={task.id === selectedTaskID ? "true" : undefined}
+        sx={{ display: "block", maxWidth: 320, color: "inherit", textDecoration: "none", minHeight: { xs: 44, md: "auto" }, "&:hover .MuiListItemText-primary": { textDecoration: "underline" } }}
       >
-        <b>{task.number}</b>
-        <span className="muted small">{task.title}</span>
-      </Link>
-      {/* At phone width the urgency column is dropped -- header AND body cells, via
-          `.lt-days-col{display:none}` at max-width:760px and the paired
-          `cellClassName`/`headerClassName` below. Every other column still renders, so the same
-          clock is repeated here, under the title, where the row has room for it. CSS shows one or
-          the other, never both. */}
+        <ListItemText
+          primary={task.title}
+          secondary={task.number}
+          slotProps={{ primary: { variant: "subtitle2" }, secondary: { variant: "caption", sx: { color: "text.disabled" } } }}
+          sx={{ m: 0 }}
+        />
+      </Box>
+      {/* At phone width the urgency column is dropped -- header AND body cells (`.lt-days-col`),
+          so the same clock is repeated here, under the title, where the row has room for it. One
+          or the other shows, never both. */}
       {task.deadlineTone ? (
-        <div className="lt-clock-inline">
+        <Box className="lt-clock-inline" sx={{ display: { xs: "block", md: "none" }, mt: 0.75 }}>
           <DeadlineClock task={task} compact />
-        </div>
+        </Box>
       ) : null}
     </>
   );
@@ -105,47 +111,66 @@ export function LeadershipTasksTable({
     },
     assignee: {
       cell: (task) => (
-        <div className="lt-opname">
-          <span className="lt-avx">{initials(task.assignee)}</span>
-          <span>
-            {task.assignee}
-            <span className="lt-code muted">
-              {task.assigneeRole ||
-                (task.isAssignee ? copy(pageContract, "label.assigned_to_me", "Assigned to me") : "")}
-            </span>
-          </span>
-        </div>
+        <Box sx={{ gap: 1.5, display: "flex", alignItems: "center", minWidth: 0 }}>
+          <Avatar sx={{ width: "var(--sp-4)", height: "var(--sp-4)", typography: "caption" }}>{initials(task.assignee)}</Avatar>
+          <ListItemText
+            primary={task.assignee}
+            secondary={task.assigneeRole || (task.isAssignee ? copy(pageContract, "label.assigned_to_me", "Assigned to me") : "")}
+            slotProps={{ primary: { variant: "body2" }, secondary: { variant: "caption", sx: { color: "text.disabled" } } }}
+            sx={{ m: 0, minWidth: 0 }}
+          />
+        </Box>
       ),
       meta: { cellClassName: "lt-people-col", headerClassName: "lt-people-col" },
       sortValue: (task) => task.assignee,
     },
     raised_by: { cell: (task) => task.raisedBy, meta: { cellClassName: "lt-people-col", headerClassName: "lt-people-col" }, sortValue: (task) => task.raisedBy },
     status: {
-      cell: (task) => <Tag tone={statusTone(task.status)}>{task.statusLabel}</Tag>,
+      cell: (task) => <Label variant="soft" color={statusColor(task.status)}>{task.statusLabel}</Label>,
       sortValue: (task) => task.status,
     },
     evidence: {
       cell: (task) => (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-          <Paperclip className="ic" style={{ width: 15, color: "var(--muted)" }} aria-hidden="true" />
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, minWidth: 0, typography: "body2" }}>
+          <Iconify icon="eva:attach-2-fill" width={16} sx={{ color: "text.disabled" }} />
           <b>{task.attachments}</b>
-          <span className="muted small">{task.evidence}</span>
-        </span>
+          <Box component="span" sx={{ color: "text.secondary", typography: "caption" }}>{task.evidence}</Box>
+        </Box>
       ),
       sortValue: (task) => task.attachments,
     },
   });
 
   return (
-    <DataTable<TaskRow>
-      columns={columns}
-      data={liveRows}
-      getRowId={(task) => task.id}
-      ariaLabel={contract.title}
-      className="lt-task-table"
-      empty={copy(pageContract, "empty.tasks")}
-    />
+    <Box
+      sx={(theme) => ({
+        // The task link stretches over its row, so the whole row opens the drawer.
+        "& tbody tr:has(.lt-tasklink)": { position: "relative", cursor: "pointer" },
+        "& .lt-tasklink::after": { content: '""', position: "absolute", inset: 0, zIndex: 1 },
+        "& .lt-tasklink:focus-visible": { outline: `2px solid ${theme.vars.palette.primary.main}`, outlineOffset: 2, borderRadius: "var(--r-sm)" },
+        "& td.lt-people-col": { whiteSpace: "normal", minWidth: 170, overflowWrap: "anywhere" },
+        "& td.lt-task-col": { minWidth: 220 },
+        "& td.lt-days-col": { whiteSpace: "nowrap" },
+        [theme.breakpoints.down("md")]: { "& .lt-days-col": { display: "none" } },
+      })}
+    >
+      <DataTable<TaskRow>
+        columns={columns}
+        data={liveRows}
+        getRowId={(task) => task.id}
+        ariaLabel={contract.title}
+        className="lt-task-table"
+        empty={copy(pageContract, "empty.tasks")}
+      />
+    </Box>
   );
+}
+
+function statusColor(status: TaskRow["status"]): "warning" | "info" | "success" | "default" {
+  if (status === "in_progress") return "info";
+  if (status === "done") return "success";
+  if (status === "cancelled") return "default";
+  return "warning";
 }
 
 /**

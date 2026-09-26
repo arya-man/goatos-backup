@@ -13,7 +13,6 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const dnd = read("./task-board-dnd.tsx");
 const card = read("./task-board-card.tsx");
 const actions = read("./actions.ts");
-const css = read("../../app/mesha-theme.css");
 
 // The contract lookup, as the banner hands it in. `bare` is a contract with no `feedback.*` keys
 // at all, so every sentence is the local fallback — what the live desk renders today.
@@ -112,7 +111,6 @@ assert.match(dnd, /\(min-width: 761px\) and \(pointer: fine\)/, "drag is gated a
 assert.match(dnd, /useState\(false\)/, "the gate must start closed so the server-rendered HTML is the non-drag one");
 assert.match(card, /draggable=\{draggable\}/, "the card must state draggable either way");
 assert.match(dnd, /dragCapable && task\.statusOptions\.length > 0/, "a card with no legal move is not draggable at all");
-assert.match(css, /@media\(max-width:760px\)\{[^}]*\.ltb-dndhint\{display:none\}/s, "the drag hint must be hidden at phone width");
 
 // ---- ARIA: no deprecated aria-grabbed anywhere, and the announcement is a real live region.
 // The attribute form, not the word: the file's own comment explains WHY it is not used.
@@ -121,9 +119,12 @@ assert.doesNotMatch(card, /aria-grabbed/, "the card must not carry a deprecated 
 assert.match(dnd, /aria-live="polite"/);
 
 // ---- Brand palette only for the drag affordance: no hex in the new CSS block.
-const dragCss = css.slice(css.indexOf("TASK BOARD DRAG AND DROP"), css.indexOf("END TASK BOARD DRAG AND DROP"));
-assert.doesNotMatch(dragCss, /#[0-9a-fA-F]{3,8}\b/, "the drag affordance must use brand tokens, never a hex colour");
-assert.match(dragCss, /var\(--brand\)/);
+// The drag affordance is the template kanban column state (sections/kanban/column/styles.tsx):
+// a legal target takes the column-over state, the one under the pointer task-over -- theme
+// palette tokens, never a hex colour in feature code.
+assert.match(dnd, /kanbanColumnState\.taskOver/, "the column under the pointer takes the template task-over state");
+assert.match(dnd, /kanbanColumnState\.columnOver/, "a legal drop column takes the template column-over state");
+assert.doesNotMatch(dnd, /#[0-9a-fA-F]{3,8}\b/, "the drag affordance must use theme tokens, never a hex colour");
 
 // ---- The refusal re-read happens on the FAILURE path only, and the name rides only a refusal
 // that is genuinely about a person.

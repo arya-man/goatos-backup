@@ -63,7 +63,7 @@ export function TaskDetailDrawer({
       window.requestAnimationFrame(() => {
         if (document.activeElement && document.activeElement !== document.body) return;
         document
-          .querySelector<HTMLElement>(`.lt-grid a[href*="task=${CSS.escape(taskId)}"], a.ltb-card[href*="task=${CSS.escape(taskId)}"]`)
+          .querySelector<HTMLElement>(`a.lt-tasklink[href*="task=${CSS.escape(taskId)}"], a.ltb-card[href*="task=${CSS.escape(taskId)}"]`)
           ?.focus({ preventScroll: true });
       });
     };
@@ -78,7 +78,8 @@ export function TaskDetailDrawer({
       width={480}
       slotProps={{
         backdrop: { "aria-label": closeLabel } as object,
-        paper: { className: "ltd-drawer", tabIndex: -1, "data-task-drawer": taskId, role: "dialog", "aria-modal": true, "aria-label": ariaLabel } as object,
+        // Template kanban details drawer: 480 wide from sm up, full width on a phone.
+        paper: { className: "ltd-drawer", tabIndex: -1, "data-task-drawer": taskId, role: "dialog", "aria-modal": true, "aria-label": ariaLabel, sx: { width: { xs: 1, sm: 480 }, maxWidth: "100vw" } } as object,
       }}
     >
       {children}

@@ -12,11 +12,8 @@
     "apps/admin-web/features/procurement/actions.ts|native-date-input": 1,
     "apps/admin-web/features/procurement/market-actions.ts|revalidate-in-returning-action": 1,
     "apps/admin-web/features/procurement/sale-allocation-actions.ts|revalidate-in-returning-action": 1,
-    "apps/admin-web/features/procurement/sales-record-drawer.tsx|native-date-input": 1,
+    "apps/admin-web/features/procurement/table-toolbar.tsx|fake-checkbox": 1,
     "apps/admin-web/features/sops/sop-actions.ts|revalidate-in-returning-action": 15,
-    "apps/admin-web/features/sops/weighing-editor.tsx|native-date-input": 1,
-    "apps/admin-web/features/vaccination-plan/plan-actions.ts|revalidate-in-returning-action": 8,
-    "apps/admin-web/features/vaccination-plan/plan-editor.tsx|fake-checkbox": 1,
-    "apps/admin-web/features/work-board/work-board-board.tsx|fake-checkbox": 1
+    "apps/admin-web/features/vaccination-plan/plan-actions.ts|revalidate-in-returning-action": 8
   }
 }

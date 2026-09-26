@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { XCircle } from "lucide-react";
+import { Iconify } from "@/components/minimal/iconify";
 import { usePopover } from "minimal-shared/hooks";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -13,7 +13,6 @@ import type { Theme } from "@mui/material/styles";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
-import { statusTone } from "./task-presentation";
 import type { TaskRow } from "./task-row";
 import { changeLeadershipTaskStatusInPlaceAction, loadLeadershipTaskAction, type StatusChangeResult } from "./actions";
 import { refusalSentence } from "./task-feedback-copy";
@@ -148,7 +147,7 @@ export function TaskStatusMenu({
   };
 
   return (
-    <div className="wb ltd-statusmenu">
+    <Box className="ltd-statusmenu" sx={{ display: "inline-block" }}>
       <form ref={formRef} action={action}>
         <input ref={keyRef} type="hidden" name="idempotency_key" />
         <input type="hidden" name="return_to" value={returnTo} />
@@ -163,9 +162,12 @@ export function TaskStatusMenu({
             transition check decide that. The board's drop posts the same field. */}
         <input type="hidden" name="from_status" value={task.status} />
       </form>
-      <button
-        type="button"
-        className={`ltd-status ltd-status-${statusTone(task.status)}${open ? " on" : ""}`}
+      {/* Template kanban details toolbar status control: a small soft Button with a down caret. */}
+      <Button
+        size="small"
+        variant="soft"
+        color={STATUS_COLOR[task.status] ?? "inherit"}
+        className={`ltd-status${open ? " on" : ""}`}
         data-ltd-status="control"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -174,18 +176,14 @@ export function TaskStatusMenu({
         aria-busy={pending || undefined}
         disabled={pending}
         onClick={menu.onOpen}
+        endIcon={<Iconify icon="eva:arrow-ios-downward-fill" width={16} sx={{ ml: -0.5 }} />}
       >
         {task.statusLabel}
-        {pending ? (
-          <span className="ltd-status-saving" aria-hidden="true" />
-        ) : (
-          <span className="ltd-status-caret" aria-hidden="true" />
-        )}
-      </button>
+      </Button>
       {refusal ? (
-        <p className="ltd-status-refusal" role="alert">
+        <Typography variant="caption" role="alert" sx={{ display: "block", mt: 1, color: "error.main" }}>
           {refusal}
-        </p>
+        </Typography>
       ) : null}
       <CustomPopover
         open={open}
@@ -198,9 +196,8 @@ export function TaskStatusMenu({
             <MenuItem key={option.key} onClick={() => submit(option.key)} sx={tapRow}>
               <Box
                 component="span"
-                className={`ltd-status-${statusTone(option.key as TaskRow["status"])}`}
                 aria-hidden="true"
-                sx={{ width: 9, aspectRatio: "1", borderRadius: "50%", flex: "none", borderWidth: 1, borderStyle: "solid" }}
+                sx={{ width: "var(--sp-1)", height: "var(--sp-1)", borderRadius: "50%", flex: "none", bgcolor: STATUS_COLOR[option.key as TaskRow["status"]] ? `${STATUS_COLOR[option.key as TaskRow["status"]]}.main` : "text.disabled" }}
               />
               {/* The item's wording is the backend's own status-option label. */}
               {option.label}
@@ -209,7 +206,7 @@ export function TaskStatusMenu({
           {cancel && moves.length ? <Divider sx={{ borderStyle: "dashed" }} /> : null}
           {cancel && !confirmingCancel ? (
             <MenuItem onClick={() => setConfirmingCancel(true)} sx={(theme) => ({ ...tapRow(theme), color: theme.palette.error.main })}>
-              <XCircle className="ic" aria-hidden="true" />
+              <Iconify icon="solar:close-circle-bold" />
               {cancel.label}
             </MenuItem>
           ) : null}
@@ -228,9 +225,15 @@ export function TaskStatusMenu({
           </Box>
         ) : null}
       </CustomPopover>
-    </div>
+    </Box>
   );
 }
+
+const STATUS_COLOR: Partial<Record<TaskRow["status"], "warning" | "info" | "success">> = {
+  open: "warning",
+  in_progress: "info",
+  done: "success",
+};
 
 /** Phone tap floor for menu rows and the confirm buttons (webview rule: >=44px). */
 function tapRow(theme: Theme) {

@@ -1,7 +1,16 @@
 "use client";
 
+import { visuallyHidden } from "@mui/utils";
 import { useEffect, useState, useTransition } from "react";
 import { faro } from "@grafana/faro-web-sdk";
+import Box from "@mui/material/Box";
+import Alert from "@mui/material/Alert";
+import Typography from "@mui/material/Typography";
+import { varAlpha } from "minimal-shared/utils";
+
+import { KanbanBoard } from "@/components/minimal/kanban";
+import { Label } from "@/components/minimal/label";
+import { ColumnList, ColumnRoot, ColumnWrapper, kanbanColumnState } from "@/components/minimal/sections/kanban/column/styles";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -247,139 +256,136 @@ export function TaskBoardColumns({
 
   return (
     <>
-      <div
-        className="ltb-scroll"
+      {/* Template sections/kanban: the KanbanBoard track, one template column per status
+          (ColumnWrapper + ColumnRoot, the round count Label and the h6 name in the column
+          toolbar, the ColumnList of items); a legal drop target takes the template's
+          column-over / task-over state. */}
+      <KanbanBoard
+        className="ltb-cols"
         role="group"
         aria-label={copy(pageContract, "board.aria", "Tasks by status")}
+        sx={{
+          "--kanban-column-width": { xs: "86vw", sm: "clamp(calc(var(--sp-5) * 6), calc((100% - 3 * var(--kanban-column-gap)) / 4), var(--kanban-col-w))" },
+          overscrollBehaviorX: "contain",
+          scrollSnapType: { xs: "x mandatory", md: "none" },
+          "& > section": { scrollSnapAlign: "start" },
+        }}
       >
-        <div className="ltb-cols">
           {columns.map((column) => {
             const cards = rows.filter((task) => statusOf(task) === column.key);
             const droppable = legalFor(column.key);
             const over = droppable && overColumn === column.key;
-            // Cancelled is a column like the other three (CEO, 2026-09-18); no slim rail.
-            const rail = false;
+            const count = column.total === null ? cards.length : Math.max(0, column.total + totalDelta(column.key));
             return (
-              <section
+              <ColumnWrapper
                 key={column.key}
                 className={`ltb-col ltb-col-${column.key}${
                   activeFilter === column.key ? " is-focused" : ""
-                }${rail ? " is-rail" : ""}${droppable ? " ltb-drop-ok" : ""}${over ? " ltb-drop-over" : ""}${
+                }${droppable ? " ltb-drop-ok" : ""}${over ? " ltb-drop-over" : ""}${
                   draggingTask && !droppable ? " ltb-drop-no" : ""
                 }`}
-                data-ltb-rail={rail ? "true" : undefined}
-                aria-label={rail ? column.label : undefined}
                 onDragOver={(event) => {
-                  // Only a legal column calls preventDefault, which is what MAKES it a drop
-                  // target: an illegal one keeps the browser's own `no-drop` cursor and its
-                  // `drop` never fires. The legality is the row's `status_options`, not a rule
-                  // written here.
                   if (!droppable) return;
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";
                   if (overColumn !== column.key) setOverColumn(column.key);
                 }}
                 onDragLeave={(event) => {
-                  // Only when the pointer really left this section, not when it crossed onto a
-                  // card inside it.
                   if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
                   setOverColumn((current) => (current === column.key ? null : current));
                 }}
                 onDrop={(event) => {
                   event.preventDefault();
                   setOverColumn(null);
-                  /**
-                   * The card being dragged is identified from this component's OWN state first,
-                   * and from the drag payload only as a fallback. Both are written by the same
-                   * `dragstart`, so they agree — state is primary because it is the SAME value the
-                   * column's droppability was computed from, so the drop and the highlight the
-                   * reader was shown can never be about two different cards. The payload is still
-                   * set, and still read as a fallback, because it is what makes a drop OUTSIDE the
-                   * board carry a private type instead of the card's URL.
-                   */
                   const taskID =
                     draggingTaskID || event.dataTransfer.getData(DRAG_MIME);
                   const task = rows.find((row) => row.id === taskID);
                   setDraggingTaskID(null);
-                  // Re-checked against the row's own options: the dragover guard is a cursor, and
-                  // a cursor is not an authorisation.
                   if (!task) return;
                   if (!task.statusOptions.some((option) => option.key === column.key)) return;
                   if (task.status === column.key) return;
                   move(task, column.key);
                 }}
               >
-                <header className="ltb-colhd">
-                  <span className="ltb-colname">{column.label}</span>
-                  {/* A pill never reads "—" (Gate-1 #4, #14): where the list query publishes
-                      no whole-list total for a column -- the overdue lens, and Cancelled --
-                      the pill counts the cards on this page and its tooltip says so, so the
-                      numbers beside each other reconcile (the header's "142 of 408", the
-                      column pills, the "N on this page" lines). */}
-                  <span
-                    className="ltb-colcount"
-                    title={
-                      column.total === null
-                        ? copy(
-                            pageContract,
-                            "board.total_on_page",
-                            "The whole-list total for this column is not published; this counts the cards on this page.",
-                          )
-                        : undefined
-                    }
+                <ColumnRoot
+                  className={over ? kanbanColumnState.taskOver : droppable ? kanbanColumnState.columnOver : draggingTask ? kanbanColumnState.dragging : undefined}
+                  sx={{ flexGrow: 1 }}
+                >
+                  <Box
+                    component="header"
+                    className="ltb-colhd"
+                    sx={{ display: "flex", alignItems: "center", gap: 1, pt: "var(--kanban-column-pt)", px: "var(--kanban-column-px)" }}
                   >
-                    {column.total === null ? cards.length : Math.max(0, column.total + totalDelta(column.key))}
-                  </span>
-                </header>
-                <div className="ltb-colbd">
-                  {cards.length ? (
-                    cards.map((task) => (
-                      <TaskBoardCard
-                        key={task.id}
-                        task={task}
-                        pageContract={pageContract}
-                        href={cardHrefs[task.id] ?? ""}
-                        selected={task.id === selectedTaskID}
-                        /**
-                         * A card is draggable only on a wide, precise-pointer client AND only
-                         * when the backend gave this actor somewhere to drag it. Everything else
-                         * is `draggable={false}`, which ALSO switches off the browser's native
-                         * anchor drag — an `<a>` is draggable by default, so "no drag" has to be
-                         * said out loud.
-                         */
-                        draggable={dragCapable && task.statusOptions.length > 0}
-                        dragging={draggingTaskID === task.id}
-                        pending={pendingMove?.taskID === task.id}
-                        onDragStart={(event) => {
-                          event.dataTransfer.setData(DRAG_MIME, task.id);
-                          event.dataTransfer.effectAllowed = "move";
-                          setDraggingTaskID(task.id);
-                        }}
-                        onDragEnd={() => {
-                          setDraggingTaskID(null);
-                          setOverColumn(null);
-                        }}
-                      />
-                    ))
-                  ) : (
-                    column.emptyMessage ? <p className="ltb-colempty">{column.emptyMessage}</p> : null
-                  )}
-                </div>
-              </section>
+                    {/* A count never reads "—" (Gate-1 #4, #14): where the list query publishes
+                        no whole-list total for a column -- the overdue lens, and Cancelled --
+                        the count is the cards on this page and its tooltip says so. */}
+                    <Label
+                      className="ltb-colcount"
+                      title={
+                        column.total === null
+                          ? copy(
+                              pageContract,
+                              "board.total_on_page",
+                              "The whole-list total for this column is not published; this counts the cards on this page.",
+                            )
+                          : undefined
+                      }
+                      sx={(theme) => ({ borderRadius: "50%", borderColor: varAlpha(theme.vars.palette.grey["500Channel"], 0.24) })}
+                    >
+                      {count}
+                    </Label>
+                    <Typography component="span" variant="subtitle1" noWrap className="ltb-colname" sx={{ flexGrow: 1, minWidth: 0 }}>
+                      {column.label}
+                    </Typography>
+                  </Box>
+                  <ColumnList className="ltb-colbd">
+                    {cards.length ? (
+                      cards.map((task) => (
+                        <TaskBoardCard
+                          key={task.id}
+                          task={task}
+                          pageContract={pageContract}
+                          href={cardHrefs[task.id] ?? ""}
+                          selected={task.id === selectedTaskID}
+                          draggable={dragCapable && task.statusOptions.length > 0}
+                          dragging={draggingTaskID === task.id}
+                          pending={pendingMove?.taskID === task.id}
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData(DRAG_MIME, task.id);
+                            event.dataTransfer.effectAllowed = "move";
+                            setDraggingTaskID(task.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggingTaskID(null);
+                            setOverColumn(null);
+                          }}
+                        />
+                      ))
+                    ) : column.emptyMessage ? (
+                      <Box
+                        component="li"
+                        className="ltb-colempty"
+                        sx={{ p: 2, border: 1, borderStyle: "dashed", borderColor: "divider", borderRadius: "var(--kanban-item-radius)", typography: "body2", color: "text.disabled" }}
+                      >
+                        {column.emptyMessage}
+                      </Box>
+                    ) : null}
+                  </ColumnList>
+                </ColumnRoot>
+              </ColumnWrapper>
             );
           })}
-        </div>
-      </div>
+      </KanbanBoard>
 
       {refusal ? (
-        <p className="ltd-status-refusal ltb-refusal" role="alert" data-testid="ltb-refusal">
+        <Alert severity="error" role="alert" data-testid="ltb-refusal" sx={{ mt: 2 }}>
           {refusal}
-        </p>
+        </Alert>
       ) : null}
       {/* Not `aria-grabbed` (deprecated): the move in flight is announced as text instead. */}
-      <p className="ltb-dndlive" role="status" aria-live="polite">
+      <Box component="p" role="status" aria-live="polite" sx={visuallyHidden}>
         {announcement}
-      </p>
+      </Box>
     </>
   );
 }

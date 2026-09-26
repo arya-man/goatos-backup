@@ -25,6 +25,9 @@
 
     "components/minimal/index.ts": "src/components/index.ts",
     "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
+    "components/minimal/sections/kanban/column/styles.tsx": "src/sections/kanban/column/styles.tsx",
+    "components/minimal/sections/kanban/details/kanban-details.tsx": "src/sections/kanban/details/kanban-details.tsx",
+    "components/minimal/sections/kanban/item/styles.tsx": "src/sections/kanban/item/styles.tsx",
     "components/minimal/sections/invoice/invoice-analytic.tsx": "src/sections/invoice/invoice-analytic.tsx",
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": "src/sections/overview/analytics/analytics-website-visits.tsx",
 

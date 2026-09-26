@@ -56,34 +56,23 @@ export const overlayJourneys = {
       // features/leadership-tasks/task-board-card.tsx: <Link className="ltb-card"> ; drawer: task-detail-drawer.tsx
       trigger: "a.ltb-card",
       overlay: ".MuiDrawer-paper.ltd-drawer",
-      header: ".ltd-head",
+      header: ".ltd-panel",
       kind: "drawer",
       close: ".MuiDrawer-root .MuiBackdrop-root",
       source: "features/leadership-tasks/task-board-card.tsx, task-detail-drawer.tsx, task-detail-panel.tsx",
     },
-    {
-      id: "filter-sheet",
-      // features/leadership-tasks/leadership-tasks-filters.tsx: .btn.lt-fmore toggles .lt-fgroup.open (fixed bottom sheet <=760px)
-      trigger: ".lt-fsheet-host button.lt-fmore",
-      overlay: ".lt-fsheet-host .lt-fgroup.open",
-      header: ".lt-fsheet-hd",
-      kind: "sheet",
-      viewports: ["mobile"],
-      close: ".lt-fgroup.open .lt-fsheet-hd button",
-      source: "features/leadership-tasks/leadership-tasks-filters.tsx; app/mesha-theme.css .lt-fgroup.open",
-    },
   ],
   "work-board-populated": [
     {
-      id: "issue-dialog",
-      // features/work-board/work-board-board.tsx: <LocalOverlayLink className="card" data-filter-row>; modal: work-board-modal.tsx
-      trigger: "a.card[data-filter-row]",
-      overlay: ".MuiDialog-paper.wb-dialog[role=dialog]",
-      header: ".MuiDialogTitle-root",
-      body: ".MuiDialogContent-root",
-      kind: "dialog",
-      close: ".wb-dialog .MuiDialogTitle-root button[aria-label]",
-      source: "features/work-board/work-board-board.tsx, work-board-modal.tsx",
+      id: "issue-drawer",
+      // features/work-board/work-board-board.tsx: <LocalOverlayLink data-filter-row> card link; detail:
+      // work-board-modal.tsx on the template kanban details drawer (sections/kanban/details/kanban-details.tsx).
+      trigger: "a[data-filter-row]",
+      overlay: ".MuiDrawer-paper[aria-label]",
+      header: ".MuiTabs-root",
+      kind: "drawer",
+      close: ".MuiDrawer-paper button[aria-label]",
+      source: "features/work-board/work-board-board.tsx, work-board-modal.tsx, components/minimal/sections/kanban/details/kanban-details.tsx",
     },
   ],
   people: [
