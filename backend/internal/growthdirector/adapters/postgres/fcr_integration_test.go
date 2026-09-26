@@ -465,6 +465,106 @@ WHERE completion_id = $1::uuid`, completionID, gdOperator)
 	}
 }
 
+// fcrWastage records one wastage row on the fixture's lump pen (undivided) unless shed/label say
+// otherwise. kg < 0 means no reading was recorded.
+func fcrWastage(t *testing.T, ctx context.Context, pool *pgxpool.Pool, park, shed, label, day, workflow, status string, kg float64, key string) {
+	t.Helper()
+	var kgArg, byArg any
+	if kg >= 0 {
+		kgArg, byArg = kg, gdOperator
+	}
+	execGD(t, ctx, pool, `
+INSERT INTO feed_wastage_completions (tenant_id, park_id, shed_id, partition_label, target_date, workflow, status, wastage_proof_ref, sop_proofs, idempotency_key, wastage_kg, wastage_recorded_by, wastage_recorded_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, nullif($4, ''), $5::date, $6, $7, 'proof-' || $10, jsonb_build_object('video', jsonb_build_array('proof-' || $10)), $10,
+        $8::numeric, $9::uuid, CASE WHEN $8::numeric IS NULL THEN NULL ELSE now() END)`,
+		gdTenant, park, shed, label, day, workflow, status, kgArg, byArg, key)
+}
+
+// fcrLumpFeed reads the lump pen's feed and wastage for the fixture window.
+func fcrLumpFeed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) domain.FCRPen {
+	t.Helper()
+	got, err := NewRepository(pool, 30*time.Second).GetFCR(ctx, gdTenant, []string{gdPark},
+		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "", "", "")
+	if err != nil {
+		t.Fatalf("GetFCR: %v", err)
+	}
+	for _, pen := range got.Pens {
+		if pen.OperationalLocationDisplay == "CBE · Lump 1" {
+			return pen
+		}
+	}
+	t.Fatal("no lump pen row")
+	return domain.FCRPen{}
+}
+
+func fcrWastageDB(t *testing.T) (context.Context, *pgxpool.Pool) {
+	t.Helper()
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	t.Cleanup(pool.Close)
+	seedFCRFixture(t, ctx, pool)
+	return ctx, pool
+}
+
+// OneToMany: a pen-day carries several feed items and more than one wastage row (an experiment and
+// a normal reading). Each reading is subtracted once and no feed item is multiplied by them.
+func TestFCRWastageOneToManyFeedItemsAndWorkflowsNeverMultiply(t *testing.T) {
+	ctx, pool := fcrWastageDB(t)
+	// Jul 10 also gets 5 kg of Bran on the lump pen: two feed items that day.
+	execGD(t, ctx, pool, `
+INSERT INTO feed_direction_issue_rows (tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, partition_label, shed_tag, breed, session_no, head_count, head_count_informational, workflow, feed_item_label, quantity_kg, session_total_kg, overdue_pending, row_seq, item_seq)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Lump 1', NULL, '', '', 1, 25, false, 'normal', 'Bran', 5.0, 15.0, false, 0, 3)`,
+		gdTenant, fcrIssueBase+"21", gdPark, gdShedLump)
+	execGD(t, ctx, pool, `ALTER TABLE feed_wastage_completions DROP CONSTRAINT feed_wastage_completions_workflow_check`)
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-10", "experiment", "completed", 2, "otm-1")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-10", "normal", "completed", 1, "otm-2")
+	lump := fcrLumpFeed(t, ctx, pool)
+	fcrNear(t, "feed eaten: 70 + 5 bran - 3 wastage", lump.FeedKg, 72)
+	fcrNear(t, "wastage counted once per reading", lump.WastageKg, 3)
+}
+
+// PageBoundary: a segment is [earlier round, later round). Leftover on the first fed day and on the
+// last fed day before the later round both belong to the segment; the later round's own day is the
+// next segment's and has no feed here, so it is not taken off.
+func TestFCRWastageAtSegmentPageBoundary(t *testing.T) {
+	ctx, pool := fcrWastageDB(t)
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-08", "experiment", "completed", 2, "pb-1")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-14", "experiment", "completed", 3, "pb-2")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-15", "experiment", "completed", 9, "pb-3")
+	lump := fcrLumpFeed(t, ctx, pool)
+	fcrNear(t, "both in-segment days count, the round day does not", lump.WastageKg, 5)
+	fcrNear(t, "feed eaten", lump.FeedKg, 65)
+}
+
+// ParkScope: wastage filed under ANOTHER park for the same shed id never reaches this park's FCR.
+func TestFCRWastageParkScopeKeepsOtherParksOut(t *testing.T) {
+	ctx, pool := fcrWastageDB(t)
+	const otherPark = "22222222-0000-4000-8000-000000003199"
+	execGD(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, status, display_order)
+VALUES ($1::uuid, $2::uuid, 'park', 'Other park', 'active', 900) ON CONFLICT (location_id) DO NOTHING`, otherPark, gdTenant)
+	fcrWastage(t, ctx, pool, otherPark, gdShedLump, "", "2026-07-09", "experiment", "completed", 7, "ps-1")
+	lump := fcrLumpFeed(t, ctx, pool)
+	if lump.WastageKg != nil {
+		t.Fatalf("another park's wastage leaked in: %v", *lump.WastageKg)
+	}
+	fcrNear(t, "feed untouched", lump.FeedKg, 70)
+}
+
+// StatusMatrix: only an APPROVED reading is taken off. A reading still waiting for the verifier, one
+// sent back for a re-shoot, and an approved row with no reading all leave the feed as directed.
+func TestFCRWastageStatusMatrixOnlyApprovedCounts(t *testing.T) {
+	ctx, pool := fcrWastageDB(t)
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-09", "experiment", "pending_verification", 5, "sm-1")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-10", "experiment", "rework", 6, "sm-2")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-11", "experiment", "completed", -1, "sm-3")
+	fcrWastage(t, ctx, pool, gdPark, gdShedLump, "", "2026-07-12", "experiment", "completed", 4, "sm-4")
+	lump := fcrLumpFeed(t, ctx, pool)
+	fcrNear(t, "only the approved 4 kg", lump.WastageKg, 4)
+	fcrNear(t, "feed eaten", lump.FeedKg, 66)
+}
+
 func keysOf(m map[string]domain.FCRPen) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
