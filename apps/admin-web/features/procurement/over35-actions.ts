@@ -3,7 +3,8 @@
 // The Over 35 kg card's error-margin Apply (flicker fix, 2026-09-25). Apply used to re-render the
 // WHOLE Farm value page -- the valuation read, the category breakdown and the chrome -- to change
 // one number in one card. It now asks for that number alone and the card updates in place; the
-// rest of the page never moves. Read-only: it writes nothing and revalidates nothing.
+// rest of the page never moves. server-action-read-only: GET-backed count fetch; it writes nothing
+// and revalidates nothing.
 import { getGrowthAssumptions, getShedWeights } from "@/lib/api/server";
 import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG } from "@/features/weighing/assumption-copy";
 import { istDayPlus, todayIso } from "@/lib/format";

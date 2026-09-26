@@ -43,6 +43,11 @@ Land PR #445, "Sales: end-to-end audit fixes (web, phone, backend) and nine main
   - Resolved by directly registering `identityapp.NewSaleFailedReleaseHandler(identityRepo)` in `kernelstages.BuildDomainBus` and `cmd/domain-event-consumer` while leaving the shared helper for the other bus builders.
 - Failed cascade step rerun and passed:
   - `GOATOS_CI_ONLY_STEP='cascade-event-wiring-guard' tools/ci/run-local-ci.sh backend`
+- Third landing gate failed before push after 6s:
+  - `frontend-foundations-guard` flagged `over35-actions.ts` because its GET-backed Server Action was read-only but lacked the exact read-only marker.
+  - Resolved by marking the action `server-action-read-only` without adding fake idempotency to the non-mutating path.
+- Failed frontend-foundations step rerun and passed:
+  - `GOATOS_CI_ONLY_STEP='frontend-foundations-guard' tools/ci/run-local-ci.sh admin-web`
 
 ## Pending
 
