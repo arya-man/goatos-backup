@@ -1508,7 +1508,7 @@ export async function getWeighingFCR(params: {
   to?: string;
   /** `male` / `female`, applied at PEN grain: a pen counts only when every resident is that sex. */
   sex?: string;
-  /** `farm_born` / `purchased`, applied at PEN grain for the same reason. */
+  /** `farm_born` / `procured_no_load` / `procured_load`, applied at PEN grain for the same reason. */
   origin?: string;
   weighing_category?: string;
 }): Promise<ApiResult<GrowthFCRResponse>> {

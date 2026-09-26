@@ -6,7 +6,7 @@ import "fmt"
 // asked for", in terms a weighing query can apply without knowing what an animal is.
 //
 // It is the SHARED shape of every Weights page filter that narrows the herd rather than the
-// window: today Sex (sex_scope.go) and Farm born / Purchased (origin_scope.go). Both resolve
+// window: today Sex (sex_scope.go) and origin: Farm born / Procured (no load) / Procured (load) (origin_scope.go). Both resolve
 // their own question in their own file and hand back this same opaque pair of lists, so the
 // reads that consume it — shed_weights.go, growth.go, load_weights.go and the Growth Director
 // widgets — name no herd table, know nothing about animals, and did not change when the second

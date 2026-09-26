@@ -1,4 +1,4 @@
-# The Weights page filters by FARM BORN vs PURCHASED
+# The Weights page filters by ORIGIN (farm born / procured no load / procured load since 2026-09-26)
 
 Maintainer decision, 2026-09-01.
 

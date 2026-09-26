@@ -1191,10 +1191,11 @@ SELECT
   -- copies away.
   --
   -- ORIGIN IS RESOLVED PER ANIMAL for a scanned weigh, and AGREE-OR-NEITHER for a whole-shed pen
-  -- -- exactly the rule origin_scope.go already applies for the page's own Farm born / Purchased
-  -- filter, which is why the two lists are consumed as opaque bind arrays here rather than
-  -- re-derived. An animal or pen in NEITHER list is claimed by NEITHER side (origin IS NULL is
-  -- dropped), so the two halves need not add up to the breed's own total. That gap is honest: a
+  -- -- exactly the rule origin_scope.go already applies for the page's own origin filter (three
+  -- cohorts since 2026-09-26: farm born, procured no load, procured load), which is why the lists
+  -- are consumed as opaque bind arrays here rather than re-derived. An animal or pen in NO list is
+  -- claimed by no cohort (origin IS NULL is dropped), so the bars need not add up to the breed's
+  -- own total. That gap is honest: a
   -- kid whose load is not recorded was still weighed, and still counts in gb above.
   --
   -- projection-review: producer grain is one resolved_gain row per animal and one lump_span row

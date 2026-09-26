@@ -17931,7 +17931,7 @@ export interface components {
             gain_by_breed: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_sex: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
-            /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
+            /** @description Daily gain per breed split by origin: farm born, procured without a load, procured on a load (platform/animalorigin). The three need not add up to gain_by_breed -- an animal on no load whose origin the register does not record, and a pen whose residents do not all share one origin, are claimed by none. */
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
             /** @description Daily gain per breed split by pen type, as configured per partition from the farm's Pen types register. Unclassified pens are omitted rather than guessed. */
             gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];

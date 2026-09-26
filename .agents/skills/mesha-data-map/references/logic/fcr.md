@@ -182,8 +182,9 @@ SELECT m.b,count(*) pens,round((sum(ok.feed_kg*m.n/m.tot)/sum(ok.gain_kg*m.n/m.t
 - verified 2026-09-24 male -> Coimbatore 9.73 (₹335/kg, 12 pens, margin ₹1,70,571); Channapatna 8.55 (₹296/kg, 9 pens, margin ₹1,87,546).
 - CEO: "Coimbatore vs Channapatna FCR?" / "Kaunsa farm feed me behtar hai?"
 
-## 14 Farm born against purchased
-- Pen origin: purchased if every cohort animal is in procurement_load_goats, farm_born if none, else mixed. verified 2026-09-24 male -> purchased 8.91 (11 pens), farm_born 10.85 (8), mixed 6.98 (2).
+## 14 Farm born, procured (no load), procured (load)
+- Pen origin (three cohorts since 26/09/2026, platform/animalorigin; FCR domain originFor): per animal, on a load -> procured_load, else origin_type 'birth' -> farm_born, else 'procured' -> procured_no_load, else none. A pen takes a cohort only when EVERY cohort animal has it; otherwise mixed (an animal with no recorded origin makes its pen mixed). Before 26/09/2026 farm_born meant "on no load", so it also held animals bought without a load.
+- verified 2026-09-26 (STG, cost-per-kg-gain.sql, 27/08-26/09): farm_born FCR 11.67 (26 pens), procured_load 8.91 (11), procured_no_load 1 pen with no FCR. Older figure, two-way rule: 2026-09-24 male -> purchased 8.91 (11 pens), farm_born 10.85 (8), mixed 6.98 (2).
 - CEO: "Khareede hue jaanwar better convert karte hain ya ghar ke?"
 
 ## 15 Pens table (columns: pen, cohort, animals, weighed, daily gain, head-days, gain kg, feed kg, FCR, feed cost, gain value, margin, ₹/kg gain, feed sheet)

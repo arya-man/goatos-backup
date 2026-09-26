@@ -41060,7 +41060,7 @@ components:
           items: {$ref: "#/components/schemas/WeighingWeightGainBucket"}
         gain_by_breed_origin:
           type: array
-          description: "Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither."
+          description: "Daily gain per breed split by origin: farm born, procured without a load, procured on a load (platform/animalorigin). The three need not add up to gain_by_breed -- an animal on no load whose origin the register does not record, and a pen whose residents do not all share one origin, are claimed by none."
           items: {$ref: "#/components/schemas/WeighingWeightGainOriginBucket"}
         gain_by_breed_shed_type:
           type: array

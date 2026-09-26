@@ -173,7 +173,7 @@ func (r *Repository) growthDirectorWeightsUncached(ctx context.Context, tenantID
 	if scopeErr != nil {
 		return out, scopeErr
 	}
-	// Origin (farm born / purchased) is resolved by the SAME weighing-owned resolver the Weights
+	// Origin (farm born / procured no load / procured load) is resolved by the SAME weighing-owned resolver the Weights
 	// page uses, for the same reason: these widgets and that page must agree on which pens were
 	// bought, or the Growth Director's screen describes a different herd from the one the CEO is
 	// reading. Both filters narrow the identical opaque scope, so the six widgets below did not

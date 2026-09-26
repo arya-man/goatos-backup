@@ -120,7 +120,7 @@ func (r *Repository) getShedWeightsUncached(ctx context.Context, tenantID string
 	}
 	if originApplied {
 		var originErr error
-		// Origin (farm born / purchased) narrows the SAME rows through the SAME opaque shape, so the
+		// Origin (farm born / procured no load / procured load) narrows the SAME rows through the SAME opaque shape, so the
 		// two filters compose without this file learning what either of them means. Both selected at
 		// once means the rows in BOTH, which is what a reader picking "Female" and "Purchased" asks
 		// for; the unfiltered page resolves neither and runs the query it always ran.

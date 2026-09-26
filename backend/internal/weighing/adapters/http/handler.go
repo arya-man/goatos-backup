@@ -182,7 +182,7 @@ func (h *Handler) GetWeightHistory(w http.ResponseWriter, r *http.Request) {
 //   - sex (optional): `male` or `female` to report on that half of the herd only. Omitted means
 //     every kid. An unknown value is REJECTED rather than ignored, because silently widening a
 //     filter shows a reader more kids than the heading they are reading says.
-//   - origin (optional): `farm_born` or `purchased`, on the same terms. The farm both breeds its
+//   - origin (optional): `farm_born`, `procured_no_load` or `procured_load` (`purchased` = procured_load), on the same terms. The farm both breeds its
 //     own kids and buys them in loads, and the two grow differently enough that reading them
 //     together answers nothing. Selecting both filters reports the kids in BOTH.
 func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request) {

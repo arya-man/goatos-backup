@@ -73,7 +73,7 @@ const SHED_VIEW_PARAM = "shed_view";
 // Which kids the WHOLE PAGE counts (maintainer, 2026-08-26). Absent means all of them, so a link
 // that predates the Sex filter keeps meaning what it showed when it was written.
 const SEX_PARAM = "sex";
-// Farm born or purchased (maintainer, 2026-09-01). Absent means both, so a link that predates this
+// Farm born, procured (no load) or procured (load) (maintainer, 2026-09-01; three-way since 2026-09-26). Absent means both, so a link that predates this
 // filter keeps meaning what it showed when it was written -- deliberately UNLIKE the Sex filter
 // beside it, which defaults to male: there is no "the number the farm cares about" side here, and
 // defaulting to one would hide half the herd from a reader who never chose.

@@ -76,7 +76,7 @@ type WeightGainThresholdBucket struct {
 	Above250     int `json:"above_250_g_per_day"`
 }
 
-// WeightGainOriginBucket is one breed's daily gain for ONE origin -- farm born or purchased.
+// WeightGainOriginBucket is one breed's daily gain for ONE origin -- farm born, procured (no load) or procured (load).
 //
 // The farm both breeds its own kids and buys them in loads, and the two grow differently enough
 // that reading them together answers nothing. Same measure and same population rule as
@@ -84,7 +84,7 @@ type WeightGainThresholdBucket struct {
 // pen whose average moved, each pen contributing once per animal it holds.
 //
 // PER ANIMAL where the evidence allows it, AGREE-OR-NEITHER where it does not -- the identical rule
-// the Weights page's Farm born / Purchased filter follows, resolved by the same origin_scope.go. A
+// the Weights page's origin filter follows, resolved by the same origin_scope.go. A
 // scanned weigh carries a tag and is claimed through the animal that tag resolves to; a whole-shed
 // weigh carries none and is claimed only when every live resident of its pen agrees.
 //

@@ -468,7 +468,7 @@ export async function WeighingWeightsAnalyticsPage({
     },
     {
       // Same as /weighing/weights: absent means every origin, while the explicit values narrow
-      // every analytics read to farm-born or purchased kids.
+      // every analytics read to one origin: farm born, procured (no load) or procured (load).
       kind: "select",
       param: ORIGIN_PARAM,
       label: copy(pageContract, "filter.origin.label"),
@@ -976,7 +976,7 @@ function BreedTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
 }
 
 /**
- * BIRTH-WISE — farm born against purchased, per breed.
+ * BIRTH-WISE — farm born, procured (no load) and procured (load), per breed.
  *
  * A breed with only one kind shows ONE bar, which is the honest rendering: the farm buys sheep
  * and breeds goats, and drawing an empty bar for the side that does not exist would read as a
