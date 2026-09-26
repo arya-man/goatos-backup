@@ -273,8 +273,23 @@ What each module does when the animals come back:
   the exit cancellation terminal.
 - **Feed Director:** one message, below ("A failed sale tells the Feed Director").
 
-Not done: a sale failed BEFORE this change keeps its animals sold (the release runs on the status
-event). If any exist, re-emitting the event for those deals is a one-off repair.
+**Existing data (migration `000450`).** A sale failed BEFORE the release existed never emits the
+status event again (SetDealStatus emits only on a change, and Deal Failed is final), so its tagged
+animals would stay sold for ever. `000450` re-announces the failure rather than repeating the
+release in SQL: ONE `sales.deal.status_changed` outbox row per deal that is Deal Failed AND still
+has a `tagged` allocation, in exactly the envelope `emitDealStatusChanged` writes (same event type,
+schema version, topic, sales_deal aggregate, payload keys; envelope actor `system_rule`). The relay
+delivers it to the SAME consumers, so the animals come back alive in their pens with one
+`goat.reinstated` each (vaccination re-owes), the allocations are released with who / when / why,
+the workflow is cancelled (a no-op after `000444`), and the Feed Director gets the ordinary
+`goat.sale_released` notice -- kept deliberately, because the animals re-enter the live head count
+and the feed sheet rises for their pens. `payload.actor_id` is whoever last set the deal's status
+(its `sales.deal.status_set` audit row), else blank, which records each release against the person
+who tagged. The key is `<deal>:repair-000450` (a real key is `<deal>:<updated_at>`, so they never
+collide); a re-run inserts nothing, a redelivery releases nothing twice, and a Deal Closed sale is
+never touched. Pinned by `identity/adapters/postgres.TestRepair000450ReleasesAnimalsOfSalesThatFailedBeforeTheRelease`,
+which runs the migration's own SQL, validates the envelope with the relay's schema validator and
+delivers it through the relay's envelope decoder to both production handlers.
 
 Pinned by `tasks/domain.TestSaleWithoutAnimalsOpensOnlyThePaymentSteps` and siblings,
 `tasks/app.TestSaleRecordedCarriesWhetherTheSaleHasAnimals`, `TestDealFailedCancelsTheSaleWorkflow`,
@@ -347,7 +362,23 @@ When the sale CLOSES, its date is restamped to the close day (rule 2 above), and
 `sales.deal.status_changed` now carries that `sale_date`. A workflow anchored on the planned day
 moves every unfinished, clock-timed step (and the card's next due) by the amount its anchor moves,
 so a sale closed early is due now; closed on its recording day it returns to the recording instant.
-A workflow anchored on its recording is never moved, and a redelivered close finds the anchor
-already where it belongs. (There is no path that edits an open sale's date; if one is added it must re-anchor the same way.)
+A NULL anchor means the recording instant, so a sale dated on its recording day and closed on a
+LATER day follows the close to that day too (closed on the recording day it does not move); a
+redelivered close finds the anchor already where it belongs. The move recomputes each step as the
+opener schedules it: an "immediately" / "after_event" step moves by the anchor's instant
+difference, an authored "at_fixed_time" step by whole business days (its wall-clock time is kept),
+read from the SOP version the workflow is pinned to; dependency-timed and finished steps stay, and
+the card's next due is re-read from its next step. (There is no path that edits an open sale's date; if one is added it must re-anchor the same way.)
+**Existing data (migration `000451`).** Every sale workflow opened before `000449` has a NULL
+anchor and was scheduled from its recording, so an open sale planned for a later day stayed
+Overdue. `000451` anchors every OPEN `sales_deal` workflow with a NULL anchor whose deal's
+`sale_date` is after the workflow's recording business day (`event_date`, the exact test
+`SaleClockAnchor` makes) at 00:00 IST of the sale day, recomputes its unfinished clock-timed steps
+by the same rule as a close (above), and re-reads the card's next due. A sale dated on its recording
+day, finished steps and dependency-timed steps are untouched; the anchor is written in the same
+transaction, so a second run changes nothing, and a later close then moves the steps exactly once.
+Pinned by `TestRepair000451AnchorsPlannedSalesOpenedBeforeTheAnchor` (runs the migration's own SQL,
+with an authored fixed-time step a blind delta would misplace).
+
 Pinned by `TestPlannedSaleStepsAreDueOnTheSaleDateNotAtRecording` (Postgres),
 `TestPlannedSaleClockAnchorsOnTheSaleDate` and `TestSaleClockAnchorIsTheSaleDayOnlyWhenItIsAhead`.

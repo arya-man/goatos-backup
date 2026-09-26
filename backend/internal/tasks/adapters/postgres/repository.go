@@ -2212,31 +2212,57 @@ SELECT workflow_id::text, state, event_at, clock_anchor_at
 FROM workflow_instances
 WHERE tenant_id = $1::uuid AND template_key = $2 AND subject_ref_id = $3::uuid
 FOR UPDATE`
-	// shiftUnfinishedSaleStepsSQL moves every unfinished, clock-timed step by the anchor's move.
-	// A dependency-timed step (after_action_key) counts from its prerequisite, not the anchor, and
-	// keeps its time; a finished step is history.
+	// shiftUnfinishedSaleStepsSQL moves every unfinished, clock-timed step from the old anchor ($3)
+	// to the new one ($4), recomputing each step the way the opener schedules it
+	// (domain.Schedule.DueAt): an "immediately" / "after_event" step counts from the anchor
+	// instant, so it moves by the instant difference; an "at_fixed_time" step counts from the
+	// anchor's BUSINESS DAY (Asia/Kolkata) at a wall-clock time, so it moves by whole business days.
+	// The step's schedule kind is read from the SOP version the workflow was opened on; a workflow
+	// on the seeded document (no version) has only "immediately" steps. A dependency-timed step
+	// (after_action_key) counts from its prerequisite, not the anchor, and keeps its time; a
+	// finished step is history. Migration 000451 runs the same statement for the backfill.
 	shiftUnfinishedSaleStepsSQL = `
-UPDATE workflow_actions
-SET due_at = due_at + $3::interval, row_version = row_version + 1, updated_at = now()
-WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid
-  AND status IN ('pending', 'in_review', 'rework')
-  AND due_at IS NOT NULL AND coalesce(after_action_key, '') = ''`
-	// reanchorSaleWorkflowCardSQL moves the stored anchor and the card's next due in the same
+UPDATE workflow_actions a
+SET due_at = a.due_at + CASE
+      WHEN EXISTS (
+        SELECT 1
+        FROM workflow_instances wi
+        JOIN sop_versions sv ON sv.tenant_id = wi.tenant_id AND sv.sop_version_id = wi.sop_version_id
+        CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(sv.form_dsl->'follow_up'->'tracks') = 'array'
+                                                     THEN sv.form_dsl->'follow_up'->'tracks' ELSE '[]'::jsonb END) tr
+        CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(tr->'steps') = 'array'
+                                                     THEN tr->'steps' ELSE '[]'::jsonb END) st
+        WHERE wi.tenant_id = a.tenant_id AND wi.workflow_id = a.workflow_id
+          AND tr->>'key' = 'sales_deal' AND st->>'key' = a.action_key
+          AND st->'schedule'->>'kind' = 'at_fixed_time')
+      THEN date_trunc('day', $4::timestamptz AT TIME ZONE 'Asia/Kolkata')
+         - date_trunc('day', $3::timestamptz AT TIME ZONE 'Asia/Kolkata')
+      ELSE $4::timestamptz - $3::timestamptz
+    END,
+    row_version = a.row_version + 1, updated_at = now()
+WHERE a.tenant_id = $1::uuid AND a.workflow_id = $2::uuid
+  AND a.status IN ('pending', 'in_review', 'rework')
+  AND a.due_at IS NOT NULL AND coalesce(a.after_action_key, '') = ''`
+	// reanchorSaleWorkflowCardSQL moves the stored anchor and re-reads the card's next due from
+	// its next step (domain.RecomputeCard: next_due_at IS the next step's due_at) in the same
 	// transaction; an anchor back on event_at is stored as NULL, the column's own meaning.
 	reanchorSaleWorkflowCardSQL = `
-UPDATE workflow_instances
-SET clock_anchor_at = CASE WHEN $3::timestamptz = event_at THEN NULL ELSE $3::timestamptz END,
-    next_due_at = next_due_at + $4::interval,
-    row_version = row_version + 1, updated_at = now()
-WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid AND state = 'open'`
+UPDATE workflow_instances wi
+SET clock_anchor_at = CASE WHEN $3::timestamptz = wi.event_at THEN NULL ELSE $3::timestamptz END,
+    next_due_at = COALESCE((SELECT a.due_at FROM workflow_actions a
+                             WHERE a.tenant_id = wi.tenant_id AND a.workflow_id = wi.workflow_id
+                               AND a.action_key = wi.next_action_key), wi.next_due_at),
+    row_version = wi.row_version + 1, updated_at = now()
+WHERE wi.tenant_id = $1::uuid AND wi.workflow_id = $2::uuid AND wi.state = 'open'`
 )
 
 // ReanchorSaleWorkflow follows a PLANNED sale's clock to the day it actually closed (2026-09-26).
 // Closing a sale restamps its sale_date to the close business date (69b8ec292); a workflow whose
 // clock was anchored on the planned day moves every unfinished step by the same amount the anchor
-// moves, so a sale closed early is due now and not on the day it was once planned for. A workflow
-// anchored on its recording (the sale was dated at or before it) is left alone, and a redelivered
-// close finds the anchor already where it belongs and changes nothing.
+// moves, so a sale closed early is due now and not on the day it was once planned for. A NULL anchor
+// is the recording instant (event_at), so a workflow opened before 000449 -- or for a sale dated on
+// its recording day -- follows a close on a later day too; a close on or before the recording day
+// changes nothing, and a redelivered close finds the anchor already where it belongs.
 func (r *Repository) ReanchorSaleWorkflow(ctx context.Context, tenantID, dealID, saleDate string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -2258,19 +2284,25 @@ func (r *Repository) ReanchorSaleWorkflow(ctx context.Context, tenantID, dealID,
 	if err != nil {
 		return err
 	}
-	if state != domain.WorkflowStateOpen || stored == nil {
+	if state != domain.WorkflowStateOpen {
 		return tx.Commit(ctx)
+	}
+	// NULL means the clock counts from event_at: every workflow opened before 000449, or one
+	// opened for a sale dated on its recording day. Treating it as event_at (not as "never
+	// anchored") lets such a sale's steps follow a later close, and the anchor stored below
+	// makes a redelivered close find nothing left to move.
+	previous := eventAt
+	if stored != nil {
+		previous = *stored
 	}
 	next := domain.SaleClockAnchor(eventAt, saleDate)
-	shift := next.Sub(*stored)
-	if shift == 0 {
+	if next.Equal(previous) {
 		return tx.Commit(ctx)
 	}
-	interval := fmt.Sprintf("%d microseconds", shift.Microseconds())
-	if _, err := tx.Exec(ctx, shiftUnfinishedSaleStepsSQL, tenantID, workflowID, interval); err != nil {
+	if _, err := tx.Exec(ctx, shiftUnfinishedSaleStepsSQL, tenantID, workflowID, previous.UTC(), next.UTC()); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, reanchorSaleWorkflowCardSQL, tenantID, workflowID, next.UTC(), interval); err != nil {
+	if _, err := tx.Exec(ctx, reanchorSaleWorkflowCardSQL, tenantID, workflowID, next.UTC()); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -83,11 +83,21 @@ func TestPlannedSaleStepsAreDueOnTheSaleDateNotAtRecording(t *testing.T) {
 	if due, _ := tagDue(plannedWF, recordedAt); !due.Equal(recordedAt) {
 		t.Fatalf("closing on the recording day must bring the step back to recording, got %s", due)
 	}
-	// A sale that was never anchored on a planned date is left alone when it closes later.
-	if err := repo.ReanchorSaleWorkflow(ctx, wfTenant, "5a1e5a1e-0000-4000-8000-00000000c002", biztime.BusinessDate(closeDate)); err != nil {
+	// A sale anchored on its recording (NULL anchor = event_at) follows a close on a LATER day to
+	// that day, once: a close restamps the sale date, and the sale's work is due on its sale day.
+	// A close on the recording day itself moves nothing.
+	if err := repo.ReanchorSaleWorkflow(ctx, wfTenant, "5a1e5a1e-0000-4000-8000-00000000c002", biztime.BusinessDate(recordedAt)); err != nil {
 		t.Fatal(err)
 	}
 	if due, _ := tagDue(todayWF, recordedAt); !due.Equal(recordedAt) {
-		t.Fatalf("a sale dated at recording must not move when it closes, got %s", due)
+		t.Fatalf("a sale closed on its recording day must not move, got %s", due)
+	}
+	for i := 0; i < 2; i++ { // the second pass is a redelivered close event
+		if err := repo.ReanchorSaleWorkflow(ctx, wfTenant, "5a1e5a1e-0000-4000-8000-00000000c002", biztime.BusinessDate(closeDate)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if due, _ := tagDue(todayWF, recordedAt); !due.Equal(closeDate) {
+		t.Fatalf("a sale dated at recording and closed on %s must be due then, got %s", biztime.BusinessDate(closeDate), due)
 	}
 }
