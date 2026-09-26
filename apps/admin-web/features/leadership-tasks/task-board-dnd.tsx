@@ -309,7 +309,10 @@ export function TaskBoardColumns({
               >
                 <ColumnRoot
                   className={over ? kanbanColumnState.taskOver : draggingTask && droppable ? kanbanColumnState.columnOver : draggingTask ? kanbanColumnState.dragging : undefined}
-                  sx={{ flexGrow: 1 }}
+                  // Tailwind preflight gives ::before `border-style: solid`; the template's idle
+                  // 1px pseudo border relied on the default `none`, so name it (the drag states
+                  // set their own style with a higher specificity). guard: preflight-pseudo-border
+                  sx={{ flexGrow: 1, "&::before": { borderStyle: "none" } }}
                 >
                   <Box
                     component="header"

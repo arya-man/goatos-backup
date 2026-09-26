@@ -41,9 +41,6 @@ export const ColumnRoot = styled('div')(({ theme }) => {
       width: '100%',
       height: '100%',
       borderWidth: '1px',
-      // Change: the app also loads Tailwind preflight (`::before{border-style:solid}`), which turned
-      // this idle 1px border into a solid currentColor ring round every column; idle has no border.
-      borderStyle: 'none',
       position: 'absolute',
       pointerEvents: 'none',
       borderRadius: 'inherit',
