@@ -173,6 +173,7 @@ func (r *Repository) applyCensusSliceCorrection(ctx context.Context, tx pgx.Tx, 
 		// (farm, species), and the same name can be a goat breed and a sheep breed. Resolving by name
 		// alone could link a sheep to the goat row. assertCensusSliceValue has already refused a
 		// breed that some animal's species does not carry, so the subquery always finds a row.
+		// scale-guard:plan-proof-exempt: the goats scope is the unchanged shared census slice predicate; the breeds subqueries only gain species = goats.species against the per-farm breeds catalogue (tens of rows).
 		statement = `
 UPDATE goats
 SET breed = (SELECT btrim(b.canonical_name) FROM breeds b
@@ -226,6 +227,7 @@ func (r *Repository) assertCensusSliceValue(ctx context.Context, tx pgx.Tx, cmd 
 	// The breed must be an active breed OF EVERY ANIMAL'S OWN SPECIES in the slice: the dashboard
 	// offers every species' breeds, and a goat corrected to a sheep breed is a wrong fact, not a
 	// correction. It must also exist at all, which the first half answers for an empty slice.
+	// scale-guard:plan-proof-exempt: the goats side is censusSliceScopeSQL, the same bounded slice countCensusSlice already reads (one pen, one stage/breed/sex, capped by the too-large check); the NOT EXISTS probes the per-farm breeds catalogue.
 	var known, fitsEverySpecies bool
 	partitionKey := oploc.NormalizePartition(stringValue(cmd.PartitionLabel))
 	bound := sqlbind.MustBind(`

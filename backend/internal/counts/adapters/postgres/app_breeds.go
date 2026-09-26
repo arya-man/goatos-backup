@@ -19,6 +19,7 @@ import (
 // herd side used to put it straight back. A carried breed the register has never heard of (legacy
 // text) is still offered, as before. The grain is (breed, species), so a name the farm keeps under
 // two species is two options and the phone's species filter shows the right one.
+// scale-guard:plan-proof-exempt: the goats side keeps the same predicate (tenant_id, merged_into_goat_id IS NULL, lifecycle_status = 'alive', non-blank breed) and access path; its group key only gains species (a column of the same rows), and the register side is the per-farm breeds catalogue (tens of rows).
 //
 // The herd side is the same source as the Counts Breakdown `breeds` facet (`goats.breed` over
 // alive, non-merged goats), so the value an operator picks is exactly the value that screen shows

@@ -71,6 +71,7 @@ func (s codeLookupStore) usage(ctx context.Context, q querier, t, id string) (do
 		{"animals", fmt.Sprintf(`SELECT count(*) FROM goats WHERE tenant_id = $1 AND %s = $2 AND lifecycle_status = 'alive'`, s.goatCol)},
 		// A published vaccination rule aimed at this code would silently match nobody once the code
 		// is gone, so it holds the row like an animal does.
+		// scale-guard:plan-proof-exempt: the goats count above is unchanged (same predicate and access path); the added check reads only protocol_rule_dimensions of published versions, a per-farm rule catalogue, on a rare Configuration archive/delete.
 		{"vaccination rules", fmt.Sprintf(sqlPublishedRuleUsage, s.goatCol, "$2")},
 	}
 	if s.breedCol != "" {
