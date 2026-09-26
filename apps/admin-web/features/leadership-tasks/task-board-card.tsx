@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "@/components/no-prefetch-link";
 import { Paperclip } from "lucide-react";
 import type { DragEvent } from "react";

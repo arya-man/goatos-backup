@@ -1,3 +1,5 @@
+"use client";
+
 import type { NavSectionProps } from '@/layouts/template/nav-section';
 
 import { useEffect } from 'react';

@@ -1,3 +1,5 @@
+"use client";
+
 export { useParams } from './use-params';
 
 export { useRouter } from './use-router';

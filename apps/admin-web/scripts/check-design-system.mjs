@@ -172,11 +172,27 @@ const CHECKS = {
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
+  "client-api-without-use-client": { tier: "p0", why: "a module that calls a client-only React/Next API (useState/useEffect/useRef/useTransition/useRouter/useSearchParams/usePathname/useLinkStatus …) or wires a JSX event handler (onClick={…}) must start with \"use client\"; otherwise a server component that imports it breaks `next build` (typecheck does not catch it)" },
   "app-wrapper-css-import": { tier: "p0", why: "components/app/ holds thin behaviour wrappers over template + MUI components only; they must not import .css / .module.css — style through the template component's props/theme instead" },
   // MUI Minimal kit + token enforcement (scripts/lib/design-kit-ratchet.mjs). Ratchet tier:
   // counted per check|file against an explicit allowance that may only shrink.
   ...Object.fromEntries(Object.entries(RATCHET_CHECKS).map(([check, why]) => [check, { tier: "ratchet", why }])),
 };
+
+// guard: client-api-without-use-client (2026-09-27: a re-export of next/link's useLinkStatus in a
+// server-importable module broke `next build` on the PR head while typecheck stayed green).
+const CLIENT_ONLY_API = /\b(useState|useEffect|useLayoutEffect|useReducer|useRef|useTransition|useOptimistic|useActionState|useFormStatus|useRouter|useSearchParams|usePathname|useLinkStatus|useSelectedLayoutSegments?)\b/;
+const JSX_HANDLER = /\son[A-Z][A-Za-z]+=\{/;
+const USE_CLIENT_FIRST = /^\s*(?:\/\/[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*["']use client["']/;
+function clientApiFindings(text, rel) {
+  if (USE_CLIENT_FIRST.test(text) || /^\s*["']use server["']/.test(text)) return [];
+  const out = [];
+  text.split("\n").forEach((line, index) => {
+    if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+    if (CLIENT_ONLY_API.test(line) || (rel.endsWith(".tsx") && JSX_HANDLER.test(line))) out.push({ line: index + 1, snippet: line.trim() });
+  });
+  return out.slice(0, 1);
+}
 
 function runGuard(root, { themeDiff }) {
   const findings = [];
@@ -215,6 +231,7 @@ function runGuard(root, { themeDiff }) {
     }
 
     // Code files.
+    for (const hit of clientApiFindings(text, file.rel)) findings.push(finding("client-api-without-use-client", file.rel, hit.line, hit.snippet));
     for (const hit of fixedOverlayFindings(text, file.rel)) findings.push(finding("fixed-overlay-no-portal", file.rel, hit.line, hit.snippet));
     for (const hit of menuSurfaceFindings(text, file.rel)) findings.push(finding("raw-menu", file.rel, hit.line, hit.snippet));
     let chartFile = false;
@@ -736,6 +753,8 @@ async function selfTest() {
   // Template code: ratchet-tier sizes are exempt, a foreign palette is still P0.
   put("components/minimal/tpl.tsx", 'const t = <div style={{ fontSize: 13, borderRadius: 10, padding: 12 }} />;\n');
   put("components/app/bad.tsx", 'import styles from "./bad.module.css";\nexport function Bad() { return <div className={styles.x} />; }\n');
+  put("components/server-hook.ts", 'export { useLinkStatus } from "next/link";\n');
+  put("components/client-ok.tsx", '"use client";\nimport { useState } from "react";\nexport function Ok() { const [a] = useState(0); return <b onClick={() => a}>x</b>; }\n');
   put("components/kit/lonely.tsx", "export function Lonely() { return null; }\n");
   put("features/uses-kit.tsx", 'import { Card } from "@/components/kit";\nexport const x = Card;\n');
   put("docs/design/page-template-map.md", "| Route | Template | Files | Sections |\n|---|---|---|---|\n| `/foo` | user list | `features/foo-page.tsx` | `components/minimal/table` |\n");
@@ -755,6 +774,10 @@ async function selfTest() {
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
   const missing = expected.filter((c) => !got.has(c));
   const okPageFlagged = findings.some((f) => f.file === "app/(admin)/ok/page.tsx");
+  if (findings.some((f) => f.check === "client-api-without-use-client" && f.file === "components/client-ok.tsx")) {
+    console.error("design_system_self_test=FAIL client-api-without-use-client flagged a \"use client\" module");
+    process.exit(1);
+  }
   // A `:where(:not(.Mui…))` selector excludes MUI parts: it must not count as a MUI colour rule.
   if (findings.some((f) => f.check === "legacy-css-mui-colour" && f.line !== 1)) {
     console.error("design_system_self_test=FAIL legacy-css-mui-colour flagged a :not(.Mui…) exclusion or a transparent reset");

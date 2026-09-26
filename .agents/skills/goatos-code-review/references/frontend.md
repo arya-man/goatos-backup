@@ -372,6 +372,9 @@ submit — is a write path and inherits the repo idempotency contract. Check:
 - [ ] Worklist filter fields each carry a visible, uncut label (`labelled-filter-fields`)
 - [ ] Filter bars: outlined selects + MUI Chips, one rows-per-page in the pager (`template-filter-toolbar`)
 
+- [ ] Every module using a client-only hook or JSX event handler starts with `"use client"`
+      (guard: `client-api-without-use-client`); the push ran `next build`
+
 ## Error, Loading, and Accessibility
 
 A swallowed API/backend failure rendered as an empty array (or a collapsed page

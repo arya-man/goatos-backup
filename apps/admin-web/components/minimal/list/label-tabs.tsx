@@ -1,3 +1,5 @@
+"use client";
+
 // Copied from the licensed MUI Minimal template (sections/user/view/user-list-view.tsx status tabs):
 // a Tabs strip where each tab carries a count Label.
 import type { TabsProps } from '@mui/material/Tabs';

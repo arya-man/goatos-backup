@@ -1,3 +1,5 @@
+"use client";
+
 import type { ConfirmDialogProps } from './types';
 
 import Button from '@mui/material/Button';

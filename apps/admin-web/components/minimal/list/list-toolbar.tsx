@@ -1,3 +1,5 @@
+"use client";
+
 // Copied from the licensed MUI Minimal template (sections/user/user-table-toolbar.tsx),
 // generalised: a controlled multi-select filter + keyword search + a "more" actions popover.
 import type { SelectChangeEvent } from '@mui/material/Select';

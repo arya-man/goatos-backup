@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * Review events telemetry for the verifier screen.
  *

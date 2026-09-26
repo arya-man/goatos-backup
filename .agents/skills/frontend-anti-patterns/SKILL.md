@@ -176,6 +176,11 @@ chapters below; do not review from the summary.
   - `routine-drawer-template`, `dark-alert-tint`, `kanban-card-raised`: the routine drawer renders only
     MUI form parts; dark standard Alerts are a 16% main tint (the locked dark `darker` steps are mid
     tones); work-board cards are raised paper with the amber needs-attention border.
+- **Client-only APIs need `"use client"`; `next build` gates every push (guards:
+  `client-api-without-use-client` in design:guard; the pre-push admin-web visual gate builds).** A module that calls useState/useEffect/useRef/useTransition/useRouter/
+  useSearchParams/usePathname/useLinkStatus or wires a JSX `onX={…}` handler starts with
+  `"use client"` (a server module that re-exported next/link's useLinkStatus broke `next build`
+  on 2026-09-27). Typecheck does not catch this; only `next build` and this guard do.
 - A restyle never introduces new UI behaviour; never reopen an item in `docs/design/redesign-regression-guard.md`.
 - Mobile webview: tap targets >= `var(--tap-min)` (44px), fixed overlays through kit `BodyPortal` /
   `Sheet` / `Dialog`, `100dvh`, no sideways page scroll.

@@ -227,6 +227,12 @@ audit defect on PR #294:
   MUI form parts; dark standard Alerts are a 16% main tint (the locked dark `darker` steps are mid
   tones); work-board cards are raised paper with the amber needs-attention border.
 
+- **Client-only APIs need `"use client"`; `next build` gates every push (guards:
+  `client-api-without-use-client` in design:guard; the pre-push admin-web visual gate builds).** A module that calls useState/useEffect/useRef/useTransition/useRouter/
+  useSearchParams/usePathname/useLinkStatus or wires a JSX `onX={…}` handler starts with
+  `"use client"` (a server module that re-exported next/link's useLinkStatus broke `next build`
+  on 2026-09-27). Typecheck does not catch this; only `next build` and this guard do.
+
 ## Production bug CLASSES as guards (2026-09-26)
 
 `scripts/lib/visual-pattern-guards.mjs` codifies six recurring visible defect classes as automated

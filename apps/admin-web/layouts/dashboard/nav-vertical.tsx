@@ -1,3 +1,5 @@
+"use client";
+
 import type { Breakpoint } from '@mui/material/styles';
 import type { NavSectionProps } from '@/layouts/template/nav-section';
 

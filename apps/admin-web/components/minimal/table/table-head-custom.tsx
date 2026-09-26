@@ -1,3 +1,5 @@
+"use client";
+
 // Copied from the licensed MUI Minimal template (components/table/table-head-custom.tsx).
 // Mesha change: per-cell `sortable` / `sortLabel` / `className` (contract-owned sort affordances).
 import type { Theme, SxProps, CSSObject } from '@mui/material/styles';

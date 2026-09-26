@@ -1,3 +1,5 @@
+"use client";
+
 // Copied from the licensed MUI Minimal template (sections/kanban: view vars, column/styles.tsx,
 // column/kanban-column-toolbar.tsx, item/styles.tsx). Presentational only: no drag-and-drop,
 // rename or add-task behaviour (pages own behaviour).

@@ -1,3 +1,5 @@
+"use client";
+
 // Copied from the licensed MUI Minimal template (sections/calendar/calendar-filters.tsx drawer shell):
 // right-anchored Drawer with a header (title, optional reset-with-dot, close), a Scrollbar body
 // and an optional sticky footer. Used for both filter drawers and detail drawers.
