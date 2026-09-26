@@ -37,7 +37,6 @@ export function CountsShedChart({
       empty={<EmptyContent title={emptyLabel} />}
       chart={{
         categories: shown.map((bar) => bar.label),
-        unit,
         series: [{ name: unit, data: shown.map((bar) => bar.value) }],
       }}
     >

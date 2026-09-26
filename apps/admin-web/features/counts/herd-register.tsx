@@ -1,5 +1,4 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -15,10 +14,15 @@ import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import type { KitTone } from "@/lib/tone";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
 import { GoatGlyph } from "@/components/goat-glyph";
 import { DenseTable } from "@/components/dense-table";
-import { Tag } from "@/components/ui-primitives";
 import { dash, humanizeEnum } from "@/lib/format";
 import { actionFeedbackCopy, copy, optionalOption, readableOptionKey, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -88,6 +92,8 @@ function hrefWithDrawerParam(pathname: string, params: RouteSearchParams, key: s
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
+const TONE_COLOR = { ok: "success", warn: "warning", dng: "error", info: "info", mut: "default" } as const;
+
 function statusTone(value: string | null | undefined, kind: "lifecycle" | "health" | "breeding"): "ok" | "warn" | "dng" | "info" | "mut" {
   const v = String(value ?? "").toLowerCase();
   if (!v) return "mut";
@@ -127,6 +133,8 @@ function weightLabel(weight: number | null | undefined): string {
 
 // KPIs come from canonical scoped goat counts. `summary === null` means the
 // API read failed: show an honest dash, never fabricate a fallback.
+const NO_SPARK = { categories: [], series: [] };
+
 function buildHerdSummary(pageContract: AdminUiPageContract, summary: HerdRegisterSummaryResponse | null) {
   const totals = summary
     ? summary.items.reduce(
@@ -242,7 +250,7 @@ export async function HerdRegisterPage({
   }));
 
   return (
-    <div className="kit-enter screen on">
+    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       <div>
         <PageHeader
           title={pageContract.title}
@@ -272,11 +280,11 @@ export async function HerdRegisterPage({
 
       {actionStatus ? (
         actionStatus === "success" ? (
-          <div className="note" style={{ marginBottom: 12 }}>
-	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
+          <Alert severity="success" variant="outlined">
+            <b>{copy(pageContract, "action.success_tag")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+          </Alert>
         ) : (
-          <Alert severity="error" style={{ marginBottom: 12 }}>
+          <Alert severity="error" variant="outlined">
 	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;
             <span>
               {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
@@ -286,16 +294,17 @@ export async function HerdRegisterPage({
         )
       ) : null}
 
-      <div style={{ marginBottom: 8 }}>
-        <KpiGrid min={210} className="herd-kpi-grid">
-          {summaryCards.map((card) => (
-            <KpiCard key={card.label} tone={card.tone} icon={card.icon} label={card.label} value={card.value} hint={card.sub} />
-          ))}
-        </KpiGrid>
-      </div>
+      {/* KPI row: template EcommerceWidgetSummary, four to a row (two rows of four at md+). */}
+      <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.herd.title")}>
+        {summaryCards.map((card) => (
+          <Grid key={card.label} size={{ xs: 12, sm: 6, md: 3 }}>
+            <EcommerceWidgetSummary title={card.label} total={card.value} caption={card.sub} chart={NO_SPARK} sx={{ height: 1 }} />
+          </Grid>
+        ))}
+      </Grid>
 
       {!result.ok ? (
-        <Alert severity="error" style={{ marginBottom: 16 }}>
+        <Alert severity="error" variant="outlined">
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
         </Alert>
       ) : null}
@@ -305,7 +314,7 @@ export async function HerdRegisterPage({
         <CardHeader
           title={copy(pageContract, "section.herd.title")}
           subheader={herdContext}
-          sx={{ pt: 2.25, px: 2.5, pb: 0, mb: 2 }}
+          sx={{ mb: 2 }}
         />
         <HerdFiltersModalClient hasFilters={hasFilter} pageContract={pageContract} />
         {/* The footer's dense switch is the one piece of client state this server table needs, so
@@ -328,26 +337,24 @@ export async function HerdRegisterPage({
             nextLabel: copy(pageContract, "action.next"),
           }}
         >
-          <div style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.herd.aria")}>
+          <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "section.herd.aria")}>
           <Table className="herd-register-table">
-            <TableHead>
-              <TableRow>
-	                {cols.map((c) => (
-	                  <TableCell component="th" key={c}>{c}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
+            <TableHeadCustom headCells={cols.map((c, i) => ({ id: `${i}`, label: c, sortable: false }))} />
             <TableBody>
               {goats.length === 0 ? (
                 <TableRow>
 	                  <TableCell colSpan={cols.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-	                      {result.ok
-	                        ? hasFilter
-	                          ? copy(pageContract, "empty.herd_filtered")
-	                          : copy(pageContract, "empty.herd")
-	                        : copy(pageContract, "empty.unavailable")}
-                    </div>
+                    <EmptyContent
+                      filled
+                      sx={{ py: 8 }}
+                      title={
+                        result.ok
+                          ? hasFilter
+                            ? copy(pageContract, "empty.herd_filtered")
+                            : copy(pageContract, "empty.herd")
+                          : copy(pageContract, "empty.unavailable")
+                      }
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -357,7 +364,7 @@ export async function HerdRegisterPage({
                     <TableRow key={g.goat_id}>
                       <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <span className="gid">{g.display_id}</span>
+                          <Box component="span" sx={{ typography: "subtitle2" }}>{g.display_id}</Box>
                         </LocalOverlayLink>
                       </TableCell>
                       <TableCell>
@@ -385,17 +392,17 @@ export async function HerdRegisterPage({
                       </TableCell>
                       <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Tag tone={statusTone(g.lifecycle_status, "lifecycle")}>{statusLabel(pageContract, "herd_lifecycle", g.lifecycle_status)}</Tag>
+                          <Label variant="soft" color={TONE_COLOR[statusTone(g.lifecycle_status, "lifecycle")]}>{statusLabel(pageContract, "herd_lifecycle", g.lifecycle_status)}</Label>
                         </LocalOverlayLink>
                       </TableCell>
                       <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Tag tone={statusTone(g.health_status, "health")}>{statusLabel(pageContract, "herd_health", g.health_status)}</Tag>
+                          <Label variant="soft" color={TONE_COLOR[statusTone(g.health_status, "health")]}>{statusLabel(pageContract, "herd_health", g.health_status)}</Label>
                         </LocalOverlayLink>
                       </TableCell>
                       <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Tag tone={statusTone(g.reproductive_status, "breeding")}>{statusLabel(pageContract, "herd_reproductive", g.reproductive_status)}</Tag>
+                          <Label variant="soft" color={TONE_COLOR[statusTone(g.reproductive_status, "breeding")]}>{statusLabel(pageContract, "herd_reproductive", g.reproductive_status)}</Label>
                         </LocalOverlayLink>
                       </TableCell>
                     </TableRow>
@@ -404,7 +411,7 @@ export async function HerdRegisterPage({
               )}
             </TableBody>
           </Table>
-          </div>
+          </Scrollbar>
         </DenseTable>
       </Card>
       </div>
@@ -416,6 +423,6 @@ export async function HerdRegisterPage({
         returnTo={returnTo}
         pageContract={pageContract}
       />
-    </div>
+    </Stack>
   );
 }

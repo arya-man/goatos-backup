@@ -559,13 +559,6 @@
   .kpi .val small{font-size:13px;color:var(--faint);font-weight:600}
   .kpi .dl{margin-top:4px;font-size:12px;font-weight:650;color:color-mix(in srgb,var(--muted) 64%,var(--ink))}
   .people-availability-list{display:grid;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:10px;overflow:hidden}
-  .herd-kpi-grid{display:grid;grid-template-columns:repeat(8,minmax(118px,1fr));gap:10px}
-  .herd-kpi-grid .kpi{padding:11px 12px;border-radius:12px}
-  .herd-kpi-grid .kpi .lab{font-size:11px;font-weight:800;letter-spacing:.15px}
-  .herd-kpi-grid .kpi .val{font-size:23px;margin-top:5px}
-  .herd-kpi-grid .kpi .dl{font-size:10.5px;margin-top:2px;line-height:1.2}
-  @media(max-width:1500px){.herd-kpi-grid{grid-template-columns:repeat(4,minmax(150px,1fr))}}
-  @media(max-width:780px){.herd-kpi-grid{grid-template-columns:repeat(2,minmax(130px,1fr))}}
   .up{color:var(--ok)}.down{color:var(--danger)}
   .acc{position:absolute;left:0;top:0;bottom:0;width:4px}
   /* Accordion/collapsible cards (vaccination plan rows) */
