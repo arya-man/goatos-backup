@@ -5996,6 +5996,9 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
   background: color-mix(in srgb, var(--panel) 95%, transparent); backdrop-filter: saturate(1.25) blur(10px);
   border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px -22px rgba(0,0,0,.8);
   flex-wrap: wrap; }
+/* The Ask Mesha bubble is fixed at the viewport's bottom-right, exactly where this sticky bar ends:
+   at 1440 it sat over "Publish plan" and took its clicks. The bar keeps the bubble's width free. */
+.vplan .ab-in { padding-right: 84px; }
 .vplan .actionbar .pill { padding: 4px 10px; font-size: 11.5px; }
 .vplan .actionbar .btn { padding: 7px 13px; font-size: 13px; min-height: 36px; }
 .vplan .saved-note { font-size: 12.5px; color: var(--brand-d); opacity: 0; transition: opacity .25s; }
@@ -7195,4 +7198,18 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
   .prt-card dd{margin:0;min-width:0;overflow-wrap:anywhere}
   .prt-card .prt-people{max-width:none}
   .prt-card .prt-people-names{white-space:normal}
+}
+
+/* At a phone's 390px the six top-bar controls need ~443px with the "Mesha" word beside the logo,
+   so the account button wrapped onto a second row of its own (~90px lost on every page). Below
+   430px the logo mark alone carries the brand; below 380px (small Android phones) the gaps and the
+   park chip tighten too. Every control keeps its 40px target. Kept after the 560px block on
+   purpose: same specificity, so source order decides. */
+@media(max-width:430px){
+  .top .brand{flex:0 0 auto}
+  .top .brand b{display:none}
+}
+@media(max-width:380px){
+  .top{gap:5px}
+  .top .pscope{max-width:84px}
 }
