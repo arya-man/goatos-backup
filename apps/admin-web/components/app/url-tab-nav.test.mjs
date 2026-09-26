@@ -27,3 +27,19 @@ test("the clicked tab is drawn selected while its navigation runs, then the serv
   assert.equal(shownTabValue("general", "breed"), "breed");
   assert.equal(shownTabValue("breed", null), "breed");
 });
+
+import { changesWatchedParams, watchedParamsKey } from "./url-tab-nav.ts";
+
+test("a panel's key is its watched params only, from any search shape", () => {
+  assert.equal(watchedParamsKey("?park=a&offset=25&deal_id=9", ["park", "offset"]), "park=a&offset=25");
+  assert.equal(watchedParamsKey({ park: "a", offset: "25", deal_id: "9" }, ["park", "offset"]), "park=a&offset=25");
+  assert.equal(watchedParamsKey({ tab: ["x", "y"] }, ["tab", "park"]), "tab=x,y&park=");
+});
+
+test("only a navigation that changes a watched param suspends the panel", () => {
+  const here = { href: "http://x.test/sales/sold?park=a&offset=25" };
+  assert.equal(changesWatchedParams("/sales/sold?park=b&offset=25", here, ["park"]), true);
+  assert.equal(changesWatchedParams("/sales/sold?park=a&offset=50", here, ["park"]), false);
+  assert.equal(changesWatchedParams("/sales/sold?park=a&offset=25&deal_id=1", here, ["park", "offset"]), false);
+  assert.equal(changesWatchedParams("/sales/loads?park=b", here, ["park"]), false);
+});

@@ -59,7 +59,9 @@ export function LinkNavPending() {
   useEffect(() => {
     const column = root.current?.parentElement;
     if (!column) return undefined;
-    if (active) column.setAttribute("data-nav-pending", "true");
+    // A page built on URL-keyed panels (UrlSuspense) shows each affected panel's skeleton instead;
+    // dimming the whole body on top of that is the flicker this replaces.
+    if (active && !column.querySelector("[data-url-panel]")) column.setAttribute("data-nav-pending", "true");
     else column.removeAttribute("data-nav-pending");
     return () => column.removeAttribute("data-nav-pending");
   }, [active]);

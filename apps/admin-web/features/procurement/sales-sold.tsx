@@ -54,6 +54,8 @@ import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SALES_DEFAULT_FARM, SalesFarmToggle, SalesPageHeader, hrefWithQuery, readSalesParkScope } from "./sales-chrome";
 import { salesErrorText } from "./sales-error";
 import Alert from "@mui/material/Alert";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
@@ -358,6 +360,11 @@ function SoldSections({
   );
 }
 
+/** The params each Sold panel reads: the park scope (and the legacy farm) plus the panel's own pager. */
+const SCOPE_PARAMS = ["park", "scope_mode", "farm"] as const;
+const OVERVIEW_WATCH = [...SCOPE_PARAMS, "buyers_page"];
+const LEDGER_WATCH = [...SCOPE_PARAMS, "limit", "offset"];
+
 export async function SalesSoldPage({
   searchParams,
   pageContract,
@@ -368,34 +375,81 @@ export async function SalesSoldPage({
   const sp = searchParams;
 
   // Park scope: the SHELL's `park` (one filter across every Sales page), resolved to the deal farm
-  // code the sales reads filter by. Every block on the page reads the one selected scope.
+  // code the sales reads filter by. Resolved from the (request-cached) bootstrap only, so the
+  // header and the farm chips render before any sales read; each panel below streams its own data
+  // behind a skeleton keyed by the params it reads (guard: url-keyed-panel).
   const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
+
+  return (
+    <div className="screen on">
+      <SalesPageHeader pageContract={pageContract} />
+
+      <SalesFarmToggle
+        pageContract={pageContract}
+        pagePath={PAGE_PATH}
+        searchParams={sp}
+        parkId={parkId}
+        parks={parks}
+        clears={["offset", "buyers_page", "deal_id"]}
+      />
+
+      <UrlSuspense searchParams={sp} watch={OVERVIEW_WATCH} fallback={<PanelSkeleton kpis={4} charts={2} spark />}>
+        <SoldOverviewPanel sp={sp} farm={farm} pageContract={pageContract} />
+      </UrlSuspense>
+
+      <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<PanelSkeleton table={8} tableWidths={["1.4fr", "1.2fr", "1fr", "0.9fr", "0.9fr", "0.7fr"]} />}>
+        <SoldLedgerPanel sp={sp} farm={farm} pageContract={pageContract} />
+      </UrlSuspense>
+    </div>
+  );
+}
+
+/** Every block above the ledger: the overview contract (KPIs, weight bands, monthly, price, buyers). */
+async function SoldOverviewPanel({ sp, farm, pageContract }: { sp: RouteSearchParams; farm: string; pageContract: AdminUiPageContract }) {
   // Buyer board page. A hand-edited value is clamped here and again against the served row count,
   // so an out-of-range page can never take the section down.
   const buyersPage = boundedInt(one(sp, "buyers_page"), 1, 1, 1000);
+  const overviewResult = await getSalesOverview({ farm });
+  if (firstAuthRequiredError(overviewResult)) redirect(INTERNAL_LOGIN_PATH);
+  const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
+  return (
+    <>
+      {!overviewResult.ok ? (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {salesErrorText(overviewResult.error, copy(pageContract, "error.load"))}
+        </Alert>
+      ) : null}
+      {overview ? (
+        <SoldSections
+          overview={overview}
+          pageContract={pageContract}
+          chartKey={farm}
+          buyersPage={buyersPage}
+          buyersHref={(page) => hrefWithQuery(PAGE_PATH, sp, { buyers_page: page > 1 ? String(page) : null })}
+        />
+      ) : null}
+    </>
+  );
+}
 
+/** The deals ledger (one server page) and the read-only deal drawer its rows open. */
+async function SoldLedgerPanel({ sp, farm, pageContract }: { sp: RouteSearchParams; farm: string; pageContract: AdminUiPageContract }) {
   const dealsTable = table(pageContract, "sales-deals");
   const pageSizes = dealsTable.page_size_options.length > 0 ? dealsTable.page_size_options : [DEFAULT_LIMIT];
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
   const offset = boundedInt(one(sp, "offset"), 0, 0, 10000);
 
-  // The page's data in ONE parallel read: the overview contract (every block above the ledger),
-  // one ledger page, and the vendor register the deal drawer names (LocalOverlayLink opens
-  // without an RSC request, so drawer data must ride with the page). Fetch = render: the
-  // weighing count belongs to Farm value.
-  // No /sales/options: it feeds only the record-sale FORM, and this page's contract declares no
-  // record control (read-only by contract), so reading it on every filter change was pure waste.
-  const [overviewResult, dealsResult, vendorOptionsResult] = await Promise.all([
-    getSalesOverview({ farm }),
+  // One ledger page and the vendor register the deal drawer names (LocalOverlayLink opens without
+  // an RSC request, so drawer data must ride with the ledger). No /sales/options: it feeds only the
+  // record-sale FORM, and this page's contract declares no record control.
+  const [dealsResult, vendorOptionsResult] = await Promise.all([
     listSalesDeals({ farm, limit, offset }),
     // The deal drawer here is a READ-ONLY detail, and it still names the buyer's vendor. Resolving
     // that id to the register's name needs the active register with the page. ONE bounded read,
     // never a paged walk of /procurement/vendors: that is the banned SSR full-walk shape.
     listProcurementVendorOptions(),
   ]);
-  if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
-  const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
-
+  if (firstAuthRequiredError(dealsResult)) redirect(INTERNAL_LOGIN_PATH);
   // null means the register could NOT be read (it is a separate permission, procurement.vendor.read).
   // The drawer renders a stated error for that case rather than an empty dropdown, which would read
   // as "there are no vendors" and send the person to add one that already exists.
@@ -421,34 +475,7 @@ export async function SalesSoldPage({
   };
 
   return (
-    <div className="screen on">
-      <SalesPageHeader pageContract={pageContract} />
-
-      {!overviewResult.ok ? (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {salesErrorText(overviewResult.error, copy(pageContract, "error.load"))}
-        </Alert>
-      ) : null}
-
-      <SalesFarmToggle
-        pageContract={pageContract}
-        pagePath={PAGE_PATH}
-        searchParams={sp}
-        parkId={parkId}
-        parks={parks}
-        clears={["offset", "buyers_page", "deal_id"]}
-      />
-
-      {overview ? (
-        <SoldSections
-          overview={overview}
-          pageContract={pageContract}
-          chartKey={farm}
-          buyersPage={buyersPage}
-          buyersHref={(page) => hrefWithQuery(PAGE_PATH, sp, { buyers_page: page > 1 ? String(page) : null })}
-        />
-      ) : null}
-
+    <>
       {/* LAST — the deals ledger (maintainer instruction 2026-09-11: "the deals table keep it at
           last"). Template order list anatomy: card, header with the whole-filter count Label,
           TableHeadCustom, server-paged TablePagination footer; a row opens the read-only deal
@@ -570,6 +597,6 @@ export async function SalesSoldPage({
         stockConfirmNeeded={false}
         statusStockConfirmNeeded={false}
       />
-    </div>
+    </>
   );
 }
