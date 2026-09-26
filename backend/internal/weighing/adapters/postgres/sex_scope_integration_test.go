@@ -102,10 +102,20 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET shed_id = EXCLUDED.shed_id, parti
 		t.Fatalf("an absent sex must resolve to an empty scope, got %#v", unfiltered)
 	}
 
-	// An unknown value is refused rather than silently widening the filter, which would show a
-	// reader more kids than the heading they are reading says.
-	if _, err := repo.resolveSexScope(ctx, repoTenant, []string{repoPark}, "either", windowFrom, windowTo); err == nil {
-		t.Fatal("an unsupported sex must be rejected, not treated as no filter")
+	// A value no gender code can be is refused rather than silently widening the filter, which
+	// would show a reader more kids than the heading they are reading says.
+	if _, err := repo.resolveSexScope(ctx, repoTenant, []string{repoPark}, "Either!", windowFrom, windowTo); err == nil {
+		t.Fatal("a malformed sex must be rejected, not treated as no filter")
+	}
+	// A well-shaped gender the farm may configure (audit 2026-09-26) that no animal carries
+	// resolves to a scope naming NOTHING -- the caller's filtered flag then narrows the page to no
+	// kids; it never widens to the whole herd.
+	nobody, err := repo.resolveSexScope(ctx, repoTenant, []string{repoPark}, "either", windowFrom, windowTo)
+	if err != nil {
+		t.Fatalf("a well-shaped gender code is a valid filter: %v", err)
+	}
+	if !nobody.Empty() {
+		t.Fatalf("a gender no animal carries must name nothing, got %#v", nobody)
 	}
 }
 

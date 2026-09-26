@@ -194,7 +194,10 @@ func TestConfigurationWorkbookPostgresPaths(t *testing.T) {
 		tab("Notes", []string{"anything"}, []string{"free text"}).
 		tab("Species", []string{"name", "code", "sort_order"}, []string{"Camel", "camel", "30"}).
 		tab("Gender", []string{"name", "code"}). // header only: skipped
-		tab("Lifecycle stages", []string{"name", "code", "min_age_days", "max_age_days"}, []string{"Kid one", "K1", "0", "90"}).
+		// The range is wide on purpose: the Animals rows below carry a FIXED date of birth, and since
+		// 2026-09-26 an animal is refused when it falls outside its stage's range -- a 0-90 day K1
+		// made those rows fail once the calendar passed 90 days after it.
+		tab("Lifecycle stages", []string{"name", "code", "min_age_days", "max_age_days"}, []string{"Kid one", "K1", "0", "3650"}).
 		tab("Parks", []string{"name", "code", "capacity"},
 			[]string{"Chennai", "CHN", "500"},
 			[]string{"", "NON", "10"}). // name missing: invalid

@@ -21,7 +21,7 @@ test("admin root route lands on ADG Analytics when its page contract is present"
   assert.match(rootPageSource, /const CONTROL_TOWER_LENS = "control-tower"/);
   assert.match(rootPageSource, /one\(sp, "lens"\) === CONTROL_TOWER_LENS/);
   assert.match(rootPageSource, /item\.route_id === LANDING_ROUTE_ID/);
-  assert.match(rootPageSource, /import \{ landingWindow, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM \} from "@\/features\/weighing";/);
+  assert.match(rootPageSource, /import \{ landingWindow, sexFilterFromUrl, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM \} from "@\/features\/weighing";/);
   assert.match(rootPageSource, /import \{ hrefWithWindow \} from "\.\/landing-href\.mjs";/);
   assert.match(rootPageSource, /import \{ parseScope, scopeHref \} from "@\/lib\/scope";/);
   assert.match(rootPageSource, /async function landingHref\(landing: \{ href: string; copy\?: Record<string, string> \}, params: RouteSearchParams\): Promise<string>/);

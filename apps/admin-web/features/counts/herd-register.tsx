@@ -170,6 +170,8 @@ export async function HerdRegisterPage({
   const hasFilter = Boolean(q || breed || sex);
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
+  // The backend's own reason for a refused save, shown beneath the banner (herd-actions.ts).
+  const actionDetail = one(sp, "action_detail") ?? "";
   const returnTo = hrefWithoutAction(pathname, sp);
   const selectedGoatId = one(sp, "goat_passport");
 
@@ -265,6 +267,7 @@ export async function HerdRegisterPage({
         ) : (
           <div className="alert" style={{ marginBottom: 12 }}>
 	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+            {actionDetail ? <div style={{ marginTop: 6 }}>{actionDetail}</div> : null}
           </div>
         )
       ) : null}

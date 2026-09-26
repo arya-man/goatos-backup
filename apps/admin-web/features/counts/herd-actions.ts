@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import {
   actionErrorMessage,
   actionRedirect,
+  actionRedirectWithDetail,
   optionalString,
   requiredString,
 } from "@/lib/action-helpers";
@@ -152,9 +153,21 @@ function evidenceRefs(formData: FormData, idempotencyKey: string): CreateAdminGo
   return [ref];
 }
 
+// A refused animal save carries the backend's own farm-worded reason (for example a stage whose age
+// range the animal falls outside: "K1 (Milk training) is for animals 2 to 7 days old, but this
+// animal is 180 days old ..."). It is shown under the banner so the person knows what to change.
+// Keyed on the CODE; a message that still leads with an internal code ("missing_x: ...") is not
+// farm copy and stays behind the generic banner.
+function refusedAnimalDetail(error: { code?: string; message?: string }): string {
+  const message = (error.message ?? "").trim();
+  if (error.code !== "invalid_goat_create" || message === "" || /^[a-z0-9_]+:\s/.test(message)) return "";
+  return message;
+}
+
 export async function createGoatAction(formData: FormData): Promise<void> {
   let status: "success" | "error" = "success";
   let actionKey = "action.goat_registered_no_generation";
+  let detail = "";
   try {
     const idempotencyKey = optionalString(formData, "idempotency_key") ?? randomUUID();
 
@@ -190,6 +203,7 @@ export async function createGoatAction(formData: FormData): Promise<void> {
     if (!result.ok) {
       status = "error";
       actionKey = actionErrorMessage(result.error);
+      detail = refusedAnimalDetail(result.error);
     } else {
       actionKey =
         result.data.generation_status === "queued"
@@ -206,6 +220,7 @@ export async function createGoatAction(formData: FormData): Promise<void> {
     status = "error";
     actionKey = "action.error_form";
   }
+  if (detail !== "") actionRedirectWithDetail(formData, status, actionKey, detail);
   actionRedirect(formData, status, actionKey);
 }
 
