@@ -130,7 +130,7 @@ test("A5: the reject reason is capped at the server's limit, in bytes too", () =
   assert.equal(approvalReasonTooLong("a".repeat(2001)), true);
   // 700 Telugu characters = 2100 bytes: under the character cap, over the server's byte cap.
   assert.equal(approvalReasonTooLong("క".repeat(700)), true);
-  assert.match(read("./approvals-drawer.tsx"), /maxLength=\{APPROVAL_REASON_MAX_BYTES\}/);
+  assert.match(read("./approvals-drawer.tsx"), /maxLength: APPROVAL_REASON_MAX_BYTES/);
   assert.match(read("./actions.ts"), /approvalReasonTooLong\(reason\)/);
 });
 

@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "@/components/no-prefetch-link";
 import {
   currentHistoryEntryIsLocalOverlay,
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { Gavel, X } from "lucide-react";
+import { Gavel } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { AdminWebApprovalItem } from "@/lib/api/server";
@@ -17,6 +16,15 @@ import { StatusChip } from "@/components/review-queue/review-queue-ui";
 import { approveApprovalAction, rejectApprovalAction, resolveApprovalCaptureMediaUrl } from "./actions";
 import { ApprovalsActionTelemetry } from "./approvals-telemetry";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import Divider from "@mui/material/Divider";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { LinkButton } from "@/components/minimal/link-button";
+import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem, DrawerNote } from "@/components/app/detail-drawer";
 import {
   APPROVAL_REASON_MAX_BYTES,
   approvalDetailRows,
@@ -46,7 +54,7 @@ export function ApprovalsDrawer({
   const initialItem = items.find((item) => item.approval_request_id === initialSelectedId);
   const [activeId, setActiveId] = useState(initialItem?.approval_request_id);
   const [displayedId, setDisplayedId] = useState(initialItem?.approval_request_id);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const activeRef = useRef(Boolean(initialItem));
   const triggerRef = useRef<HTMLElement | null>(null);
   const openFrameRef = useRef<number | null>(null);
   const closeTimerRef = useRef<number | null>(null);
@@ -62,6 +70,7 @@ export function ApprovalsDrawer({
     if (selected) {
       triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setActiveId(undefined);
+      activeRef.current = true;
       setDisplayedId(selected.approval_request_id);
       openFrameRef.current = window.requestAnimationFrame(() => {
         setActiveId(selected.approval_request_id);
@@ -69,6 +78,7 @@ export function ApprovalsDrawer({
       });
       return;
     }
+    activeRef.current = false;
     setActiveId(undefined);
     closeTimerRef.current = window.setTimeout(() => {
       setDisplayedId(undefined);
@@ -88,14 +98,12 @@ export function ApprovalsDrawer({
     };
   }, [syncFromUrl]);
 
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
-  }, [drawerOpen]);
-
   const closeDrawer = useCallback((): void => {
     if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    // Idempotent: MUI reports Escape/backdrop through onClose, and a second close in the same tick
+    // must not step history back twice.
+    if (!activeRef.current) return;
+    activeRef.current = false;
     setActiveId(undefined);
     if (currentHistoryEntryIsLocalOverlay()) {
       window.history.back();
@@ -104,40 +112,20 @@ export function ApprovalsDrawer({
     replaceLocalOverlayUrl(closeHref);
   }, [closeHref]);
 
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeDrawer();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeDrawer, drawerOpen]);
-
   if (!item) return null;
   const returnTo = hrefWithRow(searchParams, item.approval_request_id);
 
+  // Template temporary drawer (DetailDrawer on MinimalDrawer: portal, backdrop, focus trapped and
+  // returned, 480 paper). Escape and the backdrop land on the same idempotent closeDrawer.
   return (
-    <>
-      <button
-        type="button"
-        className={`scrim${drawerOpen ? " on" : ""}`}
-        aria-label={COPY.drawer.closeLabel}
-        aria-hidden={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
-      />
-      <ApprovalsDrawerPanel
-        item={item}
-        returnTo={returnTo}
-        feedback={feedback}
-        open={drawerOpen}
-        onClose={closeDrawer}
-        closeButtonRef={closeButtonRef}
-        locationNames={locationNames}
-      />
-    </>
+    <ApprovalsDrawerPanel
+      item={item}
+      returnTo={returnTo}
+      feedback={feedback}
+      open={drawerOpen}
+      onClose={closeDrawer}
+      locationNames={locationNames}
+    />
   );
 }
 
@@ -147,7 +135,6 @@ function ApprovalsDrawerPanel({
   feedback,
   open,
   onClose,
-  closeButtonRef,
   locationNames,
 }: {
   item: AdminWebApprovalItem;
@@ -155,160 +142,146 @@ function ApprovalsDrawerPanel({
   feedback: { status?: string; code?: string };
   open: boolean;
   onClose: () => void;
-  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
   locationNames: Record<string, string>;
 }) {
   const decided = item.status !== "pending";
   const detail = approvalDetailRows(item.summary, locationNames, item.subject_animal_location);
 
   return (
-    <aside className={`drawer approvals-drawer${open ? " on" : ""}`} aria-label={COPY.drawer.aria} aria-hidden={!open} inert={!open}>
-      <div className="dh">
-        <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-          <Gavel className="ic" aria-hidden="true" />
-        </span>
-        <div>
-          <div className="mt">{COPY.drawer.eyebrow}</div>
-          <h2>
-            {titleCase(item.request_type)} request
-          </h2>
-        </div>
-        <span className="sp" style={{ flex: 1 }} />
-        <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={COPY.drawer.closeLabel} onClick={onClose}>
-          <X className="ic" />
-        </button>
-      </div>
+    <DetailDrawer
+      open={open}
+      onClose={onClose}
+      title={`${titleCase(item.request_type)} request`}
+      eyebrow={COPY.drawer.eyebrow}
+      icon={<Gavel aria-hidden="true" />}
+      ariaLabel={COPY.drawer.aria}
+      closeLabel={COPY.drawer.closeLabel}
+      footer={
+        <>
+          <LinkButton href="/counts/herd" scroll={false} variant="outlined" color="inherit">
+            {COPY.action.openAuditLog}
+          </LinkButton>
+          <Button variant="outlined" color="inherit" onClick={onClose}>
+            {COPY.action.close}
+          </Button>
+        </>
+      }
+    >
+      <ApprovalsActionTelemetry status={feedback.status} code={feedback.code} />
+      {/* Only a REFUSED decision is shown here: the row is still pending, so it is still in the
+          list. A successful decision moves the row off this list and its confirmation is rendered
+          at page level. The error code is a machine key and is mapped to a sentence, never shown. */}
+      {feedback.status === "error" ? (
+        <Alert severity="warning" role="alert">
+          <b>{COPY.feedback.failed}</b>
+          <div>{approvalErrorSentence(feedback.code)}</div>
+        </Alert>
+      ) : null}
 
-      <div className="dc">
-        <ApprovalsActionTelemetry status={feedback.status} code={feedback.code} />
-        {/* Only a REFUSED decision is shown here: the row is still pending, so it is still in the
-            list. A successful decision moves the row off this list and its confirmation is rendered
-            at page level. The error code is a machine key and is mapped to a sentence, never shown. */}
-        {feedback.status === "error" ? (
-          <Alert severity="warning" role="alert" style={{ marginBottom: 12 }}>
-            <b>{COPY.feedback.failed}</b>
-            <div className="small">{approvalErrorSentence(feedback.code)}</div>
-          </Alert>
-        ) : null}
+      <DrawerNote>{COPY.drawer.note}</DrawerNote>
 
-        <div className="note" style={{ marginBottom: 12 }}>
-          {COPY.drawer.note}
-        </div>
+      {/* Readable facts only — request type, status, when it was raised/decided. Internal UUIDs
+          (raiser/decider/goat/event ids) are intentionally not shown; an operator reads names and
+          dates, not ids. */}
+      <DrawerMetaGrid>
+        <DrawerMetaItem label={COPY.drawer.metaType}>{titleCase(item.request_type)}</DrawerMetaItem>
+        <DrawerMetaItem label={COPY.drawer.metaStatus}>
+          <StatusChip status={item.status}>{approvalStatusLabel(item.status)}</StatusChip>
+        </DrawerMetaItem>
+        <DrawerMetaItem label={COPY.drawer.metaRaisedAt}>{fmtDateTime(item.raised_at)}</DrawerMetaItem>
+        {item.raised_by_name ? <DrawerMetaItem label={COPY.drawer.metaRaisedBy}>{item.raised_by_name}</DrawerMetaItem> : null}
+        {/* Backend-composed line: head count, farm and pens for a move; the animal's tag for a
+            death. Absent when nothing resolved, never an id. */}
+        {item.summary_line ? <DrawerMetaItem label={COPY.drawer.metaSummary}>{item.summary_line}</DrawerMetaItem> : null}
+        {item.decided_at ? <DrawerMetaItem label={COPY.drawer.metaDecidedAt}>{fmtDateTime(item.decided_at)}</DrawerMetaItem> : null}
+        {item.decision_reason ? <DrawerMetaItem label={COPY.drawer.metaDecisionReason}>{item.decision_reason}</DrawerMetaItem> : null}
+      </DrawerMetaGrid>
 
-        {/* Readable facts only — request type, status, when it was raised/decided. Internal UUIDs
-            (raiser/decider/goat/event ids) are intentionally not shown; an operator reads names and
-            dates, not ids. */}
-        <div className="metagrid">
-          <Meta label={COPY.drawer.metaType}>{titleCase(item.request_type)}</Meta>
-          <Meta label={COPY.drawer.metaStatus}>
-            <StatusChip status={item.status}>{approvalStatusLabel(item.status)}</StatusChip>
-          </Meta>
-          <Meta label={COPY.drawer.metaRaisedAt}>{fmtDateTime(item.raised_at)}</Meta>
-          {item.raised_by_name ? <Meta label={COPY.drawer.metaRaisedBy}>{item.raised_by_name}</Meta> : null}
-          {/* Backend-composed line: head count, farm and pens for a move; the animal's tag for a
-              death. Absent when nothing resolved, never an id. */}
-          {item.summary_line ? <Meta label={COPY.drawer.metaSummary}>{item.summary_line}</Meta> : null}
-          {item.decided_at ? <Meta label={COPY.drawer.metaDecidedAt}>{fmtDateTime(item.decided_at)}</Meta> : null}
-          {item.decision_reason ? <Meta label={COPY.drawer.metaDecisionReason}>{item.decision_reason}</Meta> : null}
-        </div>
+      <DrawerSectionCard title={COPY.drawer.summaryTitle}>
+        {detail.length === 0 ? (
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>{COPY.drawer.summaryEmpty}</Typography>
+        ) : (
+          <DrawerMetaGrid>
+            {detail.map((entry) => (
+              <DrawerMetaItem key={entry.label} label={entry.label}>
+                {entry.value}
+              </DrawerMetaItem>
+            ))}
+          </DrawerMetaGrid>
+        )}
+      </DrawerSectionCard>
 
-        <section className="card" style={{ marginTop: 14 }}>
-          <div className="hd">
-            <h3>{COPY.drawer.summaryTitle}</h3>
-          </div>
-          <div className="bd">
-            {detail.length === 0 ? (
-              <div className="muted small">{COPY.drawer.summaryEmpty}</div>
-            ) : (
-              <div className="metagrid">
-                {detail.map((entry) => (
-                  <Meta key={entry.label} label={entry.label}>
-                    {entry.value}
-                  </Meta>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
+      <CaptureSection item={item} />
 
-        <CaptureSection item={item} />
+      {/* One decision block: the prominent Approve action on top, then the reject reason and a red
+          (destructive) Reject action, separated by an "or" rule. Both are full-width so the two
+          choices read as equal-weight, mutually-exclusive decisions rather than two stray buttons.
+          Kept as two separate <form>s because approve and reject post to different server actions
+          and only reject carries a reason. */}
+      <DrawerSectionCard title={COPY.decision.title}>
+        <Stack spacing={1.5}>
+          {decided ? <DrawerNote>{COPY.approve.disabledDecided}</DrawerNote> : null}
 
-        {/* One decision block: the prominent green Approve action on top, then the reject reason and
-            a red (destructive) Reject action, separated by an "or" rule. Both are full-width so the
-            two choices read as equal-weight, mutually-exclusive decisions rather than two stray
-            buttons. Kept as two separate <form>s because approve and reject post to different server
-            actions and only reject carries a reason. */}
-        <section className="card" style={{ marginTop: 14 }}>
-          <div className="hd">
-            <h3>{COPY.decision.title}</h3>
-          </div>
-          <div className="bd" style={{ display: "grid", gap: 12 }}>
-            {decided ? <div className="note">{COPY.approve.disabledDecided}</div> : null}
+          <form action={approveApprovalAction}>
+            <input type="hidden" name="request_id" value={item.approval_request_id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <Button
+              type="submit"
+              variant="contained"
+              color="primary"
+              fullWidth
+              disabled={decided}
+              aria-disabled={decided}
+              title={decided ? COPY.approve.disabledDecided : undefined}
+            >
+              {COPY.approve.submit}
+            </Button>
+          </form>
 
-            <form action={approveApprovalAction}>
-              <input type="hidden" name="request_id" value={item.approval_request_id} />
-              <input type="hidden" name="return_to" value={returnTo} />
-              <button
-                type="submit"
-                className="btn p"
-                style={{ width: "100%", justifyContent: "center" }}
-                disabled={decided}
-                aria-disabled={decided}
-                title={decided ? COPY.approve.disabledDecided : undefined}
-              >
-                {COPY.approve.submit}
-              </button>
-            </form>
+          <Divider sx={{ typography: "overline", color: "text.disabled" }}>{COPY.decision.or}</Divider>
 
-            <div className="decision-or">{COPY.decision.or}</div>
-
-            <form action={rejectApprovalAction} style={{ display: "grid", gap: 8 }}>
-              <input type="hidden" name="request_id" value={item.approval_request_id} />
-              <input type="hidden" name="return_to" value={returnTo} />
-              <label className="fld" style={{ marginBottom: 0 }}>
-                <span>{COPY.reject.reasonLabel}</span>
-                <textarea
-                  name="reason"
-                  rows={2}
-                  placeholder={COPY.reject.reasonPlaceholder}
-                  disabled={decided}
-                  required
-                  maxLength={APPROVAL_REASON_MAX_BYTES}
-                />
-              </label>
-              <button
-                type="submit"
-                className="btn dng"
-                style={{ width: "100%", justifyContent: "center" }}
-                disabled={decided}
-                aria-disabled={decided}
-                title={decided ? COPY.reject.disabledDecided : undefined}
-              >
-                {COPY.reject.submit}
-              </button>
-            </form>
-          </div>
-        </section>
-      </div>
-
-      <div className="df">
-        <Link href="/counts/herd" className="btn" scroll={false}>
-          {COPY.action.openAuditLog}
-        </Link>
-        <button type="button" className="btn" onClick={onClose}>
-          {COPY.action.close}
-        </button>
-      </div>
-    </aside>
+          <Stack component="form" action={rejectApprovalAction} spacing={1.5}>
+            <input type="hidden" name="request_id" value={item.approval_request_id} />
+            <input type="hidden" name="return_to" value={returnTo} />
+            <TextField
+              name="reason"
+              label={COPY.reject.reasonLabel}
+              placeholder={COPY.reject.reasonPlaceholder}
+              multiline
+              minRows={2}
+              fullWidth
+              disabled={decided}
+              required
+              slotProps={{ htmlInput: { maxLength: APPROVAL_REASON_MAX_BYTES } }}
+            />
+            <Button
+              type="submit"
+              variant="contained"
+              color="error"
+              fullWidth
+              disabled={decided}
+              aria-disabled={decided}
+              title={decided ? COPY.reject.disabledDecided : undefined}
+            >
+              {COPY.reject.submit}
+            </Button>
+          </Stack>
+        </Stack>
+      </DrawerSectionCard>
+    </DetailDrawer>
   );
 }
 
-function Meta({ label, children }: { label: string; children: ReactNode }) {
+/** Outlined template card with a subtitle header, used for each drawer section. */
+function DrawerSectionCard({ title, action, children }: { title: ReactNode; action?: ReactNode; children: ReactNode }) {
   return (
-    <div>
-      <span className="muted small">{label}</span>
-      <b style={{ display: "block", marginTop: 3, overflowWrap: "anywhere" }}>{children}</b>
-    </div>
+    <Card variant="outlined" sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 1.5, minWidth: 0 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", flexWrap: "wrap" }}>
+        <Typography variant="subtitle2" sx={{ flex: 1, minWidth: 0 }}>{title}</Typography>
+        {action}
+      </Stack>
+      {children}
+    </Card>
   );
 }
 
@@ -353,47 +326,50 @@ function CaptureSection({ item }: { item: AdminWebApprovalItem }) {
     groups.set(key, [...(groups.get(key) ?? []), { label: row.label, value: row.value }]);
   }
   return (
-    <section className="card" style={{ marginTop: 14 }}>
-      <div className="hd">
-        <h3>{COPY.capture.title}</h3>
-        {capture.version_label ? <span className="muted small">{COPY.capture.version}: {capture.version_label}</span> : null}
-      </div>
-      <div className="bd">
-        {item.capture_review_status ? (
-          <div className="note" role="status">
+    <DrawerSectionCard
+      title={COPY.capture.title}
+      action={
+        capture.version_label ? (
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>{COPY.capture.version}: {capture.version_label}</Typography>
+        ) : undefined
+      }
+    >
+      {item.capture_review_status ? (
+        <DrawerNote>
+          <span role="status">
             {COPY.capture.review[item.capture_review_status] ?? item.capture_review_status}
             {item.capture_review_reason ? ` — ${item.capture_review_reason}` : ""}
-          </div>
-        ) : null}
-        {[...groups.entries()].map(([group, rows]) => (
-          <div key={group || "rows"} style={{ marginTop: 8 }}>
-            {group ? <div className="muted small b700">{group}</div> : null}
-            <div className="metagrid">
-              {rows.map((row, i) => (
-                <Meta key={`${row.label}-${i}`} label={row.label}>
-                  {row.value}
-                </Meta>
-              ))}
-            </div>
-          </div>
-        ))}
-        {capture.missing_note ? (
-          <div className="metagrid" style={{ marginTop: 8 }}>
-            <Meta label={COPY.capture.missing}>{capture.missing_note}</Meta>
-          </div>
-        ) : null}
-        {capture.media?.length ? (
-          <div style={{ marginTop: 10 }}>
-            <div className="muted small b700">{COPY.capture.media}</div>
-            <div className="htl">
-              {capture.media.map((m) => (
-                <CaptureMediaRow key={m.proof_id} proofId={m.proof_id} label={m.label} kind={m.kind} />
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </section>
+          </span>
+        </DrawerNote>
+      ) : null}
+      {[...groups.entries()].map(([group, rows]) => (
+        <Stack key={group || "rows"} spacing={1}>
+          {group ? <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: "fontWeightBold" }}>{group}</Typography> : null}
+          <DrawerMetaGrid>
+            {rows.map((row, i) => (
+              <DrawerMetaItem key={`${row.label}-${i}`} label={row.label}>
+                {row.value}
+              </DrawerMetaItem>
+            ))}
+          </DrawerMetaGrid>
+        </Stack>
+      ))}
+      {capture.missing_note ? (
+        <DrawerMetaGrid>
+          <DrawerMetaItem label={COPY.capture.missing}>{capture.missing_note}</DrawerMetaItem>
+        </DrawerMetaGrid>
+      ) : null}
+      {capture.media?.length ? (
+        <Stack spacing={1}>
+          <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: "fontWeightBold" }}>{COPY.capture.media}</Typography>
+          <Stack divider={<Divider flexItem sx={{ borderStyle: "dashed" }} />} spacing={1}>
+            {capture.media.map((m) => (
+              <CaptureMediaRow key={m.proof_id} proofId={m.proof_id} label={m.label} kind={m.kind} />
+            ))}
+          </Stack>
+        </Stack>
+      ) : null}
+    </DrawerSectionCard>
   );
 }
 
@@ -414,17 +390,17 @@ function CaptureMediaRow({ proofId, label, kind }: { proofId: string; label: str
     setState("idle");
   };
   return (
-    <div className="hrow">
-      <div className="htx">
-        <b>{label}</b>
-        <div className="hmeta muted small">
+    <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="subtitle2" sx={{ overflowWrap: "anywhere" }}>{label}</Typography>
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
           {COPY.capture.kind[kind] ?? ""}
           {state === "failed" ? ` · ${COPY.capture.unavailable}` : ""}
-        </div>
-      </div>
-      <button type="button" className="btn sm" onClick={open} disabled={state === "opening"}>
+        </Typography>
+      </Box>
+      <Button size="small" variant="outlined" color="inherit" onClick={open} disabled={state === "opening"}>
         {state === "opening" ? COPY.capture.opening : COPY.capture.open}
-      </button>
-    </div>
+      </Button>
+    </Stack>
   );
 }

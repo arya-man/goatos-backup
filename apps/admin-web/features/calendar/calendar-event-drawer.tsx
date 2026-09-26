@@ -15,6 +15,10 @@ import { ArrowLeft, ArrowRight, Bell } from "lucide-react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
+import Card from "@mui/material/Card";
+import Divider from "@mui/material/Divider";
+import Stack from "@mui/material/Stack";
+import { DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerNote, DrawerTableScroll } from "@/components/app/detail-drawer";
 import { MinimalDrawer } from "@/components/minimal/drawer";
 import { Tag } from "@/components/ui-primitives";
 import { dateTime, fmtDateTime } from "@/lib/format";
@@ -63,18 +67,13 @@ type CalendarDrawerLoader = {
 };
 
 /** Detail drawer paper width from sm up (the template MinimalDrawer; phones get the full width). */
-const DRAWER_WIDTH = 380;
+const DRAWER_WIDTH = 480;
 
 function MetaCell({ k, v }: { k: string; v: React.ReactNode }) {
-  return (
-    <div>
-      <div className="k">{k}</div>
-      <div className="v">{v}</div>
-    </div>
-  );
+  return <DrawerMetaItem label={k}>{v}</DrawerMetaItem>;
 }
 
-// Render one detail JSONBlock as a metagrid card; hidden when the block has no scalar entries.
+// Render one detail JSONBlock as a template details block; hidden when the block has no scalar entries.
 function BlockCard({
   title,
   block,
@@ -87,21 +86,16 @@ function BlockCard({
   const entries = blockEntries(block);
   if (entries.length === 0 && !leading) return null;
   return (
-    <div style={{ marginTop: 16 }}>
-      <div className="b700" style={{ margin: "2px 0 8px" }}>
-        {title}
-      </div>
-      {leading ? (
-        <div style={{ marginBottom: entries.length ? 8 : 0 }}>{leading}</div>
-      ) : null}
+    <DrawerBlock title={title}>
+      {leading ? <Box>{leading}</Box> : null}
       {entries.length ? (
-        <div className="metagrid">
+        <DrawerMetaGrid>
           {entries.map((e) => (
             <MetaCell key={e.label} k={e.label} v={e.value} />
           ))}
-        </div>
+        </DrawerMetaGrid>
       ) : null}
-    </div>
+    </DrawerBlock>
   );
 }
 
@@ -425,9 +419,10 @@ function CalendarEventDrawerPanel({
   // snooze_until (default +24h) is computed in the snooze server action — Date.now() is an impure call and
   // is not allowed on the render path.
 
-  // Template MinimalDrawer (portalled MUI Drawer): focus trapped and restored, X / Escape / scrim
-  // close through closeDrawer, and the #calendar_event hash keeps Back closing it. The event body
-  // keeps its existing .drawer .dc content styles inside the portal.
+  // Template MinimalDrawer (portalled MUI temporary Drawer, backdrop, 480): focus trapped and
+  // restored, X / Escape / backdrop close through closeDrawer, and the #calendar_event hash keeps
+  // Back closing it. The body is template details blocks; the animal table scrolls in its own
+  // Scrollbar.
   return (
     <MinimalDrawer
       open={open}
@@ -470,62 +465,59 @@ function CalendarEventDrawerPanel({
         </Box>
       }
     >
-      <Box className="drawer">
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 2.5, pt: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 2.5, pt: 2 }}>
           <Box
             component="span"
             aria-hidden="true"
             sx={{ display: "inline-flex", p: 1, borderRadius: "50%", flex: "none" }}
             style={{ background: `color-mix(in srgb, ${accent} 18%, var(--panel))`, color: accent }}
           >
-            <TypeIcon className="ic" aria-hidden="true" />
+            <TypeIcon size={18} aria-hidden="true" />
           </Box>
           <Typography variant="overline" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "drawer.event.eyebrow")}
           </Typography>
-        </Box>
-        <div className="dc">
-          <div className="chipset" style={{ marginBottom: 14 }}>
+      </Box>
+      <Stack spacing={2.5} sx={{ p: 2.5, minWidth: 0 }}>
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
             <Tag tone="mut">{typeMeta.label}</Tag>
             <Tag tone={status.tone}>{status.label}</Tag>
             <Tag tone={severity.tone}>{severity.label}</Tag>
             <Tag tone="info">{ownerLabel(event.owner_key, ownerMeta)}</Tag>
             {event.all_day ? <Tag tone="info">{copy(pageContract, "calendar.drive.all_day")}</Tag> : null}
-          </div>
+          </Stack>
 
           {event.aggregated ? (
-            <div style={{ marginBottom: 16 }}>
-              <div className="metagrid">
+            <Stack spacing={2}>
+              <DrawerMetaGrid>
                 <MetaCell k={copy(pageContract, "calendar.drive.sheds")} v={event.shed_count} />
                 <MetaCell k={copy(pageContract, "calendar.drive.vaccines")} v={event.vaccine_count} />
                 <MetaCell k={copy(pageContract, "calendar.drive.doses")} v={event.target_count} />
                 <MetaCell k={copy(pageContract, "calendar.drive.packets")} v={event.drive_count} />
-              </div>
+              </DrawerMetaGrid>
               {event.vaccine_labels.length ? (
-                <div style={{ marginTop: 12 }}>
-                  <div className="b700" style={{ marginBottom: 8 }}>{copy(pageContract, "calendar.drive.vaccine_mix")}</div>
-                  <div className="chipset">
+                <DrawerBlock title={copy(pageContract, "calendar.drive.vaccine_mix")}>
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                     {event.vaccine_labels.map((label) => <Tag key={label} tone="info">{label}</Tag>)}
-                  </div>
-                </div>
+                  </Stack>
+                </DrawerBlock>
               ) : null}
               {event.shed_labels.length ? (
-                <div style={{ marginTop: 12 }}>
-                  <div className="b700" style={{ marginBottom: 8 }}>{copy(pageContract, "calendar.drive.shed_coverage")}</div>
-                  <div className="chipset">
+                <DrawerBlock title={copy(pageContract, "calendar.drive.shed_coverage")}>
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                     {event.shed_labels.map((label, i) => {
                       const partitionLabel = event.shed_partition_labels?.[i] || null
                       const displayLabel = operationalLocationLabel({ shedName: label, partitionLabel })
                       return <Tag key={`${label}-${partitionLabel || 'whole'}`} tone="mut">{displayLabel}</Tag>
                     })}
-                  </div>
-                </div>
+                  </Stack>
+                </DrawerBlock>
               ) : null}
-            </div>
+            </Stack>
           ) : null}
 
           {/* Mock metagrid: When / Reminder / Channel / Escalates. Channel from the API summary field. */}
-          <div className="metagrid">
+          <DrawerMetaGrid>
             <MetaCell k={copy(pageContract, "label.when")} v={whenWindow} />
             <MetaCell
               k={copy(pageContract, "label.reminder")}
@@ -540,9 +532,9 @@ function CalendarEventDrawerPanel({
               k={copy(pageContract, "label.channel")}
               v={
                 event.primary_notification_channel || (
-                  <span className="muted">
+                  <Box component="span" sx={{ color: "text.secondary" }}>
                     {copy(pageContract, "label.not_configured")}
-                  </span>
+                  </Box>
                 )
               }
             />
@@ -554,19 +546,16 @@ function CalendarEventDrawerPanel({
                 event.escalation_state,
               )}
             />
-          </div>
+          </DrawerMetaGrid>
           {channels.length > 1 ? (
-            <div className="note" style={{ marginTop: 10 }}>
+            <DrawerNote>
               {copy(pageContract, "label.channels")}: {channels.join(" · ")}
-            </div>
+            </DrawerNote>
           ) : null}
 
           {/* Scope card — from typed event fields (reliable). */}
-          <div style={{ marginTop: 16 }}>
-            <div className="b700" style={{ margin: "2px 0 8px" }}>
-              {copy(pageContract, "label.scope")}
-            </div>
-            <div className="metagrid">
+          <DrawerBlock title={copy(pageContract, "label.scope")}>
+            <DrawerMetaGrid>
               <MetaCell
                 k={copy(pageContract, "label.park_shed")}
                 v={`${event.park_code ?? copy(pageContract, "label.placeholder")} · ${
@@ -593,8 +582,8 @@ function CalendarEventDrawerPanel({
                   event.assignee_label ?? ownerLabel(event.owner_key, ownerMeta)
                 }
               />
-            </div>
-          </div>
+            </DrawerMetaGrid>
+          </DrawerBlock>
 
           {/* Detail blocks — rendered generically from the backend JSONBlocks (keys vary by event family). */}
           <BlockCard
@@ -613,27 +602,16 @@ function CalendarEventDrawerPanel({
             block={detail.execution}
           />
           {event.event_type === "vaccination_drive" ? (
-            <div style={{ marginTop: 16 }}>
-              <div className="b700" style={{ margin: "2px 0 8px" }}>
-                {driveTargetHeading(pageContract, event, targets)}
-              </div>
+            <DrawerBlock title={driveTargetHeading(pageContract, event, targets)}>
               {targetsError ? (
-                <Alert severity="error" style={{ marginBottom: 10 }}>
+                <Alert severity="error">
                   {targetsError}
                 </Alert>
               ) : null}
               {targets && targets.length > 0 ? (
-                <div
-                  className="bd tablewrap"
-                  style={{
-                    padding: 0,
-                    border: "1px solid var(--line2)",
-                    borderRadius: 10,
-                    overflowX: "auto",
-                    overflowY: "hidden",
-                  }}
-                >
-                  <Table className="eligible-animals-table">
+                <Card variant="outlined">
+                  <DrawerTableScroll>
+                  <Table size="small" className="eligible-animals-table" sx={{ minWidth: 960, "& td, & th": { whiteSpace: "nowrap" } }}>
                     <TableHead>
                       <TableRow>
                         <TableCell component="th">{copy(pageContract, "label.display_id")}</TableCell>
@@ -656,7 +634,7 @@ function CalendarEventDrawerPanel({
                       {targets.map((row) => (
                         <TableRow key={row.animal_id}>
                           <TableCell>
-                            <span className="gid">{row.display_id}</span>
+                            <Box component="span" sx={{ fontWeight: "fontWeightSemiBold" }}>{row.display_id}</Box>
                           </TableCell>
                           <TableCell>
                             {row.shed_name
@@ -716,34 +694,34 @@ function CalendarEventDrawerPanel({
                               )}
                             </Tag>
                           </TableCell>
-                          <TableCell className="muted small">
+                          <TableCell sx={{ color: "text.secondary", typography: "caption" }}>
                             {fmtDateTime(row.scheduled_at)}
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
+                  </DrawerTableScroll>
                   {(targetsPage > 1 || data.targetsNextCursor) ? (
-                    <div className="pager2">
-                      <span className="muted small">
+                    <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", px: 1.5, py: 1, borderTop: 1, borderColor: "divider" }}>
+                      <Typography variant="caption" sx={{ color: "text.secondary", flex: 1, minWidth: 0 }}>
                         {copy(pageContract, "schedule.drawer.page_label")} {targetsPage} · {targets.length} {copy(pageContract, "schedule.unit.animals")}
-                      </span>
-                      <span className="sp" style={{ flex: 1 }} />
-                      <button type="button" className="btn sm" disabled={targetsPage <= 1 || targetsLoading} onClick={onPreviousTargets}>
-                        <ArrowLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.previous")}
-                      </button>
-                      <button type="button" className="btn sm" disabled={!data.targetsNextCursor || targetsLoading} onClick={onNextTargets}>
-                        {copy(pageContract, "action.next")} <ArrowRight className="ic" style={{ width: 13 }} aria-hidden="true" />
-                      </button>
-                    </div>
+                      </Typography>
+                      <Button size="small" variant="outlined" color="inherit" disabled={targetsPage <= 1 || targetsLoading} onClick={onPreviousTargets} startIcon={<ArrowLeft size={16} aria-hidden="true" />}>
+                        {copy(pageContract, "action.previous")}
+                      </Button>
+                      <Button size="small" variant="outlined" color="inherit" disabled={!data.targetsNextCursor || targetsLoading} onClick={onNextTargets} endIcon={<ArrowRight size={16} aria-hidden="true" />}>
+                        {copy(pageContract, "action.next")}
+                      </Button>
+                    </Stack>
                   ) : null}
-                </div>
+                </Card>
               ) : (
-                <p className="muted small" style={{ margin: 0 }}>
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
                   {copy(pageContract, "calendar.drawer.eligible_animals_empty")}
-                </p>
+                </Typography>
               )}
-            </div>
+            </DrawerBlock>
           ) : null}
           <BlockCard
             title={copy(pageContract, "label.stock_readiness")}
@@ -760,16 +738,13 @@ function CalendarEventDrawerPanel({
 
           {/* Recent activity — the event's audit/reminder/snooze/proof history timeline. */}
           {detail.recent_actions && detail.recent_actions.length ? (
-            <div style={{ marginTop: 16 }}>
-              <div className="b700" style={{ margin: "2px 0 8px" }}>
-                {copy(pageContract, "label.recent_activity")}
-              </div>
-              <div className="feed">
+            <DrawerBlock title={copy(pageContract, "label.recent_activity")}>
+              <Stack divider={<Divider flexItem sx={{ borderStyle: "dashed" }} />} spacing={1.5}>
                 {detail.recent_actions.map((h) => (
-                  <div key={h.history_id} className="fitem">
-                    <div className="tx">
-                      <b>{h.title}</b>
-                      <div className="mt">
+                  <Stack key={h.history_id} direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="subtitle2">{h.title}</Typography>
+                      <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>
                         {[
                           optionLabel(
                             pageContract,
@@ -781,39 +756,30 @@ function CalendarEventDrawerPanel({
                         ]
                           .filter(Boolean)
                           .join(" · ")}
-                      </div>
-                    </div>
-                    <span className="tm">{dateTime(h.occurred_at)}</span>
-                  </div>
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" sx={{ color: "text.disabled", flex: "none" }}>{dateTime(h.occurred_at)}</Typography>
+                  </Stack>
                 ))}
-              </div>
-            </div>
+              </Stack>
+            </DrawerBlock>
           ) : null}
 
           {/* Linked surfaces — key→app-route, scope preserved; only confidently-mapped keys render. */}
           {linkRow.length ? (
-            <div style={{ marginTop: 16 }}>
-              <div className="b700" style={{ margin: "2px 0 8px" }}>
-                {copy(pageContract, "label.linked")}
-              </div>
-              <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            <DrawerBlock title={copy(pageContract, "label.linked")}>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                 {linkRow.map((l) => (
-                  <Link
-                    key={l.key}
-                    href={scopeHref(l.appPath, scope, {}, l.query ?? {})}
-                    className={`tag t-${l.tone}`}
-                  >
-                    {l.label}
+                  <Link key={l.key} href={scopeHref(l.appPath, scope, {}, l.query ?? {})}>
+                    <Tag tone={l.tone as "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal"}>{l.label}</Tag>
                   </Link>
                 ))}
-              </div>
-            </div>
+              </Stack>
+            </DrawerBlock>
           ) : null}
-        </div>
-
         {/* Footer (MinimalDrawer footer above) — Send nudge / Snooze are real idempotent backend
             actions; Open drive/workflow deep-links. */}
-      </Box>
+      </Stack>
     </MinimalDrawer>
   );
 }

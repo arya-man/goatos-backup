@@ -44,7 +44,6 @@ import {
   Truck,
   User,
   Wheat,
-  X,
 } from "lucide-react";
 import { cx } from "@/lib/tone";
 import { IconBadge } from "@/components/app/icon-badge";
@@ -157,7 +156,9 @@ export function NotificationPanel({
     if (!node || !hasMore || loadingMore) return;
     const io = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) loadMoreRef.current?.();
-    }, { root: node.closest(".nc-scroll"), rootMargin: "120px" });
+    // Root = viewport: the drawer's Scrollbar body is the scroller now, and the implicit root
+    // already clips by every scrolling ancestor, so the sentinel only intersects when it is on screen.
+    }, { root: null, rootMargin: "120px" });
     io.observe(node);
     return () => io.disconnect();
   }, [hasMore, loadingMore, rows.length]);
@@ -179,11 +180,11 @@ export function NotificationPanel({
 
   return (
     <div className="nc" data-notification-panel>
+      {/* The title and the close button are the template drawer header (MinimalDrawer in the bell);
+          this row carries the centre's own actions. */}
       <div className="nc-head">
-        <h2 className="nc-title">{centreCopy.title}</h2>
         {iconButton(centreCopy.markAllRead, <CheckCheck size={20} aria-hidden="true" />, onMarkAllRead, busy || !hasUnread, "primary")}
         {showPush ? iconButton(centreCopy.settings, <Settings size={20} aria-hidden="true" />, () => setPushOpen((v) => !v), false, "default", pushOpen) : null}
-        {iconButton(centreCopy.close, <X size={20} aria-hidden="true" />, onClose)}
       </div>
 
       {showPush && pushOpen ? (

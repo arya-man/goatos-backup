@@ -88,16 +88,13 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 
 /* ---------------- Drawers & dialogs ---------------- */
 button.scrim{background:var(--scrim);transition:opacity 200ms var(--ease)}
-aside.drawer{background:var(--paper);box-shadow:var(--shadow-dialog);border-left:0;transition:transform 300ms cubic-bezier(.32,.72,0,1),visibility 0s linear 300ms}
-aside.drawer.on{transition:transform 320ms cubic-bezier(.32,.72,0,1),visibility 0s}
-.drawer .dh{border-bottom:1px dashed var(--line)}
-.drawer .df{border-top:1px dashed var(--line)}
+
 .modal{border-radius:var(--r-xl);box-shadow:var(--shadow-dialog);border:0;transition:opacity 200ms var(--ease),transform 320ms var(--ease-spring)}
 
 /* ---------------- Form fields ---------------- */
-.main input[type="text"],.main input[type="search"],.main input[type="number"],.main input[type="date"],.main select,.main textarea,.drawer input:not([type="checkbox"]):not([type="radio"]),.drawer select,.drawer textarea{border-radius:var(--r-md);border:1px solid var(--line-strong);background:transparent;color:var(--fg);transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
+.main input[type="text"],.main input[type="search"],.main input[type="number"],.main input[type="date"],.main select,.main textarea{border-radius:var(--r-md);border:1px solid var(--line-strong);background:transparent;color:var(--fg);transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
 .main input:hover,.main select:hover,.main textarea:hover{border-color:color-mix(in srgb,var(--fg) 45%,transparent)}
-.main input:focus,.main select:focus,.main textarea:focus,.drawer input:focus,.drawer select:focus,.drawer textarea:focus{outline:0;border-color:var(--fg);box-shadow:inset 0 0 0 1px var(--fg)}
+.main input:focus,.main select:focus,.main textarea:focus{outline:0;border-color:var(--fg);box-shadow:inset 0 0 0 1px var(--fg)}
 select option{background:var(--paper);color:var(--fg)}
 
 
@@ -219,27 +216,6 @@ button.scrim,div.scrim{position:fixed!important;inset:0!important;z-index:1202!i
 /* Scrims and modals still on the pre-MUI 150/151 layer painted UNDER the MUI header (1101) and nav
    (1201): the Work Board card modal lost its left edge behind the nav and its top behind the bar. */
 .lt-page .lt-fscrim{z-index:1202!important}
-aside.drawer{position:fixed!important;top:0!important;right:0!important;bottom:0!important;height:100dvh!important;max-height:none!important;z-index:1210!important;width:480px;max-width:100vw;border-radius:0!important;margin:0!important;background:var(--paper);background-image:radial-gradient(circle at 100% 0%,color-mix(in srgb,var(--info) 10%,transparent),transparent 36%),radial-gradient(circle at 0% 100%,color-mix(in srgb,var(--error) 8%,transparent),transparent 36%);box-shadow:-40px 40px 80px -8px rgb(0 0 0/.24);transition:transform 225ms cubic-bezier(0,0,.2,1),visibility 0s linear 225ms}
-aside.drawer.on{transition:transform 225ms cubic-bezier(0,0,.2,1),visibility 0s}
-:root:not(.light) aside.drawer{box-shadow:-40px 40px 80px -8px rgb(0 0 0/.24)}
-/* The Herd Signals drawer keeps its own measured geometry (13/15 header with a hairline, 15px body gutter;
-   f81386c31 / f933f2cfe / 7a90c6b4f), so the generic sheet anatomy below skips it. */
-.drawer:not(.herd-signals-page .drawer) .dh{display:flex;align-items:center;gap:12px;min-height:68px;padding:16px 20px;border-bottom:0!important}
-.drawer .dh h2{font-size:18px;line-height:28px;font-weight:600;margin:0}
-.drawer .dh .mt{font-size:12px;color:var(--fg-muted);font-weight:600}
-.drawer .dh .fic{width:40px;height:40px;border-radius:10px}
-.drawer .dh-action{display:inline-flex;align-items:center;gap:6px}
-.drawer .dh-action svg{width:16px;height:16px}
-.drawer:not(.herd-signals-page .drawer) .dc{padding:4px 20px 24px!important;gap:20px!important;border-top:1px dashed var(--line)}
-.drawer .df{padding:16px 20px;border-top:1px dashed var(--line)}
-.drawer .metagrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 16px;background:transparent!important;border:0!important;border-radius:0;overflow:visible;padding:4px 0 20px;border-bottom:1px dashed var(--line)!important;margin:0}
-.drawer .metagrid div{background:transparent!important;padding:0!important;border:0!important}
-.drawer .metagrid .k{font-size:12px;line-height:18px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--fg-muted)}
-.drawer .metagrid .v{margin-top:4px;font-size:14px;line-height:22px;font-weight:500;color:var(--fg)}
-.drawer .dgrp{margin:4px 0 -4px;font-size:14px;line-height:22px;font-weight:600;color:var(--fg);text-transform:none;letter-spacing:0}
-.drawer .note{border:0;border-radius:8px;background:rgb(var(--g500-rgb)/.08);padding:10px 12px;font-size:13px;color:var(--fg-muted)}
-@media(max-width:640px){aside.drawer{width:100vw}.drawer .metagrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
-body:has(aside.drawer.on) [class*="fab"]{opacity:0;pointer-events:none}
 [class*="assistant-fab"]{bottom:24px;right:24px}
 
 /* ---------- Work board ---------- */
@@ -279,15 +255,9 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 .wf-bar + .main,.wf-bar + .card{border-top-left-radius:0!important;border-top-right-radius:0!important}
 .main td.kit-check,.main th.kit-check{width:52px;padding-right:0}
 /* drawer */
-.drawer .dh .iconbtn{width:36px;height:36px;display:inline-grid;place-items:center}
-.drawer .dh .iconbtn svg{width:20px;height:20px}
-.drawer .dh-action{min-height:30px;padding:4px 10px;font-size:13px;border:0;background:rgb(var(--g500-rgb)/.12);color:var(--fg)}
-.drawer .dh-action:hover{background:rgb(var(--g500-rgb)/.24)}
-.drawer .dc{padding:24px;gap:24px}
-:root:not(.light) aside.drawer{background-image:radial-gradient(circle at 100% 0%,color-mix(in srgb,var(--info) 8%,transparent),transparent 36%),radial-gradient(circle at 0% 100%,color-mix(in srgb,var(--error) 6%,transparent),transparent 36%)}
+
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;transition-duration:1ms!important}}
-.drawer .metagrid{background:rgb(var(--g500-rgb)/.08)!important;border-radius:12px!important;padding:16px!important;border-bottom:0!important}
-.drawer .dgrp{margin:8px 0 -4px}
+
 .kit-tablecard .main,.kit-tablecard .tablewrap,.kit-tablecard table{background:transparent!important}
 
 .people-filter-card{padding:14px;margin-bottom:14px}
@@ -316,12 +286,7 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 .tablewrap tbody tr:hover{background:rgb(var(--g500-rgb)/.08)}
 .tablewrap thead th{position:sticky;top:0;z-index:1}
 /* drawer: flat sections, no boxes */
-.drawer .metagrid{background:none!important;border:0!important;padding:0!important;gap:16px 24px;box-shadow:none!important}
-.drawer .metagrid>div{background:none!important;border:0!important;padding:0!important}
-.drawer .dh{border-bottom:1px dashed var(--line)}
-.drawer .dgrp{border-top:1px dashed var(--line);padding-top:20px;margin-top:20px;background:none!important}
-.drawer .dh-action{background:color-mix(in srgb,var(--fg) 12%,transparent)!important;color:var(--fg)}
-.drawer .dh-action:hover{background:color-mix(in srgb,var(--fg) 20%,transparent)!important}
+
 /* error page: single list with dividers */
 .kit-state-meta>div{background:none!important;border-radius:0!important;padding:12px 0!important;border-bottom:1px solid var(--line)}
 .kit-state-meta>div:last-child{border-bottom:0}
@@ -359,8 +324,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 :root,:root.light{--scrim:rgb(var(--g800-rgb)/.48)}
 
 /* -- Drawer: safe areas -- */
-aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
-.drawer .dh{padding-top:calc(16px + env(safe-area-inset-top))}
 
 /* -- Table: opaque sticky header, touch feedback, scrollable wrapper -- */
 .tablewrap thead th:not(.MuiTableCell-root){background:var(--paper-2);background-clip:padding-box}
@@ -385,7 +348,7 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
   /* iOS/WKWebView auto-zooms a focused control under 16px and never zooms back */
   input:not([type="checkbox"]):not([type="radio"]),select,textarea{font-size:16px}
   /* overlay controls are the densest targets on the smallest viewport */
-  .drawer input,.drawer select,.drawer .iconbtn,
+  
   [role="dialog"] input,[role="dialog"] select,[role="dialog"] .iconbtn{min-height:44px}
 }
 
@@ -402,10 +365,6 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
 /* -- safe areas: fixed surfaces must clear notch + home indicator ---- */
 @supports (padding:env(safe-area-inset-bottom)) {
   .top{padding-top:env(safe-area-inset-top)}
-  aside.drawer,.schedule-side-drawer{
-    padding-bottom:env(safe-area-inset-bottom);
-    padding-right:env(safe-area-inset-right)
-  }
   [class*="-fab"]{margin-bottom:env(safe-area-inset-bottom)}
 }
 
@@ -430,7 +389,7 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
     content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
     width:max(100%,44px);height:max(100%,44px)
   }
-  .drawer input,.drawer select,[role="dialog"] input,[role="dialog"] select{min-height:44px}
+  [role="dialog"] input,[role="dialog"] select{min-height:44px}
 }
 
 /* -- tables: sticky header needs an opaque band and a scroll box ----- */
@@ -488,8 +447,7 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
    home indicator unless it pays for that strip itself. `env()` is 0 on every device without one,
    so these are no-ops on a desktop browser and on an older WebView that does not know `env()`.
    --------------------------------------------------------------------- */
-aside.drawer,.drawer{padding-bottom:env(safe-area-inset-bottom)}
-aside.drawer{padding-right:env(safe-area-inset-right)}
+
 .top{padding-left:calc(20px + env(safe-area-inset-left));padding-right:calc(20px + env(safe-area-inset-right))}
 @media(max-width:640px){
   /* The footer is the last row on the page and the gesture bar lands exactly on it. */
@@ -621,7 +579,7 @@ input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
 /* MUI outlined states: disabled = muted text on a faint grey fill, no hover; read-only = neutral fill,
    normal text, no focus ring change. Both read as "not editable" at a glance. */
 :is(input,textarea,select):disabled{color:var(--fg-faint)!important;-webkit-text-fill-color:var(--fg-faint);background:rgb(var(--g500-rgb)/.08)!important;border-color:rgb(var(--g500-rgb)/.24)!important;cursor:not-allowed}
-:is(.fld,.drawer) :is(input,textarea)[readonly]:not(:disabled){background:var(--paper-2)!important;border-style:dashed!important}
+
 /* Phone: a native radio stays 18px (MUI size); its <label> row carries the 40px tap target. The
    40px min-size floor was drawing a giant radio circle next to 18px checkboxes. */
 .kit-daterange-control .move-date-button>span{flex:none}

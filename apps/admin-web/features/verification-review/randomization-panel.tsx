@@ -65,7 +65,6 @@ export function RandomizationPanel({
           subtitle={copy(pageContract, "randomization.hint")}
           ariaLabel={title}
           closeLabel={closeLabel}
-          size="xl"
         >
           {children}
         </DetailDrawer>

@@ -33,7 +33,7 @@ import Badge from "@mui/material/Badge";
 import IconButton from "@mui/material/IconButton";
 import { Iconify } from "@/layouts/template/iconify";
 import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
-import Drawer from "@mui/material/Drawer";
+import { MinimalDrawer } from "@/components/minimal/drawer";
 import { NotificationSkeleton } from "./notification-skeleton";
 import { markNotificationsReadAction, type NotificationFeedActionResult } from "./notification-actions";
 import { useBackCloses } from "@/components/use-back-closes";
@@ -55,9 +55,9 @@ import {
  * readers never open. The BELL and its unread BADGE stay eager on purpose: a person must see that
  * they have notifications without interacting with anything.
  *
- * WHAT THIS DOES NOT CHANGE: nothing is measured. The panel lives in the template notifications
- * drawer (MUI Drawer, right, 420px max), so the chunk lands inside an already width-fixed paper and
- * the first click still opens on the first try.
+ * WHAT THIS DOES NOT CHANGE: nothing is measured. The panel lives in the template temporary drawer
+ * (MinimalDrawer, right, the notifications-drawer 420 width), so the chunk lands inside an already
+ * width-fixed paper and the first click still opens on the first try.
  */
 
 /** Badge-only poll period while the tab is visible; see the refresh-strategy note above. */
@@ -297,18 +297,19 @@ export function NotificationBell({
           <Iconify width={24} icon="solar:bell-bing-bold-duotone" />
         </Badge>
       </IconButton>
-      {/* The template notifications drawer (layouts/components/notifications-drawer): a right MUI
-          Drawer at EVERY width, 420px max (the whole width on a phone). MUI portals it to <body>
-          (`.top`'s backdrop-filter would otherwise pin a fixed sheet inside the bar) and owns
-          Escape, focus trap and body scroll lock. */}
-      <Drawer
+      {/* The template temporary drawer (MinimalDrawer) at the template notifications-drawer width
+          (layouts/components/notifications-drawer: 420 max, the whole width on a phone): pinned
+          header with the title and close, visible backdrop (Ravi R2-4), Scrollbar body with the
+          panel's actions, tabs and list. MUI portals it to <body> (`.top`'s backdrop-filter would
+          otherwise pin a fixed sheet inside the bar) and owns Escape, focus trap and body scroll
+          lock. */}
+      <MinimalDrawer
         open={open}
         onClose={closePanel}
-        anchor="right"
-        slotProps={{
-          backdrop: { invisible: true },
-          paper: { className: "nc-sheet", "aria-label": centreCopy.title, sx: { width: 1, maxWidth: 420, overflow: "hidden" } },
-        }}
+        title={centreCopy.title}
+        closeLabel={centreCopy.close}
+        width={420}
+        slotProps={{ paper: { className: "nc-sheet", role: "dialog", "aria-label": centreCopy.title } as object }}
       >
               <Suspense fallback={<NotificationSkeleton />}>
           <NotificationPanel
@@ -327,7 +328,7 @@ export function NotificationBell({
             loadingMore={loadingMore}
           />
               </Suspense>
-      </Drawer>
+      </MinimalDrawer>
     </div>
   );
 }

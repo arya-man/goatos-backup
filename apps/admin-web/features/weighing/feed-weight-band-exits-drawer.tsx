@@ -6,7 +6,13 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
 import { useState } from "react";
-import { Search, X } from "lucide-react";
+import { Search } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import InputAdornment from "@mui/material/InputAdornment";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { DetailDrawer, DrawerBlock, DrawerTableScroll } from "@/components/app/detail-drawer";
 
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
@@ -80,7 +86,7 @@ function scopeId(scope: FeedWeightBandExitScope): string {
 /**
  * The exited panel: the app's local drawer (the Audit Log record drawer's shape and the same
  * `useLocalOverlaySelection` lifecycle), opened from a `#fb_exit=<scope>` hash so an ordinary
- * click never re-runs the route, Back/Escape/scrim/X close it, and the table's filters are exactly
+ * click never re-runs the route, Back/Escape/backdrop/X close it, and the table's filters are exactly
  * where the reader left them. The list is grouped by pen and searchable inside the panel.
  */
 export function FeedWeightBandExitsDrawer({
@@ -98,7 +104,7 @@ export function FeedWeightBandExitsDrawer({
   periodLabel: string;
   labels: FeedWeightBandExitsDrawerLabels;
 }) {
-  const { displayedItem, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem, drawerOpen, closeDrawer } = useLocalOverlaySelection({
     items: scopes,
     itemId: scopeId,
     selectionKey: "fb_exit",
@@ -126,116 +132,129 @@ export function FeedWeightBandExitsDrawer({
   if (notWeighed.length > 0) groups.push({ pen: "", park: "", weighed: false, items: notWeighed });
   const columns = contract.columns.filter((column) => column.visible && column.key !== "park" && column.key !== "pen");
   const columnsWithPen = contract.columns.filter((column) => column.visible && column.key !== "park");
-  const blank = <span className="muted">—</span>;
+  const blank = <Box component="span" sx={{ color: "text.disabled" }}>—</Box>;
 
+  // Template temporary drawer (DetailDrawer: portal, backdrop, focus trap + return, 480). The
+  // exit tables are wider than the paper, so each scrolls sideways in its own Scrollbar.
   return (
-    <>
-      <button
-        type="button"
-        className={`scrim${drawerOpen ? " on" : ""}`}
-        aria-label={labels.close}
-        aria-hidden={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
+    <DetailDrawer
+      open={drawerOpen}
+      onClose={closeDrawer}
+      title={
+        <>
+          {displayedItem.title} · {displayedItem.items.length.toLocaleString("en-IN")}{" "}
+          {displayedItem.items.length === 1 ? labels.animal : labels.animals}
+        </>
+      }
+      eyebrow={labels.eyebrow}
+      subtitle={
+        <>
+          {labels.period} {periodLabel}
+          {labels.detail ? <> · {labels.detail}</> : null}
+        </>
+      }
+      ariaLabel={labels.aria}
+      closeLabel={labels.close}
+      footer={
+        <Button variant="outlined" color="inherit" onClick={closeDrawer}>
+          {labels.close}
+        </Button>
+      }
+    >
+      <TextField
+        type="search"
+        size="small"
+        value={query}
+        placeholder={labels.search}
+        onChange={(event) => setQuery(event.target.value)}
+        fullWidth
+        slotProps={{
+          htmlInput: { "aria-label": labels.searchAria },
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search size={18} aria-hidden="true" />
+              </InputAdornment>
+            ),
+          },
+        }}
       />
-      <aside className={`drawer wt-feedband-drawer${drawerOpen ? " on" : ""}`} aria-label={labels.aria} aria-hidden={!drawerOpen} inert={!drawerOpen}>
-        <div className="dh">
-          <div>
-            <div className="mt">{labels.eyebrow}</div>
-            <h2>
-              {displayedItem.title} · {displayedItem.items.length.toLocaleString("en-IN")}{" "}
-              {displayedItem.items.length === 1 ? labels.animal : labels.animals}
-            </h2>
-            <div className="sb">
-              {labels.period} {periodLabel}
-              {labels.detail ? <span className="muted"> · {labels.detail}</span> : null}
-            </div>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={labels.close} onClick={closeDrawer}>
-            <X className="ic" />
-          </button>
-        </div>
-        <div className="dc">
-          <label className="wt-feedband-search" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Search className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
-            <input
-              type="search"
-              className="tsize"
-              value={query}
-              placeholder={labels.search}
-              aria-label={labels.searchAria}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-          {groups.length === 0 ? (
-            <EmptyState title={labels.empty} />
-          ) : (
-            groups.map((group) => (
-              <div key={group.weighed ? `${group.park}|${group.pen}` : "not-weighed"} className="wt-feedband-exitgroup">
-                <h3 className="h">
-                  {group.weighed ? group.pen : <span className="muted">{labels.notWeighed}</span>}
-                  <span className="muted small"> · {group.weighed ? `${group.park} · ` : ""}{group.items.length.toLocaleString("en-IN")}</span>
-                </h3>
-                <div className="tablewrap" tabIndex={0} role="group" aria-label={group.weighed ? group.pen : labels.notWeighed}>
-                  <Table className="tbl wt-feedband">
-                    <TableHead>
-                      <TableRow>
-                        {(group.weighed ? columns : columnsWithPen).map((column) => (
-                          <TableCell component="th" key={column.key} scope="col" className={column.key === "last_kg" ? "num" : undefined}>
-                            {column.label}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {group.items.map((item) => (
-                        <TableRow key={item.key}>
-                          {(group.weighed ? columns : columnsWithPen).map((column) => (
-                            <TableCell key={column.key} className={column.key === "last_kg" ? "num" : undefined}>
-                              {column.key === "tag" ? (
-                                <b>{item.tag}</b>
-                              ) : column.key === "pen" ? (
-                                item.pen ? <span title={item.pen}>{item.pen}</span> : blank
-                              ) : column.key === "gender" ? (
-                                item.gender || <span className="muted">{labels.noGender}</span>
-                              ) : column.key === "reason" ? (
-                                <span className="wt-feedband-reason">
-                                  <Tag tone={item.bucket === "sold" ? "info" : item.bucket === "died" ? "dng" : "warn"}>{item.bucketLabel}</Tag>
-                                  {item.reason && item.reason !== item.bucket ? <span className="muted small"> {item.reason}</span> : null}
-                                </span>
-                              ) : column.key === "exited_at" ? (
-                                fmtDate(item.exitedAt)
-                              ) : column.key === "last_weighed" ? (
-                                item.lastWeighedAt ? fmtDate(item.lastWeighedAt) : blank
-                              ) : column.key === "last_band" ? (
-                                item.lastBand ? <BandCell band={item.lastBand} label={item.lastBandLabel} /> : blank
-                              ) : column.key === "last_kg" ? (
-                                item.lastWeightKg != null ? kg(item.lastWeightKg) : blank
-                              ) : column.key === "feed_type" ? (
-                                item.feedType ? <Tag tone={item.feedType === "experiment" ? "pur" : "mut"}>{item.feedTypeLabel}</Tag> : blank
-                              ) : item.feedGiven ? (
-                                <span className="wt-feedband-feed">{item.feedGiven}</span>
-                              ) : (
-                                <span className="muted">{labels.noFeed}</span>
-                              )}
-                            </TableCell>
-                          ))}
-                        </TableRow>
+      {groups.length === 0 ? (
+        <EmptyState title={labels.empty} />
+      ) : (
+        groups.map((group) => (
+          <DrawerBlock
+            key={group.weighed ? `${group.park}|${group.pen}` : "not-weighed"}
+            title={
+              <>
+                {group.weighed ? group.pen : <Box component="span" sx={{ color: "text.secondary" }}>{labels.notWeighed}</Box>}
+                <Box component="span" sx={{ color: "text.secondary", typography: "caption" }}>
+                  {" "}· {group.weighed ? `${group.park} · ` : ""}{group.items.length.toLocaleString("en-IN")}
+                </Box>
+              </>
+            }
+          >
+            <DrawerTableScroll>
+              <Table
+                size="small"
+                role="group"
+                aria-label={group.weighed ? group.pen : labels.notWeighed}
+                sx={{ minWidth: 720, "& td": { whiteSpace: "nowrap" } }}
+              >
+                <TableHead>
+                  <TableRow>
+                    {(group.weighed ? columns : columnsWithPen).map((column) => (
+                      <TableCell component="th" key={column.key} scope="col" align={column.key === "last_kg" ? "right" : undefined}>
+                        {column.label}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {group.items.map((item) => (
+                    <TableRow key={item.key}>
+                      {(group.weighed ? columns : columnsWithPen).map((column) => (
+                        <TableCell key={column.key} align={column.key === "last_kg" ? "right" : undefined}>
+                          {column.key === "tag" ? (
+                            <b>{item.tag}</b>
+                          ) : column.key === "pen" ? (
+                            item.pen ? <span title={item.pen}>{item.pen}</span> : blank
+                          ) : column.key === "gender" ? (
+                            item.gender || <Box component="span" sx={{ color: "text.secondary" }}>{labels.noGender}</Box>
+                          ) : column.key === "reason" ? (
+                            <span>
+                              <Tag tone={item.bucket === "sold" ? "info" : item.bucket === "died" ? "dng" : "warn"}>{item.bucketLabel}</Tag>
+                              {item.reason && item.reason !== item.bucket ? (
+                                <Box component="span" sx={{ color: "text.secondary", typography: "caption" }}> {item.reason}</Box>
+                              ) : null}
+                            </span>
+                          ) : column.key === "exited_at" ? (
+                            fmtDate(item.exitedAt)
+                          ) : column.key === "last_weighed" ? (
+                            item.lastWeighedAt ? fmtDate(item.lastWeighedAt) : blank
+                          ) : column.key === "last_band" ? (
+                            item.lastBand ? <BandCell band={item.lastBand} label={item.lastBandLabel} /> : blank
+                          ) : column.key === "last_kg" ? (
+                            item.lastWeightKg != null ? kg(item.lastWeightKg) : blank
+                          ) : column.key === "feed_type" ? (
+                            item.feedType ? <Tag tone={item.feedType === "experiment" ? "pur" : "mut"}>{item.feedTypeLabel}</Tag> : blank
+                          ) : item.feedGiven ? (
+                            <Typography variant="caption" component="span" sx={{ display: "block", whiteSpace: "normal", minWidth: 200, color: "text.secondary" }}>
+                              {item.feedGiven}
+                            </Typography>
+                          ) : (
+                            <Box component="span" sx={{ color: "text.secondary" }}>{labels.noFeed}</Box>
+                          )}
+                        </TableCell>
                       ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-        <div className="df">
-          <button type="button" className="btn" onClick={closeDrawer}>
-            {labels.close}
-          </button>
-        </div>
-      </aside>
-    </>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </DrawerTableScroll>
+          </DrawerBlock>
+        ))
+      )}
+    </DetailDrawer>
   );
 }

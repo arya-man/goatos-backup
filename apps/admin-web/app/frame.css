@@ -119,10 +119,6 @@
 }
 
 /* ---- Drawer / Sheet ---- */
-.drawer{padding:0}
-.drawer .dh{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 24px;border-bottom:1px solid var(--line)}
-.drawer .dh h2,.drawer .dh h3{margin:0;font-size:18px;line-height:28px;font-weight:700;font-family:var(--font-display)}
-.drawer .db{padding:24px;display:grid;gap:24px}
 
 /* ---- Skeleton frame ---- */
 
@@ -260,7 +256,7 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .herd-signals-page .rangepick button{min-height:28px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:var(--fg-muted);font:inherit;font-size:12px;font-weight:600;transition:background-color var(--dur-fast) var(--ease),color var(--dur-fast) var(--ease)}
 .herd-signals-page .rangepick button:hover{color:var(--fg);background:var(--hover)}
 .herd-signals-page .rangepick button.on{background:var(--brand);color:var(--on-brand);box-shadow:none}
-.herd-signals-page aside.drawer .readout:empty{display:none}
+
 .herd-signals-page .card .hd{padding:20px 24px 16px;border-bottom:1px solid var(--line)}
 .herd-signals-page .card .hd h3{font-size:18px;font-weight:600;font-family:var(--font-display)}
 .herd-signals-page .card .bd.flush{padding:0}
@@ -304,15 +300,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 @media(prefers-reduced-motion:reduce){.metricseg-pending::after{animation:none;background:var(--primary);background-size:100% 100%}}
 
 /* ---- Drawers (legacy aside.drawer) take the kit Sheet anatomy ---- */
-aside.drawer{border-radius:16px 0 0 16px;box-shadow:var(--shadow-dialog);border:0}
-.drawer .dh{padding:20px 24px;border-bottom:1px solid var(--line);gap:12px}
-.drawer .dh h2,.drawer .dh h3{font-family:var(--font-display);font-size:18px;line-height:28px;font-weight:700}
-.drawer .dc{padding:24px;gap:24px}
-.drawer .dc .k,.drawer .dc .lbl,.drawer .dc label>span:first-child:not(.MuiButtonBase-root),.drawer .dc .fld>label{font-size:12px;line-height:16px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--fg-muted)}
-.drawer .dc .metagrid,.drawer .dc .kv{gap:12px 16px}
-.drawer .dc .btn.p~.btn.p,.drawer .dc .btn.primary~.btn.primary{background:transparent;border-color:var(--line-strong);color:var(--fg)}
-.drawer input[type="checkbox"]:not(.PrivateSwitchBase-input){accent-color:var(--primary);width:18px;height:18px;vertical-align:middle}
-@media(max-width:640px){aside.drawer{border-radius:16px 16px 0 0}.drawer .dc{padding:20px;gap:20px}}
 
 /* ---- Full-screen legacy modals become kit dialogs ---- */
 .vp-sheet{width:min(640px,100%);max-height:calc(100dvh - 48px);border-radius:16px;border:0;box-shadow:var(--shadow-dialog);overflow:auto;padding:24px}
@@ -349,11 +336,8 @@ aside.drawer{border-radius:16px 0 0 16px;box-shadow:var(--shadow-dialog);border:
 
 /* ---- Page enter: none. Minimal dashboard pages render in place (no fade-up stagger). ---- */
 /* routine drawer: kit checkbox list rows */
-.drawer .pen-routine-check.kit-check{display:flex;align-items:center;gap:10px;min-height:36px;padding:4px 8px;border-radius:8px;cursor:pointer}
-.drawer .pen-routine-check.kit-check:hover{background:var(--hover)}
+
 /* Native time input on the kit field anatomy. */
-.drawer input[type="time"]{appearance:none;-webkit-appearance:none;height:40px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:transparent;color:var(--fg);font:inherit;color-scheme:dark}
-:root.light .drawer input[type="time"]{color-scheme:light}
 .wb-dialog .sec{margin-top:24px;padding-top:24px;border-top:1px solid var(--line)}
 .wb-dialog .sec h4{font-family:var(--font-display);font-size:16px;line-height:24px;font-weight:700;margin:0 0 12px}
 .wb-dialog .l{font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--fg-muted)}
@@ -372,14 +356,6 @@ aside.drawer{border-radius:16px 0 0 16px;box-shadow:var(--shadow-dialog);border:
 
 /* ---- Filters fold into a sheet on phones ---- */
 
-/* Drawer overrides that must beat the older scoped rules (`.herd-signals-page aside.drawer{border-radius:0}`,
-   minimal-theme's `aside.drawer{border-radius:0!important}`, `.drawer .dc{padding:20px 22px}`). */
-body aside.drawer,body .herd-signals-page aside.drawer{border-radius:16px 0 0 16px!important}
-body aside.drawer:not(.herd-signals-page .drawer) .dc{padding:24px;gap:24px}
-body aside.drawer:not(.herd-signals-page .drawer) .dh{padding:20px 24px;border-bottom:1px solid var(--line)}
-body aside.drawer .dh h2,body aside.drawer .dh h3{font-family:var(--font-display);font-size:18px;line-height:28px;font-weight:700;margin:0}
-body aside.drawer .dc .k,body aside.drawer .dc .lbl,body aside.drawer .dc .fld>label,body aside.drawer .dc label>span:first-child:not(.MuiButtonBase-root){font-size:12px;line-height:16px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--fg-muted)}
-@media(max-width:640px){body aside.drawer,body .herd-signals-page aside.drawer{border-radius:16px 16px 0 0!important}body aside.drawer:not(.herd-signals-page .drawer) .dc{padding:20px;gap:20px}}
 .vp-sheet label b{text-transform:none;letter-spacing:0;font-size:11px;font-weight:600;color:var(--warning-ink,var(--fg-muted))}
 /* kit tab strips scroll on their own (no page overflow), with a scrollbar-less snap */
 /* The overflow fade stops 2px short of the bottom: it sits right after the last tab even when nothing
@@ -492,16 +468,6 @@ body aside.drawer .dc .k,body aside.drawer .dc .lbl,body aside.drawer .dc .fld>l
   .wb .parkpick{height:auto!important;min-height:44px}
 }
 
-/* Weighing SOP assumptions drawer, phone: the "prices by stage" disclosure summary sits outside
-   `.main`, so the generic touch floor never reached it (27px). */
-@media(max-width:767px){
-  aside.drawer .wt-assume-stages>summary{min-height:44px;padding-block:12px;box-sizing:border-box}
-}
-/* At <=640px the drawer is full width, so the SOP cards behind it are covered anyway; hide them
-   so they cannot sit under the drawer's own controls (the Video Log drawer does the same). */
-@media(max-width:640px){
-  body:has(aside.drawer.wt-assumptions-drawer.on) #sopCards{visibility:hidden}
-}
 
 /* Sales KPI widgets (MUI widget ~186px). The sparkline gets its own fixed 40px slot under the figure
    so every card in the row is the same height whether its series has drawn yet or not, and the hint

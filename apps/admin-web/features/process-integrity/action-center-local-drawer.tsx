@@ -12,7 +12,7 @@ import { VACCINATION_DRIVE_SOP_STEPS } from "@/lib/vaccination-sop-steps";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ActionCenterObligation, ProcessIntegritySeverity } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
-import { GitBranch, ShieldCheck, Syringe, X } from "lucide-react";
+import { GitBranch, ShieldCheck, Syringe } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { type Tone } from "./process-integrity";
@@ -22,6 +22,13 @@ import { EvidenceMedia } from "./evidence-media";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import { stageLabel } from "@/lib/stage-labels";
 import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
+import Stack from "@mui/material/Stack";
+import { LinkButton } from "@/components/minimal/link-button";
+import { phoneTapSx } from "@/components/minimal/_shared/tap";
+import { DetailDrawer, DrawerBlock, DrawerMetaGrid, DrawerMetaItem } from "@/components/app/detail-drawer";
 
 const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "low"> = {
   broken: "high",
@@ -81,7 +88,7 @@ export function ActionCenterLocalDrawer({
   const initialRow = rows.find((row) => row.row_id === initialSelectedRowId);
   const [displayedRow, setDisplayedRow] = useState<ActionCenterObligation | undefined>(initialRow);
   const [drawerOpen, setDrawerOpen] = useState(Boolean(initialRow));
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const openRef = useRef(Boolean(initialRow));
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const openFrameRef = useRef<number | null>(null);
   const closeTimerRef = useRef<number | null>(null);
@@ -90,6 +97,7 @@ export function ActionCenterLocalDrawer({
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
     if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    openRef.current = true;
     setDisplayedRow(row);
     openFrameRef.current = window.requestAnimationFrame(() => {
       setDrawerOpen(true);
@@ -100,6 +108,7 @@ export function ActionCenterLocalDrawer({
   const hideDrawer = useCallback((): void => {
     if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    openRef.current = false;
     setDrawerOpen(false);
     closeTimerRef.current = window.setTimeout(() => {
       setDisplayedRow(undefined);
@@ -134,14 +143,12 @@ export function ActionCenterLocalDrawer({
   }, [hideDrawer, rows, showDrawer]);
 
   useEffect(() => {
-    if (drawerOpen) {
-      const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-      return () => window.cancelAnimationFrame(frame);
-    }
-    previousFocusRef.current?.focus();
+    if (!drawerOpen) previousFocusRef.current?.focus();
   }, [drawerOpen]);
 
   const closeDrawer = useCallback((): void => {
+    // Idempotent: MUI reports Escape and the backdrop through onClose; history steps back once.
+    if (!openRef.current) return;
     hideDrawer();
     if (currentHistoryEntryIsLocalOverlay()) {
       window.history.back();
@@ -150,44 +157,18 @@ export function ActionCenterLocalDrawer({
     replaceLocalOverlayUrl(closeHref);
   }, [closeHref, hideDrawer]);
 
-  useEffect(() => {
-    if (!drawerOpen) return undefined;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeDrawer();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closeDrawer, drawerOpen]);
-
-  return (
-    <>
-      {displayedRow ? (
-        <button
-          type="button"
-          className={`scrim${drawerOpen ? " on" : ""}`}
-          data-testid="action-center-drawer-scrim"
-          aria-label={copy(pageContract, "drawer.work_item.close_label")}
-          aria-hidden={!drawerOpen}
-          tabIndex={drawerOpen ? 0 : -1}
-          onClick={closeDrawer}
-        />
-      ) : null}
-      {displayedRow ? (
-        <ActionCenterRowDrawer
-          row={displayedRow}
-          open={drawerOpen}
-          closeDrawer={closeDrawer}
-          closeButtonRef={closeButtonRef}
-          returnTo={drawerHrefs[displayedRow.row_id]}
-          workflowHref={workflowHrefs[displayedRow.row_id]}
-          passportHref={passportHrefs[displayedRow.row_id]}
-          pageContract={pageContract}
-        />
-      ) : null}
-    </>
-  );
+  // Template temporary drawer (DetailDrawer: portal, backdrop, focus trap + return, 480 paper).
+  return displayedRow ? (
+    <ActionCenterRowDrawer
+      row={displayedRow}
+      open={drawerOpen}
+      closeDrawer={closeDrawer}
+      returnTo={drawerHrefs[displayedRow.row_id]}
+      workflowHref={workflowHrefs[displayedRow.row_id]}
+      passportHref={passportHrefs[displayedRow.row_id]}
+      pageContract={pageContract}
+    />
+  ) : null;
 }
 
 function ActionForm({
@@ -209,15 +190,15 @@ function ActionForm({
 }) {
   const canReview = hasReviewHandle(taskId, rowVersion);
   return (
-    <form action={action} style={{ display: "inline" }}>
+    <form action={action}>
       <input type="hidden" name="completion_id" value={completionId} />
       {taskId ? <input type="hidden" name="task_id" value={taskId} /> : null}
       {rowVersion ? <input type="hidden" name="row_version" value={rowVersion} /> : null}
       <input type="hidden" name="return_to" value={returnTo} />
       {reason ? <input type="hidden" name="reason" value={reason} /> : null}
-      <button type="submit" className="btn sm" disabled={!canReview} aria-disabled={!canReview || undefined}>
+      <Button type="submit" variant="outlined" color="inherit" disabled={!canReview} aria-disabled={!canReview || undefined}>
         {children}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -226,7 +207,6 @@ function ActionCenterRowDrawer({
   row,
   open,
   closeDrawer,
-  closeButtonRef,
   returnTo,
   workflowHref,
   passportHref,
@@ -235,7 +215,6 @@ function ActionCenterRowDrawer({
   row: ActionCenterObligation;
   open: boolean;
   closeDrawer: () => void;
-  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
   returnTo: string;
   workflowHref: string;
   passportHref?: string;
@@ -258,76 +237,74 @@ function ActionCenterRowDrawer({
   const taskId = row.sop_task_id;
   const taskRowVersion = row.sop_task_row_version;
 
+  const linkChip = (href: string, icon: React.ReactNode, label: string, color: "info" | "warning" | "secondary") => (
+    <Chip component={Link} href={href} clickable variant="soft" color={color} icon={<>{icon}</>} label={label} sx={phoneTapSx} />
+  );
+
   return (
-    <aside className={`drawer${open ? " on" : ""}`} aria-label={copy(pageContract, "drawer.work_item.aria")} aria-hidden={!open} inert={!open}>
-      <div className="dh">
-        <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-          <Syringe className="ic" aria-hidden="true" />
-        </span>
-        <div>
-          <div className="mt">{copy(pageContract, "drawer.work_item.eyebrow")}</div>
-          <h2>{title}</h2>
-        </div>
-        <span className="sp" style={{ flex: 1 }} />
-        <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.work_item.close_label")} onClick={closeDrawer}>
-          <X className="ic" />
-        </button>
-      </div>
-      <div className="dc">
-        <div className="fld">
-          <label>{copy(pageContract, "drawer.adherence_status_label")}</label>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <Tag tone={optionTone(workStateOptions, row.work_state)}>{optionLabel(workStateOptions, row.work_state)}</Tag>
-            <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
-            <InfoHint text={copy(pageContract, "drawer.adherence_status_help")} />
-          </div>
-        </div>
+    <DetailDrawer
+      open={open}
+      onClose={closeDrawer}
+      title={title}
+      eyebrow={copy(pageContract, "drawer.work_item.eyebrow")}
+      icon={<Syringe aria-hidden="true" />}
+      ariaLabel={copy(pageContract, "drawer.work_item.aria")}
+      closeLabel={copy(pageContract, "drawer.work_item.close_label")}
+      paperTestId="action-center-drawer"
+      footer={
+        <>
+          {hasCompletion && hasReviewHandle(taskId, taskRowVersion) ? <ActionForm action={verifyCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo}>{copy(pageContract, "action.verify")}</ActionForm> : null}
+          {hasCompletion && hasReviewHandle(taskId, taskRowVersion) ? <ActionForm action={rejectCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo} reason="rework_requested">{copy(pageContract, "action.request_rework")}</ActionForm> : null}
+          <LinkButton href={workflowHref} variant="outlined" color="inherit">{copy(pageContract, "action.workflow_record")}</LinkButton>
+          {passportHref ? <LinkButton href={passportHref} variant="outlined" color="inherit">{copy(pageContract, "action.goat_passport")}</LinkButton> : null}
+          <Button variant="outlined" color="inherit" onClick={closeDrawer}>{copy(pageContract, "action.close")}</Button>
+        </>
+      }
+    >
+      <DrawerBlock title={copy(pageContract, "drawer.adherence_status_label")}>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
+          <Tag tone={optionTone(workStateOptions, row.work_state)}>{optionLabel(workStateOptions, row.work_state)}</Tag>
+          <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
+          <InfoHint text={copy(pageContract, "drawer.adherence_status_help")} />
+        </Stack>
+      </DrawerBlock>
 
-        <div className="metagrid" style={{ marginBottom: 14 }}>
-          <div><div className="k">{copy(pageContract, "drawer.owner_chain_label")}</div><div className="v">{operatorMissing ? <Tag tone="dng">{copy(pageContract, "label.owner_chain_assign")}</Tag> : ownerName}</div></div>
-          <div><div className="k">{copy(pageContract, "drawer.due_label")}</div><div className="v">{fmtDate(row.due_at)}</div></div>
-          <div><div className="k">{copy(pageContract, "drawer.priority_label")}</div><div className="v"><Tag tone={optionTone(priorityOptions, priority)}>{optionLabel(priorityOptions, priority)}</Tag></div></div>
-          <div><div className="k">{copy(pageContract, "label.next_action")}</div><div className="v">{row.next_action}</div></div>
-        </div>
+      <DrawerMetaGrid>
+        <DrawerMetaItem label={copy(pageContract, "drawer.owner_chain_label")}>{operatorMissing ? <Tag tone="dng">{copy(pageContract, "label.owner_chain_assign")}</Tag> : ownerName}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "drawer.due_label")}>{fmtDate(row.due_at)}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "drawer.priority_label")}><Tag tone={optionTone(priorityOptions, priority)}>{optionLabel(priorityOptions, priority)}</Tag></DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.next_action")}>{row.next_action}</DrawerMetaItem>
+      </DrawerMetaGrid>
 
-        <div className="metagrid">
-          <div><div className="k">{copy(pageContract, "drawer.protocol_label")}</div><div className="v">{row.protocol_name}</div></div>
-          <div><div className="k">{copy(pageContract, "drawer.dose_label")}</div><div className="v">{row.dose_code}</div></div>
-          <div><div className="k">{copy(pageContract, "drawer.park_shed_label")}</div><div className="v">{row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })}</div></div>
-          <div><div className="k">{copy(pageContract, "drawer.cohort_progress_label")}</div><div className="v">{stageLabel(row.animal_stage)} · {row.completed_count}/{row.expected_count} {copy(pageContract, "label.done_suffix")}</div></div>
-          <div><div className="k">{copy(pageContract, "label.evidence")}</div><div className="v"><EvidenceMedia evidence={row.evidence} pageContract={pageContract} /></div></div>
-        </div>
+      <Divider sx={{ borderStyle: "dashed" }} />
 
-        {blocker ? <Alert severity="error" style={{ marginTop: 14, marginBottom: 0 }}><span>{blocker}</span></Alert> : null}
+      <DrawerMetaGrid>
+        <DrawerMetaItem label={copy(pageContract, "drawer.protocol_label")}>{row.protocol_name}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "drawer.dose_label")}>{row.dose_code}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "drawer.park_shed_label")}>{row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "drawer.cohort_progress_label")}>{stageLabel(row.animal_stage)} · {row.completed_count}/{row.expected_count} {copy(pageContract, "label.done_suffix")}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.evidence")} span><EvidenceMedia evidence={row.evidence} pageContract={pageContract} /></DrawerMetaItem>
+      </DrawerMetaGrid>
 
-        <div style={{ marginTop: 16 }}>
-          <div className="b700" style={{ margin: "4px 0 10px" }}>{copy(pageContract, "drawer.sop_checklist.title")}</div>
-          <SopChecklist steps={VACCINATION_DRIVE_SOP_STEPS} doneThrough={sopProgress} />
-        </div>
+      {blocker ? <Alert severity="error"><span>{blocker}</span></Alert> : null}
 
-        <div className="chipset" style={{ marginTop: 14 }}>
-          <Tag tone={optionTone(sopStateOptions, row.sop_task_state)}>{optionLabel(sopStateOptions, row.sop_task_state)}</Tag>
-          <Tag tone={optionTone(proofStateOptions, row.proof_state)}>{optionLabel(proofStateOptions, row.proof_state)}</Tag>
-          <Tag tone={optionTone(verificationStateOptions, row.verification_state)}>{optionLabel(verificationStateOptions, row.verification_state)}</Tag>
-        </div>
+      <DrawerBlock title={copy(pageContract, "drawer.sop_checklist.title")}>
+        <SopChecklist steps={VACCINATION_DRIVE_SOP_STEPS} doneThrough={sopProgress} />
+      </DrawerBlock>
 
-        <div style={{ marginTop: 16 }}>
-          <div className="b700" style={{ margin: "2px 0 8px" }}>{copy(pageContract, "drawer.linked_title")}</div>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-            <Link href={workflowHref} className="tag t-info" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><GitBranch className="ic" style={{ width: 12 }} aria-hidden="true" />{copy(pageContract, "drawer.link.workflow_record")}</Link>
-            <Link href="/protocol-adherence" className="tag t-warn" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ShieldCheck className="ic" style={{ width: 12 }} aria-hidden="true" />{copy(pageContract, "drawer.link.adherence")}</Link>
-            <Link href="/vaccination" className="tag t-teal" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Syringe className="ic" style={{ width: 12 }} aria-hidden="true" />{copy(pageContract, "drawer.link.vaccination")}</Link>
-          </div>
-        </div>
-      </div>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+        <Tag tone={optionTone(sopStateOptions, row.sop_task_state)}>{optionLabel(sopStateOptions, row.sop_task_state)}</Tag>
+        <Tag tone={optionTone(proofStateOptions, row.proof_state)}>{optionLabel(proofStateOptions, row.proof_state)}</Tag>
+        <Tag tone={optionTone(verificationStateOptions, row.verification_state)}>{optionLabel(verificationStateOptions, row.verification_state)}</Tag>
+      </Stack>
 
-      <div className="df">
-        {hasCompletion && hasReviewHandle(taskId, taskRowVersion) ? <ActionForm action={verifyCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo}>{copy(pageContract, "action.verify")}</ActionForm> : null}
-        {hasCompletion && hasReviewHandle(taskId, taskRowVersion) ? <ActionForm action={rejectCompletionAction} completionId={completionId} taskId={taskId} rowVersion={taskRowVersion} returnTo={returnTo} reason="rework_requested">{copy(pageContract, "action.request_rework")}</ActionForm> : null}
-        <Link href={workflowHref} className="btn">{copy(pageContract, "action.workflow_record")}</Link>
-        {passportHref ? <Link href={passportHref} className="btn">{copy(pageContract, "action.goat_passport")}</Link> : null}
-        <button type="button" className="btn" onClick={closeDrawer}>{copy(pageContract, "action.close")}</button>
-      </div>
-    </aside>
+      <DrawerBlock title={copy(pageContract, "drawer.linked_title")}>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+          {linkChip(workflowHref, <GitBranch size={16} aria-hidden="true" />, copy(pageContract, "drawer.link.workflow_record"), "info")}
+          {linkChip("/protocol-adherence", <ShieldCheck size={16} aria-hidden="true" />, copy(pageContract, "drawer.link.adherence"), "warning")}
+          {linkChip("/vaccination", <Syringe size={16} aria-hidden="true" />, copy(pageContract, "drawer.link.vaccination"), "secondary")}
+        </Stack>
+      </DrawerBlock>
+    </DetailDrawer>
   );
 }

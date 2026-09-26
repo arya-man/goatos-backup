@@ -210,7 +210,7 @@ export function TaskDrawerHost({
   const failed = readFailed === openID;
 
   return (
-    <TaskDetailDrawer taskId={openID} onClose={close} ariaLabel={ariaLabel} closeLabel={closeLabel}>
+    <TaskDetailDrawer taskId={openID} title={detail.number} onClose={close} ariaLabel={ariaLabel} closeLabel={closeLabel}>
       <TaskDetailPanel
         detail={detail}
         pageContract={pageContract}

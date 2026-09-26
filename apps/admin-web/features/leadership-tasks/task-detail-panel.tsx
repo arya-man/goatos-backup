@@ -152,11 +152,8 @@ export function TaskDetailPanel({
               />
             </span>
           ) : null}
-          {onClose ? (
-            <button type="button" className="btn sm ltd-close" onClick={onClose}>
-              {copy(pageContract, "action.close")}
-            </button>
-          ) : (
+          {/* In the drawer (onClose given) the template drawer header owns the one close button. */}
+          {onClose ? null : (
             <Link href={closeHref} scroll={false} className="btn sm ltd-close">
               {copy(pageContract, "action.close")}
             </Link>

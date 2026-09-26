@@ -68,7 +68,6 @@ export function AnalyticsPanel({
           subtitle={copy(pageContract, "oversight_analytics.hint")}
           ariaLabel={title}
           closeLabel={closeLabel}
-          size="xl"
         >
           {children}
         </DetailDrawer>

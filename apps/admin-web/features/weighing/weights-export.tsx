@@ -1,7 +1,7 @@
 "use client";
 
-import { Download, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { Download } from "lucide-react";
+import { useCallback, useState, useSyncExternalStore, useTransition } from "react";
 
 import { DateRangePicker, type DateRangePickerLabels } from "@/components/date-range-picker";
 import {
@@ -19,6 +19,13 @@ import { exportWeightsCsvAction } from "./weights-export-action";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import FormControl from "@mui/material/FormControl";
+import FormGroup from "@mui/material/FormGroup";
+import FormLabel from "@mui/material/FormLabel";
+import Alert from "@mui/material/Alert";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { MinimalDrawer } from "@/components/minimal/drawer";
 
 export type WeightsExportPark = { park_id: string; name: string };
 
@@ -55,9 +62,8 @@ function subscribeToOverlayUrl(onChange: () => void): () => void {
  * select and a shed list — and hands the finished CSV to the browser.
  *
  * Same overlay mechanics as the sales record drawer: CLIENT state driven by the URL
- * (LocalOverlayLink changes history WITHOUT an RSC request), the mock's drawer
- * anatomy — `.scrim`/`.drawer.on`, `.dh`/`.dc`/`.df` — and SSR always renders it
- * closed. The FILE itself is fetched on click through a server action, because a
+ * (LocalOverlayLink changes history WITHOUT an RSC request), the template temporary
+ * drawer (MinimalDrawer), and SSR always renders it closed. The FILE itself is fetched on click through a server action, because a
  * year of weighings is not something the page should carry on every load.
  */
 export function WeightsExportControl({
@@ -89,7 +95,6 @@ export function WeightsExportControl({
   openHref: string;
   closeHref: string;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
   // The URL is an EXTERNAL store — LocalOverlayLink mutates history outside React — so it is
   // read via useSyncExternalStore rather than mirrored into state. SSR renders the drawer closed.
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readExportParam, () => "");
@@ -130,19 +135,6 @@ export function WeightsExportControl({
     }
     replaceLocalOverlayUrl(closeHref);
   }, [closeHref]);
-
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
 
   const title = copy(pageContract, "export.title");
   const parkNameById = new Map(parks.map((park) => [park.park_id, park.name]));
@@ -197,51 +189,62 @@ export function WeightsExportControl({
 
   return (
     <div className="wt-export-control">
-      <Button component={LocalOverlayLink} href={openHref} variant="contained" color="primary" scroll={false} aria-haspopup="dialog" startIcon={<Download className="ic" aria-hidden="true" />}>
+      <Button component={LocalOverlayLink} href={openHref} variant="contained" color="primary" scroll={false} aria-haspopup="dialog" startIcon={<Download size={18} aria-hidden="true" />}>
         {copy(pageContract, "export.button")}
       </Button>
 
-      <div
-        className={`scrim${open ? " on" : ""}`}
-        aria-label={copy(pageContract, "filter.clear_all")}
-        aria-hidden={!open}
-        tabIndex={open ? 0 : -1}
-        onClick={close}
-      />
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <Download className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "export.eyebrow")}</div>
-            <h2>{title}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={title} onClick={close}>
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="dc">
-          <p className="muted small" style={{ marginTop: 0 }}>
+      {/* Template temporary drawer (MinimalDrawer: portal, backdrop, focus trap + return). A short
+          options form, so the template settings-drawer width (360). */}
+      <MinimalDrawer
+        open={open}
+        onClose={close}
+        title={title}
+        closeLabel={title}
+        width={360}
+        aria-label={title}
+        footer={
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={download}
+            disabled={pending}
+            aria-busy={pending}
+            loading={pending}
+            loadingPosition="start"
+            startIcon={<Download size={18} aria-hidden="true" />}
+          >
+            {pending ? copy(pageContract, "export.preparing") : copy(pageContract, "export.download")}
+          </Button>
+        }
+      >
+        <Stack spacing={2.5} sx={{ p: 2.5 }}>
+          <Typography variant="overline" sx={{ color: "text.secondary" }}>
+            {copy(pageContract, "export.eyebrow")}
+          </Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {copy(pageContract, "export.hint")}
-          </p>
+          </Typography>
 
-          <div className="fld">
-            <label htmlFor="wt-export-sex">{copy(pageContract, "export.sex.label")}</label>
-            <select id="wt-export-sex" value={sex} onChange={(event) => setSex(event.target.value)} disabled={pending}>
-              <option value="">{copy(pageContract, "export.sex.all")}</option>
-              {weightsSexChoices(pageContract).map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <TextField
+            select
+            id="wt-export-sex"
+            value={sex}
+            label={copy(pageContract, "export.sex.label")}
+            onChange={(event) => setSex(event.target.value)}
+            disabled={pending}
+            fullWidth
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
+          >
+            <MenuItem value="">{copy(pageContract, "export.sex.all")}</MenuItem>
+            {weightsSexChoices(pageContract).map((choice) => (
+              <MenuItem key={choice.value} value={choice.value}>
+                {choice.label}
+              </MenuItem>
+            ))}
+          </TextField>
 
-          <div className="fld">
-            <label>{copy(pageContract, "export.period.label")}</label>
+          <Stack spacing={1}>
+            <Typography variant="subtitle2">{copy(pageContract, "export.period.label")}</Typography>
             <DateRangePicker
               labels={rangeLabels}
               from={from}
@@ -254,61 +257,51 @@ export function WeightsExportControl({
                 setTo(nextTo);
               }}
             />
-          </div>
+          </Stack>
 
-          <div className="fld">
-            <TextField
-              select
-              label={copy(pageContract, "export.park.label")}
-              value={parkId}
-              disabled={pending}
-              onChange={(event) => setParkId(event.target.value)}
-              sx={{ minWidth: { xs: 0, sm: 240 }, flexShrink: 0, maxWidth: 1 }}
-              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-            >
-              <MenuItem value="">{copy(pageContract, "export.park.all")}</MenuItem>
-              {parks.map((park) => (
-                <MenuItem key={park.park_id} value={park.park_id}>
-                  {park.name}
-                </MenuItem>
-              ))}
-            </TextField>
-          </div>
+          <TextField
+            select
+            label={copy(pageContract, "export.park.label")}
+            value={parkId}
+            disabled={pending}
+            onChange={(event) => setParkId(event.target.value)}
+            fullWidth
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+          >
+            <MenuItem value="">{copy(pageContract, "export.park.all")}</MenuItem>
+            {parks.map((park) => (
+              <MenuItem key={park.park_id} value={park.park_id}>
+                {park.name}
+              </MenuItem>
+            ))}
+          </TextField>
 
-          <fieldset className="fld" style={{ border: 0, padding: 0, margin: 0 }}>
-            <legend>
-              <label>{copy(pageContract, "export.sheds.label")}</label>
-            </legend>
-            <FormControlLabel
-              className="wt-export-shed-row"
-              disabled={pending}
-              control={<Checkbox checked={allSheds} disabled={pending} onChange={() => setSelectedSheds(new Set())} sx={{ p: { xs: 1.5, sm: 1 } }} />}
-              label={<>{copy(pageContract, "export.sheds.all")}</>}
-            />
-            <div className="wt-export-shed-list">
+          <FormControl component="fieldset" disabled={pending}>
+            <FormLabel component="legend" sx={{ typography: "subtitle2", color: "text.primary", mb: 0.5 }}>
+              {copy(pageContract, "export.sheds.label")}
+            </FormLabel>
+            <FormGroup>
+              <FormControlLabel
+                control={<Checkbox checked={allSheds} onChange={() => setSelectedSheds(new Set())} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                label={copy(pageContract, "export.sheds.all")}
+              />
               {visibleSheds.map((shed) => (
                 <FormControlLabel
                   key={shed.location_id}
-                  className="wt-export-shed-row"
-                  disabled={pending}
-                  control={<Checkbox checked={selectedSheds.has(shed.location_id)} disabled={pending} onChange={() => toggleShed(shed.location_id)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
-                  label={<>{/* With no park selected the park travels on the row: 39 shed names exist in
-                      BOTH parks, so a bare shed name would appear twice, indistinguishably. */}
-                  {parkId === "" ? `${parkNameById.get(shed.park_id) ?? ""} · ${shed.label}` : shed.label}</>} />
+                  control={<Checkbox checked={selectedSheds.has(shed.location_id)} onChange={() => toggleShed(shed.location_id)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                  label={
+                    // With no park selected the park travels on the row: 39 shed names exist in
+                    // BOTH parks, so a bare shed name would appear twice, indistinguishably.
+                    parkId === "" ? `${parkNameById.get(shed.park_id) ?? ""} · ${shed.label}` : shed.label
+                  }
+                />
               ))}
-            </div>
-          </fieldset>
+            </FormGroup>
+          </FormControl>
 
-          {failed ? <p className="small warn">{copy(pageContract, "export.error")}</p> : null}
-        </div>
-
-        <div className="df">
-          <button type="button" className="btn primary" onClick={download} disabled={pending} aria-busy={pending}>
-            {pending ? <Loader2 className="ic wt-export-spin" aria-hidden="true" /> : <Download className="ic" aria-hidden="true" />}
-            {pending ? copy(pageContract, "export.preparing") : copy(pageContract, "export.download")}
-          </button>
-        </div>
-      </aside>
+          {failed ? <Alert severity="warning">{copy(pageContract, "export.error")}</Alert> : null}
+        </Stack>
+      </MinimalDrawer>
     </div>
   );
 }

@@ -5,11 +5,21 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
-import { BodyPortal } from "@/components/app/body-portal";
 import { Caption } from "@/components/app/caption";
 
-import { Loader2, SlidersHorizontal, X } from "lucide-react";
+import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import Accordion from "@mui/material/Accordion";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import AccordionSummary from "@mui/material/AccordionSummary";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { MinimalDrawer } from "@/components/minimal/drawer";
+import { DrawerTableScroll } from "@/components/app/detail-drawer";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -105,8 +115,7 @@ export function WeightsAssumptionsControl({
   openHref: string;
   closeHref: string;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const noticeRef = useRef<HTMLParagraphElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readParam, () => "");
   const open = selection !== "";
 
@@ -122,19 +131,6 @@ export function WeightsAssumptionsControl({
     }
     replaceLocalOverlayUrl(closeHref);
   }, [closeHref]);
-
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
 
   // A refusal lands at the foot of a long drawer (the stage x sex grids push it far down), so it is
   // brought into view -- otherwise Save looks like it did nothing.
@@ -219,160 +215,167 @@ export function WeightsAssumptionsControl({
 
   return (
     <div className="wt-assumptions-control">
-      <LocalOverlayLink href={openHref} className="btn sm" scroll={false} aria-haspopup="dialog">
-        <SlidersHorizontal className="ic" aria-hidden="true" /> {copy(pageContract, "action.assumptions")}
-      </LocalOverlayLink>
+      <Button component={LocalOverlayLink} href={openHref} scroll={false} aria-haspopup="dialog" variant="outlined" color="inherit" size="small" startIcon={<SlidersHorizontal size={18} aria-hidden="true" />}>
+        {copy(pageContract, "action.assumptions")}
+      </Button>
 
-      <BodyPortal>
-      <div className={`scrim${open ? " on" : ""}`} aria-hidden={!open} tabIndex={open ? 0 : -1} onClick={close} style={{ paddingBottom: "env(safe-area-inset-bottom)" }} />
-      <aside className={`drawer wt-assumptions-drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open} style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <SlidersHorizontal className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <h2>{title}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={title} onClick={close}>
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="dc">
+      {/* Template temporary drawer (MinimalDrawer: portal, backdrop, focus trap + return, 480). */}
+      <MinimalDrawer
+        open={open}
+        onClose={close}
+        title={title}
+        closeLabel={title}
+        width={480}
+        aria-label={title}
+        footer={
+          <>
+            <Button variant="outlined" color="inherit" onClick={close} disabled={pending}>
+              {copy(pageContract, "drawer.assumptions.cancel")}
+            </Button>
+            <Button variant="contained" color="primary" onClick={save} disabled={pending} aria-busy={pending} loading={pending} loadingPosition="start">
+              {copy(pageContract, "drawer.assumptions.save")}
+            </Button>
+          </>
+        }
+      >
+        <Stack spacing={2.5} sx={{ p: 2.5, pb: "calc(20px + env(safe-area-inset-bottom))" }}>
           <Caption>{copy(pageContract, "drawer.assumptions.caption")}</Caption>
 
-          <h3 className="h" style={{ marginTop: 12 }}>{copy(pageContract, "drawer.assumptions.prices.title")}</h3>
-          <Caption>{copy(pageContract, "drawer.assumptions.prices.hint")}</Caption>
+          <Stack spacing={1}>
+            <Typography variant="subtitle1">{copy(pageContract, "drawer.assumptions.prices.title")}</Typography>
+            <Caption>{copy(pageContract, "drawer.assumptions.prices.hint")}</Caption>
+          </Stack>
           {speciesKeys.map((species) => {
             const price = current.sale_prices.find((row) => priceRowKey(row) === species);
             const defaultText = draft.prices[species] ?? "";
             const overrideCount = current.sale_prices.filter((row) => row.species === species && row.management_stage !== "").length;
             return (
-              <div key={species} style={{ marginBottom: 16 }}>
-                <div className="fld">
-                  <label htmlFor={`wt-assume-${species}`}>
-                    {speciesLabel(species)} · {copy(pageContract, "drawer.assumptions.prices.default")} ·{" "}
-                    {copy(pageContract, "drawer.assumptions.rupees")}/kg
-                  </label>
-                  <input
-                    id={`wt-assume-${species}`}
-                    type="number"
-                    inputMode="decimal"
-                    step="1"
-                    value={defaultText}
-                    disabled={pending}
-                    onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [species]: event.target.value } }))}
-                  />
-                  {price ? (
-                    <span className="muted small">
-                      {copy(pageContract, "drawer.assumptions.set_by")} {price.set_by} · {fmtDate(price.effective_from)}
-                    </span>
-                  ) : null}
-                </div>
+              <Stack key={species} spacing={1.5}>
+                <TextField
+                  id={`wt-assume-${species}`}
+                  label={`${speciesLabel(species)} · ${copy(pageContract, "drawer.assumptions.prices.default")} · ${copy(pageContract, "drawer.assumptions.rupees")}/kg`}
+                  type="number"
+                  value={defaultText}
+                  disabled={pending}
+                  fullWidth
+                  onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [species]: event.target.value } }))}
+                  helperText={
+                    price ? `${copy(pageContract, "drawer.assumptions.set_by")} ${price.set_by} · ${fmtDate(price.effective_from)}` : undefined
+                  }
+                  slotProps={{ htmlInput: { inputMode: "decimal", step: "1" } }}
+                />
                 {current.stages.length > 0 ? (
-                  <details className="wt-assume-stages">
-                    <summary className="small">
-                      {copy(pageContract, "drawer.assumptions.prices.by_stage")}
-                      {overrideCount > 0 ? (
-                        <span className="muted"> · {overrideCount} {copy(pageContract, "drawer.assumptions.prices.overrides")}</span>
-                      ) : null}
-                    </summary>
-                    <p className="muted small" style={{ margin: "6px 0" }}>
-                      {copy(pageContract, "drawer.assumptions.prices.by_stage.hint")}
-                    </p>
-                    <Table className="wt-assume-grid">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell component="th" scope="col">{copy(pageContract, "drawer.assumptions.prices.stage")}</TableCell>
-                          {sexKeys.map((sex) => (
-                            <TableCell component="th" scope="col" key={sex}>
-                              {sexLabel(sex)}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {current.stages.map((stage) => (
-                          <TableRow key={stage.code}>
-                            <TableCell component="th" scope="row">{stage.name || stage.code}</TableCell>
-                            {sexKeys.map((sex) => {
-                              const key = priceKey(species, stage.code, sex);
-                              return (
-                                <TableCell key={sex}>
-                                  <input
-                                    type="number"
-                                    inputMode="decimal"
-                                    step="1"
-                                    aria-label={`${speciesLabel(species)} · ${stage.name || stage.code} · ${sexLabel(sex)}`}
-                                    placeholder={defaultText}
-                                    value={draft.prices[key] ?? ""}
-                                    disabled={pending}
-                                    onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [key]: event.target.value } }))}
-                                  />
-                                </TableCell>
-                              );
-                            })}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </details>
+                  <Accordion variant="outlined" disableGutters>
+                    <AccordionSummary expandIcon={<ChevronDown size={18} aria-hidden="true" />}>
+                      <Typography variant="body2" sx={{ color: "primary.main", fontWeight: "fontWeightSemiBold" }}>
+                        {copy(pageContract, "drawer.assumptions.prices.by_stage")}
+                        {overrideCount > 0 ? (
+                          <Box component="span" sx={{ color: "text.secondary", fontWeight: "fontWeightRegular" }}>
+                            {" "}· {overrideCount} {copy(pageContract, "drawer.assumptions.prices.overrides")}
+                          </Box>
+                        ) : null}
+                      </Typography>
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      <Stack spacing={1.5}>
+                        <Caption>{copy(pageContract, "drawer.assumptions.prices.by_stage.hint")}</Caption>
+                        <DrawerTableScroll>
+                          <Table size="small" sx={{ minWidth: 360 }}>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell component="th" scope="col">{copy(pageContract, "drawer.assumptions.prices.stage")}</TableCell>
+                                {sexKeys.map((sex) => (
+                                  <TableCell component="th" scope="col" key={sex}>
+                                    {sexLabel(sex)}
+                                  </TableCell>
+                                ))}
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {current.stages.map((stage) => (
+                                <TableRow key={stage.code}>
+                                  <TableCell component="th" scope="row">{stage.name || stage.code}</TableCell>
+                                  {sexKeys.map((sex) => {
+                                    const key = priceKey(species, stage.code, sex);
+                                    return (
+                                      <TableCell key={sex}>
+                                        <TextField
+                                          type="number"
+                                          size="small"
+                                          fullWidth
+                                          placeholder={defaultText}
+                                          value={draft.prices[key] ?? ""}
+                                          disabled={pending}
+                                          onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [key]: event.target.value } }))}
+                                          slotProps={{
+                                            htmlInput: {
+                                              inputMode: "decimal",
+                                              step: "1",
+                                              "aria-label": `${speciesLabel(species)} · ${stage.name || stage.code} · ${sexLabel(sex)}`,
+                                            },
+                                          }}
+                                        />
+                                      </TableCell>
+                                    );
+                                  })}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </DrawerTableScroll>
+                      </Stack>
+                    </AccordionDetails>
+                  </Accordion>
                 ) : null}
-              </div>
+              </Stack>
             );
           })}
 
           {SECTIONS.map((section) => (
-            <div key={section.title}>
-              <h3 className="h" style={{ marginTop: 16 }}>{copy(pageContract, section.title)}</h3>
+            <Stack key={section.title} spacing={2}>
+              <Typography variant="subtitle1">{copy(pageContract, section.title)}</Typography>
               {section.keys.map((key) => {
                 const value = setByFor(key);
                 if (!value) return null;
                 const inputType = value.kind === "date" ? "date" : value.kind === "number_list" ? "text" : "number";
                 return (
-                  <div className="fld" key={key}>
-                    <label htmlFor={`wt-assume-${key}`}>
-                      {copy(pageContract, `assumption.${key}.label`)}
-                      {value.unit ? ` · ${value.unit}` : ""}
-                    </label>
-                    <input
-                      id={`wt-assume-${key}`}
-                      type={inputType}
-                      inputMode={inputType === "number" ? "decimal" : undefined}
-                      step={inputType === "number" ? (value.unit === "kg" ? "0.5" : "1") : undefined}
-                      value={draft.values[key] ?? ""}
-                      disabled={pending}
-                      onChange={(event) => setDraft((d) => ({ ...d, values: { ...d.values, [key]: event.target.value } }))}
-                    />
-                    <span className="muted small">{copy(pageContract, `assumption.${key}.hint`)}</span>
-                    <span className="muted small" style={{ display: "block" }}>
-                      {copy(pageContract, "drawer.assumptions.set_by")} {value.set_by}
-                    </span>
-                  </div>
+                  <TextField
+                    key={key}
+                    id={`wt-assume-${key}`}
+                    label={`${copy(pageContract, `assumption.${key}.label`)}${value.unit ? ` · ${value.unit}` : ""}`}
+                    type={inputType}
+                    value={draft.values[key] ?? ""}
+                    disabled={pending}
+                    fullWidth
+                    onChange={(event) => setDraft((d) => ({ ...d, values: { ...d.values, [key]: event.target.value } }))}
+                    helperText={
+                      <>
+                        {copy(pageContract, `assumption.${key}.hint`)}
+                        <Box component="span" sx={{ display: "block" }}>
+                          {copy(pageContract, "drawer.assumptions.set_by")} {value.set_by}
+                        </Box>
+                      </>
+                    }
+                    slotProps={{
+                      inputLabel: { shrink: true },
+                      htmlInput: {
+                        inputMode: inputType === "number" ? "decimal" : undefined,
+                        step: inputType === "number" ? (value.unit === "kg" ? "0.5" : "1") : undefined,
+                      },
+                    }}
+                  />
                 );
               })}
-            </div>
+            </Stack>
           ))}
 
           {notice ? (
-            <p ref={noticeRef} className={`small ${notice.tone === "warn" ? "warn" : "muted"}`} role="status">
+            <Alert ref={noticeRef} severity={notice.tone === "warn" ? "warning" : "success"} role="status">
               {notice.text}
-            </p>
+            </Alert>
           ) : null}
-        </div>
-
-        <div className="df">
-          <button type="button" className="btn" onClick={close} disabled={pending}>
-            {copy(pageContract, "drawer.assumptions.cancel")}
-          </button>
-          <button type="button" className="btn primary" onClick={save} disabled={pending} aria-busy={pending}>
-            {pending ? <Loader2 className="ic wt-export-spin" aria-hidden="true" /> : null}
-            {copy(pageContract, "drawer.assumptions.save")}
-          </button>
-        </div>
-      </aside>
-      </BodyPortal>
+        </Stack>
+      </MinimalDrawer>
     </div>
   );
 }

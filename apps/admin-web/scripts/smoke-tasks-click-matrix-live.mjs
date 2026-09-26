@@ -985,7 +985,8 @@ async function scriptedChecks(page, viewport, task) {
     await page.keyboard.press("Escape");
     await waitForUi(page, 200);
 
-    const close = panel.locator(".ltd-close").first();
+    // The template drawer header owns the close button (the icon button beside the task key).
+    const close = page.locator("[data-task-drawer] .MuiIconButton-root").first();
     if ((await close.count()) === 0) throw new Error("the detail panel cannot be closed");
     await close.click();
     if ((await waitForParam(page, "task", null)).searchParams.get("task")) throw new Error("Close left the task selected in the URL");

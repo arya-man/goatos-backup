@@ -28,7 +28,7 @@ try {
 
   const startedAt = performance.now();
   await firstCard.click();
-  await page.locator(".drawer.on").waitFor({ state: "visible", timeout: 5_000 });
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "visible", timeout: 5_000 });
   await waitForDrawerSettled(page);
   const openMs = Math.round(performance.now() - startedAt);
   assertNoSamePageRequests(samePageRequests, "opening the drawer");
@@ -38,37 +38,37 @@ try {
   }
 
   await page.goBack().catch(() => undefined);
-  await page.locator(".drawer.on").waitFor({ state: "hidden", timeout: 2_000 });
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "hidden", timeout: 2_000 });
   assertNoSamePageRequests(samePageRequests, "closing the drawer with Back");
 
   await firstCard.click();
-  await page.locator(".drawer.on").waitFor({ state: "visible", timeout: 2_000 });
-  await page.locator('[data-testid="action-center-drawer-scrim"]').click({ position: { x: 8, y: 8 } });
-  await page.locator(".drawer.on").waitFor({ state: "hidden", timeout: 2_000 });
-  assertNoSamePageRequests(samePageRequests, "closing the drawer from the scrim");
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "visible", timeout: 2_000 });
+  await page.locator(".MuiDrawer-root .MuiBackdrop-root").click({ position: { x: 8, y: 8 } });
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "hidden", timeout: 2_000 });
+  assertNoSamePageRequests(samePageRequests, "closing the drawer from the backdrop");
 
   await firstCard.click();
-  await page.locator(".drawer.on").waitFor({ state: "visible", timeout: 2_000 });
-  await page.locator(".drawer.on button.iconbtn").click();
-  await page.locator(".drawer.on").waitFor({ state: "hidden", timeout: 2_000 });
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "visible", timeout: 2_000 });
+  await page.locator('[data-testid="action-center-drawer"] .MuiIconButton-root').first().click();
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "hidden", timeout: 2_000 });
   assertNoSamePageRequests(samePageRequests, "closing the drawer from the close button");
 
   await firstCard.dblclick();
-  await page.locator(".drawer.on").waitFor({ state: "visible", timeout: 2_000 });
-  await page.locator(".drawer.on button.iconbtn").click();
-  await page.locator(".drawer.on").waitFor({ state: "hidden", timeout: 2_000 });
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "visible", timeout: 2_000 });
+  await page.locator('[data-testid="action-center-drawer"] .MuiIconButton-root').first().click();
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "hidden", timeout: 2_000 });
   if (new URL(page.url()).hash) throw new Error("double-click created duplicate drawer history entries");
   assertNoSamePageRequests(samePageRequests, "double-clicking and closing the drawer");
 
   await firstCard.click();
-  await page.locator(".drawer.on").waitFor({ state: "visible", timeout: 2_000 });
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "visible", timeout: 2_000 });
   await page.keyboard.press("Escape");
-  await page.locator(".drawer.on").waitFor({ state: "hidden", timeout: 2_000 });
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "hidden", timeout: 2_000 });
   assertNoSamePageRequests(samePageRequests, "closing the drawer with Escape");
 
   await page.setViewportSize({ width: 390, height: 900 });
   await firstCard.click();
-  const narrowDrawer = page.locator(".drawer.on");
+  const narrowDrawer = page.locator('[data-testid="action-center-drawer"]');
   await narrowDrawer.waitFor({ state: "visible", timeout: 2_000 });
   await waitForDrawerSettled(page);
   const narrowLayout = await narrowDrawer.evaluate((element) => {
@@ -81,7 +81,7 @@ try {
   }
   await page.screenshot({ path: `${screenshotDir}/narrow-open.png`, fullPage: false });
   await page.keyboard.press("Escape");
-  await page.locator(".drawer.on").waitFor({ state: "hidden", timeout: 2_000 });
+  await page.locator('[data-testid="action-center-drawer"]').waitFor({ state: "hidden", timeout: 2_000 });
   assertNoSamePageRequests(samePageRequests, "narrow drawer interaction");
 
   const deepLinkHref = await firstCard.getAttribute("href");

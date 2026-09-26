@@ -167,9 +167,9 @@ export const overlayJourneys = {
   "weighing-weights": [
     {
       id: "download-drawer",
-      // features/weighing/weights-export.tsx: <LocalOverlayLink className="btn sm" aria-haspopup="dialog">Download ; aside.drawer.on. Open/close only.
-      trigger: 'a.btn.sm[aria-haspopup="dialog"][href*="wt_export=1"]',
-      ...DRAWER,
+      // features/weighing/weights-export.tsx: <Button component={LocalOverlayLink} aria-haspopup="dialog">Download ; template MinimalDrawer. Open/close only.
+      trigger: 'a[aria-haspopup="dialog"][href*="wt_export=1"]',
+      overlay: ".MuiDrawer-root .MuiDrawer-paper",
       kind: "drawer",
       allowDialogTrigger: true,
       source: "features/weighing/weights-export.tsx, weights.tsx",
@@ -180,9 +180,9 @@ export const overlayJourneys = {
   "weighing-sops": [
     {
       id: "assumptions-drawer",
-      // features/weighing/weights-assumptions.tsx: <LocalOverlayLink className="btn sm" aria-haspopup="dialog">Assumptions
-      trigger: 'a.btn.sm[aria-haspopup="dialog"][href*="wt_assumptions=1"]',
-      ...DRAWER,
+      // features/weighing/weights-assumptions.tsx: <Button component={LocalOverlayLink} aria-haspopup="dialog">Assumptions ; template MinimalDrawer
+      trigger: 'a[aria-haspopup="dialog"][href*="wt_assumptions=1"]',
+      overlay: ".MuiDrawer-root .MuiDrawer-paper",
       kind: "drawer",
       source: "features/weighing/weights-assumptions.tsx, app/(admin)/weighing/sops/page.tsx",
     },
@@ -192,9 +192,7 @@ export const overlayJourneys = {
       id: "weight-band-exits-drawer",
       // features/weighing/feed-weight-band-card.tsx: a.wt-feedband-tile-link href="#fb_exit=all"; feed-weight-band-table.tsx a.wt-feedband-gone
       trigger: 'a.wt-feedband-tile-link[href*="fb_exit="], a.wt-feedband-gone[href*="fb_exit="]',
-      overlay: "aside.drawer.wt-feedband-drawer.on",
-      header: ".dh",
-      body: ".dc",
+      ...DETAIL_DRAWER,
       kind: "drawer",
       source: "features/weighing/feed-weight-band-card.tsx, feed-weight-band-table.tsx, feed-weight-band-exits-drawer.tsx",
     },

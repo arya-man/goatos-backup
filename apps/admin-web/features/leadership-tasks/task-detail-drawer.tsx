@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, type ReactNode } from "react";
-import Drawer from "@mui/material/Drawer";
+import { MinimalDrawer } from "@/components/minimal/drawer";
 
 /**
  * The drawer the task detail slides in from the right edge, OVER the board or the table.
@@ -10,8 +10,9 @@ import Drawer from "@mui/material/Drawer";
  * (`.lt-grid:has(.ltd-panel)` gave it 54% of the row). Four fixed-width board columns then had
  * 537px to live in at 1700 wide, so Done and Cancelled were sliced off the moment a card was
  * clicked -- the page looked broken on the reader's first interaction. A drawer leaves the board
- * at full width underneath and borrows nothing from it. It is the template MUI Drawer (portalled
- * above the page and the Ask Mesha button).
+ * at full width underneath and borrows nothing from it. It is the template temporary drawer
+ * (MinimalDrawer: portalled above the page and the Ask Mesha button, backdrop, 480 paper, pinned
+ * header with the task key and the close button, Scrollbar body).
  *
  * WHAT THIS SHELL OWNS, AND WHAT IT DOES NOT. The URL contract is untouched: `task=<id>` opens the
  * detail and the Close link removes it, both as ordinary Next navigations rendered by the SERVER.
@@ -27,22 +28,28 @@ function anotherOverlayIsOpen(): boolean {
 
 export function TaskDetailDrawer({
   taskId,
+  title,
   onClose,
   ariaLabel,
   closeLabel,
   children,
 }: {
   taskId: string;
+  /** The drawer header: the task key (the panel carries the full title under it). */
+  title: ReactNode;
   /** Pops the local overlay (history entry or URL replace); never a route navigation. */
   onClose: () => void;
   ariaLabel: string;
   closeLabel: string;
   children: ReactNode;
 }) {
+  // MinimalDrawer hands MUI's (event, reason) straight through to this callback; the header close
+  // button calls it with no arguments.
   const close = useCallback(
-    (event: object, reason: "backdropClick" | "escapeKeyDown") => {
+    (...args: unknown[]) => {
+      const [event, reason] = args as [KeyboardEvent | undefined, string | undefined];
       // Each Escape unwinds ONE layer: the @-mention popup (not an MUI modal) gets it first.
-      if (reason === "escapeKeyDown" && ((event as KeyboardEvent).defaultPrevented || anotherOverlayIsOpen())) return;
+      if (reason === "escapeKeyDown" && (event?.defaultPrevented || anotherOverlayIsOpen())) return;
       onClose();
     },
     [onClose],
@@ -63,16 +70,18 @@ export function TaskDetailDrawer({
   }, [taskId]);
 
   return (
-    <Drawer
-      anchor="right"
+    <MinimalDrawer
       open
       onClose={close}
+      title={title}
+      closeLabel={closeLabel}
+      width={480}
       slotProps={{
         backdrop: { "aria-label": closeLabel } as object,
         paper: { className: "ltd-drawer", tabIndex: -1, "data-task-drawer": taskId, role: "dialog", "aria-modal": true, "aria-label": ariaLabel } as object,
       }}
     >
       {children}
-    </Drawer>
+    </MinimalDrawer>
   );
 }

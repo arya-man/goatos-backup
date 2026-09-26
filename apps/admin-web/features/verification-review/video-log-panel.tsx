@@ -73,7 +73,6 @@ export function VideoLogPanel({
           subtitle={copy(pageContract, "video_log.hint")}
           ariaLabel={title}
           closeLabel={closeLabel}
-          size="lg"
         >
           {children}
         </DetailDrawer>

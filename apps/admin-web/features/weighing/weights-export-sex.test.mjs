@@ -18,7 +18,7 @@ const contract = readFileSync(
 // filtered to Male on screen still expects the download to follow what they pick in the drawer.
 test("the export drawer owns a Sex select that starts on every kid", () => {
   assert.match(drawer, /const \[sex, setSex\] = useState\(""\)/);
-  assert.match(drawer, /<select id="wt-export-sex" value=\{sex\}/);
+  assert.match(drawer, /<TextField\s+select\s+id="wt-export-sex"\s+value=\{sex\}/);
   for (const key of ["export.sex.label", "export.sex.all"]) {
     assert.match(drawer, new RegExp(`copy\\(pageContract, "${key}"\\)`), key);
   }
