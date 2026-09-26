@@ -8,6 +8,7 @@ const TYPED_QUESTION_FIELDS: Array<[question: string, field: string]> = [
   ["feed_item_label", "feed_item"],
   ["quantity_kg", "quantity_kg"],
   ["vendor", "vendor"],
+  ["batch_no", "batch_no"],
   ["feed_cost", "feed_cost"],
   ["transport_cost", "transport_cost"],
   ["loading_cost", "loading_cost"],
@@ -45,4 +46,3 @@ export function readFormAnswers(formData: FormData): { answers: Record<string, s
   }
   return { answers, questionnaire_version: version };
 }
-
