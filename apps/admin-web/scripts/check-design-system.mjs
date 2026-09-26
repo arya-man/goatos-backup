@@ -685,8 +685,9 @@ function pageTemplatePastelFindings(root) {
     const sources = row.files.map((rel) => ({ rel, text: existsSync(join(root, rel)) ? readFileSync(join(root, rel), "utf8") : null }));
     for (const source of sources) {
       if (source.text === null) continue; // a missing file is `page-template-map`'s finding
-      source.text.split("\n").forEach((line, index) => {
-        if (/^\s*(\/\/|\*)/.test(line)) return;
+      // Comments (block, JSX {/* */} and line) never count; newlines are kept so line numbers hold.
+      const code = source.text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/(^|[^:])\/\/.*$/gm, "$1");
+      code.split("\n").forEach((line, index) => {
         // KpiCard's default is the template Ecommerce/Course anatomy; only its tint/gradient
         // variants (AnalyticsWidgetSummary, pastel in dark) are refused here.
         if (/\bAnalyticsWidgetSummary\b/.test(line) || (/variant=["'](?:tint|gradient)["']/.test(line) && /KpiCard/.test(source.text))) {

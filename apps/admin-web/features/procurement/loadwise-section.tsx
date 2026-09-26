@@ -214,7 +214,6 @@ export function LoadwiseSection({
               <Box sx={{ mt: 1.5 }}>
               <KpiGrid>
                 <KpiCard
-                  variant="gradient"
                   tone="primary"
                   label={copy(pageContract, "loadwise.kpi.purchased")}
                   value={summary.purchased}
@@ -222,7 +221,6 @@ export function LoadwiseSection({
                   hint={`${num(summary.sold)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()} · ${num(summary.mortality)} ${copy(pageContract, "loadwise.kpi.mortality").toLowerCase()} · ${num(summary.remaining)} ${copy(pageContract, "loadwise.kpi.remaining").toLowerCase()}${summary.tagged_not_closed > 0 ? ` · ${num(summary.tagged_not_closed)} ${copy(pageContract, "loadwise.kpi.tagged_not_closed")}` : ""}`}
                 />
                 <KpiCard
-                  variant="tint"
                   tone="info"
                   label={copy(pageContract, "loadwise.kpi.purchase_value")}
                   value={summary.costed_loads > 0 ? inrCompact(summary.purchase_value) : none}
@@ -230,14 +228,12 @@ export function LoadwiseSection({
                   hint={`${num(summary.costed_loads)} / ${num(loads.length)} ${copy(pageContract, "loadwise.kpi.purchase_value.hint")}`}
                 />
                 <KpiCard
-                  variant="tint"
                   tone="success"
                   label={copy(pageContract, "loadwise.kpi.sold_value")}
                   value={summary.sold_value > 0 ? inrCompact(summary.sold_value) : none}
                   icon={<IndianRupee aria-hidden="true" />}
                 />
                 <KpiCard
-                  variant="tint"
                   tone={summary.profit_loss < 0 ? "error" : "success"}
                   label={copy(pageContract, "loadwise.kpi.profit")}
                   // Signed and toned: a loss must not read like a profit at a glance.

@@ -110,7 +110,7 @@ export async function MarketAnalyticsPage({
       <SalesPageHeader pageContract={pageContract} />
 
       {!analyticsResult.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           {salesErrorText(analyticsResult.error, copy(pageContract, "error.load"))}
         </Alert>
       ) : null}
@@ -118,32 +118,28 @@ export async function MarketAnalyticsPage({
       <Box sx={{ mt: 1.5 }}>
       <KpiGrid>
         <KpiCard
-          variant="gradient"
           tone="primary"
           label={copy(pageContract, "kpi.cities.label")}
           value={cities.length}
-          watermark={<Building2 aria-hidden="true" />}
+          icon={<Building2 aria-hidden="true" />}
         />
         <KpiCard
-          variant="tint"
           tone="info"
           label={copy(pageContract, "kpi.days.label")}
           value={analytics.days}
-          watermark={<CalendarRange aria-hidden="true" />}
+          icon={<CalendarRange aria-hidden="true" />}
         />
         <KpiCard
-          variant="tint"
           tone="violet"
           label={copy(pageContract, "kpi.latest.label")}
           value={latestDate ? <Box component="span" sx={{ whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal", fontSize: { xs: "clamp(1.0625rem, 5.2vw, 1.375rem)", sm: "inherit" } }}>{humanDate(latestDate)}</Box> : none}
-          watermark={<Clock aria-hidden="true" />}
+          icon={<Clock aria-hidden="true" />}
         />
         <KpiCard
-          variant="tint"
           tone="success"
           label={copy(pageContract, "kpi.coverage.label")}
           value={day ? `${num(day.done)} / ${num(day.done + day.pending)}` : none}
-          watermark={<CircleCheck aria-hidden="true" />}
+          icon={<CircleCheck aria-hidden="true" />}
         />
       </KpiGrid>
       </Box>
