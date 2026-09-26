@@ -3420,7 +3420,6 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;max-width:210px}
 .lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
 .lt-page .lt-chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
-.lt-page .cc-pensel{position:relative;align-self:stretch;min-width:150px;padding:0}
 .lt-page .lt-chips .achip.clr{font:inherit;font-size:11.5px}
 /* Wraps when it has to: a long note (the live tracker's "Park, vaccine, operator ... both") ran past
    the card's right edge at 1440 as one unbroken line. */

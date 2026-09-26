@@ -29,12 +29,13 @@ function pageSizeFrom(sp: RouteSearchParams, options: number[]): number {
   return options.includes(raw) ? raw : (options[0] ?? 25);
 }
 
-function LegendSwatch({ varName, label }: { varName: string; label: string }) {
+// Template chart legend dot (12px circle + caption), palette colours only.
+function LegendDot({ color, label }: { color: string; label: string }) {
   return (
-    <span>
-      <i className="sw" style={{ background: `var(${varName})` }} aria-hidden="true" />
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, typography: "caption", color: "text.secondary" }}>
+      <Box component="span" aria-hidden="true" sx={{ width: "calc(1.5 * var(--spacing))", height: "calc(1.5 * var(--spacing))", flexShrink: 0, borderRadius: "50%", bgcolor: color }} />
       {label}
-    </span>
+    </Box>
   );
 }
 
@@ -49,10 +50,10 @@ function CardHeader({ pageContract }: { pageContract: AdminUiPageContract }) {
         </Box>
       }
       action={
-        <span className="legend">
-          <LegendSwatch varName="--brand" label={copy(pageContract, "legend.done")} />
-          <LegendSwatch varName="--line2" label={copy(pageContract, "legend.not_done")} />
-        </span>
+        <Box component="span" sx={{ display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
+          <LegendDot color="primary.main" label={copy(pageContract, "legend.done")} />
+          <LegendDot color="grey.500" label={copy(pageContract, "legend.not_done")} />
+        </Box>
       }
       sx={{ alignItems: "center", flexWrap: "wrap", gap: 1 }}
     />
@@ -136,19 +137,19 @@ export async function CareCoverageBoard({
   const clearAllHref = scope.parkId || pens.length > 0 ? allParksHref : null;
 
   return (
-    <div className="screen on lt-page">
+    <div className="screen on">
       <PageHead pageContract={pageContract} />
-      <CareCoverageFilters
-        parkChoices={parkChoices}
-        parkSelected={scope.parkId ?? ""}
-        parkClearHref={allParksHref}
-        penChoices={(data?.pen_options ?? []).map((option) => ({ value: option.value, label: option.label }))}
-        penSelected={pens}
-        clearAllHref={clearAllHref}
-        pageContract={pageContract}
-      />
       <Card sx={{ mb: 2 }}>
         <CardHeader pageContract={pageContract} />
+        <CareCoverageFilters
+          parkChoices={parkChoices}
+          parkSelected={scope.parkId ?? ""}
+          parkClearHref={allParksHref}
+          penChoices={(data?.pen_options ?? []).map((option) => ({ value: option.value, label: option.label }))}
+          penSelected={pens}
+          clearAllHref={clearAllHref}
+          pageContract={pageContract}
+        />
         {rows.length === 0 ? (
           <EmptyContent
             filled

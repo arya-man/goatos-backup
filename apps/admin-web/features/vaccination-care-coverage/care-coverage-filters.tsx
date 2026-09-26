@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type MouseEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, Layers } from "lucide-react";
+import { X } from "lucide-react";
 import { usePopover } from "minimal-shared/hooks";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
+import Chip from "@mui/material/Chip";
 import MenuItem from "@mui/material/MenuItem";
 import MenuList from "@mui/material/MenuList";
 import TextField from "@mui/material/TextField";
@@ -19,7 +20,7 @@ export type CareCoverageParkChoice = { value: string; label: string; href: strin
 export type CareCoveragePenChoice = { value: string; label: string };
 
 
-// Care Coverage's filter bar, in the Live Drive Tracker's .lt-fbar look. Park is the template MUI
+// Care Coverage's filter toolbar (inside the matrix card). Park is the template MUI
 // select whose destinations the SERVER computed (it writes the shared top-bar `park` key). Pen is
 // a checkbox multi-select on the template popover: ticks are STAGED in the open dropdown and
 // nothing navigates until Apply, so ticking five pens is one page load, not five. Filtering itself
@@ -69,10 +70,20 @@ export function CareCoverageFilters({
   const penLabels = new Map(penChoices.map((choice) => [choice.value, choice.label]));
   if (optimisticParkSelected !== null && optimisticParkSelected === parkSelected) setOptimisticParkSelected(null);
 
+  // Template list toolbar + filters result (UserTableToolbar / UserTableFiltersResult): two
+  // outlined TextField selects, then the applied filters as MUI Chips with a Clear action.
+  const hasChips = Boolean(parkSelected) || penSelected.length > 0 || Boolean(clearAllHref);
   return (
-    <div className={`lt-fbar cc-fbar${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
-      <span className="lt-fsel">
-        <Layers className="ic" size={13} aria-hidden="true" />
+    <Box aria-busy={isPending} sx={{ opacity: isPending ? 0.6 : 1, transition: (theme) => theme.transitions.create("opacity") }}>
+      <Box
+        sx={{
+          p: 2.5,
+          gap: 2,
+          display: "flex",
+          flexDirection: { xs: "column", sm: "row" },
+          alignItems: { xs: "stretch", sm: "center" },
+        }}
+      >
         <TextField
           select
           label={copy(pageContract, "filter.park")}
@@ -81,7 +92,7 @@ export function CareCoverageFilters({
             const next = parkChoices.find((choice) => choice.value === value);
             go(next ? next.href : parkClearHref, next?.value ?? "");
           }}
-          sx={{ minWidth: { xs: 0, sm: 180 }, flexShrink: 0, maxWidth: 1 }}
+          sx={{ width: { xs: 1, sm: 220 }, flexShrink: 0 }}
           slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
         >
           <MenuItem value="">{copy(pageContract, "filter.all_parks")}</MenuItem>
@@ -91,60 +102,50 @@ export function CareCoverageFilters({
             </MenuItem>
           ))}
         </TextField>
-      </span>
 
-      <PenMultiSelect
-        choices={penChoices}
-        selected={penSelected}
-        pageContract={pageContract}
-        onApply={(pens) => go(hrefForPens(pens))}
-      />
+        <PenMultiSelect
+          choices={penChoices}
+          selected={penSelected}
+          pageContract={pageContract}
+          onApply={(pens) => go(hrefForPens(pens))}
+        />
 
-      <span className="lt-chips">
-        {parkSelected ? (
-          <span className="achip">
-            {parkLabel ?? copy(pageContract, "filter.unlisted_selection")}
-            <b
-              role="button"
-              tabIndex={0}
-              aria-label={`${copy(pageContract, "filter.remove_one")} — ${copy(pageContract, "filter.park")}`}
-              onClick={() => go(parkClearHref)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") go(parkClearHref);
-              }}
-            >
-              ×
-            </b>
-          </span>
-        ) : null}
-        {penSelected.map((pen) => {
-          const without = hrefForPens(penSelected.filter((candidate) => candidate !== pen));
-          const label = penLabels.get(pen) ?? copy(pageContract, "filter.unlisted_selection");
-          return (
-            <span className="achip" key={pen}>
-              {label}
-              <b
-                role="button"
-                tabIndex={0}
-                aria-label={`${copy(pageContract, "filter.remove_one")} — ${label}`}
-                onClick={() => go(without)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") go(without);
-                }}
-              >
-                ×
-              </b>
-            </span>
-          );
-        })}
-        {clearAllHref ? (
-          <Button size="small" color="error" onClick={() => go(clearAllHref)}>
-            {copy(pageContract, "filter.clear_all")}
-          </Button>
-        ) : null}
-      </span>
-      <span className="lt-fnote">{copy(pageContract, "filter.apply_note")}</span>
-    </div>
+        <Typography variant="caption" sx={{ color: "text.disabled", ml: { sm: "auto" }, textAlign: { sm: "right" } }}>
+          {copy(pageContract, "filter.apply_note")}
+        </Typography>
+      </Box>
+
+      {hasChips ? (
+        <Box sx={{ px: 2.5, pb: 2.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+          {parkSelected ? (
+            <Chip
+              size="small"
+              label={parkLabel ?? copy(pageContract, "filter.unlisted_selection")}
+              onDelete={() => go(parkClearHref)}
+              deleteIcon={<X aria-label={`${copy(pageContract, "filter.remove_one")} — ${copy(pageContract, "filter.park")}`} role="button" />}
+            />
+          ) : null}
+          {penSelected.map((pen) => {
+            const without = hrefForPens(penSelected.filter((candidate) => candidate !== pen));
+            const label = penLabels.get(pen) ?? copy(pageContract, "filter.unlisted_selection");
+            return (
+              <Chip
+                key={pen}
+                size="small"
+                label={label}
+                onDelete={() => go(without)}
+                deleteIcon={<X aria-label={`${copy(pageContract, "filter.remove_one")} — ${label}`} role="button" />}
+              />
+            );
+          })}
+          {clearAllHref ? (
+            <Button color="error" onClick={() => go(clearAllHref)} sx={{ minHeight: { xs: 44, sm: 36 } }}>
+              {copy(pageContract, "filter.clear_all")}
+            </Button>
+          ) : null}
+        </Box>
+      ) : null}
+    </Box>
   );
 }
 
@@ -191,25 +192,30 @@ function PenMultiSelect({
   }
 
   return (
-    <span className="lt-fsel cc-pensel">
-      <Button
-        color="inherit"
-        aria-haspopup="listbox"
-        aria-expanded={popover.open}
-        aria-label={copy(pageContract, "filter.pen")}
-        endIcon={<ChevronDown className="ic" size={14} aria-hidden="true" />}
-        onClick={(event) => {
-          // Opening seeds the staged ticks from the APPLIED selection, so a chip removed or a
-          // park switched since the last Apply is reflected in the boxes.
-          setStaged(selected);
-          popover.onOpen(event);
+    <>
+      {/* The same outlined TextField select as Park; its own menu never opens -- opening shows the
+          staged checkbox popover instead, so ticks only navigate on Apply. */}
+      <TextField
+        select
+        label={copy(pageContract, "filter.pen")}
+        value=""
+        sx={{ width: { xs: 1, sm: 220 }, flexShrink: 0 }}
+        slotProps={{
+          inputLabel: { shrink: true },
+          select: {
+            open: false,
+            displayEmpty: true,
+            renderValue: () => summary,
+            onOpen: (event) => {
+              // Opening seeds the staged ticks from the APPLIED selection, so a chip removed or a
+              // park switched since the last Apply is reflected in the boxes.
+              setStaged(selected);
+              popover.onOpen(event as MouseEvent<HTMLElement>);
+            },
+            inputProps: { "aria-haspopup": "listbox", "aria-expanded": popover.open },
+          },
         }}
-        sx={{ justifyContent: "space-between", minWidth: 150, maxWidth: { xs: 1, sm: 220 }, fontWeight: "fontWeightSemiBold", minHeight: { xs: 44, sm: 36 } }}
-      >
-        <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left", flex: "1 1 auto" }}>
-          {summary}
-        </Box>
-      </Button>
+      />
       <CustomPopover
         open={popover.open}
         anchorEl={popover.anchorEl}
@@ -263,6 +269,6 @@ function PenMultiSelect({
           </Box>
         </Box>
       </CustomPopover>
-    </span>
+    </>
   );
 }
