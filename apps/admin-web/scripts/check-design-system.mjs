@@ -168,7 +168,7 @@ const CHECKS = {
   "technical-copy": { tier: "waivable", why: "user-visible copy must not name Firebase/config/backend/API/tokens/HTTP codes/null/NaN/stack — say what the person can do instead" },
   "raw-chart-lib": { tier: "waivable", why: "only Apex (components/minimal/chart, components/kit) and the two inline helpers (svg-bars/svg-series) are palette-locked and hover-proven; recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts are refused" },
   "route-template-map-missing": { tier: "waivable", why: "every route in scripts/smoke-visual-live.mjs must have an entry in docs/design/route-template-map.json so the MUI Minimal template section it is built on is discoverable" },
-  "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not fall back to the pastel KpiCard tint/gradient or AnalyticsWidgetSummary; KPI rows are the template Ecommerce/Course/Banking widget summaries" },
+  "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not use KpiCard variant tint/gradient or AnalyticsWidgetSummary (pastel in dark); KPI rows are the template Ecommerce/Course/Banking widget summaries" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
@@ -674,7 +674,9 @@ function pageTemplatePastelFindings(root) {
       if (source.text === null) continue; // a missing file is `page-template-map`'s finding
       source.text.split("\n").forEach((line, index) => {
         if (/^\s*(\/\/|\*)/.test(line)) return;
-        if (/<KpiCard\b/.test(line) || /\bAnalyticsWidgetSummary\b/.test(line) || /variant=["'](?:tint|gradient)["']/.test(line) && /Kpi/.test(source.text)) {
+        // KpiCard's default is the template Ecommerce/Course anatomy; only its tint/gradient
+        // variants (AnalyticsWidgetSummary, pastel in dark) are refused here.
+        if (/\bAnalyticsWidgetSummary\b/.test(line) || (/variant=["'](?:tint|gradient)["']/.test(line) && /KpiCard/.test(source.text))) {
           out.push({ file: source.rel, line: index + 1, snippet: `${row.route}: pastel widget instead of the template section: ${line.trim()}` });
         }
       });

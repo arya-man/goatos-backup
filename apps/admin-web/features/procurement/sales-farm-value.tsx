@@ -2,10 +2,11 @@ import { KpiValue } from "./kpi-value";
 import { redirect } from "next/navigation";
 
 import { IndianRupee, Scale } from "lucide-react";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { BarList } from "@/components/bar-list";
-import { StatStrip } from "@/components/minimal/widgets/stat-strip";
-import { Tag } from "@/components/ui-primitives";
+import Grid from "@mui/material/Grid";
+import { KpiCard } from "@/components/minimal/widgets";
+import { EmptyState } from "@/components/app/empty-state";
+import { BankingExpensesCategories } from "@/components/minimal/sections/overview/banking/banking-expenses-categories";
+import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights, listAnimalStages } from "@/lib/api/server";
@@ -23,7 +24,6 @@ import { salesErrorText } from "./sales-error";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { salesKpiRowSx } from "./procurement-sx";
 
 const PAGE_PATH = "/sales/farm-value";
 
@@ -52,12 +52,8 @@ type Over35Card = {
  * males are ONE sex by construction, so a split there would only restate the label.
  */
 const SEX_SPLIT_BUCKETS = new Set(["fattening", "K0", "K1", "K2", "K3"]);
-/**
- * A stat strip reads as ONE row of cells; past five cells it wraps into an orphaned second row
- * (seven buckets on Farm value: six cells and a lonely K3). Beyond this the same figures are a
- * ranked bar list instead — label · track · value — which holds any count.
- */
-const STAT_STRIP_MAX_CELLS = 5;
+/** Template progress-bar colours for the by-category rows, in the locked palette order. */
+const BUCKET_BAR = ["primary", "info", "secondary", "warning"] as const;
 
 /** "not valued" (contract copy) as a line opener: first letter up, nothing else touched. */
 function sentenceCase(text: string): string {
@@ -102,142 +98,121 @@ function FarmValueSections({
   const kgSuffix = copy(pageContract, "value.kg_suffix");
   const notValuedLabel = farmValuationNotValuedLabel(overview, pageContract);
   return (
-    <>
-          {/* FARM VALUE — what is standing on the farm right now (maintainer decision 2026-09-10).
-              Its own block, headed, and immediately followed by the category breakdown that
-              divides the same total. It used to open a single strip that ran straight on into the
-              sold tiles, putting the herd valuation next to the sales revenue — two figures about
-              different herds, inviting a subtraction that means nothing. */}
-          <section className="sales-block" aria-label={copy(pageContract, "section.farm_value.aria")}>
-            <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
-              {copy(pageContract, "section.farm_value.title")}
-            </Typography>
-            <Box sx={salesKpiRowSx}>
-            <KpiGrid className="sales-kpi-row sales-farm-value-row">
-              <KpiCard
-                variant="gradient"
-                tone="primary"
-                label={copy(pageContract, "kpi.farm_value")}
-                value={<KpiValue value={overview.farm_valuation.total_value_rupees} kind="inr" />}
-                watermark={<IndianRupee aria-hidden="true" />}
-              />
-              <KpiCard
-                variant="tint"
-                tone="info"
-                label={copy(pageContract, "kpi.total_meat")}
-                value={<KpiValue value={overview.farm_valuation.total_meat_kg} digits={1} suffix={kgSuffix} />}
-                watermark={<Scale aria-hidden="true" />}
-              />
-              {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision
-                  2026-09-10). It counts animals STANDING ON THE FARM that have reached sale
-                  weight — inventory ready to go, not anything that has gone. Sitting in the Sold
-                  strip it read as a count of animals already sold at that weight.
-                  Gated by the page contract: a role that may not read weights sees the backend's
-                  reason, never a zero. */}
-              <Over35Kpi
-                // Re-mounted when the page's own park or margin changes underneath it.
-                key={`${over35.parkId}|${over35.toleranceG}`}
-                parkId={over35.parkId}
-                enabled={over35.enabled}
-                disabledReason={over35.disabledReason}
-                initialCount={over35.count}
-                initialToleranceG={over35.toleranceG}
-                lineKg={over35.lineKg}
-                maxG={OVER35_MAX_TOLERANCE_G}
-                labels={{
-                  title: copy(pageContract, "kpi.over35"),
-                  sub: copy(pageContract, "kpi.over35.sub"),
-                  none: copy(pageContract, "kpi.over35.none"),
-                  noneValue: none,
-                  tolerance: copy(pageContract, "kpi.over35.tolerance"),
-                  apply: copy(pageContract, "kpi.over35.apply"),
-                  failed: copy(pageContract, "error.load"),
-                }}
-              />
-            </KpiGrid>
-            </Box>
-          </section>
+    <Grid container spacing={3}>
+      {/* FARM VALUE — what is standing on the farm right now (maintainer decision 2026-09-10).
+          Its own block, followed by the category breakdown that divides the same total. It used
+          to open a strip that ran straight into the sold tiles, putting the herd valuation next to
+          the sales revenue — two figures about different herds. Template CourseWidgetSummary
+          cards (figure, title, tone icon; no series exists for a valuation). */}
+      <Grid size={12}>
+        <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.farm_value.aria")}>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <KpiCard
+              tone="primary"
+              label={copy(pageContract, "kpi.farm_value")}
+              value={<KpiValue value={overview.farm_valuation.total_value_rupees} kind="inr" />}
+              icon={<IndianRupee aria-hidden="true" />}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <KpiCard
+              tone="info"
+              label={copy(pageContract, "kpi.total_meat")}
+              value={<KpiValue value={overview.farm_valuation.total_meat_kg} digits={1} suffix={kgSuffix} />}
+              icon={<Scale aria-hidden="true" />}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, md: 4 }}>
+            {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision
+                2026-09-10): animals STANDING ON THE FARM that have reached sale weight. Gated by
+                the page contract: a role that may not read weights sees the backend's reason,
+                never a zero. */}
+            <Over35Kpi
+              // Re-mounted when the page's own park or margin changes underneath it.
+              key={`${over35.parkId}|${over35.toleranceG}`}
+              parkId={over35.parkId}
+              enabled={over35.enabled}
+              disabledReason={over35.disabledReason}
+              initialCount={over35.count}
+              initialToleranceG={over35.toleranceG}
+              lineKg={over35.lineKg}
+              maxG={OVER35_MAX_TOLERANCE_G}
+              labels={{
+                title: copy(pageContract, "kpi.over35"),
+                sub: copy(pageContract, "kpi.over35.sub"),
+                none: copy(pageContract, "kpi.over35.none"),
+                noneValue: none,
+                tolerance: copy(pageContract, "kpi.over35.tolerance"),
+                apply: copy(pageContract, "kpi.over35.apply"),
+                failed: copy(pageContract, "error.load"),
+              }}
+            />
+          </Grid>
+        </Grid>
+      </Grid>
 
-          <section className="card sales-card" aria-label={copy(pageContract, "section.farm_value.breakdown")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "section.farm_value.breakdown")}</h3>
-              <Tag tone={overview.farm_valuation.total_value_rupees > 0 ? "info" : "mut"}>
-                {num(overview.farm_valuation.valued_animals)} {copy(pageContract, "value.valued_animals")}
-                {notValuedLabel ? ` · ${notValuedLabel}` : ""}
-                {" · "}
-                {num(overview.farm_valuation.total_animals)}{" "}
-                {copy(pageContract, countKey(overview.farm_valuation.total_animals, "value.live_animal", "value.live_animals"))}
-              </Tag>
-            </div>
-            {/* One figure per bucket: value in rupees, one meta line (sex split where the bucket
-                has one, else kg · animals) and the bucket's share of the farm's value. Up to five
-                buckets sit in one hairline-divided strip; more than that is a ranked bar list, so
-                the row never wraps into an orphan. Buckets keyed by a stage code show the tenant's
-                word for it (K0 → Newborn); a bucket worth nothing is named once on the line below
-                instead of holding an empty bar. The weighed-count behind the fattening average is
-                deliberately not printed (maintainer instruction 2026-09-11). */}
-            {(() => {
-              const total = overview.farm_valuation.total_value_rupees;
-              const buckets = overview.farm_valuation.buckets.map((bucket) => ({
-                ...bucket,
-                display: stageVocabularyLabel(bucket.label, stageNames),
-                meta: SEX_SPLIT_BUCKETS.has(bucket.bucket)
-                  ? `${num(bucket.male_count)} ${copy(pageContract, "value.sex.male")} · ${num(bucket.female_count)} ${copy(pageContract, "value.sex.female")} · ${num(bucket.meat_kg, 1)} ${kgSuffix}`
-                  : `${num(bucket.meat_kg, 1)} ${kgSuffix} · ${num(bucket.animal_count)} ${copy(pageContract, countKey(bucket.animal_count, "value.live_animal", "value.live_animals"))}`,
-              }));
-              if (buckets.length <= STAT_STRIP_MAX_CELLS) {
-                return (
-                  <StatStrip
-                    className="kit-statstrip-wrap"
-                    ariaLabel={copy(pageContract, "section.farm_value.breakdown")}
-                    cells={buckets.map((bucket) => ({
-                      key: bucket.bucket,
-                      label: bucket.display,
-                      // A formatted string, not a number + formatter: this is a Server Component
-                      // and a function prop cannot cross into the client CountUp.
-                      value: inr(bucket.value_rupees),
-                      tone: "primary" as const,
-                      meta: bucket.meta,
-                      share: total > 0 ? (bucket.value_rupees / total) * 100 : 0,
-                    }))}
-                  />
-                );
-              }
-              const valued = buckets.filter((bucket) => bucket.value_rupees > 0);
-              const unvalued = buckets.filter((bucket) => !(bucket.value_rupees > 0));
-              return (
-                <>
-                  <BarList
-                    className="sales-farm-value-bars"
-                    ariaLabel={copy(pageContract, "section.farm_value.breakdown")}
-                    valueNoun={copy(pageContract, "kpi.farm_value")}
-                    rows={valued.map((bucket) => ({
-                      key: bucket.bucket,
-                      label: bucket.display,
-                      labelText: bucket.display,
-                      value: bucket.value_rupees,
-                      display: inr(bucket.value_rupees),
-                      note: <span className="muted small">{bucket.meta}</span>,
-                    }))}
-                    emptyLabel={copy(pageContract, "value.none")}
-                  />
-                  {unvalued.length > 0 ? (
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ mx: { xs: 2.5, sm: 3 }, mb: { xs: 2.5, sm: 3 }, pt: 1.75, borderTop: "1px dashed", borderColor: "divider" }}
-                    >
-                      <b>{sentenceCase(copy(pageContract, "value.not_valued"))}</b>
-                      {" · "}
-                      {unvalued.map((bucket) => bucket.display).join(" · ")}
-                    </Typography>
-                  ) : null}
-                </>
-              );
-            })()}
-          </section>
-
-    </>
+      {/* By category: the template Banking expenses-categories card (share of value per bucket)
+          beside the Ecommerce sales-overview rows that carry each bucket's value, share and meta
+          line (sex split where the bucket has one, else kg · animals). Buckets keyed by a stage
+          code show the tenant's word for it (K0 → Newborn); a bucket worth nothing is named once
+          under the rows instead of holding an empty bar. The weighed-count behind the fattening
+          average is deliberately not printed (maintainer instruction 2026-09-11). */}
+      {(() => {
+        const total = overview.farm_valuation.total_value_rupees;
+        const buckets = overview.farm_valuation.buckets.map((bucket) => ({
+          ...bucket,
+          display: stageVocabularyLabel(bucket.label, stageNames),
+          meta: SEX_SPLIT_BUCKETS.has(bucket.bucket)
+            ? `${num(bucket.male_count)} ${copy(pageContract, "value.sex.male")} · ${num(bucket.female_count)} ${copy(pageContract, "value.sex.female")} · ${num(bucket.meat_kg, 1)} ${kgSuffix}`
+            : `${num(bucket.meat_kg, 1)} ${kgSuffix} · ${num(bucket.animal_count)} ${copy(pageContract, countKey(bucket.animal_count, "value.live_animal", "value.live_animals"))}`,
+        }));
+        const valued = buckets.filter((bucket) => bucket.value_rupees > 0);
+        const unvalued = buckets.filter((bucket) => !(bucket.value_rupees > 0));
+        const animalsLine = `${num(overview.farm_valuation.total_animals)} ${copy(pageContract, countKey(overview.farm_valuation.total_animals, "value.live_animal", "value.live_animals"))}`;
+        return (
+          <>
+            <Grid size={{ xs: 12, md: 6, lg: 5 }}>
+              <BankingExpensesCategories
+                component="section"
+                aria-label={copy(pageContract, "section.farm_value.aria")}
+                title={copy(pageContract, "section.farm_value.title")}
+                chart={{ series: valued.map((bucket) => ({ label: bucket.display, value: bucket.value_rupees, display: inr(bucket.value_rupees) })) }}
+                footer={[
+                  { label: copy(pageContract, "value.valued_animals"), value: num(overview.farm_valuation.valued_animals) },
+                  { label: copy(pageContract, "kpi.farm_value"), value: inr(total) },
+                ]}
+                sx={{ height: 1 }}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 6, lg: 7 }}>
+              <EcommerceSalesOverview
+                component="section"
+                aria-label={copy(pageContract, "section.farm_value.breakdown")}
+                title={copy(pageContract, "section.farm_value.breakdown")}
+                subheader={[animalsLine, notValuedLabel].filter(Boolean).join(" · ")}
+                data={valued.map((bucket, i) => ({
+                  label: bucket.display,
+                  value: total > 0 ? (bucket.value_rupees / total) * 100 : 0,
+                  display: inr(bucket.value_rupees),
+                  caption: bucket.meta,
+                  color: BUCKET_BAR[i % BUCKET_BAR.length],
+                }))}
+                sx={{ height: 1 }}
+              >
+                {valued.length === 0 ? <EmptyState title={none} /> : null}
+                {unvalued.length > 0 ? (
+                  <Typography variant="body2" color="text.secondary" component="p" sx={{ m: 0, pt: 2, borderTop: "1px dashed", borderColor: "divider" }}>
+                    <Box component="b" sx={{ color: "text.primary" }}>{sentenceCase(copy(pageContract, "value.not_valued"))}</Box>
+                    {" · "}
+                    {unvalued.map((bucket) => bucket.display).join(" · ")}
+                  </Typography>
+                ) : null}
+              </EcommerceSalesOverview>
+            </Grid>
+          </>
+        );
+      })()}
+    </Grid>
   );
 }
 
@@ -314,12 +289,12 @@ export async function SalesFarmValuePage({
       <SalesPageHeader pageContract={pageContract} />
 
       {!overviewResult.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           {salesErrorText(overviewResult.error, copy(pageContract, "error.load"))}
         </Alert>
       ) : null}
       {assumptions && !assumptions.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           {salesErrorText(assumptions.error, copy(pageContract, "error.load"))}
         </Alert>
       ) : null}

@@ -94,6 +94,7 @@
 
     "components/minimal/progress-list/progress-item.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
 
+    "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": "src/sections/overview/banking/banking-expenses-categories.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": "src/sections/overview/e-commerce/ecommerce-best-salesman.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": "src/sections/overview/e-commerce/ecommerce-latest-products.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-sales-overview.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",

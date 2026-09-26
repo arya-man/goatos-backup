@@ -3391,40 +3391,15 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 @media(max-width:680px){.chart-slots-plot{min-width:calc(var(--chart-slots,1) * 56px)}}
 
 .sales-kpi-row .kpi .dl{color:var(--muted)}
-/* The Farm value row: the Over 35 kg card carries its margin footer, so the other two cards get
-   a little more room and their content is spread down the card rather than sitting on the lid. */
-.sales-farm-value-row .kpi{padding:18px 18px 16px}
-.sales-farm-value-row .kpi .val{margin-top:12px}
-.sales-farm-value-row .kpi .dl{margin-top:8px}
-.sales-farm-value-row .kpi:has(.sales-ready-tolerance){padding:14px 16px 12px;container-type:inline-size;container-name:sales-ready-card}
-.sales-farm-value-row .kpi:has(.sales-ready-tolerance) .val{margin-top:4px}
-.sales-farm-value-row .kpi:has(.sales-ready-tolerance) .dl{margin-top:2px}
-@container sales-ready-card (max-width:340px){
-  .sales-ready-tolerance{grid-template-columns:1fr}
-  .sales-ready-tolerance-head{justify-content:space-between}
-}
-  /* Sales splits into two named blocks -- Farm value, then Sold (maintainer decision 2026-09-10).
-     The heading is a rule-and-label, not another card: the tiles under it already carry the card
-     edges, and wrapping a headed group in a second box would nest a card inside a card. */
-  .sales-block{display:flex;flex-direction:column;gap:10px}
-  .sales-block-hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-bottom:6px;border-bottom:1px solid var(--line)}
-  .sales-block-hd h3{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}
-  .sales-block-hd span{flex:1 1 auto;min-width:0}
-  /* The second block's heading follows a card rather than opening the page, so it needs the
-     breathing room the page grid's own gap does not give a bare heading row. */
-  .sales-block-hd-spaced{margin-top:8px}
 @media(max-width:760px){
   .sales-ready-tolerance{grid-template-columns:1fr}
   .sales-ready-tolerance-head{justify-content:space-between}
-  .sales-block .grid,.sales-block .g3,.sales-kpi-row{display:grid;grid-template-columns:minmax(0,1fr)!important;width:100%}
-  .sales-block .kpi,.sales-kpi-row .kpi{min-width:0;width:100%;max-width:100%;overflow:hidden}
-  .sales-block .kpi .val,.sales-kpi-row .kpi .val{font-size:clamp(22px,7vw,28px);white-space:normal;overflow-wrap:anywhere;word-break:normal;line-height:1.08}
-  .sales-block .kpi .dl,.sales-kpi-row .kpi .dl{white-space:normal;overflow-wrap:anywhere}
-  .sales-block-hd .tag{max-width:100%;white-space:normal}
+  .sales-kpi-row{display:grid;grid-template-columns:minmax(0,1fr)!important;width:100%}
+  .sales-kpi-row .kpi{min-width:0;width:100%;max-width:100%;overflow:hidden}
+  .sales-kpi-row .kpi .val{font-size:clamp(22px,7vw,28px);white-space:normal;overflow-wrap:anywhere;word-break:normal;line-height:1.08}
+  .sales-kpi-row .kpi .dl{white-space:normal;overflow-wrap:anywhere}
 }
 @media(max-width:760px){
-  .sales-block-hd{padding-bottom:4px}
-  .sales-block-hd h3{font-size:16px;line-height:22px}
   .sales-kpi-row{gap:12px!important}
   .sales-kpi-row .kit-iconbadge{width:38px!important;height:38px!important;border-radius:12px!important;top:14px!important;right:14px!important}
 }

@@ -77,8 +77,9 @@ export function Over35Kpi({
   };
 
   return (
+    // Template CourseWidgetSummary (plain card, tone icon in the corner) like the valuation
+    // cards beside it -- never the pastel AnalyticsWidgetSummary in dark.
     <KpiCard
-      variant="tint"
       tone="success"
       label={fillKg(labels.title, lineKg)}
       // The figure stays readable while it is re-counted -- only this card says it is busy.
@@ -91,7 +92,7 @@ export function Over35Kpi({
           </Box>
         )
       }
-      watermark={<Weight aria-hidden="true" />}
+      icon={<Weight aria-hidden="true" />}
       hint={
         !enabled
           ? disabledReason
