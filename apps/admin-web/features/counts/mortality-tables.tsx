@@ -1,7 +1,7 @@
 "use client";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
-import { Tag } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 
 /**
@@ -84,7 +84,7 @@ export function RecentDeathsTable({
               that a case was open when the animal died — co-incidence, not causation, and the
               reader is owed the difference. A death with neither shows the no-cause chip alone
               and never a disease. */}
-          <Tag tone={row.causeBasis === "recorded" ? "teal" : row.causeBasis === "inferred" ? "info" : "mut"}>{row.causeLabel}</Tag>
+          <Label variant="soft" color={row.causeBasis === "recorded" ? "success" : row.causeBasis === "inferred" ? "info" : "default"}>{row.causeLabel}</Label>
           {row.causeBasis === "inferred" ? <div className="muted small">{row.basisLabel}</div> : null}
         </div>
       ),
