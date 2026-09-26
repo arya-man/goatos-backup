@@ -12,15 +12,8 @@ import type { SxProps, Theme } from "@mui/material/styles";
  */
 export const PHONE = "@media (max-width:599.95px)";
 
-/**
- * Sales KPI decks read one widget per row on a phone (the template analytics widgets stack at xs);
- * the shared kit grid otherwise forces two, which broke rupee figures mid-number.
- */
-export const salesKpiRowSx: SxProps<Theme> = {
-  [PHONE]: {
-    "& .kit-kpi-grid": { gridTemplateColumns: "minmax(0,1fr) !important" },
-  },
-};
+/** Sales KPI decks: the shared KpiGrid (MUI Grid) already stacks one widget per row at xs. */
+export const salesKpiRowSx: SxProps<Theme> = {};
 
 /** Wide table inside a card: scrolls sideways inside the card, never past its edge (template Scrollbar box). */
 export const cardTableScrollSx: SxProps<Theme> = {

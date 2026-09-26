@@ -6,11 +6,12 @@
    DashboardContent. The old shell's layout-only `.main` rules made it the scroll container
    (`flex:1;overflow:auto`, `height:100%` at <=860px); the template scrolls the body, so those are
    neutralised here. `overflow-x:clip` keeps the old <=860px sideways clip without creating a scroll
-   container (which would break sticky headers). Bottom clearance keeps the last row clear of the
-   Ask Mesha launcher (bottom 88px). */
-.msh-content.main{flex:1 1 auto;min-height:auto;height:auto;overflow:visible;padding-bottom:max(88px, var(--layout-dashboard-content-pb, 0px))}
+   container (which would break sticky headers). Bottom clearance = the Ask Mesha launcher's offset +
+   its height + 24px, so the last row and its actions scroll clear of it (desktop 24 + 56 + 24; phone
+   88 + 44 + 24 above the safe area, features/ceo-ai/ceo-ai-styles.tsx). */
+.msh-content.main{flex:1 1 auto;min-height:auto;height:auto;overflow:visible;padding-bottom:max(104px, var(--layout-dashboard-content-pb, 0px))}
 @media (max-width:860px){.msh-content.main{overflow:visible;overflow-x:clip}}
-@media (max-width:620px){.msh-content.main{padding-bottom:max(96px, var(--layout-dashboard-content-pb, 0px))}}
+@media (max-width:620px){.msh-content.main{padding-bottom:calc(156px + env(safe-area-inset-bottom))}}
 
 /* Page frame rules (frame.css) hang off `.wrap`; the template DashboardContent owns the gutters. */
 .msh-wrap.wrap{padding:0;max-width:none;margin:0;width:100%;min-width:0}

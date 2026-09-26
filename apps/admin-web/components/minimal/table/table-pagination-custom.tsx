@@ -29,12 +29,23 @@ export function TablePaginationCustom({
         rowsPerPageOptions={rowsPerPageOptions}
         component="div"
         {...other}
-        // Mesha: the toolbar wraps at phone width so the arrows never slide out of the card.
-        // The theme pins the toolbar at 64px, so on phone it grows with the wrapped row (no nested scroller).
+        // Mesha: at phone width the rows-per-page label + select are hidden and the toolbar wraps, so the
+        // range and the arrows always stay inside the card at 390/412. The theme pins the toolbar at 64px,
+        // so on phone it grows with a wrapped row (no nested scroller).
         sx={{
           borderTopColor: 'transparent',
           overflow: { xs: 'visible', sm: 'auto' },
-          '& .MuiTablePagination-toolbar': { flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: 'flex-end', rowGap: 0.5, height: { xs: 'auto', sm: 64 }, minHeight: 64 },
+          '& .MuiTablePagination-toolbar': {
+            flexWrap: { xs: 'wrap', sm: 'nowrap' },
+            justifyContent: 'flex-end',
+            rowGap: 0.5,
+            height: { xs: 'auto', sm: 64 },
+            minHeight: 64,
+          },
+          '& .MuiTablePagination-spacer': { display: { xs: 'none', sm: 'block' } },
+          '& .MuiTablePagination-selectLabel': { display: { xs: 'none', sm: 'block' } },
+          '& .MuiTablePagination-input': { display: { xs: 'none', sm: 'inline-flex' } },
+          '& .MuiTablePagination-displayedRows': { whiteSpace: 'nowrap' },
         }}
       />
 

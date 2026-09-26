@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, MapPin } from "lucide-react";
 import { usePopover } from "minimal-shared/hooks";
 import Box from "@mui/material/Box";
+import ButtonBase from "@mui/material/ButtonBase";
 import Divider from "@mui/material/Divider";
 import ListSubheader from "@mui/material/ListSubheader";
 import MenuItem from "@mui/material/MenuItem";
@@ -815,13 +816,13 @@ export function MeshaShell({
           HIDE the top-bar chip (maintainer decision 2026-08-18, 7be3a816e). */}
       {lockTopBarParkSelector ? null : (
         <div className="parksel">
-          <button
-            type="button"
+          <ButtonBase
             className="pscope"
             onClick={scopeMenu.onOpen}
             aria-expanded={scopeMenu.open}
             aria-haspopup="listbox"
             title={contract.top_bar.park_selector.label}
+            sx={{ minHeight: { xs: TAP_MIN, md: 40 } }}
           >
             <MapPin className="ic" aria-hidden="true" />
             <b>{activeParkLabel}</b>
@@ -829,7 +830,7 @@ export function MeshaShell({
               <span className="muted msh-scope-sub">· {shellCopy(contract, "scope.all_sheds")}</span>
             ) : null}
             <ChevronDown className="ic" aria-hidden="true" />
-          </button>
+          </ButtonBase>
           <CustomPopover
             open={scopeMenu.open}
             anchorEl={scopeMenu.anchorEl}

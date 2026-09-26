@@ -323,13 +323,13 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   assert.doesNotMatch(source, /"kpi\.gain\.label"/);
   assert.doesNotMatch(contract, /"kpi\.gain\.label":/);
   assert.doesNotMatch(contract, /"kpi\.gain\.sub":/);
-  // The kit KpiGrid carries its own responsive ladder (auto-fit, min column width), so the deck
-  // never falls back to one column on desktop; the analytics page keeps its metrics stack.
-  const css = readFileSync(new URL("../../app/minimal-theme.css", import.meta.url), "utf8");
+  // The kit KpiGrid is the template Grid (container spacing 3, widgets sized per breakpoint), so the
+  // deck never falls back to one column on desktop; the analytics page keeps its metrics stack.
   assert.match(analyticsSource, /className="wt-general-metrics"/);
   assert.match(source, /<WeightsKpiDeck[\s\S]*?<KpiGrid|import \{ WeightsKpiDeck \}/);
   assert.match(readFileSync(new URL("./weights-kpi-deck.tsx", import.meta.url), "utf8"), /<KpiGrid min=\{min\}>/);
-  assert.match(css, /\.kit-kpi-grid\{display:grid;gap:24px\}/);
+  const grid = readFileSync(new URL("../../components/minimal/widgets/kpi-grid.tsx", import.meta.url), "utf8");
+  assert.match(grid, /<Grid container spacing=\{3\}/);
 });
 
 test("daily gain survives a park-scoped page", () => {

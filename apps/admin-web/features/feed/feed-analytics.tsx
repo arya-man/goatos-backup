@@ -13,7 +13,7 @@ import { StatStrip } from "@/components/minimal/widgets/stat-strip";
 import { Caption } from "@/components/app/caption";
 import { InfoHint } from "@/components/app/info-hint";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard } from "@/components/minimal/widgets";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { GoatGlyph } from "@/components/goat-glyph";
 
@@ -1039,14 +1039,14 @@ function DirectedTabs({
         <RangeCoverageNote key={`${range}-${coveredDays}`} message={coverageNote} />
       ) : null}
       {tab === "overview" ? (
-        <section className="kit-kpi-wrap" aria-label={fa(pageContract, "chart.daily.title")}>
-          <div className="kit-kpi-grid feed-analytics-kpis" data-n={5} style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(200px,100%),1fr))" }}>
+        <section aria-label={fa(pageContract, "chart.daily.title")}>
+          <KpiGrid>
           <KpiCard tone="primary" icon={<Scale size={22} />} label={fa(pageContract, "kpi.directed.label")} value={latest ? num(latest.directed_kg) : "—"} digits={1} unit={latest ? fa(pageContract, "unit.kg") : undefined} sparkline={daySpark(directedOf)} sparkVariant="line" trend={dayTrend(directedOf)} hint={sparkHint("kpi.directed.sub")} />
           <KpiCard tone="info" icon={<GoatGlyph size={22} />} label={fa(pageContract, "kpi.head_days.label")} value={latest ? latest.head_days : "—"} digits={0} sparkline={daySpark(headOf)} sparkVariant="line" trend={dayTrend(headOf)} hint={sparkHint("kpi.head_days.sub")} />
           <KpiCard tone="success" icon={<Wheat size={22} />} label={fa(pageContract, "kpi.per_head.label")} value={latest && latest.per_head_grams !== "" ? num(latest.per_head_grams) : "—"} digits={0} unit={latest && latest.per_head_grams !== "" ? "g" : undefined} sparkline={daySpark(perHeadOf)} sparkVariant="line" trend={dayTrend(perHeadOf)} hint={sparkHint("kpi.per_head.sub")} />
           <KpiCard tone="violet" icon={<ShieldCheck size={22} />} label={fa(pageContract, "kpi.adherence.label")} value={adherence ?? "—"} hint={fa(pageContract, "kpi.adherence.sub")} />
           <KpiCard tone="warning" icon={<IndianRupee size={22} />} label={fa(pageContract, "kpi.cost_per_animal.label")} value={costPerAnimal ?? "—"} hint={fa(pageContract, "kpi.cost_per_animal.sub")} />
-          </div>
+          </KpiGrid>
         </section>
       ) : null}
 
@@ -1397,13 +1397,13 @@ function ExecutionTab({
   // slot, awaiting the amber slot, rework the danger slot.
   return (
     <>
-      <section className="kit-kpi-wrap" aria-label={fa(pageContract, "chart.execution.title")}>
-        <div className="kit-kpi-grid feed-analytics-kpis" data-n={4} style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(200px,100%),1fr))" }}>
+      <section aria-label={fa(pageContract, "chart.execution.title")}>
+        <KpiGrid>
         <KpiCard tone="primary" icon={<Package size={22} />} label={fa(pageContract, "kpi.packing.label")} value={pct(packingDone, packingAll)} hint={`${nf(packingDone)} / ${nf(packingAll)} · ${fa(pageContract, "kpi.packing.sub")}`} />
         <KpiCard tone="info" icon={<Truck size={22} />} label={fa(pageContract, "kpi.distribution.label")} value={pct(distDone, distAll)} hint={`${nf(distDone)} / ${nf(distAll)} · ${fa(pageContract, "kpi.distribution.sub")}`} />
         <KpiCard tone="violet" icon={<Route size={22} />} label={fa(pageContract, "kpi.transport.label")} value={pct(transDone, transAll)} hint={`${nf(transDone)} / ${nf(transAll)} · ${fa(pageContract, "kpi.transport.sub")}`} />
         <KpiCard tone="warning" icon={<Timer size={22} />} label={fa(pageContract, "kpi.latency.label")} value={latestLatency === null ? "—" : `${nf(latestLatency)} ${fa(pageContract, "unit.minutes")}`} hint={fa(pageContract, "kpi.latency.sub")} />
-        </div>
+        </KpiGrid>
       </section>
       <section className="card wchart" aria-label={fa(pageContract, "chart.execution.title")}>
         <h2 className="h">{fa(pageContract, "chart.execution.title")}</h2>

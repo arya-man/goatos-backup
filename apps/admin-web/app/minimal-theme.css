@@ -111,27 +111,8 @@ select option{background:var(--paper);color:var(--fg)}
 .kit-iconbadge-sm{width:36px;height:36px;border-radius:10px}.kit-iconbadge-md{width:48px;height:48px}.kit-iconbadge-lg{width:56px;height:56px;border-radius:14px}
 .kit-iconbadge.kit-round{border-radius:50%}
 
-.kit-kpi-grid>*{min-width:0}
-@media(max-width:640px){.kit-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px}.kit-kpi .kit-iconbadge-md{width:36px;height:36px;border-radius:10px}}
-@media(max-width:360px){.kit-kpi-grid{grid-template-columns:minmax(0,1fr)!important}}
-/* Equal-height deck: a wrapped hint must not make one card taller than its row. */
-.kit-kpi-grid{align-items:stretch}
-.kit-kpi-wrap{container-type:inline-size;min-width:0}
-.kit-kpi-grid{display:grid;gap:24px}
-@container (min-width:900px){
-  .kit-kpi-grid[data-n="1"],.kit-kpi-grid[data-n="3"]{grid-template-columns:repeat(3,minmax(0,1fr))!important}
-  .kit-kpi-grid[data-n="4"]{grid-template-columns:repeat(4,minmax(0,1fr))!important}
-  .kit-kpi-grid[data-n="5"]{grid-template-columns:repeat(6,minmax(0,1fr))!important}
-  .kit-kpi-grid[data-n="5"]>:nth-child(-n+2){grid-column:span 3}
-  .kit-kpi-grid[data-n="5"]>:nth-child(n+3){grid-column:span 2}
-  .kit-kpi-grid[data-n="6"]{grid-template-columns:repeat(3,minmax(0,1fr))!important}
-}
-@container (min-width:1400px){
-  .kit-kpi-grid[data-n="5"]{grid-template-columns:repeat(5,minmax(0,1fr))!important}
-  .kit-kpi-grid[data-n="5"]>*{grid-column:auto!important}
-  .kit-kpi-grid[data-n="6"]{grid-template-columns:repeat(6,minmax(0,1fr))!important}
-}
-@media(max-width:640px){.kit-kpi-grid{gap:16px}}
+@media(max-width:640px){.kit-kpi .kit-iconbadge-md{width:36px;height:36px;border-radius:10px}}
+.kit-kpi-wrap{min-width:0}
 /* The grey rule is a background layer, not an inset box-shadow: an inset shadow on an overflow-x
    scroller broke at the GPU raster tile seam (~640px in), which read as a gap in the rule. */
 
@@ -160,7 +141,6 @@ select option{background:var(--paper);color:var(--fg)}
   /* The edge fade masks the scroller, so the rule lives on the unmasked wrapper instead. */
   /* MUI-style phone tabs: ONE scrollable row with the underline indicator; the right edge fades so
      a cut-off tab reads as "more". Fixed 48px row = no height jump between tabs. */
-  .wt-kit-kpis .kit-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}
 }
 
 /* ---------------- Reduced motion ---------------- */
@@ -281,8 +261,7 @@ body:has(aside.drawer.on) [class*="fab"]{opacity:0;pointer-events:none}
 
 /* ---------- Counts / KPI mobile ---------- */
 /* Two-up on a phone (reference: KPI cards pair up at 390), single column only under 360. Long figures wrap rather than clip. */
-@media(max-width:640px){.kit-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.kit-kpi-value>.muted{display:block;max-width:100%;font-size:clamp(18px,5.1vw,22px);line-height:1.18;white-space:normal;overflow-wrap:anywhere}}
-@media(max-width:360px){.kit-kpi-grid{grid-template-columns:minmax(0,1fr)!important}}
+@media(max-width:640px){.kit-kpi-value>.muted{display:block;max-width:100%;font-size:clamp(18px,5.1vw,22px);line-height:1.18;white-space:normal;overflow-wrap:anywhere}}
 .ha-kit-stack>p.muted{font-size:14px;color:var(--fg-muted)}
 @media(max-width:640px){.top-date-picker .date-scope-value{max-width:150px;overflow:hidden;text-overflow:ellipsis}}
 
@@ -412,10 +391,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 .kit-sk-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 
 /* -- Tab content transition (TabPanel) -- */
-.kit-tabpanel{position:relative;min-width:0}
-.kit-tabpanel-inner{display:grid;gap:24px;min-width:0}
-.kit-tabpanel-item{min-width:0}
-@media(max-width:640px){.kit-tabpanel-inner{gap:16px}}
 
 /* -- Table footer + dense toggle -- */
 .kit-dense .main tbody td,.tablewrap.kit-dense tbody td{padding-top:6px!important;padding-bottom:6px!important}
@@ -526,10 +501,6 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
 
 /* -- decorative card watermarks must not cross the corner radius ---- */
 
-/* -- older fleet WebViews need the prefixed blur ---------------------- */
-.kit-menu,button.scrim,div.scrim{
-  
-}
 /* The select keeps its aria-label, so the phone footer drops the visible prefix rather than
    wrapping "Rows per page:" onto three lines. */
 
@@ -553,33 +524,6 @@ aside.drawer{padding-bottom:env(safe-area-inset-bottom)}
 /* -- Selection + action columns -- */
 .kit-actcell{width:52px;text-align:right;white-space:nowrap}
 .main tbody tr[data-selected="true"]{background:var(--primary-soft)}
-
-/* ---------------------------------------------------------------------
-   backdrop-filter, behind a support guard.
-
-   An Android WebView without backdrop-filter support does not ignore the blur and keep the
-   rest — it paints the translucent background with nothing resolved behind it, so a top bar
-   or a scrim reads as a washed-out band. These declarations therefore apply only where the
-   browser can honour them; each rule above keeps its own background as the fallback.
-   Collected at the end of the file so every guarded block sits after the rule it belongs to
-   and wins on order rather than on specificity.
-   --------------------------------------------------------------------- */
-@supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .kit-menu,button.scrim,div.scrim{-webkit-backdrop-filter:blur(2px)}
-}
-@supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .top{backdrop-filter:blur(12px) saturate(1.3);-webkit-backdrop-filter:blur(12px) saturate(1.3);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-}
-@supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  button.scrim{-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
-}
-@supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  button.scrim,div.scrim{backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
-}
 
 /* ---------------------------------------------------------------------
    Safe-area insets.
@@ -714,7 +658,6 @@ td.kit-rowactions,td.kit-check{position:relative;z-index:3}
    2-up grid keeps its compact tiles so nothing crowds at 390px). */
 /* Feed Analytics tiles carry a mini bar chart and a basis chip; at phone width they stack one per
    row (MUI widget stacking) instead of crowding two 173px columns. */
-@media(max-width:480px){.feed-analytics-page .kit-kpi-grid.feed-analytics-kpis{grid-template-columns:minmax(0,1fr)!important}}
 /* Action Center phone toolbar: once the chip row wraps, the flex spacer lands at the start of the
    search row and pushes the search box ~60px right, leaving a hole. Drop it and let search fill. */
 @media (max-width:767px){#acToggles>.sp{display:none}#acToggles>.tsearch{flex:1 1 180px;min-width:0}}
@@ -741,7 +684,7 @@ input[type="radio"],input[type="checkbox"]{accent-color:var(--primary)}
    slot, no stretched grid rows) instead of tall empty cards. */
 .ha-kpi-empty [class*="kpi"]{min-height:0!important;height:auto!important}
 .ha-kpi-empty [class*="spark"]{display:none!important}
-.ha-kpi-empty .kit-kpi-grid,.ha-kpi-empty>div{align-items:start}
+.ha-kpi-empty>div{align-items:start}
 /* A chip is one line: a long label truncates with an ellipsis inside the row, and wrapped rows keep
    a gap so a chip never touches the one below it. */
 .chip{max-width:100%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

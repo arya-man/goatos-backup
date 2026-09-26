@@ -2163,9 +2163,6 @@
        chip's "· all sheds" suffix (already dropped at <=560px, and spelled out inside the park
        menu) and the identity block's name/role lines (the first thing the account menu shows).
        Nothing becomes unreachable here; two labels get shorter. */
-    .top .pscope{max-width:168px}
-    .top .pscope .muted{display:none}
-    .top .pscope b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .top .me .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:76px}
     /* 561-760px needs a tighter squeeze than the rest of this block. Below 561px the phone block
        further down hides the identity text outright and caps the park chip at 118px; above 760px
@@ -2173,7 +2170,6 @@
        row: measured live at 561px, `.top` was 58px without the bell and 101px with it. These two
        caps are what close that gap -- same trade as above, two labels get shorter. */
     @media(min-width:561px){
-      .top .pscope{max-width:132px}
       .top .me .nm{max-width:58px}
     }
   }
@@ -2185,10 +2181,6 @@
        targets. Keep the park scope visible: it is the only global park filter on pages that do not
        own a local park/farm control. Collapse the optional "all sheds" suffix instead. */
     .top .parksel{flex:0 1 auto;min-width:0}
-    .top .pscope{display:inline-flex;min-height:40px;max-width:118px;padding:6px 8px;gap:5px;overflow:hidden}
-    .top .pscope .muted{display:none}
-    .top .pscope b{min-width:0;overflow:hidden;text-overflow:ellipsis}
-    .top .pscope svg.ic:first-child{display:none}
     .top .iconbtn[disabled]{display:none}
     .iconbtn{flex:none;width:40px;height:40px}
     /* Top-bar scope controls that stay visible on touch widths are real controls — >=40px tap targets.
@@ -2898,7 +2890,6 @@ select:disabled { opacity: .45 }
   .cbm-filter-note{grid-column:1 / -1;font-size:12px;line-height:18px}
   .card.cbm .cbm-chip{min-height:44px!important;border-radius:12px;padding:0 10px!important;gap:6px;font-size:12px;justify-content:flex-start}
   .cbm-chip i{width:7px;height:7px;flex:none}
-  .card.cbm .kit-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
   .card.cbm .cbm-shed-section,.card.cbm .cbm-cohort-section{margin-top:18px}
 }
 
@@ -2998,18 +2989,8 @@ select:disabled { opacity: .45 }
 .kpi-row .kpi{padding:14px 16px}
 .kpi-row .kpi .val small.fcr-kpi-unit{color:color-mix(in srgb,var(--muted) 54%,var(--ink))}
 @media(max-width:1080px){.kpi-row{gap:12px}}
-.feed-analytics-kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
-.feed-analytics-kpis .kpi .val{overflow-wrap:normal;word-break:normal;line-height:1.08}
-.feed-analytics-kpis{margin-top:0}
 .feed-empty-state>p.muted.small,
 .counts-empty-state>.counts-empty-copy{margin:6px 0 0;font-size:14px;line-height:1.55;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
-@media(max-width:520px){
-  .feed-analytics-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .feed-analytics-kpis .kpi{padding:12px}
-  .feed-analytics-kpis .kpi .val{font-size:clamp(20px,8vw,24px)}
-  .feed-analytics-kpis .kpi .dl,.feed-analytics-kpis .kpi .muted.small{font-size:10.5px;line-height:1.25}
-}
-@media(max-width:380px){.feed-analytics-kpis{grid-template-columns:1fr}}
 .sales-loads-page .kpi-row{grid-template-columns:repeat(4,minmax(136px,1fr))}
 .sales-loads-page .kpi .val{overflow-wrap:normal;word-break:normal;white-space:nowrap;font-size:clamp(21px,4.8vw,26px)}
 .sales-loads-page .kpi .dl{line-height:1.35;color:color-mix(in srgb,var(--muted) 62%,var(--ink))}
@@ -5971,23 +5952,11 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
    --------------------------------------------------------------------- */
 @supports
   ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  button.scrim{backdrop-filter:none}
-}
-@supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
   .vplan .ab-in{backdrop-filter: saturate(1.25) blur(10px)}
 }
 @supports
   ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
   .vr-results-loading{backdrop-filter:blur(1px)}
-}
-@supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .schedule-drawer-backdrop{backdrop-filter:blur(2px)}
-}
-@supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .veil{backdrop-filter:blur(3px)}
 }
 @supports
 ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
@@ -5999,10 +5968,6 @@ input[type=date],input[type=datetime-local],input[type=time],input[type=month],i
     border:1px solid var(--line)!important;
     box-shadow:none!important;
   }
-}
-@supports
-  ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  .herd-signals-page button.scrim.on{backdrop-filter:none}
 }
 /* Feed follow-up (2026-09-22): one flat table, one line per change. It had a
    verdict strip, a range summary and an expanding pen row; the maintainer asked
@@ -6106,5 +6071,4 @@ aside.drawer.approvals-drawer .df{flex-wrap:wrap}
 }
 @media(max-width:380px){
   .top{gap:5px}
-  .top .pscope{max-width:84px}
 }

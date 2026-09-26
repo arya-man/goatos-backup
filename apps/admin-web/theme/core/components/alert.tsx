@@ -71,9 +71,12 @@ const standardVariants = [
     style: ({ theme }) => ({
       color: theme.vars.palette[colorKey].darker,
       backgroundColor: theme.vars.palette[colorKey].lighter,
+      // The locked Mesha dark palette has no deep `darker` step (info.darker is the #2B66B8 mid blue),
+      // so the template's darker fill read as a solid filled Alert. A 16% tint of `main` keeps the
+      // standard Alert tinted in dark, as the template renders it.
       ...theme.applyStyles('dark', {
         color: theme.vars.palette[colorKey].lighter,
-        backgroundColor: theme.vars.palette[colorKey].darker,
+        backgroundColor: varAlpha(theme.vars.palette[colorKey].mainChannel, 0.16),
       }),
     }),
   })) satisfies AlertVariants),

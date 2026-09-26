@@ -5,16 +5,12 @@
    sidebar eyebrows. No route-specific rules live here.
    ===================================================================== */
 
-/* ---- Page column: 24px gutters, 24px rhythm ---- */
+/* ---- Page column: 24px gutters, 24px rhythm at every width (template Grid/Stack spacing={3}) ---- */
 .wrap{box-sizing:border-box;width:100%;max-width:var(--page-max);margin:0 auto;padding:var(--page-pt) var(--page-px-xs) var(--page-pb)}
 @media(min-width:600px){.wrap{padding-left:var(--page-px-sm);padding-right:var(--page-px-sm)}}
 @media(min-width:1200px){.wrap{padding-left:var(--page-px-lg);padding-right:var(--page-px-lg)}}
 .wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.herd-signals-page,.wrap>.weights-page,.wrap>.lt-page,.wrap>.vplan,.kit-page,.kit-enter{display:grid;gap:24px;min-width:0;align-content:start}
 .wrap>.screen>*,.kit-page>*,.kit-enter>*,.wrap>.pagegrid>*,.wrap>.herd-signals-page>*,.wrap>.weights-page>*,.wrap>.lt-page>*,.wrap>.vplan>*{margin-top:0;margin-bottom:0;min-width:0}
-@media(max-width:768px){.wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.herd-signals-page,.wrap>.weights-page,.wrap>.lt-page,.wrap>.vplan,.kit-page,.kit-enter{gap:16px}}
-@media(max-width:640px){
-  .wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.herd-signals-page,.wrap>.weights-page,.wrap>.lt-page,.wrap>.vplan,.kit-page,.kit-enter{gap:14px}
-}
 /* legacy spacer divs / empty fragments must not consume a rhythm slot */
 .wrap>.screen>:empty:not(.kit-skeleton):not(.skel):not(i):not(hr){display:none}
 
@@ -209,9 +205,10 @@
 .kit-tabpanel-inner{display:grid;gap:24px;min-width:0}
 .kit-tabpanel-in .kit-tabpanel-item{animation:kit-tab-item-in 260ms var(--ease-out) backwards;animation-delay:var(--kit-tab-delay,0ms)}
 .kit-tabpanel-out{position:absolute;inset:0 0 auto 0;pointer-events:none;animation:kit-tab-out 180ms var(--ease) both}
-@keyframes kit-tab-item-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+/* Opacity only: a transform (even a finished one kept by fill-mode) makes the item the containing block
+   for position:fixed children, which trapped overlays inside tab panels. */
+@keyframes kit-tab-item-in{from{opacity:0}to{opacity:1}}
 @keyframes kit-tab-out{from{opacity:1}to{opacity:0}}
-@media(max-width:640px){.kit-tabpanel-inner{gap:16px}}
 @media(prefers-reduced-motion:reduce){.kit-tabpanel-in .kit-tabpanel-item,.kit-tabpanel-out{animation:none!important}.kit-tabpanel-out{display:none}}
 /* skeleton tables sit in a card like the real table */
 .wrap>.screen>.kit-sk-rows,.kit-page>.kit-sk-rows,.wrap>.screen>div>.kit-sk-rows{background:var(--paper);border-radius:16px;box-shadow:var(--shadow-card);padding:8px 24px}
@@ -284,7 +281,6 @@
   :root .main .top-date-picker .top-date-grid .top-date-day,:root .top .top-date-grid .top-date-day{min-height:44px;height:44px;min-width:44px;aspect-ratio:auto}
   :root .main .top-date-picker .top-date-head .top-date-arrow,:root .main .top-date-picker .top-date-modes .top-date-mode,:root .main .top-date-picker .top-date-footer button,:root .main .top-date-picker .pscope{min-height:44px;min-width:44px}
   :root .main .top-date-picker .top-date-grid{gap:2px}
-  :root .parksel>button.pscope{min-height:44px;height:44px}
   :root .main .metricseg a,:root .main .metricseg button,:root .main .subtabs a,:root .main .subtabs button{min-height:44px;display:inline-flex;align-items:center}
   :root .main .lt-fsearch input,:root .main .tsearch input{min-height:44px}
   :root .main .btn{min-height:44px}
@@ -686,10 +682,6 @@ aside.drawer.vr-videolog-drawer{padding-bottom:env(safe-area-inset-bottom,0px)}
 .top::after{left:0;right:0;bottom:0;z-index:-2;margin:auto;width:calc(100% - var(--sp-6));height:var(--sp-3);border-radius:50%;box-shadow:var(--shadow-z8)}
 .top[data-scrolled="true"]::before{opacity:1}
 .top[data-scrolled="true"]::after{opacity:.48}
-@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-  .top{-webkit-backdrop-filter:none;backdrop-filter:none}
-  .top[data-scrolled="true"]::before{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-}
 .routebar{top:calc(var(--header-h) - 2px)}
 @media(min-width:900px){.routebar{top:calc(var(--header-h-lg) - 2px)}}
 
