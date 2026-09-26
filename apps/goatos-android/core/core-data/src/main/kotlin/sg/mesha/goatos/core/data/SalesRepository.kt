@@ -361,7 +361,7 @@ class DefaultSalesRepository(
 
     override fun observeTaggingQueue(): Flow<SaleTaggingQueueDto?> = observeBlob(TAGGING_QUEUE_KEY)
 
-    override suspend fun refreshTaggingQueue(): AppResult<SaleTaggingQueueDto> {
+    override suspend fun refreshTaggingQueue(): AppResult<SaleTaggingQueueDto> { // offline-first-guard:ignore: persists through putBlob -> vendorsBlobCacheDao().upsert, the same Room blob observeTaggingQueue() reads
         val result = call { api.getSaleTaggingQueue(VENDORS_PAGE_SIZE, null) }
         if (result is AppResult.Ok) putBlob(TAGGING_QUEUE_KEY, json.encodeToString(result.value))
         return result
