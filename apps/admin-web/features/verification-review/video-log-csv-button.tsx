@@ -1,6 +1,9 @@
 "use client";
 
-import { Download, Loader2 } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import { Iconify } from "@/components/minimal/iconify";
 import { useState, useTransition } from "react";
 
 import { exportVideoLogAction } from "./video-log-export-action";
@@ -49,14 +52,24 @@ export function VideoLogCsvButton({
   }
 
   return (
-    <span className="vl-csv-wrap">
-      <button type="button" className="btn sm vl-csv-btn" onClick={onClick} disabled={pending} aria-busy={pending}>
-        {pending ? <Loader2 className="ic vl-csv-spin" aria-hidden="true" /> : <Download className="ic" aria-hidden="true" />}
+    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 1.5 }}>
+      <Button
+        variant="outlined"
+        color="inherit"
+        onClick={onClick}
+        disabled={pending}
+        aria-busy={pending}
+        startIcon={pending ? <CircularProgress size={16} color="inherit" aria-hidden="true" /> : <Iconify icon="solar:download-bold" aria-hidden="true" />}
+      >
         {label}
-      </button>
+      </Button>
       {/* No silent truncation: a capped export says so rather than looking like the whole day. */}
-      {note ? <span className="small warn vl-csv-note">{note}</span> : null}
-    </span>
+      {note ? (
+        <Box component="span" sx={{ typography: "body2", color: "warning.main" }}>
+          {note}
+        </Box>
+      ) : null}
+    </Box>
   );
 }
 

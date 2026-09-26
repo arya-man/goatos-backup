@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import MenuItem from "@mui/material/MenuItem";
+import TextField from "@mui/material/TextField";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type ModuleOption = {
@@ -87,26 +88,36 @@ export function ModuleFilter({
     router.replace(href, { scroll: false });
   }
 
-  // The page's ONE tab component (judge M2 round 4 #5): the module strip is the kit AnimatedTabs;
-  // the status counts below it are filter chips. Button mode, so the navigation stays the
-  // scroll-preserving `router.replace` above rather than a Link push.
+  // The module picker sits in the queue toolbar as the template list toolbar's leading select
+  // (InvoiceTableToolbar "Service" / OrderTableToolbar anatomy). It navigates on change with the
+  // scroll-preserving `router.replace` above rather than riding the shed form's Apply.
   const hrefByKey = new Map<string, string>([["", allHref], ...modules.map((option) => [option.key, option.href] as [string, string])]);
   if (toxinOption) hrefByKey.set("toxin", toxinOption.href);
+  const options = [
+    { value: "", label: allLabel },
+    ...modules.map((option) => ({ value: option.key, label: option.label })),
+    ...(toxinOption ? [{ value: "toxin", label: toxinOption.label }] : []),
+  ];
   return (
     <div className={`vr-module-legend${busy ? " busy" : ""}`} role="group" aria-label={ariaLabel} aria-busy={busy}>
-      <AnimatedTabs
-        ariaLabel={ariaLabel}
-        value={selected}
-        onChange={(key) => {
+      <TextField
+        select
+        label={ariaLabel}
+        value={options.some((option) => option.value === selected) ? selected : ""}
+        onChange={(event) => {
+          const key = event.target.value;
           const href = hrefByKey.get(key);
           if (href) navigate(key, href);
         }}
-        items={[
-          { value: "", label: allLabel },
-          ...modules.map((option) => ({ value: option.key, label: option.label })),
-          ...(toxinOption ? [{ value: "toxin", label: toxinOption.label }] : []),
-        ]}
-      />
+        sx={{ width: { xs: 1, md: 180 }, flexShrink: 0 }}
+        slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+      >
+        {options.map((option) => (
+          <MenuItem key={option.value || "all"} value={option.value}>
+            {option.label}
+          </MenuItem>
+        ))}
+      </TextField>
     </div>
   );
 }

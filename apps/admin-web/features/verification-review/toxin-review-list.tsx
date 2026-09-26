@@ -1,6 +1,10 @@
 "use client";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
+import ButtonBase from "@mui/material/ButtonBase";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { TableHeadCustom } from "@/components/minimal/table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -17,7 +21,6 @@ import TableCell from "@mui/material/TableCell";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { faro } from "@grafana/faro-web-sdk";
 
-import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ToxinTask } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";
@@ -111,65 +114,65 @@ export function ToxinReviewList({
   return (
     <>
       {feedback.status ? (
-        <Alert severity={feedback.status === "success" ? "info" : "error"} style={{ marginBottom: 12 }}>
+        <Alert severity={feedback.status === "success" ? "info" : "error"} sx={{ mx: 2.5, mt: 2.5 }}>
           {/* Unmapped error codes render nothing rather than leaking the raw token. */}
           {feedbackText || (feedback.status === "error" ? copy(pageContract, "feedback.failed", "") : "")}
         </Alert>
       ) : null}
 
-      <div className="twrap tablewrap" tabIndex={0} role="group">
-        <Table data-enh="1" className="vr-table toxin-review-table">
-          <TableHead>
-            <TableRow>
-              <TableCell component="th">{text("toxin.drawer.title")}</TableCell>
-              <TableCell component="th">{text("toxin.drawer.reading")}</TableCell>
-              <TableCell component="th">{copy(pageContract, "drawer.meta.status")}</TableCell>
-            </TableRow>
-          </TableHead>
+      {/* Template list table: Scrollbar + TableHeadCustom, hover rows, soft status Label. Each cell
+          is a full-width ButtonBase so the whole row opens the local drawer (never a navigation). */}
+      <Scrollbar>
+        <Table className="toxin-review-table" sx={{ minWidth: 720 }}>
+          <TableHeadCustom
+            headCells={[
+              { id: "test", label: text("toxin.drawer.title") },
+              { id: "reading", label: text("toxin.drawer.reading") },
+              { id: "status", label: copy(pageContract, "drawer.meta.status") },
+            ]}
+          />
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={3}>
-                  <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                    {text("toxin.state.empty")}
-                  </div>
+                  <EmptyContent filled role="status" title={text("toxin.state.empty")} sx={{ py: 10 }} />
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((row, rowIndex) => (
-                <TableRow key={row.taskId} className="vr-row cx-row" style={{ "--i": rowIndex } as React.CSSProperties}>
+              rows.map((row) => (
+                <TableRow key={row.taskId} hover>
                   <TableCell>
-                    <button type="button" className="vr-rowlink toxin-row-button" onClick={() => openRow(row.taskId)}>
-                      <div className="vr-subj">
-                        <span className="t">{row.contextLine}</span>
-                        {/* The purchase date is NOT repeated here: context_line already ends with
-                            it, and rendering both showed the same day twice in two formats
-                            (2026-08-26 then 26-08-2026). The second line carries only what the
-                            context line does not say — the retest round, when there is one. */}
-                        {row.roundChip ? (
-                          <span className="m">
-                            <span className="chip count">{row.roundChip}</span>
-                          </span>
-                        ) : null}
-                      </div>
-                    </button>
+                    <ButtonBase onClick={() => openRow(row.taskId)} sx={ROW_BUTTON_SX}>
+                      <Box component="span" sx={{ display: "block", typography: "body2" }}>
+                        {row.contextLine}
+                      </Box>
+                      {/* The purchase date is NOT repeated here: context_line already ends with
+                          it, and rendering both showed the same day twice in two formats
+                          (2026-08-26 then 26-08-2026). The second line carries only what the
+                          context line does not say — the retest round, when there is one. */}
+                      {row.roundChip ? (
+                        <Box component="span" sx={{ mt: 0.5, display: "block" }}>
+                          <Label variant="soft" color="info">{row.roundChip}</Label>
+                        </Box>
+                      ) : null}
+                    </ButtonBase>
                   </TableCell>
-                  <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
-                    <button type="button" className="toxin-row-button" onClick={() => openRow(row.taskId)}>
+                  <TableCell sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>
+                    <ButtonBase onClick={() => openRow(row.taskId)} sx={ROW_BUTTON_SX}>
                       {row.outcomeLabel || "—"}
-                    </button>
+                    </ButtonBase>
                   </TableCell>
-                  <TableCell style={{ whiteSpace: "nowrap" }}>
-                    <button type="button" className="toxin-row-button" onClick={() => openRow(row.taskId)}>
-                      <Tag tone="warn">{row.statusChip}</Tag>
-                    </button>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>
+                    <ButtonBase onClick={() => openRow(row.taskId)} sx={ROW_BUTTON_SX}>
+                      <Label variant="soft" color="warning">{row.statusChip}</Label>
+                    </ButtonBase>
                   </TableCell>
                 </TableRow>
               ))
             )}
           </TableBody>
         </Table>
-      </div>
+      </Scrollbar>
 
       <ToxinDrawer
         // Keyed by the selected task so drawer-local state (the reject reason draft) resets when a
@@ -328,3 +331,6 @@ function ToxinDrawer({
 }
 
 const VERDICT_FORM_ID = "toxin-verdict-form";
+
+// A full-cell tap target (>= 44px) that reads as plain table text: the row, not a button, is the affordance.
+const ROW_BUTTON_SX = { display: "block", width: 1, minHeight: 44, textAlign: "left", font: "inherit", color: "inherit" } as const;

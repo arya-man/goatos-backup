@@ -5,7 +5,8 @@
 //    row may be a head count rather than rupees;
 //  - an optional `caption` line under the bar (e.g. where a band's weights came from) and a
 //    `color` per row instead of the template's match on its demo labels;
-//  - `children` render at the foot of the card (a footnote the section owes its reader).
+//  - `children` render at the foot of the card (a footnote the section owes its reader);
+//  - a row `label` may be a node (e.g. a link to the filtered queue), keyed by an optional `key`.
 
 import type { CardProps } from '@mui/material/Card';
 import type { LinearProgressProps } from '@mui/material/LinearProgress';
@@ -24,13 +25,16 @@ import { fPercent } from '@/components/minimal/_shared/format-number';
 type Props = Omit<CardProps, 'title'> & {
   title?: React.ReactNode;
   subheader?: React.ReactNode;
-  data: {
-    label: string;
-    value: number;
-    display: string;
-    caption?: string;
-    color?: LinearProgressProps['color'];
-  }[];
+  data: EcommerceSalesOverviewItem[];
+};
+
+export type EcommerceSalesOverviewItem = {
+  key?: string;
+  label: React.ReactNode;
+  value: number;
+  display: React.ReactNode;
+  caption?: React.ReactNode;
+  color?: LinearProgressProps['color'];
 };
 
 export function EcommerceSalesOverview({ title, subheader, data, sx, children, ...other }: Props) {
@@ -48,7 +52,7 @@ export function EcommerceSalesOverview({ title, subheader, data, sx, children, .
         }}
       >
         {data.map((progress) => (
-          <Item key={progress.label} progress={progress} />
+          <Item key={progress.key ?? String(progress.label)} progress={progress} />
         ))}
 
         {children}
@@ -92,7 +96,7 @@ function Item({ progress }: ItemProps) {
         color={color}
         variant="determinate"
         value={progress.value}
-        aria-label={progress.label}
+        aria-label={typeof progress.label === "string" ? progress.label : undefined}
         sx={[
           (theme) => ({
             height: 8,

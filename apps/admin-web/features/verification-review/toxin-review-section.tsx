@@ -8,7 +8,6 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 // "toxin_tab", false), and the endpoint independently requires toxin.verdict — the two halves of
 // the role-scoped-UI lock (docs/decisions/role-scoped-ui-is-capability-gated.md). Toxin is
 // deliberately NOT a verification category; the tenant verifier never sees this screen.
-import Link from "@/components/no-prefetch-link";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listToxinReview } from "@/lib/api/server";
@@ -18,10 +17,10 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ToxinReviewList } from "./toxin-review-list";
 import Alert from "@mui/material/Alert";
 import { PageHeader } from "@/components/app/page-header";
-import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
-import CardHeader from "@mui/material/CardHeader";
-import { LinkButton } from "@/components/minimal/link-button";
+import Typography from "@mui/material/Typography";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TablePaginationLinks } from "@/components/minimal/table";
 
 const PATHNAME = "/verify";
 
@@ -46,50 +45,51 @@ export async function ToxinReviewScreen({
   const returnTo = hrefWith(sp, { tx_status: null, tx_code: null });
 
   return (
-    <div className="screen on">
+    <>
       <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />
 
       {page.ok ? null : (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           <b>{copy(pageContract, "state.queue_unavailable")}</b>
-          <div className="small muted" style={{ marginTop: 4 }}>
+          <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
             {page.error.code ?? page.error.kind} · {page.error.message}
-          </div>
+          </Typography>
         </Alert>
       )}
 
-      <Card className="vr-board" sx={{ minWidth: 0 }}>
-        <CardHeader title={copy(pageContract, "board.title")} />
-
-        {/* The way back to the verification queue plus the active Toxin chip — the same .vr-lg
-            vocabulary as the queue's module chip row, so the toggle reads as one chip family. */}
-        <Box className="vr-legend" role="group" aria-label={toxinLabel} sx={{ px: 3, pt: 2 }}>
-          <Link href={hrefWith(sp, { toxin: null, tx_cursor: null, tx_status: null, tx_code: null })} replace scroll={false} className="vr-lg">
-            {copy(pageContract, "filter.all_modules")}
-          </Link>
-          <span className="vr-lg on">{toxinLabel}</span>
-        </Box>
+      {/* Template list card (InvoiceListView): the Tabs row carries the way back to the verification
+          queue and the active Toxin tab, then the table and the pagination footer. */}
+      <Card className="vr-board" aria-label={copy(pageContract, "board.title")} sx={{ minWidth: 0 }}>
+        <AnimatedTabs
+          ariaLabel={toxinLabel}
+          value="toxin"
+          sx={{ px: { md: 2.5 } }}
+          items={[
+            { value: "all", label: copy(pageContract, "filter.all_modules"), href: hrefWith(sp, { toxin: null, tx_cursor: null, tx_status: null, tx_code: null }) },
+            { value: "toxin", label: toxinLabel },
+          ]}
+        />
 
         <ToxinReviewList tasks={tasks} pageContract={pageContract} returnTo={returnTo} feedback={feedback} />
 
         {nextCursor || cursor ? (
-          <Box className="pager" sx={{ px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
-            {cursor ? (
-              // Keyset cursors only read forward; "back" returns to the first page rather than
-              // growing a trail — the review backlog is expected to stay shallow.
-              <LinkButton href={hrefWith(sp, { tx_cursor: null, tx_status: null, tx_code: null })} size="small" variant="outlined" color="inherit" replace scroll={false}>
-                {copy(pageContract, "pagination.previous")}
-              </LinkButton>
-            ) : null}
-            {nextCursor ? (
-              <LinkButton href={hrefWith(sp, { tx_cursor: nextCursor, tx_status: null, tx_code: null })} size="small" variant="outlined" color="inherit" replace scroll={false}>
-                {copy(pageContract, "pagination.next")}
-              </LinkButton>
-            ) : null}
-          </Box>
+          // Keyset cursors only read forward; "back" returns to the first page rather than growing a
+          // trail — the review backlog is expected to stay shallow.
+          <TablePaginationLinks
+            className="pager"
+            page={cursor ? 1 : 0}
+            rowsPerPage={20}
+            count={-1}
+            replace
+            rangeLabel=""
+            prevLabel={copy(pageContract, "pagination.previous")}
+            nextLabel={copy(pageContract, "pagination.next")}
+            prevHref={cursor ? hrefWith(sp, { tx_cursor: null, tx_status: null, tx_code: null }) : null}
+            nextHref={nextCursor ? hrefWith(sp, { tx_cursor: nextCursor, tx_status: null, tx_code: null }) : null}
+          />
         ) : null}
       </Card>
-    </div>
+    </>
   );
 }
 

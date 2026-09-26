@@ -1,10 +1,19 @@
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
-import { SvgColumnBars } from "@/components/svg-column-bars";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { TableHeadCustom } from "@/components/minimal/table";
+import { EcommerceSalesOverview, type EcommerceSalesOverviewItem } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
+import { AnalyticsWebsiteVisits } from "@/components/minimal/sections/overview/analytics/analytics-website-visits";
+import { OversightKpis, type OversightKpi } from "./oversight-kpis";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getVerificationOversightAnalytics } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
@@ -20,14 +29,12 @@ import { fmtDate } from "@/lib/format";
  * this component reads, so a verifier's build never even calls the endpoint. This component reads
  * the contract for copy only, never for its own gating decision -- it trusts the caller.
  *
- * Anatomy is the mock's console primitives (`card > .hd/.bd`, `.grid .kpi .lab/.val/.dl` with a
- * tone `.stripe`, `.bar > i`), NOT locally invented tiles. The previous build put a bare `.bt`
- * title and inline-styled divs straight inside a padding-less `.card`, so every label sat flush on
- * the card edge with no rhythm, and the two "insight" rows were flat blue `Tag` chips that carried
- * a number with nothing to compare it against. Module backlog is now a ranked bar per module --
- * which module is the bottleneck is the actual question a CEO opens this section to answer.
+ * Anatomy is the template overview (Minimal sections/overview): BankingWidgetSummary KPI tiles,
+ * EcommerceSalesOverview progress cards for the module backlog (ranked -- which module is the
+ * bottleneck is the question a CEO opens this for) and the backlog age shape, AnalyticsWebsiteVisits
+ * for the 14-day verdicts-vs-arrivals columns, and a CardHeader + Scrollbar table for verifiers.
  *
- * Tone stripes are fixed per metric MEANING (backlog/oldest = warn, throughput = ok, projection and
+ * Tones are fixed per metric MEANING (backlog/oldest = warn, throughput = ok, projection and
  * reject rate = info/neutral). They are deliberately NOT threshold-driven: a colour that flips at
  * "72h" would read as a review SLA, and no such business rule has been decided.
  */
@@ -48,7 +55,7 @@ export async function OversightAnalytics({
 }) {
   const result = await getVerificationOversightAnalytics();
   if (!result.ok) {
-    return <div className="small muted">{copy(pageContract, "oversight_analytics.unavailable")}</div>;
+    return <EmptyContent title={copy(pageContract, "oversight_analytics.unavailable")} sx={{ py: 5 }} />;
   }
   const {
     kpis,
@@ -75,11 +82,11 @@ export async function OversightAnalytics({
   // videos_waiting, so this total is that headline number -- not a second opinion about it.
   const ageTotal =
     ageBuckets.up_to_1_day + ageBuckets.one_to_three_days + ageBuckets.three_to_seven_days + ageBuckets.over_seven_days;
-  const ageSegments: Array<{ key: string; count: number; tone: string }> = [
-    { key: "up_to_1_day", count: ageBuckets.up_to_1_day, tone: "var(--ok)" },
-    { key: "one_to_three_days", count: ageBuckets.one_to_three_days, tone: "var(--info)" },
-    { key: "three_to_seven_days", count: ageBuckets.three_to_seven_days, tone: "var(--warn)" },
-    { key: "over_seven_days", count: ageBuckets.over_seven_days, tone: "var(--danger)" },
+  const ageSegments: Array<{ key: string; count: number; color: "success" | "info" | "warning" | "error" }> = [
+    { key: "up_to_1_day", count: ageBuckets.up_to_1_day, color: "success" },
+    { key: "one_to_three_days", count: ageBuckets.one_to_three_days, color: "info" },
+    { key: "three_to_seven_days", count: ageBuckets.three_to_seven_days, color: "warning" },
+    { key: "over_seven_days", count: ageBuckets.over_seven_days, color: "error" },
   ];
 
   // Trajectory over the same 14 days the chart draws: what arrived minus what was decided. Positive
@@ -89,238 +96,183 @@ export async function OversightAnalytics({
   const verdicts14d = dailyVolume.reduce((total, day) => total + day.verdicts, 0);
   const netChange = arrived14d - verdicts14d;
 
+  // Tone per metric MEANING (backlog/oldest = warning, throughput = success, projection = info,
+  // reject rate = neutral) -- deliberately not threshold-driven: no review SLA has been decided.
+  const kpiItems: OversightKpi[] = [
+    {
+      key: "videos_waiting",
+      title: copy(pageContract, "oversight_analytics.videos_waiting"),
+      total: formatCount(kpis.videos_waiting),
+      hint: largest ? `${label(largest.module, largest.module_label)} · ${copy(pageContract, "oversight_analytics.largest_backlog")}` : undefined,
+      color: "warning",
+      icon: "solar:inbox-in-bold-duotone",
+    },
+    {
+      key: "oldest_pending",
+      title: copy(pageContract, "oversight_analytics.oldest_pending"),
+      total: formatHours(kpis.oldest_pending_age_hours),
+      hint: copy(pageContract, "oversight_analytics.oldest_hint"),
+      color: "warning",
+      icon: "solar:sort-by-time-bold-duotone",
+    },
+    {
+      key: "review_speed",
+      title: copy(pageContract, "oversight_analytics.review_speed"),
+      total: `${kpis.verdicts_per_active_day_last_7d.toFixed(1)}/day`,
+      hint: copy(pageContract, "oversight_analytics.speed_hint"),
+      color: "success",
+      icon: "solar:file-check-bold-duotone",
+    },
+    {
+      key: "est_days_to_clear",
+      title: copy(pageContract, "oversight_analytics.est_days_to_clear"),
+      total: kpis.est_days_to_clear_backlog != null ? `${kpis.est_days_to_clear_backlog.toFixed(1)}d` : "—",
+      hint: copy(pageContract, "oversight_analytics.clear_hint"),
+      color: "info",
+      icon: "solar:calendar-date-bold",
+    },
+    {
+      key: "reject_rate",
+      title: copy(pageContract, "oversight_analytics.reject_rate"),
+      total: kpis.reject_rate_last_30d != null ? formatRejectRate(kpis.reject_rate_last_30d) : "—",
+      hint: copy(pageContract, "oversight_analytics.reject_hint"),
+      color: "secondary",
+      icon: "solar:file-corrupted-bold-duotone",
+    },
+  ];
+
+  const backlogRows: EcommerceSalesOverviewItem[] = backlog.map((row) => {
+    const median = medianByModule.get(row.module);
+    const name = label(row.module, row.module_label);
+    // The href comes from the backend's nav_module key, never from the source module code the row
+    // is grouped by -- "feed" is not a filter value the queue accepts. A module the registry cannot
+    // map stays plain text rather than linking somewhere that would return an unfiltered queue.
+    const href = row.nav_module ? moduleHrefs?.get(row.nav_module) : undefined;
+    return {
+      key: row.module,
+      label: href ? (
+        <Link href={href} title={copy(pageContract, "oversight_analytics.open_module_queue")} style={{ color: "inherit" }}>
+          {name}
+        </Link>
+      ) : (
+        name
+      ),
+      value: backlogPeak > 0 ? (row.count / backlogPeak) * 100 : 0,
+      display: formatCount(row.count),
+      color: row === largest ? "warning" : "primary",
+      caption:
+        median != null
+          ? `${copy(pageContract, "oversight_analytics.median_review")} ${formatHours(median)}`
+          : copy(pageContract, "oversight_analytics.no_median"),
+    };
+  });
+
+  const ageRows: EcommerceSalesOverviewItem[] = ageSegments.map((segment) => ({
+    key: segment.key,
+    label: copy(pageContract, `oversight_analytics.age.${segment.key}`),
+    value: ageTotal > 0 ? (segment.count / ageTotal) * 100 : 0,
+    display: formatCount(segment.count),
+    color: segment.color,
+  }));
+
+  const trendSubheader = `${copy(pageContract, "oversight_analytics.trend.verdicts_noun")} ${formatCount(verdicts14d)} · ${copy(pageContract, "oversight_analytics.trend.arrived_noun")} ${formatCount(arrived14d)} · ${
+    netChange === 0
+      ? copy(pageContract, "oversight_analytics.trend.flat")
+      : `${copy(pageContract, netChange > 0 ? "oversight_analytics.trend.grew" : "oversight_analytics.trend.shrank")} ${formatCount(Math.abs(netChange))}`
+  }`;
+
+  // Template overview composition inside the drawer: KPI tiles on the Grid, then the chart cards
+  // stacked (EcommerceSalesOverview progress lists, AnalyticsWebsiteVisits paired columns), then
+  // the per-verifier table card (EcommerceBestSalesman anatomy: CardHeader + Scrollbar table).
   return (
-    <div className="vr-oversight">
-      <div>
-        <div className="grid vr-okpis">
-          <Kpi
-            tone="warn"
-            label={copy(pageContract, "oversight_analytics.videos_waiting")}
-            value={formatCount(kpis.videos_waiting)}
-            detail={
-              largest
-                ? `${label(largest.module, largest.module_label)} · ${copy(pageContract, "oversight_analytics.largest_backlog")}`
-                : undefined
-            }
-          />
-          <Kpi
-            tone="warn"
-            label={copy(pageContract, "oversight_analytics.oldest_pending")}
-            value={formatHours(kpis.oldest_pending_age_hours)}
-            detail={copy(pageContract, "oversight_analytics.oldest_hint")}
-          />
-          <Kpi
-            tone="ok"
-            label={copy(pageContract, "oversight_analytics.review_speed")}
-            value={`${kpis.verdicts_per_active_day_last_7d.toFixed(1)}/day`}
-            detail={copy(pageContract, "oversight_analytics.speed_hint")}
-          />
-          <Kpi
-            tone="info"
-            label={copy(pageContract, "oversight_analytics.est_days_to_clear")}
-            value={kpis.est_days_to_clear_backlog != null ? `${kpis.est_days_to_clear_backlog.toFixed(1)}d` : "—"}
-            detail={copy(pageContract, "oversight_analytics.clear_hint")}
-          />
-          <Kpi
-            tone="mut"
-            label={copy(pageContract, "oversight_analytics.reject_rate")}
-            value={kpis.reject_rate_last_30d != null ? formatRejectRate(kpis.reject_rate_last_30d) : "—"}
-            detail={copy(pageContract, "oversight_analytics.reject_hint")}
-          />
-        </div>
+    <Stack spacing={3}>
+      <OversightKpis items={kpiItems} />
 
-        <div className="vr-osec">
-          <div className="vr-osec-hd">{copy(pageContract, "oversight_analytics.pending_by_module")}</div>
-          {backlog.length ? (
-            <div className="vr-omods">
-              {backlog.map((row) => {
-                const median = medianByModule.get(row.module);
-                // The href comes from the backend's nav_module key, never from the source module
-                // code the row is grouped by -- "feed" is not a filter value the queue accepts.
-                // A module the registry cannot map stays a plain, non-clickable card rather than
-                // linking somewhere that would silently return an unfiltered queue.
-                const href = row.nav_module ? moduleHrefs?.get(row.nav_module) : undefined;
-                const body = (
-                  <>
-                    <div className="t">
-                      <span className="n">{label(row.module, row.module_label)}</span>
-                      <b>{formatCount(row.count)}</b>
-                    </div>
-                    <div className="bar">
-                      <i style={{ width: `${backlogPeak > 0 ? Math.max(3, (row.count / backlogPeak) * 100) : 0}%` }} />
-                    </div>
-                    <div className="m">
-                      {median != null
-                        ? `${copy(pageContract, "oversight_analytics.median_review")} ${formatHours(median)}`
-                        : copy(pageContract, "oversight_analytics.no_median")}
-                    </div>
-                  </>
-                );
-                if (!href) {
-                  return (
-                    <div key={row.module} className="vr-omod">
-                      {body}
-                    </div>
-                  );
-                }
-                return (
-                  <Link
-                    key={row.module}
-                    href={href}
-                    className="vr-omod vr-omod-link"
-                    title={copy(pageContract, "oversight_analytics.open_module_queue")}
-                  >
-                    {body}
-                    <span className="go">{copy(pageContract, "oversight_analytics.open_module_queue")}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="small muted">{copy(pageContract, "oversight_analytics.no_backlog")}</div>
-          )}
-        </div>
+      {backlog.length ? (
+        <EcommerceSalesOverview title={copy(pageContract, "oversight_analytics.pending_by_module")} data={backlogRows} />
+      ) : (
+        <Card>
+          <CardHeader title={copy(pageContract, "oversight_analytics.pending_by_module")} />
+          <EmptyContent title={copy(pageContract, "oversight_analytics.no_backlog")} sx={{ py: 5 }} />
+        </Card>
+      )}
 
-        <div className="vr-osec">
-          <div className="vr-osec-hd">{copy(pageContract, "oversight_analytics.age_shape")}</div>
-          {ageTotal > 0 ? (
-            <>
-              {/* One stacked bar, oldest on the right: the red tail IS the problem, and its width is
-                  the share of the backlog that has waited more than a week. */}
-              <div className="vr-agebar" role="img" aria-label={copy(pageContract, "oversight_analytics.age_shape")}>
-                {ageSegments
-                  .filter((segment) => segment.count > 0)
-                  .map((segment, segIndex) => (
-                    <span
-                      key={segment.key}
-                      className="hbfill"
-                      style={{ width: `${(segment.count / ageTotal) * 100}%`, background: segment.tone, "--i": segIndex } as React.CSSProperties}
-                      title={`${copy(pageContract, `oversight_analytics.age.${segment.key}`)}: ${formatCount(segment.count)}`}
-                    />
-                  ))}
-              </div>
-              <div className="vr-agelegend">
-                {ageSegments.map((segment) => (
-                  <span key={segment.key}>
-                    <i style={{ background: segment.tone }} />
-                    {copy(pageContract, `oversight_analytics.age.${segment.key}`)}
-                    <b>{formatCount(segment.count)}</b>
-                  </span>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="small muted">{copy(pageContract, "oversight_analytics.no_backlog")}</div>
-          )}
-        </div>
+      {ageTotal > 0 ? (
+        <EcommerceSalesOverview title={copy(pageContract, "oversight_analytics.age_shape")} data={ageRows} />
+      ) : (
+        <Card>
+          <CardHeader title={copy(pageContract, "oversight_analytics.age_shape")} />
+          <EmptyContent title={copy(pageContract, "oversight_analytics.no_backlog")} sx={{ py: 5 }} />
+        </Card>
+      )}
 
-        <div className="vr-osec">
-          <div className="vr-osec-hd">{copy(pageContract, "oversight_analytics.trend")}</div>
-          {/* Verdicts beside arrivals, one pair of columns per day on one shared scale: keeping up
-              looks like pairs of equal height, and falling behind is visible without reading a
-              number. The foot below names both series in the chart's own colours. */}
-          <SvgColumnBars
-            data={dailyVolume.map((day) => ({
-              key: day.business_date,
-              label: fmtDate(day.business_date),
-              value: day.verdicts,
-              compareValue: day.arrived,
-            }))}
-            chartLabel={copy(pageContract, "oversight_analytics.trend")}
-            valueNoun={copy(pageContract, "oversight_analytics.trend.verdicts_noun")}
-            compareNoun={copy(pageContract, "oversight_analytics.trend.arrived_noun")}
-            emptyLabel={copy(pageContract, "oversight_analytics.trend.empty")}
-          />
-          <div className="vr-trendfoot">
-            <span className="k">
-              <i style={{ background: "var(--brand)" }} />
-              {copy(pageContract, "oversight_analytics.trend.verdicts_noun")} {formatCount(verdicts14d)}
-            </span>
-            <span className="k">
-              <i style={{ background: "var(--amber)" }} />
-              {copy(pageContract, "oversight_analytics.trend.arrived_noun")} {formatCount(arrived14d)}
-            </span>
-            <b className={netChange > 0 ? "bad" : netChange < 0 ? "good" : undefined}>
-              {netChange === 0
-                ? copy(pageContract, "oversight_analytics.trend.flat")
-                : `${copy(
-                    pageContract,
-                    netChange > 0 ? "oversight_analytics.trend.grew" : "oversight_analytics.trend.shrank",
-                  )} ${formatCount(Math.abs(netChange))}`}
-            </b>
-          </div>
-        </div>
+      {/* Verdicts beside arrivals, one pair of columns per day on one shared scale: keeping up looks
+          like pairs of equal height, and falling behind is visible without reading a number. */}
+      {dailyVolume.length ? (
+        <AnalyticsWebsiteVisits
+          title={copy(pageContract, "oversight_analytics.trend")}
+          subheader={trendSubheader}
+          chart={{
+            categories: dailyVolume.map((day) => fmtDate(day.business_date)),
+            series: [
+              { name: copy(pageContract, "oversight_analytics.trend.verdicts_noun"), data: dailyVolume.map((day) => day.verdicts) },
+              { name: copy(pageContract, "oversight_analytics.trend.arrived_noun"), data: dailyVolume.map((day) => day.arrived) },
+            ],
+          }}
+        />
+      ) : (
+        <Card>
+          <CardHeader title={copy(pageContract, "oversight_analytics.trend")} />
+          <EmptyContent title={copy(pageContract, "oversight_analytics.trend.empty")} sx={{ py: 5 }} />
+        </Card>
+      )}
 
-        {verifierActivity.length ? (
-          <div className="vr-osec">
-            <div className="vr-osec-hd">{copy(pageContract, "oversight_analytics.verifier_activity")}</div>
-            <div className="tablewrap" style={{ overflowX: "auto" }}>
-              <Table data-enh="1" className="vr-table vr-otable">
-                <TableHead>
-                  <TableRow>
-                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.verifier")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.verdicts")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.approved")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.rejected")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.busiest_day")}</TableCell>
-                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.watch_integrity")}</TableCell>
+      {verifierActivity.length ? (
+        <Card>
+          <CardHeader title={copy(pageContract, "oversight_analytics.verifier_activity")} sx={{ mb: 3 }} />
+          <Scrollbar>
+            <Table sx={{ minWidth: 640 }}>
+              <TableHeadCustom
+                headCells={[
+                  { id: "verifier", label: copy(pageContract, "oversight_analytics.col.verifier") },
+                  { id: "verdicts", label: copy(pageContract, "oversight_analytics.col.verdicts"), align: "right" },
+                  { id: "approved", label: copy(pageContract, "oversight_analytics.col.approved"), align: "right" },
+                  { id: "rejected", label: copy(pageContract, "oversight_analytics.col.rejected"), align: "right" },
+                  { id: "busiest_day", label: copy(pageContract, "oversight_analytics.col.busiest_day") },
+                  { id: "watch_integrity", label: copy(pageContract, "oversight_analytics.col.watch_integrity") },
+                ]}
+              />
+              <TableBody>
+                {verifierActivity.map((row) => (
+                  <TableRow key={row.verifier_id} hover>
+                    <TableCell>{verifierLabel(row)}</TableCell>
+                    <TableCell align="right">{formatCount(row.verdicts)}</TableCell>
+                    <TableCell align="right">{formatCount(row.approved)}</TableCell>
+                    <TableCell align="right">{formatCount(row.rejected)}</TableCell>
+                    <TableCell sx={{ color: "text.secondary" }}>{row.busiest_day || "—"}</TableCell>
+                    <TableCell>
+                      {/* Each is a separate fact about how the videos were actually watched, so each
+                          gets its own soft Label. */}
+                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                        <Label variant="soft">
+                          {formatCount(row.items_tracked)} {copy(pageContract, "oversight_analytics.tracked")}
+                        </Label>
+                        <Label variant="soft" color="success">
+                          {formatCount(row.watched_to_end_count)} {copy(pageContract, "oversight_analytics.watched_full")}
+                        </Label>
+                        <Label variant="soft" color={row.verdict_without_play_count > 0 ? "error" : "default"}>
+                          {formatCount(row.verdict_without_play_count)} {copy(pageContract, "oversight_analytics.no_play")}
+                        </Label>
+                      </Box>
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {verifierActivity.map((row, rowIndex) => (
-                    <TableRow key={row.verifier_id} className="cx-row" style={{ "--i": rowIndex } as React.CSSProperties}>
-                      <TableCell>{verifierLabel(row)}</TableCell>
-                      <TableCell className="num">{formatCount(row.verdicts)}</TableCell>
-                      <TableCell className="num">{formatCount(row.approved)}</TableCell>
-                      <TableCell className="num">{formatCount(row.rejected)}</TableCell>
-                      <TableCell className="muted">{row.busiest_day || "—"}</TableCell>
-                      <TableCell>
-                        {/* Was one run-on sentence of three numbers; each is a separate fact about
-                            how the videos were actually watched, so each gets its own pill. */}
-                        <div className="vr-owatch">
-                          <span>
-                            <b>{formatCount(row.items_tracked)}</b> {copy(pageContract, "oversight_analytics.tracked")}
-                          </span>
-                          <span>
-                            <b>{formatCount(row.watched_to_end_count)}</b>{" "}
-                            {copy(pageContract, "oversight_analytics.watched_full")}
-                          </span>
-                          <span className={row.verdict_without_play_count > 0 ? "bad" : undefined}>
-                            <b>{formatCount(row.verdict_without_play_count)}</b>{" "}
-                            {copy(pageContract, "oversight_analytics.no_play")}
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function Kpi({
-  tone,
-  label,
-  value,
-  detail,
-}: {
-  tone: "ok" | "warn" | "danger" | "info" | "mut";
-  label: string;
-  value: string;
-  detail?: string;
-}) {
-  return (
-    <div className={`kpi ${tone}`}>
-      <span className="stripe" />
-      <div className="lab">{label}</div>
-      <div className="val">{value}</div>
-      {detail ? <div className="dl muted">{detail}</div> : null}
-    </div>
+                ))}
+              </TableBody>
+            </Table>
+          </Scrollbar>
+        </Card>
+      ) : null}
+    </Stack>
   );
 }
 
@@ -354,7 +306,9 @@ function verifierLabel(row: { verifier_id: string; verifier_name?: string | null
   return (
     <span>
       Automated / unassigned account{" "}
-      <span className="muted small mono">{row.verifier_id.slice(0, 8)}</span>
+      <Box component="span" sx={{ color: "text.disabled", typography: "caption", fontFamily: "monospace" }}>
+        {row.verifier_id.slice(0, 8)}
+      </Box>
     </span>
   );
 }

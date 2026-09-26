@@ -95,16 +95,6 @@
    field/card rhythm. Deprecated surfaces stay out of this sweep. */
 @media(max-width:640px){
 
-  /* Verification: make the queue reachable on first scroll and keep the tabs readable. */
-  .vr-module-legend{margin-inline:0;padding:0;mask-image:none}
-  .vr-frow{gap:12px!important;margin:16px 0!important}
-  .screen .vr-fld>label,.screen .vr-fld-spacer{font-size:11px!important;line-height:14px!important;min-height:0!important}
-  .screen .vr-date-fld .date-scope>button,
-  .vr-selbtn,
-  .vr-frow .btn,
-  .vr-frow .lk{min-height:48px!important;border-radius:14px!important;font-size:13px!important}
-  .vr-selbtn,.vr-frow .btn,.vr-frow .lk{width:100%!important;max-width:none!important}
-  .vr-frow .lk{min-height:44px!important;font-size:12px!important}
 
   /* Counts: KPI tiles should scan like compact dashboard stats, with the table/farm section sooner. */
   .counts-breakdown-page .counts-breakdown-kpi-deck,
@@ -141,33 +131,6 @@
 
   /* Sales: keep tone in the small icon badge; labels stay calm like the template cards. */
   .sales-kpi-row .kit-iconbadge{width:36px!important;height:36px!important;border-radius:12px!important;opacity:.9}
-}
-
-@media(max-width:640px){
-  .vr-board table.vr-table td .vr-rowlink{display:grid!important;grid-template-columns:minmax(82px,34%) minmax(0,1fr)!important;align-items:center!important;justify-content:normal!important;text-align:left!important}
-  .vr-board table.vr-table td .vr-rowlink::before{min-width:0!important;white-space:normal!important;line-height:1.2!important}
-  .vr-board table.vr-table td .vr-rowlink>*{text-align:left!important;white-space:normal!important;overflow-wrap:normal!important;word-break:normal!important}
-  .vr-board table.toxin-review-table td .toxin-row-button.vr-rowlink,
-  .vr-board table.toxin-review-table td .toxin-row-button{
-    display:grid!important;
-    grid-template-columns:1fr!important;
-    gap:6px!important;
-    align-items:start!important;
-    justify-items:start!important;
-    text-align:left!important;
-  }
-  .vr-board table.toxin-review-table td .toxin-row-button::before{
-    min-width:0!important;
-    white-space:normal!important;
-    line-height:1.2!important;
-  }
-  .vr-board table.toxin-review-table td .toxin-row-button>*{
-    min-width:0!important;
-    max-width:100%!important;
-    text-align:left!important;
-    white-space:normal!important;
-    overflow-wrap:anywhere!important;
-  }
 }
 
 /* ---- Drawer / Sheet ---- */
@@ -225,7 +188,7 @@
 .wrap small,.wrap .small,.wrap .pill,.wrap .ti,.wrap .mode,.wrap .cbm-rowh-note,.wrap .cbm-cell-date,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .wcomp-chip,.wrap .cbq,.wrap .wfsub,.wrap .here,.wrap .nxt,.wrap .cbm-cell small,.wrap .tag,.wrap .faint,.wrap .col .n{font-size:max(11px,1em)}
 .wrap small,.wrap .small,.wrap .pill,.wrap .ti,.wrap .mode,.wrap .cbm-rowh-note,.wrap .cbm-cell-date,.wrap .date-scope-label,.wrap .top-date-weekday,.wrap .wcomp-chip,.wrap .cbq,.wrap .wfsub,.wrap .here,.wrap .nxt,.wrap .cbm-cell small,.wrap .tag,.wrap .faint,.wrap .col .n{font-size:11px}
 .wrap .small,.wrap small{font-size:12px}
-.wrap .cbm-heat td.cbm-cell small,.wrap .cbm-cohort-heat td.cbm-cell small,.wrap .vr-thumb .n,.wrap .wcomp-chip span,.wrap .subtabs .cbq{font-size:11px}
+.wrap .cbm-heat td.cbm-cell small,.wrap .cbm-cohort-heat td.cbm-cell small,.wrap .wcomp-chip span,.wrap .subtabs .cbq{font-size:11px}
 /* Window chip: the trigger grows to its own text ("01/08/2026 to 19/09/2026") instead of ellipsising it. */
 /* The date field never shrinks below its own text (min 240px) and the bar wraps with a 12px gap, so
    sibling fields cannot overlap at any width (owner shot 35: Period text under the Weighing select). */
@@ -268,7 +231,7 @@
   :root .main .move-date-popover,:root .main .top-date-popover{width:min(100vw - 16px,360px);max-width:calc(100vw - 16px);left:0;right:auto;padding:12px}
   :root .main .top-date-grid{gap:1px}
   :root .main .lt-livebar .livebadge{min-height:44px;min-width:44px}
-  :root .main .vr-legend a.vr-lg,:root .main .fbar a.btn{min-height:44px}
+  :root .main .fbar a.btn{min-height:44px}
   :root .main .cfgchk label,:root .main label.chkline{min-height:44px;display:inline-flex;align-items:center;gap:8px}
   :root .main .market-config-line input{min-height:44px;min-width:44px;width:auto;flex:1 1 44px}
   :root .main .qcard .ia{min-width:44px}
@@ -389,7 +352,6 @@ aside.drawer{border-radius:16px 0 0 16px;box-shadow:var(--shadow-dialog);border:
 .wrap .pager2 .btn{min-height:36px}
 /* An empty chart card collapses to its content: no fixed chart-height box around the empty state. */
 .wbars-empty.wbars-tall,.wbars-empty.wbars-short,.wbars-empty.wbars-bands{height:auto;min-height:0}
-.vr-module-legend{margin-bottom:16px}
 .btn[aria-disabled="true"]{opacity:.45;pointer-events:none}
 /* Section bar: a title with its hint on the left, ONE primary on the right; sticks under the top bar while its table scrolls. */
 .kit-section-bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;background:var(--bg)}
@@ -582,11 +544,6 @@ body aside.drawer .dc .k,body aside.drawer .dc .lbl,body aside.drawer .dc .fld>l
   .wb .parkpick{height:auto!important;min-height:44px}
 }
 
-/* Verification, phone: the filter link meets the 44px touch floor (the 640px compaction above had
-   pulled it to 32px). */
-@media(max-width:767px){
-  .vr-frow .lk{min-height:44px!important}
-}
 
 /* Weighing SOP assumptions drawer, phone: the "prices by stage" disclosure summary sits outside
    `.main`, so the generic touch floor never reached it (27px). */

@@ -91,17 +91,6 @@ test("the calendar opens fully on screen on a short window", () => {
   assert.match(pickerSource, /<CustomPopover open=\{open\} anchorEl=\{anchor\}/);
 });
 
-test("the board card does not clip the calendar popover", () => {
-  const css = readFileSync(new URL("../app/mesha-theme.css", import.meta.url), "utf8");
-  // `.card{overflow:hidden}` is declared LATER in the file and is equally specific to `.vr-board`,
-  // so a single-class override loses and the calendar gets amputated at the card's bottom edge
-  // (~200px cut with an empty board: the last two weeks and the Today button). The two-class
-  // selector is what actually wins. Reproduced live on 2026-08-12, both before and after the first
-  // one-class attempt.
-  assert.match(css, /\.card\.vr-board\{overflow:visible\}/);
-  assert.match(css, /\.card\{background:var\(--panel\)/);
-});
-
 test("date text is deterministic across server and browser locales", () => {
   // Ambient-locale formatting renders different characters on the server and the hydrated client,
   // which tears the tree down. Same rule the top-bar picker carries.

@@ -466,7 +466,7 @@
     .feed-packing-page .feed-packing-worklist>.bd:first-of-type{padding:0 16px 14px!important;gap:6px!important}
     .feed-packing-page .feed-packing-worklist>.bd:first-of-type .tag{min-height:30px;max-width:100%;font-size:11.5px;line-height:1.15;white-space:normal}
     .g4,.g3,.g2,.g5,.g6{grid-template-columns:1fr!important}
-    .qgrid,.vr-okpis,.vr-omods{grid-template-columns:1fr}
+    .qgrid{grid-template-columns:1fr}
     .charts{column-width:auto;column-count:1}
     .chartcard{padding:12px}
     .chartcard .feed-item-strip{gap:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
@@ -486,30 +486,7 @@
     .top-date-popover{right:auto;left:0;width:min(306px,calc(100vw - 24px))}
   }
 
-  /* ===== verification-review board anatomy (ported from mock/verifier-web-mock.html
-     .board/.bt/.frow/.fld/.sel/.selbtn/.legend/.lg/.secthd) — layout/CSS only, no visible copy.
-     th/td values below are the mock's real tokens, confirmed against the live console at
-     127.0.0.1:13300: th 12px/700, NO uppercase, NO letter-spacing; td 11.5px, padding 11px 12px. ===== */
-  .vr-frow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin:16px 0 14px}
-  /* Clear filters is a SECONDARY action beside a primary button. It inherited `.lk`'s blue
-     --info, off-palette in this green system and louder than the control next to it. */
-  .screen .vr-frow .lk{color:var(--muted)}
-  .screen .vr-frow .lk:hover{color:var(--brand)}
-  /* `.screen` qualifies these because the markup carries BOTH `vr-fld` and `fld`, and the generic
-     `.fld` rules (~1333 and ~1902) are declared LATER at equal specificity, so they won. That
-     stacked the label ABOVE the select instead of beside it -- which pushed "Apply filters" out of
-     line with the select it belongs to -- and rendered the label 10.5px/650 UPPERCASE with +0.5px
-     tracking instead of the spec's 12px/400 sentence case (SPEC section 4). */
-  .screen .vr-fld{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin-bottom:0}
-  .screen .vr-fld>label,.screen .vr-fld-spacer{font-size:12px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:normal;line-height:1.2;min-height:15px;margin-bottom:0;display:block}
-  .screen .vr-date-fld .date-scope{margin:0}
-  .screen .vr-date-fld .date-scope>button{min-height:40px}
-  .vr-selbtn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:18px;padding:7px 30px 7px 12px;font-size:12.5px;font-weight:550;color:var(--ink);cursor:pointer;min-width:176px;font-family:inherit}
-  .vr-selbtn:hover,.vr-selbtn:focus{border-color:var(--brand)}
-  .vr-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
   .vr-module-legend.busy{cursor:progress;opacity:.76}
-  .vr-module-legend.busy .vr-lg{pointer-events:none}
-  .vr-module-legend.busy .vr-lg.on{box-shadow:inset 0 0 0 1px var(--ring)}
   .vr-results-zone{position:relative;min-height:190px}
   .vr-results-loading{display:none;position:absolute;inset:0;z-index:2;padding:8px 0;background:linear-gradient(180deg,color-mix(in srgb,var(--panel) 82%,transparent),color-mix(in srgb,var(--panel) 62%,transparent));pointer-events:none}
   .vr-results-loading span{display:block;height:42px;margin:10px 0;border-radius:8px;background:linear-gradient(90deg,color-mix(in srgb,var(--line) 52%,transparent),color-mix(in srgb,var(--muted) 18%,transparent),color-mix(in srgb,var(--line) 52%,transparent));background-size:220% 100%;animation:vr-loading-sweep 1.05s ease-in-out infinite}
@@ -518,249 +495,17 @@
   .vr-results-loading span:nth-child(3){width:100%}
   .vr-results-loading span:nth-child(4){width:86%}
   body[data-vr-module-loading="1"] .vr-results-zone{min-height:230px}
-  body[data-vr-module-loading="1"] .vr-results-zone>.vr-legend,
-  body[data-vr-module-loading="1"] .vr-secthd,
   body[data-vr-module-loading="1"] .vr-table,
   body[data-vr-module-loading="1"] .pager{opacity:.16}
   body[data-vr-module-loading="1"] .vr-results-loading{display:block}
   .vr-board:has(.vr-module-legend.busy) .vr-results-zone{min-height:230px}
-  .vr-board:has(.vr-module-legend.busy) .vr-results-zone>.vr-legend,
-  .vr-board:has(.vr-module-legend.busy) .vr-secthd,
   .vr-board:has(.vr-module-legend.busy) .vr-table,
   .vr-board:has(.vr-module-legend.busy) .pager{opacity:.22}
   .vr-board:has(.vr-module-legend.busy) .vr-results-loading{display:block}
   @keyframes vr-loading-sweep{0%{background-position:120% 0}100%{background-position:-120% 0}}
-  .vr-lg{display:flex;align-items:center;gap:8px;min-height:40px;border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:12.5px;font-weight:550;color:var(--muted);cursor:pointer;background:transparent}
-  .vr-lg:hover{border-color:var(--brand);color:var(--ink)}
-  .vr-lg.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
-  .vr-lg i{width:8px;height:8px;border-radius:50%;display:block;flex:none}
-  .vr-lg .n{font-size:11.5px;font-weight:700;color:var(--faint)}
-  .vr-lg .n{color:color-mix(in srgb,var(--muted) 76%,var(--ink))}
-  /* Verification oversight (CEO/director analytics above the queue). The section is a real mock
-     `card` — `.hd` header rule + padded `.bd` — because the previous build dropped a bare title and
-     inline-styled divs into a padding-less `.card`, which is why every label sat flush on the card
-     edge with no breathing room. Spacing rhythm below is one scale: 18px between blocks, 10px
-     between a block heading and its content. */
-  .vr-oversight{margin:0}
-  /* Auto-fit rather than the viewport-based .g5: this grid lives inside a fixed-width drawer, so a
-     viewport media query would keep five columns in a 900px panel. */
-  .vr-okpis{grid-template-columns:repeat(auto-fit,minmax(152px,1fr));gap:11px;margin-bottom:18px}
-  .vr-okpis .kpi{padding:13px 15px}
-  /* Two of these five labels wrap to a second line ("Videos waiting for review", "Est. days to clear
-     backlog"), which pushed their numbers a line lower than the rest and broke the strip's baseline.
-     A two-line label box keeps every value on the same line without truncating any label. */
-  .vr-okpis .kpi{display:flex;flex-direction:column}
-  .vr-okpis .kpi .lab{font-size:11px;line-height:1.35;align-items:flex-start;min-height:2.7em}
-  .vr-okpis .kpi .val{font-size:23px;margin-top:4px}
-  .vr-okpis .kpi .dl{font-size:11px;margin-top:5px;line-height:1.35;font-weight:550}
-  .kpi .dl.muted{color:color-mix(in srgb,var(--muted) 72%,var(--ink))}
-  .vr-osec+.vr-osec{margin-top:18px;padding-top:18px;border-top:1px solid var(--line2)}
-  .vr-osec-hd{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px}
-  /* One ranked row per module: the widest bar is the bottleneck. A wrapping chip row of raw counts
-     (what this replaced) gave a number with nothing to compare it against. */
-  .vr-omods{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
-  .vr-omod{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
-  .vr-omod .t{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
-  .vr-omod .t .n{font-size:12.5px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .vr-omod .t b{margin-left:auto;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
-  .vr-omod .m{margin-top:8px;font-size:11px;color:var(--faint);font-weight:600}
-  /* A backlog row is a link to that module's queue. It must LOOK reachable before the pointer is on
-     it -- the "go" line is the affordance, the border/lift is the confirmation. */
-  a.vr-omod-link{display:block;color:inherit;text-decoration:none;position:relative}
-  a.vr-omod-link .go{display:block;margin-top:7px;font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--brand-d);opacity:.85}
-  a.vr-omod-link:hover{border-color:var(--brand);background:var(--panel)}
-  a.vr-omod-link:hover .go{opacity:1}
-  /* RANDOMIZATION rows (maintainer decision 2026-08-26): the same card primitive as a backlog
-     module, plus one row of day facts and the share control under it. */
-  .vr-rand .vr-rand-day{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:9px;font-size:11px;color:var(--faint);font-weight:600}
-  .vr-rand .vr-rand-set{display:flex;align-items:flex-end;gap:8px;margin-top:11px}
-  .vr-rand .vr-rand-set .fld{flex:1;min-width:0}
-  .vr-rand .vr-rand-set input{width:100%}
-  .vr-rand .vr-rand-locked{margin-top:11px;line-height:1.45}
-  .vr-rand .vr-rand-meta{margin-top:9px;font-size:10.5px;color:var(--faint);font-weight:600}
-  a.vr-omod-link:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
-  /* Backlog age shape: ONE stacked bar, youngest left, so the red tail's width is the share of the
-     backlog that has waited more than a week. */
-  .vr-agebar{display:flex;height:12px;border-radius:7px;overflow:hidden;background:var(--line2);margin-bottom:10px}
-  .vr-agebar>span{display:block;height:100%}
-  .vr-agelegend{display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px;color:var(--muted);font-weight:600}
-  .vr-agelegend>span{display:flex;align-items:center;gap:6px}
-  .vr-agelegend i{width:8px;height:8px;border-radius:2px;display:block;flex:none}
-  .vr-agelegend b{color:var(--ink);font-variant-numeric:tabular-nums}
-  .vr-trendfoot{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:8px;font-size:11.5px;color:var(--muted);font-weight:600}
-  .vr-trendfoot .k{display:flex;align-items:center;gap:6px}
-  .vr-trendfoot i{width:8px;height:8px;border-radius:2px;display:block;flex:none}
-  .vr-trendfoot b{margin-left:auto;font-size:12px;color:var(--ink)}
-  .vr-trendfoot b.bad{color:var(--danger)}
-  .vr-trendfoot b.good{color:var(--ok)}
-  .vr-otable td.num{font-variant-numeric:tabular-nums;font-weight:650}
-  .vr-owatch{display:flex;flex-wrap:wrap;gap:6px}
-  .vr-owatch span{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:2px 9px;font-size:11px;color:var(--muted);white-space:nowrap}
-  .vr-owatch span b{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
-  .vr-owatch span.bad{border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
-  .vr-owatch span.bad b{color:var(--danger)}
-  /* `.screen th` (line ~1091) has the SAME specificity as a bare `.vr-table th` and is declared
-     LATER, so it silently won: the verifier's column headers rendered 11px UPPERCASE with +0.4px
-     letter-spacing instead of the 12px, normal-case, normal-tracking headers the locked spec
-     measures off the real page (SPEC section 4: `th` 12px / 700, no uppercase, letter-spacing
-     normal). All-caps cramped headers are what made this table read as dated. `.screen` here
-     raises specificity so the intended rule actually applies -- do not drop it back to
-     `.vr-table th`, that is the bug. */
-  .screen .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
-  .vr-sortlink{display:inline-flex;align-items:center;gap:5px;color:inherit;text-decoration:none;min-height:40px}
-  .vr-sortlink .ic{width:14px;height:14px}
-  .vr-sortlink:hover{color:var(--ink)}
-  .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
-  .vr-table tr:last-child td{border-bottom:0}
-  .vr-subfilter{display:grid;gap:8px;width:max-content;max-width:100%;margin:4px 0 2px;padding:9px 10px 10px;border-left:2px solid color-mix(in srgb,var(--brand) 54%,var(--line));border-top:1px solid var(--line);background:color-mix(in srgb,var(--panel-2) 46%,transparent)}
-  .vr-subfilter-head{display:flex;align-items:center;gap:10px;color:color-mix(in srgb,var(--muted) 86%,var(--ink));font-size:10px;font-weight:800;text-transform:uppercase}
-  .vr-subfilter-head:after{content:"";height:1px;min-width:42px;flex:1;background:var(--line)}
-  .vr-sublegend{margin-top:0;gap:6px}
-  .vr-sublegend .vr-lg.vr-subchip{appearance:none;min-height:28px;padding:6px 10px;border-radius:6px;background:transparent;border-color:color-mix(in srgb,var(--line) 82%,transparent);font-size:10.5px;font-weight:700;color:color-mix(in srgb,var(--muted) 88%,var(--ink));cursor:pointer}
-  .vr-sublegend .vr-lg.vr-subchip:hover{color:var(--ink);border-color:color-mix(in srgb,var(--brand) 42%,var(--line))}
-  .vr-sublegend .vr-lg.vr-subchip.on{background:color-mix(in srgb,var(--brand-soft) 46%,transparent);border-color:color-mix(in srgb,var(--brand) 68%,var(--line));color:var(--brand)}
-  /* "In queue" column age tone: amber past 4h, red past 7d (see IN_QUEUE_AMBER_MS/IN_QUEUE_RED_MS
-     in verification-review-page.tsx). Applied only to a still-pending row's age span. */
-  .vr-age-amber{color:var(--amber);font-weight:650}
-  .vr-age-red{color:var(--danger);font-weight:650}
-
-  @media(max-width:640px){
-    .vr-module-legend{max-width:100%;overflow:visible;padding-bottom:0}
-    .vr-frow{display:grid;grid-template-columns:1fr;gap:12px;margin:16px 0}
-    .screen .vr-fld,.screen .vr-date-fld .date-scope,.screen .vr-date-fld .date-scope>button,.vr-frow .btn,.vr-frow .lk{width:100%;min-width:0}
-    .screen .vr-fld .vr-selbtn{width:100%;max-width:none}
-    .screen .vr-date-fld .date-scope>button,.screen .vr-fld .vr-selbtn,.vr-frow .btn,.vr-frow .lk{min-height:48px;border-radius:14px}
-    .vr-frow .btn{max-width:none;justify-content:center}
-    .vr-frow .lk{display:inline-flex;align-items:center;justify-content:center;padding:0 14px;border:1px solid var(--line);background:transparent;text-decoration:none;color:var(--muted);font-weight:700}
-    .vr-board .tablewrap{overflow:visible!important}
-    .vr-board table.vr-table{min-width:0!important;border-spacing:0 10px}
-    .vr-board table.vr-table thead{display:none!important}
-    .vr-board table.vr-table th{position:static!important;display:none!important}
-    .vr-board table.vr-table,
-    .vr-board table.vr-table tbody,
-    .vr-board table.vr-table tr,
-    .vr-board table.vr-table td{display:block;width:100%}
-    .vr-board table.vr-table tr{border:1px solid var(--line);border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);overflow:visible}
-    .vr-board table.vr-table td{position:static!important;min-width:0!important;border-bottom:1px solid var(--line2);padding:10px 14px!important;font-size:13px;white-space:normal!important}
-    .vr-board table.vr-table td:last-child{border-bottom:0}
-    .vr-board table.vr-table td .vr-rowlink{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;max-width:100%;white-space:normal;color:inherit;text-decoration:none}
-    .vr-board table.vr-table td .vr-rowlink>*{min-width:0}
-    .vr-board .vr-subj,
-    .vr-board .vr-subj *,
-    .vr-board .vr-rowlink .muted,
-    .vr-board .vr-rowlink .small{max-width:100%;min-width:0;white-space:normal!important;overflow-wrap:anywhere}
-    .vr-board table.vr-table td .vr-rowlink::before{flex:0 0 auto;color:var(--muted);font-size:11.5px;font-weight:750;letter-spacing:.2px}
-    .vr-board table.vr-table td:nth-child(1) .vr-rowlink::before{content:"Proof"}
-    .vr-board table.vr-table td:nth-child(2) .vr-rowlink::before{content:"Subject"}
-    .vr-board table.vr-table td:nth-child(3) .vr-rowlink::before{content:"Captured"}
-    .vr-board table.vr-table td:nth-child(4) .vr-rowlink::before{content:"In queue"}
-    .vr-board table.vr-table td:nth-child(5) .vr-rowlink::before{content:"Verified"}
-    .vr-board table.vr-table td:nth-child(6) .vr-rowlink::before{content:"Review time"}
-    .vr-board table.vr-table td:nth-child(7) .vr-rowlink::before{content:"Status"}
-    .vr-board table.vr-table td:nth-child(8) .vr-rowlink::before{content:"Reason"}
-    .vr-board table.vr-table td:nth-child(9) .vr-rowlink::before{content:"Watch"}
-    .vr-board table.toxin-review-table,
-    .vr-board table.toxin-review-table tbody,
-    .vr-board table.toxin-review-table tr,
-    .vr-board table.toxin-review-table td{display:block;width:100%}
-    .vr-board table.toxin-review-table tr{display:grid!important;gap:12px;margin:0 0 14px;padding:16px 16px 18px;border:1px solid var(--line);border-radius:18px;background:var(--paper);overflow:visible}
-    .vr-board table.toxin-review-table td{border-bottom:0!important;padding:0!important}
-    .vr-board table.toxin-review-table td:last-child{border-bottom:0!important}
-    .vr-board table.toxin-review-table td .toxin-row-button{
-      display:grid!important;
-      grid-template-columns:1fr!important;
-      gap:7px;
-      justify-items:start;
-      align-items:start;
-      min-height:0;
-      padding:0;
-      border-radius:0;
-      white-space:normal;
-    }
-    .vr-board table.toxin-review-table td .toxin-row-button::before{
-      color:var(--muted);
-      font-size:11.5px;
-      font-weight:750;
-      letter-spacing:.2px;
-      line-height:1.2;
-      text-transform:none;
-    }
-    .vr-board table.toxin-review-table td:nth-child(1) .toxin-row-button::before{content:"Test"}
-    .vr-board table.toxin-review-table td:nth-child(2) .toxin-row-button::before{content:"Reading"}
-    .vr-board table.toxin-review-table td:nth-child(3) .toxin-row-button::before{content:"Status"}
-    .vr-board table.toxin-review-table td .toxin-row-button>*{min-width:0;max-width:100%;overflow-wrap:anywhere}
-    .vr-board table.toxin-review-table td .toxin-row-button .vr-subj .t{display:block;line-height:1.35;white-space:normal}
-    .vr-board table.toxin-review-table td .toxin-row-button .tag{width:max-content;max-width:100%;white-space:normal}
-    .vr-board table.toxin-review-table td:nth-child(3) .toxin-row-button{padding-bottom:0}
-    .vr-board table.toxin-review-table td:nth-child(3) .toxin-row-button .tag{margin-top:2px}
-    .vr-board table.toxin-review-table td .vr-rowlink::before{content:none}
-  }
-
-  /* ===== Video Log (maintainer decision 2026-08-14): one business day, per shed, when each proof
-     arrived. Sibling drawer to the analytics panel, gated on a different capability. ===== */
-  /* Ghost, not primary: Analytics already owns the header's one primary action, and two competing
-     primaries side by side read as a toolbar rather than a hierarchy. */
-  .vr-videolog{margin:0}
-  /* The day picker is a control, not a value, so this row aligns on CENTER rather than the baseline
-     the static date line used — a baseline-aligned calendar button sits visibly low against its
-     label. */
-  .vr-videolog .vl-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line2)}
-  .vr-videolog .vl-head .lab{font-size:11px;font-weight:700;color:var(--muted);flex:none}
-  .vr-videolog .vl-head .val{font-size:14px;font-weight:650;color:var(--ink)}
-  .vr-videolog .vl-crumb{display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
-  .vr-videolog .vl-crumb .val{font-size:13px;font-weight:650;color:var(--ink)}
-  .vr-videolog .vl-empty{padding:22px 2px}
-  .vr-videolog .vl-note{margin-top:12px}
-  /* Same header treatment as .vr-table: `.screen th` is declared later with equal specificity and
-     would otherwise win, forcing 11px uppercase headers onto this table too. */
-  .screen .vl-tbl th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
-  .vr-videolog .vl-tbl{width:100%;border-collapse:collapse}
-  .vr-videolog .vl-tbl td{font-size:11.5px;padding:10px;border-bottom:1px solid var(--line2);vertical-align:top}
-  .vr-videolog .vl-tbl tr:last-child td{border-bottom:0}
-  /* Arrival times are read down the column and compared, so they need tabular figures — otherwise
-     06:12 and 15:04 do not line up and the eye cannot scan the day. */
-  .vr-videolog .vl-tbl .val{font-variant-numeric:tabular-nums;font-weight:650;color:var(--ink)}
-  /* A work cell spans its proofs' rows, so its top border must read as the group boundary. */
-  .vr-videolog .vl-tbl td[rowspan]{border-right:1px solid var(--line2);padding-right:14px}
-  .vr-videolog .vl-tbl .warn{color:var(--amber);font-weight:650}
-  /* The drill-down affordance on a summary row. It must LOOK reachable before the pointer is on it
-     — the shed name alone read as a label and the per-video times were undiscoverable. */
-  .vr-videolog .vl-drill{display:inline-block;margin-top:5px;color:var(--brand-d);font-weight:700;letter-spacing:.02em;text-decoration:none;opacity:.85}
-  .vr-videolog .vl-drill:hover{opacity:1;text-decoration:underline}
-  .vr-videolog .vl-csv-wrap{display:flex;align-items:center;gap:10px;flex:none}
-  .vr-videolog .vl-csv-btn{gap:7px;flex:none}
-  .vr-videolog .vl-csv-btn .ic{width:15px;height:15px}
-  /* The whole-day export is a real request over every shed, so the button has to say it is working
-     — a silent button on a slow day reads as a dead control and gets clicked again. */
-  .vr-videolog .vl-csv-spin{animation:vl-csv-spin 900ms linear infinite}
-  @keyframes vl-csv-spin{to{transform:rotate(360deg)}}
-  .vr-videolog .vl-csv-note{max-width:260px;line-height:1.35}
-  /* Panel filter row. Wraps rather than clipping: the drawer is 720px and three controls plus two
-     buttons do not fit on one line at every zoom level. */
-  .vr-videolog .vl-frow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;margin-bottom:14px}
-  .vr-videolog .vl-frow .vr-fld{min-width:150px}
-  .vr-videolog .vl-frow .vl-search{flex:1 1 190px}
-  .vr-videolog .vl-frow .vl-fbtns{display:flex;gap:8px;flex:0 0 auto}
-  .vr-videolog .vl-frow .btn{flex:0 0 auto}
-  @media(max-width:640px){
-    .vr-videolog .vl-head{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch}
-    .vr-videolog .vl-head .sp{display:none}
-    .vr-videolog .vl-csv-wrap,.vr-videolog .vl-csv-btn{width:100%;justify-content:center}
-    .vr-videolog .vl-frow{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
-    .vr-videolog .vl-frow .vr-fld,.vr-videolog .vl-frow .vl-search{min-width:0;width:100%;flex:auto}
-    .vr-videolog .vl-frow .vl-fbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .vr-videolog .vl-frow .btn{justify-content:center}
-    .vr-omods{grid-template-columns:minmax(0,1fr)}
-    .vr-rand .vr-rand-set{display:block}
-  }
 
   /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
      .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
-  .vr-thumb{width:86px;height:52px;border-radius:10px;background:linear-gradient(135deg,#1b2b1e,#233a4d 60%,#12211a);display:grid;place-items:center;color:#FFFFFF;flex:none;position:relative;border:1px solid var(--line)}
-  .vr-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}
-  .vr-thumb img + .ic{filter:drop-shadow(0 1px 4px rgba(0,0,0,.7))}
-  .vr-thumb .ic{width:18px;height:18px;position:relative;z-index:1}
-  .vr-thumb .n{position:absolute;bottom:4px;right:5px;font-size:10px;font-weight:750;background:rgba(0,0,0,.62);color:#fff;border-radius:5px;padding:0 5px}
   .vr-player{background:#000000;border:1px solid var(--line);border-radius:12px;width:100%;aspect-ratio:16/9;max-height:44vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
   /* position:absolute + inset:0 is what actually pins the video TO the stage. With plain
      width/height:100% the height does not resolve against an aspect-ratio parent, so the element
@@ -827,29 +572,6 @@
   .vr-pthumb .ic{width:14px;height:14px}
   .vr-pthumb.on{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
 
-  /* Verifier queue rows are clickable end to end (the mock has no Details column): every cell wraps
-     its content in the overlay link, so the link must fill the cell and inherit the row's type. */
-  /* Same override trap: `.screen td{padding:11px 12px}` (~1099) is declared later and beat this,
-     so every cell paid the generic padding AND the row-link's own 11px 12px inside it -- doubling
-     the vertical space and inflating a one-line row past 150px. */
-  .screen .vr-row td{padding:0}
-  .vr-rowlink{display:block;min-height:42px;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
-  .toxin-row-button{display:block;width:100%;min-height:42px;padding:11px 12px;border:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
-  .toxin-row-button:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
-  .vr-row:hover td{background:var(--bg)}
-  .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
-  /* Subject cell: the queue's densest column. subject_label arrives as a "·"-joined string whose
-     segments mean different things per module (a shed part, a goat count, an RFID tag, a weight, a
-     feed session), so a single run-on line reads as noise. Split it: the operational location leads
-     in the row's own weight, the quantitative segments become typed chips (count / weight / tag),
-     and the operator trails as muted context. */
-  .vr-subj{display:flex;flex-direction:column;gap:4px;min-width:0}
-  .vr-subj .t{font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .vr-subj .m{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:color-mix(in srgb,var(--muted) 78%,var(--ink));font-size:11.5px;white-space:nowrap}
-  .vr-subj .chip{border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;line-height:1.5}
-  .vr-subj .chip.count{background:var(--okx);color:var(--ok)}
-  .vr-subj .chip.kg{background:var(--infox);color:var(--info)}
-  .vr-subj .chip.tag{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
   .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
   .vr-fact{background:var(--panel-2);padding:12px 14px;font-size:13.5px;font-weight:600}
   .vr-fact b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:750;margin-bottom:4px}

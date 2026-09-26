@@ -1,16 +1,24 @@
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import Alert from "@mui/material/Alert";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import type { ReactNode } from "react";
+// A GET form through next/form: Apply is a soft navigation (the drawer stays on screen), not a document reload.
+import Form from "next/form";
 
 import Link from "@/components/no-prefetch-link";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
 import { LinkButton } from "@/components/minimal/link-button";
+import { Iconify } from "@/components/minimal/iconify";
 import { VrFormSelect } from "./vr-form-select";
-import { Tag } from "@/components/ui-primitives";
+import { Label } from "@/components/minimal/label";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { TableHeadCustom } from "@/components/minimal/table";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getVerificationVideoLog, type VerificationVideoLogResponse } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";
@@ -96,7 +104,7 @@ export async function VideoLog({
 }) {
   const result = await getVerificationVideoLog({ businessDate, parkId, shedId: selectedShedKey });
   if (!result.ok) {
-    return <div className="small muted">{copy(pageContract, "video_log.unavailable")}</div>;
+    return <EmptyContent filled title={copy(pageContract, "video_log.unavailable")} sx={{ py: 5 }} />;
   }
   const { business_date: day, sheds, rows, rows_truncated: truncated, selected_shed_id: selected } = result.data;
   const selectedShed = selected ? sheds.find((shed) => shed.shed_key === selected) : undefined;
@@ -124,7 +132,7 @@ export async function VideoLog({
   }
 
   return (
-    <div className="vr-videolog">
+    <Stack spacing={3}>
       {/* The day is a CALENDAR FILTER, defaulting to today (maintainer request 2026-08-15). Today is
           expressed by an ABSENT vl_date so a shared link keeps meaning "today" rather than freezing
           on the day it was copied. `day` comes back from the backend, so the picker always shows the
@@ -132,9 +140,9 @@ export async function VideoLog({
       {/* The picker carries its own backend-owned field label, so there is no separate label
           element beside it — an earlier build rendered both and printed the day label twice, the
           second time with the queue's capture-date wording, which is a different fact. */}
-      <div className="vl-head">
+      <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
         <VideoLogDateFilter labels={dateLabels} basePath={basePath} day={day} today={today} />
-        <span className="sp" style={{ flex: 1 }} />
+        <Box component="span" sx={{ flexGrow: 1 }} />
         {/* ONE button, and it always exports the WHOLE DAY — every shed, one row per video — not
             whichever level happens to be on screen (maintainer, 2026-08-15). The rows are fetched
             on click, so opening the panel never pays for a file most viewers do not ask for. */}
@@ -149,7 +157,7 @@ export async function VideoLog({
           awaitingLabel={copy(pageContract, "video_log.awaiting_upload_one")}
           truncatedNote={copy(pageContract, "video_log.export_truncated")}
         />
-      </div>
+      </Box>
 
       <VideoLogFilters
         pageContract={pageContract}
@@ -176,7 +184,7 @@ export async function VideoLog({
       ) : (
         <DaySummary pageContract={pageContract} sheds={visibleSheds} shedHrefTemplate={shedHrefTemplate} day={day} />
       )}
-    </div>
+    </Stack>
   );
 }
 
@@ -224,10 +232,11 @@ function VideoLogFilters({
   }, []);
 
   return (
-    <form action={action} className="vl-frow">
+    // Template list toolbar anatomy (InvoiceTableToolbar): fields in one wrapping row, Apply + Clear.
+    <Form action={action} prefetch={false}>
+    <Box sx={{ gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
       {hidden}
       <VrFormSelect
-        className="vr-fld fld"
         name={VIDEO_LOG_PARK_KEY}
         label={copy(pageContract, "video_log.filter.park")}
         defaultValue={parkFilter ?? ""}
@@ -241,7 +250,6 @@ function VideoLogFilters({
           Grouped by park (VrFormSelect ListSubheader headings, the <optgroup> equivalent): ungrouped
           sheds stay first, exactly as the native markup nested them. */}
       <VrFormSelect
-        className="vr-fld fld"
         name={VIDEO_LOG_SHED_KEY}
         label={copy(pageContract, "video_log.filter.shed")}
         defaultValue={selectedShedKey}
@@ -256,25 +264,26 @@ function VideoLogFilters({
         ]}
       />
       <TextField
-        className="vl-search"
         name={VIDEO_LOG_QUERY_KEY}
         type="search"
         label={copy(pageContract, "video_log.filter.search")}
         defaultValue={query}
         placeholder={copy(pageContract, "video_log.filter.search_hint")}
         slotProps={{ inputLabel: { shrink: true }, htmlInput: { id: "vl-q" } }}
+        sx={{ flexGrow: 1, minWidth: { xs: 1, sm: 200 } }}
       />
       {/* Grouped so the pair wraps TOGETHER: at the drawer's width the three fields fill the first
           line and Clear was landing alone on a second one, reading as an unrelated control. */}
-      <div className="vl-fbtns">
+      <Box sx={{ display: "flex", gap: 1.5, flexShrink: 0 }}>
         <Button type="submit" variant="contained" color="primary">
           {copy(pageContract, "video_log.filter.apply")}
         </Button>
         <LinkButton href={clearHref} variant="outlined" color="inherit">
           {copy(pageContract, "video_log.filter.clear")}
         </LinkButton>
-      </div>
-    </form>
+      </Box>
+    </Box>
+    </Form>
   );
 }
 
@@ -330,20 +339,20 @@ function DaySummary({
   day: string;
 }) {
   if (sheds.length === 0) {
-    return <div className="small muted vl-empty">{copy(pageContract, "video_log.empty_day")}</div>;
+    return <EmptyContent filled title={copy(pageContract, "video_log.empty_day")} sx={{ py: 5 }} />;
   }
   return (
-    <div className="tablewrap">
-      <Table className="tbl vl-tbl">
-        <TableHead>
-          <TableRow>
-            <TableCell component="th">{copy(pageContract, "video_log.col.shed")}</TableCell>
-            <TableCell component="th">{copy(pageContract, "video_log.col.videos")}</TableCell>
-            <TableCell component="th">{copy(pageContract, "video_log.col.first_last")}</TableCell>
-          </TableRow>
-        </TableHead>
+    <Scrollbar>
+      <Table sx={{ minWidth: 560 }}>
+        <TableHeadCustom
+          headCells={[
+            { id: "shed", label: copy(pageContract, "video_log.col.shed") },
+            { id: "videos", label: copy(pageContract, "video_log.col.videos") },
+            { id: "first_last", label: copy(pageContract, "video_log.col.first_last") },
+          ]}
+        />
         <TableBody>
-          {sheds.map((shed, shedIndex) => {
+          {sheds.map((shed) => {
             // shed_key carries a "#" separator, so it MUST be encoded before it goes into a query
             // value -- unencoded it would truncate the URL into a fragment and the panel would open
             // with no shed selected.
@@ -355,37 +364,39 @@ function DaySummary({
             // so it correctly shows its bare shed name rather than a dangling separator.
             const display = shed.operational_location_display;
             return (
-              <TableRow key={shed.shed_key} className="cx-row" style={{ "--i": shedIndex } as React.CSSProperties}>
+              <TableRow key={shed.shed_key} hover>
                 <TableCell>
-                  {href ? (
-                    <Link href={href} className="lnk">
-                      {display}
-                    </Link>
-                  ) : (
-                    display
-                  )}
-                  {shed.modules.length > 0 ? <div className="small muted">{shed.modules.join(" · ")}</div> : null}
+                  <Box sx={{ typography: "subtitle2" }}>
+                    {href ? (
+                      <Link href={href} style={{ color: "inherit" }}>
+                        {display}
+                      </Link>
+                    ) : (
+                      display
+                    )}
+                  </Box>
+                  {shed.modules.length > 0 ? <Box sx={{ typography: "body2", color: "text.secondary" }}>{shed.modules.join(" · ")}</Box> : null}
                   {/* The per-video times live one level down, and the shed name alone did not say so
                       — it read as a plain label, so the drill-down was undiscoverable. This is the
                       affordance, in backend-owned copy. */}
                   {href ? (
-                    <Link href={href} className="small vl-drill">
-                      {copy(pageContract, "video_log.view_videos")} →
-                    </Link>
+                    <LinkButton href={href} size="small" color="primary" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" />} sx={{ mt: 0.5, ml: -0.5 }}>
+                      {copy(pageContract, "video_log.view_videos")}
+                    </LinkButton>
                   ) : null}
                 </TableCell>
                 <TableCell>
-                  <span className="val">{shed.proof_count}</span>{" "}
-                  <span className="small muted">{copy(pageContract, "video_log.videos_count")}</span>
-                  <div className="small muted">
+                  <Box component="span" sx={{ typography: "subtitle2" }}>{shed.proof_count}</Box>{" "}
+                  <Box component="span" sx={{ typography: "body2", color: "text.secondary" }}>{copy(pageContract, "video_log.videos_count")}</Box>
+                  <Box sx={{ typography: "body2", color: "text.secondary" }}>
                     {shed.item_count} {copy(pageContract, "video_log.items_count")}
-                  </div>
+                  </Box>
                   {/* Registered but not received. Counted INSIDE proof_count, so this is a
                       breakdown of the number above it, never a second total beside it. */}
                   {shed.awaiting_upload_count > 0 ? (
-                    <div className="small warn">
+                    <Label variant="soft" color="warning" sx={{ mt: 0.5 }}>
                       {shed.awaiting_upload_count} {copy(pageContract, "video_log.awaiting_upload")}
-                    </div>
+                    </Label>
                   ) : null}
                 </TableCell>
                 <TableCell>
@@ -396,7 +407,7 @@ function DaySummary({
           })}
         </TableBody>
       </Table>
-    </div>
+    </Scrollbar>
   );
 }
 
@@ -419,25 +430,25 @@ function ShedDetail({
 }) {
   return (
     <>
-      <div className="vl-crumb">
-        <Link href={backHref} className="lnk">
-          ← {copy(pageContract, "video_log.back_to_sheds")}
-        </Link>
-        {shedDisplay ? <span className="val">{shedDisplay}</span> : null}
-      </div>
+      <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
+        <LinkButton href={backHref} color="inherit" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />}>
+          {copy(pageContract, "video_log.back_to_sheds")}
+        </LinkButton>
+        {shedDisplay ? <Box component="span" sx={{ typography: "subtitle1" }}>{shedDisplay}</Box> : null}
+      </Box>
 
       {rows.length === 0 ? (
-        <div className="small muted vl-empty">{copy(pageContract, "video_log.empty_shed")}</div>
+        <EmptyContent filled title={copy(pageContract, "video_log.empty_shed")} sx={{ py: 5 }} />
       ) : (
-        <div className="tablewrap">
-          <Table className="tbl vl-tbl">
-            <TableHead>
-              <TableRow>
-                <TableCell component="th">{copy(pageContract, "video_log.col.work")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "video_log.col.video")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "video_log.col.uploaded")}</TableCell>
-              </TableRow>
-            </TableHead>
+        <Scrollbar>
+          <Table sx={{ minWidth: 560 }}>
+            <TableHeadCustom
+              headCells={[
+                { id: "work", label: copy(pageContract, "video_log.col.work") },
+                { id: "video", label: copy(pageContract, "video_log.col.video") },
+                { id: "uploaded", label: copy(pageContract, "video_log.col.uploaded") },
+              ]}
+            />
             <TableBody>
               {rows.map((row) => {
                 const href = row.nav_module ? queueHrefs?.get(row.nav_module) : undefined;
@@ -447,28 +458,28 @@ function ShedDetail({
                   // One table row per PROOF, with the work described only on its first row: a feed
                   // distribution item is three arrivals at three different times, and collapsing them
                   // onto one line would hide exactly the times this panel exists to show.
-                  <TableRow key={proof.proof_id} className="cx-row" style={{ "--i": index } as React.CSSProperties}>
+                  <TableRow key={proof.proof_id} hover>
                     {index === 0 ? (
                       <TableCell rowSpan={row.proofs.length}>
-                        <div className="val">
+                        <Box sx={{ typography: "subtitle2" }}>
                           {href ? (
-                            <Link href={href} className="lnk">
+                            <Link href={href} style={{ color: "inherit" }}>
                               {categoryLabel || moduleLabel}
                             </Link>
                           ) : (
                             categoryLabel || moduleLabel
                           )}
-                        </div>
+                        </Box>
                         {/* The producing module's own words, verbatim. Legitimately EMPTY for feed
                             transport, whose producer writes no label because the shed header already
                             names it -- render nothing rather than a placeholder that looks broken. */}
-                        {row.subject_label ? <div className="small">{row.subject_label}</div> : null}
-                        {row.operator_name ? <div className="small muted">{row.operator_name}</div> : null}
-                        <div className="small muted">
+                        {row.subject_label ? <Box sx={{ typography: "body2" }}>{row.subject_label}</Box> : null}
+                        {row.operator_name ? <Box sx={{ typography: "body2", color: "text.secondary" }}>{row.operator_name}</Box> : null}
+                        <Box sx={{ mt: 0.5 }}>
                           {/* Neutral tone on purpose: grain is a FACT about the work, not a status.
                               A coloured chip here would read as a warning about the row. */}
-                          <Tag tone="mut">{copy(pageContract, `video_log.grain.${row.grain}`)}</Tag>
-                        </div>
+                          <Label variant="soft">{copy(pageContract, `video_log.grain.${row.grain}`)}</Label>
+                        </Box>
                       </TableCell>
                     ) : null}
                     {/* The backend-owned proof label already names the medium where it matters, so a
@@ -483,11 +494,11 @@ function ShedDetail({
               })}
             </TableBody>
           </Table>
-        </div>
+        </Scrollbar>
       )}
 
       {/* No silent caps: a truncated shed says so rather than reading as a complete day. */}
-      {truncated ? <div className="small warn vl-note">{copy(pageContract, "video_log.truncated")}</div> : null}
+      {truncated ? <Alert severity="warning">{copy(pageContract, "video_log.truncated")}</Alert> : null}
     </>
   );
 }
@@ -510,17 +521,21 @@ function ArrivalTime({
   pageContract: AdminUiPageContract;
 }) {
   if (!uploadedAt) {
-    return <span className="small warn">{copy(pageContract, "video_log.awaiting_upload_one")}</span>;
+    return (
+      <Label variant="soft" color="warning">
+        {copy(pageContract, "video_log.awaiting_upload_one")}
+      </Label>
+    );
   }
   const formatted = fmtDateTime(uploadedAt);
   const [datePart, timePart] = formatted.split(" ");
-  if (!timePart) return <span className="val">{formatted}</span>;
-  if (datePart === day) return <span className="val">{timePart}</span>;
+  if (!timePart) return <>{formatted}</>;
+  if (datePart === day) return <>{timePart}</>;
   return (
-    <span className="val">
+    <>
       {timePart}
-      <span className="small muted"> · {copy(pageContract, "video_log.arrived_later")} {datePart}</span>
-    </span>
+      <Box component="span" sx={{ color: "text.secondary" }}> · {copy(pageContract, "video_log.arrived_later")} {datePart}</Box>
+    </>
   );
 }
 
@@ -534,13 +549,13 @@ function ArrivalTime({
  * made exactly that case read as going backwards in time ("15:18 – 11:32" on a real shed).
  */
 function ArrivalRange({ first, last, day }: { first?: string; last?: string; day: string }) {
-  if (!first && !last) return <span className="muted">—</span>;
+  if (!first && !last) return <>—</>;
   return (
-    <span className="val">
+    <Box component="span" sx={{ whiteSpace: "nowrap" }}>
       <ArrivalStamp iso={first} day={day} />
       {" – "}
       <ArrivalStamp iso={last} day={day} />
-    </span>
+    </Box>
   );
 }
 
@@ -554,7 +569,7 @@ function ArrivalStamp({ iso, day }: { iso?: string; day: string }) {
   return (
     <>
       {timePart}
-      <span className="small muted"> {datePart}</span>
+      <Box component="span" sx={{ color: "text.secondary" }}> {datePart}</Box>
     </>
   );
 }

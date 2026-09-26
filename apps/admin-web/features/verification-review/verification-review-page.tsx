@@ -1,18 +1,14 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
 import Form from "next/form";
 import { Label } from "@/components/minimal/label";
-import { FilterChip } from "@/components/minimal/list/filter-chip";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { PageHeader } from "@/components/app/page-header";
-import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { ArrowDown, ArrowUp, Filter, PlayCircle } from "lucide-react";
 
 import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, getAdminWebBootstrap, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
@@ -50,17 +46,26 @@ import {
 } from "./video-log-params";
 import { VideoLog } from "./video-log";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
-import { StatusChip, reviewQueueStyles as rq } from "@/components/review-queue/review-queue-ui";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import Box from "@mui/material/Box";
 import { LinkButton } from "@/components/minimal/link-button";
 import Card from "@mui/material/Card";
-import CardHeader from "@mui/material/CardHeader";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 import { ToxinReviewScreen, toxinTabLabel } from "./toxin-review-section";
 import Alert from "@mui/material/Alert";
+import Avatar from "@mui/material/Avatar";
+import Badge from "@mui/material/Badge";
+import Button from "@mui/material/Button";
+import Divider from "@mui/material/Divider";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { Iconify, type IconifyName } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TablePaginationLinks } from "@/components/minimal/table";
+import { fPercent } from "@/components/minimal/_shared/format-number";
+import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
+import { VrQueueHead } from "./vr-queue-head";
 
 const PATHNAME = "/verify";
 
@@ -250,11 +255,12 @@ export async function VerificationReviewPage({
   const statusCounts: Record<string, number> = queue.ok
     ? { pending: queue.data.filter_options.counts.pending, approved: queue.data.filter_options.counts.approved, rejected: queue.data.filter_options.counts.rejected }
     : { pending: 0, approved: 0, rejected: 0 };
-  const legendDotColor: Record<string, string> = { pending: "var(--warn)", approved: "var(--ok)", rejected: "var(--danger)" };
+  const statusTotal = statusCounts.pending + statusCounts.approved + statusCounts.rejected;
+  // The statusless option is the backend's "All" tab (status=all is forwarded verbatim).
+  const allStatusOption = statuses.find((option) => !option.status);
 
   return (
-    <div className={`kit-enter screen on ${rq.root}`}>
-      <div>
+    <>
         <PageHeader
           title={pageContract.title}
           crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
@@ -414,19 +420,51 @@ export async function VerificationReviewPage({
             </Stack>
           }
         />
-      </div>
 
       {queue.ok ? null : (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           <b>{copy(pageContract, "state.queue_unavailable")}</b>
-          <div className="small" style={{ marginTop: 4 }}>
+          <Typography variant="body2" sx={{ mt: 0.5 }}>
             {copy(pageContract, "state.queue_unavailable_body")}
-          </div>
-          <div className="small muted" style={{ marginTop: 4 }}>
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
             {queue.error.code ?? queue.error.kind} · {queue.error.message}
-          </div>
+          </Typography>
         </Alert>
       )}
+
+      {/* Template InvoiceListView summary card: one InvoiceAnalytic per status, dashed dividers,
+          scrolling sideways inside its own Scrollbar on a phone. The counts are the backend's
+          whole-filter aggregate (filter_options.counts), never a count of the page on screen. */}
+      {queue.ok && statusOptionsWithStatus.length ? (
+        <Card sx={{ mb: { xs: 3, md: 5 } }}>
+          <Scrollbar sx={{ minHeight: 108 }}>
+            <Stack divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2, flexDirection: "row" }}>
+              {allStatusOption ? (
+                <InvoiceAnalytic
+                  title={allStatusOption.label}
+                  total={statusTotal}
+                  percent={100}
+                  icon="solar:bill-list-bold-duotone"
+                  color="info.main"
+                  caption={fPercent(100)}
+                />
+              ) : null}
+              {statusOptionsWithStatus.map((option) => (
+                <InvoiceAnalytic
+                  key={option.key}
+                  title={option.label}
+                  total={statusCounts[option.status] ?? 0}
+                  percent={statusTotal ? ((statusCounts[option.status] ?? 0) / statusTotal) * 100 : 0}
+                  icon={STATUS_ICON[option.status] ?? "solar:file-bold-duotone"}
+                  color={`${STATUS_COLOR[option.status] ?? "info"}.main`}
+                  caption={fPercent(statusTotal ? ((statusCounts[option.status] ?? 0) / statusTotal) * 100 : 0)}
+                />
+              ))}
+            </Stack>
+          </Scrollbar>
+        </Card>
+      ) : null}
 
       <VerificationQueueTelemetry
         category={category}
@@ -435,306 +473,250 @@ export async function VerificationReviewPage({
         status={status}
         enabled={controlEnabled(pageContract, "record_verdict", false)}
       >
-        <Card className="vr-board" sx={{ minWidth: 0 }}>
-        <CardHeader title={copy(pageContract, "board.title")} />
-        {/* Template card rhythm: every control sits inside the 24px CardContent gutter; only the
-            table bleeds to the card edge (FJ1-P1-6). */}
-        <Box sx={{ px: 3, pt: 2 }}>
-
-        {/* Module filter — the same grouping the phone's verifier drawer uses (Vaccination,
-            Weighing, Feed, Counts, Milk, Health). The vocabulary, the labels and the order are the
-            registry's (filter_options.modules); nothing here is derived from the rows on screen, so
-            a module with an empty queue stays selectable instead of vanishing.
-
-            Selection is read from filter_options.module_key, NOT from ?nav_module, so a nav leaf
-            that scopes the screen with ?category= lights up its own module chip too — the two ways
-            in cannot disagree about what is selected.
-
-            Each chip clears `category`: it is a WIDER selection than one page, and leaving a
-            sibling module's category behind would ask the backend for a contradiction it answers
-            400 (module_category_conflict).
-
-            Whether the row is OFFERED is the backend's call, not this renderer's: the verifier lens
-            puts one sidebar leaf per evidence module in front of exactly the principal who would
-            otherwise see the same choice twice, so it withdraws `module_filter` for her and leaves
-            it enabled for leadership, whose single nav item makes this row their only module
-            picker. Defaulting to true keeps a backend one release behind — which declares no such
-            control — showing the row. */}
-        {moduleFilterOffered && oversightFiltersEnabled && modules.length > 1 ? (
-          <ModuleFilter
-            allLabel={copy(pageContract, "filter.all_modules")}
-            allHref={hrefWith(sp, { nav_module: null, category: null, ...RESET_ON_FILTER })}
-            ariaLabel={copy(pageContract, "filter.module")}
-            selectedModuleKey={selectedModuleKey ?? ""}
-            modules={modules.map((option) => ({
-              key: option.key,
-              label: option.label,
-              href: hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
-            }))}
-            toxinOption={toxinTabEnabled ? { label: toxinTabLabel(pageContract), href: hrefWith(sp, { toxin: "1", nav_module: null, category: null, ...RESET_ON_FILTER }) } : undefined}
-          />
-        ) : null}
-
-        <Form action={PATHNAME} prefetch={false} className="vr-filter-form">
-          {/* vd_from / vd_to are NOT excluded: Apply must preserve the selected capture date.
-              category is rendered by the subcategory checkboxes below so multi-select stays real. */}
-          {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code", "va_fields", "va_entries"])}
-
-        {/* The action-type select was REMOVED (maintainer decision 2026-08-07). The left nav
-            already scopes this screen -- every leaf sets ?category= -- so the dropdown was a
-            second, competing scope control for a choice the verifier had just made in the sidebar.
-            It was also wrong: its defaultValue never matched the URL category, so it sat on an
-            unrelated action type on every category the nav could reach.
-
-            Shed is now the only filter, so the whole row is conditional on there being sheds to
-            choose between: without this, a module with no shed options (Birth, Death) rendered an
-            Apply/Clear pair with nothing to apply. */}
-        {/* The filter row always renders now, because the capture-date picker always applies —
-            unlike Shed, which is conditional on the selected module having sheds to choose
-            between (Birth and Death have none, and an Apply button with nothing to apply is
-            worse than no row). */}
-        {moduleFilterOffered && oversightFiltersEnabled && selectedModuleActionTypes.length > 1 ? (
-          <SubcategoryFilter
-            ariaLabel={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}
-            label={`${selectedModuleLabel} subcategories`}
-            options={selectedModuleActionTypes}
-            selectedCategories={selectedCategories}
-          />
-        ) : null}
-
-        <div className="vr-frow">
-          {captureDateFilterEnabled ? (
-            <div className="vr-fld vr-date-fld">
-              <span className="vr-fld-spacer" aria-hidden="true" />
-              <ActionsDateFilter
-                basePath={PATHNAME}
-                from={dateRange.from}
-                to={dateRange.to}
-                today={today}
-                defaultFrom={businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS)}
-                labels={{
-                  field: copy(pageContract, "filter.date"),
-                  today: copy(pageContract, "filter.date.today"),
-                  single: copy(pageContract, "filter.date.single"),
-                  range: copy(pageContract, "filter.date.range"),
-                  aria: copy(pageContract, "filter.date.aria"),
-                  previousMonth: copy(pageContract, "filter.date.previous_month"),
-                  nextMonth: copy(pageContract, "filter.date.next_month"),
-                  rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
-                  rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
-                  rangeSeparator: copy(pageContract, "filter.date.range_separator"),
-                }}
-              />
-            </div>
-          ) : null}
-          {sheds.length ? (
-            <>
-              {/* Grouped by park, because a shed NAME is not unique across the farm: Castro,
-                  Gandhi, Godel 1, Godel 2, Mandela 1, Mandela 2 and Yashoda each exist in BOTH
-                  parks, so nine of the sixty-seven options on a real STG day were exact duplicate
-                  labels sitting next to each other. The value was always the right shed — the id
-                  is a UUID — but a reader could not tell which one she was picking, and the park
-                  holding more pens read as the only park present.
-
-                  The park comes from the option's own park_label; it is NOT concatenated into the
-                  shed's display, which belongs to oploc. Options with no park (the backend sends
-                  none when an option's rows disagree) stay in a plain ungrouped list ABOVE the
-                  groups rather than being dropped or filed under a guess. VrFormSelect's
-                  `group` is the <optgroup> equivalent and preserves that order exactly. */}
-              <VrFormSelect
-                id="verification-shed"
-                className="vr-fld fld"
-                name="shed_id"
-                label={copy(pageContract, "filter.shed")}
-                defaultValue={shedId ?? ""}
-                options={[
-                  { value: "", label: copy(pageContract, "filter.all_sheds") },
-                  ...shedsWithoutPark.map((option) => ({
-                    value: option.id,
-                    label: option.operational_location_display || option.label,
-                  })),
-                  ...shedsByPark.flatMap(([parkLabel, parkSheds]) =>
-                    parkSheds.map((option) => ({
-                      value: option.id,
-                      label: option.operational_location_display || option.label,
-                      group: parkLabel,
-                    })),
-                  ),
-                ]}
-              />
-              <button type="submit" className="btn sm">
-                <Filter className="ic" aria-hidden="true" />
-                {copy(pageContract, "filter.apply")}
-              </button>
-            {/* Deliberately does NOT clear `category`: that is the sidebar's selection, not a
-                filter the verifier set here. Clearing it stranded her on every module's queue at
-                once while the nav still highlighted the one she had picked. It DOES clear the
-                date pair, which returns the board to its default recent window. */}
-            <Link
-              href={hrefWith(sp, {
-                shed_id: null,
-                status: null,
-                nav_module: null,
-                [DATE_FROM_PARAM]: null,
-                [DATE_TO_PARAM]: null,
-                ...RESET_ON_FILTER,
-              })}
-              replace
-              scroll={false}
-              className="lk small"
-            >
-              {copy(pageContract, "filter.clear_all")}
-            </Link>
-            </>
-          ) : selectedModuleActionTypes.length > 1 ? (
-            <button type="submit" className="btn sm">
-              <Filter className="ic" aria-hidden="true" />
-              {copy(pageContract, "filter.apply")}
-            </button>
-          ) : null}
-        </div>
-        </Form>
-        </Box>
-
-        <div className="vr-results-zone" aria-live="polite" aria-busy="false">
-          <div className="vr-results-loading" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
+        {/* Template InvoiceListView list card: status Tabs with Label counts, the toolbar row, the
+            table bleeding to the card edge, the pagination footer. */}
+        <Card className="vr-board" aria-label={copy(pageContract, "board.title")} sx={{ minWidth: 0 }}>
           {statuses.length ? (
-            <Stack direction="row" spacing={1} useFlexGap className="vr-status-chips" role="group" sx={{ flexWrap: "wrap", px: 3, pt: 2 }}>
-              {statusOptionsWithStatus.map((option) => (
-                <FilterChip
-                  key={option.key}
-                  href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null })}
-                  replace
-                  on={status === option.status}
-                  dot={legendDotColor[option.status]}
-                  label={<>{option.label} <Label variant={status === option.status ? "filled" : "soft"}>{statusCounts[option.status] ?? 0}</Label></>}
+            // Status tabs predate the oversight rollout and render for every role, verifier included.
+            <AnimatedTabs
+              ariaLabel={copy(pageContract, "board.title")}
+              value={status}
+              sx={{ px: { md: 2.5 } }}
+              items={statuses.map((option) => ({
+                value: option.status ?? "all",
+                label: option.label,
+                count: option.status ? (statusCounts[option.status] ?? 0) : statusTotal,
+                href: hrefWith(sp, { status: option.status ?? "all", vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null }),
+              }))}
+            />
+          ) : null}
+
+          {/* Template list toolbar (InvoiceTableToolbar anatomy): p 2.5, one row from md, a column
+              on a phone. Module and capture date navigate on change; subcategories and shed ride the
+              form's Apply. */}
+          <Form action={PATHNAME} prefetch={false} className="vr-filter-form">
+          <Box
+            sx={{
+              p: 2.5,
+              gap: 2,
+              display: "flex",
+              pr: { xs: 2.5, md: 1 },
+              flexWrap: { md: "wrap" },
+              flexDirection: { xs: "column", md: "row" },
+              alignItems: { xs: "stretch", md: "center" },
+            }}
+          >
+            {/* vd_from / vd_to are NOT excluded: Apply must preserve the selected capture date.
+                category is rendered by the subcategory select so multi-select stays real. */}
+            {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code", "va_fields", "va_entries"])}
+
+            {/* Module picker — the same grouping the phone's verifier drawer uses. Vocabulary, labels
+                and order are the registry's (filter_options.modules); selection is read from
+                filter_options.module_key so a nav leaf's ?category= selects its module too. Each
+                choice clears `category` (a wider selection than one page; a sibling module's category
+                would be a 400 module_category_conflict). Offered only when the backend offers it:
+                the verifier lens withdraws `module_filter`, and it defaults on for an older backend. */}
+            {moduleFilterOffered && oversightFiltersEnabled && modules.length > 1 ? (
+              <ModuleFilter
+                allLabel={copy(pageContract, "filter.all_modules")}
+                allHref={hrefWith(sp, { nav_module: null, category: null, ...RESET_ON_FILTER })}
+                ariaLabel={copy(pageContract, "filter.module")}
+                selectedModuleKey={selectedModuleKey ?? ""}
+                modules={modules.map((option) => ({
+                  key: option.key,
+                  label: option.label,
+                  href: hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
+                }))}
+                toxinOption={toxinTabEnabled ? { label: toxinTabLabel(pageContract), href: hrefWith(sp, { toxin: "1", nav_module: null, category: null, ...RESET_ON_FILTER }) } : undefined}
+              />
+            ) : null}
+
+            {moduleFilterOffered && oversightFiltersEnabled && selectedModuleActionTypes.length > 1 ? (
+              <SubcategoryFilter
+                ariaLabel={`${copy(pageContract, "filter.module")} ${selectedModuleLabel}`}
+                label={`${selectedModuleLabel} subcategories`}
+                options={selectedModuleActionTypes}
+                selectedCategories={selectedCategories}
+              />
+            ) : null}
+
+            <>
+              {captureDateFilterEnabled ? (
+                <ActionsDateFilter
+                  basePath={PATHNAME}
+                  from={dateRange.from}
+                  to={dateRange.to}
+                  today={today}
+                  defaultFrom={businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS)}
+                  labels={{
+                    field: copy(pageContract, "filter.date"),
+                    today: copy(pageContract, "filter.date.today"),
+                    single: copy(pageContract, "filter.date.single"),
+                    range: copy(pageContract, "filter.date.range"),
+                    aria: copy(pageContract, "filter.date.aria"),
+                    previousMonth: copy(pageContract, "filter.date.previous_month"),
+                    nextMonth: copy(pageContract, "filter.date.next_month"),
+                    rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+                    rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+                    rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+                  }}
                 />
-              ))}
-            </Stack>
-          ) : null}
-
-          <Typography variant="h6" component="h2" className="vr-secthd" sx={{ px: 3, pt: 3, pb: 2 }}>
-            {tableContract.title}
-          </Typography>
-
-          <Box className="twrap tablewrap" tabIndex={0} role="group" sx={{ px: { xs: 2, sm: 0 } }}>
-            <Table data-enh="1" className="vr-table">
-              <TableHead>
-                <TableRow>
-                  {columns.map((label, index) => (
-                    <TableCell component="th" key={label}>
-                      {index === 2 ? (
-                        <Link
-                          href={hrefWith(sp, { sort: nextSort, ...RESET_ON_FILTER })}
-                          replace
-                          scroll={false}
-                          className="vr-sortlink"
-                          aria-label={`Sort by ${label} ${nextSort === "captured_at_desc" ? "newest first" : "oldest first"}`}
-                        >
-                          <span>{label}</span>
-                          {sort === "captured_at_desc" ? <ArrowDown className="ic" aria-hidden="true" /> : <ArrowUp className="ic" aria-hidden="true" />}
-                        </Link>
-                      ) : (
-                        label
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {items.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length}>
-                      {/* Template TableNoData: EmptyContent straight in the table body. */}
-                      <EmptyContent
-                        filled
-                        role="status"
-                        title={queue.ok ? copy(pageContract, "state.empty") : copy(pageContract, "state.queue_unavailable")}
-                        sx={{ py: 10 }}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  items.map((item) => (
-                    <QueueRow
-                      key={item.item_id}
-                      item={item}
-                      actionTypeLabel={String(typeLabels.get(item.category) ?? item.category)}
-                      searchParams={sp}
-                      pageContract={pageContract}
-                      statusLabels={statusLabelRecord}
-                    />
-                  ))
-                )}
-              </TableBody>
-            </Table>
+              ) : null}
+              {sheds.length ? (
+                <>
+                  {/* Grouped by park: a shed NAME is not unique across the farm (Castro, Gandhi,
+                      Godel 1/2, Mandela 1/2 and Yashoda exist in BOTH parks). The park comes from the
+                      option's own park_label and is never folded into the shed's display; options
+                      with no park stay in a plain list ABOVE the groups. */}
+                  <VrFormSelect
+                    id="verification-shed"
+                    name="shed_id"
+                    label={copy(pageContract, "filter.shed")}
+                    defaultValue={shedId ?? ""}
+                    options={[
+                      { value: "", label: copy(pageContract, "filter.all_sheds") },
+                      ...shedsWithoutPark.map((option) => ({
+                        value: option.id,
+                        label: option.operational_location_display || option.label,
+                      })),
+                      ...shedsByPark.flatMap(([parkLabel, parkSheds]) =>
+                        parkSheds.map((option) => ({
+                          value: option.id,
+                          label: option.operational_location_display || option.label,
+                          group: parkLabel,
+                        })),
+                      ),
+                    ]}
+                  />
+                  <Button type="submit" variant="contained" color="primary" size="large" startIcon={<Iconify icon="solar:list-bold" />} sx={{ flexShrink: 0 }}>
+                    {copy(pageContract, "filter.apply")}
+                  </Button>
+                  {/* Deliberately does NOT clear `category` (the sidebar's selection). It DOES clear
+                      the date pair, which returns the board to its default recent window. */}
+                  <LinkButton
+                    href={hrefWith(sp, {
+                      shed_id: null,
+                      status: null,
+                      nav_module: null,
+                      [DATE_FROM_PARAM]: null,
+                      [DATE_TO_PARAM]: null,
+                      ...RESET_ON_FILTER,
+                    })}
+                    replace
+                    scroll={false}
+                    color="error"
+                    size="large"
+                    startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}
+                    sx={{ flexShrink: 0 }}
+                  >
+                    {copy(pageContract, "filter.clear_all")}
+                  </LinkButton>
+                </>
+              ) : selectedModuleActionTypes.length > 1 ? (
+                <Button type="submit" variant="contained" color="primary" size="large" startIcon={<Iconify icon="solar:list-bold" />} sx={{ flexShrink: 0 }}>
+                  {copy(pageContract, "filter.apply")}
+                </Button>
+              ) : null}
+            </>
           </Box>
+          </Form>
 
-          {/* Keyset pagination. The queue read is cursor-based (OFFSET is banned on this path), so
-              there is no page number to jump to and no way to read backwards from a cursor alone.
-              `vi_trail` carries the cursors already consumed, newest last: Next pushes the cursor
-              that produced the CURRENT page, Previous pops it and re-reads with the one beneath. Each
-              direction is therefore a real indexed keyset read.
+          <Box className="vr-results-zone" aria-live="polite" aria-busy="false" sx={{ position: "relative" }}>
+            <div className="vr-results-loading" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
 
-              Before this the pager was a lone forward link: no way back without the browser button,
-              and no indication of where in the backlog the verifier was -- 33 pending items at 20 a
-              page, with nothing saying which 20 these were. Every label here stays backend-owned
-              (pagination.previous / pagination.position / pagination.next). */}
-          {queue.ok && (queue.data.next_cursor || trail.length) ? (
-            <Box className="pager" sx={{ px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5 }}>
-              {trail.length ? (
-                <LinkButton
-                  href={hrefWith(sp, {
-                    vi_cursor: trail[trail.length - 1] || null,
-                    vi_trail: encodeTrail(trail.slice(0, -1)),
-                    vi_row: null,
-                    va_status: null,
-                    va_code: null,
-                    va_fields: null,
-                    va_entries: null,
-                  })}
-                  size="small"
-                  variant="outlined"
-                  color="inherit"
-                  replace
-                  scroll={false}
-                >
-                  {copy(pageContract, "pagination.previous")}
-                </LinkButton>
-              ) : null}
-              <span className="small muted">
-                {copy(pageContract, "pagination.position")} {trail.length + 1}
-              </span>
-              {queue.data.next_cursor ? (
-                <LinkButton
-                  href={hrefWith(sp, {
-                    vi_cursor: queue.data.next_cursor,
-                    // The cursor that produced THIS page becomes the way back to it. "" is a real
-                    // trail entry (the first page has no cursor) and must survive the round trip.
-                    vi_trail: encodeTrail([...trail, one(sp, "vi_cursor") ?? ""]),
-                    vi_row: null,
-                    va_status: null,
-                    va_code: null,
-                    va_fields: null,
-                    va_entries: null,
-                  })}
-                  size="small"
-                  variant="outlined"
-                  color="inherit"
-                  replace
-                  scroll={false}
-                >
-                  {copy(pageContract, "pagination.next")}
-                </LinkButton>
-              ) : null}
-            </Box>
-          ) : null}
-        </div>
+            <Scrollbar>
+              <Table className="vr-table" aria-label={tableContract.title} sx={{ minWidth: 960 }}>
+                <VrQueueHead
+                  orderBy="captured_at"
+                  order={sort === "captured_at_desc" ? "desc" : "asc"}
+                  sortHref={hrefWith(sp, { sort: nextSort, ...RESET_ON_FILTER })}
+                  headCells={columns.map((label, index) => ({
+                    id: index === 2 ? "captured_at" : `col-${index}`,
+                    label,
+                    sortable: index === 2,
+                    sortLabel: index === 2 ? `Sort by ${label} ${nextSort === "captured_at_desc" ? "newest first" : "oldest first"}` : undefined,
+                  }))}
+                />
+                <TableBody>
+                  {items.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={columns.length}>
+                        {/* Template TableNoData: EmptyContent straight in the table body. */}
+                        <EmptyContent
+                          filled
+                          role="status"
+                          title={queue.ok ? copy(pageContract, "state.empty") : copy(pageContract, "state.queue_unavailable")}
+                          sx={{ py: 10 }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    items.map((item) => (
+                      <QueueRow
+                        key={item.item_id}
+                        item={item}
+                        actionTypeLabel={String(typeLabels.get(item.category) ?? item.category)}
+                        searchParams={sp}
+                        pageContract={pageContract}
+                        statusLabels={statusLabelRecord}
+                      />
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </Scrollbar>
+
+            {/* Keyset pagination. The queue read is cursor-based (OFFSET is banned on this path), so
+                there is no page number to jump to. `vi_trail` carries the cursors already consumed,
+                newest last: Next pushes the cursor that produced the CURRENT page, Previous pops it
+                and re-reads with the one beneath -- each direction is a real indexed keyset read.
+                Every label stays backend-owned (pagination.previous / position / next). */}
+            {queue.ok && (queue.data.next_cursor || trail.length) ? (
+              <TablePaginationLinks
+                className="pager"
+                page={trail.length}
+                rowsPerPage={20}
+                count={-1}
+                replace
+                rangeLabel={`${copy(pageContract, "pagination.position")} ${trail.length + 1}`}
+                prevLabel={copy(pageContract, "pagination.previous")}
+                nextLabel={copy(pageContract, "pagination.next")}
+                prevHref={
+                  trail.length
+                    ? hrefWith(sp, {
+                        vi_cursor: trail[trail.length - 1] || null,
+                        vi_trail: encodeTrail(trail.slice(0, -1)),
+                        vi_row: null,
+                        va_status: null,
+                        va_code: null,
+                        va_fields: null,
+                        va_entries: null,
+                      })
+                    : null
+                }
+                nextHref={
+                  queue.data.next_cursor
+                    ? hrefWith(sp, {
+                        vi_cursor: queue.data.next_cursor,
+                        // The cursor that produced THIS page becomes the way back to it. "" is a real
+                        // trail entry (the first page has no cursor) and must survive the round trip.
+                        vi_trail: encodeTrail([...trail, one(sp, "vi_cursor") ?? ""]),
+                        vi_row: null,
+                        va_status: null,
+                        va_code: null,
+                        va_fields: null,
+                        va_entries: null,
+                      })
+                    : null
+                }
+              />
+            ) : null}
+          </Box>
         </Card>
       </VerificationQueueTelemetry>
 
@@ -749,9 +731,21 @@ export async function VerificationReviewPage({
         pageContract={pageContract}
         statusLabels={statusLabelRecord}
       />
-    </div>
+    </>
   );
 }
+
+const STATUS_COLOR: Record<string, "warning" | "success" | "error"> = { pending: "warning", approved: "success", rejected: "error" };
+const STATUS_ICON: Record<string, IconifyName> = {
+  pending: "solar:sort-by-time-bold-duotone",
+  approved: "solar:file-check-bold-duotone",
+  rejected: "solar:file-corrupted-bold-duotone",
+};
+
+// The whole row opens the review overlay AND resolves the first proof immediately: this is the
+// verifier's explicit tap on that evidence row, not an automatic list-preview load. Keeping this
+// intent on every cell avoids the two-click "open drawer, then open video" trap.
+const ROW_LINK_STYLE = { display: "block", color: "inherit", textDecoration: "none" } as const;
 
 function QueueRow({
   item,
@@ -766,54 +760,46 @@ function QueueRow({
   pageContract: AdminUiPageContract;
   statusLabels: Record<string, string>;
 }) {
+  void pageContract;
   const playHref = hrefWith(searchParams, { vi_row: item.item_id, vi_play: "1", va_status: null, va_code: null, va_fields: null, va_entries: null });
   const leadMedia = item.media.find((media) => media.thumbnail_url) ?? item.media[0];
-  // The whole row opens the review overlay AND resolves the first proof immediately: this is the
-  // verifier's explicit tap on that evidence row, not an automatic list-preview load. Keeping this
-  // intent on every cell avoids the two-click "open drawer, then open video" trap.
   const cell = (children: React.ReactNode) => (
-    <LocalOverlayLink href={playHref} className="vr-rowlink" scroll={false}>
+    <LocalOverlayLink href={playHref} scroll={false} style={ROW_LINK_STYLE}>
       {children}
     </LocalOverlayLink>
   );
+  const muted = { color: "text.secondary", whiteSpace: "nowrap" } as const;
   return (
-    <TableRow className="vr-row">
+    // Template InvoiceTableRow: hover row, Avatar + ListItemText lead cell, soft status Label.
+    <TableRow hover>
       <TableCell>
-        <LocalOverlayLink href={playHref} className="vr-rowlink" scroll={false}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className="vr-thumb" aria-hidden="true">
-            {leadMedia?.thumbnail_url ? <img src={leadMedia.thumbnail_url} alt="" loading="lazy" decoding="async" /> : null}
-            <PlayCircle className="ic" />
-            {item.media.length > 1 ? <span className="n">{item.media.length}</span> : null}
-          </span>
-          {actionTypeLabel}
-          </div>
-        </LocalOverlayLink>
+        {cell(
+          <Box sx={{ gap: 2, display: "flex", alignItems: "center" }}>
+            <Badge badgeContent={item.media.length > 1 ? item.media.length : 0} color="default" overlap="rectangular">
+              <Avatar variant="rounded" src={leadMedia?.thumbnail_url || undefined} alt="" slotProps={{ img: { loading: "lazy", decoding: "async" } }} sx={{ bgcolor: "background.neutral", color: "text.secondary" }}>
+                <Iconify icon="solar:play-circle-bold" />
+              </Avatar>
+            </Badge>
+            <Box component="span" sx={{ typography: "body2" }}>
+              {actionTypeLabel}
+            </Box>
+          </Box>,
+        )}
       </TableCell>
+      <TableCell>{cell(subjectCell(item))}</TableCell>
+      <TableCell sx={muted}>{cell(fmtDateTime(item.captured_at))}</TableCell>
+      <TableCell sx={muted}>{cell(inQueueCell(item))}</TableCell>
+      <TableCell sx={muted}>{cell(item.verified_at ? fmtDateTime(item.verified_at) : "—")}</TableCell>
+      <TableCell sx={muted}>{cell(reviewTookCell(item))}</TableCell>
       <TableCell>
-        {cell(subjectCell(item))}
+        {cell(
+          <Label variant="soft" color={STATUS_COLOR[item.status] ?? "default"}>
+            {statusLabels[item.status] || item.status}
+          </Label>,
+        )}
       </TableCell>
-      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
-        {cell(fmtDateTime(item.captured_at))}
-      </TableCell>
-      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
-        {cell(inQueueCell(item))}
-      </TableCell>
-      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
-        {cell(item.verified_at ? fmtDateTime(item.verified_at) : <span className="small">—</span>)}
-      </TableCell>
-      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
-        {cell(reviewTookCell(item))}
-      </TableCell>
-      <TableCell>
-        {cell(<StatusChip status={item.status}>{statusLabels[item.status] || item.status}</StatusChip>)}
-      </TableCell>
-      <TableCell>
-        {cell(<span className="muted small">{item.verdict_reason || "—"}</span>)}
-      </TableCell>
-      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
-        {cell(watchCell(item))}
-      </TableCell>
+      <TableCell sx={{ color: "text.secondary", typography: "body2" }}>{cell(item.verdict_reason || "—")}</TableCell>
+      <TableCell sx={muted}>{cell(watchCell(item))}</TableCell>
     </TableRow>
   );
 }
@@ -841,18 +827,18 @@ function subjectCell(item: VerificationQueueItem): React.ReactNode {
     const tag = TAG_SEGMENT.exec(segment);
     if (tag) {
       chips.push(
-        <span key={`tag-${segment}`} className="chip tag" title={tag[1]}>
+        <Label key={`tag-${segment}`} variant="soft" title={tag[1]}>
           {tag[1]}
-        </span>,
+        </Label>,
       );
       continue;
     }
     if (COUNT_SEGMENT.test(segment)) {
-      chips.push(<span key={`count-${segment}`} className="chip count">{segment}</span>);
+      chips.push(<Label key={`count-${segment}`} variant="soft" color="info">{segment}</Label>);
       continue;
     }
     if (WEIGHT_SEGMENT.test(segment)) {
-      chips.push(<span key={`kg-${segment}`} className="chip kg">{segment}</span>);
+      chips.push(<Label key={`kg-${segment}`} variant="soft" color="secondary">{segment}</Label>);
       continue;
     }
     rest.push(segment);
@@ -866,16 +852,19 @@ function subjectCell(item: VerificationQueueItem): React.ReactNode {
   const meta = rest.filter((segment) => segment !== headline && segment !== descriptive);
   if (item.operator_name) meta.push(item.operator_name);
 
+  // Template ListItemText anatomy: body2 primary, the typed chips + context as the muted secondary line.
   return (
-    <div className="vr-subj">
-      <span className="t" title={item.subject_label || headline}>{headline}</span>
+    <Box sx={{ minWidth: 0 }}>
+      <Box component="span" title={item.subject_label || headline} sx={{ display: "block", typography: "body2", overflowWrap: "anywhere" }}>
+        {headline}
+      </Box>
       {chips.length || meta.length ? (
-        <span className="m">
+        <Box component="span" sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, typography: "caption", color: "text.disabled" }}>
           {chips}
           {meta.length ? <span>{meta.join(" · ")}</span> : null}
-        </span>
+        </Box>
       ) : null}
-    </div>
+    </Box>
   );
 }
 
@@ -889,22 +878,28 @@ const IN_QUEUE_RED_MS = 7 * 24 * 60 * 60 * 1000;
 // and red past 7d; decided items show "—" (their age in the pending queue no longer matters --
 // "Review took" answers the equivalent question for them).
 function inQueueCell(item: VerificationQueueItem): React.ReactNode {
-  if (item.status !== "pending") return <span className="small">—</span>;
+  if (item.status !== "pending") return "—";
   const capturedMs = Date.parse(item.captured_at);
-  if (Number.isNaN(capturedMs)) return <span className="small">—</span>;
+  if (Number.isNaN(capturedMs)) return "—";
   const ageMs = Date.now() - capturedMs;
-  const tone = ageMs >= IN_QUEUE_RED_MS ? "dng" : ageMs >= IN_QUEUE_AMBER_MS ? "warn" : undefined;
-  return <span className={tone ? `small ${tone === "dng" ? "vr-age-red" : "vr-age-amber"}` : "small"}>{humanizeDurationMs(ageMs)}</span>;
+  const tone = ageMs >= IN_QUEUE_RED_MS ? "error" : ageMs >= IN_QUEUE_AMBER_MS ? "warning" : undefined;
+  return tone ? (
+    <Label variant="soft" color={tone}>
+      {humanizeDurationMs(ageMs)}
+    </Label>
+  ) : (
+    humanizeDurationMs(ageMs)
+  );
 }
 
 // reviewTookCell renders the elapsed time between capture and verdict for a decided item; absent
 // for a still-pending item, which has not been reviewed yet.
 function reviewTookCell(item: VerificationQueueItem): React.ReactNode {
-  if (!item.verified_at) return <span className="small">—</span>;
+  if (!item.verified_at) return "—";
   const capturedMs = Date.parse(item.captured_at);
   const verifiedMs = Date.parse(item.verified_at);
-  if (Number.isNaN(capturedMs) || Number.isNaN(verifiedMs)) return <span className="small">—</span>;
-  return <span className="small">{humanizeDurationMs(verifiedMs - capturedMs)}</span>;
+  if (Number.isNaN(capturedMs) || Number.isNaN(verifiedMs)) return "—";
+  return humanizeDurationMs(verifiedMs - capturedMs);
 }
 
 // watchCell renders the queue row's watch-telemetry summary: "not opened" when the verifier never
@@ -913,10 +908,10 @@ function reviewTookCell(item: VerificationQueueItem): React.ReactNode {
 // (item.watch absent -- see domain.ItemWatchState's doc comment).
 function watchCell(item: VerificationQueueItem): React.ReactNode {
   const watch = item.watch;
-  if (!watch) return <span className="small">—</span>;
-  if (!watch.opened) return <span className="small">not opened</span>;
-  if (watch.percent_watched === undefined || watch.percent_watched === null) return <span className="small">—</span>;
-  return <span className="small">{watch.percent_watched}%</span>;
+  if (!watch) return "—";
+  if (!watch.opened) return "not opened";
+  if (watch.percent_watched === undefined || watch.percent_watched === null) return "—";
+  return `${watch.percent_watched}%`;
 }
 
 /**

@@ -51,8 +51,8 @@ test("the module-chip row is gated on oversightFiltersEnabled", () => {
 // queue to the days she is working. Without it the verifier's board is pinned to a date she cannot
 // change, which on real data is an empty screen sitting on top of a full backlog.
 test("the capture-date range picker is gated on its OWN control, not on oversight", () => {
-  const filterRow = source.match(/<div className="vr-frow">([\s\S]*?)\{sheds\.length \? \(/);
-  assert.ok(filterRow, "expected the vr-frow filter row to precede the shed filter block");
+  const filterRow = source.match(/className="vr-filter-form"([\s\S]*?)\{sheds\.length \? \(/);
+  assert.ok(filterRow, "expected the queue toolbar form to precede the shed filter block");
   assert.match(
     filterRow[1],
     /\{captureDateFilterEnabled \? \([\s\S]*<ActionsDateFilter/,
@@ -80,9 +80,9 @@ test("status chips and the shed filter are not gated behind oversightFiltersEnab
   // between the status chip block and the results table heading -- it is optional additive
   // chrome, not part of this filter row, so the regex tolerates it sitting in between.
   const statusBlock = source.match(
-    /\{statuses\.length \? \(([\s\S]*?)\) : null\}\s*\n[\s\S]{0,600}?className="vr-secthd"/,
+    /\{statuses\.length \? \(([\s\S]*?)\) : null\}\s*\n[\s\S]{0,600}?className="vr-filter-form"/,
   );
-  assert.ok(statusBlock, "expected the status chip block ahead of the results table heading");
+  assert.ok(statusBlock, "expected the status tabs ahead of the queue toolbar");
   assert.ok(
     !/oversightFiltersEnabled/.test(statusBlock[1]),
     "status chips predate the oversight rollout and must render for every role, including RoleVerifier",
@@ -176,7 +176,7 @@ test("module backlog rows link to the queue by the backend nav_module key", () =
   );
   // A module the registry cannot map must stay a plain card rather than link somewhere that quietly
   // drops the filter.
-  assert.match(analytics, /if \(!href\) \{\s*return \(\s*<div key=\{row\.module\} className="vr-omod">/);
+  assert.match(analytics, /label: href \? \([\s\S]*?<Link href=\{href\}[\s\S]*?\) : \(\s*name\s*\)/);
   // The page builds those hrefs with the same reset the module chips use: a keyset cursor from the
   // previous filter points into a different sequence.
   assert.match(
@@ -268,7 +268,7 @@ test("the video log renders only backend-composed location and label copy", () =
   // Feed transport writes no subject label on purpose; a placeholder would read as missing data.
   assert.match(
     videoLog,
-    /row\.subject_label \? <div className="small">\{row\.subject_label\}<\/div> : null/,
+    /row\.subject_label \? <Box sx=\{\{ typography: "body2" \}\}>\{row\.subject_label\}<\/Box> : null/,
     "an absent subject label must render nothing, never a placeholder",
   );
 });

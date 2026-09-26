@@ -78,7 +78,7 @@ test("clicking the queue thumbnail opens the drawer with a play intent", () => {
   );
   assert.match(
     pageSource,
-    /leadMedia\?\.thumbnail_url \? <img src=\{leadMedia\.thumbnail_url\} alt="" loading="lazy" decoding="async" \/> : null/,
+    /<Avatar variant="rounded" src=\{leadMedia\?\.thumbnail_url \|\| undefined\} alt="" slotProps=\{\{ img: \{ loading: "lazy", decoding: "async" \} \}\}/,
     "the list tile should render a lightweight thumbnail when the backend provides one",
   );
   assert.doesNotMatch(
