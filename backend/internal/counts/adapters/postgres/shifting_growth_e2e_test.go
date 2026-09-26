@@ -220,3 +220,40 @@ SELECT count(*) FROM shifting_events WHERE tenant_id = $1::uuid AND created_at >
 		t.Fatalf("refused raise wrote %d shifting event(s), want 0", got)
 	}
 }
+
+// F2-Female -> Mother by a growth shift (maintainer decision 2026-09-26), end to end: a fattening
+// female moves into a pen holding a Mother, becomes Mother, and is an ADULT in the same completion
+// (age_band rides with the tag, from the stage vocabulary). She started a kid.
+func TestGrowthEndToEndFatteningFemaleBecomesAnAdultMother(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	mux, repo := typedE2EStack(t, pool)
+
+	mover := "00000000-0000-4000-8000-00000000f391"
+	seedApprovalGoatWithStage(t, ctx, pool, mover, countsShedA, "F2-Female")
+	seedApprovalGoatWithStage(t, ctx, pool, "00000000-0000-4000-8000-00000000f392", countsShedB, "Mother")
+	for _, stage := range []string{"F2-Female", "Mother", "Non-Pregnant"} {
+		seedStageVocabulary(t, ctx, pool, stage)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE animal_stage_lookup SET age_band = CASE stage_code WHEN 'F2-Female' THEN 'kid' ELSE 'adult' END
+WHERE tenant_id = $1::uuid AND stage_code IN ('F2-Female', 'Mother', 'Non-Pregnant')`, countsTenant); err != nil {
+		t.Fatalf("seed stage bands: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE goats SET age_band = 'kid' WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, countsTenant, mover); err != nil {
+		t.Fatalf("seed mover band: %v", err)
+	}
+
+	raiseAndApplyGrowth(t, ctx, pool, mux, repo, "e2e-growth-f2f-mother", []string{mover}, "Mother", "")
+
+	if got := goatStage(t, ctx, pool, mover); got != "Mother" {
+		t.Fatalf("mover stage=%q, want Mother", got)
+	}
+	var band string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(age_band, '') FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, countsTenant, mover).Scan(&band); err != nil {
+		t.Fatalf("read band: %v", err)
+	}
+	if band != "adult" {
+		t.Fatalf("a new Mother must be an adult, age_band=%q", band)
+	}
+}

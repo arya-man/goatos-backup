@@ -45,6 +45,8 @@ import {
   weightsWindowSettings,
 } from "./landing-window";
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
+import { SEX_ALL, resolveSexFilter, sexControlValue } from "./sex-filter";
+import { weightsSexChoices } from "./sex-filter-contract";
 import { WeightsAnalyticsTabLoading } from "./weights-analytics-tab-loading";
 
 const PAGE_PATH = "/weighing/analytics";
@@ -185,11 +187,11 @@ export async function WeighingWeightsAnalyticsPage({
   // growth question is about the males it is fattening, so an unfiltered landing would show a
   // number nobody asked for. Every kid stays one click away as an explicit `sex=all`; anything
   // else falls back to the default rather than emptying the page.
-  const rawSex = one(params, SEX_PARAM);
-  const sexFilter = rawSex === "female" ? "female" : rawSex === "all" ? "" : "male";
+  const sexChoices = weightsSexChoices(pageContract);
+  const sexFilter = resolveSexFilter(one(params, SEX_PARAM), sexChoices);
   // What the CONTROL shows. The reads take "" for every kid; the control cannot, or its All
   // option would be the blank one and would read back as the male default on the next request.
-  const sexChoice = sexFilter === "" ? "all" : sexFilter;
+  const sexChoice = sexControlValue(sexFilter);
   const rawOrigin = one(params, ORIGIN_PARAM);
   // A bookmark from the two-way filter (`origin=purchased`) is rewritten to its three-way key so
   // the control shows the cohort the figures are actually filtered to.
@@ -460,11 +462,7 @@ export async function WeighingWeightsAnalyticsPage({
       label: copy(pageContract, "filter.sex.label"),
       value: sexChoice,
       allowAll: false,
-      options: [
-        { value: "all", label: copy(pageContract, "filter.all_option") },
-        { value: "male", label: copy(pageContract, "view.sex.male") },
-        { value: "female", label: copy(pageContract, "view.sex.female") },
-      ],
+      options: [{ value: SEX_ALL, label: copy(pageContract, "filter.all_option") }, ...sexChoices],
     },
     {
       // Same as /weighing/weights: absent means every origin, while the explicit values narrow

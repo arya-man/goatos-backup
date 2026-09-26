@@ -8,6 +8,7 @@ import { WeightBars } from "./weight-bars";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import type { GrowthFCRGroup, GrowthFCRResponse, GrowthFCRPen } from "@/lib/api/server";
+import { weightsSexChoices } from "./sex-filter-contract";
 
 /**
  * ADG Analytics › FCR (maintainer request 2026-09-07) — feed conversion ratio: kilograms of feed
@@ -64,6 +65,11 @@ function groupLabel(pageContract: AdminUiPageContract, group: GrowthFCRGroup, id
     case "procured_load":
       return copy(pageContract, "label.fcr.procured_load");
     default:
+      // A gender the farm added on Configuration is named from its list, never shown as a code.
+      if (id === "sex") {
+        const configured = weightsSexChoices(pageContract).find((choice) => choice.value === group.key);
+        if (configured) return configured.label;
+      }
       return group.label;
   }
 }
@@ -167,6 +173,7 @@ export function FCRTab({
     unknown: copy(pageContract, "label.fcr.unknown"),
     male: copy(pageContract, "view.sex.male"),
     female: copy(pageContract, "view.sex.female"),
+    sexes: Object.fromEntries(weightsSexChoices(pageContract).map((choice) => [choice.value, choice.label])),
     wholePen: copy(pageContract, "label.fcr.whole_pen"),
     scanned: copy(pageContract, "label.fcr.scanned"),
     status: {

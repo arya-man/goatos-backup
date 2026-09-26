@@ -1,5 +1,5 @@
 import { ControlTowerPage } from "@/features/control-tower";
-import { landingWindow, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "@/features/weighing";
+import { landingWindow, sexFilterFromUrl, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "@/features/weighing";
 import { getAdminWebBootstrap } from "@/lib/api/server";
 import { originFromParam } from "@/lib/animal-origin";
 import { todayIso } from "@/lib/format";
@@ -38,8 +38,7 @@ async function landingHref(landing: { href: string; copy?: Record<string, string
   const selectedTo = one(params, WINDOW_TO_PARAM);
   if (selectedFrom && selectedTo) return hrefWithWindow(landing.href, params, selectedFrom, selectedTo);
 
-  const rawSex = one(params, "sex");
-  const sexFilter = rawSex === "female" ? "female" : rawSex === "all" ? "" : "male";
+  const sexFilter = sexFilterFromUrl(one(params, "sex"));
   const originFilter = originFromParam(one(params, "origin"));
   const modeFilter = weighingModeFilter(one(params, "weighing"));
   const weighingCategoryFilter = modeFilter !== "all" ? modeFilter : "";

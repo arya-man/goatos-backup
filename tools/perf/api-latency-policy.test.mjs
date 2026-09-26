@@ -325,10 +325,13 @@ test("Weights benchmark defaults remain tied to both actual pages", () => {
   assert.match(constants, new RegExp(`LATEST_LUMP_LOOKBACK_DAYS = ${WEIGHING_LOOKBACK_DAYS}`));
   for (const file of ["weights.tsx", "weights-analytics.tsx"]) {
     const source = readFileSync(new URL(`../../apps/admin-web/features/weighing/${file}`, import.meta.url), "utf8");
-    assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
+    // Both pages resolve the Sex filter through one helper (any configured gender, male default).
+    assert.match(source, /const sexFilter = resolveSexFilter\(one\(params, SEX_PARAM\), sexChoices\)/);
     assert.match(source, /return raw === "individual_animal" \|\| raw === "per_shed_partition" \? raw : "all"/);
     assert.match(source, /sex: sexFilter \|\| undefined/);
   }
+  const sexFilter = readFileSync(new URL("../../apps/admin-web/features/weighing/sex-filter.ts", import.meta.url), "utf8");
+  assert.match(sexFilter, /const SEX_DEFAULT = "male";/, "the benchmark's male default must stay the pages' default");
   validateWeighingManifest(readHotPathManifest("hot-paths.pr264.json").endpoints);
 });
 

@@ -46,7 +46,8 @@ travels and the PEN adapts).
 
 ```text
 K0 -> K1 -> K2 -> K3 -+- F2 -+- F2-Male   -> Buck
-                      |      +- F2-Female -> Non-Pregnant <-> Pregnant
+                      |      +- F2-Female -+-> Non-Pregnant <-> Pregnant
+                      |                    +-> Mother
                       +------ F2-Male / F2-Female (K3 may split by sex directly)
 ```
 
@@ -55,11 +56,15 @@ K0 -> K1 -> K2 -> K3 -+- F2 -+- F2-Male   -> Buck
   `growthForwardEdges`.
 - The ONE permitted reverse edge is `Pregnant -> Non-Pregnant`: a pregnancy that does not hold, or
   completes, returns her.
-- Sexed stages: `F2-Male`/`Buck` are male; `F2-Female`/`Non-Pregnant`/`Pregnant` are female. An F2
-  pen's mixed group splits by sex across TWO raises, one per sexed destination.
-- **Open decisions (deliberate absences):** `Mother`, `Milking`, `M0`, and `Warmup` are real
-  vocabulary stages with NO growth edges. A growth raise touching them refuses until the maintainer
-  places them on the ladder. `F2-Male -> Buck` is present per the maintainer's 2026-08-20
+- Sexed stages: `F2-Male`/`Buck` are male; `F2-Female`/`Non-Pregnant`/`Pregnant`/`Mother` are female.
+  An F2 pen's mixed group splits by sex across TWO raises, one per sexed destination.
+- **`F2-Female -> Mother` (maintainer decision 2026-09-26)** sits beside `F2-Female -> Non-Pregnant`:
+  into a pen set to Mother, or holding Mothers, she becomes Mother -- and ADULT in the same write,
+  because age_band rides with the tag. Into an EMPTY pen, the pen's Stage decides when it is Mother;
+  otherwise she takes the first rung, Non-Pregnant, exactly as before.
+- **Open decisions (deliberate absences):** `Mother` has no growth step OUT of it, and `Milking`,
+  `M0` and `Warmup` have none at all. A growth raise from them refuses until the maintainer places
+  them on the ladder. `F2-Male -> Buck` is present per the maintainer's 2026-08-20
   confirmation; most fattening males exit by sale instead, which is not a shifting.
 
 ## Growth: a resident carrying the next stage decides first (maintainer decision 2026-09-23)
@@ -100,7 +105,7 @@ pen was left set to.
 - Where the ladder splits by sex, the animal's sex picks the rung: `K3` goes straight to `F2-Male`
   / `F2-Female`, `F2` to `F2-Male` / `F2-Female`. An animal with no sex recorded there is refused
   `growth_sex_unknown`.
-- A stage with no growth step (`Mother`, `Milking`, `M0`, `Warmup`) is refused
+- A stage with no growth step out of it (`Mother`, `Milking`, `M0`, `Warmup`) is refused
   `growth_no_next_stage`.
 - One raise stamps one tag: a group landing on different next stages (a male and a female K3) is
   refused `growth_group_needs_split`.

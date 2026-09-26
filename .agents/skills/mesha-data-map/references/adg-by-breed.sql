@@ -6,13 +6,15 @@
 -- against the live dashboard (4-22 Sep and 3 Aug-22 Sep 2026, Male). Re-derived 26/09/2026 after #415:
 -- backend changes were perf-only (parallel scope resolution, deduped gsp_keys/live-shed joins, same
 -- results) plus pen-type codes from pen_types (Pen-wise tab only); Breed-wise semantics unchanged.
+-- Re-derived 26/09/2026 (animal-types audit): the Sex filter takes any configured gender code, not
+-- male/female only; male and female results are unchanged.
 -- Same filters as the screen. Run: run_reference('adg-by-breed.sql', params={from_date:'2026-09-04',
 -- to_date:'2026-09-22', sex:'male'}). Display rounding: gain_g_per_day whole g, avg_weight_kg 1 dp.
 -- param: from_date date  first IST business date (default: 14 days before today = the backend's 15-day default window)
 -- param: to_date date    last IST business date, inclusive (default: today IST)
 -- param: park_code text  CBE | CPT | PARIGI (park code or name); empty/all = every active park
--- param: sex text        male | female; empty/all = both sexes
 -- param: origin text     farm_born | procured_no_load | procured_load (purchased = procured_load); empty/all = every origin
+-- param: sex text        any gender code from Items & settings (male, female, ...); empty/all = every sex
 -- param: weighing text   all | individual | whole_pen (default all)
 -- Statistic (app's): gain = animal-weighted mean. Each scanned animal (same-animal key: two active
 -- tags of one goat merge) with >=2 weigh DAYS inside the window (last weigh of each IST day; pairs of
@@ -30,7 +32,9 @@ WITH w AS (
   FROM (SELECT /*param:from_date*/((now() AT TIME ZONE 'Asia/Kolkata')::date - 14)/*end*/::date AS f,
                /*param:to_date*/(now() AT TIME ZONE 'Asia/Kolkata')::date/*end*/::date AS t,
                lower(btrim(/*param:park_code*/''/*end*/::text)) AS park_code,
-               CASE lower(btrim(/*param:sex*/''/*end*/::text)) WHEN 'male' THEN 'male' WHEN 'female' THEN 'female' ELSE '' END AS sexf,
+               CASE WHEN lower(btrim(/*param:sex*/''/*end*/::text)) ~ '^[a-z][a-z0-9_]{0,39}$'
+                         AND lower(btrim(/*param:sex*/''/*end*/::text)) <> 'all'
+                    THEN lower(btrim(/*param:sex*/''/*end*/::text)) ELSE '' END AS sexf,
                CASE replace(replace(replace(lower(btrim(/*param:origin*/''/*end*/::text)), ' ', '_'), '(', ''), ')', '')
                     WHEN 'farm_born' THEN 'farm_born' WHEN 'born' THEN 'farm_born'
                     WHEN 'procured_no_load' THEN 'procured_no_load' WHEN 'no_load' THEN 'procured_no_load'

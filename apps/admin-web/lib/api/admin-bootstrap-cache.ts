@@ -45,11 +45,12 @@ export class AdminBootstrapCache<T extends { cache_policy: BootstrapCachePolicy 
   async get(
     authority: { baseUrl: string; tenantId: string; bearerToken: string },
     fetcher: (etag?: string) => Promise<BootstrapFetchResult<T>>,
+    options: { forceRevalidate?: boolean } = {},
   ): Promise<T> {
     const now = this.now();
     const key = authorityKey(authority);
     const cached = this.entries.get(key);
-    if (cached && cached.expiresAt > now) {
+    if (!options.forceRevalidate && cached && cached.expiresAt > now) {
       cached.lastUsedAt = now;
       return cached.data;
     }
@@ -74,6 +75,17 @@ export class AdminBootstrapCache<T extends { cache_policy: BootstrapCachePolicy 
     });
     this.evictIfNeeded();
     return result.data;
+  }
+
+  /**
+   * Marks every held contract stale, so the next read revalidates with its ETag. Called after a
+   * write that changes a vocabulary the contract compiles (Configuration > Items & settings): the
+   * backend bumps that family's revision, the ETag no longer matches, and the new contract comes
+   * back at once instead of after the advertised TTL (up to a minute, seen at 47 s on 2026-09-26).
+   * The ETag is kept, so an unchanged contract still costs only a 304.
+   */
+  expireAll(): void {
+    for (const entry of this.entries.values()) entry.expiresAt = 0;
   }
 
   /** Number of contracts currently held; exposed so tests can pin the heap bound. */

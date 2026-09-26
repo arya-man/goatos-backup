@@ -19,9 +19,13 @@ const contract = readFileSync(
 test("the export drawer owns a Sex select that starts on every kid", () => {
   assert.match(drawer, /const \[sex, setSex\] = useState\(""\)/);
   assert.match(drawer, /<select id="wt-export-sex" value=\{sex\}/);
-  for (const key of ["export.sex.label", "export.sex.all", "view.sex.male", "view.sex.female"]) {
+  for (const key of ["export.sex.label", "export.sex.all"]) {
     assert.match(drawer, new RegExp(`copy\\(pageContract, "${key}"\\)`), key);
   }
+  // The genders are the farm's own list from Configuration (audit 2026-09-26), not male and female
+  // typed into the drawer.
+  assert.match(drawer, /weightsSexChoices\(pageContract\)\.map/);
+  assert.doesNotMatch(drawer, /<option value="male">/);
   // The choice travels to the backend export exactly as the page filter used to.
   assert.match(drawer, /sex: sex \|\| undefined/);
   assert.match(action, /sex: input\.sex/);

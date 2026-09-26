@@ -226,12 +226,13 @@ func TestConfigurationRegistersLifecyclePostgresPaths(t *testing.T) {
 	if _, err := repo.Update(ctx, write("sp-goat"), domain.RegSpecies, "goat", map[string]any{"name": "Goats"}, 1); err != nil {
 		t.Fatalf("renaming a built-in is allowed: %v", err)
 	}
-	if err := repo.Delete(ctx, write("sp-goat-del"), domain.RegSpecies, "goat", 0); !errors.As(err, &inUse) {
-		t.Fatalf("goat is in use by an animal: %v", err)
+	// A built-in is refused AS built in inside the write transaction (audit 2026-09-26), before
+	// its usage is even counted: goat carries an animal and sheep carries none, and both answer the
+	// same "rename it, you cannot remove it".
+	if err := repo.Delete(ctx, write("sp-goat-del"), domain.RegSpecies, "goat", 0); !errors.Is(err, domain.ErrBuiltin) {
+		t.Fatalf("goat is built in: %v", err)
 	}
-	if err := repo.Delete(ctx, write("sp-sheep-del"), domain.RegSpecies, "sheep", 0); !errors.Is(err, ports.ErrVersionConflict) && !errors.Is(err, ports.ErrNotFound) {
-		// The store refuses the row-level delete of a built-in (NOT is_builtin); the service
-		// refuses earlier with ErrBuiltin. Either way sheep stays.
+	if err := repo.Delete(ctx, write("sp-sheep-del"), domain.RegSpecies, "sheep", 0); !errors.Is(err, domain.ErrBuiltin) {
 		t.Fatalf("a built-in must not be deletable at the store: %v", err)
 	}
 	if err := repo.Delete(ctx, write("sp-cow-del"), domain.RegSpecies, "cow", 0); err != nil {

@@ -70,13 +70,16 @@ const NewbornStageCode = "K0"
 //
 // Keys and values are canonical stage codes; comparison is case-insensitive via growthEdgeExists.
 var growthForwardEdges = map[string][]string{
-	"K0":           {"K1"},
-	"K1":           {"K2"},
-	"K2":           {"K3"},
-	"K3":           {"F2", "F2-Male", "F2-Female"},
-	"F2":           {"F2-Male", "F2-Female"},
-	"F2-Male":      {"Buck"},
-	"F2-Female":    {"Non-Pregnant"},
+	"K0":      {"K1"},
+	"K1":      {"K2"},
+	"K2":      {"K3"},
+	"K3":      {"F2", "F2-Male", "F2-Female"},
+	"F2":      {"F2-Male", "F2-Female"},
+	"F2-Male": {"Buck"},
+	// F2-Female -> Mother (maintainer decision 2026-09-26): a fattening female that kids joins the
+	// mothers by a growth shift, and takes Mother's adult band in the same write. Non-Pregnant stays
+	// FIRST: into an empty pen whose Stage is not Mother it is still the rung she takes.
+	"F2-Female":    {"Non-Pregnant", "Mother"},
 	"Non-Pregnant": {"Pregnant"},
 	// The ONE permitted reverse edge: a pregnancy that does not hold, or completes, returns her.
 	"Pregnant": {"Non-Pregnant"},
@@ -89,6 +92,7 @@ var growthStageSex = map[string]string{
 	"F2-Male":      "male",
 	"Buck":         "male",
 	"F2-Female":    "female",
+	"Mother":       "female",
 	"Non-Pregnant": "female",
 	"Pregnant":     "female",
 }
@@ -326,7 +330,7 @@ func resolveGrowthShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefu
 func resolveGrowthIntoEmptyPen(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefusal) {
 	target := ""
 	for _, animal := range ctx.Animals {
-		next, refusal := growthNextStageForEmptyPen(animal, ctx.WritableStages)
+		next, refusal := growthNextStageForEmptyPen(animal, ctx.WritableStages, ctx.DestinationConfiguredStage)
 		if refusal != nil {
 			return ShiftTypeDecision{}, refusal
 		}
@@ -344,8 +348,11 @@ func resolveGrowthIntoEmptyPen(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftT
 	return ShiftTypeDecision{TargetStage: target, AdoptPenTag: target}, nil
 }
 
-// growthNextStageForEmptyPen answers one animal's single next rung on the authored ladder.
-func growthNextStageForEmptyPen(animal ShiftTypeAnimal, writable []string) (string, *ShiftTypeRefusal) {
+// growthNextStageForEmptyPen answers one animal's single next rung on the authored ladder. Where
+// one sex has two rungs (F2-Female -> Non-Pregnant or Mother), the empty pen's Stage decides when
+// it names one of them, and otherwise the ladder's FIRST rung is taken -- so a move into an empty
+// pen behaves exactly as it did before the second rung existed.
+func growthNextStageForEmptyPen(animal ShiftTypeAnimal, writable []string, penStage string) (string, *ShiftTypeRefusal) {
 	var edges []string
 	for stage, nexts := range growthForwardEdges {
 		if strings.EqualFold(stage, strings.TrimSpace(animal.Stage)) {
@@ -378,6 +385,15 @@ func growthNextStageForEmptyPen(animal ShiftTypeAnimal, writable []string) (stri
 		}
 	} else {
 		chosen = edges
+	}
+	if len(chosen) > 1 && len(sexed) > 0 {
+		pick := chosen[0]
+		for _, next := range chosen {
+			if strings.EqualFold(next, strings.TrimSpace(penStage)) {
+				pick = next
+			}
+		}
+		chosen = []string{pick}
 	}
 	if len(chosen) != 1 {
 		return "", refuse("growth_next_stage_ambiguous", shiftCopyGrowthNextStageAmbiguous)
@@ -722,3 +738,33 @@ const (
 	shiftCopyGroupStageUnknown = "An animal in this group has no tag, so the group's tag cannot be carried"
 	shiftCopyGroupStageMixed   = "These animals carry different tags, so one tag cannot be carried for the group"
 )
+
+// ProductNamedStageCodes is every stage code this package names literally: the newborn stage
+// births are recorded at, the flushing cohort, and every rung of the growth ladder. The
+// Configuration register protects these rows from archive and delete (a farm may still rename
+// them), because removing one silently breaks births, flushing or a growth step. Pinned by
+// configuration/domain's TestProtectedStageCodesCoverEveryStageTheProductNames.
+func ProductNamedStageCodes() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	add := func(code string) {
+		key := strings.ToLower(strings.TrimSpace(code))
+		if key == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, code)
+	}
+	add(NewbornStageCode)
+	add(FlushingStageName)
+	for stage, nexts := range growthForwardEdges {
+		add(stage)
+		for _, next := range nexts {
+			add(next)
+		}
+	}
+	for stage := range growthStageSex {
+		add(stage)
+	}
+	return out
+}

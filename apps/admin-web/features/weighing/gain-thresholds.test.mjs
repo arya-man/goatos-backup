@@ -127,12 +127,15 @@ test("every visible string on the table is backend-contract copy", () => {
     "view.table",
     "section.gain_thresholds.aria",
     "filter.sex.label",
-    "view.sex.male",
-    "view.sex.female",
   ]) {
     assert.match(source, new RegExp(`copy\\(pageContract, "${key.replace(/\./g, "\\.")}"\\)`));
     assert.ok(contract.includes(`"${key}":`), `contract is missing copy key ${key}`);
   }
+  // The Sex choices are the farm's genders from Configuration (audit 2026-09-26), compiled into the
+  // weights_sexes group -- never male and female typed into the page.
+  assert.match(source, /weightsSexChoices\(pageContract\)/);
+  assert.match(contract, /ID: "weights_sexes"/);
+  assert.doesNotMatch(source, /copy\(pageContract, "view\.sex\.(male|female)"\)/);
   // The three grains each carry their OWN caption, head-count noun and empty line, because each
   // names the kids that grain counted: a combined caption under Male would say the bands add up to
   // the kids weighed twice when they add up to the MALE kids weighed twice. All nine are resolved
@@ -147,15 +150,19 @@ test("every visible string on the table is backend-contract copy", () => {
     "empty.gain_thresholds.body",
     "empty.gain_thresholds.male",
     "empty.gain_thresholds.female",
+    // A gender the farm added reads these, with {sex} replaced by its name.
+    "section.gain_thresholds.caption_other",
+    "value.gain_thresholds.kids_other",
+    "empty.gain_thresholds.other",
   ]) {
     assert.ok(contract.includes(`"${key}":`), `contract is missing copy key ${key}`);
   }
   // Caption, head-count noun and empty line are picked BY the selected filter, so the page names
   // the key rather than spelling one out. Both halves are still checked: the page resolves them
   // through copy(), and the contract carries every key it can ask for.
-  assert.match(source, /sexFilter === "" \? "section\.gain_thresholds\.caption" : `section\.gain_thresholds\.caption_\$\{sexFilter\}`/);
-  assert.match(source, /sexFilter === "" \? "value\.gain_thresholds\.kids" : `value\.gain_thresholds\.kids_\$\{sexFilter\}`/);
-  assert.match(source, /sexFilter === "" \? "empty\.gain_thresholds\.body" : `empty\.gain_thresholds\.\$\{sexFilter\}`/);
+  assert.match(source, /all: "section\.gain_thresholds\.caption", perSex: \(sex\) => `section\.gain_thresholds\.caption_\$\{sex\}`/);
+  assert.match(source, /all: "value\.gain_thresholds\.kids", perSex: \(sex\) => `value\.gain_thresholds\.kids_\$\{sex\}`/);
+  assert.match(source, /all: "empty\.gain_thresholds\.body", perSex: \(sex\) => `empty\.gain_thresholds\.\$\{sex\}`/);
   // Column headers come from the table contract, not literals in the page.
   assert.match(source, /tableLabels\(pageContract, "gain-thresholds"\)/);
   assert.match(contract, /tableP\("gain-thresholds"/);
@@ -193,7 +200,9 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
   // MALE is the default and an absent parameter means it (maintainer request 2026-09-01); every
   // kid is the explicit `sex=all`, which the reads still see as "" -- the value the backend
   // resolver reads as "no filter", so the unfiltered page runs the query it always ran.
-  assert.match(source, /rawSex === "female" \? "female" : rawSex === "all" \? "" : "male"/);
+  // The rule itself (male default, explicit all, a configured third gender) is pinned by
+  // sex-filter.test.mjs; here the page must route through it rather than re-derive it.
+  assert.match(source, /const sexFilter = resolveSexFilter\(one\(params, SEX_PARAM\), sexChoices\)/);
   assert.match(source, /landingWindow\(\s*\n\s*params,\s*\n\s*today,\s*\n\s*parkFilter,\s*\n\s*sexFilter,\s*\n\s*originFilter,\s*\n\s*weighingCategoryFilter,\s*\n\s*windowSettings,\s*\n\s*\)/);
   assert.match(source, /getShedWeights\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.window,/);
   for (const read of ["getShedWeights"]) {
@@ -248,13 +257,12 @@ test("Sex sits in the filter bar beside Weighing, defaults to Male, and carries 
   // everything. One All, and it is a real value.
   const sexField = bar.slice(sex);
   assert.match(sexField, /allowAll: false/);
-  assert.match(sexField, /\{ value: "all", label: copy\(pageContract, "filter\.all_option"\) \}/);
-  assert.match(sexField, /copy\(pageContract, "view\.sex\.male"\)/);
-  assert.match(sexField, /copy\(pageContract, "view\.sex\.female"\)/);
+  // The explicit All, then the farm's genders from Configuration (audit 2026-09-26).
+  assert.match(sexField, /options: \[\{ value: SEX_ALL, label: copy\(pageContract, "filter\.all_option"\) \}, \.\.\.sexChoices\]/);
   // The control shows "all" where the reads see "": the blank would read back as the male default
   // on the next request, so the All choice must survive the round trip as a value of its own.
   assert.match(sexField, /value: sexChoice/);
-  assert.match(source, /const sexChoice = sexFilter === "" \? "all" : sexFilter/);
+  assert.match(source, /const sexChoice = sexControlValue\(sexFilter\)/);
 });
 
 test("a load animal is filtered by its own sex, weighed alone or with its pen", () => {

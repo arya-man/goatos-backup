@@ -12,6 +12,7 @@ import {
 } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { weightsWindowSettings } from "./landing-window-constants";
+import { weightsSexChoices } from "./sex-filter-contract";
 import { exportWeightsCsvAction } from "./weights-export-action";
 
 export type WeightsExportPark = { park_id: string; name: string };
@@ -226,8 +227,11 @@ export function WeightsExportControl({
             <label htmlFor="wt-export-sex">{copy(pageContract, "export.sex.label")}</label>
             <select id="wt-export-sex" value={sex} onChange={(event) => setSex(event.target.value)} disabled={pending}>
               <option value="">{copy(pageContract, "export.sex.all")}</option>
-              <option value="male">{copy(pageContract, "view.sex.male")}</option>
-              <option value="female">{copy(pageContract, "view.sex.female")}</option>
+              {weightsSexChoices(pageContract).map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
             </select>
           </div>
 

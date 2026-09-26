@@ -1029,7 +1029,7 @@ paths:
           name: sex
           schema:
             type: string
-            enum: [male, female]
+            pattern: '^[a-z][a-z0-9_]{0,39}$'
           description: Optional sex narrowing, with the same attribution rules as the weights screen.
         - in: query
           name: origin
@@ -1699,13 +1699,13 @@ paths:
           in: query
           required: false
           description: >-
-            `male` or `female` to report on that half of the herd only; omitted means every kid.
+            A gender code from Configuration > Items & settings (such as `male` or `female`) to report on that part of the herd only; omitted means every kid.
             An unknown value is REJECTED rather than ignored, because silently widening a filter
             shows a reader more kids than the heading they are reading says. An individual weigh
             is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
             tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
             shed is claimed by neither side rather than split.
-          schema: {type: string, enum: [male, female]}
+          schema: {type: string, pattern: '^[a-z][a-z0-9_]{0,39}$'}
         - name: origin
           in: query
           required: false
@@ -1948,13 +1948,13 @@ paths:
           in: query
           required: false
           description: >-
-            `male` or `female` to report on that half of the herd only; omitted means every kid.
+            A gender code from Configuration > Items & settings (such as `male` or `female`) to report on that part of the herd only; omitted means every kid.
             An unknown value is REJECTED rather than ignored, because silently widening a filter
             shows a reader more kids than the heading they are reading says. An individual weigh
             is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
             tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
             shed is claimed by neither side rather than split.
-          schema: {type: string, enum: [male, female]}
+          schema: {type: string, pattern: '^[a-z][a-z0-9_]{0,39}$'}
         - name: origin
           in: query
           required: false
@@ -2075,13 +2075,13 @@ paths:
           in: query
           required: false
           description: >-
-            `male` or `female` to report on that half of the herd only; omitted means every kid.
+            A gender code from Configuration > Items & settings (such as `male` or `female`) to report on that part of the herd only; omitted means every kid.
             An unknown value is REJECTED rather than ignored, because silently widening a filter
             shows a reader more kids than the heading they are reading says. An individual weigh
             is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
             tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
             shed is claimed by neither side rather than split.
-          schema: {type: string, enum: [male, female]}
+          schema: {type: string, pattern: '^[a-z][a-z0-9_]{0,39}$'}
         - name: origin
           in: query
           required: false
@@ -2216,13 +2216,13 @@ paths:
           in: query
           required: false
           description: >-
-            `male` or `female` to report on that half of the herd only; omitted means every kid.
+            A gender code from Configuration > Items & settings (such as `male` or `female`) to report on that part of the herd only; omitted means every kid.
             An unknown value is REJECTED rather than ignored, because silently widening a filter
             shows a reader more kids than the heading they are reading says. An individual weigh
             is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no
             tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed
             shed is claimed by neither side rather than split.
-          schema: {type: string, enum: [male, female]}
+          schema: {type: string, pattern: '^[a-z][a-z0-9_]{0,39}$'}
         - name: origin
           in: query
           required: false
@@ -2329,7 +2329,7 @@ paths:
         - name: sex
           in: query
           required: false
-          schema: {type: string, enum: [all, male, female]}
+          schema: {type: string, pattern: '^[a-z][a-z0-9_]{0,39}$'}
         - name: origin
           in: query
           required: false
@@ -11437,7 +11437,7 @@ paths:
         - name: sex
           in: query
           required: false
-          schema: { type: string, enum: [male, female] }
+          schema: { type: string, pattern: '^[a-z][a-z0-9_]{0,39}$' }
         - name: stage
           in: query
           required: false

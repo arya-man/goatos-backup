@@ -34,6 +34,8 @@ import {
   weightsWindowSettings,
 } from "./landing-window";
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
+import { SEX_ALL, resolveSexFilter, sexControlValue, sexLabel } from "./sex-filter";
+import { sexSentence, weightsSexChoices } from "./sex-filter-contract";
 import { assumptionValue, bandEdgesParam, DEFAULT_SALE_READY_LOWER_KG, fillKg } from "./assumption-copy";
 
 const PAGE_PATH = "/weighing/weights";
@@ -252,11 +254,12 @@ export async function WeighingWeightsPage({
   // already uses for its own All -- an absent parameter can only mean one thing, and here it
   // means male. Anything else falls back to the default rather than emptying the page, because a
   // hand-edited URL must not take the screen down.
-  const rawSex = one(params, SEX_PARAM);
-  const sexFilter = rawSex === "female" ? "female" : rawSex === "all" ? "" : "male";
+  // The choices are the farm's genders from Configuration (see sex-filter.ts).
+  const sexChoices = weightsSexChoices(pageContract);
+  const sexFilter = resolveSexFilter(one(params, SEX_PARAM), sexChoices);
   // What the CONTROL shows. The reads take "" for every kid; the control cannot, or its All
   // option would be the blank one and would read back as the male default on the next request.
-  const sexChoice = sexFilter === "" ? "all" : sexFilter;
+  const sexChoice = sexControlValue(sexFilter);
   // Origin takes the opposite default: absent means EVERY kid, so "all" is the blank value and no
   // separate control spelling is needed. An unrecognised value falls back to every kid rather than
   // emptying the page, for the same reason the sex fallback does -- a hand-edited URL must not take
@@ -458,11 +461,7 @@ export async function WeighingWeightsPage({
       // blank one would silently switch the page back to the default while claiming to show
       // everything, so there is exactly one All and it is a real value.
       allowAll: false,
-      options: [
-        { value: "all", label: copy(pageContract, "filter.all_option") },
-        { value: "male", label: copy(pageContract, "view.sex.male") },
-        { value: "female", label: copy(pageContract, "view.sex.female") },
-      ],
+      options: [{ value: SEX_ALL, label: copy(pageContract, "filter.all_option") }, ...sexChoices],
     },
     {
       // Origin governs the WHOLE page for the same reason Sex does: the farm breeds its own kids
@@ -667,14 +666,19 @@ export async function WeighingWeightsPage({
   // A dimension has a weight series and, separately, a gain series over the smaller
   // set of animals weighed twice. Selecting between them here keeps the two
   // populations from being conflated in one row.
+  // `name` turns a bucket's key into the farm's word. The sex buckets arrive as the stored gender
+  // CODE ("male", "castrated") -- weighing reads no gender list of its own -- so the sex chart
+  // names them from the farm's genders on this page's contract (audit 2026-09-26).
   const dimensionBars = (
     kind: "weight" | "adg",
     weightBuckets: readonly { label: string; average_weight_kg: number }[],
     gainBuckets: readonly { label: string; median_gain_g_per_day: number }[],
+    name: (key: string) => string = (key) => key,
   ) =>
     kind === "weight"
-      ? weightBuckets.map((b) => ({ key: b.label, label: b.label, value: Number(b.average_weight_kg.toFixed(1)) }))
-      : gainBuckets.map((b) => ({ key: b.label, label: b.label, value: Math.round(b.median_gain_g_per_day) }));
+      ? weightBuckets.map((b) => ({ key: b.label, label: name(b.label), value: Number(b.average_weight_kg.toFixed(1)) }))
+      : gainBuckets.map((b) => ({ key: b.label, label: name(b.label), value: Math.round(b.median_gain_g_per_day) }));
+  const sexName = (code: string) => sexLabel(code, sexChoices);
   const metricLabels = {
     adg: copy(pageContract, "metric.gain"),
     weight: copy(pageContract, "metric.weight"),
@@ -808,17 +812,23 @@ export async function WeighingWeightsPage({
   // Caption, head-count noun and empty line name the kids the page counted, so they follow the
   // filter — a combined caption under Male would say the bands add up to the kids weighed twice
   // when they add up to the male kids weighed twice. All backend-contract copy.
-  const gainCaption = copy(
+  const gainCaption = sexSentence(
     pageContract,
-    sexFilter === "" ? "section.gain_thresholds.caption" : `section.gain_thresholds.caption_${sexFilter}`,
+    sexFilter,
+    { all: "section.gain_thresholds.caption", perSex: (sex) => `section.gain_thresholds.caption_${sex}` },
+    sexChoices,
   );
-  const gainKidsLabel = copy(
+  const gainKidsLabel = sexSentence(
     pageContract,
-    sexFilter === "" ? "value.gain_thresholds.kids" : `value.gain_thresholds.kids_${sexFilter}`,
+    sexFilter,
+    { all: "value.gain_thresholds.kids", perSex: (sex) => `value.gain_thresholds.kids_${sex}` },
+    sexChoices,
   );
-  const gainEmptyLabel = copy(
+  const gainEmptyLabel = sexSentence(
     pageContract,
-    sexFilter === "" ? "empty.gain_thresholds.body" : `empty.gain_thresholds.${sexFilter}`,
+    sexFilter,
+    { all: "empty.gain_thresholds.body", perSex: (sex) => `empty.gain_thresholds.${sex}` },
+    sexChoices,
   );
   // Chart first: the card exists to answer "is this breed growing", and six rows of
   // figures answer that more slowly than six rows of bars. The exact counts are one
@@ -992,13 +1002,13 @@ export async function WeighingWeightsPage({
           title={{ adg: copy(pageContract, "chart.sex.title_gain"), weight: copy(pageContract, "chart.sex.title") }}
           series={{
             adg: {
-              data: dimensionBars("adg", demo?.by_sex ?? [], demo?.gain_by_sex ?? []),
+              data: dimensionBars("adg", demo?.by_sex ?? [], demo?.gain_by_sex ?? [], sexName),
               emptyLabel: copy(pageContract, "empty.metric.no_gain"),
               unit: "g",
               chartLabel: copy(pageContract, "chart.sex.aria"),
             },
             weight: {
-              data: dimensionBars("weight", demo?.by_sex ?? [], demo?.gain_by_sex ?? []),
+              data: dimensionBars("weight", demo?.by_sex ?? [], demo?.gain_by_sex ?? [], sexName),
               emptyLabel: copy(pageContract, "empty.demographics.body"),
               unit: "kg",
               chartLabel: copy(pageContract, "chart.sex.aria"),

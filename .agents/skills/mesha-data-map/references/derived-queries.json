@@ -7,7 +7,7 @@
       "derived_from": [
         {
           "path": "apps/admin-web/features/weighing/weights-analytics.tsx",
-          "sha256": "4816b4b4e5efd9bf5034d66d317afc7f88813fd5933d66e6cf4b9fb085f1c9ac"
+          "sha256": "d0a743e48107bbc77f61c548ce5409df98b92c3af2589fdf5249c124adeb2ce7"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/weight_demographics.go",
@@ -23,7 +23,7 @@
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/sex_scope.go",
-          "sha256": "e2669f956f3c509011e5d160d9bc5cfbfc866355e56b68930b367beb72766642"
+          "sha256": "79dea629a2d335b8978212144ea1980df85947f54d83ee70900bfba4d4213c9e"
         },
         {
           "path": "backend/internal/weighing/app/service.go",

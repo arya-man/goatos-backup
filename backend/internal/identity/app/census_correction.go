@@ -217,7 +217,7 @@ func mapCensusCorrectionErr(err error) error {
 	case errors.Is(err, ports.ErrCensusCorrectionScopeTooLarge):
 		return Conflict("census_slice_too_large", "that row holds more animals than one correction may change")
 	case errors.Is(err, ports.ErrCensusCorrectionValue):
-		return BadRequest("invalid_value", "that value is not in this tenant's vocabulary")
+		return BadRequest("invalid_value", "that breed or gender is not on this farm's list for these animals' species")
 	case errors.Is(err, ports.ErrCensusCorrectionField):
 		return BadRequest("invalid_field", "field must be breed or sex")
 	case errors.Is(err, ports.ErrCensusCorrectionNoChange):

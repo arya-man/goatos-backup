@@ -6,6 +6,8 @@ import { originFromParam } from "@/lib/animal-origin";
 export const dynamic = "force-dynamic";
 
 const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
+// Any gender code the farm configured on Items & settings (the backend checks the same shape).
+const GENDER_CODE = /^[a-z][a-z0-9_]{0,39}$/;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -30,7 +32,9 @@ export async function GET(request: Request) {
     park_id: parkID || undefined,
     from,
     to,
-    sex: sex === "male" || sex === "female" ? sex : undefined,
+    // Any gender the farm configured, not male and female alone (audit 2026-09-26); "all" and a
+    // malformed value mean no narrowing, as before.
+    sex: sex !== "all" && GENDER_CODE.test(sex) ? sex : undefined,
     origin: originFromParam(origin) || undefined,
     weighing_category:
       weighing === "individual_animal" || weighing === "per_shed_partition" ? weighing : undefined,

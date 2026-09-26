@@ -919,14 +919,31 @@ export function firstAuthRequiredError(
   return null;
 }
 
-const adminBootstrapCache =
-  new AdminBootstrapCache<AdminWebBootstrapResponse>();
+// ONE cache per server process, held on globalThis: Next can load this module once per route
+// bundle, and a per-module cache meant a Configuration save cleared only the copy belonging to the
+// Items & settings route, so Register animal kept serving the old species list until its own TTL
+// ran out (61 s measured on 2026-09-26). It stays authority-keyed inside, exactly as before.
+const adminBootstrapCacheHolder = globalThis as typeof globalThis & {
+  __meshaAdminBootstrapCache?: AdminBootstrapCache<AdminWebBootstrapResponse>;
+};
+const adminBootstrapCache = (adminBootstrapCacheHolder.__meshaAdminBootstrapCache ??=
+  new AdminBootstrapCache<AdminWebBootstrapResponse>());
+
+/**
+ * Makes this process re-read the admin-web contract on its next request. Call after a write that
+ * changes something the contract's pickers are compiled from (a species, gender, breed, stage,
+ * park ...), so every other screen offers it at once rather than after the cache TTL.
+ */
+export function forgetAdminWebBootstrap(): void {
+  adminBootstrapCache.expireAll();
+}
 
 export const getAdminWebBootstrap = cache(
   async (): Promise<ApiResult<AdminWebBootstrapResponse>> => {
     const config = await getServerConfig(true);
     if (!config.ok) return config;
     const client = createAppApiClient(apiClientOptions(config.data));
+    const forceRevalidate = await callerWroteRecently();
     return request(() =>
       adminBootstrapCache.get(config.data, async (etag) => {
         const result =
@@ -942,7 +959,7 @@ export const getAdminWebBootstrap = cache(
           status: result.response.status,
           etag: result.response.headers.get("ETag"),
         };
-      }),
+      }, { forceRevalidate }),
     );
   },
 );

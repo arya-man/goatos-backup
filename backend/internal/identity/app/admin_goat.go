@@ -19,7 +19,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
-	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 const (
@@ -473,20 +472,13 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if dob != nil && !entryDate.IsZero() && dob.After(entryDate) {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "dob", Code: "invalid", Message: "dob cannot be after entry_date"})
 	}
-	// AUTO-CORRECT: derive age-based stage from DOB and correct contradictions.
-	// The MAINTAINER RULE: vaccination STAGE is a pure function of AGE.
-	// A goat tagged kid (K*) but aged past the kid cutoff must never persist.
-	if len(errorsOut) == 0 && dob != nil && normalized.ManagementStage != nil && strings.TrimSpace(*normalized.ManagementStage) != "" {
-		// Only correct if there are no validation errors yet, DOB is valid, and a stage is provided.
-		// Use time.Now() as the asOf reference since this is ingestion time.
-		// Import vaccinationapp to call DerivedStageFromDOB.
-		derivedStage := deriveAgeBasedStage(dob, time.Now())
-		if derivedStage != "" && !stagesCorrectedMatchHelper(*normalized.ManagementStage, derivedStage) {
-			// Stage contradiction detected; correct to age-derived value.
-			corrected := derivedStage
-			normalized.ManagementStage = &corrected
-		}
-	}
+	// The stage the person chose is SAVED AS CHOSEN (maintainer instruction 2026-09-26). This used
+	// to rewrite it behind their back from the vaccination kid/adult age (19 weeks): a K-tagged
+	// animal older than that became "Adult" -- a stage the farm does not have, so the save then
+	// failed -- and any non-K stage on a younger animal (F2-Male, Warmup, ICU-Kid) silently became
+	// K1. The store now refuses only a stage whose own age range, written on it in Items &
+	// settings, the animal plainly falls outside of. Vaccination still decides the kid or adult
+	// course from age on its own; that never depended on this rewrite.
 	if normalized.WeightKg != nil && *normalized.WeightKg < 0 {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "weight_kg", Code: "invalid", Message: "weight_kg must be non-negative"})
 	}
@@ -577,6 +569,8 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 		BirthDamRef:           birthDamRef(normalized),
 		Species:               normalized.Species,
 		Sex:                   normalized.Sex,
+		DOB:                   cmd.DOB,
+		OriginType:            cmd.OriginType,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -1175,27 +1169,4 @@ var allowedOriginType = map[string]bool{
 	"birth":    true,
 	"procured": true,
 	"imported": true,
-}
-
-// deriveAgeBasedStage derives the age-appropriate kid/adult stage from a goat's DOB.
-// It is the canonical stage derived from pure age, used during ingestion to auto-correct
-// contradictory source tags (e.g. K2 tag on a 22-week-old goat).
-// Returns "K1" (kid) or "Adult" based on age at asOf time.
-func deriveAgeBasedStage(dob *time.Time, asOf time.Time) string {
-	return vaccinationapp.DerivedStageFromDOB(dob, asOf)
-}
-
-// stagesCorrectedMatchHelper checks if two stage strings represent the same stage category (kid vs adult).
-// Used to detect contradictions between provided stage and age-derived stage during ingestion.
-func stagesCorrectedMatchHelper(sourceStage, derivedStage string) bool {
-	sourceKid := stageIsKidHelper(sourceStage)
-	derivedKid := stageIsKidHelper(derivedStage)
-	return sourceKid == derivedKid
-}
-
-// stageIsKidHelper reports whether a stage string indicates a kid/young-animal stage.
-// Kid stages start with 'K' (K0, K1, K2, K3, etc).
-func stageIsKidHelper(stage string) bool {
-	normalized := strings.ToUpper(strings.TrimSpace(stage))
-	return len(normalized) >= 1 && normalized[0] == 'K'
 }

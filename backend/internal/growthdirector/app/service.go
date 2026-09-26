@@ -155,8 +155,10 @@ func (s *Service) GetFCR(ctx context.Context, actor domain.Actor, parkID, fromBu
 	// The cohort filters are validated here, not silently widened: an unknown value is a bad
 	// REQUEST, and passing it through would show a reader every pen under a heading that says
 	// otherwise.
+	// Any configured gender, not male and female alone (audit 2026-09-26); see weighing's
+	// normalizeSexFilter for why the shape, not the farm's list, is checked here.
 	sex = strings.ToLower(strings.TrimSpace(sex))
-	if sex != "" && sex != "male" && sex != "female" {
+	if sex != "" && (sex == "all" || !animalvocab.ValidCodeShape(sex)) {
 		return domain.FCRReport{}, ports.ErrInvalidArgument
 	}
 	origin, ok := animalorigin.Normalize(origin)

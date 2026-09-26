@@ -23,7 +23,7 @@ import {
   updateConfigurationRow,
   type ConfigurationRowWrite,
 } from "@/lib/api/configuration-server";
-import type { ApiResult } from "@/lib/api/server";
+import { forgetAdminWebBootstrap, type ApiResult } from "@/lib/api/server";
 
 export type ConfigurationActionState = {
   status: "idle" | "success" | "error";
@@ -45,6 +45,10 @@ function outcome(previous: ConfigurationActionState, result: ApiResult<unknown>,
     for (const entry of result.error.fieldErrors ?? []) fields[entry.field] = entry.message;
     return { status: "error", code: "failed_message", detail, fields, ticket };
   }
+  // A saved row can be an option on another screen (a species in Register animal, a gender in
+  // the Weights filter), so this process's cached contract is marked stale now rather than serving
+  // the old list for up to its TTL.
+  forgetAdminWebBootstrap();
   return { status: "success", code: successCode, detail: "", fields: {}, ticket };
 }
 

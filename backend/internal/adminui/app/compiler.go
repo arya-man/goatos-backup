@@ -122,6 +122,8 @@ type ReferenceOption struct {
 	Code string
 	// Group is a breed's species code where the family is AllBreeds; empty elsewhere.
 	Group string
+	// Carried is true when a live animal of that species carries the breed (AllBreeds only).
+	Carried bool
 }
 
 type ConfigEntry struct {
@@ -1115,7 +1117,13 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
 			// vocabularies are. Contract code declares the group; the values are tenant rows.
-			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "counts_breed", optionsFromReferences(families.Breeds, ""))
+			// A correction writes a breed, so an archived (review) breed is not offered; the write
+			// refuses it anyway.
+			// Breeds the farm's live animals carry today, every species (maintainer instruction
+			// 2026-09-26: "breeds in which we have animals only"): the correction fixes a wrongly
+			// recorded breed among the ones on the farm. An archived (review) breed is not offered;
+			// the write refuses it anyway, and refuses a breed the row's species does not carry.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "counts_breed", optionsFromReferences(carriedBreeds(families.AllBreeds), ""))
 		}
 	}
 	return out
@@ -2203,13 +2211,15 @@ var animalVocabularyGroups = []struct {
 	family  func(ReferenceFamilies) []ReferenceOption
 	withAll bool
 }{
-	{"herd_filter_breeds", func(f ReferenceFamilies) []ReferenceOption { return f.AllBreeds }, false},
+	// The filter names a breed, not a species, so a name kept under two species is one choice.
+	{"herd_filter_breeds", func(f ReferenceFamilies) []ReferenceOption { return uniqueReferenceKeys(f.AllBreeds) }, false},
 	// Register animal names a breed a new animal is registered under, so an archived breed (a
 	// review row, tone warn) is not offered; the herd FILTER above keeps it to find old animals.
 	{"herd_breeds", func(f ReferenceFamilies) []ReferenceOption { return activeReferences(f.AllBreeds) }, false},
 	{"herd_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
 	{"herd_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
 	{"herd_filter_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"weights_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
 	{"proc_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
 	{"proc_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
 	{"farm_born_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
@@ -2239,6 +2249,32 @@ func compileAnimalVocabularyGroups(groups []domain.OptionGroup, families Referen
 		out = replaceOptionGroup(out, g.id, options)
 	}
 	return out
+}
+
+// uniqueReferenceKeys keeps the first option per key, for a species-less list built from a family
+// that carries one row per (key, species).
+func uniqueReferenceKeys(refs []ReferenceOption) []ReferenceOption {
+	out := make([]ReferenceOption, 0, len(refs))
+	seen := make(map[string]bool, len(refs))
+	for _, r := range refs {
+		if seen[r.Key] {
+			continue
+		}
+		seen[r.Key] = true
+		out = append(out, r)
+	}
+	return out
+}
+
+// carriedBreeds is the active breeds a live animal carries today, one choice per breed name.
+func carriedBreeds(refs []ReferenceOption) []ReferenceOption {
+	out := make([]ReferenceOption, 0, len(refs))
+	for _, r := range activeReferences(refs) {
+		if r.Carried {
+			out = append(out, r)
+		}
+	}
+	return uniqueReferenceKeys(out)
 }
 
 // activeReferences drops the archived rows of a register family (listed with tone "warn").

@@ -9,7 +9,10 @@ type vocabularyFamilies struct{ fakeFamilies }
 
 func (vocabularyFamilies) LoadContractFamilies(ctx context.Context, tenantID string) (ReferenceFamilies, error) {
 	f, err := fakeFamilies{}.LoadContractFamilies(ctx, tenantID)
-	f.AllBreeds = []ReferenceOption{{Key: "Sojat", Label: "Sojat"}, {Key: "Nellore", Label: "Nellore"}}
+	// Nellore is kept under two species: one choice where no species is picked, one per species
+	// where it is.
+	// Sojat and the sheep Nellore are carried by live animals; the goat Nellore is not.
+	f.AllBreeds = []ReferenceOption{{Key: "Sojat", Label: "Sojat", Group: "goat", Carried: true}, {Key: "Nellore", Label: "Nellore", Group: "goat"}, {Key: "Nellore", Label: "Nellore", Group: "sheep", Carried: true}, {Key: "Unused", Label: "Unused", Group: "goat"}}
 	f.Species = []ReferenceOption{{Key: "goat", Label: "Goat"}, {Key: "sheep", Label: "Sheep"}, {Key: "alpaca", Label: "Alpaca"}}
 	f.Sexes = []ReferenceOption{{Key: "female", Label: "Female"}, {Key: "male", Label: "Male"}, {Key: "castrated", Label: "Castrated male"}}
 	return f, err
@@ -44,9 +47,6 @@ func TestAnimalPickersAreCompiledFromConfiguration(t *testing.T) {
 			groups[g.ID] = keys
 		}
 	}
-	if got := vocabKeys(t, groups, "herd_filter_breeds"); len(got) != 2 || got[1] != "Nellore" {
-		t.Fatalf("herd_filter_breeds = %v, want the breed register", got)
-	}
 	join := func(keys []string) string {
 		out := ""
 		for i, k := range keys {
@@ -57,12 +57,23 @@ func TestAnimalPickersAreCompiledFromConfiguration(t *testing.T) {
 		}
 		return out
 	}
+	// The Counts breed correction offers only breeds the farm's live animals carry, any species,
+	// once per name (maintainer instruction 2026-09-26).
+	if got := join(vocabKeys(t, groups, "counts_breed")); got != "Sojat,Nellore" {
+		t.Fatalf("counts_breed = %s, want the carried breeds only", got)
+	}
+	if got := vocabKeys(t, groups, "herd_filter_breeds"); len(got) != 3 || got[1] != "Nellore" {
+		t.Fatalf("herd_filter_breeds = %v, want the breed register, one choice per name", got)
+	}
+	if got := vocabKeys(t, groups, "herd_breeds"); len(got) != 4 {
+		t.Fatalf("herd_breeds = %v, want one choice per (breed, species) so each species keeps its Nellore", got)
+	}
 	for _, id := range []string{"herd_species", "proc_species", "farm_born_species", "assumption_species"} {
 		if got := join(vocabKeys(t, groups, id)); got != "goat,sheep,alpaca" {
 			t.Fatalf("%s = %s, want Configuration's species", id, got)
 		}
 	}
-	for _, id := range []string{"herd_sex", "herd_filter_sexes", "proc_sex", "farm_born_sexes", "counts_gender", "assumption_sexes"} {
+	for _, id := range []string{"herd_sex", "herd_filter_sexes", "proc_sex", "farm_born_sexes", "counts_gender", "assumption_sexes", "weights_sexes"} {
 		if got := join(vocabKeys(t, groups, id)); got != "female,male,castrated" {
 			t.Fatalf("%s = %s, want Configuration's genders", id, got)
 		}

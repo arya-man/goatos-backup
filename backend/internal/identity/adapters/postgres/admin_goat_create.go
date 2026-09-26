@@ -172,12 +172,21 @@ func (r *Repository) ValidateAdminGoatCreate(ctx context.Context, cmd ports.Vali
 		}
 	}
 	if cmd.ManagementStage != nil {
-		exists, err := r.activeManagementStageExists(ctx, cmd.TenantID, *cmd.ManagementStage)
+		stage, err := r.activeManagementStage(ctx, cmd.TenantID, *cmd.ManagementStage)
 		if err != nil {
 			return out, err
 		}
-		if !exists {
+		switch {
+		case !stage.exists:
 			out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "management_stage", Code: "not_found", Message: "management_stage does not resolve to an active animal stage"})
+		case cmd.DOB != nil && cmd.OriginType != "birth":
+			// The stage is saved as the person chose it (maintainer instruction 2026-09-26) and is
+			// refused only when the animal plainly falls outside the age range written on that
+			// stage in Items & settings. A stage with no range (K3 onwards, F2, adults) never
+			// refuses. A birth is exempt: its stage is pinned by the system, not chosen.
+			if age := ageInDays(*cmd.DOB, time.Now()); !stage.fitsAge(age) {
+				out.Conflicts = append(out.Conflicts, domain.FieldError{Field: "management_stage", Code: "age_out_of_range", Message: stage.ageRangeMessage(age)})
+			}
 		}
 	}
 	if cmd.BirthDamRef != nil {
@@ -262,20 +271,72 @@ WHERE tenant_id = $1::uuid
 	return prefix, err
 }
 
-func (r *Repository) activeManagementStageExists(ctx context.Context, tenantID, stageCode string) (bool, error) {
-	var exists bool
+// adminGoatStage is one active stage row with the age range written on it in Items & settings.
+type adminGoatStage struct {
+	exists  bool
+	code    string
+	name    string
+	minDays *int
+	maxDays *int
+}
+
+func (r *Repository) activeManagementStage(ctx context.Context, tenantID, stageCode string) (adminGoatStage, error) {
+	stage := adminGoatStage{code: stageCode}
 	err := r.pool.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1
-  FROM animal_stage_lookup
-  WHERE tenant_id = $1::uuid
-    AND stage_code = $2
-    AND status = 'active'
-)`, tenantID, stageCode).Scan(&exists)
-	if err != nil {
-		return false, err
+SELECT name, min_age_days, max_age_days
+FROM animal_stage_lookup
+WHERE tenant_id = $1::uuid
+  AND stage_code = $2
+  AND status = 'active'
+LIMIT 1`, tenantID, stageCode).Scan(&stage.name, &stage.minDays, &stage.maxDays)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return stage, nil
 	}
-	return exists, nil
+	if err != nil {
+		return stage, err
+	}
+	stage.exists = true
+	return stage, nil
+}
+
+// fitsAge reports whether an animal of ageDays old fits the stage's written range. A missing
+// bound is open on that side, so a stage with no range fits every age.
+func (s adminGoatStage) fitsAge(ageDays int) bool {
+	if s.minDays != nil && ageDays < *s.minDays {
+		return false
+	}
+	if s.maxDays != nil && ageDays > *s.maxDays {
+		return false
+	}
+	return true
+}
+
+// ageRangeMessage names the stage, its range and the animal's age in farm words.
+func (s adminGoatStage) ageRangeMessage(ageDays int) string {
+	label := s.code
+	if s.name != "" && !strings.EqualFold(s.name, s.code) {
+		label = s.code + " (" + s.name + ")"
+	}
+	var span string
+	switch {
+	case s.minDays != nil && s.maxDays != nil:
+		span = fmt.Sprintf("%d to %d days old", *s.minDays, *s.maxDays)
+	case s.minDays != nil:
+		span = fmt.Sprintf("%d days old or more", *s.minDays)
+	default:
+		span = fmt.Sprintf("up to %d days old", *s.maxDays)
+	}
+	return fmt.Sprintf("%s is for animals %s, but this animal is %d days old by its date of birth. Choose the stage that fits its age, or correct the date of birth.", label, span, ageDays)
+}
+
+// ageInDays is the animal's age in whole days on today's farm (IST) date.
+func ageInDays(dob, now time.Time) int {
+	today, err := time.Parse("2006-01-02", biztime.BusinessDate(now))
+	if err != nil {
+		return 0
+	}
+	born := time.Date(dob.Year(), dob.Month(), dob.Day(), 0, 0, 0, 0, time.UTC)
+	return int(today.Sub(born).Hours() / 24)
 }
 
 func (r *Repository) completedAdminGoatCreateReplayTarget(ctx context.Context, key, requestHash string) (string, bool, error) {

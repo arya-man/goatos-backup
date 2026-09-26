@@ -363,6 +363,11 @@ type ValidateAdminGoatCreateCommand struct {
 	// Sex rides here for the same reason Species does: since migration 000346 both are codes in
 	// a per-tenant lookup (Configuration -> Items and settings), and the store checks them there.
 	Sex string
+	// DOB and OriginType let the store check the chosen stage against the age range written on
+	// that stage in Items & settings (maintainer instruction 2026-09-26). A birth is exempt: the
+	// system pins its stage (K0), the person does not choose it.
+	DOB        *time.Time
+	OriginType string
 }
 
 type AdminGoatCreateValidation struct {

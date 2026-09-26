@@ -85,9 +85,9 @@ func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
 		domain.RegPenTypes:          penTypeStore,
 		domain.RegPens:              penStore{},
 		domain.RegPartitions:        partitionStore{},
-		domain.RegSpecies:           codeLookupStore{table: "species_lookup", codeCol: "species_code", goatCol: "species", breedCol: "species"},
+		domain.RegSpecies:           codeLookupStore{register: domain.RegSpecies, table: "species_lookup", codeCol: "species_code", goatCol: "species", breedCol: "species"},
 		domain.RegBreeds:            breedStore{},
-		domain.RegSexes:             codeLookupStore{table: "sex_lookup", codeCol: "sex_code", goatCol: "sex"},
+		domain.RegSexes:             codeLookupStore{register: domain.RegSexes, table: "sex_lookup", codeCol: "sex_code", goatCol: "sex"},
 		domain.RegStages:            stageStore{},
 		domain.RegCategories:        categoryStore{},
 		domain.RegItems:             itemStore{},
@@ -263,6 +263,11 @@ func (r *Repository) SetStatus(ctx context.Context, w ports.WriteParams, registe
 		if err != nil {
 			return "", err
 		}
+		if status == domain.StatusArchived && before.IsBuiltin {
+			// Re-checked inside the transaction: the service's check runs on a read taken before
+			// it, and a sheet import reaches here without it.
+			return "", domain.ErrBuiltin
+		}
 		if status == domain.StatusArchived {
 			u, err := s.usage(ctx, tx, w.TenantID, id)
 			if err != nil {
@@ -294,6 +299,9 @@ func (r *Repository) Delete(ctx context.Context, w ports.WriteParams, register, 
 		before, err := s.get(ctx, tx, w.TenantID, id)
 		if err != nil {
 			return "", err
+		}
+		if before.IsBuiltin {
+			return "", domain.ErrBuiltin
 		}
 		u, err := s.usage(ctx, tx, w.TenantID, id)
 		if err != nil {

@@ -11,6 +11,8 @@
 // their own animal types, places, feeds and medicines" needs to stay true as the product grows.
 package domain
 
+import "strings"
+
 // Column types. The screen picks its input from the type; the validator its coercion.
 const (
 	TypeText   = "text"   // free text
@@ -190,6 +192,12 @@ var RoleGrades = []Option{
 	{Value: "assistant_manager", Label: "Assistant manager"},
 }
 
+// StageAgeBands are the animal_stage_lookup.age_band values (CHECK age_band IN ('kid','adult')).
+var StageAgeBands = []Option{
+	{Value: "kid", Label: "Kid"},
+	{Value: "adult", Label: "Adult"},
+}
+
 // Item kinds are the inventory_items.category enum: every item category root carries one, and
 // stock reserve / PC Care requirements / the vaccines detail table still key on it.
 var ItemKinds = []Option{
@@ -205,9 +213,20 @@ var ItemKinds = []Option{
 // BuiltinCodes are the codes vaccination, feed and weighing rules still name literally; the
 // rows carrying them may be renamed but never archived or deleted (docs/decisions and the
 // migration 000346 header).
+//
+// Stages are keyed lower-case like the rest: K0 is the stage every birth is recorded at, Flushing
+// is the flushing cohort, and the others are the rungs of the growth ladder
+// (counts/domain.ProductNamedStageCodes, pinned by
+// TestProtectedStageCodesCoverEveryStageTheProductNames). Removing one would quietly break births,
+// flushing or a growth step, so they can be renamed and re-banded but never archived or deleted.
 var BuiltinCodes = map[string]map[string]bool{
 	RegSpecies: {"goat": true, "sheep": true},
 	RegSexes:   {"female": true, "male": true},
+	RegStages: {
+		"k0": true, "k1": true, "k2": true, "k3": true,
+		"f2": true, "f2-male": true, "f2-female": true, "buck": true,
+		"non-pregnant": true, "pregnant": true, "mother": true, "flushing": true,
+	},
 }
 
 // Departments is the owner department of an item kind, composed by the store on read and
@@ -358,13 +377,20 @@ var Registers = []Register{
 	},
 	{
 		Key: RegStages, Label: "Lifecycle stages", One: "Stage", Group: GroupAnimalTypes,
-		Hint: "The stages an animal moves through, with the age band each covers.",
+		Hint: "The stages an animal moves through, with the age band each covers. K0, Flushing and the growth stages (K1 to Pregnant, and Mother) are built in: rename them if you like, but they cannot be removed.",
 		Columns: []Column{
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "code", Label: "Code", Type: TypeText, Required: true, Immutable: true, Hint: "The tag the farm uses, such as K2 or F2-Male; cannot change once saved."},
 			{Key: "min_age_days", Label: "From (days)", Type: TypeNumber, Min: zero(), Integer: true},
 			{Key: "max_age_days", Label: "To (days)", Type: TypeNumber, Min: zero(), Integer: true},
-			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true},
+			// animal_stage_lookup.age_band (migration 000109): shifting, health routing and the
+			// pen retag read it to tell a kid cohort from an adult one. A stage added here without
+			// it was unclassified everywhere; left blank it still is, which is right for a clinical
+			// state such as ICU.
+			{Key: "age_band", Label: "Kid or adult", Type: TypeEnum, Options: StageAgeBands, Hint: "Shifting and Health treat kid and adult stages differently. Leave blank for a clinical state such as ICU."},
+			// In the form, not the table: the rows are already listed in this order, and the
+			// table needs the room for Kid or adult at laptop width.
+			{Key: "sort_order", Label: "Order", Type: TypeNumber, Min: zero(), Integer: true, ListHidden: true},
 		},
 	},
 	{
@@ -554,6 +580,7 @@ func (r Register) Column(key string) (Column, bool) {
 }
 
 // IsBuiltinCode reports whether a register's code is one the rest of the product names literally.
+// Codes compare case-insensitively: stage codes are authored mixed-case (K0, F2-Male).
 func IsBuiltinCode(register, code string) bool {
-	return BuiltinCodes[register][code]
+	return BuiltinCodes[register][strings.ToLower(strings.TrimSpace(code))]
 }
