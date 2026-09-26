@@ -21,6 +21,10 @@ type OperatorProfile struct {
 	DisplayName       string         `json:"display_name"`
 	Status            string         `json:"status"`
 	PrimaryRoleHint   string         `json:"primary_role_hint"`
+	// PrimaryRoleLabel is the role hint in farm words ("Director", "Park Head"), composed by
+	// the backend so the phone's drawer never renders the raw code ("pc_director"). Served on
+	// /app/bootstrap only; empty (omitted) everywhere else and for a hint with no copy.
+	PrimaryRoleLabel  string         `json:"primary_role_label,omitempty"`
 	PrimaryLocationID *string        `json:"primary_location_id"`
 	PrimaryLocation   *string        `json:"primary_location"`
 	GrantCount        int            `json:"grant_count"`

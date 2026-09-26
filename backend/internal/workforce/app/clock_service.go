@@ -596,6 +596,13 @@ func designationLabel(roleHint, grade string, copyMap map[string]string) string 
 	return roleHint
 }
 
+// roleHintLabel is a member's role hint in farm words for the phone's drawer header,
+// from the same catalog the presence board names people with. A hint the catalog has no
+// words for yields "" -- the drawer then shows no role line rather than a raw code.
+func roleHintLabel(roleHint, localeTag string) string {
+	return clockCopyFor(localeTag)["role."+strings.TrimSpace(roleHint)]
+}
+
 // designationOptions is the designation filter vocabulary: the role-hint CHECK
 // set on workforce_members. IDs are filter values; labels are English catalog
 // copy (the admin surface language), matching the people board's tabs.
@@ -674,6 +681,10 @@ var clockCopyEN = map[string]string{
 	"role.admin":              "Admin",
 	"role.other":              "Staff",
 	"role.cxo":                "CXO",
+	"role.growth_director":    "Growth Director",
+	"role.feed_director":      "Feed Director",
+	"role.health_director":    "Health Director",
+	"role.breeding_director":  "Breeding Director",
 	"event.clock_in":          "Clock in",
 	"state.clock_in_pending":  "Clock-in saved — sending when network returns",
 	"state.clock_out_pending": "Clock-out saved — sending when network returns",
@@ -741,6 +752,10 @@ var clockCopyHI = map[string]string{
 	"role.admin":              "एडमिन",
 	"role.other":              "स्टाफ़",
 	"role.cxo":                "सीएक्सओ",
+	"role.growth_director":    "ग्रोथ निदेशक",
+	"role.feed_director":      "फ़ीड निदेशक",
+	"role.health_director":    "स्वास्थ्य निदेशक",
+	"role.breeding_director":  "ब्रीडिंग निदेशक",
 	"event.clock_in":          "क्लॉक इन",
 	"state.clock_in_pending":  "क्लॉक इन दर्ज — नेटवर्क आने पर भेजा जाएगा",
 	"state.clock_out_pending": "क्लॉक आउट दर्ज — नेटवर्क आने पर भेजा जाएगा",
@@ -808,6 +823,10 @@ var clockCopyKN = map[string]string{
 	"role.admin":              "ಆಡ್ಮಿನ್",
 	"role.other":              "ಸಿಬ್ಬಂದಿ",
 	"role.cxo":                "ಸಿಎಕ್ಸ್‌ಒ",
+	"role.growth_director":    "ಗ್ರೋತ್ ನಿರ್ದೇಶಕ",
+	"role.feed_director":      "ಫೀಡ್ ನಿರ್ದೇಶಕ",
+	"role.health_director":    "ಆರೋಗ್ಯ ನಿರ್ದೇಶಕ",
+	"role.breeding_director":  "ಬ್ರೀಡಿಂಗ್ ನಿರ್ದೇಶಕ",
 	"event.clock_in":          "ಕ್ಲಾಕ್ ಇನ್",
 	"state.clock_in_pending":  "ಕ್ಲಾಕ್ ಇನ್ ದಾಖಲಾಗಿದೆ — ನೆಟ್‌ವರ್ಕ್ ಬಂದಾಗ ಕಳುಹಿಸಲಾಗುತ್ತದೆ",
 	"state.clock_out_pending": "ಕ್ಲಾಕ್ ಔಟ್ ದಾಖಲಾಗಿದೆ — ನೆಟ್‌ವರ್ಕ್ ಬಂದಾಗ ಕಳುಹಿಸಲಾಗುತ್ತದೆ",
@@ -875,6 +894,10 @@ var clockCopyTE = map[string]string{
 	"role.admin":              "అడ్మిన్",
 	"role.other":              "సిబ్బంది",
 	"role.cxo":                "సీఎక్స్ఓ",
+	"role.growth_director":    "గ్రోత్ డైరెక్టర్",
+	"role.feed_director":      "ఫీడ్ డైరెక్టర్",
+	"role.health_director":    "ఆరోగ్య డైరెక్టర్",
+	"role.breeding_director":  "బ్రీడింగ్ డైరెక్టర్",
 	"event.clock_in":          "క్లాక్ ఇన్",
 	"state.clock_in_pending":  "క్లాక్ ఇన్ నమోదైంది — నెట్‌వర్క్ రాగానే పంపబడుతుంది",
 	"state.clock_out_pending": "క్లాక్ అవుట్ నమోదైంది — నెట్‌వర్క్ రాగానే పంపబడుతుంది",

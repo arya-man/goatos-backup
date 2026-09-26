@@ -621,6 +621,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	visibleNav := visibleNavigationForTicks(scope, moduleKeysForBootstrap, localeTag, tickedModules)
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	s.applyModuleBadges(ctx, tenantID, actorID, bootstrapModules)
+	profile.PrimaryRoleLabel = roleHintLabel(profile.PrimaryRoleHint, localeTag)
 	<-capsDone
 	if capsErr != nil {
 		return nil, mapRepoErr(capsErr)

@@ -13468,6 +13468,8 @@ export interface components {
             status: "candidate" | "active" | "inactive" | "suspended" | "left";
             /** @enum {string} */
             primary_role_hint: "operator" | "park_head" | "verifier" | "supervisor" | "admin" | "other";
+            /** @description The role hint in farm words ("Director", "Park Head"), composed by the backend for the phone's drawer header. Served by /app/bootstrap only; absent elsewhere and when the hint has no copy. */
+            primary_role_label?: string;
             /** Format: uuid */
             primary_location_id: string | null;
             primary_location: string | null;

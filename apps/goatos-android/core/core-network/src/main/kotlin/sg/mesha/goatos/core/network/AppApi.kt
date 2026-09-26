@@ -471,6 +471,9 @@ data class BootstrapOperatorProfileDto(
     @SerialName("display_name") val displayName: String = "",
     @SerialName("status") val status: String = "",
     @SerialName("primary_role_hint") val primaryRoleHint: String = "",
+    /** [primaryRoleHint] in farm words ("Director"), composed by the backend. The ONLY role text
+     *  a screen may show -- the hint is a code ("pc_director"). Blank on an older cached bootstrap. */
+    @SerialName("primary_role_label") val primaryRoleLabel: String = "",
     @SerialName("primary_location_id") val primaryLocationId: String? = null,
     @SerialName("primary_location") val primaryLocation: String? = null,
 )

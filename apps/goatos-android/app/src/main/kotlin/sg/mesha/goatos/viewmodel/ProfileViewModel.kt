@@ -69,7 +69,10 @@ class ProfileViewModel @Inject constructor(
         // language picked on Login before the user ever opens You/Settings.
         val langCode = AppLocaleState.tag
         val name = profile?.displayName?.ifBlank { profile.displayCode }?.ifBlank { null } ?: "Signed in"
-        val role = profile?.primaryRoleHint?.ifBlank { "" } ?: ""
+        // The role CODE decides behaviour (the RFID row); only the backend's WORDS are shown.
+        // The drawer used to render the code itself -- "pc_director" under a director's name.
+        val roleCode = profile?.primaryRoleHint.orEmpty()
+        val role = profile?.primaryRoleLabel.orEmpty().trim()
         val location = profile?.primaryLocation?.ifBlank { "" } ?: ""
         _profileState.value = ProfileUiState(
             name = name,
@@ -77,7 +80,7 @@ class ProfileViewModel @Inject constructor(
             // Mock subtitle is "role · location" (e.g. "Health Asst Mgr · CBE").
             scopeLabel = listOf(role, location).filter { it.isNotBlank() }.joinToString(" · "),
             initials = initialsOf(name),
-            rows = baseRows(langCode, showRfid = role == OPERATOR_ROLE),
+            rows = baseRows(langCode, showRfid = roleCode == OPERATOR_ROLE),
         )
     }
 

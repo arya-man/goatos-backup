@@ -153,6 +153,34 @@ class ProfileViewModelLogoutTest {
         collector.cancel()
     }
 
+    /** Sales phone E2E 2026-09-26: the drawer read "pc_director" under a director's name. */
+    @Test
+    fun `the drawer shows the backend's role words, never the role code`() = runTest {
+        val vm = buildViewModel(
+            profile = BootstrapOperatorProfileDto(
+                displayName = "Chandrakant",
+                primaryRoleHint = "pc_director",
+                primaryRoleLabel = "Director",
+            ),
+        )
+        val collector = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertEquals("Director", vm.state.value.roleLabel)
+        assertFalse(vm.state.value.scopeLabel.contains("pc_director"))
+        collector.cancel()
+    }
+
+    @Test
+    fun `an older bootstrap with no role words shows no role line rather than the code`() = runTest {
+        val vm = buildViewModel(
+            profile = BootstrapOperatorProfileDto(displayName = "Chandrakant", primaryRoleHint = "pc_director"),
+        )
+        val collector = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertEquals("", vm.state.value.roleLabel)
+        collector.cancel()
+    }
+
     @Test
     fun `non operator profile hides RFID settings row`() = runTest {
         val vm = buildViewModel(

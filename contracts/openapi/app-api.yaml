@@ -30037,6 +30037,13 @@ components:
             - supervisor
             - admin
             - other
+        primary_role_label:
+          type: string
+          maxLength: 80
+          description: >-
+            The role hint in farm words ("Director", "Park Head"), composed by the backend for
+            the phone's drawer header. Served by /app/bootstrap only; absent elsewhere and when
+            the hint has no copy.
         primary_location_id:
           type:
             - string
