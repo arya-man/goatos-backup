@@ -1,7 +1,8 @@
 -- App: Sales > Load-wise (GET /procurement/loadwise; procurement/adapters/postgres/loadwise_repository.go
 -- + domain/loadwise.go). One row per purchase load. One load: run_reference('load-wise-sales.sql', where="load_no='131'").
--- sold = tagged GoatOS sales on 'Deal Closed' deals only (an animal exited against a deal still open is
---   'unaccounted' until it closes) + pre-GoatOS prior outcomes (counts only);
+-- sold = tagged GoatOS sales on 'Deal Closed' deals only + pre-GoatOS prior outcomes (counts only);
+-- tagged_not_closed = animals tagged (exited as sold) against a deal still OPEN -- their own bucket
+--   ("Tagged, sale not closed"), never sold and never unaccounted; they become sold when the deal closes;
 -- sold_value = each animal priced from ITS OWN sale line (2026-09-25 option B): the deal's animal line of its species
 --   (+ breed when the deal has several lines of that species; same species+breed lines pooled) / animals tagged to it;
 --   an unmatched animal takes the deal's unclaimed animal-line value / unmatched animals; a deal with no lines at all
@@ -13,16 +14,20 @@
 --               only when all animal lines share ONE price (no blended mixed prices; manure/non-live lines
 --               ignored) and deal product_type is 'Mixed' or matches its single live line;
 --   NULL      = neither. sold_weighed_animals / sold_weight_kg follow the same sample (avg_sale_kg).
--- Stock valuation (not in this query): remaining x load avg sold price (sold_value/priced sold), else overall
---   avg over all tagged sales, else none; sales_valuation_assumptions.unsold_stock_price_rupees overrides all.
--- fattening/days on farm: fattening_days_final (legacy sold-out loads) else days_on_farm_so_far = today - arrived_on (NOT purchase_date).
+-- Stock valuation (not in this query): BY WEIGHT when every remaining animal has a latest weight AND every
+--   (species, stage, sex) group has a Rs/kg (sum of kg x Rs/kg); else PER ANIMAL = remaining x load avg sold
+--   price (sold_value/priced sold), else overall avg over every priced animal on a closed deal, else none;
+--   sales_valuation_assumptions.unsold_stock_price_rupees overrides the per-animal price.
+-- fattening_days_final = the imported legacy span, else arrival -> the animal-weighted mean sale date of the
+--   load's animals on CLOSED deals (a span that runs backwards stays NULL);
+--   days_on_farm_so_far = today - arrived_on (NOT purchase_date) while animals remain.
 -- tagged_rate_per_kg = extra estimate (deal Rs/kg weighted by allocation weight) - NOT on the screen; label it.
 WITH member AS (
   SELECT DISTINCT ON (plg.goat_id) plg.goat_id, plg.load_id
   FROM procurement_load_goats plg WHERE plg.current_state = 'accepted_herd_intake'
   ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC),
 sa AS (
-  SELECT a.goat_id, a.sales_deal_id, a.weight_kg, (d.status='Deal Closed') closed, d.sales_value dv,
+  SELECT a.goat_id, a.sales_deal_id, a.weight_kg, (d.status='Deal Closed') closed, d.sale_date, d.sales_value dv,
          d.sales_value / NULLIF(d.total_weight_kg,0) deal_rate,
          NOT EXISTS (SELECT 1 FROM sales_deal_lines l WHERE l.deal_id=d.id) lineless,
          lower(btrim(coalesce(g.species,''))) sp, lower(btrim(coalesce(g.breed,''))) br
@@ -40,7 +45,8 @@ bc AS (SELECT sales_deal_id, b_sp, b_bkt, count(*)::numeric n FROM ab WHERE b_sp
 un AS (SELECT lb.deal_id, sum(lb.v) v FROM lb WHERE NOT EXISTS (SELECT 1 FROM bc WHERE bc.sales_deal_id=lb.deal_id AND bc.b_sp=lb.sp AND bc.b_bkt=lb.bkt) GROUP BY 1),
 uc AS (SELECT sales_deal_id, count(*)::numeric n FROM ab WHERE b_sp IS NULL GROUP BY 1),
 ds AS (
-  SELECT ab.goat_id, ab.weight_kg, ab.closed, CASE WHEN ab.closed THEN ab.deal_rate END deal_rate,
+  SELECT ab.goat_id, ab.weight_kg, ab.closed, CASE WHEN ab.closed THEN ab.sale_date END sale_date,
+    CASE WHEN ab.closed THEN ab.deal_rate END deal_rate,
     CASE WHEN NOT ab.closed THEN NULL
          WHEN ab.b_sp IS NOT NULL THEN CASE WHEN ab.b_v>0 THEN ab.b_v/bc.n END
          WHEN ab.lineless THEN CASE WHEN ab.dv>0 THEN ab.dv/uc.n END
@@ -48,8 +54,9 @@ ds AS (
   FROM ab LEFT JOIN bc ON bc.sales_deal_id=ab.sales_deal_id AND bc.b_sp=ab.b_sp AND bc.b_bkt=ab.b_bkt
   LEFT JOIN un ON un.deal_id=ab.sales_deal_id LEFT JOIN uc ON uc.sales_deal_id=ab.sales_deal_id),
 o AS (
-  SELECT m.load_id, ds.share, ds.weight_kg, ds.deal_rate, lower(g.species) species,
+  SELECT m.load_id, ds.share, ds.weight_kg, ds.deal_rate, ds.sale_date, lower(g.species) species,
     CASE WHEN (g.lifecycle_status='sold' OR g.exit_reason='sold') AND (ds.goat_id IS NULL OR ds.closed) THEN 'sold'
+         WHEN (g.lifecycle_status='sold' OR g.exit_reason='sold') AND ds.goat_id IS NOT NULL AND NOT ds.closed THEN 'tagged_open'
          WHEN g.lifecycle_status='dead' OR g.exit_reason='died' THEN 'dead'
          WHEN g.lifecycle_status IN ('culled','transferred','lost') OR g.exit_reason IN ('culled','transferred','lost') THEN 'other'
          WHEN g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu') THEN 'remaining'
@@ -59,6 +66,8 @@ s AS (
   SELECT load_id, count(*) linked,
     count(*) FILTER (WHERE outcome='sold') sold, count(*) FILTER (WHERE outcome='dead') dead,
     count(*) FILTER (WHERE outcome='other') other, count(*) FILTER (WHERE outcome='remaining') remaining,
+    count(*) FILTER (WHERE outcome='tagged_open') tagged_open,
+    avg(sale_date - DATE '2000-01-01') FILTER (WHERE outcome='sold' AND sale_date IS NOT NULL) sold_day_avg,
     count(*) FILTER (WHERE outcome='remaining' AND species='goat') remaining_goats,
     count(*) FILTER (WHERE outcome='remaining' AND species='sheep') remaining_sheep,
     coalesce(sum(share) FILTER (WHERE outcome='sold'),0) sold_value,
@@ -88,7 +97,7 @@ SELECT pl.context->>'load_ref' load_no, pl.context->>'farm' farm, pl.purchase_da
   coalesce(s.linked,0) linked_in_app,
   coalesce(s.sold,0)+coalesce(p.prior_sold,0) sold, coalesce(s.sold,0) sold_tagged, coalesce(p.prior_sold,0) sold_prior,
   coalesce(s.dead,0)+coalesce(p.prior_dead,0) dead, coalesce(s.other,0) other_exits,
-  coalesce(s.remaining,0) remaining, s.remaining_goats, s.remaining_sheep,
+  coalesce(s.remaining,0) remaining, s.remaining_goats, s.remaining_sheep, coalesce(s.tagged_open,0) tagged_not_closed,
   round(coalesce(s.sold_value,0)+coalesce(p.prior_value,0)) sold_value_rs,
   round(CASE WHEN pl.sold_weight_kg IS NOT NULL THEN pl.sold_weighed_value/NULLIF(pl.sold_weight_kg,0) ELSE sw.val/NULLIF(sw.kg,0) END,1) sale_price_per_kg,
   CASE WHEN pl.sold_weight_kg IS NOT NULL THEN 'legacy' WHEN sw.kg > 0 THEN 'tagged' END sale_price_basis,
@@ -96,7 +105,9 @@ SELECT pl.context->>'load_ref' load_no, pl.context->>'farm' farm, pl.purchase_da
   round(s.tagged_rate,1) tagged_rate_per_kg_estimate,
   round((pl.animal_cost+coalesce(pl.transport_cost,0)+coalesce(pl.other_cost,0))/NULLIF(pl.purchase_weight_kg,0),1) landed_cost_per_kg,
   round(pl.purchase_weight_kg/NULLIF(nullif(pl.expected_count,0),0),1) avg_purchase_kg,
-  pl.fattening_days fattening_days_final,
+  coalesce(pl.fattening_days, CASE WHEN s.sold_day_avg IS NOT NULL AND pl.arrived_on IS NOT NULL
+      AND round(s.sold_day_avg - (pl.arrived_on - DATE '2000-01-01')) >= 0
+    THEN round(s.sold_day_avg - (pl.arrived_on - DATE '2000-01-01'))::int END) fattening_days_final,
   CASE WHEN coalesce(s.remaining,0) > 0 THEN (now() AT TIME ZONE 'Asia/Kolkata')::date - pl.arrived_on END days_on_farm_so_far,
   (now() AT TIME ZONE 'Asia/Kolkata')::date - pl.purchase_date days_since_purchase
 FROM procurement_loads pl LEFT JOIN s ON s.load_id=pl.load_id LEFT JOIN p ON p.load_id=pl.load_id LEFT JOIN sw ON sw.load_id=pl.load_id

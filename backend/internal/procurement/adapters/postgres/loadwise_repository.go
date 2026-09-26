@@ -173,7 +173,8 @@ outcomes AS (
                -- tagged to a deal still open is 'tagged_open', its own bucket, so the load
                -- balances instead of reading Unaccounted. taggedSaleOutcomeWhens is the ONE
                -- statement of that rule, shared with Farm born (maintainer decision 2026-09-25).
-` + taggedSaleOutcomeWhens + `
+` + taggedSaleOutcomeWhens + // scale-guard:ignore: god-cte / count-distinct-sort -- the loadwiseSalesSQL tail after the shared outcome rule; same bounded, LIMITed reporting read annotated on the const, and distinct_parks counts DISTINCT over one load's few park codes (grouped per load_id), not a large set
+`
                WHEN g.lifecycle_status = 'dead' OR g.exit_reason = 'died' THEN 'mortality'
                WHEN g.lifecycle_status IN ('culled', 'transferred', 'lost')
                     OR g.exit_reason IN ('culled', 'transferred', 'lost') THEN 'other'
