@@ -1,4 +1,8 @@
 import Box from "@mui/material/Box";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { TableSkeleton } from "@/components/app/skeletons";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -178,6 +182,7 @@ export async function FeedPackingPage({
       ) : null}
 
       {/* Whole-scope KPI tiles: template EcommerceWidgetSummary (invoice-list analytic row). */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<PanelSkeleton kpis={2} />}>
       {summary && !lifecycleEmpty ? (
         <Grid container spacing={3}>
           <Grid size={{ xs: 12, sm: 6 }}>
@@ -201,6 +206,7 @@ export async function FeedPackingPage({
           </Grid>
         </Grid>
       ) : null}
+      </UrlSuspense>
 
       {/* Template order-list anatomy: one Card with header, filter toolbar, the feed-day caption,
           the lifecycle banner, the store draw, the worklist table and its pager. */}
@@ -219,6 +225,9 @@ export async function FeedPackingPage({
           />
         </Box>
 
+        {/* The worklist (guard: url-keyed-panel): a filter / page change swaps it to its skeleton at
+            once; header and filters stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={8} rows={limit} />}>
         {/* The packing day is the picker's axis; this states the FEED day it is for (packing day + 1),
             so the operator reads "packed today, for tomorrow" without doing the arithmetic. The template
             is backend-owned copy; only the date is client-formatted. */}
@@ -399,7 +408,11 @@ export async function FeedPackingPage({
         />
         </>
         ) : null}
+        </UrlSuspense>
       </Card>
     </Stack>
   );
 }
+
+/** The worklist's pager: paging never changes the whole-scope KPI tiles. */
+const PAGER_PARAMS = ["fp_offset", "fp_limit"] as const;

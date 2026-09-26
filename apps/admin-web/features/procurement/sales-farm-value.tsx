@@ -1,4 +1,6 @@
 import { KpiValue } from "./kpi-value";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { redirect } from "next/navigation";
 
 import { IndianRupee, Scale } from "lucide-react";
@@ -229,6 +231,31 @@ export async function SalesFarmValuePage({
   // the deal farm code, the Over 35 kg count by the park itself.
   const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
+  return (
+    <div className="screen on">
+      <SalesPageHeader pageContract={pageContract} />
+
+      <SalesFarmToggle
+        pageContract={pageContract}
+        pagePath={PAGE_PATH}
+        searchParams={sp}
+        parkId={parkId}
+        parks={parks}
+      />
+
+      {/* The valuation streams (guard: url-keyed-panel): a farm click swaps it to its skeleton at
+          once; header and farm chips stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={VALUE_WATCH} fallback={<PanelSkeleton kpis={4} charts={2} />}>
+        <FarmValuePanel sp={sp} pageContract={pageContract} parkId={parkId} farm={farm} />
+      </UrlSuspense>
+    </div>
+  );
+}
+
+/** The params the valuation and the Over 35 kg count take. */
+const VALUE_WATCH = ["park", "farm", "sale_ready_tolerance_g"] as const;
+
+async function FarmValuePanel({ sp, pageContract, parkId, farm }: { sp: RouteSearchParams; pageContract: AdminUiPageContract; parkId: string; farm: string }) {
   // The Over 35 kg card reads weighing only when the contract enables it: fetch = render, and a
   // role the weighing endpoint would refuse is never asked to make that call.
   const over35Control = pageContract.controls.find((item) => item.id === "weights_over_35_card");
@@ -285,9 +312,7 @@ export async function SalesFarmValuePage({
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
 
   return (
-    <div className="screen on">
-      <SalesPageHeader pageContract={pageContract} />
-
+    <>
       {!overviewResult.ok ? (
         <Alert severity="error" sx={{ mb: 3 }}>
           {salesErrorText(overviewResult.error, copy(pageContract, "error.load"))}
@@ -299,15 +324,7 @@ export async function SalesFarmValuePage({
         </Alert>
       ) : null}
 
-      <SalesFarmToggle
-        pageContract={pageContract}
-        pagePath={PAGE_PATH}
-        searchParams={sp}
-        parkId={parkId}
-        parks={parks}
-      />
-
       {overview ? <FarmValueSections overview={overview} pageContract={pageContract} over35={over35} stageNames={stageNames} /> : null}
-    </div>
+    </>
   );
 }

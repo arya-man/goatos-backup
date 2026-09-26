@@ -1,4 +1,6 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ChartCardSkeleton, KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -121,6 +123,9 @@ export async function MarketAnalyticsPage({
       ) : null}
 
       <Stack spacing={3}>
+      {/* The window's figures (guard: url-keyed-panel): a window click swaps the KPI deck and the
+          price panels to their skeletons at once; header and window strip stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<KpiRowSkeleton count={4} icon />}>
       <KpiGrid>
         <KpiCard
           tone="primary"
@@ -147,6 +152,7 @@ export async function MarketAnalyticsPage({
           icon={<CircleCheck aria-hidden="true" />}
         />
       </KpiGrid>
+      </UrlSuspense>
 
       <Box>
 
@@ -163,6 +169,7 @@ export async function MarketAnalyticsPage({
 
       </Box>
 
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<Stack spacing={3}><TableSkeleton columns={5} rows={6} pager={false} subheader headerAction /><ChartCardSkeleton height={320} subheader /></Stack>}>
       {analytics.series.length === 0 ? (
         <Card>
           <EmptyState sx={{ py: 10 }}
@@ -257,10 +264,14 @@ export async function MarketAnalyticsPage({
           />
         </>
       )}
+      </UrlSuspense>
       </Stack>
     </div>
   );
 }
+
+/** The one param the market read takes (question / city pick the trend client-side). */
+const WINDOW_WATCH = ["window"] as const;
 
 function uniqueBy<T>(items: T[], key: (item: T) => string, label: (item: T) => string): { id: string; label: string }[] {
   const seen = new Map<string, string>();

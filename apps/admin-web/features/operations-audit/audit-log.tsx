@@ -1,4 +1,7 @@
 import Form from "next/form";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { ListRowsSkeleton, StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -195,6 +198,9 @@ export async function OperationsAuditPage({
         </Alert>
       )}
 
+      {/* Summary tiles, trail rows + pager and the operator list swap to their skeletons on a tab /
+          filter / search / page click (guard: url-keyed-panel); tabs, toolbar and search stay. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={4} meta />}>
       <AuditAnalytics
         cells={[
           { key: "actions", title: copy(pageContract, "label.actions_in_view"), total: copy(pageContract, "label.tap_clear_filters"), price: summary ? String(summary.actions) : "—", percent: summary ? 100 : 0, icon: "solar:bill-list-bold", color: "info", href: clearedHref },
@@ -203,6 +209,7 @@ export async function OperationsAuditPage({
           { key: "anomalies", title: copy(pageContract, "label.flagged_anomalies"), total: copy(pageContract, "label.anomaly_sources"), price: summary ? String(summary.anomalies) : "—", percent: summaryPercent(summary?.anomalies ?? 0), icon: "solar:danger-triangle-bold", color: "error", href: hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", proof_gaps: null, ...resetPage }) },
         ]}
       />
+      </UrlSuspense>
 
       {/* Template order list card: status Tabs with Label counts, the toolbar (operation family +
           search + Anomalies only), the filters result, the Scrollbar table and the pager footer. */}
@@ -260,6 +267,7 @@ export async function OperationsAuditPage({
 
         {/* The status strip re-queries the trail; keyed on the tab + anomalies toggle so the panels
             cross-fade instead of snapping. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={cols.length || 6} rows={PAGE_SIZE} />}>
         <TabPanel tabKey={`${activeStatusTab.key}|${filters.anomaliesOnly ? "anom" : "all"}`}>
           <Scrollbar>
             <Table sx={{ minWidth: 960 }} aria-label={copy(pageContract, "table.activity.aria")}>
@@ -299,6 +307,7 @@ export async function OperationsAuditPage({
             </Box>
           }
         />
+        </UrlSuspense>
       </Card>
 
       <Grid container spacing={3}>
@@ -320,6 +329,7 @@ export async function OperationsAuditPage({
                 <SearchTextField name="actor_q" defaultValue={one(sp, "actor_q") ?? ""} placeholder={copy(pageContract, "filter.actor_placeholder")} />
               </Box>
             </Form>
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<Box sx={{ p: 3, pt: 2 }}><ListRowsSkeleton rows={6} /></Box>}>
             <Scrollbar sx={{ maxHeight: 420 }}>
               <Box sx={{ p: 3, pt: 2, display: "flex", flexDirection: "column", gap: 1 }}>
                 {actors.length === 0 ? (
@@ -355,6 +365,7 @@ export async function OperationsAuditPage({
                 )}
               </Box>
             </Scrollbar>
+            </UrlSuspense>
           </Card>
         </Grid>
 
@@ -621,3 +632,6 @@ function preservedHiddenInputs(params: RouteSearchParams, exclude: string[]) {
     return value ? [<input key={key} type="hidden" name={key} value={value} />] : [];
   });
 }
+
+/** Params that never change the trail: the local record drawer. */
+const PANEL_IGNORE = ["audit_id"] as const;

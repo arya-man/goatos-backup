@@ -38,6 +38,8 @@ import Alert from "@mui/material/Alert";
 import { tableOrderFromParams, type TableOrder } from "./table-order";
 import { salesErrorText } from "./sales-error";
 import Box from "@mui/material/Box";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import type { SxProps, Theme } from "@mui/material/styles";
 import { cardTableScrollSx } from "./procurement-sx";
 
@@ -298,6 +300,33 @@ export async function SalesBuyerAnalyticsPage({
   // Park scope: the SHELL's `park` (one filter across every Sales page), resolved to the deal farm
   // code the buyer read filters by.
   const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
+
+  return (
+    <div className="screen on sales-buyer-analytics-page">
+      <SalesPageHeader pageContract={pageContract} />
+
+      <SalesFarmToggle
+        pageContract={pageContract}
+        pagePath={PAGE_PATH}
+        searchParams={sp}
+        parkId={parkId}
+        parks={parks}
+        clears={["offset"]}
+      />
+
+      {/* The buyer read streams (guard: url-keyed-panel): a farm / sort / page click swaps it to its
+          skeleton at once; header and farm chips stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={BUYERS_WATCH} fallback={<PanelSkeleton kpis={3} charts={1} table={10} />}>
+        <BuyerAnalyticsPanel sp={sp} pageContract={pageContract} farm={farm} />
+      </UrlSuspense>
+    </div>
+  );
+}
+
+/** The params the buyer read takes. */
+const BUYERS_WATCH = ["park", "farm", "limit", "offset", "sort", "dir"] as const;
+
+async function BuyerAnalyticsPanel({ sp, pageContract, farm }: { sp: RouteSearchParams; pageContract: AdminUiPageContract; farm: string }) {
   // Page size is the contract's; the offset is bounded to the backend's own ceiling.
   const pageSizes = tablePageSizes(pageContract, "sales-buyer-analytics");
   const defaultLimit = pageSizes[0] ?? FALLBACK_LIMIT;
@@ -325,23 +354,12 @@ export async function SalesBuyerAnalyticsPage({
     hrefWithQuery(PAGE_PATH, sp, { limit: nextLimit === defaultLimit ? null : String(nextLimit), offset: null });
 
   return (
-    <div className="screen on sales-buyer-analytics-page">
-      <SalesPageHeader pageContract={pageContract} />
-
+    <>
       {!result.ok ? (
         <Alert severity="error" sx={{ mb: 3 }}>
           {salesErrorText(result.error, copy(pageContract, "error.load"))}
         </Alert>
       ) : null}
-
-      <SalesFarmToggle
-        pageContract={pageContract}
-        pagePath={PAGE_PATH}
-        searchParams={sp}
-        parkId={parkId}
-        parks={parks}
-        clears={["offset"]}
-      />
 
       {result.ok ? (
         <BuyerSections
@@ -355,7 +373,7 @@ export async function SalesBuyerAnalyticsPage({
           order={order}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 

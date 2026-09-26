@@ -1,4 +1,7 @@
 import { listOrEmpty } from "@/lib/list-or-empty";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/app/page-header";
@@ -119,6 +122,9 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
 
         {/* A deck of zeros is a wall, not a reading: the tiles render only once the view has rows.
             Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid. */}
+        {/* KPI tiles + queue rows swap to their skeleton on a tab / filter / page click (guard:
+            url-keyed-panel); the type tabs and the toolbar stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={4} icon />}>
         {items.length > 0 ? (
           <Grid container spacing={3}>
             {kpis.map((kpi) => (
@@ -128,6 +134,7 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
             ))}
           </Grid>
         ) : null}
+        </UrlSuspense>
 
         {/* Template order list: the request-type Tabs are the card's first row, the status, farm and
             date filters the toolbar row under them. The type tabs carry no counts: the server applies
@@ -137,6 +144,11 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
           ok={queue.ok}
           searchParams={sp}
           subjects={subjects}
+          renderBody={(body) => (
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={6} rows={10} />}>
+              {body}
+            </UrlSuspense>
+          )}
           tabs={
             <AnimatedTabs
               ariaLabel="Request type"
@@ -239,3 +251,6 @@ function countStatus(items: AdminWebApprovalItem[], status: AdminWebApprovalStat
 function hrefWith(params: RouteSearchParams, updates: Record<string, string | null | undefined>): string {
   return approvalsHref(params, updates);
 }
+
+/** Params that never change the queue: the decision drawer's row and its feedback banner. */
+const PANEL_IGNORE = ["ap_row", "ap_status", "ap_code"] as const;

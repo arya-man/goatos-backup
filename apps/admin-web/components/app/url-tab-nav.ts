@@ -1,6 +1,6 @@
 // Pure helpers behind `useUrlTabNav` (kept free of React so they are unit-testable).
 
-/** The window event every URL-driven strip fires on a click; `LinkNavPending` dims the page body on it. */
+/** The window event every URL-driven control fires as it navigates: `UrlPanel` (UrlSuspense) swaps its panel to the skeleton on it. */
 export const URL_NAV_EVENT = "metricseg:navigate";
 
 export type UrlNavDetail = { value: string; href: string };
@@ -38,8 +38,24 @@ export function shownTabValue(value: string, pendingValue: string | null): strin
   return pendingValue ?? value;
 }
 
-/** Every value of each watched param, in a stable order: the identity of a URL-keyed panel. */
-export function watchedParamsKey(search: string | URLSearchParams | Record<string, string | string[] | undefined>, watch: readonly string[]): string {
+/** `watch` entry meaning "every search param" (minus `ignore`): a panel whose one read takes them all. */
+export const ALL_PARAMS = "*";
+
+type SearchLike = string | URLSearchParams | Record<string, string | string[] | undefined>;
+
+function paramKeys(search: SearchLike): string[] {
+  if (typeof search === "string" || search instanceof URLSearchParams) {
+    return [...new Set((typeof search === "string" ? new URLSearchParams(search) : search).keys())];
+  }
+  return Object.keys(search).filter((key) => search[key] != null);
+}
+
+/**
+ * Every value of each watched param, in a stable order: the identity of a URL-keyed panel.
+ * `watch` may contain `ALL_PARAMS` ("*"): every param present on either side, minus `ignore`
+ * (drawer / overlay / export params that never change the panel's data).
+ */
+export function watchedParamsKey(search: SearchLike, watch: readonly string[], ignore: readonly string[] = [], extra: readonly string[] = []): string {
   const read = (key: string): string[] => {
     if (typeof search === "string" || search instanceof URLSearchParams) {
       return (typeof search === "string" ? new URLSearchParams(search) : search).getAll(key);
@@ -47,11 +63,14 @@ export function watchedParamsKey(search: string | URLSearchParams | Record<strin
     const value = search[key];
     return value == null ? [] : Array.isArray(value) ? value : [value];
   };
-  return watch.map((key) => `${key}=${read(key).join(",")}`).join("&");
+  const keys = watch.includes(ALL_PARAMS)
+    ? [...new Set([...watch.filter((key) => key !== ALL_PARAMS), ...paramKeys(search), ...extra])].filter((key) => !ignore.includes(key)).sort()
+    : [...watch];
+  return keys.map((key) => `${key}=${read(key).join(",")}`).join("&");
 }
 
 /** Whether navigating to `href` changes any watched param of the current URL (same page only). */
-export function changesWatchedParams(href: string, current: { href: string }, watch: readonly string[]): boolean {
+export function changesWatchedParams(href: string, current: { href: string }, watch: readonly string[], ignore: readonly string[] = []): boolean {
   let here: URL;
   let target: URL;
   try {
@@ -61,7 +80,9 @@ export function changesWatchedParams(href: string, current: { href: string }, wa
     return false;
   }
   if (target.origin !== here.origin || target.pathname !== here.pathname) return false;
-  return watchedParamsKey(target.searchParams, watch) !== watchedParamsKey(here.searchParams, watch);
+  // Both sides over the union of their keys, so a param that appears or disappears counts.
+  const union = watch.includes(ALL_PARAMS) ? [...new Set([...target.searchParams.keys(), ...here.searchParams.keys()])] : [];
+  return watchedParamsKey(target.searchParams, watch, ignore, union) !== watchedParamsKey(here.searchParams, watch, ignore, union);
 }
 
 /** Tell the page a URL navigation to `href` has started (tabs, chips, filters, pagers). */

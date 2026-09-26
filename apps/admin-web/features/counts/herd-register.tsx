@@ -1,4 +1,8 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { TableSkeleton } from "@/components/app/skeletons";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -295,6 +299,9 @@ export async function HerdRegisterPage({
       ) : null}
 
       {/* KPI row: template EcommerceWidgetSummary, four to a row (two rows of four at md+). */}
+      {/* KPI deck (guard: url-keyed-panel): a filter / page change swaps it to its skeleton at once;
+          opening a goat passport (goat_passport) never does. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_PANEL_IGNORE} fallback={<PanelSkeleton kpis={summaryCards.length} />}>
       <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.herd.title")}>
         {summaryCards.map((card) => (
           <Grid key={card.label} size={{ xs: 12, sm: 6, md: 3 }}>
@@ -302,6 +309,7 @@ export async function HerdRegisterPage({
           </Grid>
         ))}
       </Grid>
+      </UrlSuspense>
 
       {!result.ok ? (
         <Alert severity="error" variant="outlined">
@@ -319,6 +327,8 @@ export async function HerdRegisterPage({
         <HerdFiltersModalClient hasFilters={hasFilter} pageContract={pageContract} />
         {/* The footer's dense switch is the one piece of client state this server table needs, so
             the table rides into DenseTable as a server subtree rather than the page going client. */}
+        {/* The herd rows + pager: the card header and filters stay mounted. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={HERD_PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={cols.length || 11} rows={pageSize} />}>
         <DenseTable
           className="bd"
           pagination={{
@@ -413,6 +423,7 @@ export async function HerdRegisterPage({
           </Table>
           </Scrollbar>
         </DenseTable>
+        </UrlSuspense>
       </Card>
       </div>
       <HerdPassportLocalDrawer
@@ -426,3 +437,6 @@ export async function HerdRegisterPage({
     </Stack>
   );
 }
+
+/** The goat passport drawer param never changes the herd panels. */
+const HERD_PANEL_IGNORE = ["goat_passport"] as const;

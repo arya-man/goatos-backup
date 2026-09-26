@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
@@ -20,6 +21,9 @@ import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { FCRTab } from "./fcr-tab";
@@ -523,6 +527,15 @@ export async function WeighingWeightsAnalyticsPage({
         pageContract={pageContract}
       />
 
+      {/* The tab's panel (guard: url-keyed-panel): a tab / filter / pager click swaps it to the
+          clicked tab's skeleton at once; header, tabs and filters stay on screen. */}
+      <UrlSuspense
+        searchParams={params}
+        watch={[ALL_PARAMS]}
+        ignore={PANEL_IGNORE}
+        fallback={TAB_SKELETON[tab]}
+        fallbackBy={{ param: TAB_PARAM, shapes: { ...TAB_SKELETON, "": TAB_SKELETON.general } }}
+      >
       <Box>
         {tabReadFailed ? <WeightsAnalyticsErrorCard pageContract={pageContract} /> : null}
         {!tabReadFailed && tab === "general" ? (
@@ -607,9 +620,24 @@ export async function WeighingWeightsAnalyticsPage({
           />
         ) : null}
       </Box>
+      </UrlSuspense>
     </Stack>
   );
 }
+
+/** Params that never change the panel's data (the export drawer). */
+const PANEL_IGNORE = ["wt_export"] as const;
+/** Each tab's panel skeleton, from the shared blocks (the loaded tab's KPI / chart / table shape). */
+const TAB_SKELETON: Record<Tab, ReactNode> = {
+  general: <PanelSkeleton kpis={4} charts={2} table={8} spark />,
+  breed: <PanelSkeleton charts={2} table={8} />,
+  birth: <PanelSkeleton charts={2} table={8} />,
+  shed: <PanelSkeleton charts={1} table={10} />,
+  weight: <PanelSkeleton charts={2} table={8} />,
+  time: <PanelSkeleton charts={2} table={8} />,
+  load: <PanelSkeleton kpis={4} charts={1} table={8} />,
+  fcr: <PanelSkeleton kpis={4} table={10} />,
+};
 
 /** "1 animal" / "425 animals": the contract's plural noun, singular for exactly one. */
 function animalCount(pageContract: AdminUiPageContract, n: number): string {

@@ -1,4 +1,7 @@
 import Form from "next/form";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
@@ -122,6 +125,9 @@ export async function OperationsDLQPage({
         </Alert>
       ) : null}
 
+      {/* Summary tiles and event rows swap to their skeleton on a tab / filter / search change (guard:
+          url-keyed-panel); tabs and toolbar stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<StatStripSkeleton count={4} meta />}>
       <DLQAnalytics
         cells={analytics.map((cell) => ({
           key: cell.key,
@@ -133,6 +139,7 @@ export async function OperationsDLQPage({
           color: cell.color,
         }))}
       />
+      </UrlSuspense>
 
       <Card data-filter-scope>
         <AnimatedTabs
@@ -169,6 +176,7 @@ export async function OperationsDLQPage({
 
         <LinkFiltersResult totalResults={rows.length} chips={chips} resetHref={PATHNAME} />
 
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={cols.length || 6} rows={10} />}>
         <TabPanel tabKey={status}>
           <Scrollbar>
             <Table sx={{ minWidth: 960 }} aria-label={copy(pageContract, "section.events.aria")}>
@@ -202,6 +210,7 @@ export async function OperationsDLQPage({
             </Typography>
           }
         />
+        </UrlSuspense>
       </Card>
 
       <DLQLocalDrawer
@@ -298,3 +307,5 @@ function hiddenInputs(params: RouteSearchParams, exclude: string[]) {
   });
 }
 
+/** Params that never change the event list: the local record drawer and the action feedback banner. */
+const PANEL_IGNORE = ["dlq_id", "action_status", "action_key", "action_code", "updated"] as const;

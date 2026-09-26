@@ -1,4 +1,7 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import type { WorklistFilterField } from "@/components/worklist-filters";
+import { TableSkeleton } from "@/components/app/skeletons";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -858,6 +861,9 @@ export async function FeedConfigPage({
             route: PAGE_PATH,
           }}
         >
+        {/* The grid (guard: url-keyed-panel): an applied filter / page change swaps it to its skeleton
+            at once instead of holding the old rows inert; the bar stays on screen. */}
+        <UrlSuspense searchParams={sp} watch={[...sectionParams(filterFields), "fc_offset", "fc_limit", ...SCOPE_PARAMS]} fallback={<TableSkeleton bare header={false} pager={false} columns={gridTable.columns.length || 6} rows={gridLimit} />}>
         {/* The grid is passed to the bar so ONE pending state drives both the bar's busy ring and
             these rows being held back. They stay readable while the new page is fetched — the old
             answer is still true until the new one lands — but go inert, so a stale row cannot be
@@ -901,6 +907,7 @@ export async function FeedConfigPage({
           hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fc_offset", String(next))}
           hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fc_limit", String(next))}
         />
+        </UrlSuspense>
         </FeedFilters>
       </section>
       </div>
@@ -976,6 +983,7 @@ export async function FeedConfigPage({
             route: PAGE_PATH,
           }}
         >
+        <UrlSuspense searchParams={sp} watch={[...sectionParams(experimentFilterFields), "fc_exp_offset", "fc_exp_limit", ...SCOPE_PARAMS]} fallback={<TableSkeleton bare header={false} pager={false} columns={experimentCols.length + 1} rows={experimentLimit} />}>
         <div
           className="bd feed-scroll"
           style={{ padding: 0, overflowX: "auto" }}
@@ -1223,6 +1231,7 @@ export async function FeedConfigPage({
           hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fc_exp_offset", String(next))}
           hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fc_exp_limit", String(next))}
         />
+        </UrlSuspense>
         </FeedFilters>
       </section>
       </div>
@@ -1477,4 +1486,16 @@ async function readSheetRows(
     offset += data.items?.length ?? 0;
   }
   return rows;
+}
+
+/** The top-bar scope both sections read. */
+const SCOPE_PARAMS = ["park", "scope_mode"] as const;
+
+/** Every URL param a section's own filter bar writes (the section's panel watches only these). */
+function sectionParams(fields: WorklistFilterField[]): string[] {
+  return fields.flatMap((field) => [
+    field.param,
+    ...(field.kind === "compare" ? [field.valueParam] : []),
+    ...(field.kind === "daterange" ? [field.toParam] : []),
+  ]);
 }

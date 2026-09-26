@@ -1,4 +1,7 @@
 import Box from "@mui/material/Box";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { TableSkeleton } from "@/components/app/skeletons";
 import Card from "@mui/material/Card";
 import Link from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
@@ -270,6 +273,9 @@ export async function VendorBoardPage({
           })}
         />
 
+        {/* The vendor rows (guard: url-keyed-panel): a status tab / facet / search / page change swaps
+            them to their skeleton at once; tabs, filter bar and chips stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={VENDOR_ROWS_IGNORE} fallback={<TableSkeleton bare header={false} columns={headCells.length} rows={limit} />}>
         <Box id="procurement-vendors" tabIndex={0} role="region" aria-label={copy(pageContract, "section.vendors.aria")}>
           <Scrollbar>
             <Table sx={{ minWidth: 800 }} aria-label={copy(pageContract, "section.vendors.aria")}>
@@ -338,6 +344,7 @@ export async function VendorBoardPage({
           nextLabel={copy(pageContract, "action.next_page")}
           denseTargetId="procurement-vendors"
         />
+        </UrlSuspense>
       </Card>
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
@@ -352,3 +359,6 @@ export async function VendorBoardPage({
     </div>
   );
 }
+
+/** Params that never change the vendor rows: the add / edit drawer and the save feedback. */
+const VENDOR_ROWS_IGNORE = ["vendor", "action_status", "action_key"] as const;

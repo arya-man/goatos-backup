@@ -45,6 +45,7 @@ import {
   tapTargetFindings,
 } from "./lib/design-kit-ratchet.mjs";
 import { drawerTagLines, drawerTemplateFindings, onlyTemplateDrawerWidths } from "./lib/drawer-template.mjs";
+import { urlKeyedPanelFindings } from "./lib/url-keyed-panel.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
@@ -212,6 +213,7 @@ const CHECKS = {
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
   "client-api-without-use-client": { tier: "p0", why: "a module that calls a client-only React/Next API (useState/useEffect/useRef/useTransition/useRouter/useSearchParams/usePathname/useLinkStatus …) or wires a JSX event handler (onClick={…}) must start with \"use client\"; otherwise a server component that imports it breaks `next build` (typecheck does not catch it)" },
   "hand-drawn-skeleton": { tier: "p0", why: "loading shapes come only from the shared blocks in components/app/skeletons (they render the same Card/Grid/Tabs/Table parts as the page): a loading.tsx or a features/**/*skeleton*.tsx composes those blocks and nothing else (no MUI Skeleton, no raw elements, no inline style, no legacy .skel/.kit-sk classes), and no other app code draws its own MUI Skeleton" },
+  "url-keyed-panel": { tier: "p0", why: "a page with a URL-driven tab strip / segment / chip / select / pager / date filter must render its data panels through <UrlSuspense> (components/app/url-suspense.tsx) keyed by the params they read, and every such control navigates through useUrlTabNav / useUrlNavigate / announceUrlNav: the click moves the tab and swaps the panel to its skeleton in the same frame, header/tabs/filters stay mounted, content streams in (Ravi 2026-09-27: 'the tab transition HANGS')" },
   "app-wrapper-css-import": { tier: "p0", why: "components/app/ holds thin behaviour wrappers over template + MUI components only; they must not import .css / .module.css — style through the template component's props/theme instead" },
   // Charts are the template's Chart + useChart, verbatim, palette colours (scripts/lib/chart-template-guards.mjs).
   ...Object.fromEntries(Object.entries(CHART_TEMPLATE_CHECKS).map(([check, why]) => [check, { tier: "p0", why }])),
@@ -409,6 +411,10 @@ function runGuard(root, { themeDiff }) {
   // section cards replaced (R3: "the cards are hand-made"). Styling them lives in frame.css /
   // mesha-theme.css, which is exactly the legacy CSS a mapped page must stop depending on.
   for (const hit of pageTemplateLegacyCardFindings(root)) findings.push(finding("page-template-legacy-card", hit.file, hit.line, hit.snippet));
+
+  // A URL-driven control over data rendered straight into the tree holds the old page on screen for
+  // the whole round trip (the "tab transition HANGS" report): see scripts/lib/url-keyed-panel.mjs.
+  for (const hit of urlKeyedPanelFindings(root)) findings.push(finding("url-keyed-panel", hit.file, hit.line, hit.snippet));
 
   // R2 item 5: the sidebar must stay the template NavSection (see shellNavTemplateFindings).
   for (const hit of shellNavTemplateFindings(root)) findings.push(finding("shell-nav-template", hit.file, hit.line, hit.snippet));
@@ -1002,6 +1008,15 @@ async function selfTest() {
   put("layouts/dashboard/nav-mobile.tsx", "export const M = () => <Drawer slotProps={{ backdrop: { sx: { bgcolor: 'var(--bg)' } }, paper: { sx: { width: '100vw' } } }}><NavSectionVertical data={d} /></Drawer>;\n");
   put("layouts/dashboard/layout.tsx", 'export const L = () => <NavMobile slots={{ bottomArea: navBottom }} />;\n');
   for (const [rel, text] of Object.entries(CHART_TEMPLATE_SELFTEST)) put(rel, text);
+  // url-keyed-panel: a page whose feature (through the barrel) renders a URL strip with no UrlSuspense
+  // is caught; the same page with its panel inside UrlSuspense is not.
+  put("features/tabbed/index.ts", 'export { TabbedPage } from "./tabbed-page";\nexport { KeyedPage } from "./keyed-page";\n');
+  put("features/tabbed/tabbed-page.tsx", 'import { SegmentedLinks } from "@/components/segmented-links";\nexport async function TabbedPage() { const d = await read(); return <><SegmentedLinks options={[]} /><Card>{d}</Card></>; }\n');
+  put("features/tabbed/keyed-page.tsx", 'import { SegmentedLinks } from "@/components/segmented-links";\nimport { UrlSuspense } from "@/components/app/url-suspense";\nexport function KeyedPage({ sp }) { return <><SegmentedLinks options={[]} /><UrlSuspense searchParams={sp} watch={["tab"]} fallback={null}><Panel /></UrlSuspense></>; }\n');
+  put("app/(admin)/tabbed/page.tsx", 'import { TabbedPage } from "@/features/tabbed";\nexport default function Page() { return <TabbedPage />; }\n');
+  put("app/(admin)/tabbed/loading.tsx", "export default function L() { return null; }\n");
+  put("app/(admin)/keyed/page.tsx", 'import { KeyedPage } from "@/features/tabbed";\nexport default function Page() { return <KeyedPage />; }\n');
+  put("app/(admin)/keyed/loading.tsx", "export default function L() { return null; }\n");
   const { findings } = runGuard(root, { themeDiff: false });
   const got = new Set(findings.map((f) => f.check));
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
@@ -1028,6 +1043,11 @@ async function selfTest() {
   const badDrawerLines = findings.filter((f) => f.file === "features/bad-drawer.tsx" && f.check === "drawer-off-template").map((f) => f.line).sort((x, y) => x - y);
   if (okDrawer.length || badDrawerLines.join(",") !== "2,3,4,5,6,8") {
     console.error(`design_system_self_test=FAIL drawer-off-template okDrawer=${okDrawer.map((f) => f.check).join(",") || "none"} badDrawerLines=${badDrawerLines.join(",")} (want 2,3,4,5,6,8)`);
+    process.exit(1);
+  }
+  const keyed = findings.filter((f) => f.check === "url-keyed-panel").map((f) => f.file);
+  if (!keyed.includes("app/(admin)/tabbed/page.tsx") || keyed.includes("app/(admin)/keyed/page.tsx")) {
+    console.error(`design_system_self_test=FAIL url-keyed-panel flagged=${keyed.join(",") || "none"} (want app/(admin)/tabbed/page.tsx only)`);
     process.exit(1);
   }
   const tplRatchet = findings.filter((f) => f.file === "components/minimal/tpl.tsx" && CHECKS[f.check].tier === "ratchet");

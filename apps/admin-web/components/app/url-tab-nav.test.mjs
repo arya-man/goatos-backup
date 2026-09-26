@@ -43,3 +43,17 @@ test("only a navigation that changes a watched param suspends the panel", () => 
   assert.equal(changesWatchedParams("/sales/sold?park=a&offset=25&deal_id=1", here, ["park", "offset"]), false);
   assert.equal(changesWatchedParams("/sales/loads?park=b", here, ["park"]), false);
 });
+
+test("an ALL_PARAMS panel suspends on any param change but the ignored ones, and keys by them", async () => {
+  const { ALL_PARAMS } = await import("./url-tab-nav.ts");
+  const here = { href: "http://x.test/weighing/analytics?tab=breed&park=a" };
+  const watch = [ALL_PARAMS];
+  const ignore = ["wt_export", "drawer"];
+  assert.equal(changesWatchedParams("/weighing/analytics?tab=shed&park=a", here, watch, ignore), true);
+  assert.equal(changesWatchedParams("/weighing/analytics?tab=breed", here, watch, ignore), true, "a param that disappears counts");
+  assert.equal(changesWatchedParams("/weighing/analytics?tab=breed&park=a&sex=all", here, watch, ignore), true, "a param that appears counts");
+  assert.equal(changesWatchedParams("/weighing/analytics?park=a&tab=breed&wt_export=1", here, watch, ignore), false);
+  assert.equal(changesWatchedParams("/weighing/weights?tab=shed", here, watch, ignore), false, "another route is not this panel's navigation");
+  assert.equal(watchedParamsKey({ tab: "breed", park: "a", drawer: "x" }, watch, ignore), "park=a&tab=breed");
+  assert.equal(watchedParamsKey("?park=a&tab=breed", watch, ignore), watchedParamsKey({ tab: "breed", park: "a" }, watch, ignore));
+});

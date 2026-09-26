@@ -1,4 +1,6 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Form from "next/form";
 import { Label } from "@/components/minimal/label";
 import Table from "@mui/material/Table";
@@ -437,6 +439,10 @@ export async function VerificationReviewPage({
       {/* Template InvoiceListView summary card: one InvoiceAnalytic per status, dashed dividers,
           scrolling sideways inside its own Scrollbar on a phone. The counts are the backend's
           whole-filter aggregate (filter_options.counts), never a count of the page on screen. */}
+      {/* Status counts + queue rows swap to their skeleton on a tab / module / date / shed / sort /
+          page change (guard: url-keyed-panel); the tabs and the filter toolbar stay on screen. The
+          drawer / panel params are not watched: opening one never blanks the queue. */}
+      <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<Box sx={{ mb: { xs: 3, md: 5 } }}><StatStripSkeleton count={4} meta /></Box>}>
       {queue.ok && statusOptionsWithStatus.length ? (
         <Card sx={{ mb: { xs: 3, md: 5 } }}>
           <Scrollbar sx={{ minHeight: 108 }}>
@@ -466,6 +472,7 @@ export async function VerificationReviewPage({
           </Scrollbar>
         </Card>
       ) : null}
+      </UrlSuspense>
 
       <VerificationQueueTelemetry
         category={category}
@@ -630,6 +637,7 @@ export async function VerificationReviewPage({
               <span />
             </div>
 
+            <UrlSuspense searchParams={sp} watch={QUEUE_WATCH} fallback={<TableSkeleton bare header={false} columns={columns.length || 6} rows={10} />}>
             <Scrollbar>
               <Table className="vr-table" aria-label={tableContract.title} sx={{ minWidth: 960 }}>
                 <VrQueueHead
@@ -717,6 +725,7 @@ export async function VerificationReviewPage({
                 }
               />
             ) : null}
+            </UrlSuspense>
           </Box>
         </Card>
       </VerificationQueueTelemetry>
@@ -1086,3 +1095,6 @@ function encodeTrail(trail: string[]): string | null {
   if (!bounded.length) return null;
   return bounded.map((entry) => (entry ? encodeURIComponent(entry) : FIRST_PAGE)).join("~");
 }
+
+/** The params the queue read takes (never the drawer / Analytics / Video log / Randomization panels' own). */
+const QUEUE_WATCH = ["status", "category", "nav_module", "shed_id", "park", "scope_mode", DATE_FROM_PARAM, DATE_TO_PARAM, "vi_cursor", "vi_trail", "sort", "toxin"] as const;

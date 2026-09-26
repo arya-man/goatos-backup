@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import type { SortingState } from "@tanstack/react-table";
 
+import { announceUrlNav } from "@/components/app/url-tab-nav";
+
 /**
  * Whole-result table sorting through the URL ("sort all rows", 2026-09-25).
  *
@@ -39,6 +41,7 @@ export function useUrlSort({
       url.searchParams.set("dir", first.desc ? "desc" : "asc");
     }
     for (const key of pageParams) url.searchParams.delete(key);
+    announceUrlNav(`${url.pathname}${url.search}`);
     startTransition(() => router.replace(`${url.pathname}${url.search}`, { scroll: false }));
   };
   return { sorting, onChange, pending };

@@ -1,4 +1,8 @@
+import type { ReactNode } from "react";
 import { FilterChip } from "@/components/minimal/list/filter-chip";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -610,6 +614,16 @@ export async function FeedAnalyticsPage({
         </>
       ) : null}
 
+      {/* Every panel below the strip (guard: url-keyed-panel): a tab / window / filter / pager click
+          swaps it to the clicked tab's skeleton at once; header, tabs and chips stay on screen. */}
+      <UrlSuspense
+        searchParams={searchParams}
+        watch={[ALL_PARAMS]}
+        ignore={PANEL_IGNORE}
+        fallback={TAB_SKELETON[tab]}
+        fallbackBy={{ param: "tab", shapes: { ...TAB_SKELETON, "": TAB_SKELETON[allowedTabs[0] ?? "overview"] } }}
+      >
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {failed ? (
         <Alert severity="error" variant="outlined">
           <AlertTitle>{fa(pageContract, "error.title")}</AlertTitle>
@@ -735,9 +749,23 @@ export async function FeedAnalyticsPage({
           filters={{ farm: loadsFarm, item: loadsItem, limit: loadsLimit, offset: loadsOffset, pageSizes: loadsPageSizes }}
         />
       ) : null}
+      </Stack>
+      </UrlSuspense>
     </Stack>
   );
 }
+
+/** Params that never change the panels' data: the local Consumption view toggle and the completion drawer. */
+const PANEL_IGNORE = ["fc_view", "fdc_row"] as const;
+/** Each tab's panel skeleton, from the shared blocks. */
+const TAB_SKELETON: Record<Tab, ReactNode> = {
+  overview: <PanelSkeleton kpis={4} charts={3} spark />,
+  peranimal: <PanelSkeleton kpis={4} charts={2} />,
+  execution: <PanelSkeleton kpis={4} charts={1} table={8} />,
+  experiment: <PanelSkeleton charts={2} table={6} />,
+  items: <PanelSkeleton kpis={4} table={8} />,
+  followup: <PanelSkeleton table={10} />,
+};
 
 // ---------------------------------------------------------------------------
 // Status-wise: per PEN TAG over the whole window, rupees spent per day and kg per animal per day.

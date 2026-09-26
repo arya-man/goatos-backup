@@ -1,4 +1,7 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { FilterCardSkeleton, KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -431,6 +434,9 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         ) : null}
 
         {/* A deck of zeros is a wall, not a reading: the tiles render only once a day has counts. */}
+        {/* KPI tiles and both tables' rows swap to their skeleton on a filter / park / day / page
+            change (guard: url-keyed-panel); the card headers stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={5} icon />}>
         {tasks && summaryTiles.some((tile) => Number(tasks.summary[tile.key]) > 0) ? (
           // Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid.
           <Grid container spacing={3}>
@@ -441,6 +447,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
             ))}
           </Grid>
         ) : null}
+        </UrlSuspense>
 
         <Card className="kit-tablecard" aria-label={routinesTable.title}>
             <CardHeader
@@ -449,6 +456,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
               action={routines.length ? <Label variant="soft" color="info">{filteredRoutines.length}</Label> : null}
             />
             {!canConfigure ? <Alert severity="info" sx={{ mx: 3, mb: 1.5 }}>{c("configure.disabled_no_access")}</Alert> : null}
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={routineColumns.length || 6} rows={8} toolbar={<FilterCardSkeleton inCard fields={["search", 160, 160, 160]} small />} />}>
             {routines.length === 0 ? (
               <EmptyState title={c("empty.routines")} sx={{ mx: 3, mb: 3 }} />
             ) : (
@@ -515,6 +523,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                 </Table>
               </RoutinesTableChrome>
             )}
+            </UrlSuspense>
           </Card>
 
         <Card className="kit-tablecard" aria-label={tasksTable.title}>
@@ -529,6 +538,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                 {data.tasks.error.message}
               </Alert>
             ) : null}
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={taskColumns.length || 6} rows={10} toolbar={<FilterCardSkeleton inCard fields={["search", 160, 160, 160]} small />} />}>
             {allTaskRows.length === 0 ? (
               <EmptyState title={c("empty.tasks")} sx={{ mx: 3, mb: 3 }} />
             ) : (
@@ -602,6 +612,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
                 </Table>
               </RoutinesTableChrome>
             )}
+            </UrlSuspense>
 
           </Card>
       </Stack>
@@ -620,3 +631,6 @@ function initialsOf(name: string): string {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 }
+
+/** Params that never change the tables: the routine drawer. */
+const PANEL_IGNORE = [PARAM_EDIT] as const;

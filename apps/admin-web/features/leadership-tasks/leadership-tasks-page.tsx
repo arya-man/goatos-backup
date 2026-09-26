@@ -1,7 +1,5 @@
 import Box from "@mui/material/Box";
-import Tab from "@mui/material/Tab";
 import Card from "@mui/material/Card";
-import Tabs from "@mui/material/Tabs";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 
@@ -28,6 +26,10 @@ import { LeadershipTasksBoard } from "./leadership-tasks-board";
 import { LeadershipTasksFilters, type TaskStatusChip } from "./leadership-tasks-filters";
 import { LeadershipTasksTableLazy as LeadershipTasksTable } from "./leadership-tasks-table-lazy";
 import { PageHeader } from "@/components/app/page-header";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { KanbanSkeleton, TableSkeleton } from "@/components/app/skeletons";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { RetryButton } from "@/components/app/retry-button";
 import { NewTaskModal } from "./new-task-modal";
 // The New task / Edit task dialog fields (`.lt-modal .fld` label anatomy) still read this sheet.
@@ -46,7 +48,7 @@ import { personOptions, rowFromTask, rowsFromPage, type TaskRow } from "./task-r
 import { TaskDrawerHost } from "./task-drawer-host";
 import { TaskViewBody, TaskViewProvider, TaskViewToggle } from "./task-view-switch";
 import { TaskFeedbackBanner } from "./task-feedback-banner";
-import { TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
+import { TASK_BOARD_COLUMNS, TASK_VIEW_ALIAS, TASK_VIEWS, TASKS_PATHNAME, TASKS_PREVIEW_PATHNAME } from "./task-url";
 import { withCancelledRows } from "./task-detail-pick";
 
 const TABLE_ID = "leadership-task-progress";
@@ -379,31 +381,20 @@ export function LeadershipTasksPage({
 
       <Box sx={{ mb: { xs: 3, md: 5 }, gap: 2, display: "flex", alignItems: "center", justifyContent: "space-between", minWidth: 0 }}>
         {scopes.length ? (
-          <Tabs
+          // The template Tabs through AnimatedTabs (useUrlTabNav): the pressed scope is selected in
+          // the same frame and the task panels below swap to their skeleton (guard: url-keyed-panel).
+          <AnimatedTabs
             value={scopeKey}
-            variant="scrollable"
             scrollButtons="auto"
-            allowScrollButtonsMobile
-            aria-label={copy(pageContract, "scope.aria")}
+            ariaLabel={copy(pageContract, "scope.aria")}
             sx={{ minWidth: 0, flex: "1 1 auto" }}
-          >
-            {scopes.map((scope) => (
-              <Tab
-                key={scope.key}
-                value={scope.key}
-                component={Link}
-                href={scopeHref(scope.key)}
-                aria-current={scope.key === scopeKey ? "page" : undefined}
-                iconPosition="end"
-                label={scope.label}
-                icon={
-                  readFailed ? undefined : (
-                    <Label variant={scope.key === scopeKey ? "filled" : "soft"}>{scopeTotal(scope)}</Label>
-                  )
-                }
-              />
-            ))}
-          </Tabs>
+            items={scopes.map((scope) => ({
+              value: scope.key,
+              label: scope.label,
+              href: scopeHref(scope.key),
+              count: readFailed ? undefined : scopeTotal(scope),
+            }))}
+          />
         ) : (
           <span />
         )}
@@ -422,6 +413,7 @@ export function LeadershipTasksPage({
         board={
           <>
             <Card sx={{ mb: 3 }}>{filters}</Card>
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={TASK_PANEL_IGNORE} fallback={<KanbanSkeleton layout="grid" lanes={TASK_BOARD_COLUMNS.map((_, i) => 3 - (i % 2))} minHeight={560} />}>
             {hasBoardTasks ? (
               <>
                 <LeadershipTasksBoard
@@ -439,11 +431,13 @@ export function LeadershipTasksPage({
             ) : (
               <Card data-testid="lt-board-empty">{emptyState}</Card>
             )}
+            </UrlSuspense>
           </>
         }
         list={
           <Card sx={{ minWidth: 0 }} aria-label={selectedScope?.label || tableContract.title} data-count={headerCount}>
             {filters}
+            <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={TASK_PANEL_IGNORE} fallback={<TableSkeleton bare columns={tableContract.columns.length || 6} rows={params.limit} header={false} />}>
             {hasTasks ? (
               <>
                 <LeadershipTasksTable
@@ -460,6 +454,7 @@ export function LeadershipTasksPage({
             ) : (
               emptyState
             )}
+            </UrlSuspense>
           </Card>
         }
       />
@@ -625,3 +620,6 @@ function countBy(items: readonly TaskRow[], key: (item: TaskRow) => string): Rec
   }
   return out;
 }
+
+/** Params that never change the task panels: the drawer's task and the client-local Board/List view. */
+const TASK_PANEL_IGNORE = ["task", "t_view", TASK_VIEW_ALIAS] as const;

@@ -49,6 +49,10 @@ import { listOptions } from "./option-utils";
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Box from "@mui/material/Box";
+import Form from "next/form";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { CardGridSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import { phoneLoadCardsSx } from "./procurement-sx";
 
 const LOAD_CARDS_SX = phoneLoadCardsSx("animal-purchase-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 3, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1", row: 2, secondary: true }, { nth: 6, column: "2", row: 2, alignEnd: true }]);
@@ -264,6 +268,9 @@ export async function AnimalPurchasesPage({
             plus any EXTRA authored SOP answers (how it arrived, documents, ...). These sit with the
             load, not with any one animal, so the CEO reads them once here. A recorder whose roster
             name cannot be resolved is dropped, never shown as an id. */}
+        {/* The loads body (guard: url-keyed-panel): a load pick / page / page-size click swaps it to
+            its skeleton at once; the card header and its load strip stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={LOADS_WATCH} fallback={<TableSkeleton bare header={false} columns={9} rows={loadsLimit} />}>
         {selectedLoad ? (
           <div className="ap-load-answers" data-testid="ap-load-detail" aria-label={copy(pageContract, "label.load_answers")}>
             <span className="muted small b700">{copy(pageContract, "label.load_answers")}</span>
@@ -368,6 +375,7 @@ export async function AnimalPurchasesPage({
             denseTargetId="animal-purchase-loads"
           />
         ) : null}
+        </UrlSuspense>
       </Card>
 
       {/* Animals: the template job list — a Card holding the decision Tabs (Label counts) and the
@@ -400,12 +408,8 @@ export async function AnimalPurchasesPage({
             every other list filter and the whole-filter chip counts follow it. The chip and the
             page cursor are dropped on submit by construction (they are not form fields). The
             fields sit in the template OrderTableToolbar row. */}
+        <Form action={PATHNAME} scroll={false} role="search" aria-label={copy(pageContract, "filter.load")}>
         <Box
-          component="form"
-          method="get"
-          action={PATHNAME}
-          role="search"
-          aria-label={copy(pageContract, "filter.load")}
           sx={{ "& .kit-daterange.ap-filter-date": { height: "auto", p: 0, border: 0, borderRadius: 0, background: "none", flex: "1 1 20rem", minWidth: { xs: 0, sm: "17.5rem" }, maxWidth: { md: 480 } } }}
         >
           {decision !== DEFAULT_DECISION ? <input type="hidden" name="decision" value={decision} /> : null}
@@ -452,6 +456,7 @@ export async function AnimalPurchasesPage({
             }
           />
         </Box>
+        </Form>
       </Card>
 
       {/* The decision tabs drive a server navigation. The kit `TabPanel` content transition is
@@ -459,6 +464,9 @@ export async function AnimalPurchasesPage({
           server and true on a reduced-motion client, so it renders a different element tree on
           each side and hydration fails on every load under that setting. Put it back once the kit
           renders one tree and only zeroes the durations. */}
+      {/* The animals (guard: url-keyed-panel): a decision tab / filter / page change swaps them to
+          the job-list skeleton at once; the tabs and toolbar above stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={ANIMALS_IGNORE} fallback={<CardGridSkeleton count={4} columns={{ xs: 1, lg: 2 }} />}>
       {animals.length === 0 ? (
         <Card>
           <EmptyState title={copy(pageContract, decision === DEFAULT_DECISION ? "empty.pending" : "empty.animals")} />
@@ -570,6 +578,12 @@ export async function AnimalPurchasesPage({
           })}
         </JobList>
       )}
+      </UrlSuspense>
     </div>
   );
 }
+
+/** The params the loads read (and the selected-load record) take. */
+const LOADS_WATCH = ["load_id", "ld_cursor", "ld_limit", "ld_offset"] as const;
+/** Params that never change the animals: the loads pager and the decision feedback. */
+const ANIMALS_IGNORE = ["ld_cursor", "ld_limit", "ld_offset", "ap_status", "ap_code"] as const;

@@ -1,4 +1,7 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -559,6 +562,9 @@ export async function SalesFarmBornPage({
         deferApply
         holdChildren={false}
       >
+        {/* The sections (guard: url-keyed-panel): a farm / filter / sort / page change swaps them to
+            their skeleton at once; header, farm chips and the filter bar stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<PanelSkeleton kpis={4} charts={2} table={limit} />}>
         {!result.ok ? (
           <Alert severity="error" sx={{ mb: 1.75 }}>
             {salesErrorText(result.error, copy(pageContract, "error.load"))}
@@ -566,6 +572,7 @@ export async function SalesFarmBornPage({
         ) : (
           <FarmBornSections data={result.data} pageContract={pageContract} pageHref={pageHref} penOffset={penOffset} penHref={penHref} stageNames={stageNames} order={order} />
         )}
+        </UrlSuspense>
       </WorklistFilters>
     </div>
   );

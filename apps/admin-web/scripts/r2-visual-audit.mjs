@@ -179,6 +179,9 @@ function greedyBlocks(skel, loaded, threshold) {
 // P0 = blocks the visual gate (make admin-web-visual-gate / npm run visual:gate).
 export const P0_PATTERNS = [
   /^interact\|[^|]+\|(skeleton-flash|full-reload)$/, // full-page skeleton flash / document reload on a tab / filter change
+  // url-keyed-panel (Ravi 2026-09-27 "the tab transition HANGS"): 150ms after a same-route tab /
+  // filter click the pressed tab is selected and the panel is its skeleton (or the answer landed).
+  /^interact\|[^|]+\|(tab-not-selected|stale-panel)$/,
   /^dark-bright-bg\|/,
   /^off-palette\|/,
   /^drawer\|(overflow\|clipped|no-backdrop)/,
@@ -544,12 +547,28 @@ function r2PageLib() {
   }
 
   const docRect = (el) => { if (!el) return null; const b = el.getBoundingClientRect(); return { top: b.top + scrollY, left: b.left + scrollX }; };
-  /** Arm the remount / skeleton watch before an interaction. */
-  function armWatch() {
+  /** Arm the remount / skeleton watch before an interaction (`id` = the data-r2-i of the control). */
+  function armWatch(id) {
     const r0 = root();
     const header = r0.querySelector("header") || r0.querySelector("h1, h2, h3, h4")?.parentElement || null;
     const tabs = r0.querySelector("[role=tablist]");
-    const w = { header, tabs, headerRect: docRect(header), tabsRect: docRect(tabs), maxSkel: 0, headerGone: false, tabsGone: false, cls: 0, samples: 0, skelWhileHeaderGone: false, url0: location.href };
+    const w = { header, tabs, headerRect: docRect(header), tabsRect: docRect(tabs), maxSkel: 0, headerGone: false, tabsGone: false, cls: 0, samples: 0, skelWhileHeaderGone: false, url0: location.href, early: [] };
+    // url-keyed-panel: 150ms after every click (the LAST one is the navigating click: a select's
+    // option, a tab), is the pressed control selected, and is the panel its skeleton or already the
+    // answer? A panel still showing the old content without a skeleton is the "hang".
+    const target = id ? document.querySelector(`[data-r2-i="${id}"]`) : null;
+    const panelSkel = "[data-url-panel-pending], [data-panel-skeleton], [data-skel], .MuiSkeleton-root";
+    w.onClick = () => {
+      const t0 = performance.now();
+      setTimeout(() => {
+        const r = root();
+        const landed = location.href !== w.url0;
+        const skel = !!r.querySelector(panelSkel);
+        const sel = target && target.isConnected ? target.getAttribute("aria-selected") === "true" || target.classList.contains("Mui-selected") || target.getAttribute("aria-pressed") === "true" || target.getAttribute("aria-current") === "page" : null;
+        w.early.push({ ms: Math.round(performance.now() - t0), landed, skel, selected: sel });
+      }, 150);
+    };
+    document.addEventListener("click", w.onClick, true);
     const sample = () => {
       w.samples++;
       const rr = root().getBoundingClientRect();
@@ -558,7 +577,8 @@ function r2PageLib() {
       for (let gx = 0; gx < 16; gx++) for (let gy = 0; gy < 10; gy++) {
         const x = x0 + ((gx + 0.5) * (x1 - x0)) / 16, y = y0 + ((gy + 0.5) * (y1 - y0)) / 10;
         const e = document.elementFromPoint(x, y); tot++;
-        if (e && e.closest(SKEL)) hit++;
+        // A URL-keyed panel's own skeleton is the intended state, not a full-page skeleton flash.
+        if (e && e.closest(SKEL) && !e.closest("[data-url-panel]")) hit++;
       }
       const cov = tot ? hit / tot : 0;
       w.maxSkel = Math.max(w.maxSkel, cov);
@@ -573,8 +593,9 @@ function r2PageLib() {
   function readWatch() {
     const w = window.__r2w; if (!w) return null;
     clearInterval(w.timer); try { w.po?.disconnect(); } catch {}
+    document.removeEventListener("click", w.onClick, true);
     const shift = (el, r) => { if (!el || !el.isConnected || !r) return 0; const n = docRect(el); return Math.max(Math.abs(n.top - r.top), Math.abs(n.left - r.left)); };
-    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples };
+    return { maxSkel: Math.round(w.maxSkel * 100) / 100, headerGone: w.headerGone || (w.header ? !w.header.isConnected : false), tabsGone: w.tabsGone || (w.tabs ? !w.tabs.isConnected : false), cls: Math.round(w.cls * 1000) / 1000, headerShift: Math.round(shift(w.header, w.headerRect)), tabsShift: Math.round(shift(w.tabs, w.tabsRect)), skelWhileHeaderGone: w.skelWhileHeaderGone, urlChanged: location.href !== w.url0, url: location.href, samples: w.samples, early: w.early.length ? w.early[w.early.length - 1] : null };
   }
 
   /** Tab + filter candidates in the content column (marked with data-r2-i). */
@@ -1008,7 +1029,7 @@ async function main() {
         const cur = now.find((c) => c.kind === cand.kind && c.label === cand.label && (c.href ?? null) === (cand.href ?? null)) || now.find((c) => c.kind === cand.kind && c.label === cand.label);
         if (!cur) return;
         done++;
-        if (!(await safeEval(page, () => !!window.__r2lib.armWatch(), undefined, false))) return;
+        if (!(await safeEval(page, (id) => !!window.__r2lib.armWatch(id), cur.id, false))) return;
         frames = [];
         await client.send("Page.startScreencast", { format: "jpeg", quality: 50, maxWidth: 720, everyNthFrame: 1 }).catch(() => {});
         const loc = page.locator(`[data-r2-i="${cur.id}"]`);
@@ -1048,6 +1069,12 @@ async function main() {
         if (w.tabsGone && !reloaded) fails.push(["tabs-remount", "tabs remounted"]);
         if (!w.headerGone && (w.headerShift > 4 || w.tabsShift > 4)) fails.push(["layout-jump", `header/tabs moved ${Math.max(w.headerShift, w.tabsShift)}px`]);
         if (w.cls > 0.1) fails.push(["layout-shift", `layout shift ${w.cls}`]);
+        // url-keyed-panel: a same-route navigation must move the tab and show the panel skeleton
+        // (or the answer) within 150ms — never the old panel frozen under a new tab.
+        if (!reloaded && w.urlChanged && !routeChange && w.early) {
+          if (cur.kind === "tab" && w.early.selected === false) fails.push(["tab-not-selected", "the pressed tab was not selected within 150ms"]);
+          if (!w.early.landed && !w.early.skel) fails.push(["stale-panel", "150ms after the click the panel still showed the old content without a skeleton (the tab transition hangs)"]);
+        }
         let evidence = null;
         if (fails.length) evidence = rel(await contactSheet(frames, join(outDir, "frames", `${slug(route.route)}__${done}_${cur.kind}.jpg`)).catch(() => null));
         for (const [code, msg] of fails) add({ check: "interact", pattern: `interact|${kindLabel}|${code}`, label: `${kindLabel} click → ${msg.replace(/ \(.*\)$| \d+(\.\d+)?px$| [\d.]+$/, "")}`, route: route.route, profile: profile.label, detail: `"${cur.label}" ${cur.href ?? ""} → ${msg}`, evidence });

@@ -18,13 +18,11 @@ test("milk preparation renders the backend-owned worklist and whole-scope summar
   assert.doesNotMatch(source, /getCountsBreakdown\(/);
 });
 
-test("milk preparation is composed on the template invoice-list anatomy", () => {
+test("milk preparation reuses the shared Feed Packing worklist anatomy", () => {
   assert.match(source, /WorklistFilters/);
   assert.match(source, /WorklistPager/);
-  // KPI row = template EcommerceWidgetSummary, farm states = InvoiceAnalytic strip, list = Scrollbar +
-  // TableHeadCustom with soft Labels; the legacy .tag/.feed-table markup and Tag primitive are gone.
-  assert.match(source, /<EcommerceWidgetSummary/);
-  assert.match(source, /<InvoiceAnalytic/);
-  assert.match(source, /<TableHeadCustom/);
-  assert.doesNotMatch(source, /className="tag |<Tag |className="feed-table"/);
+  assert.match(source, /className="feed-table"/);
+  // The KPI band is now the shared kit grid (<KpiGrid>), which is the same four-up anatomy
+  // Feed Packing renders — the old hand-rolled `grid g4` div no longer exists on either page.
+  assert.match(source, /<KpiGrid/);
 });

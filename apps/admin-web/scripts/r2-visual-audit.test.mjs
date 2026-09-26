@@ -68,7 +68,7 @@ test("patterns group identical failures across routes and rank by route count; g
 });
 
 test("P0 classification covers the gate's pattern families", () => {
-  for (const p of ["interact|Tab|full-reload", "interact|Filter link|skeleton-flash", "off-palette|color|x", "drawer|no-backdrop|drawer", "drawer|overflow|clipped", "skeleton|mismatch|tabs", "skeleton|missing|kpi-row", "tap|button", "sideways-scroll|390", "route|error"]) assert.ok(isP0(p), p);
+  for (const p of ["interact|Tab|full-reload", "interact|Filter link|skeleton-flash", "off-palette|color|x", "drawer|no-backdrop|drawer", "drawer|overflow|clipped", "skeleton|mismatch|tabs", "skeleton|missing|kpi-row", "tap|button", "sideways-scroll|390", "route|error", "interact|Tab|tab-not-selected", "interact|Filter select|stale-panel"]) assert.ok(isP0(p), p);
   for (const p of ["interact|Tab|layout-jump", "contrast|x", "drawer|width|narrower", "skeleton|not-shown", "drawer|overflow|table-scroll"]) assert.ok(!isP0(p), p);
 });
 

@@ -1,4 +1,6 @@
 import Box from "@mui/material/Box";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Card from "@mui/material/Card";
 import Link from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
@@ -191,6 +193,9 @@ export async function FeedPurchasesPage({
 
       {/* Template invoice list: the InvoiceAnalytic strip on its own card (whole-filter aggregates
           from the backend, never sums over the rendered page), then the list card. */}
+      {/* Whole-filter aggregates and the ledger rows (guard: url-keyed-panel): a delivery tab / farm /
+          page change swaps them to their skeleton at once; tabs and toolbar stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={AGGREGATE_WATCH} fallback={<Box sx={{ mb: { xs: 3, md: 5 } }}><StatStripSkeleton count={2} /></Box>}>
       <Card sx={{ mb: { xs: 3, md: 5 } }}>
         <Scrollbar sx={{ minHeight: 108 }}>
           <Stack
@@ -219,6 +224,7 @@ export async function FeedPurchasesPage({
           </Stack>
         </Scrollbar>
       </Card>
+      </UrlSuspense>
 
       <Card>
         {/* Delivery scope as the template's status Tabs (on the road / reached), the same
@@ -271,6 +277,7 @@ export async function FeedPurchasesPage({
           clearHref={hrefWithQuery(sp, { farm: null, offset: null, purchase_id: null })}
         />
 
+        <UrlSuspense searchParams={sp} watch={LEDGER_WATCH} fallback={<TableSkeleton bare header={false} columns={Math.max(columns.length, 1)} rows={limit} />}>
         <Box id="feed-purchases-ledger" tabIndex={0} role="region" aria-label={ledgerTable.title}>
           <Scrollbar>
             <Table sx={{ minWidth: 1100 }} aria-label={ledgerTable.title}>
@@ -359,6 +366,7 @@ export async function FeedPurchasesPage({
           nextLabel={copy(pageContract, "action.next_page")}
           denseTargetId="feed-purchases-ledger"
         />
+        </UrlSuspense>
       </Card>
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
@@ -376,3 +384,8 @@ export async function FeedPurchasesPage({
     </div>
   );
 }
+
+/** The params the ledger's whole-filter aggregates take. */
+const AGGREGATE_WATCH = ["farm", "delivery"] as const;
+/** The params the ledger page takes. */
+const LEDGER_WATCH = ["farm", "delivery", "limit", "offset"] as const;

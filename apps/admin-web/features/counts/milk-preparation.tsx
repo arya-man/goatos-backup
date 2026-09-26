@@ -1,23 +1,21 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
+import { Baby, Beaker, Fence, Milk } from "lucide-react";
 
 import Card from "@mui/material/Card";
-import CardHeader from "@mui/material/CardHeader";
-import Divider from "@mui/material/Divider";
-import Grid from "@mui/material/Grid";
-import Stack from "@mui/material/Stack";
-import AlertTitle from "@mui/material/AlertTitle";
-import { EmptyContent } from "@/components/minimal/empty-content";
-import { Label } from "@/components/minimal/label";
-import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
-import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
-import { EcommerceWidgetSummary } from "@/components/minimal/sections/overview/e-commerce/ecommerce-widget-summary";
+import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { Tag } from "@/components/ui-primitives";
+import "./milk-preparation.css";
 import { FeedAnalyticsExport as MilkPreparationExport } from "@/components/analytics-export";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
@@ -76,25 +74,21 @@ function sessionCell(row: MilkPreparationRow, sessionNo: number, inactive: strin
   return `${litres(session.required_ml)} ${unit}`;
 }
 
-type LabelColor = "default" | "success" | "warning" | "error" | "info";
-
-function verificationTag(row: MilkPreparationRow, pageContract: AdminUiPageContract): { color: LabelColor; label: string; title?: string } {
+function verificationTag(row: MilkPreparationRow, pageContract: AdminUiPageContract) {
   if (row.status === "blocked") {
-    return { color: "error", label: copy(pageContract, "label.blocked"), title: copy(pageContract, "label.missing_shed") };
+    return { className: "tag t-dng", label: copy(pageContract, "label.blocked"), title: copy(pageContract, "label.missing_shed") };
   }
   switch (row.verification_status) {
     case "pending_verification":
-      return { color: "warning", label: copy(pageContract, "label.pending_verification") };
+      return { className: "tag t-warn", label: copy(pageContract, "label.pending_verification") };
     case "completed":
-      return { color: "success", label: copy(pageContract, "label.verified") };
+      return { className: "tag t-ok", label: copy(pageContract, "label.verified") };
     case "rework":
-      return { color: "error", label: copy(pageContract, "label.rework"), title: row.rework_reason };
+      return { className: "tag t-dng", label: copy(pageContract, "label.rework"), title: row.rework_reason };
     default:
-      return { color: "default", label: copy(pageContract, "label.not_submitted") };
+      return { className: "tag t-mut", label: copy(pageContract, "label.not_submitted") };
   }
 }
-
-const NO_SPARK = { categories: [], series: [] };
 
 export async function MilkPreparationPage({
   searchParams,
@@ -139,22 +133,8 @@ export async function MilkPreparationPage({
     disabledReason: topBarScope.parkId ? copy(pageContract, "filter.scope_readonly") : undefined,
   }];
 
-  // Farm verification states: template InvoiceAnalytic strip (count + share of the farms).
-  const farmTotal = summary
-    ? summary.not_submitted_farm_count + summary.pending_verification_farm_count + summary.completed_farm_count + summary.rework_farm_count
-    : 0;
-  const farmShare = (n: number) => (farmTotal > 0 ? Math.round((n / farmTotal) * 100) : 0);
-  const farmStates = summary
-    ? [
-        { key: "not_submitted", count: summary.not_submitted_farm_count, icon: "solar:clock-circle-bold", color: "text.secondary" },
-        { key: "pending_verification", count: summary.pending_verification_farm_count, icon: "solar:bell-bing-bold", color: "warning.main" },
-        { key: "verified", count: summary.completed_farm_count, icon: "solar:verified-check-bold", color: "success.main" },
-        { key: "rework", count: summary.rework_farm_count, icon: "solar:restart-bold", color: "error.main" },
-      ] as const
-    : [];
-
   return (
-    <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
+    <div className="kit-enter screen on">
       <div>
         <PageHeader
           title={pageContract.title}
@@ -176,92 +156,84 @@ export async function MilkPreparationPage({
       </div>
 
       {!result.ok ? (
-        <Alert severity="error" variant="outlined">
-          <AlertTitle>{copy(pageContract, "state.preparation_unavailable")}</AlertTitle>
-          {copy(pageContract, "state.try_again")}
+        <Alert severity="error" style={{ marginBottom: 16 }}><div>
+            <b>{copy(pageContract, "state.preparation_unavailable")}</b>
+            <div className="small muted">{copy(pageContract, "state.try_again")}</div>
+          </div>
         </Alert>
       ) : null}
 
-      {summary ? (
-        <Grid container spacing={3} component="section" aria-label={copy(pageContract, "section.preparation.title")}>
-          {[
-            { key: "sheds", total: summary.shed_count },
-            { key: "kids", total: summary.head_count },
-            { key: "milk", total: `${litres(summary.total_required_ml)} ${unit}` },
-            { key: "citric", total: `${summary.citric_acid_grams} ${copy(pageContract, "label.grams")}` },
-          ].map((kpi) => (
-            <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
-              <EcommerceWidgetSummary title={copy(pageContract, `kpi.${kpi.key}.label`)} total={kpi.total} chart={NO_SPARK} sx={{ height: 1 }} />
-            </Grid>
-          ))}
-        </Grid>
-      ) : null}
-
-      {summary ? (
-        <Card>
-          <Scrollbar sx={{ minHeight: 108 }}>
-            <Stack direction="row" divider={<Divider orientation="vertical" flexItem sx={{ borderStyle: "dashed" }} />} sx={{ py: 2 }}>
-              {farmStates.map((state) => (
-                <InvoiceAnalytic
-                  key={state.key}
-                  title={copy(pageContract, `label.${state.key}`)}
-                  total={state.count}
-                  value={state.count.toLocaleString("en-IN")}
-                  caption={`${farmShare(state.count)}%`}
-                  percent={farmShare(state.count)}
-                  icon={state.icon}
-                  color={state.color}
-                />
-              ))}
-            </Stack>
-          </Scrollbar>
-        </Card>
-      ) : null}
-
-      <Card>
-        <CardHeader
-          title={copy(pageContract, "section.preparation.title")}
-          subheader={
-            page
-              ? copy(pageContract, "label.prepared_for")
-                  .replace("{preparation_date}", fmtDate(page.preparation_date))
-                  .replace("{feeding_date}", fmtDate(page.feeding_date))
-              : undefined
-          }
-          sx={{ mb: 1 }}
-        />
+      <div>
         <WorklistFilters basePath={PAGE_PATH} pageParam="mp_offset" fields={filters} pageContract={pageContract} />
+      </div>
 
-        <Scrollbar tabIndex={0} role="group" aria-label={copy(pageContract, "section.preparation.aria")}>
-          <Table sx={{ minWidth: 800 }} aria-label={copy(pageContract, "table.preparation.aria")}>
-            <TableHeadCustom headCells={cols.map((col, i) => ({ id: `${i}`, label: col, sortable: false }))} />
+      {/* KPIs + table (guard: url-keyed-panel): a filter / page change swaps them to their skeleton at
+          once; header and filters stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<PanelSkeleton kpis={4} table={limit} tableWidths={cols.map(() => "1fr")} />}>
+      {summary ? (
+        <div>
+          <KpiGrid min={210} className="milk-prep-kpis">
+            <KpiCard tone="primary" icon={<Fence size={22} />} label={copy(pageContract, "kpi.sheds.label")} value={summary.shed_count} />
+            <KpiCard tone="info" icon={<Baby size={22} />} label={copy(pageContract, "kpi.kids.label")} value={summary.head_count} />
+            <KpiCard tone="success" icon={<Milk size={22} />} label={copy(pageContract, "kpi.milk.label")} value={`${litres(summary.total_required_ml)} ${unit}`} />
+            <KpiCard tone="violet" icon={<Beaker size={22} />} label={copy(pageContract, "kpi.citric.label")} value={`${summary.citric_acid_grams} ${copy(pageContract, "label.grams")}`} />
+          </KpiGrid>
+        </div>
+      ) : null}
+
+      <div>
+      <Card className="kit-tablecard milk-prep-card">
+        <CardHeader
+          className="milk-prep-head"
+          sx={{ flexWrap: "wrap", rowGap: 1.5, [`& .${cardHeaderClasses.action}`]: { m: 0, flex: { xs: "1 1 100%", sm: "0 0 auto" }, minWidth: 0, maxWidth: "100%" } }}
+          title={copy(pageContract, "section.preparation.title")}
+          action={
+            <span className="milk-prep-chips">
+              {page ? (
+                <Tag tone="info">
+                  {copy(pageContract, "label.prepared_for")
+                    .replace("{preparation_date}", fmtDate(page.preparation_date))
+                    .replace("{feeding_date}", fmtDate(page.feeding_date))}
+                </Tag>
+              ) : null}
+              {summary ? (
+                <>
+                  <Tag tone="mut">{copy(pageContract, "label.not_submitted")}: {summary.not_submitted_farm_count}</Tag>
+                  <Tag tone="warn">{copy(pageContract, "label.pending_verification")}: {summary.pending_verification_farm_count}</Tag>
+                  <Tag tone="ok">{copy(pageContract, "label.verified")}: {summary.completed_farm_count}</Tag>
+                  <Tag tone="dng">{copy(pageContract, "label.rework")}: {summary.rework_farm_count}</Tag>
+                </>
+              ) : null}
+            </span>
+          }
+        />
+
+        <div className="tablewrap feed-scroll" tabIndex={0} role="group" aria-label={copy(pageContract, "section.preparation.aria")}>
+          <Table className="feed-table" aria-label={copy(pageContract, "table.preparation.aria")}>
+            <TableHead><TableRow>{cols.map((col) => <TableCell component="th" key={col}>{col}</TableCell>)}</TableRow></TableHead>
             <TableBody>
               {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={cols.length}>
-                    <EmptyContent filled title={copy(pageContract, "empty.preparation")} sx={{ py: 8 }} />
-                  </TableCell>
-                </TableRow>
+                <TableRow><TableCell colSpan={cols.length}><div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>{copy(pageContract, "empty.preparation")}</div></TableCell></TableRow>
               ) : rows.map((row) => {
                 const status = verificationTag(row, pageContract);
                 const locationLabel = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label });
-                return <TableRow hover key={`${row.park_id}|${row.shed_id}|${row.partition_label ?? ""}|${row.management_stage}`}>
+                return <TableRow key={`${row.park_id}|${row.shed_id}|${row.partition_label ?? ""}|${row.management_stage}`}>
                   <TableCell>{row.park_label || copy(pageContract, "label.unassigned_park")}</TableCell>
-                  <TableCell sx={{ typography: "subtitle2" }}>{locationLabel || copy(pageContract, "label.unassigned_shed")}</TableCell>
-                  <TableCell><Label variant="soft" color="info">{cohortLabel(row.management_stage)}</Label></TableCell>
-                  <TableCell align="right">{row.head_count}</TableCell>
-                  {[1, 2, 3, 4].map((sessionNo) => <TableCell key={sessionNo} sx={{ color: "text.secondary" }}>{sessionCell(row, sessionNo, inactive, unit)}</TableCell>)}
-                  <TableCell align="right" sx={{ typography: "subtitle2" }}>{litres(row.daily_required_ml)} {unit}</TableCell>
+                  <TableCell>{locationLabel || copy(pageContract, "label.unassigned_shed")}</TableCell>
+                  <TableCell><Tag tone="info">{cohortLabel(row.management_stage)}</Tag></TableCell>
+                  <TableCell className="num">{row.head_count}</TableCell>
+                  {[1, 2, 3, 4].map((sessionNo) => <TableCell key={sessionNo}>{sessionCell(row, sessionNo, inactive, unit)}</TableCell>)}
+                  <TableCell className="num" style={{ fontWeight: 650 }}>{litres(row.daily_required_ml)} {unit}</TableCell>
                   <TableCell>
-                    <Label variant="soft" color={status.color} title={status.title || undefined}>
+                    <span className={status.className} title={status.title || undefined}>
                       {status.label}
-                    </Label>
+                    </span>
                   </TableCell>
                 </TableRow>
               })}
             </TableBody>
           </Table>
-        </Scrollbar>
+        </div>
 
         <WorklistPager
           pageContract={pageContract}
@@ -275,6 +247,8 @@ export async function MilkPreparationPage({
           hrefForLimit={(nextLimit) => hrefWith(sp, { mp_limit: String(nextLimit), mp_offset: null })}
         />
       </Card>
-    </Stack>
+      </div>
+      </UrlSuspense>
+    </div>
   );
 }

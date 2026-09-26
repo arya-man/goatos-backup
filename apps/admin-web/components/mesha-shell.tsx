@@ -3,6 +3,7 @@
 import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LinkNavPending } from "@/components/app/link-nav-pending";
+import { UrlNavRouter } from "@/components/app/url-nav-router";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePopover } from "minimal-shared/hooks";
@@ -985,7 +986,7 @@ export function MeshaShell({
                 </Alert>
               ),
             )}
-            {children}
+            <UrlNavRouter>{children}</UrlNavRouter>
             <LinkNavPending />
           </div>
         </DashboardContent>

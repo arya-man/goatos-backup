@@ -54,6 +54,7 @@ export function ApprovalsQueueTable({
   tabs,
   toolbar,
   footer,
+  renderBody = (body) => body,
 }: {
   items: AdminWebApprovalItem[];
   ok: boolean;
@@ -66,11 +67,15 @@ export function ApprovalsQueueTable({
   toolbar?: ReactNode;
   /** Pager row under the table. */
   footer?: ReactNode;
+  /** Wraps the rows + pager (the page's URL-keyed panel, guard: url-keyed-panel); tabs and toolbar stay outside. */
+  renderBody?: (body: ReactNode) => ReactNode;
 }) {
   return (
     <Card sx={{ minWidth: 0 }} data-testid="approvals-queue">
       {tabs}
       {toolbar}
+      {renderBody(
+      <>
       <Scrollbar sx={{ minHeight: 0 }}>
         <Table aria-label={COPY.title} sx={{ minWidth: { sm: 860 }, display: { xs: "block", sm: "table" }, "& > tbody": { display: { xs: "block", sm: "table-row-group" } } }}>
           <TableHeadCustom headCells={HEAD} sx={{ display: { xs: "none", sm: "table-header-group" } }} />
@@ -96,6 +101,8 @@ export function ApprovalsQueueTable({
         </Table>
       </Scrollbar>
       {footer}
+      </>,
+      )}
     </Card>
   );
 }

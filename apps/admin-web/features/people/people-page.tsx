@@ -1,3 +1,7 @@
+import type { ReactNode } from "react";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { FilterCardSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { PageHeader } from "@/components/app/page-header";
@@ -82,6 +86,9 @@ export async function PeoplePage({
       {/* The four People desks are whole screens, and switching used to swap them instantly with a
           height jump. TabPanel cross-fades the old screen out and rises the new one in against a
           measured height, so the tab strip above it never moves under the pointer. */}
+      {/* Each desk streams (guard: url-keyed-panel): a tab click shows the clicked desk's skeleton in
+          the same frame; header and strip stay on screen. */}
+      <UrlSuspense searchParams={searchParams} watch={["tab", "park"]} fallback={DESK_SKELETON[active] ?? DESK_SKELETON.all} fallbackBy={{ param: "tab", shapes: { ...DESK_SKELETON, "": DESK_SKELETON.all } }}>
       <TabPanel tabKey={active}>
         {active === "vaccination" ? (
           <VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />
@@ -93,9 +100,18 @@ export async function PeoplePage({
           <PeopleBoard searchParams={searchParams} pageContract={pageContract} />
         )}
       </TabPanel>
+      </UrlSuspense>
     </div>
   );
 }
+
+/** Each desk's skeleton, from the shared blocks. */
+const DESK_SKELETON: Record<string, ReactNode> = {
+  all: <TableSkeleton columns={6} rows={10} header={false} tabs={<TabsSkeleton count={4} counts />} toolbar={<FilterCardSkeleton inCard fields={[200, 200, "search"]} />} />,
+  vaccination: <PanelSkeleton kpis={4} table={10} />,
+  clock: <PanelSkeleton kpis={3} table={10} />,
+  notifications: <PanelSkeleton table={8} />,
+};
 
 function addPersonHref(sp: RouteSearchParams): string {
   const query = new URLSearchParams();

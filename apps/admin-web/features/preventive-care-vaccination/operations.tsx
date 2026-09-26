@@ -10,6 +10,12 @@ import { VaccinationFullSchedule, vaccinationScheduleYear } from "./full-vaccine
 import { VaccinationCommandBoard } from "./command-board";
 import { VaccinationCommandBoardSkeleton, VaccinationFullScheduleSkeleton, VaccinationInventorySkeleton, VaccinationShedBoardSkeleton } from "./vaccination-skeletons";
 import { InventoryVaccineProgressSection } from "./inventory-vaccine-progress";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { StackSkeleton } from "@/components/app/skeletons";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+
+/** The top-bar scope every section reads (guard: url-keyed-panel). */
+const SCOPE_WATCH = ["park", "scope_mode"] as const;
 
 // Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:
 //   header (SOP · Full Schedule) → drive-mechanic band (Target → Group → Route → Execute)
@@ -40,10 +46,12 @@ export function VaccinationOperationsPage({
         actions={isFullSchedule ? null : <VaccinationFullScheduleButton scope={scope} pageContract={pageContract} active={isFullSchedule} year={scheduleYear} />}
       />
 
+      {/* Board ⇄ full schedule (guard: url-keyed-panel): the switch shows the target view's skeleton at once. */}
+      <UrlSuspense searchParams={sp} watch={["view"]} fallback={isFullSchedule ? VIEW_SKELETON.schedule : VIEW_SKELETON[""]} fallbackBy={{ param: "view", shapes: VIEW_SKELETON }}>
       {isFullSchedule ? (
-        <Suspense fallback={<VaccinationFullScheduleSkeleton />}>
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<VaccinationFullScheduleSkeleton />}>
           <VaccinationFullSchedule searchParams={sp} scope={scope} pageContract={pageContract} />
-        </Suspense>
+        </UrlSuspense>
       ) : (
         <div className="kit-enter" style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0,1fr)" }}>
       {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
@@ -54,9 +62,9 @@ export function VaccinationOperationsPage({
       </div>
 
       <div style={{ minWidth: 0 }}>
-      <Suspense fallback={<VaccinationInventorySkeleton id="pc-care-inventory-progress" />}>
+      <UrlSuspense searchParams={sp} watch={SCOPE_WATCH} fallback={<VaccinationInventorySkeleton id="pc-care-inventory-progress" />}>
         <InventoryVaccineProgressSection searchParams={sp} pageContract={pageContract} />
-      </Suspense>
+      </UrlSuspense>
       </div>
 
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
@@ -68,6 +76,18 @@ export function VaccinationOperationsPage({
       </div>
         </div>
       )}
+      </UrlSuspense>
     </div>
   );
 }
+
+const VIEW_SKELETON = {
+  "": (
+    <StackSkeleton spacing={2}>
+      <VaccinationCommandBoardSkeleton />
+      <VaccinationInventorySkeleton />
+      <VaccinationShedBoardSkeleton />
+    </StackSkeleton>
+  ),
+  schedule: <VaccinationFullScheduleSkeleton />,
+};

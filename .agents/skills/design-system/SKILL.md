@@ -181,10 +181,23 @@ Neutrals are the MUI Minimal TEMPLATE's (Ravi 2026-09-27): grey scale `--grey-50
   has no router and the browser reloads the whole document, painting the route skeleton on every
   click). GET filter/search forms use `<Form>` from `next/form`, never a native `<form method="get">`.
   URL-driven tab strips navigate through `useUrlTabNav` (`components/app/use-url-tab-nav.ts`,
-  already inside `AnimatedTabs`, `SegmentTabs`, `SegmentedLinks`): `router.push(href,{scroll:false})`
-  in a transition, the pressed tab selected at once, the header / crumbs / tabs / filters and the old
-  panel kept on screen (dimmed at most) until the new page is ready. Never hide the live panel or
-  swap the page for a skeleton on a same-route param change; `loading.tsx` is for the first entry.
+  already inside `AnimatedTabs`, `SegmentTabs`, `SegmentedLinks`); programmatic filters / selects /
+  date pickers / sort headers use `useUrlNavigate` (every `router.push/replace` under the shell also
+  announces itself through `UrlNavRouter`). `loading.tsx` is for the first entry only.
+- **A tab / filter click never hangs: panels are URL-keyed (guard: `url-keyed-panel` in design:guard,
+  P0 with self-test; runtime: `interact|*|tab-not-selected` / `interact|*|stale-panel` in
+  `scripts/r2-visual-audit.mjs`).** Ravi 2026-09-27: "the tab transition HANGS. Just switch the tab
+  and show shimmer for the content to load." Every page that renders a URL-driven tab strip / segment
+  / chip / select / pager / date filter renders its data panels through `UrlSuspense`
+  (`components/app/url-suspense.tsx`) keyed by the params the panel reads (`watch`, or
+  `[ALL_PARAMS]` + `ignore` for drawer / export params; `fallbackBy` gives each tab its own
+  skeleton). Within one frame of the click the pressed tab is selected and the panel is its skeleton
+  (shared blocks, same shape as the loaded panel); header / crumbs / tabs / filters stay mounted;
+  content streams in when ready (an answer inside 50ms shows directly, no skeleton flash). Never keep
+  the old panel on screen while the server answers, never a full-page `loading.tsx` skeleton, never a
+  document reload. Best: the panel is an async server component inside `UrlSuspense`, so the new
+  header/tabs stream before the panel data; a page that already awaited its data may wrap its panel
+  JSX in place (the click-time swap alone keeps the click instant).
 
 ## Loading skeletons match the page (R2 item 7, 2026-09-27)
 

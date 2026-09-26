@@ -41,6 +41,12 @@ export function LinkNavPending() {
     const onNavigate = (event: Event) => {
       const href = (event as CustomEvent<Partial<UrlNavDetail>>).detail?.href;
       if (!href || isCurrentUrl(href, window.location)) return;
+      // Only a same-route param change: a navigation to another route is that route's loading.tsx.
+      try {
+        if (new URL(href, window.location.href).pathname !== window.location.pathname) return;
+      } catch {
+        return;
+      }
       setPendingFrom(navKeyOf(window.location.pathname, new URLSearchParams(window.location.search).toString()));
     };
     window.addEventListener(URL_NAV_EVENT, onNavigate);

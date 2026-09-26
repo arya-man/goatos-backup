@@ -29,7 +29,7 @@ async function render(data, searchParams = {}, pageContract = contract) {
   const modules = new Map();
   const link = ({ children, href }) => React.createElement("a", { href }, children);
   const mocks = {
-    "next/navigation": { redirect: () => { throw new Error("unexpected redirect"); }, useRouter: () => ({ push() {}, replace() {} }) },
+    "next/navigation": { redirect: () => { throw new Error("unexpected redirect"); }, useRouter: () => ({ push() {}, replace() {} }), usePathname: () => "/alerts", useSearchParams: () => new URLSearchParams() },
     "@/components/no-prefetch-link": { default: link },
     "@/components/local-overlay-link": { LocalOverlayLink: link },
     "@/components/ui-primitives": { Tag: ({ children }) => React.createElement("span", null, children) },

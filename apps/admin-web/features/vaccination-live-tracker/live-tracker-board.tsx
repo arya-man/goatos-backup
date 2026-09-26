@@ -1,4 +1,7 @@
 import { Activity, AlertTriangle, CalendarDays } from "lucide-react";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Link from "@/components/no-prefetch-link";
 import { getVaccinationLiveTracker, type ApiResult, type VaccinationLiveTrackerResponse } from "@/lib/api/server";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -151,6 +154,9 @@ export async function LiveTrackerBoard({
         pageContract={pageContract}
       />
 
+      {/* The drive-day board (guard: url-keyed-panel): a filter / park change swaps it to its skeleton
+          at once; header and filters stay on screen. The poller's refresh is not a navigation. */}
+      <UrlSuspense searchParams={params.sp} watch={[ALL_PARAMS]} ignore={DRAWER_PARAMS} fallback={<PanelSkeleton kpis={6} table={8} />}>
       {/* The top bar's as_of travels into every nav leaf including this one, but this surface is a
           DRIVE DAY board keyed on business_date — it does not honour as_of, and the sibling
           vaccination reads reject a past as_of outright. Silently answering with a different day
@@ -220,6 +226,7 @@ export async function LiveTrackerBoard({
           pageContract={pageContract}
         />
       </div>
+      </UrlSuspense>
 
       <LiveTrackerPassportDrawer
         rows={data.combo.rows}
@@ -359,3 +366,6 @@ function buildFilters(
     },
   ];
 }
+
+/** The passport drawer opens client-locally; it never changes the board's data. */
+const DRAWER_PARAMS = ["goat_passport"] as const;

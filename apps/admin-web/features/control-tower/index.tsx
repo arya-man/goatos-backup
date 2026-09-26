@@ -1,4 +1,7 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -269,6 +272,9 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
         </Alert>
       ) : null}
 
+      {/* The alert panels (guard: url-keyed-panel): a severity / state / page click swaps them to
+          their skeleton at once; header and pill strips stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={["ct_alert"]} fallback={<PanelSkeleton charts={1} table={10} />}>
       <TabPanel tabKey={`${severityFilter}|${stateFilter}`}>
       {/* Critical alert band — top broken / at-risk vaccination process only. */}
       <section className="card" style={{ marginBottom: 16, borderColor: "color-mix(in srgb,var(--danger) 28%,var(--line))" }}>
@@ -440,6 +446,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
         </div>
       </section>
       </TabPanel>
+      </UrlSuspense>
       <ControlTowerLocalDrawer
         records={drawerRecords}
         pageContract={pageContract}

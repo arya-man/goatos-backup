@@ -50,6 +50,9 @@ import { ActionCenterLocalDrawer } from "./action-center-local-drawer";
 import { VerificationRowActions } from "./verification-row-actions";
 import { WorkBoard } from "./work-board";
 import { fmtDate } from "@/lib/format";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { ChipRowSkeleton, KanbanSkeleton, KpiRowSkeleton, PagerSkeleton, StackSkeleton, TableSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
 const PATH = "/action-center";
 
@@ -276,6 +279,10 @@ export async function VaccinationActionCenterPage({
         ]}
       />
 
+      {/* The view below the strip (guard: url-keyed-panel): a board / queue click shows the clicked
+          view's skeleton in the same frame; header and strip stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={["bucket"]} fallback={VIEW_SKELETON[view === "verify" ? "verify" : ""]} fallbackBy={{ param: "bucket", shapes: VIEW_SKELETON }}>
+      <Stack spacing={3}>
       {!actionCenter.ok ? (
         <Alert severity="error">
           <b>{actionCenter.error.code ?? actionCenter.error.kind}</b>&nbsp;{actionCenter.error.message}
@@ -310,6 +317,7 @@ export async function VaccinationActionCenterPage({
               {queuePaged.start}-{queuePaged.end} of {queueTotalCount} rows
             </Typography>
           </Box>
+          <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={verificationHeaders.length || 4} rows={queuePaged.pageSize} />}>
           {queueTotalCount === 0 ? (
             <Typography variant="body2" sx={{ color: "text.secondary", px: 3, pb: 3 }}>
               {copy(pageContract, "section.verification.empty")}
@@ -370,10 +378,12 @@ export async function VaccinationActionCenterPage({
             hrefForPage={queuePagerHref}
             hrefForPageSize={queuePageSizeHref}
           />
+          </UrlSuspense>
         </Card>
       ) : (
         // ===== Status board — kanban-style lanes from the real Action Center process-integrity rows =====
         <Stack spacing={3} data-filter-scope>
+          <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={3} icon />}>
           <Grid container spacing={3}>
             {quickTiles.map((tile) => {
               const on = quickState === tile.key;
@@ -393,6 +403,7 @@ export async function VaccinationActionCenterPage({
               );
             })}
           </Grid>
+          </UrlSuspense>
 
           {/* Template list toolbar card: severity (server-side) chips, search + My tasks + Filters,
               then the applied-filter chips (each removes exactly its own filter) with Clear all. */}
@@ -440,6 +451,10 @@ export async function VaccinationActionCenterPage({
             ) : null}
           </Card>
 
+          {/* The lanes (guard: url-keyed-panel): a chip / filter / page click swaps them to their
+              skeleton at once; the toolbar card above stays on screen. */}
+          <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={BOARD_LANES_SKELETON}>
+          <Stack spacing={3}>
           {totalCount === 0 ? (
             <Alert
               severity="info"
@@ -506,8 +521,32 @@ export async function VaccinationActionCenterPage({
             hrefForPage={boardPagerHref}
             hrefForPageSize={boardPageSizeHref}
           />
+          </Stack>
+          </UrlSuspense>
         </Stack>
       )}
+      </Stack>
+      </UrlSuspense>
     </Stack>
   );
 }
+
+/** Params that never change the Action Center's data: the local row drawer and the action feedback banner. */
+const PANEL_IGNORE = ["ac_row", "action_status", "action_key"] as const;
+const BOARD_LANES_SKELETON = (
+  <StackSkeleton spacing={2}>
+    <KanbanSkeleton layout="grid" lanes={[3, 3, 2, 2, 1]} minHeight={360} />
+    <PagerSkeleton />
+  </StackSkeleton>
+);
+/** Each view's skeleton ("" = the status board, the default). */
+const VIEW_SKELETON = {
+  "": (
+    <StackSkeleton spacing={3}>
+      <KpiRowSkeleton count={3} icon />
+      <ToolbarSkeleton left={<ChipRowSkeleton count={4} />} fields={["search", 120, 120]} />
+      {BOARD_LANES_SKELETON}
+    </StackSkeleton>
+  ),
+  verify: <TableSkeleton columns={4} rows={10} toolbar={<ToolbarSkeleton fields={["search", 120]} sx={{ p: 2.5 }} />} />,
+};

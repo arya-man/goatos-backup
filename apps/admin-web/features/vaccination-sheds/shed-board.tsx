@@ -30,6 +30,8 @@ import { InfoHint } from "@/components/app/info-hint";
 import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { IdentityCell } from "@/components/data-table";
 import { ShedFilterBar } from "./shed-filter-bar";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { TableSkeleton } from "@/components/app/skeletons";
 import { ShedRowActions, ShedSelectAllHeader, ShedSelectCheckbox, ShedSelectionProvider } from "./shed-table-client";
 import { penDetailParams, vaccinationCurrentViewScope } from "./shed-scope";
 
@@ -236,6 +238,9 @@ export async function VaccinationShedBoard({
         />
       </div>
 
+      {/* The pen table (guard: url-keyed-panel): a status / capacity / search / page click swaps it
+          to its skeleton at once; the section header, search and pill strips stay on screen. */}
+      <UrlSuspense searchParams={searchParams ?? {}} watch={SHED_TABLE_WATCH} fallback={<TableSkeleton columns={shedBoardColumns(pageContract)} rows={10} />}>
       <TabPanel tabKey={`${statusFilter ?? "all"}|${capacityFilter ?? "all"}`}>
       {!result.ok ? (
         <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
@@ -403,6 +408,10 @@ export async function VaccinationShedBoard({
         </>
       )}
       </TabPanel>
+      </UrlSuspense>
     </section>
   );
 }
+
+/** The params the pen table reads. */
+const SHED_TABLE_WATCH = ["sheds_status", "sheds_capacity", "sheds_q", "sheds_page", "sheds_limit", "park", "scope_mode"] as const;

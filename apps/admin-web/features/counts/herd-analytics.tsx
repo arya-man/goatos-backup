@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Box from "@mui/material/Box";
@@ -292,6 +294,10 @@ export async function HerdAnalyticsPage({
         />
       </Box>
 
+      {/* Everything the window reads (guard: url-keyed-panel): a date / park change swaps it to its
+          skeleton at once; header and date filter stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<PanelSkeleton kpis={6} charts={2} spark />}>
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {nothingRecorded ? (
         <Card>
           <EmptyContent filled title={ha(pageContract, "empty.title")} description={ha(pageContract, "empty.body")} sx={{ py: 6 }} />
@@ -370,6 +376,11 @@ export async function HerdAnalyticsPage({
           </Stack>
         </Grid>
       </Grid>
+      </Stack>
+      </UrlSuspense>
     </Stack>
   );
 }
+
+/** The params the one herd-analytics read takes (window + park scope). */
+const WINDOW_WATCH = ["from", "to", "park", "scope_mode"] as const;

@@ -1,4 +1,7 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Typography from "@mui/material/Typography";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -910,6 +913,9 @@ export async function WeighingWeightsPage({
         pageContract={pageContract}
       />
 
+      {/* Every figure below the filters (guard: url-keyed-panel): a filter / toggle / page change
+          swaps it to its skeleton at once; header and filters stay on screen. */}
+      <UrlSuspense searchParams={params} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<PanelSkeleton kpis={5} charts={3} table={10} spark />}>
       <p className="muted small" style={{ margin: "0 0 -4px" }}>
         {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}
         {" · "}
@@ -1411,6 +1417,10 @@ export async function WeighingWeightsPage({
         )}
       </section>
       <GrowthDirectorSection result={growthDirector} pageContract={pageContract} />
+      </UrlSuspense>
     </div>
   );
 }
+
+/** Params that never change the figures (the export drawer). */
+const PANEL_IGNORE = ["wt_export"] as const;

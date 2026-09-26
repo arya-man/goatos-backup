@@ -1,7 +1,6 @@
 "use client";
 
-import { startTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useUrlNavigate } from "@/components/app/use-url-tab-nav";
 
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -23,7 +22,7 @@ export function LinkSelect({
   options: readonly LinkSelectOption[];
   minWidth?: number;
 }) {
-  const router = useRouter();
+  const { go } = useUrlNavigate();
   return (
     <TextField
       select
@@ -32,7 +31,7 @@ export function LinkSelect({
       onChange={({ target: { value: next } }) => {
         const target = options.find((option) => option.value === next);
         if (!target) return;
-        startTransition(() => router.push(target.href, { scroll: false }));
+        go(target.href);
       }}
       sx={{ minWidth: { xs: 0, sm: minWidth }, flexShrink: 0, maxWidth: 1 }}
       slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}

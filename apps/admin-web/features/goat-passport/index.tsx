@@ -1,4 +1,8 @@
 import Table from "@mui/material/Table";
+import type { ReactNode } from "react";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { DetailCardSkeleton, ListCardSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -458,6 +462,9 @@ export async function GoatPassportPage({
 
       {coverCard}
 
+      {/* The tab body (guard: url-keyed-panel): a tab click shows the clicked tab's skeleton at once;
+          header and profile cover (with its tabs) stay on screen. */}
+      <UrlSuspense searchParams={searchParams} watch={[TAB_PARAM]} fallback={PASSPORT_TAB_SKELETON[selectedTab]} fallbackBy={{ param: TAB_PARAM, shapes: PASSPORT_TAB_SKELETON }}>
       {selectedTab === "" ? (
         // Template user profile: About column (md 4) beside the main column (md 8).
         <Grid container spacing={3}>
@@ -477,9 +484,31 @@ export async function GoatPassportPage({
           {vaccination}
         </Stack>
       )}
+      </UrlSuspense>
     </Box>
   );
 }
+
+/** Each passport tab's body skeleton ("" = the summary tab). */
+const PASSPORT_TAB_SKELETON: Record<PassportTab, ReactNode> = {
+  "": (
+    <Grid container spacing={3}>
+      <Grid size={{ xs: 12, md: 5, lg: 4 }}>
+        <DetailCardSkeleton rows={6} />
+      </Grid>
+      <Grid size={{ xs: 12, md: 7, lg: 8 }}>
+        <TableSkeleton columns={5} rows={6} />
+      </Grid>
+    </Grid>
+  ),
+  identifiers: <PanelSkeleton table={6} tableWidths={["1fr", "1fr", "1fr", "1fr"]} />,
+  evidence: <PanelSkeleton table={6} tableWidths={["1fr", "1fr", "1fr", "1fr"]} />,
+  history: (
+    <StackSkeleton spacing={3}>
+      <ListCardSkeleton rows={6} avatar={false} />
+    </StackSkeleton>
+  ),
+};
 
 function EvidenceFields({ defaultType, defaultID, pageContract }: { defaultType: string; defaultID: string; pageContract: AdminUiPageContract }) {
   return (

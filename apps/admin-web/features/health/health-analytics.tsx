@@ -47,6 +47,8 @@ import {
   type MedicineRow,
 } from "./health-analytics-tables";
 import { HealthAnalyticsTelemetry } from "./health-analytics-telemetry";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import { LinkButton } from "@/components/minimal/link-button";
 
 /**
@@ -185,6 +187,11 @@ function readWindow(sp: RouteSearchParams): { from?: string; to?: string } {
   if (!Number.isFinite(days) || days < 1 || days > MAX_WINDOW_DAYS) return {};
   return { from, to };
 }
+
+/** The params the KPI deck reads (window + park scope). */
+const WINDOW_WATCH = ["from", "to", "park", "scope_mode"] as const;
+/** The params the tab panel reads. */
+const PANEL_WATCH = [...WINDOW_WATCH, "tab"] as const;
 
 function hrefWith(searchParams: RouteSearchParams, updates: Record<string, string | null>): string {
   const next = new URLSearchParams();
@@ -448,6 +455,7 @@ export async function HealthAnalyticsPage({
         <EmptyState icon={<HeartPulse className="ic" />} title={ha(pageContract, "empty.title")} />
       ) : null}
 
+      <UrlSuspense searchParams={sp} watch={WINDOW_WATCH} fallback={<PanelSkeleton kpis={5} spark />}>
       <Box component="section" aria-label={ha(pageContract, "section.kpi.aria")}>
         <Grid container spacing={3}>
         <Kpi
@@ -486,6 +494,7 @@ export async function HealthAnalyticsPage({
         />
         </Grid>
       </Box>
+      </UrlSuspense>
 
       <AnimatedTabs
         ariaLabel={ha(pageContract, "tab.group.aria")}
@@ -501,6 +510,11 @@ export async function HealthAnalyticsPage({
           href: hrefWith(sp, { [TAB_PARAM]: name === "overview" ? null : name }),
         }))}
       />
+
+      {/* The tab's panel (guard: url-keyed-panel): a tab or window click swaps it to its skeleton at
+          once; header, filters, KPIs and the strip stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={PANEL_WATCH} fallback={<PanelSkeleton charts={2} />}>
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
 
       {tab === "overview" ? (
         <>
@@ -776,6 +790,8 @@ export async function HealthAnalyticsPage({
           </Card>
         </>
       ) : null}
+      </Stack>
+      </UrlSuspense>
     </Stack>
   );
 }

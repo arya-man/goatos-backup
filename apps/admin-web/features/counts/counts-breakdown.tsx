@@ -1,4 +1,8 @@
 import { splitParts } from "@/components/minimal/widgets";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { TableSkeleton } from "@/components/app/skeletons";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 
@@ -521,6 +525,9 @@ export async function CountsBreakdownPage({
           selection, read from the response's whole-result window totals - never recomputed from
           the visible page, which would report a page subtotal as business truth. An unavailable
           read shows a dash. */}
+      {/* KPI deck (guard: url-keyed-panel): a filter change swaps it to its skeleton at once; a page
+          change of the pen table leaves it on screen. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<PanelSkeleton kpis={2 + summaryCards.length} />}>
       <Box component="section" aria-label={copy(pageContract, "kpi.matching.label")}>
         <KpiGrid>
           <EcommerceWidgetSummary
@@ -555,11 +562,15 @@ export async function CountsBreakdownPage({
           ))}
         </KpiGrid>
       </Box>
+      </UrlSuspense>
 
       <div>
       <Card className="counts-breakdown-card">
         <CountsBreakdownFilters fields={filterFields} penParks={penParks} pageContract={pageContract} />
 
+        {/* The pen table + pager: every filter / page change shows its skeleton at once; the filter
+            bar above stays mounted. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={cols.length || 6} rows={pagination.pageSize} />}>
         <div
           className="bd"
           style={{ padding: 0, overflowX: "auto" }}
@@ -626,12 +637,15 @@ export async function CountsBreakdownPage({
           hrefForPage={(nextPage) => hrefWithParam("bd_page", String(nextPage))}
           hrefForPageSize={(nextSize) => hrefWithParam("bd_limit", String(nextSize))}
         />
+        </UrlSuspense>
       </Card>
       </div>
 
       {/* A dimension where every animal has a blank value is a source-data gap, not a bug. Say so
           plainly instead of leaving the operator staring at a uniformly-empty column and chart
           and concluding the screen is broken. Never fabricate values to fill it. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={BD_PAGER_PARAMS} fallback={<PanelSkeleton charts={2} />}>
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {stageUnrecorded ? (
         <Alert severity="info" variant="outlined">{copy(pageContract, "state.stage_unrecorded")}</Alert>
       ) : null}
@@ -672,6 +686,11 @@ export async function CountsBreakdownPage({
           <CountsShedChart title={shedChart.title} bars={shedChart.data ?? []} unit={animalsNoun} emptyLabel={emptyChartLabel} />
         </Grid>
       </Grid>
+      </Stack>
+      </UrlSuspense>
     </Stack>
   );
 }
+
+/** The pen table's pager params: the KPI deck and the charts do not change with them. */
+const BD_PAGER_PARAMS = ["bd_page", "bd_limit"] as const;

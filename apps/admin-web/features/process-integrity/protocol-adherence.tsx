@@ -1,4 +1,7 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -335,6 +338,9 @@ export async function ProtocolAdherencePage({
 
       <Stack spacing={3}>
         {/* Template overview/course: CourseWidgetSummary tiles (Grid spacing 3). Park/date scope lives in the top bar only. */}
+        {/* KPI tiles and ledger rows + pager swap to their skeleton on a tab / filter / page click
+            (guard: url-keyed-panel); the ledger card head, tabs and toolbar stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<KpiRowSkeleton count={4} icon />}>
         <Grid container spacing={3}>
           {kpis.map((kpi) => (
             <Grid key={kpi.key} size={{ xs: 12, sm: 6, md: 3 }}>
@@ -342,6 +348,7 @@ export async function ProtocolAdherencePage({
             </Grid>
           ))}
         </Grid>
+        </UrlSuspense>
 
         {!result.ok ? (
           <Alert severity="error">
@@ -409,6 +416,7 @@ export async function ProtocolAdherencePage({
           </Box>
 
           {/* Severity and work-state filter ONE ledger. Keyed on both, the body cross-fades. */}
+          <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={ledgerLabels.length || 7} rows={requestedPageSize} />}>
           <TabPanel tabKey={`${severityFilter}|${workStateFilter}`}>
             <Scrollbar>
               <Table sx={{ minWidth: 1080, tableLayout: "fixed" }} aria-label={copy(pageContract, "section.ledger.aria")}>
@@ -495,6 +503,7 @@ export async function ProtocolAdherencePage({
             hrefForPage={pagerHref}
             hrefForPageSize={pageSizeHref}
           />
+          </UrlSuspense>
         </Card>
       </Stack>
 
@@ -508,3 +517,6 @@ export async function ProtocolAdherencePage({
     </Box>
   );
 }
+
+/** Params that never change the ledger: the local row drawer. */
+const PANEL_IGNORE = ["adh_row"] as const;

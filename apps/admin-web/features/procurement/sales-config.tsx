@@ -1,4 +1,6 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -254,6 +256,10 @@ export async function SalesConfigPage({
           status edits, not as a board: clicking a row opens the same drawer the write uses.
           Template order-list card: CardHeader + whole-filter count Label, Scrollbar table under
           TableHeadCustom, soft status Label, template pagination. */}
+      {/* The tab's section (guard: url-keyed-panel): a tab / pager click shows the clicked tab's
+          skeleton at once; header, tabs and the always-mounted drawers stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={CONFIG_PANEL_WATCH} fallback={CONFIG_TAB_SKELETON[tab]} fallbackBy={{ param: "tab", shapes: { ...CONFIG_TAB_SKELETON, "": CONFIG_TAB_SKELETON.sales } }}>
+      <Stack spacing={3}>
       {tab === "sales" ? (
       <Card>
         <CardHeader
@@ -444,6 +450,8 @@ export async function SalesConfigPage({
           disabledReason={valuationControl?.disabled_reason ?? ""}
         />
       ) : null}
+      </Stack>
+      </UrlSuspense>
 
       {/* 4 — WHAT WE SELL (maintainer instruction 2026-09-23) and the record-sale drawer, as ONE
           client boundary: adding an item here puts it in that drawer's dropdown with no reload.
@@ -485,3 +493,13 @@ export async function SalesConfigPage({
     </div>
   );
 }
+
+/** The params the tab sections read: the tab and the deals ledger's pager. */
+const CONFIG_PANEL_WATCH = ["tab", "limit", "offset"] as const;
+/** Each tab's section skeleton (the items tab renders inside the always-mounted drawer boundary). */
+const CONFIG_TAB_SKELETON: Record<SalesConfigTab, ReactNode> = Object.fromEntries(
+  SALES_CONFIG_TABS.map((key) => [
+    key,
+    key === "sales" || key === "loads" ? <PanelSkeleton table={8} /> : key === "items" ? null : <PanelSkeleton charts={1} table={6} />,
+  ]),
+) as Record<SalesConfigTab, ReactNode>;

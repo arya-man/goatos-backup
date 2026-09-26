@@ -26,6 +26,7 @@ import { DateRangePicker, type DateRangePickerLabels } from "@/components/date-r
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { RowMenu } from "@/components/app/row-menu";
 import { InfoHint } from "@/components/app/info-hint";
+import { announceUrlNav } from "@/components/app/url-tab-nav";
 import type { InputBaseComponentProps } from "@mui/material/InputBase";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
@@ -384,6 +385,8 @@ export function WorklistFilters({
     setDraftSearch(null);
     setOptimisticSearch({ from: current, search: qs });
     setPendingSearch(qs);
+    // Every URL-keyed panel reading a changed param swaps to its skeleton now (guard: url-keyed-panel).
+    announceUrlNav(qs ? `${basePath}?${qs}` : basePath);
     startTransition(() => {
       router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
     });

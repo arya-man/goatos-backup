@@ -1,4 +1,8 @@
 import Box from "@mui/material/Box";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { TableSkeleton } from "@/components/app/skeletons";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Table from "@mui/material/Table";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
@@ -209,6 +213,7 @@ export async function FeedDirectionPage({
       {/* Always rendered. The API summary is WHOLE-SCOPE (`summary.scope === "filtered"`) and
           invariant to limit/offset, so these figures are the day's real totals on every page.
           Template EcommerceWidgetSummary tiles above the list card (invoice-list analytic row). */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PAGER_PARAMS} fallback={<PanelSkeleton kpis={2} />}>
       {summary && !lifecycleEmpty ? (
         <Grid container spacing={3}>
           <Grid size={{ xs: 12, sm: 6 }}>
@@ -231,6 +236,7 @@ export async function FeedDirectionPage({
           </Grid>
         </Grid>
       ) : null}
+      </UrlSuspense>
 
       {/* Template order-list anatomy: one Card holding the header, the filter toolbar, the day's
           lifecycle banner, the per-item day totals, the sheet table and its pager. overflow visible:
@@ -250,6 +256,9 @@ export async function FeedDirectionPage({
           />
         </Box>
 
+        {/* The sheet (guard: url-keyed-panel): a filter / page change swaps it to its skeleton at
+            once; header and filters stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={8} rows={limit} />}>
         {/* The issue -> amend -> lock status of the served park-day. For a not-yet-issued day this
             banner IS the content: the summary/table below are suppressed so the operator sees the
             explanation, not a blank grid that reads as "nothing to feed". */}
@@ -479,7 +488,11 @@ export async function FeedDirectionPage({
         />
         </>
         ) : null}
+        </UrlSuspense>
       </Card>
     </Stack>
   );
 }
+
+/** The sheet's pager: paging never changes the whole-scope KPI tiles. */
+const PAGER_PARAMS = ["fd_offset", "fd_limit"] as const;

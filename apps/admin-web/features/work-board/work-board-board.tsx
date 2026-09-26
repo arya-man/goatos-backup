@@ -17,6 +17,9 @@ import { varAlpha } from "minimal-shared/utils";
 import { KanbanBoard, KanbanColumn, KanbanItemRoot } from "@/components/minimal/kanban";
 import { ItemContent, ItemInfo, ItemName, ItemStatus, type ItemStatusProps } from "@/components/minimal/sections/kanban/item/styles";
 import { Iconify } from "@/components/minimal/iconify";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { KanbanSkeleton } from "@/components/app/skeletons";
 import { Label } from "@/components/minimal/label";
 import { TaskPeopleDropdown } from "@/components/people-dropdown";
 import Link from "@/components/no-prefetch-link";
@@ -297,6 +300,8 @@ export function WorkBoardBoard({
   empty?: React.ReactNode;
 }) {
   const { write, navigate, pending } = useUrlWriter();
+  const searchParams = useSearchParams();
+  const boardParams = Object.fromEntries(searchParams?.entries() ?? []);
   const rows = useMemo(() => laneColumns.flatMap((column) => column.rows), [laneColumns]);
   const [q, setQ] = useState("");
   const shown = useMemo(() => {
@@ -396,6 +401,9 @@ export function WorkBoardBoard({
         </Box>
       </Box>
       {/* Template sections/kanban: KanbanBoard track + KanbanColumn (count Label, h6 title) + item shells. */}
+      {/* The board (guard: url-keyed-panel): an owner / park / module / day / lane-page change swaps it
+          to the kanban skeleton at once; the toolbar stays on screen. */}
+      <UrlSuspense searchParams={boardParams} watch={[ALL_PARAMS]} ignore={BOARD_IGNORE} fallback={<KanbanSkeleton lanes={columns.map((_, i) => 3 - (i % 2))} minHeight={480} />}>
       {empty ? empty : (
       <KanbanBoard role="group" tabIndex={0} aria-label={copy(pageContract, "section.board.aria")} sx={BOARD_SX}>
         {columns.map((column) => {
@@ -453,6 +461,10 @@ export function WorkBoardBoard({
         })}
       </KanbanBoard>
       )}
+      </UrlSuspense>
     </>
   );
 }
+
+/** Params that never change the board: the card drawer and the action feedback banner. */
+const BOARD_IGNORE = ["row", "action_status", "action_key"] as const;

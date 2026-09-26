@@ -6,6 +6,7 @@ import TableCell from "@mui/material/TableCell";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
+import Form from "next/form";
 import Box from "@mui/material/Box";
 import { SearchTextField } from "@/components/minimal/list/search-text-field";
 
@@ -44,6 +45,9 @@ import { Label } from "@/components/minimal/label";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { LinkButton } from "@/components/minimal/link-button";
 import { CATALOG_PAGE_SIZE } from "./health-config-layout";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
 // age band, the day-by-day course of medicines, actions and critical handoffs.
@@ -287,11 +291,13 @@ export async function HealthConfigPage({
 
         <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
 
-        <HealthTypesSection
-          pageContract={pageContract}
-          mayWrite={mayWrite}
-          writeDisabledReason={writeDisabledReason}
-        />
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={RULEBOOK_SKELETON.types} fallbackBy={RULEBOOK_FALLBACK_BY}>
+          <HealthTypesSection
+            pageContract={pageContract}
+            mayWrite={mayWrite}
+            writeDisabledReason={writeDisabledReason}
+          />
+        </UrlSuspense>
       </Stack>
     );
   }
@@ -319,13 +325,15 @@ export async function HealthConfigPage({
 
         <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
 
-        <HealthRegisterSection
-          selectedVersionId={selectedRegisterId}
-          pageContract={pageContract}
-          mayWrite={mayWrite}
-          writeDisabledReason={writeDisabledReason}
-          listHref={registerListHref}
-        />
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={RULEBOOK_SKELETON.diagnosis} fallbackBy={RULEBOOK_FALLBACK_BY}>
+          <HealthRegisterSection
+            selectedVersionId={selectedRegisterId}
+            pageContract={pageContract}
+            mayWrite={mayWrite}
+            writeDisabledReason={writeDisabledReason}
+            listHref={registerListHref}
+          />
+        </UrlSuspense>
       </Stack>
     );
   }
@@ -367,6 +375,10 @@ export async function HealthConfigPage({
 
       <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
 
+      {/* The catalog (guard: url-keyed-panel): a tab / filter / search / page click swaps it to its
+          skeleton at once; header and tabs stay on screen. */}
+      <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={RULEBOOK_SKELETON[""]} fallbackBy={RULEBOOK_FALLBACK_BY}>
+      <Stack spacing={3} useFlexGap sx={{ minWidth: 0 }}>
       {selectedVersionIsGone ? (
         <StaleVersionNotice
           message={
@@ -392,9 +404,11 @@ export async function HealthConfigPage({
             `hc_cursor` is deliberately NOT preserved: a new search restarts paging, or the cursor
             from the old result set would be applied to a different one. */}
         {/* Template toolbar search (UserTableToolbar TextField + magnifier), as a GET form. */}
-        <Box component="form" action={PAGE_PATH} title={copy(pageContract, "filter.search_label")} sx={{ p: 2.5, pb: 0 }}>
-          {preservedHiddenInputs(sp, ["hc_q", "hc_cursor"])}
-          <SearchTextField name="hc_q" defaultValue={searchFilter} placeholder={copy(pageContract, "filter.search_label")} />
+        <Box sx={{ p: 2.5, pb: 0 }}>
+          <Form action={PAGE_PATH} scroll={false} title={copy(pageContract, "filter.search_label")}>
+            {preservedHiddenInputs(sp, ["hc_q", "hc_cursor"])}
+            <SearchTextField name="hc_q" defaultValue={searchFilter} placeholder={copy(pageContract, "filter.search_label")} />
+          </Form>
         </Box>
 
         <WorklistFilters
@@ -493,11 +507,21 @@ export async function HealthConfigPage({
           ) : null}
         </Stack>
       </Card>
+      </Stack>
+      </UrlSuspense>
 
       {/* ------------------------------------------------------------------- the selected course */}
     </Stack>
   );
 }
+
+/** Each rulebook tab's panel skeleton ("" = Treatment, the default tab). */
+const RULEBOOK_SKELETON = {
+  "": <PanelSkeleton table={10} tableWidths={Array.from({ length: 9 }, () => "1fr")} />,
+  diagnosis: <PanelSkeleton table={10} tableWidths={Array.from({ length: 6 }, () => "1fr")} />,
+  types: <PanelSkeleton table={8} tableWidths={Array.from({ length: 4 }, () => "1fr")} />,
+};
+const RULEBOOK_FALLBACK_BY = { param: "hc_tab", shapes: RULEBOOK_SKELETON };
 
 function SelectedProtocolEditor({
   detail,

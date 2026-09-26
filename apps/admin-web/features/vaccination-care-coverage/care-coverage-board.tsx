@@ -1,14 +1,15 @@
 import Box from "@mui/material/Box";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { TableSkeleton } from "@/components/app/skeletons";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
 import Card from "@mui/material/Card";
 import MuiCardHeader from "@mui/material/CardHeader";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import Typography from "@mui/material/Typography";
-import { Iconify } from "@/components/minimal/iconify";
-import { Scrollbar } from "@/components/minimal/scrollbar";
-import { TableHeadCustom } from "@/components/minimal/table";
+import { Check, ShieldPlus } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
@@ -41,11 +42,16 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   );
 }
 
-// Template card header (title, chart-legend dots in the action slot).
+// Template card header (icon + title, legend in the action slot), as on the vaccination matrix.
 function CardHeader({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
     <MuiCardHeader
-      title={copy(pageContract, "section.matrix.title")}
+      title={
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+          <ShieldPlus className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
+          {copy(pageContract, "section.matrix.title")}
+        </Box>
+      }
       action={
         <Box component="span" sx={{ display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
           <LegendDot color="primary.main" label={copy(pageContract, "legend.done")} />
@@ -61,36 +67,26 @@ function PageHead({ pageContract }: { pageContract: AdminUiPageContract }) {
   return <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />;
 }
 
-// A done job: the template soft success circle with a check, the done date as a caption under it.
-// Not done: a disabled dash. Each cell keeps its accessible "done / not done" text.
 function DoneCell({ done, date, label, pageContract }: { done: boolean; date?: string; label: string; pageContract: AdminUiPageContract }) {
   if (!done) {
     return (
-      <Box component="span" sx={{ color: "text.disabled" }} title={`${label} — ${copy(pageContract, "label.not_done")}`}>
+      <span className="cc-miss" title={`${label} — ${copy(pageContract, "label.not_done")}`}>
         <span aria-hidden="true">—</span>
-        <Box component="span" sx={visuallyHidden}>{copy(pageContract, "label.not_done")}</Box>
-      </Box>
+        <span className="sr-only">{copy(pageContract, "label.not_done")}</span>
+      </span>
     );
   }
   const dateText = date ? fmtDate(date) : "";
   return (
-    <Box
-      component="span"
-      sx={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 0.5 }}
-      title={dateText ? `${label} — ${copy(pageContract, "label.done_on")} ${dateText}` : `${label} — ${copy(pageContract, "label.done")}`}
-    >
-      <Iconify icon="solar:check-circle-bold" width={24} sx={{ color: "success.main" }} />
-      <Box component="span" sx={visuallyHidden}>{copy(pageContract, "label.done")}</Box>
-      {dateText ? (
-        <Typography variant="caption" sx={{ color: "text.secondary" }}>
-          {dateText}
-        </Typography>
-      ) : null}
-    </Box>
+    <span className="cc-done" title={dateText ? `${label} — ${copy(pageContract, "label.done_on")} ${dateText}` : `${label} — ${copy(pageContract, "label.done")}`}>
+      <span className="cc-tick">
+        <Check className="ic" aria-hidden="true" />
+        <span className="sr-only">{copy(pageContract, "label.done")}</span>
+      </span>
+      {dateText ? <span className="muted small cc-date">{dateText}</span> : null}
+    </span>
   );
 }
-
-const visuallyHidden = { border: 0, clip: "rect(0 0 0 0)", height: 1, width: 1, margin: -1, overflow: "hidden", padding: 0, position: "absolute", whiteSpace: "nowrap" } as const;
 
 export async function CareCoverageBoard({
   searchParams,
@@ -128,9 +124,9 @@ export async function CareCoverageBoard({
   const clearAllHref = scope.parkId || pens.length > 0 ? allParksHref : null;
 
   return (
-    <Box className="screen on">
+    <div className="screen on">
       <PageHead pageContract={pageContract} />
-      <Card>
+      <Card sx={{ mb: 2 }}>
         <CardHeader pageContract={pageContract} />
         <CareCoverageFilters
           parkChoices={parkChoices}
@@ -141,6 +137,9 @@ export async function CareCoverageBoard({
           clearAllHref={clearAllHref}
           pageContract={pageContract}
         />
+        {/* The matrix (guard: url-keyed-panel): a park / pen / page change swaps it to its skeleton at
+            once; header, legend and filters stay on screen. */}
+        <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<TableSkeleton bare header={false} columns={Math.max(categories.length + 1, 6)} rows={pageSize} />}>
         {rows.length === 0 ? (
           <EmptyContent
             filled
@@ -150,31 +149,29 @@ export async function CareCoverageBoard({
           />
         ) : (
           <>
-            <Scrollbar>
-              <Table sx={{ minWidth: 760 }} aria-label={copy(pageContract, "section.matrix.aria")}>
-                <TableHeadCustom
-                  headCells={[
-                    { id: "pen", label: labels[0] ?? copy(pageContract, "label.pen") },
-                    ...categories.map((category) => ({ id: category.key, label: category.label, align: "center" as const, width: 140 })),
-                  ]}
-                />
+            <Box sx={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.matrix.aria")}>
+              <Table className="vaccination-status-matrix-table care-coverage-table">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{labels[0] ?? copy(pageContract, "label.pen")}</TableCell>
+                    {categories.map((category) => (
+                      <TableCell component="th" key={category.key}>{category.label}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
                 <TableBody>
                   {rows.map((row) => {
                     const cells = new Map(row.cells.map((cell) => [cell.category, cell]));
                     return (
-                      <TableRow hover key={`${row.park_id}|${row.shed_id}|${row.partition_label}`}>
-                        <TableCell sx={{ minWidth: 180 }}>
-                          <Typography variant="subtitle2" component="span" sx={{ display: "block" }}>
-                            {row.operational_location_display || row.shed_name}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                            {row.park_name}
-                          </Typography>
+                      <TableRow key={`${row.park_id}|${row.shed_id}|${row.partition_label}`}>
+                        <TableCell>
+                          <b>{row.operational_location_display || row.shed_name}</b>
+                          <div className="muted small">{row.park_name}</div>
                         </TableCell>
                         {categories.map((category) => {
                           const cell = cells.get(category.key);
                           return (
-                            <TableCell key={category.key} align="center" sx={{ position: "relative" }}>
+                            <TableCell key={category.key}>
                               <DoneCell done={Boolean(cell?.done)} date={cell?.last_done_business_date} label={category.label} pageContract={pageContract} />
                             </TableCell>
                           );
@@ -184,10 +181,10 @@ export async function CareCoverageBoard({
                   })}
                 </TableBody>
               </Table>
-            </Scrollbar>
-            <Typography variant="caption" component="p" sx={{ px: 3, py: 2, color: "text.secondary" }}>
+            </Box>
+            <Box className="note" sx={{ mx: 1.75, my: 1.5 }}>
               {copy(pageContract, "section.matrix.note")}
-            </Typography>
+            </Box>
             {/* Cursor-paged: the backend never counts pages, so the arrows are "first page" and
                 "next page", and the page size is a link like every other server-paged table. */}
             <TablePaginationLinks
@@ -205,7 +202,8 @@ export async function CareCoverageBoard({
             />
           </>
         )}
+        </UrlSuspense>
       </Card>
-    </Box>
+    </div>
   );
 }

@@ -1,4 +1,7 @@
 import Table from "@mui/material/Table";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { KpiRowSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
@@ -151,6 +154,7 @@ export async function LeavePage({
         {mayList && Object.values(statusCounts).some((n) => Number(n) > 0) ? (
           // Counts over the status taxonomy the tabs already use; hidden while every count is 0.
           // Template overview/course: CourseWidgetSummary count tiles on a spacing-3 Grid.
+          <UrlSuspense searchParams={sp} watch={LIST_WATCH} fallback={<KpiRowSkeleton count={4} icon />}>
           <Grid container spacing={3}>
             {LEAVE_TILES.map(({ key, icon, color }) => (
               <Grid key={key} size={{ xs: 12, sm: 6, md: 3 }}>
@@ -158,6 +162,7 @@ export async function LeavePage({
               </Grid>
             ))}
           </Grid>
+          </UrlSuspense>
         ) : null}
 
         {mayConfigure && config?.ok ? (
@@ -171,6 +176,8 @@ export async function LeavePage({
                 title={queueTable.title}
                 action={queueRows.length ? <Label variant="soft" color="info">{queueRows.length}</Label> : null}
               />
+              {/* Queue rows (guard: url-keyed-panel): a filter / page change swaps them to their skeleton at once. */}
+              <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={QUEUE_IGNORE} fallback={<TableSkeleton bare header={false} columns={queueLabels.length || 6} rows={queueSize} />}>
               {queue && !queue.ok ? (
                 <Alert severity="error" role="alert" sx={{ mx: 3, mb: 2 }}>
                   <b>{queue.error.code ?? queue.error.kind}</b> · {queue.error.message}
@@ -270,6 +277,7 @@ export async function LeavePage({
                   </Table>
                 </LeaveTableChrome>
               )}
+              </UrlSuspense>
             </Card>
         ) : null}
 
@@ -294,6 +302,9 @@ export async function LeavePage({
                       href: hrefWith(sp, { status: key || null, cursor: null, lv_status: null, lv_code: null }),
                     }))}
               />
+              {/* List rows (guard: url-keyed-panel): a status tab / filter / page click swaps them to
+                  their skeleton at once; the card header and status tabs stay on screen. */}
+              <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={LIST_IGNORE} fallback={<TableSkeleton bare header={false} columns={listLabels.length || 6} rows={listSize} />}>
               {list && !list.ok ? (
                 <Alert severity="error" role="alert" sx={{ mx: 3, mb: 2 }}>
                   <b>{list.error.code ?? list.error.kind}</b> · {list.error.message}
@@ -361,6 +372,7 @@ export async function LeavePage({
                   </Table>
                 </LeaveTableChrome>
               )}
+              </UrlSuspense>
             </Card>
         ) : !mayDecide ? (
             <Alert severity="error">{control(pageContract, "leave_list").disabled_reason ?? ""}</Alert>
@@ -477,3 +489,9 @@ function hrefWith(sp: RouteSearchParams, patch: Record<string, string | null>): 
   const qs = query.toString();
   return qs ? `${PATHNAME}?${qs}` : PATHNAME;
 }
+
+/** The list read's params (status tab, page) plus the client-side toolbar filters. */
+const LIST_WATCH = ["status", "cursor", "limit"] as const;
+/** Params that never change a panel: the decision feedback banner, and the other table's pager. */
+const QUEUE_IGNORE = ["lv_status", "lv_code", "status", "cursor", "limit"] as const;
+const LIST_IGNORE = ["lv_status", "lv_code", "q_cursor", "q_limit"] as const;

@@ -1,4 +1,8 @@
 import { listOrEmpty } from "@/lib/list-or-empty";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { PanelSkeleton } from "@/components/app/panel-skeleton";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { FilterCardSkeleton, KpiRowSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
@@ -26,7 +30,7 @@ import { HerdSignalsInsights } from "./herd-signals-insights";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
 import { RISK_LABEL, RISK_TONE } from "./format";
-import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToLiveState, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
+import { HERD_SIGNALS_TABS, LIMIT_DEFAULT, herdSignalsHref, kpiToLiveState, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
 
 const TAB_LABEL: Record<HerdSignalsTab, string> = {
   live: "Live Monitor",
@@ -246,9 +250,14 @@ export async function HerdSignalsBoard({
           }
         />
 
+        {/* The tab body (guard: url-keyed-panel): a tab click shows the clicked tab's skeleton in the
+            same frame; header and strip stay on screen. */}
+        <UrlSuspense searchParams={searchParams ?? {}} watch={["hs_tab"]} fallback={TAB_SKELETON[params.tab] ?? TAB_SKELETON.live} fallbackBy={{ param: "hs_tab", shapes: { ...TAB_SKELETON, "": TAB_SKELETON.live } }}>
         {params.tab === "live" ? (
-          <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} />
-        ) : params.tab === "animals" ? (
+          <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} searchParams={searchParams ?? {}} />
+        ) : (
+          <UrlSuspense searchParams={searchParams ?? {}} watch={[ALL_PARAMS]} fallback={TAB_SKELETON[params.tab] ?? TAB_SKELETON.live}>
+        {params.tab === "animals" ? (
           <FilteredTableTab params={params} result={liveResult} nowMs={nowMs} title="Mapped animals" note="One row per animal carrying an active smart-tag-capable identifier" />
         ) : params.tab === "mapping" ? (
           <MappingTab params={params} result={liveResult} />
@@ -259,6 +268,9 @@ export async function HerdSignalsBoard({
         ) : (
           <InsightsTab result={insightsResult} />
         )}
+          </UrlSuspense>
+        )}
+        </UrlSuspense>
       </HerdSignalsNavProvider>
     </div>
   );
@@ -289,10 +301,12 @@ function LiveMonitorTab({
   params,
   result,
   nowMs,
+  searchParams,
 }: {
   params: HerdSignalsParams;
   result: ApiResult<HerdSignalsLiveResponse>;
   nowMs: number;
+  searchParams: RouteSearchParams;
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
   const { summary, items, next_cursor } = result.data;
@@ -304,6 +318,9 @@ function LiveMonitorTab({
   return (
     <>
       <HerdSignalsFilters params={params} sheds={sheds} />
+      {/* KPIs + table (guard: url-keyed-panel): a filter / KPI / sort / page click swaps them to their
+          skeleton at once; the filter bar stays on screen. */}
+      <UrlSuspense searchParams={searchParams} watch={[ALL_PARAMS]} fallback={<StackSkeleton spacing={2}><KpiRowSkeleton count={8} /><TableSkeleton columns={21} rows={LIMIT_DEFAULT} /></StackSkeleton>}>
       <HerdSignalsKpis summary={summary} params={params} liveKey={liveKey} />
       <div className="small faint" style={{ margin: "-6px 0 14px" }}>
         Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query
@@ -325,6 +342,7 @@ function LiveMonitorTab({
           <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} />
         </div>
       </div>
+      </UrlSuspense>
     </>
   );
 }
@@ -513,3 +531,19 @@ function InsightsTab({ result }: { result: ApiResult<HerdInsightsResponse> | nul
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref="/herd-signals?hs_tab=insights" />;
   return <HerdSignalsInsights cards={result.data.cards} />;
 }
+
+/** Each tab's body skeleton, from the shared blocks. */
+const TAB_SKELETON: Record<string, ReactNode> = {
+  live: (
+    <StackSkeleton spacing={2}>
+      <FilterCardSkeleton fields={["search", 180, 180, 120]} />
+      <KpiRowSkeleton count={8} />
+      <TableSkeleton columns={21} rows={LIMIT_DEFAULT} />
+    </StackSkeleton>
+  ),
+  animals: <TableSkeleton columns={12} rows={LIMIT_DEFAULT} toolbar={<FilterCardSkeleton inCard fields={["search", 180, 180]} />} />,
+  mapping: <TableSkeleton columns={10} rows={LIMIT_DEFAULT} toolbar={<FilterCardSkeleton inCard fields={["search", 180, 180]} />} />,
+  alerts: <TableSkeleton columns={12} rows={LIMIT_DEFAULT} toolbar={<FilterCardSkeleton inCard fields={["search", 180]} />} />,
+  gateways: <TableSkeleton columns={6} rows={8} />,
+  insights: <PanelSkeleton kpis={4} charts={2} />,
+};

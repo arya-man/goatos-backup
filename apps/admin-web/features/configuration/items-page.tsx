@@ -1,4 +1,7 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { FilterCardSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
 import { visuallyHidden } from "@mui/utils";
 import Form from "next/form";
 import Box from "@mui/material/Box";
@@ -547,6 +550,10 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
           {/* The register: template user list anatomy (Card > Tabs + Label counts > toolbar >
               filters result > TableHeadCustom table > pagination). */}
           <Grid size={{ xs: 12, md: 8, lg: 9 }}>
+            {/* The register card (guard: url-keyed-panel): picking another register in the rail shows
+                the card's skeleton at once; inside it, a tab / filter / search / page click swaps only
+                the rows. The rail stays on screen. */}
+            <UrlSuspense searchParams={sp} watch={[PARAM_REGISTER]} fallback={<TableSkeleton columns={6} rows={params.limit} tabs={<TabsSkeleton count={3} counts />} toolbar={<FilterCardSkeleton inCard fields={[200, "search"]} />} />}>
             <Card component="section" aria-label={register?.label ?? c("crumb")}>
               <CardHeader
                 title={register?.label ?? params.register}
@@ -668,6 +675,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
 
               <RegisterFiltersResult total={page?.total ?? rows.length} chips={filterChips} resetHref={href(sp, resetPatch)} />
 
+              <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} ignore={PANEL_IGNORE} fallback={<TableSkeleton bare header={false} columns={Math.max(3, headCells.length)} rows={params.limit} />}>
               {data.rows && !data.rows.ok ? (
                 <Alert severity="error" sx={{ mx: 2.5, mb: 2 }}>
                   <b>{data.rows.error.code ?? data.rows.error.kind}</b>&nbsp;{data.rows.error.message}
@@ -762,7 +770,9 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                   nextLabel={copy(pageContract, "action.next_page", "Next page")}
                 />
               ) : null}
+              </UrlSuspense>
             </Card>
+            </UrlSuspense>
           </Grid>
         </Grid>
       </Stack>
@@ -771,3 +781,6 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
     </div>
   );
 }
+
+/** Params that never change the register rows: the row / list / sheet drawer. */
+const PANEL_IGNORE = [PARAM_EDIT] as const;

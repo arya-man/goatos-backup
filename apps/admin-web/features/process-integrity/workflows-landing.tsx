@@ -1,4 +1,7 @@
 import Box from "@mui/material/Box";
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { DetailCardSkeleton, KpiRowSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import Card from "@mui/material/Card";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
@@ -209,6 +212,7 @@ export async function VaccinationWorkflowsPage({
         </Alert>
       ) : null}
 
+      <UrlSuspense searchParams={sp} watch={SCOPE_WATCH} fallback={<KpiRowSkeleton count={4} />}>
       <WorkflowsKpis
         items={[
           { key: "workflows", title: copy(pageContract, "label.workflows"), total: totalWorkflows, caption: copy(pageContract, "label.vaccination_chain") },
@@ -217,6 +221,7 @@ export async function VaccinationWorkflowsPage({
           { key: "progress", title: copy(pageContract, "label.avg_progress"), total: `${avgProgress}%`, caption: copy(pageContract, "label.across_shown") },
         ]}
       />
+      </UrlSuspense>
 
       <Grid container spacing={3}>
         {/* Workflow catalog on the template order-list anatomy: Tabs with the Label count, the
@@ -244,6 +249,9 @@ export async function VaccinationWorkflowsPage({
                 />
               }
             />
+            {/* Catalog rows + pager (guard: url-keyed-panel): a page / rows-per-page click swaps them to
+                their skeleton at once; picking a row only refreshes the right rail. */}
+            <UrlSuspense searchParams={sp} watch={CATALOG_WATCH} fallback={<TableSkeleton bare header={false} columns={catalogLabels.length || 5} rows={requestedPageSize} />}>
             <Scrollbar>
               <Table sx={{ minWidth: 680 }} aria-label={copy(pageContract, "section.catalog.title")}>
                 <TableHeadCustom headCells={catalogLabels.map((label, index) => ({ id: `c${index}`, label }))} />
@@ -309,12 +317,14 @@ export async function VaccinationWorkflowsPage({
                 hrefForPageSize={pageSizeHref}
               />
             ) : null}
+            </UrlSuspense>
           </Card>
         </Grid>
 
         {/* Right rail (template order details): the selected workflow's chain on the
             OrderDetailsHistory timeline, then its state card with the next steps. */}
         <Grid size={{ xs: 12, lg: 4 }}>
+          <UrlSuspense searchParams={sp} watch={[ALL_PARAMS]} fallback={<StackSkeleton spacing={3}><DetailCardSkeleton rows={6} /><DetailCardSkeleton rows={4} /></StackSkeleton>}>
           <Stack spacing={3}>
             <OrderDetailsHistory
               title={copy(pageContract, "section.chain.title")}
@@ -383,11 +393,17 @@ export async function VaccinationWorkflowsPage({
               </Stack>
             </Card>
           </Stack>
+          </UrlSuspense>
         </Grid>
       </Grid>
     </div>
   );
 }
+
+/** The top-bar scope the counts read. */
+const SCOPE_WATCH = ["park", "scope_mode", "as_of"] as const;
+/** The catalog read's params: scope + the keyset pager (not the selected workflow). */
+const CATALOG_WATCH = [...SCOPE_WATCH, "wf_cursor", "wf_cursor_stack", "wf_page", "wf_limit"] as const;
 
 // Chain node state -> template timeline dot colour.
 const NODE_TONE: Record<NodeState, OrderHistoryTone> = {

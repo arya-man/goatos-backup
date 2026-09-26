@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { getVaccinationCommandBoard } from "@/lib/api/server";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy } from "@/lib/admin-ui-contract";
@@ -8,6 +7,10 @@ import { CommandBoardView } from "./command-board-view";
 import { resolveSelectedDrive } from "./command-board-future-drives";
 import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
 import { VaccinationCommandBoardSkeleton } from "./vaccination-skeletons";
+import { UrlSuspense } from "@/components/app/url-suspense";
+
+/** The params the command board reads: the selected drive and the top-bar park (guard: url-keyed-panel). */
+const COMMAND_BOARD_WATCH = ["cb_drive", "cb_drive_park", "park", "scope_mode"] as const;
 
 interface VaccinationCommandBoardSkeletonProps {
   pageContract: AdminUiPageContract;
@@ -105,16 +108,13 @@ async function VaccinationCommandBoardContent({
 
 export function VaccinationCommandBoard({ pageContract, searchParams, driveBatchId, driveParkId }: VaccinationCommandBoardProps) {
   return (
-    <Suspense
-      key={`${driveBatchId ?? ""}:${driveParkId ?? ""}:${parseScope(searchParams ?? {}).parkId ?? ""}`}
-      fallback={<VaccinationCommandBoardSkeleton />}
-    >
+    <UrlSuspense searchParams={searchParams ?? {}} watch={COMMAND_BOARD_WATCH} fallback={<VaccinationCommandBoardSkeleton />}>
       <VaccinationCommandBoardContent
         pageContract={pageContract}
         searchParams={searchParams}
         driveBatchId={driveBatchId}
         driveParkId={driveParkId}
       />
-    </Suspense>
+    </UrlSuspense>
   );
 }

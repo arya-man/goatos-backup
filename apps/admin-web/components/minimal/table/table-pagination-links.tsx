@@ -17,6 +17,7 @@ import TablePagination from '@mui/material/TablePagination';
 import Link, { useLinkStatus } from '@/components/no-prefetch-link';
 
 import { Iconify } from '../iconify';
+import { announceUrlNav } from '@/components/app/url-tab-nav';
 
 export type TablePaginationLinksProps = {
   /** 0-based page shown. */
@@ -98,6 +99,7 @@ export function TablePaginationLinks({
         onPageChange={() => undefined}
         onRowsPerPageChange={(event) => {
           const href = rowsPerPageHrefs?.find((option) => String(option.value) === event.target.value)?.href;
+          if (href) announceUrlNav(href);
           if (href) startTransition(() => (replace ? router.replace(href, { scroll: false }) : router.push(href, { scroll: false })));
         }}
         labelRowsPerPage={labelRowsPerPage}

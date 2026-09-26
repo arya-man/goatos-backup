@@ -13,7 +13,17 @@ import Card from "@mui/material/Card";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import type { Theme } from "@mui/material/styles";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+
+import { UrlSuspense } from "@/components/app/url-suspense";
+import { ALL_PARAMS } from "@/components/app/url-tab-nav";
+import { BlockSkeleton } from "@/components/app/skeletons";
+
+/**
+ * Params that never change the grid's events: the event drawer + its target pager, the action
+ * feedback banner, and `as_of` (prev / next / today move the FullCalendar grid itself, at once).
+ */
+const GRID_IGNORE = ["event", "targets_cursor", "targets_page", "targets_cursor_stack", "action_status", "action_key", "as_of"] as const;
 
 import { CalendarRoot, CalendarToolbar, type CalendarView } from "@/components/minimal/calendar";
 import { pushLocalOverlayUrl } from "@/components/local-overlay-link";
@@ -67,6 +77,8 @@ export function CalendarFullView({
   };
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const gridParams = Object.fromEntries(searchParams?.entries() ?? []);
   const calendarRef = useRef<FullCalendar | null>(null);
   const smUp = useMediaQuery<Theme>((theme) => theme.breakpoints.up("sm"));
   const mdUp = useMediaQuery<Theme>((theme) => theme.breakpoints.up("md"));
@@ -167,6 +179,9 @@ export function CalendarFullView({
           viewGroupAriaLabel={toolbarCopy.viewGroupAria}
         />
 
+        {/* The events grid (guard: url-keyed-panel): an owner / workstream / week-history click swaps it
+            to its skeleton at once; the workstream strip and the toolbar stay on screen. */}
+        <UrlSuspense searchParams={gridParams} watch={[ALL_PARAMS]} ignore={GRID_IGNORE} fallback={<BlockSkeleton card={false} height={{ xs: "60vh", md: "calc(100dvh - 320px)" }} />}>
         <Box sx={{ flex: "1 1 auto", display: "flex", flexDirection: "column", "& .fc": { flex: "1 1 auto" } }}>
           <FullCalendar
             ref={calendarRef}
@@ -194,6 +209,7 @@ export function CalendarFullView({
             noEventsText={noEventsText}
           />
         </Box>
+        </UrlSuspense>
       </CalendarRoot>
     </Card>
   );

@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { DateRangePicker, type DateRangePickerLabels } from "@/components/date-range-picker";
+import { announceUrlNav } from "@/components/app/url-tab-nav";
 
 /**
  * A page's window filter: the SHARED calendar plus the `from`/`to` URL contract every
@@ -72,6 +73,7 @@ export function WindowDateFilter({
       next.set("to", nextTo);
     }
     const qs = next.toString();
+    announceUrlNav(qs ? `${basePath}?${qs}` : basePath);
     startTransition(() => {
       router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
     });
