@@ -37,7 +37,8 @@ VALUES ('00000000-0000-4000-8000-00000000b001', $1::uuid, 'goat', 'Jamunapari', 
 ($1::uuid, 'goat', 'Boer', 'active'),
 ($1::uuid, 'goat', 'Deccani', 'active'),
 ($1::uuid, 'sheep', 'Deccani', 'active'),
-($1::uuid, 'goat', 'Retired unused', 'inactive')`, countsTenant)
+($1::uuid, 'goat', 'Retired unused', 'inactive')
+ON CONFLICT (tenant_id, species, canonical_name) DO UPDATE SET status = EXCLUDED.status`, countsTenant)
 
 	got, err := NewRepository(pool, 10*time.Second).ActiveBreeds(ctx, countsTenant)
 	if err != nil {
@@ -57,7 +58,14 @@ VALUES ('00000000-0000-4000-8000-00000000b001', $1::uuid, 'goat', 'Jamunapari', 
 			t.Errorf("%s is archived on Configuration and must not be offered, got %v", never, offered)
 		}
 	}
-	if len(got) != 4 {
-		t.Errorf("want exactly 4 options, got %d: %v", len(got), got)
+	// A name kept under two species is two options, never merged into one.
+	deccani := 0
+	for _, b := range got {
+		if b.Label == "Deccani" {
+			deccani++
+		}
+	}
+	if deccani != 2 {
+		t.Errorf("Deccani is kept under goat and sheep and must be two options, got %d", deccani)
 	}
 }
