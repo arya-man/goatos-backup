@@ -111,6 +111,10 @@ func HTTPError(err error) *Error {
 		return BadRequest("invalid_request", "That request could not be read.")
 	case errors.Is(err, domain.ErrInvalidEvidence):
 		return Unprocessable("invalid_evidence", withDetail("The questions or capture rules are not valid.", err, domain.ErrInvalidEvidence))
+	case errors.Is(err, domain.ErrNoAssignee):
+		return Unprocessable("no_assignee", "Choose who the routine is for.")
+	case errors.Is(err, domain.ErrNotAssignable):
+		return Unprocessable("not_assignable", "That person does not do routines at this park. Choose someone from the list.")
 	case errors.Is(err, domain.ErrNoRoles):
 		return Unprocessable("no_roles", "Pick at least one role the routine is for.")
 	case errors.Is(err, domain.ErrInvalidRoutine):

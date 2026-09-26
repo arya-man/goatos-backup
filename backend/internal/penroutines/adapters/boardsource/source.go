@@ -109,7 +109,7 @@ LEFT JOIN LATERAL (
          count(*) OVER ()::int AS assignee_count
   FROM (
     SELECT DISTINCT rg.user_id, rm.workforce_member_id AS member_id, COALESCE(rm.display_name, '') AS display_name
-    ` + prpostgres.RoleHoldersFromSQL("$1::uuid", "d.assignee_roles", "i.park_id") + `
+    ` + prpostgres.RoleHoldersFromSQL("$1::uuid", "d.assignee_roles", "i.park_id", "d.assignee_user_id") + `
   ) h
   ORDER BY (h.user_id = i.submitted_by) DESC NULLS LAST,
            (h.user_id = $4::uuid) DESC NULLS LAST,

@@ -24,7 +24,8 @@ export type PenRoutineWriteBody = {
   notify_time?: string;
   review_kind: "verifier" | "none";
   evidence: PenRoutineEvidenceBody;
-  assignee_roles: AssigneeRole[];
+  /** The ONE person the routine is for; the server derives the roles and refuses a blank one. */
+  assignee_user_id: string;
   row_version?: number;
 };
 
@@ -63,7 +64,6 @@ export const FORM_JSON_FIELDS = {
   weekdays: "weekdays_json",
   monthDays: "month_days_json",
   afterWorkKinds: "after_work_kinds_json",
-  assigneeRoles: "assignee_roles_json",
   evidence: "evidence_json",
 } as const;
 
@@ -71,21 +71,6 @@ export const SCOPE_KINDS = ["all_pens", "selected_pens", "park"] as const;
 export type ScopeKind = (typeof SCOPE_KINDS)[number];
 export const CADENCE_KINDS = ["daily", "weekly", "monthly", "every_n_days", "after_work"] as const;
 export type CadenceKind = (typeof CADENCE_KINDS)[number];
-/**
- * The closed assignee vocabulary (2026-09-17 revision). The form offers only what the catalog
- * serves; this list only keeps an unknown key from being sent. Labels are never derived from it.
- */
-export const ASSIGNEE_ROLES = [
-  "park_head",
-  "pc_director",
-  "breeding_director",
-  "growth_director",
-  "feed_director",
-  "health_director",
-  "procurement_director",
-  "ceo_internal",
-] as const;
-export type AssigneeRole = (typeof ASSIGNEE_ROLES)[number];
 export const REVIEW_KINDS = ["verifier", "none"] as const;
 export const PRESENCE_KINDS = ["required", "off"] as const;
 export const QUESTION_KINDS = ["yes_no", "choice", "multi_choice", "number", "text"] as const;
@@ -249,9 +234,8 @@ export function decodePenRoutineWrite(formData: FormData): PenRoutineWriteBody {
     interval_days: cadenceKind === "every_n_days" && intervalRaw !== "" && Number.isFinite(Number.parseInt(intervalRaw, 10)) ? Number.parseInt(intervalRaw, 10) : null,
     review_kind: oneOf(text(formData, "review_kind"), REVIEW_KINDS, "none"),
     evidence: decodeEvidence(parseJson(text(formData, FORM_JSON_FIELDS.evidence))),
-    assignee_roles: stringList(parseJson(text(formData, FORM_JSON_FIELDS.assigneeRoles))).filter((role): role is AssigneeRole =>
-      (ASSIGNEE_ROLES as readonly string[]).includes(role),
-    ),
+    // Sent as the picker posted it; a blank one goes to the backend, which refuses it as no_assignee.
+    assignee_user_id: text(formData, "assignee_user_id"),
   };
   const instruction = text(formData, "instruction");
   if (instruction) body.instruction = instruction;

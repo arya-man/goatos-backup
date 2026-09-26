@@ -186,11 +186,15 @@ func TestPresenceAndSubmitDecodeStrictlyAndRequireTheIdempotencyKey(t *testing.T
 	if e := app.HTTPError(domainAnswerErr()); e.Code != "answer_invalid" || !strings.Contains(e.Message, "Was the pen cleaned?") {
 		t.Fatalf("answer error = %+v", e)
 	}
-	// A routine for nobody is its own code; an unknown role stays invalid_routine with the reason.
-	if e := app.HTTPError(domain.ValidateDefinition(domain.Definition{ParkID: "p", Name: "x", ScopeKind: domain.ScopeAllPens, CadenceKind: domain.CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: domain.ReviewNone})); e.Code != "no_roles" || e.HTTPStatus != http.StatusUnprocessableEntity {
-		t.Fatalf("no roles error = %+v", e)
+	// A routine for nobody is its own code, and so is a person who cannot do routines at the park;
+	// an unknown role stays invalid_routine with the reason.
+	if e := app.HTTPError(domain.ValidateDefinition(domain.Definition{ParkID: "p", Name: "x", ScopeKind: domain.ScopeAllPens, CadenceKind: domain.CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: domain.ReviewNone})); e.Code != "no_assignee" || e.HTTPStatus != http.StatusUnprocessableEntity || e.Message != "Choose who the routine is for." {
+		t.Fatalf("no assignee error = %+v", e)
 	}
-	if e := app.HTTPError(domain.ValidateDefinition(domain.Definition{ParkID: "p", Name: "x", ScopeKind: domain.ScopeAllPens, CadenceKind: domain.CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: domain.ReviewNone, AssigneeRoles: []string{"operator"}})); e.Code != "invalid_routine" || !strings.Contains(e.Message, "operator") {
+	if e := app.HTTPError(domain.ErrNotAssignable); e.Code != "not_assignable" || e.HTTPStatus != http.StatusUnprocessableEntity {
+		t.Fatalf("not assignable error = %+v", e)
+	}
+	if e := app.HTTPError(domain.ValidateDefinition(domain.Definition{ParkID: "p", Name: "x", ScopeKind: domain.ScopeAllPens, CadenceKind: domain.CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: domain.ReviewNone, AssigneeUserID: "u-1", AssigneeRoles: []string{"operator"}})); e.Code != "invalid_routine" || !strings.Contains(e.Message, "operator") {
 		t.Fatalf("unknown role error = %+v", e)
 	}
 }
@@ -213,13 +217,27 @@ func (f *fakeAuthoring) Get(context.Context, string, string) (domain.Definition,
 	return f.created, nil
 }
 func (f *fakeAuthoring) Catalog(context.Context, string, string) (app.Catalog, error) {
-	return app.Catalog{Pens: []ports.CatalogPen{{ShedID: "s1", ShedName: "Castro", Partition: "2", Label: "Castro 2", Occupied: true}}, Roles: []ports.RoleHolders{{Role: domain.RoleParkHead, People: []ports.Person{{UserID: "u-head", DisplayName: "Park Head"}}}, {Role: domain.RoleCXO, People: []ports.Person{}}}}, nil
+	return app.Catalog{Pens: []ports.CatalogPen{{ShedID: "s1", ShedName: "Castro", Partition: "2", Label: "Castro 2", Occupied: true}}, Roles: []ports.RoleHolders{
+		{Role: domain.RoleParkHead, People: []ports.Person{{UserID: "u-head", DisplayName: "Dinakar"}}},
+		{Role: domain.RolePCDirector, People: []ports.Person{{UserID: "u-pc", DisplayName: "Chandrakant"}, {UserID: "u-head", DisplayName: "Dinakar"}}},
+		{Role: domain.RoleCXO, People: []ports.Person{{UserID: "u-ravi", DisplayName: "Ravi"}, {UserID: "u-aryaman", DisplayName: "Aryaman"}}},
+	}}, nil
 }
 func (f *fakeAuthoring) Create(_ context.Context, w ports.WriteParams, d domain.Definition) (domain.Definition, error) {
 	f.write = w
 	d.RoutineID = "22222222-2222-4222-8222-222222222222"
 	d.CurrentVersion, d.RowVersion, d.Status = 1, 1, domain.StatusActive
 	d.ParkName = "Coimbatore"
+	// The real repository derives the roles from the chosen person's grants at the park and the
+	// read resolves their name; the fake does the same for its two known people.
+	switch d.AssigneeUserID {
+	case "u-head":
+		d.AssigneeRoles = []string{domain.RoleParkHead, domain.RolePCDirector}
+		d.People = []domain.Assignee{{UserID: "u-head", DisplayName: "Dinakar", RoleKey: domain.RoleParkHead}}
+	case "u-ravi":
+		d.AssigneeRoles = []string{domain.RoleCXO}
+		d.People = []domain.Assignee{{UserID: "u-ravi", DisplayName: "Ravi", RoleKey: domain.RoleCXO}}
+	}
 	f.created = d
 	return d, nil
 }
@@ -245,13 +263,13 @@ func TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines(t *testing.T) {
 	h := NewAdminHandler(svc, nil)
 
 	rec := httptest.NewRecorder()
-	r := withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines", strings.NewReader(`{"park_id":"p1","name":"After deworming","scope_kind":"all_pens","cadence_kind":"after_work","after_work_kinds":["deworming","ticks_removal"],"review_kind":"none","evidence":{"questions":[],"photo":{"min":0,"max":1},"video":{"min":0,"max":0},"presence":"off"},"assignee_roles":["park_head","pc_director"]}`)), "u-ceo")
+	r := withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines", strings.NewReader(`{"park_id":"p1","name":"After deworming","scope_kind":"all_pens","cadence_kind":"after_work","after_work_kinds":["deworming","ticks_removal"],"review_kind":"none","evidence":{"questions":[],"photo":{"min":0,"max":1},"video":{"min":0,"max":0},"presence":"off"},"assignee_user_id":"u-head"}`)), "u-ceo")
 	r.Header.Set("Idempotency-Key", "author-1")
 	h.Create(rec, r)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
-	if svc.write.ActorID != "u-ceo" || svc.write.IdempotencyKey != "author-1" || !svc.created.OccupiedOnly || svc.created.DueOffsetDays != 1 || len(svc.created.AssigneeRoles) != 2 || svc.created.StartDate != "" {
+	if svc.write.ActorID != "u-ceo" || svc.write.IdempotencyKey != "author-1" || !svc.created.OccupiedOnly || svc.created.DueOffsetDays != 1 || svc.created.AssigneeUserID != "u-head" || svc.created.StartDate != "" {
 		t.Fatalf("create params = %+v / %+v", svc.write, svc.created)
 	}
 	var detail routineDetailPayload
@@ -264,10 +282,13 @@ func TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines(t *testing.T) {
 	if len(detail.Routine.AssigneeRoles) != 2 || detail.Routine.AssigneeRoles[0] != (rolePayload{Key: "park_head", Label: "Park Head"}) || detail.Routine.AssigneeRoles[1].Label != "Preventive Care Director" {
 		t.Fatalf("assignee roles = %+v", detail.Routine.AssigneeRoles)
 	}
+	if detail.Routine.Assignee == nil || *detail.Routine.Assignee != (personPayload{UserID: "u-head", DisplayName: "Dinakar"}) {
+		t.Fatalf("assignee = %+v, want the one chosen person by name", detail.Routine.Assignee)
+	}
 	// A whole-park routine every 3 days from a chosen start: the write carries interval and
 	// start, the row answers them back with the "Every 3 days" line and the park check-in copy.
 	rec = httptest.NewRecorder()
-	r = withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines", strings.NewReader(`{"park_id":"p1","name":"Medicine store","scope_kind":"park","cadence_kind":"every_n_days","interval_days":3,"start_date":"2026-09-14","review_kind":"none","evidence":{"questions":[],"photo":{"min":1,"max":1},"video":{"min":0,"max":0},"presence":"required"},"assignee_roles":["ceo_internal"]}`)), "u-ceo")
+	r = withActor(httptest.NewRequest(http.MethodPost, "/admin/pen-routines", strings.NewReader(`{"park_id":"p1","name":"Medicine store","scope_kind":"park","cadence_kind":"every_n_days","interval_days":3,"start_date":"2026-09-14","review_kind":"none","evidence":{"questions":[],"photo":{"min":1,"max":1},"video":{"min":0,"max":0},"presence":"required"},"assignee_user_id":"u-ravi"}`)), "u-ceo")
 	r.Header.Set("Idempotency-Key", "author-2")
 	h.Create(rec, r)
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil || rec.Code != http.StatusCreated {
@@ -293,13 +314,29 @@ func TestAdminRoutesDecodeTheWriteBodyAndRenderBackendLines(t *testing.T) {
 	if len(cat.WorkKinds) != len(domain.WorkKinds) || cat.WorkKinds[8].Label != "Pen move" || len(cat.QuestionKinds) != 5 || cat.Defaults.NotifyTime != "07:00" || len(cat.Pens) != 1 || cat.Pens[0].Display != "Castro 2" {
 		t.Fatalf("catalog = %+v", cat)
 	}
+	// "Who does it" is one list of people, each once with every title they hold here, park head
+	// first and CXO last (maintainer decision 2026-09-26: pick one person, like a task).
+	wantPeople := []catalogPersonPayload{
+		{UserID: "u-head", DisplayName: "Dinakar", Title: "Park Head, Preventive Care Director"},
+		{UserID: "u-pc", DisplayName: "Chandrakant", Title: "Preventive Care Director"},
+		{UserID: "u-aryaman", DisplayName: "Aryaman", Title: "CXO"},
+		{UserID: "u-ravi", DisplayName: "Ravi", Title: "CXO"},
+	}
+	if len(cat.People) != len(wantPeople) {
+		t.Fatalf("catalog people = %+v, want %+v", cat.People, wantPeople)
+	}
+	for i := range wantPeople {
+		if cat.People[i] != wantPeople[i] {
+			t.Fatalf("catalog people = %+v, want %+v", cat.People, wantPeople)
+		}
+	}
 	if len(cat.QuestionProofKinds) != 1 || cat.QuestionProofKinds[0] != (optionPayload{Key: "none", Label: "No proof"}) {
 		t.Fatalf("question proof authoring must be hidden until mobile rollout is enabled: %+v", cat.QuestionProofKinds)
 	}
 	if len(cat.QuestionProofCounts) != 2 || cat.QuestionProofCounts[0].Key != domain.QuestionProofSingle || cat.QuestionProofCounts[1].Key != domain.QuestionProofMultiple {
 		t.Fatalf("question proof counts = %+v", cat.QuestionProofCounts)
 	}
-	if len(cat.Roles) != 2 || cat.Roles[0].Label != "Park Head" || len(cat.Roles[0].People) != 1 || cat.Roles[1].Label != "CXO" || cat.Roles[1].People == nil ||
+	if len(cat.Roles) != 3 || cat.Roles[0].Label != "Park Head" || len(cat.Roles[0].People) != 1 || cat.Roles[2].Label != "CXO" || cat.Roles[2].People == nil ||
 		cat.Defaults.StartDate != "2026-09-16" || cat.Defaults.IntervalDays != 3 {
 		t.Fatalf("catalog roles/defaults = %+v / %+v", cat.Roles, cat.Defaults)
 	}

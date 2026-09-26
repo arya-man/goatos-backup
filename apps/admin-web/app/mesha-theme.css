@@ -2931,25 +2931,8 @@
 .prt-narrow{max-width:220px}
 .prt-count{margin-left:auto;font-size:12px;color:var(--faint);font-weight:600;white-space:nowrap}
 
-/* Who does it: the reach line, then one row per role. */
-.prt-reach{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;background:var(--brand-soft);color:var(--ink);font-size:13px;font-weight:600;line-height:1.4;min-width:0}
-.prt-reach.warn{background:rgba(245,165,36,.12);color:var(--warn,#c98a16)}
-.prt-reach > span:last-child{min-width:0;overflow-wrap:anywhere}
-.prt .avs{display:inline-flex;flex:none}
-.prt .avs .av{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:800;background:var(--panel);color:var(--brand);border:1.5px solid var(--brand);margin-left:-6px}
-.prt .avs .av:first-child{margin-left:0}
-.prt .avs .av.more{color:var(--muted);border-color:var(--line)}
-.prt-roles{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.prt label.prt-role{display:flex;align-items:center;gap:11px;padding:10px 12px;margin:0;border-top:1px solid var(--line2,var(--line));cursor:pointer;text-transform:none;letter-spacing:0;font-size:13px;font-weight:500;color:var(--ink);min-height:48px}
-.prt label.prt-role:first-child{border-top:0}
-.prt label.prt-role:hover{background:var(--bg)}
-.prt label.prt-role.on{background:var(--brand-soft)}
-.prt label.prt-role:focus-within{outline:2px solid var(--brand);outline-offset:-2px}
-.prt-role-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
-.prt-role-name{font-weight:650}
-.prt-role-people{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
-.prt-role-people.none{color:var(--warn,#c98a16)}
-.prt-role-avs{margin-left:auto}
+/* Who does it: the Tasks "For" picker (its anatomy is shared below, under :is(.lt-modal,.prt)). */
+.prt-warn{color:var(--warn,#c98a16)}
 
 /* A closed choice drawn as tiles; the radio inside is real. */
 .prt-tiles{display:flex;flex-wrap:wrap;gap:8px}
@@ -6185,31 +6168,32 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
    rules under `.wb`; this is the same anatomy restated for the modal: a full-width 44px trigger,
    the list opening IN FLOW -- static, like inside the phone filter sheet -- so the modal body's
    scroller cannot clip it, 44px rows reading "Name — Title", and brand tokens only. */
-.lt-modal .avs-single{position:relative;display:grid;grid-template-columns:1fr;width:100%}
-.lt-modal .avs-single .av{width:24px;height:24px;border-radius:50%;background:var(--brand-soft);color:var(--brand-d);display:grid;place-items:center;font-weight:700;font-size:10px;border:0;flex:none}
-.lt-modal .avs-trigger{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer}
-.lt-modal .avs-trigger:hover,.lt-modal .avs-trigger.on{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
-.lt-modal .avs-trigger:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
-.lt-modal .avs-trigger.set{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:var(--brand-soft)}
-.lt-modal .avs-trigger[aria-invalid="true"]{border-color:var(--danger)}
-.lt-modal .avs-trigger .avs-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lt-modal .avs-trigger .ic{width:14px;height:14px;flex:none;color:var(--muted)}
-.lt-modal .avs-single .avmenu{position:static;width:100%;margin-top:6px;padding:6px;background:var(--panel);border:1px solid var(--line2);border-radius:10px}
-.lt-modal .avs-single .avq{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 9px;margin:0 0 4px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--faint)}
-.lt-modal .avs-single .avq:focus-within{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)}
-.lt-modal .avs-single .avq input{border:0;background:transparent;outline:0;flex:1;font:inherit;font-size:13px;color:var(--ink);min-width:0;padding:0;box-shadow:none}
-.lt-modal .avs-single .avq .ic{width:14px;height:14px;flex:none}
-.lt-modal .avs-single .list{display:block;max-height:36vh;max-height:36dvh;overflow-y:auto;overscroll-behavior:contain}
-.lt-modal .avs-single .opt{width:100%;min-height:44px;text-align:left;border:0;padding:8px 9px;border-radius:7px;display:flex;align-items:center;gap:9px;font:inherit;font-size:13px;color:var(--ink);background:transparent;cursor:pointer}
-.lt-modal .avs-single .opt:hover,.lt-modal .avs-single .opt.hl{background:var(--bg)}
-.lt-modal .avs-single .opt.on{color:var(--brand-d);background:var(--brand-soft)}
-.lt-modal .avs-single .opt .cb{width:18px;height:18px;border:1.5px solid var(--line);border-radius:4px;display:grid;place-items:center;color:var(--on-brand);flex:none}
-.lt-modal .avs-single .opt .cb .ic{width:14px;height:14px;stroke-width:3.5}
-.lt-modal .avs-single .opt.on .cb{background:var(--brand);border-color:var(--brand)}
-.lt-modal .avs-single .avs-row{min-width:0;flex:1;display:block;overflow-wrap:anywhere}
-.lt-modal .avs-single .avs-name{font-weight:650}
-.lt-modal .avs-single .avs-title{font-size:12px}
-.lt-modal .avs-single .nomatch{color:var(--faint);font-size:12px;padding:8px 9px}
+/* Shared with the routine drawer's "Who does it" (.prt): the same single-person picker, one anatomy. */
+:is(.lt-modal,.prt) .avs-single{position:relative;display:grid;grid-template-columns:1fr;width:100%}
+:is(.lt-modal,.prt) .avs-single .av{width:24px;height:24px;border-radius:50%;background:var(--brand-soft);color:var(--brand-d);display:grid;place-items:center;font-weight:700;font-size:10px;border:0;flex:none}
+:is(.lt-modal,.prt) .avs-trigger{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:8px 11px;background:var(--panel);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;color:var(--ink);text-align:left;cursor:pointer}
+:is(.lt-modal,.prt) .avs-trigger:hover,:is(.lt-modal,.prt) .avs-trigger.on{border-color:color-mix(in srgb,var(--brand) 45%,var(--line))}
+:is(.lt-modal,.prt) .avs-trigger:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+:is(.lt-modal,.prt) .avs-trigger.set{border-color:color-mix(in srgb,var(--brand) 55%,var(--line));background:var(--brand-soft)}
+:is(.lt-modal,.prt) .avs-trigger[aria-invalid="true"]{border-color:var(--danger)}
+:is(.lt-modal,.prt) .avs-trigger .avs-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+:is(.lt-modal,.prt) .avs-trigger .ic{width:14px;height:14px;flex:none;color:var(--muted)}
+:is(.lt-modal,.prt) .avs-single .avmenu{position:static;width:100%;margin-top:6px;padding:6px;background:var(--panel);border:1px solid var(--line2);border-radius:10px}
+:is(.lt-modal,.prt) .avs-single .avq{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 9px;margin:0 0 4px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--faint)}
+:is(.lt-modal,.prt) .avs-single .avq:focus-within{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)}
+:is(.lt-modal,.prt) .avs-single .avq input{border:0;background:transparent;outline:0;flex:1;font:inherit;font-size:13px;color:var(--ink);min-width:0;padding:0;box-shadow:none}
+:is(.lt-modal,.prt) .avs-single .avq .ic{width:14px;height:14px;flex:none}
+:is(.lt-modal,.prt) .avs-single .list{display:block;max-height:36vh;max-height:36dvh;overflow-y:auto;overscroll-behavior:contain}
+:is(.lt-modal,.prt) .avs-single .opt{width:100%;min-height:44px;text-align:left;border:0;padding:8px 9px;border-radius:7px;display:flex;align-items:center;gap:9px;font:inherit;font-size:13px;color:var(--ink);background:transparent;cursor:pointer}
+:is(.lt-modal,.prt) .avs-single .opt:hover,:is(.lt-modal,.prt) .avs-single .opt.hl{background:var(--bg)}
+:is(.lt-modal,.prt) .avs-single .opt.on{color:var(--brand-d);background:var(--brand-soft)}
+:is(.lt-modal,.prt) .avs-single .opt .cb{width:18px;height:18px;border:1.5px solid var(--line);border-radius:4px;display:grid;place-items:center;color:var(--on-brand);flex:none}
+:is(.lt-modal,.prt) .avs-single .opt .cb .ic{width:14px;height:14px;stroke-width:3.5}
+:is(.lt-modal,.prt) .avs-single .opt.on .cb{background:var(--brand);border-color:var(--brand)}
+:is(.lt-modal,.prt) .avs-single .avs-row{min-width:0;flex:1;display:block;overflow-wrap:anywhere}
+:is(.lt-modal,.prt) .avs-single .avs-name{font-weight:650}
+:is(.lt-modal,.prt) .avs-single .avs-title{font-size:12px}
+:is(.lt-modal,.prt) .avs-single .nomatch{color:var(--faint);font-size:12px;padding:8px 9px}
 .lt-modal .lt-fnote{display:block;margin-top:6px;color:var(--danger);font-size:12px;font-weight:650}
 /* Deadline: the console's own calendar for the day beside two time selects, farm clock. The
    calendar popover opens IN FLOW inside the modal (never over the attachment buttons or Send,

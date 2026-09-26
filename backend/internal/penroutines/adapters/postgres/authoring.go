@@ -25,6 +25,7 @@ type routineScan struct {
 	intervalDays                      *int32
 	evidenceRaw, pensRaw              []byte
 	createdBy, updatedBy              *string
+	assigneeUserID                    *string
 	openToday, delayed                int
 }
 
@@ -33,7 +34,7 @@ func (s *routineScan) targets() []any {
 	return []any{
 		&d.RoutineID, &d.TenantID, &d.ParkID, &s.parkName, &d.Name, &s.instruction,
 		&d.ScopeKind, &d.OccupiedOnly, &d.CadenceKind, &s.weekdays, &s.monthDays, &d.AfterWorkKinds,
-		&s.intervalDays, &d.StartDate, &d.AssigneeRoles,
+		&s.intervalDays, &d.StartDate, &d.AssigneeRoles, &s.assigneeUserID,
 		&d.DueOffsetDays, &s.notifyTime, &d.ReviewKind, &d.Status, &d.CurrentVersion, &s.evidenceRaw,
 		&s.pensRaw, &s.createdBy, &s.updatedBy, &d.CreatedAt, &d.UpdatedAt, &d.RowVersion,
 		&s.openToday, &s.delayed,
@@ -88,6 +89,7 @@ func (s *routineScan) finish() (ports.RoutineListRow, error) {
 		d.AssigneeRoles = []string{}
 	}
 	d.People = []domain.Assignee{}
+	d.AssigneeUserID = deref(s.assigneeUserID)
 	d.CreatedBy = deref(s.createdBy)
 	d.UpdatedBy = deref(s.updatedBy)
 	d.CreatedAt = d.CreatedAt.UTC()
@@ -224,6 +226,26 @@ func (r *Repository) today() string {
 	return r.now().In(timeLocation()).Format("2006-01-02")
 }
 
+// resolveAssignee derives, under the write's transaction, the roles through which the chosen
+// person may do the routine at its park, and refuses a person who holds none there (a park head
+// of the other park, a person whose role was taken away). A definition with no person is a
+// legacy role routine (the app layer never sends one): its roles are kept as given.
+func resolveAssignee(ctx context.Context, q querier, tenantID, parkID string, d *domain.Definition) error {
+	if d.AssigneeUserID == "" {
+		d.AssigneeRoles = domain.SortRoles(d.AssigneeRoles)
+		return nil
+	}
+	roles, err := assigneeRolesAtPark(ctx, q, tenantID, parkID, d.AssigneeUserID)
+	if err != nil {
+		return err
+	}
+	if len(roles) == 0 {
+		return domain.ErrNotAssignable
+	}
+	d.AssigneeRoles = roles
+	return nil
+}
+
 // CreateRoutine writes the definition (with its assignee roles), version 1 and the pens in one
 // transaction under the author's idempotency key.
 func (r *Repository) CreateRoutine(ctx context.Context, w ports.WriteParams, d domain.Definition) (domain.Definition, error) {
@@ -238,7 +260,7 @@ func (r *Repository) CreateRoutine(ctx context.Context, w ports.WriteParams, d d
 	if err != nil {
 		return domain.Definition{}, err
 	}
-	reservation, err := reserveIdempotency(ctx, tx, w.TenantID, idemScopeAuthor, w.IdempotencyKey, requestFingerprint("create", w.ActorID, d.ParkID, d.Name, d.ScopeKind, d.CadenceKind, fmt.Sprint(d.IntervalDays), d.StartDate, strings.Join(d.AssigneeRoles, ","), string(evidenceJSON)))
+	reservation, err := reserveIdempotency(ctx, tx, w.TenantID, idemScopeAuthor, w.IdempotencyKey, requestFingerprint("create", w.ActorID, d.ParkID, d.Name, d.ScopeKind, d.CadenceKind, fmt.Sprint(d.IntervalDays), d.StartDate, d.AssigneeUserID, string(evidenceJSON)))
 	if err != nil {
 		return domain.Definition{}, err
 	}
@@ -251,13 +273,16 @@ func (r *Repository) CreateRoutine(ctx context.Context, w ports.WriteParams, d d
 		}
 		return r.GetRoutine(ctx, w.TenantID, reservation.resultID)
 	}
+	if err := resolveAssignee(ctx, tx, w.TenantID, d.ParkID, &d); err != nil {
+		return domain.Definition{}, err
+	}
 	now := r.now().UTC()
 	var routineID string
 	err = tx.QueryRow(ctx, sqlAuthoring1,
 		w.TenantID, d.ParkID, strings.TrimSpace(d.Name), d.ScopeKind, d.OccupiedOnly, d.CadenceKind,
 		toInt16s(d.Weekdays), toInt16s(d.MonthDays), domain.SortWorkKinds(d.AfterWorkKinds), d.DueOffsetDays,
 		d.NotifyTime, d.ReviewKind, nullIfEmpty(w.ActorID), now,
-		intervalArg(d), d.StartDate, domain.SortRoles(d.AssigneeRoles),
+		intervalArg(d), d.StartDate, domain.SortRoles(d.AssigneeRoles), nullIfEmpty(d.AssigneeUserID),
 	).Scan(&routineID)
 	if err != nil {
 		return domain.Definition{}, mapAuthoringError(err, "create")
@@ -311,7 +336,7 @@ func (r *Repository) UpdateRoutine(ctx context.Context, w ports.WriteParams, d d
 	if err != nil {
 		return domain.Definition{}, err
 	}
-	reservation, err := reserveIdempotency(ctx, tx, w.TenantID, idemScopeAuthor, w.IdempotencyKey, requestFingerprint("update", w.ActorID, d.RoutineID, fmt.Sprint(d.RowVersion), d.Name, d.ScopeKind, d.CadenceKind, fmt.Sprint(d.IntervalDays), d.StartDate, strings.Join(d.AssigneeRoles, ","), string(evidenceJSON)))
+	reservation, err := reserveIdempotency(ctx, tx, w.TenantID, idemScopeAuthor, w.IdempotencyKey, requestFingerprint("update", w.ActorID, d.RoutineID, fmt.Sprint(d.RowVersion), d.Name, d.ScopeKind, d.CadenceKind, fmt.Sprint(d.IntervalDays), d.StartDate, d.AssigneeUserID, string(evidenceJSON)))
 	if err != nil {
 		return domain.Definition{}, err
 	}
@@ -334,6 +359,9 @@ func (r *Repository) UpdateRoutine(ctx context.Context, w ports.WriteParams, d d
 	if d.ParkID != "" && d.ParkID != before.Definition.ParkID {
 		return domain.Definition{}, ports.ErrParkImmutable
 	}
+	if err := resolveAssignee(ctx, tx, w.TenantID, before.Definition.ParkID, &d); err != nil {
+		return domain.Definition{}, err
+	}
 	now := r.now().UTC()
 	nextVersion := before.Definition.CurrentVersion + 1
 	if _, err := tx.Exec(ctx, sqlAuthoring2, w.TenantID, d.RoutineID, nextVersion, strings.TrimSpace(d.Name), d.Instruction, evidenceJSON, d.ReviewKind, nullIfEmpty(w.ActorID), now); err != nil {
@@ -343,7 +371,7 @@ func (r *Repository) UpdateRoutine(ctx context.Context, w ports.WriteParams, d d
 		w.TenantID, d.RoutineID, strings.TrimSpace(d.Name), d.ScopeKind, d.OccupiedOnly, d.CadenceKind,
 		toInt16s(d.Weekdays), toInt16s(d.MonthDays), domain.SortWorkKinds(d.AfterWorkKinds), d.DueOffsetDays,
 		d.NotifyTime, d.ReviewKind, nextVersion, nullIfEmpty(w.ActorID), now, before.Definition.RowVersion,
-		intervalArg(d), d.StartDate, domain.SortRoles(d.AssigneeRoles),
+		intervalArg(d), d.StartDate, domain.SortRoles(d.AssigneeRoles), nullIfEmpty(d.AssigneeUserID),
 	)
 	if err != nil {
 		return domain.Definition{}, mapAuthoringError(err, "update")
@@ -506,6 +534,7 @@ func routineAuditState(d domain.Definition) map[string]any {
 		"evidence":         d.Evidence,
 		"pens":             d.Pens,
 		"assignee_roles":   d.AssigneeRoles,
+		"assignee_user_id": d.AssigneeUserID,
 		"row_version":      d.RowVersion,
 	}
 }
@@ -639,7 +668,7 @@ func timeLocation() *time.Location {
 const routineColumns = `
 d.routine_id::text, d.tenant_id::text, d.park_id::text, COALESCE(park.name, ''), v.name, v.instruction,
 d.scope_kind, d.occupied_only, d.cadence_kind, d.weekdays, d.month_days, d.after_work_kinds,
-d.interval_days, d.start_date::text, d.assignee_roles,
+d.interval_days, d.start_date::text, d.assignee_roles, d.assignee_user_id::text,
 d.due_offset_days, to_char(d.notify_time, 'HH24:MI'), d.review_kind, d.status, d.current_version, v.evidence,
 COALESCE((SELECT jsonb_agg(jsonb_build_object('shed_id', p.shed_id::text, 'shed_name', COALESCE(NULLIF(s.name, ''), s.location_code, ''), 'partition_label', COALESCE(p.partition_label, '')) ORDER BY s.display_order, s.name, p.partition_key)
           FROM pen_routine_pens p LEFT JOIN locations s ON s.tenant_id = p.tenant_id AND s.location_id = p.shed_id
@@ -659,11 +688,11 @@ const (
 INSERT INTO pen_routine_definitions (
   tenant_id, park_id, name, scope_kind, occupied_only, cadence_kind, weekdays, month_days, after_work_kinds,
   due_offset_days, notify_time, review_kind, status, current_version, created_by, updated_by, created_at, updated_at,
-  interval_days, start_date, assignee_roles
+  interval_days, start_date, assignee_roles, assignee_user_id
 ) VALUES (
   $1::uuid, $2::uuid, $3, $4, $5, $6, $7::smallint[], $8::smallint[], $9::text[],
   $10, $11::time, $12, 'active', 1, $13::uuid, $13::uuid, $14::timestamptz, $14::timestamptz,
-  $15::integer, $16::date, $17::text[]
+  $15::integer, $16::date, $17::text[], $18::uuid
 )
 RETURNING routine_id::text`
 	sqlAuthoring2 = `
@@ -674,7 +703,7 @@ UPDATE pen_routine_definitions
 SET name = $3, scope_kind = $4, occupied_only = $5, cadence_kind = $6, weekdays = $7::smallint[], month_days = $8::smallint[],
     after_work_kinds = $9::text[], due_offset_days = $10, notify_time = $11::time, review_kind = $12,
     current_version = $13, updated_by = $14::uuid, updated_at = $15::timestamptz, row_version = row_version + 1,
-    interval_days = $17::integer, start_date = $18::date, assignee_roles = $19::text[]
+    interval_days = $17::integer, start_date = $18::date, assignee_roles = $19::text[], assignee_user_id = $20::uuid
 WHERE tenant_id = $1::uuid AND routine_id = $2::uuid AND row_version = $16`
 	sqlAuthoring4 = `
 DELETE FROM pen_routine_pens WHERE tenant_id = $1::uuid AND routine_id = $2::uuid`

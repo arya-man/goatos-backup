@@ -223,7 +223,16 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
       case "evidence":
         return routine.evidence_line;
       case "people": {
-        // The roles the routine is for, then -- muted -- who holds them for its park right now.
+        // The ONE person the routine is for (2026-09-26). A blank name means they no longer hold
+        // a role for the park, so the routine raises nothing until someone else is chosen. A
+        // routine written before then names its roles and who holds them.
+        if (routine.assignee) {
+          return routine.assignee.display_name ? (
+            routine.assignee.display_name
+          ) : (
+            <span className="prt-warn">{copy(pageContract, "assignee.unavailable", c("label.placeholder"))}</span>
+          );
+        }
         if (!routine.assignee_roles.length) return c("label.placeholder");
         const names = routine.people.map((person) => person.display_name).join(", ");
         return (

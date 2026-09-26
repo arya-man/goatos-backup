@@ -85,7 +85,7 @@ func TestCadenceLineSpeaksFarm(t *testing.T) {
 }
 
 func TestValidateDefinitionRefusesTheHalfWritten(t *testing.T) {
-	base := Definition{ParkID: "p", Name: "Pen cleaning", ScopeKind: ScopeAllPens, CadenceKind: CadenceDaily, StartDate: "2026-09-16", AssigneeRoles: []string{RoleParkHead}, NotifyTime: "07:00", ReviewKind: ReviewNone, Evidence: sampleEvidence()}
+	base := Definition{ParkID: "p", Name: "Pen cleaning", ScopeKind: ScopeAllPens, CadenceKind: CadenceDaily, StartDate: "2026-09-16", AssigneeUserID: "u-1", AssigneeRoles: []string{RoleParkHead}, NotifyTime: "07:00", ReviewKind: ReviewNone, Evidence: sampleEvidence()}
 	if err := ValidateDefinition(base); err != nil {
 		t.Fatalf("base must validate: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestValidateDefinitionRefusesTheHalfWritten(t *testing.T) {
 		func() Definition { d := base; d.Evidence.Photo = ProofRule{Min: 2, Max: 1}; return d }(),
 		func() Definition { d := base; d.Evidence.Questions[0].ID = "has space"; return d }(),
 		func() Definition { d := base; d.Evidence.Questions[1].Options = nil; return d }(),
-		func() Definition { d := base; d.AssigneeRoles = nil; return d }(),
+		func() Definition { d := base; d.AssigneeUserID = ""; return d }(),
 		func() Definition { d := base; d.AssigneeRoles = []string{"operator"}; return d }(),
 		func() Definition { d := base; d.AssigneeRoles = []string{RoleParkHead, RoleParkHead}; return d }(),
 		func() Definition { d := base; d.StartDate = "someday"; return d }(),
@@ -293,8 +293,9 @@ func TestRolesAndEveryNDaysAndParkScope(t *testing.T) {
 	if IsAssignableRole("operator") || !IsAssignableRole(RoleProcurementDirector) {
 		t.Fatal("operator is not assignable; procurement director is")
 	}
-	if err := ValidateDefinition(Definition{ParkID: "p", Name: "x", ScopeKind: ScopeAllPens, CadenceKind: CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: ReviewNone, Evidence: sampleEvidence()}); !errors.Is(err, ErrNoRoles) || !errors.Is(err, ErrInvalidRoutine) {
-		t.Fatalf("no roles must be ErrNoRoles (an ErrInvalidRoutine), got %v", err)
+	// A routine is for ONE person (2026-09-26): nobody chosen is its own refusal.
+	if err := ValidateDefinition(Definition{ParkID: "p", Name: "x", ScopeKind: ScopeAllPens, CadenceKind: CadenceDaily, StartDate: "2026-09-16", NotifyTime: "07:00", ReviewKind: ReviewNone, Evidence: sampleEvidence()}); !errors.Is(err, ErrNoAssignee) || !errors.Is(err, ErrInvalidRoutine) {
+		t.Fatalf("no person must be ErrNoAssignee (an ErrInvalidRoutine), got %v", err)
 	}
 	every3 := Definition{CadenceKind: CadenceEveryNDays, IntervalDays: 3, StartDate: "2026-09-14"}
 	for date, want := range map[string]bool{
