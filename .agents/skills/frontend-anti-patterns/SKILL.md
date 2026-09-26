@@ -188,6 +188,8 @@ chapters below; do not review from the summary.
     MUI Chips with Clear); rows per page lives only in the table pager.
   - `labelled-filter-fields`: every WorklistFilters field (compare operator and value) shows its own
     label at a width that does not cut it.
+  - `iconify-offline-set` (`components/app/iconify-offline-set.test.mjs`): every literal Iconify name is registered in `layouts/template/iconify/icon-sets.ts`; an unregistered name loads from the Iconify API at runtime (flicker, missing offline / in the webview). Pick a registered icon or add its JSON.
+  - `info-hint-tap-target` (`components/app/info-hint-tap.test.mjs`): the shared InfoHint "i" has a 44px phone tap box (negative margin keeps the glyph footprint); never shrink it back to the 24px glyph at xs.
   - `routine-drawer-template`, `dark-alert-tint`, `kanban-card-raised`: the routine drawer renders only
     MUI form parts; dark standard Alerts are a 16% main tint (the locked dark `darker` steps are mid
     tones); work-board cards are raised paper with the amber needs-attention border.

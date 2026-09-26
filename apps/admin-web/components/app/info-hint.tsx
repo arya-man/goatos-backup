@@ -24,8 +24,11 @@ export function InfoHint({ text, className, size = 24 }: { text: string; classNa
       sx={{
         display: "inline-grid",
         placeItems: "center",
-        width: size,
-        height: size,
+        // Phone: a 44px tap box (webview rule) that keeps the glyph's layout footprint through a
+        // negative margin, so rows and headers do not grow. Desktop: the glyph size.
+        width: { xs: Math.max(size, 44), sm: size },
+        height: { xs: Math.max(size, 44), sm: size },
+        m: { xs: size < 44 ? `${(size - 44) / 2}px` : 0, sm: 0 },
         borderRadius: "50%",
         color: "text.secondary",
         cursor: "help",
