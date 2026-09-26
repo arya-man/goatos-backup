@@ -120,12 +120,15 @@ func (r *Repository) getGoatFromSQLC(ctx context.Context, tenantID string, row s
 // InitPlan evaluated before the 10-way summary join, so goats is probed by key; a plain IN
 // (SELECT ...) semi-join sits above the join (join_collapse_limit) and still builds every row.
 // = ANY de-duplicates, so a goat whose display id is also an identifier is returned once.
+// The typed text is normalized the way a tag is STORED (identity/app.normalizeIdentifier: trimmed,
+// upper-cased) before it meets normalized_value -- a TEMP- tag typed in lower case found nothing
+// (2026-09-26). The expression is on the parameter, so the unique index still serves the match.
 func searchQueryClause(qArg int, identifierTypeClause, scopeClause string) string {
 	return fmt.Sprintf(`g.goat_id = ANY(ARRAY(
 			SELECT gi.goat_id
 			FROM goat_identifiers gi
 			WHERE gi.tenant_id = $1::uuid
-			  AND gi.normalized_value = $%[1]d
+			  AND gi.normalized_value = upper(btrim($%[1]d::text))
 			  AND gi.status = 'active'%[2]s%[3]s
 			UNION ALL
 			SELECT g2.goat_id
