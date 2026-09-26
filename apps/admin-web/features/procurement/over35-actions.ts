@@ -6,7 +6,7 @@
 // rest of the page never moves. server-action-read-only: GET-backed count fetch; it writes nothing
 // and revalidates nothing.
 import { getGrowthAssumptions, getShedWeights } from "@/lib/api/server";
-import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG } from "@/features/weighing/assumption-copy";
+import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG } from "@/features/weighing";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { OVER35_MAX_TOLERANCE_G, OVER35_WINDOW_DAYS } from "./over35-window";
 

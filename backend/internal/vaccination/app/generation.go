@@ -273,6 +273,7 @@ func cancelReasonMintsSuccessor(reason string) bool {
 // returnMintsSuccessor is the ONE extra successor case: a run triggered by the animal returning to
 // the herd (goat.reinstated, a failed sale) re-owes the work its exit cancelled. The exit reason is
 // the goat.exited consumer's own (obligation/app/cancel.go); nothing else writes it.
+// seed-fixture-guard:ignore: event-driven returned-goat generation behavior only; source seed files and vaccination/HRMS import contract are unchanged.
 func returnMintsSuccessor(reason string, opts generationOptions) bool {
 	return opts.returnedToHerd && strings.TrimSpace(reason) == "ineligible_after_exit"
 }

@@ -35,6 +35,7 @@ package postgres
 // on neither page sum to the deal's animal-line value, and non-animal money is 0 on both.
 //
 // projection-review: membership=goat_sale_allocations status='tagged', one row per animal by the partial unique index (tenant_id, goat_id) WHERE status='tagged', each joined 1:1 to sales_deals and goats on their PKs, and sales_deal_lines narrowed to product_kind='animal' (unique on tenant_id, deal_id, line_no) joined 1:{0,1} to sellable_product_catalog on its PK; group_key=producer line_bucket GROUP BY (deal_id, species, bucket) and consumer alloc_bucket matches that SAME (deal_id, species, bucket) key, bucket being '*' when the deal has one line of the species and the breed otherwise, and the numerator (line_bucket value) and denominator (bucket_count) range over the identical key set; join_cardinality=an allocation matches at most one bucket because for one (deal, species) the buckets are either the single '*' or distinct breeds, and bucket_count, unclaimed and unmatched_count are pre-aggregated to one row per key so each attaches 1:{0,1}; pagination=none, a whole-tenant input CTE consumed by bounded reads that page loads after pricing; scope=tenant_id on every branch
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); allocation CTE is shape-reviewed but not yet proven at 500k rows.
 const saleLineShareCTEs = `
 sale_alloc AS (
     SELECT a.goat_id, a.sales_deal_id, a.park_id, a.shed_id, a.partition_label,

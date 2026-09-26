@@ -883,6 +883,7 @@ class CaptureRepositoryTest {
             val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-123"))
             sync.emit(itemId, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
             advanceUntilIdle()
+            awaitProofStatus(db.proofCaptureDao(), captured.id, CaptureSyncStatus.SYNCED.name)
             row = repo.observeProofs("task-5").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-123", row.serverProofId)

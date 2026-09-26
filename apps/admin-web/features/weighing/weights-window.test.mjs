@@ -70,7 +70,7 @@ test("admin weighing reads are short-cached per user and cleared on writes", () 
 	);
 	assert.match(
 		serverSource,
-		/async function timedBackendFetch[\s\S]*?method\.toUpperCase\(\) !== "GET"[\s\S]*?clearBackendReadCaches\(\)/,
+		/async function timedBackendFetch[\s\S]*?const isWrite = isBackendWrite\(method, url\.pathname\);[\s\S]*?if \(isWrite\) \{[\s\S]*?clearBackendReadCaches\(\)/,
 		"a write through the backend fetch must clear cached and in-flight reads",
 	);
 	assert.match(
@@ -78,7 +78,7 @@ test("admin weighing reads are short-cached per user and cleared on writes", () 
 		// A write that throws has status 0, which writeMayHaveLanded treats as landed, so it still
 		// stamps and clears; a 4xx refusal or a /preview read clears the caches without the stamp
 		// (the stamp's cookie refreshed the page and closed open drawers, 2026-09-25).
-		/\} finally \{[\s\S]{0,600}?if \(method\.toUpperCase\(\) !== "GET" && !isReadOnlyPost\(url\.pathname\) && writeMayHaveLanded\(responseStatus\)\) await noteBackendWrite\(\);\s*else if \(method\.toUpperCase\(\) !== "GET"\) clearBackendReadCaches\(\);/,
+		/\} finally \{[\s\S]{0,600}?if \(isWrite && writeMayHaveLanded\(responseStatus\)\) await noteBackendWrite\(\);\s*else if \(isWrite\) clearBackendReadCaches\(\);/,
 		"the post-write clear must run in finally so a write that throws still clears",
 	);
 	assert.match(serverSource, /async function noteBackendWrite\(\): Promise<void> \{\s*clearBackendReadCaches\(\);\s*await markCallerWrite\(\);/);

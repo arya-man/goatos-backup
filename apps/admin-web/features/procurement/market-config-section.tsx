@@ -75,9 +75,8 @@ export function MarketConfigSection({
           {salesErrorText(configResult.error, copy(pageContract, "market.error.load"))}
         </div>
       ) : null}
-      {/* A failed read shows the error and nothing else: the empty set-up it would otherwise draw
-          ("No cities yet. Add the first market to phone.", a blank call time with a Save button)
-          invites the desk to re-enter a set-up that exists. */}
+      {/* A failed read shows the error and nothing else; otherwise the empty set-up invites the desk
+          to re-enter a set-up that exists. */}
       {!configResult.ok ? null : (
       <>
 

@@ -756,6 +756,16 @@ const OPTION_GROUP_FALLBACKS: Record<string, Record<string, AdminUiOption[]>> = 
   "protocol-adherence": PROCESS_OPTION_GROUP_FALLBACKS,
   workflows: PROCESS_OPTION_GROUP_FALLBACKS,
   "workflow-drilldown": PROCESS_OPTION_GROUP_FALLBACKS,
+  "sales-sold": {
+    sales_farms: [
+      { key: "all", label: "All farms", title: "", tone: "", enabled: true, disabled_reason: "" },
+    ],
+  },
+  "sales-config": {
+    sales_farms: [
+      { key: "all", label: "All farms", title: "", tone: "", enabled: true, disabled_reason: "" },
+    ],
+  },
   vaccination: {
     command_board_cohort_ladder: [
       { key: "K0", label: "K0", title: "", tone: "", enabled: true, disabled_reason: "" },

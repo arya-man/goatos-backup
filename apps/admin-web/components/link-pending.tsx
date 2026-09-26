@@ -2,7 +2,7 @@
 
 // telemetry:exempt presentational pending mark inside a link; no action of its own
 
-import { useLinkStatus } from "next/link";
+import { useLinkStatus } from "@/components/no-prefetch-link";
 
 /**
  * A small busy ring shown INSIDE the link that was just pressed, while its page is on its way

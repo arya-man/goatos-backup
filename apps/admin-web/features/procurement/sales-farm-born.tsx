@@ -378,6 +378,7 @@ export async function SalesFarmBornPage({
 
   // The sold ledger's whole-result order, validated against the contract's sortable columns.
   const order = tableOrderFromParams(sp, table(pageContract, "sales-farm-born-sold"));
+  // serial-await: allow farm-born read depends on readSalesParkScope validating the shell park.
   const result = await getFarmBornSales({
     from: from || undefined,
     to: to || undefined,

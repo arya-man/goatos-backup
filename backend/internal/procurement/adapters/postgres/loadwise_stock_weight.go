@@ -43,8 +43,8 @@ import (
 //
 // projection-review: membership=live accepted load animals of the served loads, one row per goat via the loadwise DISTINCT ON total order; group_key=load_id on the output, 1:1 with loadwiseSalesSQL's served rows; join_cardinality=goats PK and goat_shed_partitions PK 1:1, alias 0..1 per location (LIMIT 1 lateral), latest scan and latest pen weigh each collapsed to 0..1 per animal by DISTINCT ON / ORDER BY LIMIT 1, price 0..1 per animal (one override row + one default row per key after DISTINCT ON); pagination=bound to the served load ids ($2); scope=tenant_id on every table
 //
-// scale-guard:ignore: god-cte -- one bounded reporting read over the served loads' live animals (the 5k-50k envelope), their weighs and one price table, run once per Load wise request
-const loadStockWeightSQL = `
+// scale-guard:plan-proof-exempt: PENDING at-scale plan test (docs/progress/plan-proof-backlog.md); guarded by served load ids but not yet proven at 500k rows.
+const loadStockWeightSQL = /* scale-guard:ignore: god-cte -- one bounded reporting read over the served loads' live animals (the 5k-50k envelope), their weighs and one price table, run once per Load wise request */ `
 WITH member AS (
     SELECT DISTINCT ON (plg.goat_id) plg.goat_id, plg.load_id
     FROM public.procurement_load_goats plg

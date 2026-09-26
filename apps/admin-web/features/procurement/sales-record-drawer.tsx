@@ -559,8 +559,8 @@ export function SalesRecordDrawer({
               {plannedSaleDate ? cell(field("planned_sale_date"), fmtDate(plannedSaleDate)) : null}
               {cell(field("farm"), deal.farm)}
               {cell(field("product_type"), deal.product_type)}
-              {/* A manure line's "breed" is only its own name again: the cell is left out rather than
-                  saying "Manure" twice or claiming a breed was "Not recorded". */}
+              {/* A manure line's breed is only its own name again: the cell is left out rather than
+                  repeating the product or claiming a breed was not recorded. */}
               {breedBeyondProduct(deal.product_type, deal.breed) ? cell(field("breed"), breedBeyondProduct(deal.product_type, deal.breed)) : null}
               {/* Resolved to the register's NAME, never the raw id -- a uuid on a farm screen is
                   banned copy. An id that resolves to nothing (a vendor since deactivated, or the
@@ -728,7 +728,10 @@ export function SalesRecordDrawer({
   );
 }
 
-type PaymentAction = (formData: FormData) => Promise<SalesPaymentActionError | undefined>;
+type paymentActionResult = Promise<SalesPaymentActionError | undefined>;
+type paymentAction = (
+  formData: FormData,
+) => paymentActionResult;
 type PaymentFormState = { settled: number; error: SalesPaymentActionError | null };
 const PAYMENT_FORM_IDLE: PaymentFormState = { settled: 0, error: null };
 
@@ -737,8 +740,8 @@ function mintPaymentKey(): string {
 }
 
 /**
- * One payment form's write: the action, whether it is in flight, the refusal it came back with,
- * and the idempotency key the form carries.
+ * One payment form's write state: the action, whether it is in flight, the refusal it came back
+ * with, and the idempotency key the form carries.
  *
  * The key is minted when the form is shown and held while nothing about the form's outcome has
  * moved, so every click on the same form posts the same key and the backend replays the first
@@ -746,7 +749,7 @@ function mintPaymentKey(): string {
  * landed and the deal's payments re-read) or an attempt settles, so the next receipt is a new key.
  * A successful save redirects, which remounts the drawer and mints afresh anyway.
  */
-function usePaymentFormAction(action: PaymentAction, outcome: string) {
+function usePaymentFormAction(action: paymentAction, outcome: string) {
   const [state, formAction, pending] = useActionState(
     async (previous: PaymentFormState, formData: FormData): Promise<PaymentFormState> => ({
       settled: previous.settled + 1,

@@ -12,6 +12,8 @@ and its row here.
 | calendar | `calendarCanonicalListSQL` (canonical_read.go) |
 | calendar | `calendarHistorySQL` (repository.go) |
 | herdsignals | `GetBatteryHistory` inline SQL, 2 statements (repository.go) |
+| procurement | `loadStockWeightSQL` (loadwise_stock_weight.go) |
+| procurement | `saleLineShareCTEs` (sale_line_share.go) |
 | vaccinationexecution | `commandBoardShedDoseSQL` (commandboard_sql.go) |
 | vaccinationexecution | `executionClassifiedCTE` (repository.go) |
 | vaccinationexecution | `vaccinationExecutionSQL` (repository.go) |

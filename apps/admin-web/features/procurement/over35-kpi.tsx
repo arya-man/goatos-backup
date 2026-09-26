@@ -5,7 +5,6 @@
 import { useState, useTransition } from "react";
 
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
-import { fillKg } from "@/features/weighing/assumption-copy";
 import { num } from "./sales-format";
 import { countOver35Action } from "./over35-actions";
 import { SalesReadyToleranceControl } from "./sales-ready-tolerance-control";
@@ -20,6 +19,10 @@ export type Over35Labels = {
   apply: string;
   failed: string;
 };
+
+function fillKg(template: string, kg: number) {
+  return template.replace("{kg}", num(kg, 1));
+}
 
 /**
  * The Over 35 kg card with its error margin (flicker fix, 2026-09-25): Apply re-counts THIS card

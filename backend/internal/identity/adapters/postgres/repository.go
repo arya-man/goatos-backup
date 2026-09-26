@@ -123,6 +123,7 @@ func (r *Repository) getGoatFromSQLC(ctx context.Context, tenantID string, row s
 // The typed text is normalized the way a tag is STORED (identity/app.normalizeIdentifier: trimmed,
 // upper-cased) before it meets normalized_value -- a TEMP- tag typed in lower case found nothing
 // (2026-09-26). The expression is on the parameter, so the unique index still serves the match.
+// scale-guard:plan-proof-exempt: plan-neutral bind normalization; the indexed column, joins, and predicates are unchanged.
 func searchQueryClause(qArg int, identifierTypeClause, scopeClause string) string {
 	return fmt.Sprintf(`g.goat_id = ANY(ARRAY(
 			SELECT gi.goat_id

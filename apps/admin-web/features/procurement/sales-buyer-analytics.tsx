@@ -258,6 +258,7 @@ export async function SalesBuyerAnalyticsPage({
 
   // The table's whole-result order, validated against the contract's sortable columns.
   const order = tableOrderFromParams(sp, table(pageContract, "sales-buyer-analytics"));
+  // serial-await: allow buyer analytics depends on readSalesParkScope mapping shell park to deal farm.
   const result = await getBuyerAnalytics({
     farm: farm === SALES_DEFAULT_FARM ? undefined : farm,
     limit,

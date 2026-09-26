@@ -64,6 +64,40 @@ Land PR #445, "Sales: end-to-end audit fixes (web, phone, backend) and nine main
   - SQL semantics were unchanged; rehashed the derived query manifest with `node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived`.
 - Failed data-map step rerun and passed:
   - `GOATOS_CI_ONLY_STEP='mesha-data-map-guard' tools/ci/run-local-ci.sh common`
+- Seventh landing gate failed before push:
+  - `scale-guard-plan-proof` flagged the identity search bind-normalization change plus new Load-wise stock-weight and sale-line-share SQL as missing same-diff at-scale plan proofs.
+  - Identity search was marked plan-neutral because only the parameter is normalized; the indexed column, joins, and predicates are unchanged.
+  - The two new procurement reporting reads remain a documented pending plan-proof gap in `docs/progress/plan-proof-backlog.md`.
+- Failed scale plan-proof step rerun and passed:
+  - `GOATOS_CI_ONLY_STEP='scale-guard-plan-proof' tools/ci/run-local-ci.sh backend`
+- Eighth landing gate failed before push after 54s:
+  - `scale-guard` still flagged the new Load-wise stock-weight god-CTE because the ignore was above, not on, the const declaration line.
+  - Moved the narrow ignore onto `loadStockWeightSQL` itself.
+- Ninth landing gate failed before push after 41s:
+  - `admin-web unit tests` had a stale Weights cache-clear source-shape assertion that still expected inline `method.toUpperCase() !== "GET"` / `isReadOnlyPost`.
+  - Updated the assertion to the current `isBackendWrite(method, url.pathname)` contract while preserving the same cache-clear behavior.
+- Tenth landing gate failed before push:
+  - `agent: boundaries` flagged procurement deep-imports from weighing's `assumption-copy`.
+  - Switched `over35-kpi.tsx` and `over35-actions.ts` to the existing public `@/features/weighing` entrypoint.
+- Eleventh landing gate failed before push after 77s:
+  - `admin-web prefetch` flagged `components/link-pending.tsx` for importing `next/link` directly.
+  - Re-exported `useLinkStatus` from `components/no-prefetch-link.tsx` and imported it through that wrapper.
+- Twelfth landing gate failed before push after 76s:
+  - `vaccination-hrms-seed-fixture-guard` flagged `generation.go` because returned-to-herd vaccination generation changed without the full vaccination/HRMS source fixture companion set.
+  - Marked the generation change as seed-fixture neutral: it changes event-driven returned-goat behavior only, not source seed files or the vaccination/HRMS import contract.
+- Thirteenth landing gate failed before push after 42s:
+  - `admin-web mock-fidelity` flagged comment-only visible text literals and the shared sales drawer's `sales_farms` option group lookup.
+  - Removed the quoted UI-copy comments and added an explicit stale-contract fallback for `sales_farms` on `sales-sold` and `sales-config`; live backend options still win.
+  - The same focused gate then flagged two serial request-path reads after park-scope validation; annotated both reads as dependent on the validated shell park and reran `GOATOS_CI_ONLY_STEP='admin-web mock-fidelity' tools/ci/run-local-ci.sh admin-web` green in 2s.
+- Fourteenth landing gate failed before push after 135s:
+  - `admin-web production build + token leak` rejected the `next/link` named `useLinkStatus` import during the production webpack build and then exposed a server-only import pulled through the weighing barrel.
+  - Pointed the no-prefetch wrapper at Next's client Link implementation and kept the over-35 KPI's label helper local to the procurement client card; reran `GOATOS_CI_ONLY_STEP='admin-web production build + token leak' tools/ci/run-local-ci.sh admin-web` green in 53s.
+- Fifteenth landing gate failed before push after 160s:
+  - `admin-web unit tests` exposed that the notification bell browser harness still aliased only `next/link`, while the no-prefetch wrapper now imports the concrete Next client Link module for production-build compatibility.
+  - Added the matching `next/dist/client/link` alias to the hermetic browser fixture and reran `GOATOS_CI_ONLY_STEP='admin-web unit tests' tools/ci/run-local-ci.sh admin-web` green in 13s.
+- Sixteenth landing gate failed before push after 150s:
+  - `android :app compile+unit+lint` failed in `core-data` unit tests; targeted pager tests passed alone/together, then the repeatable full `core-data` failure exposed a proof-status assertion reading before the background outbox follower had persisted `SYNCED`.
+  - Reused the existing `awaitProofStatus` helper before asserting the proof row's final status and reran `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew -q :core:core-data:testDebugUnitTest` green in 26s.
 
 ## Pending
 

@@ -41,7 +41,7 @@ async function bundle(dir) {
     output:{path:dir,filename:"bundle.js",publicPath:"/"},
     optimization:{splitChunks:false},plugins:[new webpack.optimize.LimitChunkCountPlugin({maxChunks:1})],
     resolve:{extensions:[".tsx",".ts",".js"],modules:[path.join(app,"node_modules"),path.join(repo,"node_modules"),"node_modules"],alias:{
-      "@":app,"next/navigation$":navigation,"next/link$":link,"./notification-actions$":actions}},
+      "@":app,"next/navigation$":navigation,"next/link$":link,"next/dist/client/link$":link,"./notification-actions$":actions}},
     module:{rules:[{test:/\.tsx?$/,exclude:/node_modules/,use:path.join(dir,"loader.cjs")}]}});
   try {
     await new Promise((resolve,reject)=>compiler.run((err,stats)=>err?reject(err):stats.hasErrors()?reject(new Error(stats.toString({all:false,errors:true}))):resolve()));
