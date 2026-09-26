@@ -54,6 +54,11 @@ Land PR #445, "Sales: end-to-end audit fixes (web, phone, backend) and nine main
   - Resolved by adding `ListParkCodes` to the test fake.
 - Failed backend vet step rerun and passed:
   - `GOATOS_CI_ONLY_STEP='backend go vet' tools/ci/run-local-ci.sh backend`
+- Fifth landing gate failed before push after 40s:
+  - `ceo-ai-page-contract-drift-guard` flagged the Sales Farm Value `kpi.feed` tile missing from the planned coverage row.
+  - Resolved by adding `kpi.feed` to the `/sales/farm-value` `PLANNED:P2[...]` list in `docs/ceo-ai/coverage-matrix.md`.
+- Failed CEO-AI drift step rerun and passed:
+  - `GOATOS_CI_ONLY_STEP='ceo-ai-page-contract-drift-guard' tools/ci/run-local-ci.sh common`
 
 ## Pending
 
