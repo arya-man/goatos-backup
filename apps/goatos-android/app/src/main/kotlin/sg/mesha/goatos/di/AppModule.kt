@@ -1217,13 +1217,11 @@ object AppModule {
             // raised "You're offline — records save on this phone and sync when you reconnect" on
             // a phone that was reaching the backend fine, on the same screen that had just
             // rendered freshly fetched data.
-            val online = platformOnline || connectivityGate.isOnline()
-            repo?.notifyConnectivityChanged(online)
-            if (online) appScope.launch {
-                // Re-arms writes still waiting out a backoff so they leave now, not minutes later.
-                if (repo != null) repo.onConnectivityRegained() else engine.drainOnce()
-                runCatching { backendAnalyticsAdapter.drainQueue() }
-            }
+            // The repository owns the reaction: display flag, drain, and -- when the network
+            // really came back -- re-arming writes still waiting out a backoff.
+            val online = repo?.onPlatformConnectivityChanged(platformOnline)
+                ?: (platformOnline || connectivityGate.isOnline()).also { if (it) appScope.launch { engine.drainOnce() } }
+            if (online) appScope.launch { runCatching { backendAnalyticsAdapter.drainQueue() } }
         }
     }
 }

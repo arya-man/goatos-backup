@@ -1239,7 +1239,27 @@ class DefaultSyncRepository(
     }
 
     /**
-     * DI-wiring-only hook: the phone got its network back. Kicking a drain alone was not enough
+     * DI-wiring-only hook for [ConnectivitySyncTrigger]: the platform's own network verdict
+     * changed. Returns whether the app should treat itself as online.
+     *
+     * The display flag reconciles the platform with the gate (an adb-reverse loopback reaches
+     * the API with no validated internet), and any online state kicks a drain. Only the
+     * PLATFORM coming back re-arms waiting writes: a loopback gate reads "online" straight
+     * through a lost network, so keying the re-arm on it would re-arm on the way DOWN too and
+     * spend the one re-arm of the window before the network actually returned.
+     */
+    fun onPlatformConnectivityChanged(platformOnline: Boolean): Boolean {
+        val online = platformOnline || connectivityGate.isOnline()
+        notifyConnectivityChanged(online)
+        when {
+            platformOnline -> appScope.launch { onConnectivityRegained() }
+            online -> triggerDrainAsync()
+        }
+        return online
+    }
+
+    /**
+     * The phone got its network back. Kicking a drain alone was not enough
      * (Sales phone E2E 2026-09-26): a sale queued during the outage was still inside its backoff
      * -- up to ~18 minutes at the cap -- so the drain skipped it and it sat for minutes after the
      * phone was online again. The waiting rows are re-armed first, keeping their attempt count so

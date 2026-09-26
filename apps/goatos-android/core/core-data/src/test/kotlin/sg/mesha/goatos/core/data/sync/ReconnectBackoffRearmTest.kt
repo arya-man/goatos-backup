@@ -98,4 +98,41 @@ class ReconnectBackoffRearmTest {
 
         assertEquals(before + 1, calls)
     }
+
+    /**
+     * On an adb-reverse loopback (every device proof run) the gate reads "online" straight
+     * through a lost network. Re-arming on that would spend the window's one re-arm on the way
+     * DOWN, and the real reconnect seconds later would wait out the backoff again.
+     */
+    @Test
+    fun `only the platform network coming back re-arms, never a loopback gate going down`() = runBlocking {
+        val store = FakeOutboxStore()
+        var now = 1_000_000L
+        var serverUp = false
+        var sent = 0
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun createSalesDeal(idempotencyKey: String, request: SalesDealWriteDto): SalesDealDto {
+                if (!serverUp) throw IOException("unreachable")
+                sent++
+                return SalesDealDto(dealId = "d-new")
+            }
+        }
+        val engine = SyncEngine(store = store, api = api, connectivityGate = { true }, dispatchers = dispatchers, clock = { now })
+        val repo = DefaultSyncRepository(store = store, engine = engine, connectivityGate = { true },
+            appScope = CoroutineScope(Dispatchers.Unconfined), dispatchers = dispatchers, clock = { now })
+        repo.enqueueSalesDealCreate("c-sale", SalesDealWriteDto(
+            saleDate = "2026-09-26", farm = "CPT", buyerName = "Buyer", buyerVendorId = "v",
+            lines = listOf(SalesDealLineWriteDto(productType = "Sheep", breed = "Anantapur Sheep", animalCount = 1.0, salesValue = 11000.0)),
+        ))
+        repeat(6) { repo.triggerDrain(); now += 20L * 60 * 1000 }
+        repo.triggerDrain()
+        now += 1_000
+
+        assertTrue("the loopback gate still reads online", repo.onPlatformConnectivityChanged(platformOnline = false))
+        now += 5_000
+        serverUp = true
+        repo.onPlatformConnectivityChanged(platformOnline = true)
+
+        assertEquals("sent the moment the platform network returned", 1, sent)
+    }
 }
