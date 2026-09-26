@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { CalendarRoot, CalendarToolbar, type CalendarView } from "@/components/minimal/calendar";
 import { pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import { scopeHref, type Scope } from "@/lib/scope";
+import { fmtDate } from "@/lib/format";
 
 export type CalendarViewOption = {
   value: CalendarView;
@@ -68,6 +69,7 @@ export function CalendarFullView({
   const router = useRouter();
   const calendarRef = useRef<FullCalendar | null>(null);
   const smUp = useMediaQuery<Theme>((theme) => theme.breakpoints.up("sm"));
+  const mdUp = useMediaQuery<Theme>((theme) => theme.breakpoints.up("md"));
 
   // Template default: dayGridMonth on desktop, listWeek on phone (agenda-style list matches the
   // template's mobile calendar and gives a phone-thumb-friendly, no-sideways-scroll surface).
@@ -84,7 +86,7 @@ export function CalendarFullView({
       api.changeView(target);
       setView(target);
     }
-    setTitle(api.view.title);
+    setTitle(viewTitle(api.view));
   }, [smUp]);
 
   const onChangeView = useCallback((next: CalendarView) => {
@@ -92,7 +94,7 @@ export function CalendarFullView({
     if (!api) return;
     api.changeView(next);
     setView(next);
-    setTitle(api.view.title);
+    setTitle(viewTitle(api.view));
   }, []);
 
   const calendarBase = useCallback(
@@ -112,7 +114,7 @@ export function CalendarFullView({
       if (action === "today") api.today();
       if (action === "prev") api.prev();
       if (action === "next") api.next();
-      setTitle(api.view.title);
+      setTitle(viewTitle(api.view));
       const nextAnchor = toIsoDate(api.view.currentStart);
       // Server-driven range: push the new anchor date to URL so the /calendar server tree
       // re-fetches a wider window around it. Uses replace to avoid stacking history entries.
@@ -146,12 +148,9 @@ export function CalendarFullView({
         display: "flex",
         flexDirection: "column",
         flex: "1 1 auto",
-        // Explicit tall min-height because the page tree above uses CSS grid, not a flex column,
-        // so `flex: 1 1 auto` alone cannot stretch the Card to fill the viewport (template pattern
-        // relies on DashboardContent -> flex column chain). Six-week month grid + toolbar needs
-        // ~640px at 1440-wide desktop; 100dvh-220px keeps the whole month visible on laptop and
-        // most webviews without clipping.
-        minHeight: { xs: "70vh", md: "calc(100dvh - 220px)" },
+        // Phone: the agenda list gets a tall card. md+: FullCalendar is height="auto", so the month
+        // grid is laid out at its natural height and no internal scroller clips the last week row.
+        minHeight: { xs: "70vh", md: 0 },
       }}
     >
       {header}
@@ -174,6 +173,9 @@ export function CalendarFullView({
             firstDay={1}
             weekends
             aspectRatio={3}
+            height={mdUp ? "auto" : undefined}
+            stickyHeaderDates={false}
+            views={VIEW_DATE_FORMATS}
             dayMaxEvents={3}
             eventMaxStack={2}
             rerenderDelay={10}
@@ -186,7 +188,7 @@ export function CalendarFullView({
             droppable={false}
             selectable={false}
             eventClick={onClickEvent}
-            datesSet={(arg) => setTitle(arg.view.title)}
+            datesSet={(arg) => setTitle(viewTitle(arg.view))}
             plugins={[dayGridPlugin, timeGridPlugin, listPlugin]}
             businessHours={{ daysOfWeek: [1, 2, 3, 4, 5] }}
             noEventsText={noEventsText}
@@ -195,6 +197,38 @@ export function CalendarFullView({
       </CalendarRoot>
     </Card>
   );
+}
+
+/**
+ * Toolbar title. A month view keeps FullCalendar's month heading ("September 2026" has no day, so
+ * DD/MM/YYYY does not apply); week / day / agenda titles are DD/MM/YYYY via lib/format.
+ */
+function viewTitle(view: { type: string; title: string; currentStart: Date; currentEnd: Date }): string {
+  if (view.type === "dayGridMonth") return view.title;
+  const start = fmtDate(toIsoDate(view.currentStart));
+  const last = new Date(view.currentEnd.getTime());
+  last.setDate(last.getDate() - 1);
+  const end = fmtDate(toIsoDate(last));
+  return start === end ? start : `${start} – ${end}`;
+}
+
+type FcDateParts = { year: number; month: number; day: number };
+
+// Module-level (stable identity): a fresh `views` object each render makes FullCalendar re-apply its
+// options, fire datesSet, set the title and render again, forever.
+const VIEW_DATE_FORMATS = {
+  timeGridWeek: { dayHeaderFormat: (arg: { date: FcDateParts }) => `${weekdayOf(arg.date)} ${ddmmyyyy(arg.date)}` },
+  listWeek: { listDaySideFormat: (arg: { date: FcDateParts }) => ddmmyyyy(arg.date) },
+};
+
+/** FullCalendar date parts (month is 0-based) as DD/MM/YYYY through lib/format. */
+function ddmmyyyy(date: FcDateParts): string {
+  return fmtDate(`${date.year}-${String(date.month + 1).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`);
+}
+
+/** Short weekday for a FullCalendar date (a bare weekday is not a date, so it keeps its own form). */
+function weekdayOf(date: FcDateParts): string {
+  return new Intl.DateTimeFormat("en", { weekday: "short", timeZone: "UTC" }).format(Date.UTC(date.year, date.month, date.day));
 }
 
 function toIsoDate(date: Date): string {

@@ -45,6 +45,32 @@ export const CalendarRoot = styled("div")(({ theme }) => {
     },
   };
 
+  // The page shell's legacy table rules (`.wrap/.screen/.main th|td`: paper-2 fill, 48-57px heights,
+  // 16-24px padding, sticky thead, dashed / removed bottom borders, corner radii) also match
+  // FullCalendar's structural cells: that drew the tall grey weekday band and inset the weekend
+  // shading. `.fc.fc th|td` (0,3,1) outranks them and puts back FullCalendar's own values for exactly
+  // those properties; FullCalendar's more specific cell rules that the reset would otherwise beat
+  // are re-stated after it (0,4,x).
+  const legacyTableReset: CSSObject = {
+    "& .fc.fc th, & .fc.fc td": {
+      padding: 0,
+      height: "auto",
+      lineHeight: "normal",
+      background: "transparent",
+      position: "static",
+      borderRadius: 0,
+      borderBottom: "1px solid var(--fc-border-color)",
+      textTransform: "none",
+      letterSpacing: "normal",
+    },
+    "& .fc.fc th": { textAlign: "center", verticalAlign: "middle" },
+    "& .fc.fc .fc-scrollgrid-section > td": { height: "1px" },
+    "& .fc.fc .fc-scrollgrid-section-liquid > td": { height: "100%" },
+    "& .fc.fc .fc-scrollgrid-section-header > *, & .fc.fc .fc-scrollgrid-section-footer > *": { borderBottomWidth: 0 },
+    "& .fc.fc .fc-timegrid-slot": { height: "1.5em", borderBottom: 0 },
+    "& .fc.fc .fc-list-table td": { padding: "8px 14px" },
+  };
+
   const tableHeadStyles: CSSObject = {
     // Reset legacy admin-web selectors that leak into FullCalendar's raw <th> elements and make
     // the weekday row a thick tinted band. Match `.wrap thead th` (frame.css) specificity with
@@ -56,7 +82,8 @@ export const CalendarRoot = styled("div")(({ theme }) => {
       background: "transparent",
       textTransform: "none",
       letterSpacing: "normal",
-      color: "inherit",
+      color: theme.vars.palette.text.primary,
+      "&.fc-day-sat, &.fc-day-sun": { color: "var(--custom-day-business-color)" },
       fontSize: "inherit",
       fontWeight: "inherit",
       position: "static",
@@ -219,6 +246,7 @@ export const CalendarRoot = styled("div")(({ theme }) => {
   return {
     ...cssVars,
     ...containerStyles,
+    ...legacyTableReset,
     ...tableHeadStyles,
     ...tableBodyStyles,
     ...timeGridStyles,
