@@ -46,6 +46,7 @@ import {
 } from "./lib/design-kit-ratchet.mjs";
 import { drawerTagLines, drawerTemplateFindings, onlyTemplateDrawerWidths } from "./lib/drawer-template.mjs";
 import { urlKeyedPanelFindings } from "./lib/url-keyed-panel.mjs";
+import { templateHash, templateVerbatimFindings } from "./lib/template-verbatim.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
@@ -207,6 +208,7 @@ const CHECKS = {
   "page-template-legacy-card": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not render the legacy hand-made card markup (className \"card\"/\"wchart\"/\"wtable\"/\"kpi\", <h2 className=\"h\">); every block is a template section card (Card + CardHeader) fed our data" },
   "shell-nav-template": { tier: "p0", why: "the sidebar is the template NavSectionVertical/NavSectionMini inside layouts/dashboard nav-vertical/nav-mobile (whole nav in the template Scrollbar, template 288px mobile drawer over the template backdrop); no custom footer (navBottom / msh-foot / navigation.footer), no default-open subtrees, no full-width/opaque phone menu or extra close button" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
+  "template-verbatim": { tier: "p0", why: "every file mapped in docs/design/template-sources.json (components/minimal/**, layouts/**) equals its MUI Minimal template source byte-for-byte except import paths and a \"use client\" line (sha256 of the normalised template source is stored there; refresh with node scripts/refresh-template-hashes.mjs). Product behaviour (URL links, data shapes, copy) goes in components/app adapters or feature files that pass props to the verbatim template component; a hand-made component never wears a template path. Existing drift: docs/design/template-verbatim-baseline.json, shrink-only" },
   "feature-server-fn-sx": { tier: "p0", why: "a feature/app module without 'use client' passes a function sx ((theme) => …) to an MUI part: as a Server Component the function cannot cross to the client part (\"Functions cannot be passed directly to Client Components\") and the route crashes to \"Something went wrong\" (/goats/[id], FJ1 P0-1). Move the themed block into a 'use client' file or use an object sx with theme vars" },
   "section-server-fn-sx": { tier: "p0", why: "a template section under components/minimal/sections/ that styles with a function sx ((theme) => …) must start with 'use client': a Server Component page renders it, and a function prop cannot cross to the client MUI part (\"Functions cannot be passed directly to Client Components\", the whole page falls back to client rendering or 500s)" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
@@ -486,6 +488,16 @@ function runGuard(root, { themeDiff }) {
       }
     } else if (!existsSync(manifestFile)) {
       findings.push(finding("unsourced-minimal-file", "docs/design/template-sources.json", 1, "template-sources.json is missing"));
+    }
+  }
+
+  // template-verbatim (Ravi 2026-09-27 "use the SAME mesha-ui template across the pages and just put
+  // our content"): mapped files equal the template source except import paths / "use client".
+  {
+    const localDocs = join(root, "docs", "design");
+    const docsDir = existsSync(join(localDocs, "template-sources.json")) ? localDocs : resolve(root, "../../docs/design");
+    for (const hit of templateVerbatimFindings(root, join(docsDir, "template-sources.json"), join(docsDir, "template-verbatim-baseline.json"))) {
+      findings.push(finding("template-verbatim", hit.file, hit.line, hit.snippet));
     }
   }
 
@@ -1070,6 +1082,26 @@ async function selfTest() {
   put("features/sfp/bars.tsx", 'import LinearProgress from "@mui/material/LinearProgress";\nexport const Bars = () => <LinearProgress sx={(theme) => ({ height: 8 })} />;\n');
   put("features/sfp/client-box.tsx", '"use client";\nimport { Inner } from "./inner";\nexport const ClientBox = () => <Inner />;\n');
   put("features/sfp/inner.tsx", 'import Box from "@mui/material/Box";\nexport const Inner = () => <Box sx={[(theme) => ({ p: 1 })]} />;\n');
+  // template-verbatim: tpl-ok.tsx differs only by import path + "use client" (clean); tpl-drift.tsx
+  // changed a copy string (flagged); tpl-pkg.tsx swapped a package import (flagged); tpl-listed.tsx
+  // drifts but is in the baseline (allowed); tpl-healed.tsx is in the baseline yet verbatim (flagged).
+  {
+    const tplSrc = "import Box from '@mui/material/Box';\n\nimport { fNumber } from 'src/utils/format-number';\n\nexport const W = ({ n }: { n: number }) => <Box>{fNumber(n)} last week</Box>;\n";
+    const tplHash = templateHash(tplSrc);
+    const imports = ["@mui/material/Box", "src/utils/format-number"];
+    const mine = tplSrc.replace("src/utils/format-number", "@/components/minimal/_shared/format-number");
+    put("components/minimal/tpl-ok.tsx", `'use client';\n\n${mine}`);
+    put("components/minimal/tpl-drift.tsx", mine.replace("last week", "this period"));
+    put("components/minimal/tpl-pkg.tsx", mine.replace("@mui/material/Box", "@/components/app/box"));
+    put("components/minimal/tpl-listed.tsx", mine.replace("last week", "custom"));
+    put("components/minimal/tpl-healed.tsx", mine);
+    const files = ["tpl-ok", "tpl-drift", "tpl-pkg", "tpl-listed", "tpl-healed"].map((n) => `components/minimal/${n}.tsx`);
+    put("docs/design/template-sources.json", JSON.stringify({
+      sources: Object.fromEntries(files.map((f) => [f, "src/sections/demo/w.tsx"])),
+      verbatim: Object.fromEntries(files.map((f) => [f, { sha256: tplHash, imports }])),
+    }));
+    put("docs/design/template-verbatim-baseline.json", JSON.stringify({ drift: ["components/minimal/tpl-listed.tsx", "components/minimal/tpl-healed.tsx"] }));
+  }
   const { findings } = runGuard(root, { themeDiff: false });
   const got = new Set(findings.map((f) => f.check));
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
@@ -1105,6 +1137,12 @@ async function selfTest() {
   const keyed = findings.filter((f) => f.check === "url-keyed-panel").map((f) => f.file);
   if (!keyed.includes("app/(admin)/tabbed/page.tsx") || keyed.includes("app/(admin)/keyed/page.tsx")) {
     console.error(`design_system_self_test=FAIL url-keyed-panel flagged=${keyed.join(",") || "none"} (want app/(admin)/tabbed/page.tsx only)`);
+    process.exit(1);
+  }
+  const verbatimHits = findings.filter((f) => f.check === "template-verbatim").map((f) => `${f.file}:${f.snippet.includes("tpl-healed") ? "healed" : ""}`).sort();
+  const wantVerbatim = ["components/minimal/tpl-drift.tsx:", "components/minimal/tpl-pkg.tsx:", "docs/design/template-verbatim-baseline.json:healed"];
+  if (verbatimHits.join("|") !== wantVerbatim.join("|")) {
+    console.error(`design_system_self_test=FAIL template-verbatim flagged=${verbatimHits.join(",") || "none"} (want ${wantVerbatim.join(",")})`);
     process.exit(1);
   }
   const tplRatchet = findings.filter((f) => f.file === "components/minimal/tpl.tsx" && CHECKS[f.check].tier === "ratchet");

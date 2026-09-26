@@ -1,20 +1,15 @@
 {
   "_note": [
-    "Every file under apps/admin-web/components/minimal/ must have an entry here mapping it",
-    "to its source path inside the licensed MUI Minimal template.",
-    "Template root: ~/mesha/mui/Minimal_TypeScript_v7.7.0/next-ts (Ravi laptop; NOT committed).",
-    "Values are the source path RELATIVE to that template root.",
+    "Every file under apps/admin-web/components/minimal/ (and the layouts/ template files) maps here to its",
+    "source path inside the licensed MUI Minimal template, RELATIVE to template_root (Ravi laptop; NOT committed).",
     "",
-    "check-design-system.mjs asserts every file under components/minimal/ has a `sources` entry;",
-    "a file without an entry fails the guard. This blocks hand-made wrappers from being placed",
-    "under components/minimal/ (which is reserved for template-derived code).",
-    "",
-    "Adaptations from the template are noted in each file's header comment; the shape is either",
-    "verbatim, near-verbatim (rename/config-path only) or adapted (structural composition).",
-    "Files whose source path lists a section (src/sections/...) are template-derived even when",
-    "the export is renamed."
+    "design:guard `unsourced-minimal-file`: every components/minimal/ file needs a `sources` entry.",
+    "design:guard `template-verbatim`: every mapped file equals its template source byte-for-byte except import",
+    "paths and a leading \"use client\". `verbatim` holds the sha256 of the normalised template source + its import",
+    "specifiers so CI can check without the template; regenerate with",
+    "`node apps/admin-web/scripts/refresh-template-hashes.mjs`. Remaining drift: template-verbatim-baseline.json (shrink-only)."
   ],
-  "template_root": "~/mesha/mui/Minimal_TypeScript_v7.7.0/next-ts",
+  "template_root": "~/mesha/mesha-ui/vendor/minimal/Minimal_TypeScript_v7.7.0/next-ts",
   "sources": {
     "components/minimal/sections/order/order-details-toolbar.tsx": "src/sections/order/order-details-toolbar.tsx",
     "components/minimal/sections/order/order-details-history.tsx": "src/sections/order/order-details-history.tsx",
@@ -25,7 +20,6 @@
     "components/minimal/sections/mail/mail-nav-item.tsx": "src/sections/mail/mail-nav-item.tsx",
     "components/minimal/sections/job/job-item.tsx": "src/sections/job/job-item.tsx",
     "components/minimal/sections/job/job-list.tsx": "src/sections/job/job-list.tsx",
-
     "components/minimal/index.ts": "src/components/index.ts",
     "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",
     "components/minimal/sections/kanban/column/styles.tsx": "src/sections/kanban/column/styles.tsx",
@@ -33,18 +27,14 @@
     "components/minimal/sections/kanban/item/styles.tsx": "src/sections/kanban/item/styles.tsx",
     "components/minimal/sections/invoice/invoice-analytic.tsx": "src/sections/invoice/invoice-analytic.tsx",
     "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": "src/sections/overview/analytics/analytics-website-visits.tsx",
-
     "components/minimal/_shared/config.ts": "src/global-config.ts",
     "components/minimal/_shared/format-number.ts": "src/utils/format-number.ts",
     "components/minimal/_shared/format-time.ts": "src/utils/format-time.ts",
     "components/minimal/_shared/tap.ts": "src/theme/core/components/button.tsx",
     "components/minimal/_shared/phone-tap-styles.tsx": "src/theme/core/components/button.tsx",
-
-
     "components/minimal/calendar/calendar-toolbar.tsx": "src/sections/calendar/calendar-toolbar.tsx",
     "components/minimal/calendar/styles.tsx": "src/sections/calendar/styles.tsx",
     "components/minimal/calendar/index.ts": "src/sections/calendar/index.ts",
-
     "components/minimal/chart/chart.tsx": "src/components/chart/chart.tsx",
     "components/minimal/chart/classes.ts": "src/components/chart/classes.ts",
     "components/minimal/chart/index.ts": "src/components/chart/index.ts",
@@ -55,46 +45,33 @@
     "components/minimal/chart/components/chart-loading.tsx": "src/components/chart/components/chart-loading.tsx",
     "components/minimal/chart/components/chart-select.tsx": "src/components/chart/components/chart-select.tsx",
     "components/minimal/chart/components/index.ts": "src/components/chart/components/index.ts",
-
     "components/minimal/custom-breadcrumbs/back-link.tsx": "src/components/custom-breadcrumbs/back-link.tsx",
     "components/minimal/custom-breadcrumbs/breadcrumb-link.tsx": "src/components/custom-breadcrumbs/breadcrumb-link.tsx",
     "components/minimal/custom-breadcrumbs/custom-breadcrumbs.tsx": "src/components/custom-breadcrumbs/custom-breadcrumbs.tsx",
     "components/minimal/custom-breadcrumbs/index.ts": "src/components/custom-breadcrumbs/index.ts",
     "components/minimal/custom-breadcrumbs/more-links.tsx": "src/components/custom-breadcrumbs/more-links.tsx",
     "components/minimal/custom-breadcrumbs/styles.tsx": "src/components/custom-breadcrumbs/styles.tsx",
-
     "components/minimal/custom-date-range-picker/custom-date-range-picker.tsx": "src/components/custom-date-range-picker/custom-date-range-picker.tsx",
     "components/minimal/custom-date-range-picker/index.ts": "src/components/custom-date-range-picker/index.ts",
     "components/minimal/custom-date-range-picker/use-date-range-picker.ts": "src/components/custom-date-range-picker/use-date-range-picker.ts",
-
     "components/minimal/custom-dialog/confirm-dialog.tsx": "src/components/custom-dialog/confirm-dialog.tsx",
     "components/minimal/custom-dialog/index.ts": "src/components/custom-dialog/index.ts",
     "components/minimal/custom-dialog/types.ts": "src/components/custom-dialog/types.ts",
-
     "components/minimal/custom-popover/index.ts": "src/components/custom-popover/index.ts",
-
     "components/minimal/drawer/minimal-drawer.tsx": "src/sections/calendar/calendar-filters.tsx",
     "components/minimal/drawer/index.ts": "src/sections/calendar/index.ts",
-
     "components/minimal/upload/upload-file.tsx": "src/components/upload/default/upload-default.tsx",
     "components/minimal/upload/index.ts": "src/components/upload/index.ts",
-
     "components/minimal/empty-content/empty-content.tsx": "src/components/empty-content/empty-content.tsx",
     "components/minimal/empty-content/index.ts": "src/components/empty-content/index.ts",
-
     "components/minimal/filters-result/filters-block.tsx": "src/components/filters-result/filters-block.tsx",
     "components/minimal/filters-result/filters-result.tsx": "src/components/filters-result/filters-result.tsx",
     "components/minimal/filters-result/index.ts": "src/components/filters-result/index.ts",
-
     "components/minimal/iconify/index.ts": "src/components/iconify/index.ts",
-
     "components/minimal/kanban/kanban.tsx": "src/sections/kanban/column/styles.tsx",
     "components/minimal/kanban/index.ts": "src/sections/kanban/index.ts",
-
     "components/minimal/label/index.ts": "src/components/label/index.ts",
-
     "components/minimal/link-button.tsx": "src/routes/components/router-link.tsx",
-
     "components/minimal/list/animated-tabs.tsx": "src/sections/user/view/user-list-view.tsx",
     "components/minimal/list/filter-chip.tsx": "src/sections/user/user-table-toolbar.tsx",
     "components/minimal/list/index.ts": "src/sections/user/index.ts",
@@ -102,12 +79,9 @@
     "components/minimal/list/list-toolbar.tsx": "src/sections/user/user-table-toolbar.tsx",
     "components/minimal/list/search-text-field.tsx": "src/sections/user/user-table-toolbar.tsx",
     "components/minimal/list/segment-tabs.tsx": "src/theme/core/components/tabs.tsx",
-
     "components/minimal/loading-screen/loading-screen.tsx": "src/components/loading-screen/loading-screen.tsx",
     "components/minimal/loading-screen/index.ts": "src/components/loading-screen/index.ts",
-
     "components/minimal/progress-list/progress-item.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
-
     "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": "src/sections/overview/banking/banking-expenses-categories.tsx",
     "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": "src/sections/overview/analytics/analytics-conversion-rates.tsx",
     "components/minimal/sections/overview/banking/banking-balance-statistics.tsx": "src/sections/overview/banking/banking-balance-statistics.tsx",
@@ -118,18 +92,13 @@
     "components/minimal/sections/overview/e-commerce/ecommerce-sales-overview.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
     "components/minimal/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": "src/sections/overview/e-commerce/ecommerce-yearly-sales.tsx",
-
     "components/minimal/scrollbar/index.ts": "src/components/scrollbar/index.ts",
-
     "components/minimal/search-not-found/search-not-found.tsx": "src/components/search-not-found/search-not-found.tsx",
     "components/minimal/search-not-found/index.ts": "src/components/search-not-found/index.ts",
-
     "components/minimal/skeletons/card-skeleton.tsx": "src/sections/product/product-skeleton.tsx",
     "components/minimal/skeletons/list-skeleton.tsx": "src/sections/mail/mail-skeleton.tsx",
     "components/minimal/skeletons/index.ts": "src/sections/product/product-skeleton.tsx",
-
     "components/minimal/svg-color/index.ts": "src/components/svg-color/index.ts",
-
     "components/minimal/table/index.ts": "src/components/table/index.ts",
     "components/minimal/table/table-empty-rows.tsx": "src/components/table/table-empty-rows.tsx",
     "components/minimal/table/table-head-custom.tsx": "src/components/table/table-head-custom.tsx",
@@ -140,7 +109,6 @@
     "components/minimal/table/table-skeleton.tsx": "src/components/table/table-skeleton.tsx",
     "components/minimal/table/use-table.ts": "src/components/table/use-table.ts",
     "components/minimal/table/utils.ts": "src/components/table/utils.ts",
-
     "components/minimal/widgets/analytics-widget-summary.tsx": "src/sections/overview/analytics/analytics-widget-summary.tsx",
     "components/minimal/widgets/app-widget-summary.tsx": "src/sections/overview/app/app-widget-summary.tsx",
     "components/minimal/widgets/banking-widget-summary.tsx": "src/sections/overview/banking/banking-overview.tsx",
@@ -153,7 +121,6 @@
     "components/minimal/widgets/stat-strip.tsx": "src/sections/invoice/invoice-analytic.tsx",
     "components/minimal/widgets/types.ts": "src/components/chart/types.ts",
     "components/minimal/widgets/widget-spark-chart.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
-
     "layouts/auth-split/content.tsx": "src/layouts/auth-split/content.tsx",
     "layouts/auth-split/index.ts": "src/layouts/auth-split/index.ts",
     "layouts/auth-split/layout.tsx": "src/layouts/auth-split/layout.tsx",
@@ -245,5 +212,2144 @@
     "layouts/template/svg-color/index.ts": "src/components/svg-color/index.ts",
     "layouts/template/svg-color/svg-color.tsx": "src/components/svg-color/svg-color.tsx",
     "layouts/template/svg-color/types.ts": "src/components/svg-color/types.ts"
+  },
+  "verbatim": {
+    "components/minimal/_shared/config.ts": {
+      "sha256": "dfbe5a354d45505534ad00872cd1afaa210a0fc3f611038bf9010e2e2544f8af",
+      "imports": [
+        "src/routes/paths",
+        "../package.json"
+      ]
+    },
+    "components/minimal/_shared/format-number.ts": {
+      "sha256": "50ca910b2f74c964241b5abb097d894081ef8de795ffc78da9215a9a3a42f4d9",
+      "imports": [
+        "src/locales"
+      ]
+    },
+    "components/minimal/_shared/format-time.ts": {
+      "sha256": "00c3459671d8e1314b4363f21cb8a563a4ac39b1be6284014d16a9a70cd21b91",
+      "imports": [
+        "dayjs",
+        "dayjs",
+        "dayjs/plugin/duration",
+        "dayjs/plugin/relativeTime",
+        "dayjs/plugin/utc"
+      ]
+    },
+    "components/minimal/_shared/phone-tap-styles.tsx": {
+      "sha256": "400b79aa4f72583e607a7c72e8fe30e92f156359364a4de53509052242f783ce",
+      "imports": [
+        "@mui/material/styles",
+        "minimal-shared/utils",
+        "@mui/material/Button",
+        "../palette"
+      ]
+    },
+    "components/minimal/_shared/tap.ts": {
+      "sha256": "400b79aa4f72583e607a7c72e8fe30e92f156359364a4de53509052242f783ce",
+      "imports": [
+        "@mui/material/styles",
+        "minimal-shared/utils",
+        "@mui/material/Button",
+        "../palette"
+      ]
+    },
+    "components/minimal/calendar/calendar-toolbar.tsx": {
+      "sha256": "ea76bf085a2204ed444b867347552c2ca9ba527f2ffcf27354045337a4106a14",
+      "imports": [
+        "src/types/calendar",
+        "src/components/iconify",
+        "./hooks/use-calendar",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Badge",
+        "@mui/material/Button",
+        "@mui/material/Tooltip",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/IconButton",
+        "@mui/material/ToggleButton",
+        "@mui/material/LinearProgress",
+        "@mui/material/ToggleButtonGroup",
+        "src/components/iconify",
+        "src/components/custom-popover"
+      ]
+    },
+    "components/minimal/calendar/styles.tsx": {
+      "sha256": "2788d02e935d638fb11abc2747f7a1b1944456743b1764289d8ec1fcdc94f3d6",
+      "imports": [
+        "@mui/material/styles",
+        "minimal-shared/utils",
+        "@mui/material/styles"
+      ]
+    },
+    "components/minimal/chart/chart.tsx": {
+      "sha256": "81ecbbb0f0cf80a5f1b7733e66203d549a2556e492a60c07c4937ec2ec574189",
+      "imports": [
+        "./types",
+        "react",
+        "minimal-shared/utils",
+        "@mui/material/NoSsr",
+        "@mui/material/styles",
+        "./classes",
+        "./components",
+        "react-apexcharts"
+      ]
+    },
+    "components/minimal/chart/classes.ts": {
+      "sha256": "cc6e0be038e390ba1bef557dc8e7bd491dee524bd910e8e0030687056228b41b",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "components/minimal/chart/components/chart-legends.tsx": {
+      "sha256": "151f0d73b4488f3dafb53bab02952e10f6c3579c44e46177adf00491c17e697e",
+      "imports": [
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "../classes"
+      ]
+    },
+    "components/minimal/chart/components/chart-loading.tsx": {
+      "sha256": "7e91ce971256caebe68dd0d3cf5ee78f58c9fabd688edf0960bfae06cef05441",
+      "imports": [
+        "@mui/material/Box",
+        "../types",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Skeleton",
+        "../classes"
+      ]
+    },
+    "components/minimal/chart/components/chart-select.tsx": {
+      "sha256": "3d8de9decb4e6fe69fdab437b185e0eb6d855339c85befff64d013a1a0096e0f",
+      "imports": [
+        "@mui/material/ButtonBase",
+        "../../custom-popover",
+        "minimal-shared/utils",
+        "minimal-shared/hooks",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/ButtonBase",
+        "../../iconify",
+        "../../custom-popover"
+      ]
+    },
+    "components/minimal/chart/components/index.ts": {
+      "sha256": "a600b21697e4c8be4ded0503e620bac42823eae8a779e399753d5f61009149aa",
+      "imports": [
+        "./chart-select",
+        "./chart-legends",
+        "./chart-loading"
+      ]
+    },
+    "components/minimal/chart/index.ts": {
+      "sha256": "33f35d44302650361eeb4ef6dcb93601c4723fb23e716892b20dcee28902ad9f",
+      "imports": [
+        "./chart",
+        "./use-chart",
+        "./components",
+        "./types"
+      ]
+    },
+    "components/minimal/chart/styles.css": {
+      "sha256": "52a15864b4b3e5f7baef6dcedd79621064f035cca9e8122d25342e9da90dfc1f",
+      "imports": []
+    },
+    "components/minimal/chart/types.ts": {
+      "sha256": "4623436fc3523a3c7df5668b095f2e4e0545fd982d40e19d53a3b91934b5b3e7",
+      "imports": [
+        "apexcharts",
+        "@mui/material/styles",
+        "react-apexcharts"
+      ]
+    },
+    "components/minimal/chart/use-chart.ts": {
+      "sha256": "c5d5f41198e662c9731de121fbda37a831ba15efa4e976da27ab719fbccd9902",
+      "imports": [
+        "@mui/material/styles",
+        "./types",
+        "react",
+        "es-toolkit",
+        "minimal-shared/utils",
+        "@mui/material/styles"
+      ]
+    },
+    "components/minimal/custom-breadcrumbs/back-link.tsx": {
+      "sha256": "d4ecbbf11b8f6dfbc6c68ea67355847b0444632327e2a998379141bb22375d84",
+      "imports": [
+        "@mui/material/Link",
+        "@mui/material/Link",
+        "src/routes/components",
+        "../iconify"
+      ]
+    },
+    "components/minimal/custom-breadcrumbs/breadcrumb-link.tsx": {
+      "sha256": "50c2d3f1ad1c2891671003c86b9980d478b740cb303805bccfe3d05043e1cb25",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/Link",
+        "@mui/material/styles",
+        "src/routes/components"
+      ]
+    },
+    "components/minimal/custom-breadcrumbs/custom-breadcrumbs.tsx": {
+      "sha256": "79ce93f74766c1ca128ea2b58eb6daabedc310628ec4c7b3c13dc7e11439b461",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/Breadcrumbs",
+        "./more-links",
+        "./breadcrumb-link",
+        "@mui/material/Breadcrumbs",
+        "./back-link",
+        "./more-links",
+        "./breadcrumb-link",
+        "./styles"
+      ]
+    },
+    "components/minimal/custom-breadcrumbs/index.ts": {
+      "sha256": "69a84224d0d67c834c845b29b38b74149c9f32d8e14ccfc4a64a9af7e8faabc3",
+      "imports": [
+        "./custom-breadcrumbs"
+      ]
+    },
+    "components/minimal/custom-breadcrumbs/more-links.tsx": {
+      "sha256": "a33a1f4ff6e6ac9b0c1b896305b110acaf51ff037f178a93e776acb89ec67c55",
+      "imports": [
+        "@mui/material/Link",
+        "@mui/material/styles"
+      ]
+    },
+    "components/minimal/custom-breadcrumbs/styles.tsx": {
+      "sha256": "a28a4a80d98da29bb8942c9cff912bd3fd082f719dbcf16aa7ce7f1623c17241",
+      "imports": [
+        "@mui/material/styles"
+      ]
+    },
+    "components/minimal/custom-date-range-picker/custom-date-range-picker.tsx": {
+      "sha256": "f67b84a5944de3cab05e189ae840eb7be8ff66f0634906a70f4ada2b5af89613",
+      "imports": [
+        "@mui/material/Paper",
+        "@mui/material/Dialog",
+        "./use-date-range-picker",
+        "react",
+        "@mui/material/Button",
+        "@mui/material/Dialog",
+        "@mui/material/DialogTitle",
+        "@mui/material/DialogActions",
+        "@mui/material/DialogContent",
+        "@mui/material/useMediaQuery",
+        "@mui/material/FormHelperText",
+        "@mui/x-date-pickers/DatePicker",
+        "@mui/x-date-pickers/DateCalendar"
+      ]
+    },
+    "components/minimal/custom-date-range-picker/index.ts": {
+      "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
+      "imports": [
+        "./use-date-range-picker",
+        "./custom-date-range-picker"
+      ]
+    },
+    "components/minimal/custom-date-range-picker/use-date-range-picker.ts": {
+      "sha256": "a8fcc2fac28e07fb9cb5409b3bb81c6cd439aa715a11ebc68dbd9e1454b62dd2",
+      "imports": [
+        "dayjs",
+        "react",
+        "src/utils/format-time"
+      ]
+    },
+    "components/minimal/custom-dialog/confirm-dialog.tsx": {
+      "sha256": "52718a5321fd04714326d83e8c92f49a0aa4a84ffcbe8e5abecea94f719d8457",
+      "imports": [
+        "./types",
+        "@mui/material/Button",
+        "@mui/material/Dialog",
+        "@mui/material/DialogTitle",
+        "@mui/material/DialogActions",
+        "@mui/material/DialogContent"
+      ]
+    },
+    "components/minimal/custom-dialog/index.ts": {
+      "sha256": "69a84224d0d67c834c845b29b38b74149c9f32d8e14ccfc4a64a9af7e8faabc3",
+      "imports": [
+        "./confirm-dialog"
+      ]
+    },
+    "components/minimal/custom-dialog/types.ts": {
+      "sha256": "76f5f7ed9b99becf2a9bdd9812bb913aa0897a398af844031d2d73b886a3bb96",
+      "imports": [
+        "@mui/material/Dialog"
+      ]
+    },
+    "components/minimal/custom-popover/index.ts": {
+      "sha256": "2630b04a4b3bdbbc0063a7a02ca48968c3be68f77d1016e39002bb1b05a32189",
+      "imports": [
+        "./custom-popover",
+        "./types"
+      ]
+    },
+    "components/minimal/drawer/minimal-drawer.tsx": {
+      "sha256": "efb99698a4a3b8fb73e1525078dbe95acc3312c03c3a576cc4f3fd42d29d32d8",
+      "imports": [
+        "minimal-shared/hooks",
+        "src/types/common",
+        "src/types/calendar",
+        "react",
+        "es-toolkit",
+        "@mui/material/Box",
+        "@mui/material/Badge",
+        "@mui/material/Drawer",
+        "@mui/material/Divider",
+        "@mui/material/Tooltip",
+        "@mui/material/IconButton",
+        "@mui/material/Typography",
+        "@mui/material/ListItemText",
+        "@mui/material/ListItemButton",
+        "@mui/x-date-pickers/DatePicker",
+        "src/utils/format-time",
+        "src/components/iconify",
+        "src/components/scrollbar",
+        "src/components/color-utils"
+      ]
+    },
+    "components/minimal/empty-content/empty-content.tsx": {
+      "sha256": "45bcd7594bfcc5a69f02380d07bbb2beece6694e4657e2ee4b93d7ec07e67d1c",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "@mui/material/Typography",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "@mui/material/Typography",
+        "src/global-config"
+      ]
+    },
+    "components/minimal/empty-content/index.ts": {
+      "sha256": "69a84224d0d67c834c845b29b38b74149c9f32d8e14ccfc4a64a9af7e8faabc3",
+      "imports": [
+        "./empty-content"
+      ]
+    },
+    "components/minimal/filters-result/filters-block.tsx": {
+      "sha256": "3e5ca6e9fd75b9add37f80456768b35b04e9ff560c91442aacf32d96836729cf",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/styles"
+      ]
+    },
+    "components/minimal/filters-result/filters-result.tsx": {
+      "sha256": "234620f9b91ab38e98be50a4c5c3a85c69bd6c2772d1629f382ebf771643f6b7",
+      "imports": [
+        "@mui/material/Chip",
+        "@mui/material/styles",
+        "@mui/material/Button",
+        "@mui/material/styles",
+        "../iconify"
+      ]
+    },
+    "components/minimal/filters-result/index.ts": {
+      "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
+      "imports": [
+        "./filters-block",
+        "./filters-result"
+      ]
+    },
+    "components/minimal/iconify/index.ts": {
+      "sha256": "a600b21697e4c8be4ded0503e620bac42823eae8a779e399753d5f61009149aa",
+      "imports": [
+        "./classes",
+        "./iconify",
+        "./register-icons"
+      ]
+    },
+    "components/minimal/kanban/kanban.tsx": {
+      "sha256": "fe650cf2d12c0eeca9f64020a0be67c8dbf6966d0476478521d91d303d322af5",
+      "imports": [
+        "@mui/material/styles",
+        "framer-motion",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "../classes"
+      ]
+    },
+    "components/minimal/label/index.ts": {
+      "sha256": "33f35d44302650361eeb4ef6dcb93601c4723fb23e716892b20dcee28902ad9f",
+      "imports": [
+        "./label",
+        "./styles",
+        "./classes",
+        "./types"
+      ]
+    },
+    "components/minimal/link-button.tsx": {
+      "sha256": "ab116fd92c1be3a869441ffd43ac74a1047dfc4fc7891403ef3c5534a3256ab6",
+      "imports": [
+        "next/link"
+      ]
+    },
+    "components/minimal/list/animated-tabs.tsx": {
+      "sha256": "6bdfdecd0d6e156d797b383f9a3e4f07ad0c0e6c00b5a7fb9abf2cd51d8324e3",
+      "imports": [
+        "src/components/table",
+        "src/types/user",
+        "react",
+        "minimal-shared/utils",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Tab",
+        "@mui/material/Tabs",
+        "@mui/material/Card",
+        "@mui/material/Table",
+        "@mui/material/Button",
+        "@mui/material/Tooltip",
+        "@mui/material/TableBody",
+        "@mui/material/IconButton",
+        "src/routes/paths",
+        "src/routes/components",
+        "src/layouts/dashboard",
+        "src/_mock",
+        "src/components/label",
+        "src/components/snackbar",
+        "src/components/iconify",
+        "src/components/scrollbar",
+        "src/components/custom-dialog",
+        "src/components/custom-breadcrumbs",
+        "src/components/table",
+        "../user-table-row",
+        "../user-table-toolbar",
+        "../user-table-filters-result"
+      ]
+    },
+    "components/minimal/list/filter-chip.tsx": {
+      "sha256": "9db54d9f8d0ed65ec3ad65a2355a1d9d39e2c1690656f769e2b1326e29d9f0e6",
+      "imports": [
+        "@mui/material/Select",
+        "minimal-shared/hooks",
+        "src/types/user",
+        "react",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Select",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/Checkbox",
+        "@mui/material/TextField",
+        "@mui/material/InputLabel",
+        "@mui/material/IconButton",
+        "@mui/material/FormControl",
+        "@mui/material/InputAdornment",
+        "src/components/iconify",
+        "src/components/custom-popover"
+      ]
+    },
+    "components/minimal/list/label-tabs.tsx": {
+      "sha256": "6bdfdecd0d6e156d797b383f9a3e4f07ad0c0e6c00b5a7fb9abf2cd51d8324e3",
+      "imports": [
+        "src/components/table",
+        "src/types/user",
+        "react",
+        "minimal-shared/utils",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Tab",
+        "@mui/material/Tabs",
+        "@mui/material/Card",
+        "@mui/material/Table",
+        "@mui/material/Button",
+        "@mui/material/Tooltip",
+        "@mui/material/TableBody",
+        "@mui/material/IconButton",
+        "src/routes/paths",
+        "src/routes/components",
+        "src/layouts/dashboard",
+        "src/_mock",
+        "src/components/label",
+        "src/components/snackbar",
+        "src/components/iconify",
+        "src/components/scrollbar",
+        "src/components/custom-dialog",
+        "src/components/custom-breadcrumbs",
+        "src/components/table",
+        "../user-table-row",
+        "../user-table-toolbar",
+        "../user-table-filters-result"
+      ]
+    },
+    "components/minimal/list/list-toolbar.tsx": {
+      "sha256": "9db54d9f8d0ed65ec3ad65a2355a1d9d39e2c1690656f769e2b1326e29d9f0e6",
+      "imports": [
+        "@mui/material/Select",
+        "minimal-shared/hooks",
+        "src/types/user",
+        "react",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Select",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/Checkbox",
+        "@mui/material/TextField",
+        "@mui/material/InputLabel",
+        "@mui/material/IconButton",
+        "@mui/material/FormControl",
+        "@mui/material/InputAdornment",
+        "src/components/iconify",
+        "src/components/custom-popover"
+      ]
+    },
+    "components/minimal/list/search-text-field.tsx": {
+      "sha256": "9db54d9f8d0ed65ec3ad65a2355a1d9d39e2c1690656f769e2b1326e29d9f0e6",
+      "imports": [
+        "@mui/material/Select",
+        "minimal-shared/hooks",
+        "src/types/user",
+        "react",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Select",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/Checkbox",
+        "@mui/material/TextField",
+        "@mui/material/InputLabel",
+        "@mui/material/IconButton",
+        "@mui/material/FormControl",
+        "@mui/material/InputAdornment",
+        "src/components/iconify",
+        "src/components/custom-popover"
+      ]
+    },
+    "components/minimal/list/segment-tabs.tsx": {
+      "sha256": "3fe38781c44627c5d6f64fea661a9e3ac02387f8766a7ab3c2355b14966df9d2",
+      "imports": [
+        "@mui/material/Tabs",
+        "@mui/material/styles",
+        "@mui/material/Tab"
+      ]
+    },
+    "components/minimal/loading-screen/index.ts": {
+      "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
+      "imports": [
+        "./splash-screen",
+        "./loading-screen"
+      ]
+    },
+    "components/minimal/loading-screen/loading-screen.tsx": {
+      "sha256": "06fdd30c8716ee48b0c1ab175b1cdd0905a1ca8a27ff70fb7194048f4607c46e",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/LinearProgress",
+        "@mui/material/Portal",
+        "@mui/material/styles",
+        "@mui/material/LinearProgress"
+      ]
+    },
+    "components/minimal/progress-list/progress-item.tsx": {
+      "sha256": "9601669f90123c43a44516b1824522f59c6973e255de935042459d1065c86e1d",
+      "imports": [
+        "@mui/material/Card",
+        "@mui/material/LinearProgress",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/CardHeader",
+        "@mui/material/LinearProgress",
+        "src/utils/format-number"
+      ]
+    },
+    "components/minimal/scrollbar/index.ts": {
+      "sha256": "8c5d41305b253475fc728f21f77445bd78eda9385a8a160600a46f898d694b7a",
+      "imports": [
+        "./classes",
+        "./scrollbar",
+        "./types"
+      ]
+    },
+    "components/minimal/search-not-found/index.ts": {
+      "sha256": "69a84224d0d67c834c845b29b38b74149c9f32d8e14ccfc4a64a9af7e8faabc3",
+      "imports": [
+        "./search-not-found"
+      ]
+    },
+    "components/minimal/search-not-found/search-not-found.tsx": {
+      "sha256": "15ca4eb76b3455579adf38f967992e0957755e4a08752ea796fe938ff27621bd",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "@mui/material/Typography",
+        "@mui/material/Box",
+        "@mui/material/Typography"
+      ]
+    },
+    "components/minimal/sections/invoice/invoice-analytic.tsx": {
+      "sha256": "c9e385bdc3beac5acc792d31aecb82c9f7e7b64f5e4715d2cb21de7d40680901",
+      "imports": [
+        "src/components/iconify",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Typography",
+        "@mui/material/CircularProgress",
+        "src/utils/format-number",
+        "src/components/iconify"
+      ]
+    },
+    "components/minimal/sections/job/job-item.tsx": {
+      "sha256": "69da6604d3401edaf85f463d9afd1dc7c435ba4460ecf77617df66fce2b666f2",
+      "imports": [
+        "@mui/material/Card",
+        "src/types/job",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Link",
+        "@mui/material/Card",
+        "@mui/material/Avatar",
+        "@mui/material/Divider",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/IconButton",
+        "@mui/material/Typography",
+        "@mui/material/ListItemText",
+        "src/routes/components",
+        "src/utils/format-time",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/custom-popover"
+      ]
+    },
+    "components/minimal/sections/job/job-list.tsx": {
+      "sha256": "baf4039ded94b5b321b6414146d1517bb8df1873b6d60a4a248a1c00ae45ba10",
+      "imports": [
+        "src/types/job",
+        "react",
+        "@mui/material/Box",
+        "@mui/material/Pagination",
+        "src/routes/paths",
+        "./job-item"
+      ]
+    },
+    "components/minimal/sections/kanban/column/styles.tsx": {
+      "sha256": "fe650cf2d12c0eeca9f64020a0be67c8dbf6966d0476478521d91d303d322af5",
+      "imports": [
+        "@mui/material/styles",
+        "framer-motion",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "../classes"
+      ]
+    },
+    "components/minimal/sections/kanban/details/kanban-details.tsx": {
+      "sha256": "36028c6d7f71f2215433c253d1dbcf8e9af137b20ee0d77a59ca84bfff1f4559",
+      "imports": [
+        "src/types/kanban",
+        "dayjs",
+        "react",
+        "minimal-shared/utils",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Tab",
+        "@mui/material/Chip",
+        "@mui/material/Tabs",
+        "@mui/material/Drawer",
+        "@mui/material/Button",
+        "@mui/material/Avatar",
+        "@mui/material/Tooltip",
+        "@mui/material/styles",
+        "@mui/material/Checkbox",
+        "@mui/material/TextField",
+        "@mui/material/FormGroup",
+        "@mui/material/Typography",
+        "@mui/material/IconButton",
+        "@mui/material/LinearProgress",
+        "@mui/material/FormControlLabel",
+        "src/components/iconify",
+        "src/components/scrollbar",
+        "src/components/custom-date-range-picker",
+        "./kanban-details-toolbar",
+        "../components/kanban-input-name",
+        "./kanban-details-priority",
+        "./kanban-details-attachments",
+        "./kanban-details-comment-list",
+        "./kanban-details-comment-input",
+        "../components/kanban-contacts-dialog"
+      ]
+    },
+    "components/minimal/sections/kanban/item/styles.tsx": {
+      "sha256": "2448305868e455c296714cbfb20a8912152319c373a1021ad310f651342b0bdb",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/Typography",
+        "src/types/kanban",
+        "src/components/iconify",
+        "framer-motion",
+        "@mui/material/Box",
+        "@mui/material/Avatar",
+        "@mui/material/styles",
+        "@mui/material/Typography",
+        "@mui/material/AvatarGroup",
+        "src/components/iconify",
+        "src/components/image",
+        "../classes"
+      ]
+    },
+    "components/minimal/sections/mail/mail-nav-item.tsx": {
+      "sha256": "2b88c14c469c84b08228ddb06e554f96d2f01523f75ef9f29e766f020b752336",
+      "imports": [
+        "@mui/material/ListItemButton",
+        "src/types/mail",
+        "src/components/iconify",
+        "@mui/material/Box",
+        "@mui/material/ListItemButton",
+        "src/components/iconify"
+      ]
+    },
+    "components/minimal/sections/order/order-details-customer.tsx": {
+      "sha256": "98d1fec1d4d0dc13555487eac1029422ef919bac41419ccb5fa3ce15659c282a",
+      "imports": [
+        "src/types/order",
+        "@mui/material/Box",
+        "@mui/material/Stack",
+        "@mui/material/Button",
+        "@mui/material/Avatar",
+        "@mui/material/IconButton",
+        "@mui/material/CardHeader",
+        "@mui/material/Typography",
+        "src/components/iconify"
+      ]
+    },
+    "components/minimal/sections/order/order-details-delivery.tsx": {
+      "sha256": "6c0f21e7410dcef44fc261325d0c49d304bac417824b8348a1f8fd21c13fe82e",
+      "imports": [
+        "src/types/order",
+        "@mui/material/Box",
+        "@mui/material/Link",
+        "@mui/material/Stack",
+        "@mui/material/IconButton",
+        "@mui/material/CardHeader",
+        "src/components/iconify"
+      ]
+    },
+    "components/minimal/sections/order/order-details-history.tsx": {
+      "sha256": "3d653eeae07c92ead0bf9f1a4348bd4d07730d6d5da1de6852609508d48c3993",
+      "imports": [
+        "src/types/order",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/Paper",
+        "@mui/lab/Timeline",
+        "@mui/material/Button",
+        "@mui/lab/TimelineDot",
+        "@mui/material/CardHeader",
+        "@mui/material/Typography",
+        "@mui/lab/TimelineContent",
+        "@mui/lab/TimelineSeparator",
+        "@mui/lab/TimelineConnector",
+        "@mui/lab/TimelineItem",
+        "src/utils/format-time",
+        "src/components/iconify"
+      ]
+    },
+    "components/minimal/sections/order/order-details-items.tsx": {
+      "sha256": "e667e8789201f9b3ea58ede771e959ad09c9954c66c138662776e331c8a6d06e",
+      "imports": [
+        "@mui/material/Card",
+        "src/types/order",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/Avatar",
+        "@mui/material/CardHeader",
+        "@mui/material/IconButton",
+        "@mui/material/ListItemText",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/scrollbar"
+      ]
+    },
+    "components/minimal/sections/order/order-details-toolbar.tsx": {
+      "sha256": "7e20b3526cbe0ff02e016aa2605fc6ac8bec8a4d44d66e17cd856d5ed271ebea",
+      "imports": [
+        "src/types/common",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Stack",
+        "@mui/material/Button",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/IconButton",
+        "@mui/material/Typography",
+        "src/routes/components",
+        "src/utils/format-time",
+        "src/components/label",
+        "src/components/iconify",
+        "src/components/custom-popover"
+      ]
+    },
+    "components/minimal/sections/order/order-table-toolbar.tsx": {
+      "sha256": "c3be33a4f3b743bf26e587455e507ba78d6aac007f80d5aff7cd223a3ec68f2a",
+      "imports": [
+        "minimal-shared/hooks",
+        "src/types/order",
+        "src/types/common",
+        "react",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/TextField",
+        "@mui/material/IconButton",
+        "@mui/material/InputAdornment",
+        "@mui/x-date-pickers/DatePicker",
+        "@mui/material/FormHelperText",
+        "src/components/iconify",
+        "src/components/custom-popover"
+      ]
+    },
+    "components/minimal/sections/overview/analytics/analytics-conversion-rates.tsx": {
+      "sha256": "05a203601bd52445b0470b9bca799fdc926e9a764feccf91287320fe22760064",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "@mui/material/Card",
+        "@mui/material/CardHeader",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/sections/overview/analytics/analytics-website-visits.tsx": {
+      "sha256": "94e4c962e33aca0004f69f2633c6205db7a65dbfed1180ad55f655e5792eeea0",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "@mui/material/Card",
+        "@mui/material/CardHeader",
+        "@mui/material/styles",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/sections/overview/banking/banking-balance-statistics.tsx": {
+      "sha256": "2b2a2a92ac1e349ed5cf454c8c8f93b652a7c5aca8cd4a62d2c7c97d71a81901",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "react",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "@mui/material/CardHeader",
+        "src/utils/format-number",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/sections/overview/banking/banking-expenses-categories.tsx": {
+      "sha256": "1a6655ca9b285ee198c9e401eb0a19a57cba7823e9f62cce859480c9d8109e5b",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/Divider",
+        "@mui/material/styles",
+        "@mui/material/CardHeader",
+        "src/utils/format-number",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/sections/overview/e-commerce/ecommerce-best-salesman.tsx": {
+      "sha256": "a8aa485e520de94c7a06122312b38b44132d3cd161d87f7d98a208c344d5864f",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/table",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/Table",
+        "@mui/material/Avatar",
+        "@mui/material/TableRow",
+        "@mui/material/TableCell",
+        "@mui/material/TableBody",
+        "@mui/material/CardHeader",
+        "src/utils/format-number",
+        "src/components/label",
+        "src/components/flag-icon",
+        "src/components/scrollbar",
+        "src/components/table"
+      ]
+    },
+    "components/minimal/sections/overview/e-commerce/ecommerce-current-balance.tsx": {
+      "sha256": "675876e2d2f4e8824b7c7b3624875fbf01a44daea61246e69395729d68444efd",
+      "imports": [
+        "@mui/material/Card",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/Button",
+        "src/utils/format-number"
+      ]
+    },
+    "components/minimal/sections/overview/e-commerce/ecommerce-latest-products.tsx": {
+      "sha256": "848a88a1f436e55953969ff2be79913396897d519079710c4db23256c0a535bd",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/Box",
+        "@mui/material/Link",
+        "@mui/material/Card",
+        "@mui/material/Avatar",
+        "@mui/material/CardHeader",
+        "src/utils/format-number",
+        "src/components/scrollbar",
+        "src/components/color-utils"
+      ]
+    },
+    "components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender.tsx": {
+      "sha256": "3c10d74c869cb0a6b3823c0eaf6ca2b3d4b26ca945692467798518d202ef4665",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "minimal-shared/utils",
+        "@mui/material/Card",
+        "@mui/material/Divider",
+        "@mui/material/CardHeader",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/sections/overview/e-commerce/ecommerce-sales-overview.tsx": {
+      "sha256": "9601669f90123c43a44516b1824522f59c6973e255de935042459d1065c86e1d",
+      "imports": [
+        "@mui/material/Card",
+        "@mui/material/LinearProgress",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/CardHeader",
+        "@mui/material/LinearProgress",
+        "src/utils/format-number"
+      ]
+    },
+    "components/minimal/sections/overview/e-commerce/ecommerce-widget-summary.tsx": {
+      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/sections/overview/e-commerce/ecommerce-yearly-sales.tsx": {
+      "sha256": "8576528f2d7adba2d3dd90d8eb7c24691e3890826146148ee0d11cb950cce942",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "react",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "@mui/material/CardHeader",
+        "src/utils/format-number",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/sections/user/user-table-row.tsx": {
+      "sha256": "5ed2173cf281193736b2726b6b191f0beeb9409a38f701db6aa38a87a686570b",
+      "imports": [
+        "src/types/user",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Link",
+        "@mui/material/Stack",
+        "@mui/material/Button",
+        "@mui/material/Avatar",
+        "@mui/material/Tooltip",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/TableRow",
+        "@mui/material/Checkbox",
+        "@mui/material/TableCell",
+        "@mui/material/IconButton",
+        "src/routes/components",
+        "src/components/label",
+        "src/components/iconify",
+        "src/components/custom-dialog",
+        "src/components/custom-popover",
+        "./user-quick-edit-form"
+      ]
+    },
+    "components/minimal/skeletons/card-skeleton.tsx": {
+      "sha256": "33b9fbd938609e01d814ab63bd8a1debefcdeea749790b2e331a791e01a2d5dd",
+      "imports": [
+        "@mui/material/Grid",
+        "@mui/material/Paper",
+        "@mui/material/Box",
+        "@mui/material/Grid",
+        "@mui/material/Stack",
+        "@mui/material/Paper",
+        "@mui/material/Skeleton"
+      ]
+    },
+    "components/minimal/skeletons/index.ts": {
+      "sha256": "33b9fbd938609e01d814ab63bd8a1debefcdeea749790b2e331a791e01a2d5dd",
+      "imports": [
+        "@mui/material/Grid",
+        "@mui/material/Paper",
+        "@mui/material/Box",
+        "@mui/material/Grid",
+        "@mui/material/Stack",
+        "@mui/material/Paper",
+        "@mui/material/Skeleton"
+      ]
+    },
+    "components/minimal/skeletons/list-skeleton.tsx": {
+      "sha256": "30599eadabd7b7317ac0c2b4b74c099a4f57bf8405598ca000a9178f96a6eab8",
+      "imports": [
+        "@mui/material/Box",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Skeleton"
+      ]
+    },
+    "components/minimal/svg-color/index.ts": {
+      "sha256": "8c5d41305b253475fc728f21f77445bd78eda9385a8a160600a46f898d694b7a",
+      "imports": [
+        "./classes",
+        "./svg-color",
+        "./types"
+      ]
+    },
+    "components/minimal/table/index.ts": {
+      "sha256": "0f5bc990b3f2856ffd6a83f25f44dbf389f063cc2396d29658949e807e7a10cf",
+      "imports": [
+        "./utils",
+        "./use-table",
+        "./table-no-data",
+        "./table-skeleton",
+        "./table-empty-rows",
+        "./table-head-custom",
+        "./table-selected-action",
+        "./table-pagination-custom"
+      ]
+    },
+    "components/minimal/table/table-empty-rows.tsx": {
+      "sha256": "ccc302799be8b0e6b19a94503f3c80be0f31df8cc630fd712516aeb531b2c466",
+      "imports": [
+        "@mui/material/TableRow",
+        "@mui/material/TableRow",
+        "@mui/material/TableCell"
+      ]
+    },
+    "components/minimal/table/table-head-custom.tsx": {
+      "sha256": "7ac2783f4d7c5466096c0d6948766dc7d91ab4d85af93841698bb8edb1b6fca4",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/Box",
+        "@mui/material/TableRow",
+        "@mui/material/Checkbox",
+        "@mui/material/TableHead",
+        "@mui/material/TableCell",
+        "@mui/material/TableSortLabel"
+      ]
+    },
+    "components/minimal/table/table-no-data.tsx": {
+      "sha256": "54bea14335db0df5488b123a9d40e4fc2653aaa3b8477200e7b23141876eacd5",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/TableRow",
+        "@mui/material/TableCell",
+        "../empty-content"
+      ]
+    },
+    "components/minimal/table/table-pagination-custom.tsx": {
+      "sha256": "1209b743b9a154980e449808e1c5617734f6eda1f60851ba3291e514464905fb",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/TablePagination",
+        "@mui/material/Box",
+        "@mui/material/Switch",
+        "@mui/material/TablePagination",
+        "@mui/material/FormControlLabel"
+      ]
+    },
+    "components/minimal/table/table-pagination-links.tsx": {
+      "sha256": "1209b743b9a154980e449808e1c5617734f6eda1f60851ba3291e514464905fb",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/TablePagination",
+        "@mui/material/Box",
+        "@mui/material/Switch",
+        "@mui/material/TablePagination",
+        "@mui/material/FormControlLabel"
+      ]
+    },
+    "components/minimal/table/table-selected-action.tsx": {
+      "sha256": "6a96dc7e08d7cf2037591be659b16bee97ffd2266a6a586efb59365935ddd945",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/Box",
+        "@mui/material/Checkbox",
+        "@mui/material/Typography"
+      ]
+    },
+    "components/minimal/table/table-skeleton.tsx": {
+      "sha256": "2f0e9eee47e35068f30dc2e42d292805a445b3b865bf56c82f315242b928086c",
+      "imports": [
+        "@mui/material/TableRow",
+        "@mui/material/Skeleton",
+        "@mui/material/TableRow",
+        "@mui/material/TableCell"
+      ]
+    },
+    "components/minimal/table/use-table.ts": {
+      "sha256": "657aeae06859b02ba7172656a47b87ee02fd6c22887781e0fc579944907881c9",
+      "imports": [
+        "react"
+      ]
+    },
+    "components/minimal/table/utils.ts": {
+      "sha256": "2ee3f980dc6316f091f1ffba5d2111f430ab7c13be1150f825b089d0369c4e1b",
+      "imports": []
+    },
+    "components/minimal/upload/index.ts": {
+      "sha256": "5f0049e24840473bb9baae45c0a3d9160d51ede2f5bec8b4d2e06b4da7985f24",
+      "imports": [
+        "./box/upload-box",
+        "./avatar/upload-avatar",
+        "./default/upload-default",
+        "./components/rejected-files",
+        "./components/multi-file-preview",
+        "./components/single-file-preview",
+        "./types"
+      ]
+    },
+    "components/minimal/upload/upload-file.tsx": {
+      "sha256": "13a521047f07434921f5141af22433952f9c035370dfba0493b7fd35416df2da",
+      "imports": [
+        "../types",
+        "react-dropzone",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Button",
+        "@mui/material/FormHelperText",
+        "@mui/material/CircularProgress",
+        "src/assets/illustrations",
+        "../../iconify",
+        "../classes",
+        "../components/rejected-files",
+        "../components/multi-file-preview",
+        "../components/single-file-preview",
+        "./styles"
+      ]
+    },
+    "components/minimal/widgets/analytics-widget-summary.tsx": {
+      "sha256": "437fc566de525b1c05f49ad7bb75218c066b4a1628b3997b20ac117a75f3576d",
+      "imports": [
+        "@mui/material/Card",
+        "src/theme/core",
+        "src/components/chart",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/global-config",
+        "src/components/iconify",
+        "src/components/svg-color",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/widgets/app-widget-summary.tsx": {
+      "sha256": "0955bbf117e178520838003a538cc7553a0adedb9a21391f440f552afb04dbdb",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/widgets/banking-widget-summary.tsx": {
+      "sha256": "fac03f13f09bccbc275529d0a2cbf80b333993138004765697bf9262093c8ca9",
+      "imports": [
+        "@mui/material/Card",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Tab",
+        "@mui/material/Card",
+        "@mui/material/Tabs",
+        "@mui/material/Button",
+        "@mui/material/Tooltip",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/label",
+        "src/components/iconify",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/widgets/course-widget-summary.tsx": {
+      "sha256": "6429f5124021ad6b4aa4088f716e0d88267ec7303f700bce88133de4fbfdf15a",
+      "imports": [
+        "@mui/material/Card",
+        "src/theme/core",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/Typography",
+        "src/utils/format-number",
+        "src/components/svg-color"
+      ]
+    },
+    "components/minimal/widgets/ecommerce-widget-summary.tsx": {
+      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/widgets/kpi-card.tsx": {
+      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/widgets/kpi-grid.tsx": {
+      "sha256": "926ca245fde00e000c4509ab5a205e30f7bffdce3fdc6e0a86eb35a0578ebb93",
+      "imports": [
+        "@mui/material/Grid",
+        "@mui/material/Button",
+        "@mui/material/styles",
+        "src/layouts/dashboard",
+        "src/assets/illustrations",
+        "src/_mock",
+        "src/auth/hooks",
+        "../ecommerce-welcome",
+        "../ecommerce-new-products",
+        "../ecommerce-yearly-sales",
+        "../ecommerce-best-salesman",
+        "../ecommerce-sale-by-gender",
+        "../ecommerce-sales-overview",
+        "../ecommerce-widget-summary",
+        "../ecommerce-latest-products",
+        "../ecommerce-current-balance"
+      ]
+    },
+    "components/minimal/widgets/kpi-parts.ts": {
+      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/chart"
+      ]
+    },
+    "components/minimal/widgets/stat-strip.tsx": {
+      "sha256": "c9e385bdc3beac5acc792d31aecb82c9f7e7b64f5e4715d2cb21de7d40680901",
+      "imports": [
+        "src/components/iconify",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Typography",
+        "@mui/material/CircularProgress",
+        "src/utils/format-number",
+        "src/components/iconify"
+      ]
+    },
+    "components/minimal/widgets/types.ts": {
+      "sha256": "4623436fc3523a3c7df5668b095f2e4e0545fd982d40e19d53a3b91934b5b3e7",
+      "imports": [
+        "apexcharts",
+        "@mui/material/styles",
+        "react-apexcharts"
+      ]
+    },
+    "components/minimal/widgets/widget-spark-chart.tsx": {
+      "sha256": "1b86b3c1cd4039773d7a057ec73b758c18c0f2e78307b6f94f21a88eede884e2",
+      "imports": [
+        "@mui/material/Card",
+        "src/components/chart",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Card",
+        "@mui/material/styles",
+        "src/utils/format-number",
+        "src/components/iconify",
+        "src/components/chart"
+      ]
+    },
+    "layouts/auth-split/content.tsx": {
+      "sha256": "68984ef811fc02dbb5fd7e3ad03dd27dff6a1405458b29129f84970494cbaa1a",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "../core"
+      ]
+    },
+    "layouts/auth-split/index.ts": {
+      "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
+      "imports": [
+        "./layout",
+        "./content"
+      ]
+    },
+    "layouts/auth-split/layout.tsx": {
+      "sha256": "b9e2d12f128ce1a68ae7d56ac71d24c789c0cf3ec70abc19a5ba11ef3d394c3b",
+      "imports": [
+        "@mui/material/styles",
+        "./section",
+        "./content",
+        "../core",
+        "es-toolkit",
+        "@mui/material/Box",
+        "@mui/material/Link",
+        "@mui/material/Alert",
+        "src/routes/paths",
+        "src/routes/components",
+        "src/global-config",
+        "src/components/logo",
+        "./section",
+        "./content",
+        "../components/settings-button",
+        "../core"
+      ]
+    },
+    "layouts/auth-split/section.tsx": {
+      "sha256": "185bf9f2b06f2733b32d13b17fa917778146e189ffd03ab92bb1e2b1134e55c7",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Link",
+        "@mui/material/Tooltip",
+        "@mui/material/Typography",
+        "src/routes/components",
+        "src/global-config"
+      ]
+    },
+    "layouts/components/account-button.tsx": {
+      "sha256": "b41edc491572958f03018a145ab3358ca5cf9c78f1d77246af1befa573d71e86",
+      "imports": [
+        "@mui/material/IconButton",
+        "framer-motion",
+        "@mui/material/Avatar",
+        "@mui/material/IconButton",
+        "src/components/animate"
+      ]
+    },
+    "layouts/components/menu-button.tsx": {
+      "sha256": "26b4846576251faa6e1b029a3e26fe57511bcb50e60398a67c2561d369cbe226",
+      "imports": [
+        "@mui/material/IconButton",
+        "@mui/material/IconButton",
+        "src/components/iconify"
+      ]
+    },
+    "layouts/components/nav-toggle-button.tsx": {
+      "sha256": "5e05961eb030dbf7146c02bbfd1ddc5abcac79342f7eb3c52004cc2317bf59c8",
+      "imports": [
+        "@mui/material/IconButton",
+        "minimal-shared/utils",
+        "@mui/material/IconButton",
+        "src/components/iconify"
+      ]
+    },
+    "layouts/components/workspaces-button.tsx": {
+      "sha256": "0b2b1b999953c84ac9f1ac26fb3308278cf250b534f3ca75c1d4feaa454b3a41",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/ButtonBase",
+        "react",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Avatar",
+        "@mui/material/Divider",
+        "@mui/material/MenuList",
+        "@mui/material/MenuItem",
+        "@mui/material/Typography",
+        "@mui/material/ButtonBase",
+        "@mui/material/Button",
+        "src/components/label",
+        "src/components/iconify",
+        "src/components/scrollbar",
+        "src/components/custom-popover"
+      ]
+    },
+    "layouts/core/classes.ts": {
+      "sha256": "df25e97ae3afde67639405f43b138612527d28b3cc6ee363137d70c84466085f",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/core/css-vars.ts": {
+      "sha256": "fa1222998c5b2bfa03f64882f469aa5f73fd826ff0b262d9c848133e97734e8e",
+      "imports": [
+        "@mui/material/styles"
+      ]
+    },
+    "layouts/core/header-section.tsx": {
+      "sha256": "70c406495f771b8bd0e79c7ba6f05cea0e8687f7d2e80f079d015cc1cab4f98d",
+      "imports": [
+        "@mui/material/AppBar",
+        "@mui/material/Container",
+        "@mui/material/styles",
+        "minimal-shared/hooks",
+        "minimal-shared/utils",
+        "@mui/material/AppBar",
+        "@mui/material/styles",
+        "@mui/material/Container",
+        "./classes"
+      ]
+    },
+    "layouts/core/index.ts": {
+      "sha256": "e7588edc2c7e87a06b2f48cf55d40898261b52af3c777f7105997cf9e153760b",
+      "imports": [
+        "./classes",
+        "./css-vars",
+        "./main-section",
+        "./layout-section",
+        "./header-section"
+      ]
+    },
+    "layouts/core/layout-section.tsx": {
+      "sha256": "11e896ba8acf4b597f0aeb53df0ac922df50982506e2a7b111bf84dcf88365eb",
+      "imports": [
+        "@mui/material/styles",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "@mui/material/GlobalStyles",
+        "./classes",
+        "./css-vars"
+      ]
+    },
+    "layouts/core/main-section.tsx": {
+      "sha256": "e6d81da2331cc223885ec55dfcc7f12d711d2edd68ec7de6e38b96aa79e55e82",
+      "imports": [
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./classes"
+      ]
+    },
+    "layouts/dashboard/content.tsx": {
+      "sha256": "aa8ef3983dce9f33c793da7a2af2a6c894d1aee4bd677b7345bea8f215ff6705",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/Container",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "@mui/material/Container",
+        "src/components/settings",
+        "../core"
+      ]
+    },
+    "layouts/dashboard/css-vars.ts": {
+      "sha256": "282e2d09e2fe06f039f4fa21c1a573e92ce005f2be7b44b51e13a2aa7130c699",
+      "imports": [
+        "@mui/material/styles",
+        "src/components/settings",
+        "minimal-shared/utils",
+        "src/components/nav-section"
+      ]
+    },
+    "layouts/dashboard/index.ts": {
+      "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
+      "imports": [
+        "./layout",
+        "./content"
+      ]
+    },
+    "layouts/dashboard/layout.tsx": {
+      "sha256": "597afcd942c7fe69a68bed8150c7e40bd4c72d4ae535402fee280342870541a7",
+      "imports": [
+        "@mui/material/styles",
+        "src/components/nav-section",
+        "../core",
+        "es-toolkit",
+        "minimal-shared/hooks",
+        "@mui/material/Box",
+        "@mui/material/Alert",
+        "@mui/material/styles",
+        "@mui/material/IconButton",
+        "src/locales",
+        "src/_mock",
+        "src/components/logo",
+        "src/components/settings",
+        "src/auth/hooks",
+        "./nav-mobile",
+        "./content",
+        "./nav-vertical",
+        "./nav-horizontal",
+        "../nav-config-account",
+        "../components/searchbar",
+        "../nav-config-workspace",
+        "../components/menu-button",
+        "../components/account-drawer",
+        "../components/settings-button",
+        "../components/language-popover",
+        "../components/contacts-popover",
+        "../components/workspaces-popover",
+        "../nav-config-dashboard",
+        "./css-vars",
+        "../components/notifications-drawer",
+        "../core"
+      ]
+    },
+    "layouts/dashboard/nav-mobile.tsx": {
+      "sha256": "1017a01a29e2c8bc4fa937fdad10676d7d586ab8128ae20e3266b3630af36b71",
+      "imports": [
+        "src/components/nav-section",
+        "react",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/Drawer",
+        "src/routes/hooks",
+        "src/components/logo",
+        "src/components/scrollbar",
+        "src/components/nav-section",
+        "../core",
+        "../components/nav-upgrade"
+      ]
+    },
+    "layouts/dashboard/nav-vertical.tsx": {
+      "sha256": "35e492691f206225f79f81bed3887105600937c17eb4b59b1d169465381dfe51",
+      "imports": [
+        "@mui/material/styles",
+        "src/components/nav-section",
+        "minimal-shared/utils",
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "src/components/logo",
+        "src/components/scrollbar",
+        "src/components/nav-section",
+        "../core",
+        "../components/nav-upgrade",
+        "../components/nav-toggle-button"
+      ]
+    },
+    "layouts/template/animate/animate-border.tsx": {
+      "sha256": "48501f9b400411af3e96fca6e8140998bbfbb2cc2d49d3c2faeee6508b303f8b",
+      "imports": [
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "minimal-shared/utils",
+        "react",
+        "framer-motion",
+        "@mui/material/Box",
+        "@mui/material/styles",
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/template/animate/features.ts": {
+      "sha256": "36d1298d7122ffa6b4540273939c8345298428593e5cde2b26cfb50d99858f55",
+      "imports": [
+        "framer-motion"
+      ]
+    },
+    "layouts/template/animate/index.ts": {
+      "sha256": "2716e226b29553d907bf638dd9bc0cd1447ef131adb6d99e99ca916a03197100",
+      "imports": [
+        "./variants",
+        "./animate-text",
+        "./animate-logo",
+        "./animate-border",
+        "./motion-viewport",
+        "./scroll-progress",
+        "./animate-count-up",
+        "./motion-container",
+        "./back-to-top-button"
+      ]
+    },
+    "layouts/template/animate/motion-lazy.tsx": {
+      "sha256": "d99ecfaf54ae1d2c01828d68a0185adde3f7db5bd1c34767ca0dbd942e79985b",
+      "imports": [
+        "framer-motion",
+        "./features"
+      ]
+    },
+    "layouts/template/animate/variants/actions.ts": {
+      "sha256": "0527875f101de44b7db8948cb321d33de8f1b0574cd7906044aaf482b52e6875",
+      "imports": [
+        "framer-motion"
+      ]
+    },
+    "layouts/template/animate/variants/transition.ts": {
+      "sha256": "ea286c42f8697fb00f413dae4162a396d525536dfceb3bdcc4d4ea9c0f3f1bc0",
+      "imports": [
+        "framer-motion"
+      ]
+    },
+    "layouts/template/custom-popover/custom-popover.tsx": {
+      "sha256": "d492f5579880055349da0af2e76ab0367210a99e84bc9cdbb01b11acb702c9ca",
+      "imports": [
+        "@mui/material/styles",
+        "./types",
+        "react",
+        "minimal-shared/utils",
+        "@mui/material/Popover",
+        "@mui/material/styles",
+        "@mui/material/List",
+        "@mui/material/MenuItem",
+        "./hooks",
+        "./utils",
+        "./styles"
+      ]
+    },
+    "layouts/template/custom-popover/hooks.ts": {
+      "sha256": "805c86acef4ece71092d4d5e445793f29d508dab0d6658df3141e415219db63e",
+      "imports": [
+        "react"
+      ]
+    },
+    "layouts/template/custom-popover/index.ts": {
+      "sha256": "2630b04a4b3bdbbc0063a7a02ca48968c3be68f77d1016e39002bb1b05a32189",
+      "imports": [
+        "./custom-popover",
+        "./types"
+      ]
+    },
+    "layouts/template/custom-popover/styles.tsx": {
+      "sha256": "467064acaf09c10afcad60d5e1d7dfe4e1da53d2d8a34450295a9ea9dbc23a88",
+      "imports": [
+        "@mui/material/styles",
+        "./hooks",
+        "./types",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./utils"
+      ]
+    },
+    "layouts/template/custom-popover/types.ts": {
+      "sha256": "6026849d8deb96490aba89e742ce5b4111c3feaa10f55e2227fca0ab29c32952",
+      "imports": [
+        "@mui/material/Paper",
+        "@mui/material/Popover",
+        "@mui/material/styles"
+      ]
+    },
+    "layouts/template/custom-popover/utils.ts": {
+      "sha256": "7783c7e5ab76a3e63f9849e5d872ffdd5c1c8b8c9f35a65a004f314acaa6aab9",
+      "imports": [
+        "@mui/material/Popover",
+        "./hooks",
+        "./types"
+      ]
+    },
+    "layouts/template/global-config.ts": {
+      "sha256": "dfbe5a354d45505534ad00872cd1afaa210a0fc3f611038bf9010e2e2544f8af",
+      "imports": [
+        "src/routes/paths",
+        "../package.json"
+      ]
+    },
+    "layouts/template/iconify/classes.ts": {
+      "sha256": "e9518882ac1dca322bbb11df0ed89cb317d8ba8343d5e0f110aa56363411e7ed",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/template/iconify/icon-sets.ts": {
+      "sha256": "ef94971cceb6126033c8e60e6afb10fb99779b398d48b1f7c8305e2ae7dd3b8a",
+      "imports": []
+    },
+    "layouts/template/iconify/iconify.tsx": {
+      "sha256": "3ae656e0b9df21533808c8a3f807c39d168ac90612e961c0dbbf0e80f8d5b92f",
+      "imports": [
+        "@iconify/react",
+        "./register-icons",
+        "react",
+        "@iconify/react",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./classes",
+        "./register-icons"
+      ]
+    },
+    "layouts/template/iconify/index.ts": {
+      "sha256": "a600b21697e4c8be4ded0503e620bac42823eae8a779e399753d5f61009149aa",
+      "imports": [
+        "./classes",
+        "./iconify",
+        "./register-icons"
+      ]
+    },
+    "layouts/template/iconify/register-icons.ts": {
+      "sha256": "65b585680d24f19af4689478ef8ea8f7768b287f7260ea81d5cbbb7eeab55b9a",
+      "imports": [
+        "@iconify/react",
+        "@iconify/react",
+        "./icon-sets"
+      ]
+    },
+    "layouts/template/label/classes.ts": {
+      "sha256": "c8f01ce0213463bce36c62b7e457ecce3c3af181a243fe6469ab3865b43b7eb3",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/template/label/index.ts": {
+      "sha256": "33f35d44302650361eeb4ef6dcb93601c4723fb23e716892b20dcee28902ad9f",
+      "imports": [
+        "./label",
+        "./styles",
+        "./classes",
+        "./types"
+      ]
+    },
+    "layouts/template/label/label.tsx": {
+      "sha256": "5b34aa09e7f23a519f0d72e22ac61e0a06230991740fa35c5748cabf019abb3e",
+      "imports": [
+        "./types",
+        "es-toolkit",
+        "minimal-shared/utils",
+        "./classes",
+        "./styles"
+      ]
+    },
+    "layouts/template/label/styles.tsx": {
+      "sha256": "741c8ccc6f44f5b6cd94ce2a8ddf5e8cb7e1b64cc5fce10834cb5a1be999b308",
+      "imports": [
+        "./types",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "src/theme/core"
+      ]
+    },
+    "layouts/template/label/types.ts": {
+      "sha256": "9e0864438d157578fc6560911add270b99232841bd39e4891338e5f43bdfa90e",
+      "imports": [
+        "./styles",
+        "src/theme/core"
+      ]
+    },
+    "layouts/template/logo/classes.ts": {
+      "sha256": "4d798aa2c37d35561316a14854a2cf7d0cf5b4c74a83ed73fba11aae28317b83",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/template/logo/index.ts": {
+      "sha256": "7fc3c24bf4c822e4e4f021272caf728823357950c134bf5d95d66892d8eaa00f",
+      "imports": [
+        "./logo",
+        "./classes"
+      ]
+    },
+    "layouts/template/logo/logo.tsx": {
+      "sha256": "84cb85900ced1da46284c3a8797a9943857efbee7e9f7bedfeeb02eac7cb3edc",
+      "imports": [
+        "@mui/material/Link",
+        "react",
+        "minimal-shared/utils",
+        "@mui/material/Link",
+        "@mui/material/styles",
+        "src/routes/components",
+        "./classes"
+      ]
+    },
+    "layouts/template/nav-section/components/index.ts": {
+      "sha256": "f3c3a0ba8dfc9c3859a73db08e4b8f8a47582f6b2e9ecfb1f9b8c6f45d1f3516",
+      "imports": [
+        "./nav-collapse",
+        "./nav-dropdown",
+        "./nav-elements",
+        "./nav-subheader"
+      ]
+    },
+    "layouts/template/nav-section/components/nav-collapse.tsx": {
+      "sha256": "3d5a0a3dc06975d5ca0b9771d408751aea713c0116600cdc463636c71823b456",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/styles",
+        "@mui/material/Collapse",
+        "../styles"
+      ]
+    },
+    "layouts/template/nav-section/components/nav-dropdown.tsx": {
+      "sha256": "9424f6909f6586fd13ca07017df2143245c1890b93f070de514b8644c8cc8036",
+      "imports": [
+        "@mui/material/styles",
+        "@mui/material/styles",
+        "@mui/material/Popover"
+      ]
+    },
+    "layouts/template/nav-section/components/nav-elements.tsx": {
+      "sha256": "62cbb6a60d0556d4edaa3e6a50999a97089c85e46906f873d66ba941a03aa180",
+      "imports": [
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "../styles"
+      ]
+    },
+    "layouts/template/nav-section/components/nav-subheader.tsx": {
+      "sha256": "8ff9f3eab9440d2a89c871b1e1972cf61eba3242f96263a0b15791c93dcea75b",
+      "imports": [
+        "@mui/material/ListSubheader",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "@mui/material/ListSubheader",
+        "../styles",
+        "../../iconify"
+      ]
+    },
+    "layouts/template/nav-section/index.ts": {
+      "sha256": "5f0049e24840473bb9baae45c0a3d9160d51ede2f5bec8b4d2e06b4da7985f24",
+      "imports": [
+        "./mini",
+        "./utils",
+        "./styles",
+        "./vertical",
+        "./components",
+        "./horizontal",
+        "./types"
+      ]
+    },
+    "layouts/template/nav-section/mini/index.ts": {
+      "sha256": "ab721e8302fb32642362765dbf56e193d311a344f76aa075c0419ad4960b3b3e",
+      "imports": [
+        "./nav-section-mini",
+        "./nav-item"
+      ]
+    },
+    "layouts/template/nav-section/mini/nav-item.tsx": {
+      "sha256": "ee15317e134c0757eb93be11724c58c289f83b23018b4c5c91795053072a8726",
+      "imports": [
+        "@mui/material/styles",
+        "../types",
+        "minimal-shared/utils",
+        "@mui/material/Tooltip",
+        "@mui/material/styles",
+        "@mui/material/ButtonBase",
+        "../../iconify",
+        "../utils",
+        "../styles"
+      ]
+    },
+    "layouts/template/nav-section/mini/nav-list.tsx": {
+      "sha256": "cb27a4c84fd7a2eed139b37d1598f2620187d4f3c6464c381fd8e8dcb23dc2e3",
+      "imports": [
+        "../types",
+        "react",
+        "minimal-shared/hooks",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "src/routes/hooks",
+        "./nav-item",
+        "../styles",
+        "../components"
+      ]
+    },
+    "layouts/template/nav-section/mini/nav-section-mini.tsx": {
+      "sha256": "409fdd8d00697a4fead63863ae56360a6817d5b6c1fe32c0e33aabab3b9a8f27",
+      "imports": [
+        "../types",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./nav-list",
+        "../components",
+        "../styles"
+      ]
+    },
+    "layouts/template/nav-section/styles/classes.ts": {
+      "sha256": "12b710843f93fe96a913e526bf341f3d0b8f133d51fec611f0d62ff831d6989d",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/template/nav-section/styles/css-vars.ts": {
+      "sha256": "f763058734193d6f135d1bfe85c8cb6baf3902337fd362b5c181b4768b69a379",
+      "imports": [
+        "@mui/material/styles",
+        "minimal-shared/utils"
+      ]
+    },
+    "layouts/template/nav-section/styles/index.ts": {
+      "sha256": "a600b21697e4c8be4ded0503e620bac42823eae8a779e399753d5f61009149aa",
+      "imports": [
+        "./classes",
+        "./css-vars",
+        "./nav-item-styles"
+      ]
+    },
+    "layouts/template/nav-section/styles/nav-item-styles.tsx": {
+      "sha256": "201ffe39f4eccc4f85cd1295de26ee83ad367efd6aea31aa25b29a9b8790acba",
+      "imports": [
+        "@mui/material/styles"
+      ]
+    },
+    "layouts/template/nav-section/types.ts": {
+      "sha256": "cf5067eaa465410b8317f1971af9f37474f05824c250ed826d9c604bd657d7f2",
+      "imports": [
+        "@mui/material/ButtonBase",
+        "@mui/material/styles"
+      ]
+    },
+    "layouts/template/nav-section/utils/create-nav-item.ts": {
+      "sha256": "ad978c81c283900e89a1bb81000544a672a54ab547743d75df5c702fdb3a73a2",
+      "imports": [
+        "../types",
+        "react",
+        "src/routes/components"
+      ]
+    },
+    "layouts/template/nav-section/utils/index.ts": {
+      "sha256": "69a84224d0d67c834c845b29b38b74149c9f32d8e14ccfc4a64a9af7e8faabc3",
+      "imports": [
+        "./create-nav-item"
+      ]
+    },
+    "layouts/template/nav-section/vertical/index.ts": {
+      "sha256": "1a163f0481b18e3fe203c64be2d37acb09faadc79cfab04db182fc26593b9e01",
+      "imports": [
+        "./nav-section-vertical",
+        "./nav-item"
+      ]
+    },
+    "layouts/template/nav-section/vertical/nav-item.tsx": {
+      "sha256": "5adc9c6e56c61e76c1b8f23f636b7478febc09db0085022cf7b6b4aa5be62f0b",
+      "imports": [
+        "@mui/material/styles",
+        "../types",
+        "minimal-shared/utils",
+        "@mui/material/Tooltip",
+        "@mui/material/styles",
+        "@mui/material/ButtonBase",
+        "../../iconify",
+        "../utils",
+        "../styles"
+      ]
+    },
+    "layouts/template/nav-section/vertical/nav-list.tsx": {
+      "sha256": "06f3a03493baedde1a817efc3fa4be9f3afeb53774dc87318997d88ce702846c",
+      "imports": [
+        "../types",
+        "minimal-shared/hooks",
+        "react",
+        "minimal-shared/utils",
+        "src/routes/hooks",
+        "./nav-item",
+        "../styles",
+        "../components"
+      ]
+    },
+    "layouts/template/nav-section/vertical/nav-section-vertical.tsx": {
+      "sha256": "b961f9f5ecc591cc3bc7f73675a7f618cdc0f144847ef0e592a361a230281f92",
+      "imports": [
+        "../types",
+        "minimal-shared/hooks",
+        "minimal-shared/utils",
+        "@mui/material/Collapse",
+        "@mui/material/styles",
+        "./nav-list",
+        "../components",
+        "../styles"
+      ]
+    },
+    "layouts/template/routes/components/index.ts": {
+      "sha256": "69a84224d0d67c834c845b29b38b74149c9f32d8e14ccfc4a64a9af7e8faabc3",
+      "imports": [
+        "./router-link"
+      ]
+    },
+    "layouts/template/routes/components/router-link.tsx": {
+      "sha256": "ab116fd92c1be3a869441ffd43ac74a1047dfc4fc7891403ef3c5534a3256ab6",
+      "imports": [
+        "next/link"
+      ]
+    },
+    "layouts/template/routes/hooks/index.ts": {
+      "sha256": "2187203cec39fef477760f7b011ba2d4c476ea6d0c540f23a06826f46f221299",
+      "imports": [
+        "./use-params",
+        "./use-router",
+        "./use-pathname",
+        "./use-search-params"
+      ]
+    },
+    "layouts/template/routes/hooks/use-params.ts": {
+      "sha256": "d8d836c30efce7870df55243c824971e5a54377c116cab41cd775e7b74277a87",
+      "imports": [
+        "next/navigation"
+      ]
+    },
+    "layouts/template/routes/hooks/use-pathname.ts": {
+      "sha256": "d6002a4f150102bdcd49f7a891df37bde9937a7e482dc5b76697754280eff379",
+      "imports": [
+        "next/navigation"
+      ]
+    },
+    "layouts/template/routes/hooks/use-router.ts": {
+      "sha256": "827633bdcd9920f195a6b83df19a92fbba280c242fb7371faf4b6acd2e2a2786",
+      "imports": [
+        "nprogress",
+        "react",
+        "minimal-shared/utils",
+        "next/navigation"
+      ]
+    },
+    "layouts/template/routes/hooks/use-search-params.ts": {
+      "sha256": "4832491c8874c741f36b097a3d4af0aeff918a5e33090efcfa6482f5583d821c",
+      "imports": [
+        "next/navigation"
+      ]
+    },
+    "layouts/template/scrollbar/classes.ts": {
+      "sha256": "7419a19253de8034acc31537abfd3f235cadf96ac64efbea0522cc0070bb697c",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/template/scrollbar/index.ts": {
+      "sha256": "8c5d41305b253475fc728f21f77445bd78eda9385a8a160600a46f898d694b7a",
+      "imports": [
+        "./classes",
+        "./scrollbar",
+        "./types"
+      ]
+    },
+    "layouts/template/scrollbar/scrollbar.tsx": {
+      "sha256": "87f250f5521044728f3a7d350502ead5ea34da93f0a4d3146761b222a317bf64",
+      "imports": [
+        "./types",
+        "simplebar-react",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./classes"
+      ]
+    },
+    "layouts/template/scrollbar/styles.css": {
+      "sha256": "87002dd518d0881a9f072a64817ce9a4b393419b2ef5a91e29c6ab63ced45a82",
+      "imports": [
+        "simplebar-react/dist/simplebar.min.css"
+      ]
+    },
+    "layouts/template/scrollbar/types.ts": {
+      "sha256": "e0dc8c69b768bff09f95ef716472c761336c61ce229438ced9c0f48cc53bd62b",
+      "imports": [
+        "@mui/material/styles",
+        "simplebar-react"
+      ]
+    },
+    "layouts/template/settings/context/index.ts": {
+      "sha256": "a600b21697e4c8be4ded0503e620bac42823eae8a779e399753d5f61009149aa",
+      "imports": [
+        "./settings-context",
+        "./settings-provider",
+        "./use-settings-context"
+      ]
+    },
+    "layouts/template/settings/context/settings-context.ts": {
+      "sha256": "187e007b37de10262c77d35f7e97fd11d3e1e557f568079a81c9b6830350bedf",
+      "imports": [
+        "../types",
+        "react"
+      ]
+    },
+    "layouts/template/settings/context/settings-provider.tsx": {
+      "sha256": "a240195b1a79bc4f695d007fd2b1fbebcb121bb0fa2201392c3377c9969ef2cb",
+      "imports": [
+        "../types",
+        "es-toolkit",
+        "minimal-shared/utils",
+        "react",
+        "minimal-shared/hooks",
+        "./settings-context",
+        "../settings-config"
+      ]
+    },
+    "layouts/template/settings/context/use-settings-context.ts": {
+      "sha256": "43b9cc447a1a51ab64108030f2f0fd95d1b40c61a03828ac6c4f0ac2aa1a629f",
+      "imports": [
+        "react",
+        "./settings-context"
+      ]
+    },
+    "layouts/template/settings/index.ts": {
+      "sha256": "33f35d44302650361eeb4ef6dcb93601c4723fb23e716892b20dcee28902ad9f",
+      "imports": [
+        "./drawer",
+        "./context",
+        "./settings-config",
+        "./types"
+      ]
+    },
+    "layouts/template/settings/server.ts": {
+      "sha256": "26e4f4cd6d52a1514f9eea7812d7f975331df2ebc0dca9bd31d5c27bffa562d6",
+      "imports": [
+        "./types",
+        "next/headers",
+        "./settings-config"
+      ]
+    },
+    "layouts/template/settings/settings-config.ts": {
+      "sha256": "f3254afeffdb26e27ce3b14ab4a5f4003f730106df654b35043401f9797deab7",
+      "imports": [
+        "./types",
+        "src/global-config",
+        "src/theme/theme-config"
+      ]
+    },
+    "layouts/template/settings/types.ts": {
+      "sha256": "783969ee268f51536bbf85f91d06136390d78302eb2d04ba22bf8b94ce9747fa",
+      "imports": [
+        "@mui/material/styles",
+        "src/theme/theme-config",
+        "src/theme/with-settings"
+      ]
+    },
+    "layouts/template/svg-color/classes.ts": {
+      "sha256": "220e9888e55a2de7e8b226c14f89c476ce1ce2e9fdaafe0b604657e00aa5b3d8",
+      "imports": [
+        "src/theme/create-classes"
+      ]
+    },
+    "layouts/template/svg-color/index.ts": {
+      "sha256": "8c5d41305b253475fc728f21f77445bd78eda9385a8a160600a46f898d694b7a",
+      "imports": [
+        "./classes",
+        "./svg-color",
+        "./types"
+      ]
+    },
+    "layouts/template/svg-color/svg-color.tsx": {
+      "sha256": "38c0a1e6015d592f8b2ebb362ad945d37a850502c14e11d197f5581b71478fbe",
+      "imports": [
+        "./types",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./classes"
+      ]
+    },
+    "layouts/template/svg-color/types.ts": {
+      "sha256": "cbde1c90bffd46e015cd22530dc081add229e1fa3fe0dda98d2388a8fe73c09c",
+      "imports": [
+        "@mui/material/styles"
+      ]
+    }
   }
 }
