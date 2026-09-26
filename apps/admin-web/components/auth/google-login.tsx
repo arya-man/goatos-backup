@@ -434,7 +434,7 @@ export function GoogleLogin({
             fullWidth
             size="large"
             variant="contained"
-            color="inherit"
+            color="primary"
             type="submit"
             disabled={isBusy}
             loading={status === "signing_in"}

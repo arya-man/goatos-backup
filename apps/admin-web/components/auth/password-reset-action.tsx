@@ -110,6 +110,7 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
           fullWidth
           size="large"
           variant="contained"
+          color="primary"
           endIcon={<ArrowRight aria-hidden="true" />}
         >
           Back to sign in
@@ -137,6 +138,7 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
           fullWidth
           size="large"
           variant="contained"
+          color="primary"
           endIcon={<ArrowRight aria-hidden="true" />}
         >
           Continue to sign in
@@ -177,6 +179,7 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
           fullWidth
           size="large"
           variant="contained"
+          color="primary"
           type="submit"
           disabled={!canSubmit}
           loading={status === "submitting"}

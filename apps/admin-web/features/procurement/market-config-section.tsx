@@ -104,7 +104,7 @@ export function MarketConfigSection({
               hourLabel={copy(pageContract, "market.call_time.hour", "Hour")}
               minuteLabel={copy(pageContract, "market.call_time.minute", "Minute")}
             />
-            <Button type="submit" size="small" variant="contained">
+            <Button type="submit" size="small" variant="contained" color="primary">
               {copy(pageContract, "market.action.save_call_time")}
             </Button>
           </MarketConfigForm>
@@ -140,7 +140,7 @@ export function MarketConfigSection({
                 slotProps={{ htmlInput: { maxLength: 80, "aria-label": copy(pageContract, "market.field.city_name") } }}
                 sx={{ flex: 1 }}
               />
-              <Button type="submit" size="small" variant="contained">
+              <Button type="submit" size="small" variant="contained" color="primary">
                 {copy(pageContract, "market.action.add_city")}
               </Button>
             </MarketConfigForm>
@@ -181,7 +181,7 @@ export function MarketConfigSection({
                 slotProps={{ htmlInput: { maxLength: 24, "aria-label": copy(pageContract, "market.field.unit_label") } }}
                 sx={{ flex: 1 }}
               />
-              <Button type="submit" size="small" variant="contained">
+              <Button type="submit" size="small" variant="contained" color="primary">
                 {copy(pageContract, "market.action.add_question")}
               </Button>
             </MarketConfigForm>

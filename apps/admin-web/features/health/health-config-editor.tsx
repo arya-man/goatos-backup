@@ -440,6 +440,7 @@ export function AddDiseaseForm({
     <MuiButton
       type="button"
       variant="contained"
+      color="primary"
       startIcon={<Plus className="ic" aria-hidden="true" />}
       disabled={!enabled}
       title={enabled ? undefined : disabledReason}
