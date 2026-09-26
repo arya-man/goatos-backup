@@ -438,6 +438,18 @@ LIMIT $5`, q.TenantID, status, q.EventType, q.Topic, q.Limit)
 	return messages, nil
 }
 
+// outboxHealthSQL is GET /operations/kernel-health's outbox figure: one scalar subquery per
+// figure, each index-answered (TestOutboxHealthQueryPlanUsesIndexesAtScale proves it at ~500k rows).
+const outboxHealthSQL = `
+SELECT
+  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'pending')::bigint AS pending_count,
+  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'publishing')::bigint AS publishing_count,
+  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'failed')::bigint AS failed_count,
+  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'dead_letter')::bigint AS dead_letter_count,
+  (SELECT MIN(created_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'pending') AS oldest_pending_at,
+  (SELECT MIN(updated_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status IN ('failed', 'dead_letter')) AS oldest_failure_at,
+  (SELECT MAX(published_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'published') AS last_published_at`
+
 func (r *Repository) Health(ctx context.Context, tenantID string, now time.Time) (domain.Health, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -449,15 +461,7 @@ func (r *Repository) Health(ctx context.Context, tenantID string, now time.Time)
 	// replay_guard, and 000428's tenant_published_at for MAX(published_at)). The previous single
 	// FILTERed aggregate had to read every outbox row of the tenant -- ~362k rows / ~1 GB on
 	// goatos-stg, ~4 s cold -- to produce four small counts and three stamps.
-	err := r.pool.QueryRow(ctx, `
-SELECT
-  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'pending')::bigint AS pending_count,
-  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'publishing')::bigint AS publishing_count,
-  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'failed')::bigint AS failed_count,
-  (SELECT COUNT(*) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'dead_letter')::bigint AS dead_letter_count,
-  (SELECT MIN(created_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'pending') AS oldest_pending_at,
-  (SELECT MIN(updated_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status IN ('failed', 'dead_letter')) AS oldest_failure_at,
-  (SELECT MAX(published_at) FROM outbox_messages WHERE tenant_id = $1::uuid AND status = 'published') AS last_published_at`, tenantID).Scan(
+	err := r.pool.QueryRow(ctx, outboxHealthSQL, tenantID).Scan(
 		&health.PendingCount,
 		&health.PublishingCount,
 		&health.FailedCount,
