@@ -1,7 +1,7 @@
 "use client";
 
-import { Building2, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Building2 } from "lucide-react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -16,6 +16,13 @@ import { VendorFormFields, vendorAnswerRows } from "./vendor-form-fields";
 import { VendorVoiceNote } from "./vendor-voice-note";
 import { FormSelect } from "./form-select";
 import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Divider from "@mui/material/Divider";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import { MinimalDrawer } from "@/components/minimal/drawer";
 
 type CatalogEntry = { value: string; label: string; is_active: boolean };
 
@@ -77,11 +84,8 @@ function optionsFor(entries: CatalogEntry[] | undefined, current: string | null 
  *    SHARED event name exported by local-overlay-link; a privately-invented event string fails
  *    silently, because the link dispatches and nothing is listening.
  *
- * 2. It must use the MOCK's drawer anatomy, and the open class is `.on`. `aside.drawer.on` is the
- *    rule that sets `transform:none` -- without it the panel is translated OFF-SCREEN, so it
- *    mounts, occupies the DOM, and is invisible. `.drawer-scrim` / `.drawer-body` / `.ft` are not
- *    classes this product has; the real ones are `.scrim`, `.dh`, `.dc`, `.df`, and a RECORD body
- *    is a `.metagrid` of `.k`/`.v` cells rather than a flat stack.
+ * 2. It renders in the template MinimalDrawer (portalled MUI Drawer: backdrop, focus trap, Escape),
+ *    so no ancestor animation can trap it and the page behind never jumps.
  */
 export function VendorLocalDrawer({
   vendors,
@@ -103,8 +107,6 @@ export function VendorLocalDrawer({
   /** The list URL to restore on close (current filters, without the vendor param). */
   listHref: string;
 }) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-
   // The URL is an EXTERNAL store here -- LocalOverlayLink mutates history directly, outside React --
   // so it is subscribed to rather than mirrored into state inside an effect. Copying it with
   // setState-in-an-effect renders once with the stale value and again with the fresh one, which is
@@ -136,19 +138,6 @@ export function VendorLocalDrawer({
   const vendor = isAdding ? null : (vendors.find((v) => v.vendor_id === selection) ?? null);
   const open = Boolean(catalog) && (isAdding || vendor !== null);
 
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
-
   if (!catalog) return null;
 
   const none = copy(pageContract, "value.none");
@@ -159,190 +148,176 @@ export function VendorLocalDrawer({
       ? copy(pageContract, "drawer.edit.title")
       : copy(pageContract, "drawer.detail.title");
 
-  // One read-only cell pair of the record body.
-  const cell = (label: string, value: string | number | null | undefined) => (
-    <div key={label}>
-      <div className="k">{label}</div>
-      <div className="v">{value === null || value === undefined || value === "" ? none : value}</div>
-    </div>
+  // One read-only label/value cell of the record body (template order-detail info rows).
+  const cell = (label: string, value: React.ReactNode) => (
+    <Stack key={label} spacing={0.5} sx={{ minWidth: 0 }}>
+      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" component="div" sx={{ overflowWrap: "anywhere" }}>
+        {value === null || value === undefined || value === "" ? none : value}
+      </Typography>
+    </Stack>
   );
+  const recordGrid = (children: React.ReactNode) => (
+    <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))" } }}>{children}</Box>
+  );
+  const note = (text: string) => <Alert severity="info">{text}</Alert>;
+  const textField = (
+    name: string,
+    label: string,
+    options: { id?: string; required?: boolean; maxLength?: number; defaultValue?: string | number | null; type?: "number"; inputMode?: "decimal"; multiline?: boolean; min?: number; step?: number } = {},
+  ) => (
+    <TextField
+      fullWidth
+      id={options.id}
+      name={name}
+      label={label}
+      required={options.required}
+      type={options.type}
+      multiline={options.multiline}
+      rows={options.multiline ? 2 : undefined}
+      defaultValue={options.defaultValue ?? ""}
+      slotProps={{
+        inputLabel: { shrink: true },
+        htmlInput: { maxLength: options.maxLength, inputMode: options.inputMode, min: options.min, step: options.step },
+      }}
+    />
+  );
+  const formId = "vendor-drawer-form";
+
+  const footer = editing ? (
+    <>
+      <Button type="button" variant="outlined" color="inherit" onClick={() => (isAdding ? close() : setEditing(false))}>
+        {copy(pageContract, "action.cancel")}
+      </Button>
+      <Button type="submit" form={formId} variant="contained">
+        {copy(pageContract, "action.save")}
+      </Button>
+    </>
+  ) : vendor ? (
+    <Stack direction="row" spacing={1.5} sx={{ width: 1, alignItems: "center", flexWrap: "wrap", rowGap: 1.5 }}>
+      <Button type="button" variant="contained" onClick={() => setEditing(true)}>
+        {copy(pageContract, "action.edit")}
+      </Button>
+      {/* Quick status change, without opening the full form. It posts to the NARROW status
+          endpoint, so it cannot clear a field this view did not render. */}
+      <Box component="form" action={changeVendorStatusAction} sx={{ display: "flex", gap: 1, alignItems: "center", ml: "auto" }}>
+        <input type="hidden" name="return_to" value={listHref} />
+        <input type="hidden" name="vendor_id" value={vendor.vendor_id} />
+        <input type="hidden" name="row_version" value={vendor.row_version} />
+        <FormSelect size="small" label={field("status")} name="status" defaultValue={vendor.status} minWidth={140} options={optionsFor(catalog.statuses, vendor.status)} />
+        <Button type="submit" variant="outlined" color="inherit">
+          {copy(pageContract, "action.save_status")}
+        </Button>
+      </Box>
+    </Stack>
+  ) : null;
 
   return (
-    <>
-      <div
-        className={`scrim${open ? " on" : ""}`}
-        aria-label={copy(pageContract, "action.close")}
-        aria-hidden={!open}
-        tabIndex={open ? 0 : -1}
-        onClick={close}
-      />
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--info)" }}>
-            <Building2 className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "crumb")}</div>
-            <h2>{isAdding ? title : (vendor?.business_name ?? title)}</h2>
-            {vendor ? (
-              <div className="muted small" style={{ marginTop: 3 }}>
-                {vendor.record_type} · {vendor.location_display}
-              </div>
-            ) : null}
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button
-            ref={closeButtonRef}
-            type="button"
-            className="iconbtn"
-            aria-label={copy(pageContract, "action.close")}
-            onClick={close}
-          >
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
+    <MinimalDrawer
+      open={open}
+      onClose={close}
+      title={isAdding ? title : (vendor?.business_name ?? title)}
+      closeLabel={copy(pageContract, "action.close")}
+      width={380}
+      footer={footer}
+      aria-label={title}
+    >
+      <Box sx={{ p: 2.5 }}>
+        {vendor ? (
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", mb: 3 }}>
+            <Building2 className="ic" aria-hidden="true" style={{ color: "var(--info)" }} />
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {vendor.record_type} · {vendor.location_display}
+            </Typography>
+          </Stack>
+        ) : null}
 
         {editing ? (
-          <form action={isAdding ? createVendorAction : updateVendorAction} style={{ display: "contents" }}>
-            <div className="dc">
-              <input type="hidden" name="return_to" value={listHref} />
-              {!isAdding && vendor ? (
-                <>
-                  <input type="hidden" name="vendor_id" value={vendor.vendor_id} />
-                  {/* The optimistic fence, carried from the row this form was opened on. */}
-                  <input type="hidden" name="row_version" value={vendor.row_version} />
-                </>
-              ) : null}
-
+          <form id={formId} action={isAdding ? createVendorAction : updateVendorAction}>
+            <input type="hidden" name="return_to" value={listHref} />
+            {!isAdding && vendor ? (
+              <>
+                <input type="hidden" name="vendor_id" value={vendor.vendor_id} />
+                {/* The optimistic fence, carried from the row this form was opened on. */}
+                <input type="hidden" name="row_version" value={vendor.row_version} />
+              </>
+            ) : null}
+            <Stack spacing={3}>
               {form ? (
                 <VendorFormFields form={form} vendor={vendor} pageContract={pageContract} />
               ) : (
-              <>
-              <div className="note">{copy(pageContract, isAdding ? "required.hint.create" : "required.hint")}</div>
-
-              <div className="fld">
-                <label htmlFor="v-business_name">{field("business_name")}</label>
-                <input id="v-business_name" name="business_name" required maxLength={160} defaultValue={vendor?.business_name ?? ""} />
-              </div>
-              <div className="fld">
-                <FormSelect
-                  label={field("record_type")}
-                  name="record_type"
-                  id="v-record_type"
-                  defaultValue={vendor?.record_type ?? ""}
-                  required
-                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.record_types, vendor?.record_type)]}
-                />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-contact">{field("contact_person_name")}</label>
-                <input id="v-contact" name="contact_person_name" required={isAdding} maxLength={160} defaultValue={vendor?.contact_person_name ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-phone">{field("phone_number")}</label>
-                <input id="v-phone" name="phone_number" required={isAdding} maxLength={64} defaultValue={vendor?.phone_number ?? ""} />
-              </div>
-              <div className="fld">
-                <FormSelect
-                  label={field("status")}
-                  name="status"
-                  id="v-status"
-                  defaultValue={vendor?.status ?? "active"}
-                  required
-                  options={optionsFor(catalog.statuses, vendor?.status)}
-                />
-              </div>
-              <div className="fld">
-                <FormSelect
-                  label={field("state")}
-                  name="state"
-                  id="v-state"
-                  defaultValue={vendor?.state ?? ""}
-                  required
-                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.states, vendor?.state)]}
-                />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-city">{field("city")}</label>
-                <input id="v-city" name="city" required={isAdding} maxLength={160} defaultValue={vendor?.city ?? ""} />
-              </div>
-              <div className="fld">
-                <FormSelect
-                  label={field("breed")}
-                  name="breed"
-                  id="v-breed"
-                  defaultValue={vendor?.breed ?? ""}
-                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.breeds, vendor?.breed)]}
-                />
-              </div>
-              <div className="fld">
-                <FormSelect
-                  label={field("feed")}
-                  name="feed"
-                  id="v-feed"
-                  defaultValue={vendor?.feed ?? ""}
-                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.feeds, vendor?.feed)]}
-                />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-stock">{field("filtered_stock")}</label>
-                {/* No default of 0 for an absent reading: blank means "not recorded", 0 means
-                    "checked, none available". They are different facts. */}
-                <input id="v-stock" name="filtered_stock" type="number" min={0} step={1} defaultValue={vendor?.filtered_stock ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-price">{field("price_per_goat")}</label>
-                <input id="v-price" name="price_per_goat" inputMode="decimal" defaultValue={vendor?.price_per_goat ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-avg_weight">{field("average_animal_weight")}</label>
-                {/* Optional. Sent verbatim as a string so the backend validates the number; a blank
-                    stores NULL ("not recorded"), never 0. */}
-                <input id="v-avg_weight" name="average_animal_weight_kg" inputMode="decimal" defaultValue={vendor?.average_animal_weight_kg ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-eta">{field("eta_after_order")}</label>
-                <input id="v-eta" name="eta_after_order_days" type="number" min={0} step={1} defaultValue={vendor?.eta_after_order_days ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-ready">{field("ready_to_filtered")}</label>
-                <input id="v-ready" name="ready_to_filtered" maxLength={160} defaultValue={vendor?.ready_to_filtered ?? ""} />
-              </div>
-              <div className="fld">
-                <label htmlFor="v-details">{field("details")}</label>
-                <textarea id="v-details" name="details" maxLength={2000} rows={2} defaultValue={vendor?.details ?? ""} />
-              </div>
-
-              {/* CAPACITY (maintainer decision 2026-09-03): how much per delivery, in what unit,
-                  how often. Quantity and unit are a pair; the backend refuses one without the
-                  other, so they sit on one row. The vocabularies are catalog entries. */}
-              <div className="dgrp">{field("capacity")}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 9 }}>
-                <div className="fld">
-                  <label htmlFor="v-capacity_quantity">{field("capacity_quantity")}</label>
-                  <input id="v-capacity_quantity" name="capacity_quantity" inputMode="decimal" defaultValue={vendor?.capacity_quantity ?? ""} />
-                </div>
-                <div className="fld">
+                <Stack spacing={2.5}>
+                  {note(copy(pageContract, isAdding ? "required.hint.create" : "required.hint"))}
+                  {textField("business_name", field("business_name"), { id: "v-business_name", required: true, maxLength: 160, defaultValue: vendor?.business_name })}
                   <FormSelect
-                    label={field("capacity_unit")}
-                    name="capacity_unit"
-                    id="v-capacity_unit"
-                    defaultValue={vendor?.capacity_unit ?? ""}
-                    options={[{ value: "", label: "—" }, ...optionsFor(catalog.capacity_units, vendor?.capacity_unit ?? undefined)]}
+                    fullWidth
+                    label={field("record_type")}
+                    name="record_type"
+                    id="v-record_type"
+                    defaultValue={vendor?.record_type ?? ""}
+                    required
+                    options={[{ value: "", label: none }, ...optionsFor(catalog.record_types, vendor?.record_type)]}
                   />
-                </div>
-              </div>
-              <div className="fld">
-                <FormSelect
-                  label={field("supply_frequency")}
-                  name="supply_frequency"
-                  id="v-supply_frequency"
-                  defaultValue={vendor?.supply_frequency ?? ""}
-                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.supply_frequencies, vendor?.supply_frequency ?? undefined)]}
-                />
-                <div className="muted small">{copy(pageContract, "hint.capacity")}</div>
-              </div>
-              </>
+                  {textField("contact_person_name", field("contact_person_name"), { id: "v-contact", required: isAdding, maxLength: 160, defaultValue: vendor?.contact_person_name })}
+                  {textField("phone_number", field("phone_number"), { id: "v-phone", required: isAdding, maxLength: 64, defaultValue: vendor?.phone_number })}
+                  <FormSelect fullWidth label={field("status")} name="status" id="v-status" defaultValue={vendor?.status ?? "active"} required options={optionsFor(catalog.statuses, vendor?.status)} />
+                  <FormSelect
+                    fullWidth
+                    label={field("state")}
+                    name="state"
+                    id="v-state"
+                    defaultValue={vendor?.state ?? ""}
+                    required
+                    options={[{ value: "", label: none }, ...optionsFor(catalog.states, vendor?.state)]}
+                  />
+                  {textField("city", field("city"), { id: "v-city", required: isAdding, maxLength: 160, defaultValue: vendor?.city })}
+                  <FormSelect fullWidth label={field("breed")} name="breed" id="v-breed" defaultValue={vendor?.breed ?? ""} options={[{ value: "", label: none }, ...optionsFor(catalog.breeds, vendor?.breed)]} />
+                  <FormSelect fullWidth label={field("feed")} name="feed" id="v-feed" defaultValue={vendor?.feed ?? ""} options={[{ value: "", label: none }, ...optionsFor(catalog.feeds, vendor?.feed)]} />
+                  {/* No default of 0 for an absent reading: blank means "not recorded", 0 means
+                      "checked, none available". They are different facts. */}
+                  {textField("filtered_stock", field("filtered_stock"), { id: "v-stock", type: "number", min: 0, step: 1, defaultValue: vendor?.filtered_stock })}
+                  {textField("price_per_goat", field("price_per_goat"), { id: "v-price", inputMode: "decimal", defaultValue: vendor?.price_per_goat })}
+                  {/* Optional. Sent verbatim as a string so the backend validates the number; a blank
+                      stores NULL ("not recorded"), never 0. */}
+                  {textField("average_animal_weight_kg", field("average_animal_weight"), { id: "v-avg_weight", inputMode: "decimal", defaultValue: vendor?.average_animal_weight_kg })}
+                  {textField("eta_after_order_days", field("eta_after_order"), { id: "v-eta", type: "number", min: 0, step: 1, defaultValue: vendor?.eta_after_order_days })}
+                  {textField("ready_to_filtered", field("ready_to_filtered"), { id: "v-ready", maxLength: 160, defaultValue: vendor?.ready_to_filtered })}
+                  {textField("details", field("details"), { id: "v-details", maxLength: 2000, multiline: true, defaultValue: vendor?.details })}
+
+                  {/* CAPACITY (maintainer decision 2026-09-03): how much per delivery, in what unit,
+                      how often. Quantity and unit are a pair; the backend refuses one without the
+                      other, so they sit on one row. The vocabularies are catalog entries. */}
+                  <Divider sx={{ borderStyle: "dashed" }} />
+                  <Typography variant="subtitle2" component="h4">
+                    {field("capacity")}
+                  </Typography>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 2 }}>
+                    {textField("capacity_quantity", field("capacity_quantity"), { id: "v-capacity_quantity", inputMode: "decimal", defaultValue: vendor?.capacity_quantity })}
+                    <FormSelect
+                      fullWidth
+                      label={field("capacity_unit")}
+                      name="capacity_unit"
+                      id="v-capacity_unit"
+                      defaultValue={vendor?.capacity_unit ?? ""}
+                      options={[{ value: "", label: none }, ...optionsFor(catalog.capacity_units, vendor?.capacity_unit ?? undefined)]}
+                    />
+                  </Box>
+                  <Stack spacing={0.75}>
+                    <FormSelect
+                      fullWidth
+                      label={field("supply_frequency")}
+                      name="supply_frequency"
+                      id="v-supply_frequency"
+                      defaultValue={vendor?.supply_frequency ?? ""}
+                      options={[{ value: "", label: none }, ...optionsFor(catalog.supply_frequencies, vendor?.supply_frequency ?? undefined)]}
+                    />
+                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      {copy(pageContract, "hint.capacity")}
+                    </Typography>
+                  </Stack>
+                </Stack>
               )}
               {/* The voice note is recorded on the phone; the web edit carries it through unchanged. */}
               <input type="hidden" name="voice_note_proof_ref" value={vendor?.voice_note_proof_ref ?? ""} />
@@ -351,60 +326,30 @@ export function VendorLocalDrawer({
                   PRESERVES these columns for such a caller, so a blank submit cannot erase a bank
                   account they were never shown. */}
               {vendor?.finance_redacted ? (
-                <div className="note">{copy(pageContract, "payment.hidden")}</div>
+                note(copy(pageContract, "payment.hidden"))
               ) : (
-                <>
-                  <div className="fld">
-                    <label htmlFor="v-bank">{field("bank_name")}</label>
-                    <input id="v-bank" name="bank_name" maxLength={160} defaultValue={vendor?.bank_name ?? ""} />
-                  </div>
-                  <div className="fld">
-                    <label htmlFor="v-account">{field("account_no")}</label>
-                    <input id="v-account" name="account_no" maxLength={160} defaultValue={vendor?.account_no ?? ""} />
-                  </div>
-                  <div className="fld">
-                    <label htmlFor="v-ifsc">{field("ifsc_code")}</label>
-                    <input id="v-ifsc" name="ifsc_code" maxLength={160} defaultValue={vendor?.ifsc_code ?? ""} />
-                  </div>
-                  <div className="fld">
-                    <label htmlFor="v-upi">{field("upi_id")}</label>
-                    <input id="v-upi" name="upi_id" maxLength={160} defaultValue={vendor?.upi_id ?? ""} />
-                  </div>
-                  <div className="fld">
-                    <label htmlFor="v-pan">{field("pan_number")}</label>
-                    <input id="v-pan" name="pan_number" maxLength={160} defaultValue={vendor?.pan_number ?? ""} />
-                  </div>
-                </>
+                <Stack spacing={2.5}>
+                  <Divider sx={{ borderStyle: "dashed" }} />
+                  <Typography variant="subtitle2" component="h4">
+                    {copy(pageContract, "group.payment")}
+                  </Typography>
+                  {textField("bank_name", field("bank_name"), { id: "v-bank", maxLength: 160, defaultValue: vendor?.bank_name })}
+                  {textField("account_no", field("account_no"), { id: "v-account", maxLength: 160, defaultValue: vendor?.account_no })}
+                  {textField("ifsc_code", field("ifsc_code"), { id: "v-ifsc", maxLength: 160, defaultValue: vendor?.ifsc_code })}
+                  {textField("upi_id", field("upi_id"), { id: "v-upi", maxLength: 160, defaultValue: vendor?.upi_id })}
+                  {textField("pan_number", field("pan_number"), { id: "v-pan", maxLength: 160, defaultValue: vendor?.pan_number })}
+                </Stack>
               )}
 
-              {form ? null : (
-              <div className="fld">
-                <label htmlFor="v-comments">{field("comments")}</label>
-                <textarea id="v-comments" name="comments" maxLength={2000} rows={2} defaultValue={vendor?.comments ?? ""} />
-              </div>
-              )}
-            </div>
-            <div className="df">
-              <button type="submit" className="btn p">
-                {copy(pageContract, "action.save")}
-              </button>
-              <button type="button" className="btn" onClick={() => (isAdding ? close() : setEditing(false))}>
-                {copy(pageContract, "action.cancel")}
-              </button>
-            </div>
+              {form ? null : textField("comments", field("comments"), { id: "v-comments", maxLength: 2000, multiline: true, defaultValue: vendor?.comments })}
+            </Stack>
           </form>
         ) : vendor ? (
-          <>
-            <div className="dc">
-              {/* RECORD drawer body: the mock's .metagrid of uppercase-key cells, never a flat stack. */}
-              <div className="metagrid">
+          <Stack spacing={3}>
+            {recordGrid(
+              <>
                 {cell(field("record_type"), vendor.record_type)}
-                <div>
-                  <div className="k">{field("status")}</div>
-                  <div className="v">
-                    <Tag tone={statusTone(vendor.status)}>{vendor.status_label}</Tag>
-                  </div>
-                </div>
+                {cell(field("status"), <Tag tone={statusTone(vendor.status)}>{vendor.status_label}</Tag>)}
                 {cell(field("contact_person_name"), vendor.contact_person_name)}
                 {cell(field("phone_number"), vendor.phone_number)}
                 {cell(field("state"), vendor.state)}
@@ -426,65 +371,46 @@ export function VendorLocalDrawer({
                     columns, labelled by the form the drawer holds (a question since removed shows
                     its key). */}
                 {vendorAnswerRows(form, vendor).map((row) => cell(row.label, row.value))}
-              </div>
+              </>,
+            )}
 
-              <Typography variant="overline" component="div" color="text.secondary" className="mt" sx={{ mt: 0.5 }}>
-                {field("voice_note")}
-              </Typography>
-              {vendor.voice_note_proof_ref ? (
-                <VendorVoiceNote
-                  proofRef={vendor.voice_note_proof_ref}
-                  loadLabel={copy(pageContract, "voice_note.play")}
-                  unavailableCopy={copy(pageContract, "voice_note.unavailable")}
-                />
-              ) : (
-                <div className="note">{copy(pageContract, "voice_note.none")}</div>
-              )}
+            <Divider sx={{ borderStyle: "dashed" }} />
+            <Typography variant="subtitle2" component="h4">
+              {field("voice_note")}
+            </Typography>
+            {vendor.voice_note_proof_ref ? (
+              <VendorVoiceNote
+                proofRef={vendor.voice_note_proof_ref}
+                loadLabel={copy(pageContract, "voice_note.play")}
+                unavailableCopy={copy(pageContract, "voice_note.unavailable")}
+              />
+            ) : (
+              note(copy(pageContract, "voice_note.none"))
+            )}
 
-              <Typography variant="overline" component="div" color="text.secondary" className="mt" sx={{ mt: 0.5 }}>
-                {copy(pageContract, "group.payment")}
-              </Typography>
-              {vendor.finance_redacted ? (
-                // Never a blank block: withheld and absent must not look the same.
-                <div className="note">{copy(pageContract, "payment.hidden")}</div>
-              ) : vendor.bank_name || vendor.account_no || vendor.ifsc_code || vendor.upi_id || vendor.pan_number ? (
-                <div className="metagrid">
+            <Divider sx={{ borderStyle: "dashed" }} />
+            <Typography variant="subtitle2" component="h4">
+              {copy(pageContract, "group.payment")}
+            </Typography>
+            {vendor.finance_redacted ? (
+              // Never a blank block: withheld and absent must not look the same.
+              note(copy(pageContract, "payment.hidden"))
+            ) : vendor.bank_name || vendor.account_no || vendor.ifsc_code || vendor.upi_id || vendor.pan_number ? (
+              recordGrid(
+                <>
                   {cell(field("bank_name"), vendor.bank_name)}
                   {cell(field("account_no"), vendor.account_no)}
                   {cell(field("ifsc_code"), vendor.ifsc_code)}
                   {cell(field("upi_id"), vendor.upi_id)}
                   {cell(field("pan_number"), vendor.pan_number)}
-                </div>
-              ) : (
-                <div className="note">{copy(pageContract, "payment.none")}</div>
-              )}
-            </div>
-
-            {/* Quick status change, without opening the full form. It posts to the NARROW status
-                endpoint, so it cannot clear a field this view did not render. */}
-            <div className="df">
-              <button type="button" className="btn p" onClick={() => setEditing(true)}>
-                {copy(pageContract, "action.edit")}
-              </button>
-              <form action={changeVendorStatusAction} style={{ display: "flex", gap: 8, alignItems: "center", marginLeft: "auto" }}>
-                <input type="hidden" name="return_to" value={listHref} />
-                <input type="hidden" name="vendor_id" value={vendor.vendor_id} />
-                <input type="hidden" name="row_version" value={vendor.row_version} />
-                <FormSelect
-                  label={field("status")}
-                  name="status"
-                  defaultValue={vendor.status}
-                  className="pmx-fsel-inline"
-                  options={optionsFor(catalog.statuses, vendor.status)}
-                />
-                <button type="submit" className="btn">
-                  {copy(pageContract, "action.save_status")}
-                </button>
-              </form>
-            </div>
-          </>
+                </>,
+              )
+            ) : (
+              note(copy(pageContract, "payment.none"))
+            )}
+          </Stack>
         ) : null}
-      </aside>
-    </>
+      </Box>
+    </MinimalDrawer>
   );
 }

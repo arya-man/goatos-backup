@@ -126,7 +126,7 @@ export const overlayJourneys = {
       id: "vendor-row-drawer",
       // features/procurement/vendor-board.tsx: <LocalOverlayLink href=?vendor=<id> className="celllink">; drawer: vendor-local-drawer.tsx
       trigger: 'a.celllink[href*="vendor="]:not([href*="vendor=new"])',
-      ...DRAWER,
+      ...DETAIL_DRAWER,
       kind: "drawer",
       source: "features/procurement/vendor-board.tsx, vendor-local-drawer.tsx",
     },

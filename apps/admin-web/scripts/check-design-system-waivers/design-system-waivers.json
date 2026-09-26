@@ -1,6 +1,6 @@
 {
   "note": "Accepted design-system debt. Every entry is a KNOWN violation of .agents/skills/design-system/SKILL.md that a future change must not multiply. Shrink this list; never grow it to land a change. P0 checks (foreign-palette, theme-token-drift, google-fonts-link) can never be waived.",
-  "updated_at": "2026-09-26T18:05:10.993Z",
+  "updated_at": "2026-09-26T18:12:30.832Z",
   "waived": [
     "f2-literal|features/counts/counts-summary-cards.ts|fattening: [\"F2\", \"F2-Male\", \"F2-Female\", \"Fattening\", \"Fattening male\", \"Fattening female\"],",
     "f2-literal|lib/admin-ui-contract.ts|{ key: \"F2\", label: \"Fattening\", title: \"\", tone: \"\", enabled: true, disabled_reason: \"\" },",
@@ -317,10 +317,6 @@
     },
     "raw-button|features/procurement/valuation-section.tsx": {
       "allowed": 1,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
-    },
-    "raw-button|features/procurement/vendor-local-drawer.tsx": {
-      "allowed": 4,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
     },
     "raw-button|features/procurement/vendor-voice-note.tsx": {
@@ -825,10 +821,6 @@
     },
     "raw-input|features/procurement/valuation-section.tsx": {
       "allowed": 5,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
-    },
-    "raw-input|features/procurement/vendor-local-drawer.tsx": {
-      "allowed": 15,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
     },
     "raw-input|features/sops/branch-field.tsx": {
@@ -1340,7 +1332,7 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/operations-dlq/index.tsx": {
-      "allowed": 5,
+      "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/pen-routines/routines-page.tsx": {
@@ -1536,10 +1528,6 @@
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
     "raw-px|features/procurement/vendor-board.tsx": {
-      "allowed": 3,
-      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
-    },
-    "raw-px|features/procurement/vendor-local-drawer.tsx": {
       "allowed": 3,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },

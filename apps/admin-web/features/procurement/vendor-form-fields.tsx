@@ -15,6 +15,11 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendor, ProcurementVendorForm, ProcurementVendorQuestion } from "@/lib/api/server";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import FormGroup from "@mui/material/FormGroup";
+import Alert from "@mui/material/Alert";
+import Divider from "@mui/material/Divider";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 
 type Answers = Record<string, string>;
 
@@ -71,8 +76,8 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
   const visible = (q: ProcurementVendorQuestion) => visibleIds.has(q.id);
 
   return (
-    <>
-      <div className="note">{copy(pageContract, "required.hint.form")}</div>
+    <Stack spacing={3}>
+      <Alert severity="info">{copy(pageContract, "required.hint.form")}</Alert>
       <input type="hidden" name="questionnaire_version" value={form.version} />
       <input type="hidden" name="questionnaire_sop_code" value={form.sop_code ?? "sales.vendor"} />
       <input type="hidden" name="form_question_ids" value={[...visibleIds].join(",")} />
@@ -80,14 +85,27 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
         ? TYPED_CARRY.filter(([id]) => !asked.has(id)).map(([id, read]) => <input key={id} type="hidden" name={id} value={read(vendor)} />)
         : null}
       {form.pages.map((page, pi) => (
-        <div key={page.key} className="vendor-form-page">
-          {page.title || pi > 0 ? <div className="dgrp">{page.title}</div> : null}
-          {page.hint ? <div className="muted small">{page.hint}</div> : null}
+        // Template product create/edit section: a subtitle, then a Stack of outlined fields.
+        <Stack key={page.key} spacing={2.5} className="vendor-form-page">
+          {page.title || pi > 0 ? (
+            <>
+              {pi > 0 ? <Divider sx={{ borderStyle: "dashed" }} /> : null}
+              <Typography variant="subtitle2" component="h4">
+                {page.title}
+              </Typography>
+            </>
+          ) : null}
+          {page.hint ? (
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {page.hint}
+            </Typography>
+          ) : null}
           {page.questions.map((q) => {
             if (!visible(q)) return null;
             const id = `vq-${q.id}`;
-            const labelText = `${q.title}${q.required ? " *" : ""}`;
-            const hint = q.hint ? <div className="muted small">{q.hint}</div> : null;
+            // MUI adds the one required asterisk from `required`; the label is the question title only.
+            const labelText = q.title;
+            const helperText = q.hint || undefined;
             const value = initial[q.id] ?? "";
             switch (q.kind) {
               case "choice": {
@@ -96,7 +114,7 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
                 // edit cannot silently re-save the row with a different value.
                 const stale = value && !options.some((o) => o.value === value);
                 return (
-                  <div className="fld" key={q.id}>
+                  <Stack key={q.id} spacing={1.5}>
                     <TextField
                       select
                       fullWidth
@@ -104,6 +122,7 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
                       name={q.id}
                       label={labelText}
                       required={q.required}
+                      helperText={helperText}
                       value={picked[q.id] ?? ""}
                       onChange={(e) => setPicked((s) => ({ ...s, [q.id]: e.target.value }))}
                       slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
@@ -128,74 +147,78 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
                         slotProps={{ htmlInput: { maxLength: 160 } }}
                       />
                     ) : null}
-                    {hint}
-                  </div>
+                  </Stack>
                 );
               }
               case "multi": {
                 const chosen = new Set(value.split("|").map((x) => x.trim()).filter(Boolean));
+                // Template MultiCheckbox: a subtitle2 caption above a wrapping row of checkboxes.
                 return (
-                  <div className="fld" key={q.id}>
-                    <label htmlFor={id}>{labelText}</label>
-                    <div className="vendor-form-multi">
+                  <Stack key={q.id} spacing={1}>
+                    <Typography variant="subtitle2" component="span" id={id}>
+                      {labelText}
+                      {q.required ? " *" : ""}
+                    </Typography>
+                    <FormGroup row aria-labelledby={id} sx={{ columnGap: 2 }}>
                       {(q.options ?? []).map((o) => (
                         <FormControlLabel
                           key={o.value}
-                          className="chkline"
                           control={<Checkbox name={q.id} value={o.value} defaultChecked={chosen.has(o.value)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
-                          label={<>{o.label}</>}
+                          label={o.label}
                         />
                       ))}
-                    </div>
-                    {hint}
-                  </div>
+                    </FormGroup>
+                    {helperText ? (
+                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                        {helperText}
+                      </Typography>
+                    ) : null}
+                  </Stack>
                 );
               }
               case "number":
                 return (
-                  <div className="fld" key={q.id}>
-                    <TextField
-                      fullWidth
-                      id={id}
-                      name={q.id}
-                      type="number"
-                      label={labelText}
-                      required={q.required}
-                      defaultValue={value}
-                      placeholder={q.unit ?? ""}
-                      slotProps={{
-                        htmlInput: { inputMode: "decimal", step: "any", min: q.min, max: q.max },
-                        inputLabel: { shrink: true },
-                      }}
-                    />
-                    {hint}
-                  </div>
+                  <TextField
+                    key={q.id}
+                    fullWidth
+                    id={id}
+                    name={q.id}
+                    type="number"
+                    label={labelText}
+                    required={q.required}
+                    helperText={helperText}
+                    defaultValue={value}
+                    placeholder={q.unit ?? ""}
+                    slotProps={{
+                      htmlInput: { inputMode: "decimal", step: "any", min: q.min, max: q.max },
+                      inputLabel: { shrink: true },
+                    }}
+                  />
                 );
               default:
                 return (
-                  <div className="fld" key={q.id}>
-                    <TextField
-                      fullWidth
-                      id={id}
-                      name={q.id}
-                      label={labelText}
-                      required={q.required}
-                      defaultValue={value}
-                      multiline={q.id === "comments" || q.id === "details"}
-                      rows={q.id === "comments" || q.id === "details" ? 2 : undefined}
-                      slotProps={{
-                        htmlInput: { maxLength: q.id === "comments" || q.id === "details" ? 2000 : 160 },
-                        inputLabel: { shrink: true },
-                      }}
-                    />
-                    {hint}
-                  </div>
+                  <TextField
+                    key={q.id}
+                    fullWidth
+                    id={id}
+                    name={q.id}
+                    label={labelText}
+                    required={q.required}
+                    helperText={helperText}
+                    defaultValue={value}
+                    multiline={q.id === "comments" || q.id === "details"}
+                    rows={q.id === "comments" || q.id === "details" ? 2 : undefined}
+                    slotProps={{
+                      htmlInput: { maxLength: q.id === "comments" || q.id === "details" ? 2000 : 160 },
+                      inputLabel: { shrink: true },
+                    }}
+                  />
                 );
             }
           })}
-        </div>
+        </Stack>
       ))}
-    </>
+    </Stack>
   );
 }
 
