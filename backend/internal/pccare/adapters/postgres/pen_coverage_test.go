@@ -446,3 +446,88 @@ func TestPenCoverageEmptyPensAreHiddenFromBoardFilterAndTotal(t *testing.T) {
 		t.Fatalf("Part 2 returns with its history: deworming = %q, want 2026-09-03", got)
 	}
 }
+
+// OCCUPANCY, ONE-TO-MANY: a pen holding many animals is still ONE row (the occupancy check is a
+// semi-join, never a join that multiplies the pen by its residents), and a resident whose pen label
+// differs only in case and spacing still counts.
+func TestPenCoverageOccupiedPenWithManyResidentsOneToManyListsOnce(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	for i := 0; i < 5; i++ {
+		coverageResidents(t, ctx, repo, pcPark, covShedGodel+"|Part 1")
+	}
+	coverageResidents(t, ctx, repo, pcPark, covShedGodel+"| part 2 ")
+	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	if page.Total != 2 || len(page.Rows) != 2 || len(page.PenOptions) != 2 {
+		t.Fatalf("total %d rows %d options %d, want 2/2/2 (Part 1 once despite five animals; Part 2 by its normalised label)", page.Total, len(page.Rows), len(page.PenOptions))
+	}
+}
+
+// OCCUPANCY, PAGINATION: empty pens between occupied ones are skipped by the keyset walk, every
+// occupied pen is visited once, and total is the occupied count on every page.
+func TestPenCoverageOccupancyPaginationPageBoundarySkipsEmptyPens(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	seedCoverageGodel(t, ctx, repo)
+	seedRoundCardsPark(t, ctx, repo, covShedOther, "S-O", "Gandhi 2")
+	// Castro (empty), Gandhi 2 (occupied), Godel 1 Part 1 (empty), Godel 1 Part 2 (occupied).
+	coverageResidents(t, ctx, repo, pcPark, covShedOther, covShedGodel+"|Part 2")
+	var walked []string
+	cursor := ""
+	for i := 0; i < 10; i++ {
+		page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 1, Cursor: cursor})
+		if page.Total != 2 {
+			t.Fatalf("page %d total = %d, want the 2 occupied pens", i+1, page.Total)
+		}
+		for _, row := range page.Rows {
+			walked = append(walked, row.ShedName+"|"+row.PartitionLabel)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if fmt.Sprint(walked) != fmt.Sprint([]string{"Gandhi 2|", "Godel 1|Part 2"}) {
+		t.Fatalf("walked %v, want only the two occupied pens in order", walked)
+	}
+}
+
+// OCCUPANCY, PARK SCOPE: occupancy is the pen's own. An occupied pen in the other park never makes a
+// same-named empty pen of this park appear, and a park-scoped caller sees none of the other park.
+func TestPenCoverageOccupancyParkScopeIsPerPen(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON CONFLICT (location_id) DO NOTHING`,
+		pcTenant, covShedOther, pcOtherPark); err != nil {
+		t.Fatalf("seed other-park shed: %v", err)
+	}
+	coverageResidents(t, ctx, repo, pcOtherPark, covShedOther) // CBE Castro occupied; CPT Castro empty
+	scoped := coverage(t, ctx, repo, ports.PenCareCoverageQuery{AuthorizedParkIDs: []string{pcPark}, Limit: 50})
+	if scoped.Total != 0 || len(scoped.Rows) != 0 || len(scoped.PenOptions) != 0 {
+		t.Fatalf("CPT caller sees %+v, want nothing: CPT Castro is empty and CBE is out of scope", scoped.Rows)
+	}
+	all := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50})
+	if all.Total != 1 || all.Rows[0].ShedID != covShedOther {
+		t.Fatalf("tenant-wide = %+v, want only CBE Castro", all.Rows)
+	}
+}
+
+// OCCUPANCY, STATUS MATRIX: only an ALIVE animal occupies a pen. Every other lifecycle status leaves
+// the pen empty and hidden; one alive animal among them brings it back.
+func TestPenCoverageOccupancyStatusMatrixOnlyAliveAnimalsCount(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	for _, status := range []string{"dead", "sold", "culled", "transferred", "lost", "inactive"} {
+		coverageResident(t, ctx, repo, pcPark, pcShedA, "", status)
+	}
+	if page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50}); page.Total != 0 {
+		t.Fatalf("a pen holding only dead/sold/culled/transferred/lost/inactive animals is listed (total %d)", page.Total)
+	}
+	coverageResident(t, ctx, repo, pcPark, pcShedA, "", "alive")
+	if page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50}); page.Total != 1 {
+		t.Fatalf("one alive animal must list the pen, total %d", page.Total)
+	}
+}
