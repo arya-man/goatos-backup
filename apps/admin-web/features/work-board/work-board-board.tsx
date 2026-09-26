@@ -194,6 +194,22 @@ const EMPTY_SX = {
   color: "text.disabled",
 } as const;
 
+// Raised card on the neutral column in both schemes: the template ItemRoot is grey[900] in dark (the
+// page colour, darker than the column, no border, no resting shadow), so cards read as sunken.
+// Paper + divider border + card shadow lifts them; a needs-attention card keeps its amber border
+// over an opaque amber tint (invariants 3e582f46b, c0b294802).
+const CARD_ROOT_SX = (t: Theme) => ({
+  bgcolor: "background.paper",
+  border: `1px solid ${t.vars.palette.divider}`,
+  boxShadow: t.vars.customShadows.card,
+  ...t.applyStyles("dark", { bgcolor: "background.paper" }),
+});
+const HOT_CARD_SX = (t: Theme) => ({
+  ...CARD_ROOT_SX(t),
+  borderColor: t.vars.palette.warning.main,
+  backgroundImage: `linear-gradient(${varAlpha(t.vars.palette.warning.mainChannel, 0.08)}, ${varAlpha(t.vars.palette.warning.mainChannel, 0.08)})`,
+});
+
 function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContract; row: WorkBoardRow; href: string }) {
   const moduleOpt = findOption(moduleOptions(pageContract), row.module);
   const hot = needsAttention(row);
@@ -203,7 +219,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
   const ownerLabel = stack.names[0] || (row.owner_state === "pool" ? copy(pageContract, "owner.pool") : copy(pageContract, "owner.missing"));
   return (
     // Template kanban item: ItemRoot shell (paper, radius, z8 on hover) + ItemContent padding.
-    <KanbanItemRoot sx={hot ? (t) => ({ bgcolor: varAlpha(t.vars.palette.warning.mainChannel, 0.08) }) : undefined}>
+    <KanbanItemRoot sx={hot ? HOT_CARD_SX : CARD_ROOT_SX}>
     <Box component={LocalOverlayLink} href={href} scroll={false} aria-label={row.title} title={`${row.title} · ${ownerLabel}`} data-filter-row sx={CARD_SX}>
       <Typography component="div" variant="subtitle2" sx={TITLE_SX}>{row.title}</Typography>
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
