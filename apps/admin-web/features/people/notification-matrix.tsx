@@ -3,6 +3,7 @@ import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
 import Typography from "@mui/material/Typography";
 import Table from "@mui/material/Table";
+import Tooltip from "@mui/material/Tooltip";
 import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
@@ -145,12 +146,23 @@ export function NotificationMatrix({
         </div>
       ) : null}
 
-      <Box className="tblwrap tablewrap" sx={{ mt: 1.5, overflowX: "auto", WebkitOverflowScrolling: "touch", display: { xs: "none", sm: "block" } }}>
-        <Table className="people-table" sx={{ "&&": { minWidth: 960 } }} style={{ tableLayout: "fixed", width: "100%" }}>
+      <Box className="tblwrap" sx={{ mt: 1.5, overflowX: "auto", WebkitOverflowScrolling: "touch", display: { xs: "none", sm: "block" } }}>
+        <Table
+          className="people-table"
+          sx={{
+            // Template table kit: every designation column keeps a readable 96px floor and the
+            // table scrolls sideways inside its card; the alert column stays pinned while it does.
+            "&&": { minWidth: 270 + 96 * matrix.designations.length, width: 1 },
+            // The matrix sits on the page background; the pinned cell repaints the surface it covers.
+            "& tr > :first-of-type": { position: "sticky", left: 0, zIndex: 1, bgcolor: "background.default" },
+            "& thead tr > :first-of-type": { zIndex: 2, bgcolor: "background.neutral" },
+          }}
+          style={{ tableLayout: "fixed" }}
+        >
           <colgroup>
             <col style={{ width: 270 }} />
             {matrix.designations.map((d) => (
-              <col key={d.code} />
+              <col key={d.code} style={{ width: 96 }} />
             ))}
           </colgroup>
           <TableHead>
@@ -159,10 +171,11 @@ export function NotificationMatrix({
               {matrix.designations.map((d) => (
                 <TableCell component="th"
                   key={d.code}
-                  title={d.grade ? d.grade : undefined}
-                  style={{ textAlign: "center", whiteSpace: "normal", textTransform: "none", fontSize: 10.5, lineHeight: 1.25, padding: "8px 2px", verticalAlign: "bottom", overflowWrap: "normal" }}
+                  sx={{ textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", px: 1, verticalAlign: "bottom" }}
                 >
-                  {d.label}
+                  <Tooltip title={d.grade ? `${d.label} · ${d.grade}` : d.label}>
+                    <Box component="span" sx={{ display: "block", overflow: "hidden", textOverflow: "ellipsis" }}>{d.label}</Box>
+                  </Tooltip>
                 </TableCell>
               ))}
             </TableRow>
