@@ -559,7 +559,9 @@ export function SalesRecordDrawer({
               {plannedSaleDate ? cell(field("planned_sale_date"), fmtDate(plannedSaleDate)) : null}
               {cell(field("farm"), deal.farm)}
               {cell(field("product_type"), deal.product_type)}
-              {cell(field("breed"), breedBeyondProduct(deal.product_type, deal.breed))}
+              {/* A manure line's "breed" is only its own name again: the cell is left out rather than
+                  saying "Manure" twice or claiming a breed was "Not recorded". */}
+              {breedBeyondProduct(deal.product_type, deal.breed) ? cell(field("breed"), breedBeyondProduct(deal.product_type, deal.breed)) : null}
               {/* Resolved to the register's NAME, never the raw id -- a uuid on a farm screen is
                   banned copy. An id that resolves to nothing (a vendor since deactivated, or the
                   imported sheet history, which predates the register) renders as absent rather
@@ -616,7 +618,7 @@ export function SalesRecordDrawer({
                     return (
                       <tr key={line.line_id}>
                         <td>{line.product_type}</td>
-                        <td className="wrap">{breedBeyondProduct(line.product_type, line.breed) ?? none}</td>
+                        <td className="wrap">{breedBeyondProduct(line.product_type, line.breed) ?? ""}</td>
                         <td className="num">{line.animal_count == null ? (byUnit ? notApplicable : none) : num(line.animal_count)}</td>
                         <td className="num">{line.total_weight_kg == null ? (byUnit ? notApplicable : none) : num(line.total_weight_kg, 1)}</td>
                         <td className="num wrap">{quantityAtRate(line.quantity, line.unit, line.rate_per_unit) || (isAnimal ? notApplicable : none)}</td>

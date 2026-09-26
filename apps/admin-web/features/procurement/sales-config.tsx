@@ -20,7 +20,7 @@ import type { ProcurementVendorOptions, SaleLocationCatalog } from "@/lib/api/se
 import { getLoadwiseSales, getSalesOptions, listSalesDeals, listSellableProducts } from "@/lib/api/procurement-server";
 import type { LoadwiseLoad, SalesDeal } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { dealStatusTone, humanDate, inr, num } from "./sales-format";
+import { breedBeyondProduct, dealStatusTone, humanDate, inr, num } from "./sales-format";
 import { SalesItemsAndRecordDrawer } from "./sales-config-items";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 import { LoadCostDrawer } from "./load-cost-drawer";
@@ -254,7 +254,7 @@ export async function SalesConfigPage({
                       {dealCell(deal.farm)}
                       {dealCell(<b>{deal.buyer_name}</b>)}
                       {dealCell(deal.product_type)}
-                      {dealCell(deal.breed)}
+                      {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? "")}
                       {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "num")}
                       {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
                       {dealCell(inr(deal.sales_value), "num")}

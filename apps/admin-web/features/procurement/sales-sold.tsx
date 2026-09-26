@@ -483,7 +483,7 @@ export async function SalesSoldPage({
                       {dealCell(deal.farm)}
                       {dealCell(<b>{deal.buyer_name}</b>)}
                       {dealCell(deal.product_type)}
-                      {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? none)}
+                      {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? "")}
                       {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "num")}
                       {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
                       {dealCell(inr(deal.sales_value), "num")}

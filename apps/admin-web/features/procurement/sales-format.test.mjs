@@ -184,6 +184,8 @@ test("farm value cards render the backend valuation contract", () => {
 // Farm value no chart or ledger, and the ledger closes the Sold page ("keep it at last").
 test("Sold ends with the deals ledger and Farm value carries no sold block", () => {
   const sold = readFileSync(new URL("./sales-sold.tsx", import.meta.url), "utf8");
+  const config = readFileSync(new URL("./sales-config.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(config, /dealCell\(deal\.breed\)/);
   const farmValue = readFileSync(new URL("./sales-farm-value.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(sold, /farm_valuation|getShedWeights/);
   assert.match(sold, /listSalesDeals\(/);

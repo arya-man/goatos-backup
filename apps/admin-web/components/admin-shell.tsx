@@ -34,7 +34,7 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
         <FirebaseSessionBridge />
         <ContractUnavailableTelemetry kind={kind} code={code} status={status} traceId={traceId} />
         <main className="wrap" style={{ padding: 24 }}>
-          <section className="card">
+          <section className="card" style={{ padding: 20 }}>
             <h1>{copy.title}</h1>
             <p className="muted">{copy.body}</p>
             <div style={{ marginTop: 14 }}>
