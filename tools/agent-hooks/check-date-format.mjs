@@ -41,6 +41,14 @@
 //      biztime.FarmDate/FarmDateFromBusinessDate instead. Plus a canary on
 //      biztime.FarmDateFormat.
 //
+//   6. HAND-ROLLED DASH DATE (2026-09-26) — a Kotlin/TS/TSX source that assembles a
+//      date from its ISO parts in REVERSE order into a DASH string: a template
+//      `${p[2]}-${p[1]}-${p[0]}` over ONE array with strictly descending indexes, or
+//      split("-").reverse().join("-") / .reversed().joinToString("-"). That is the
+//      retired DD-MM-YYYY built by hand, which is how VendorsFormatting.farmDate put
+//      "01-09-2026" on four phone screens while checks 1-5 stayed green. ISO-order
+//      assembly (ascending indexes) and the slash form are not flagged.
+//
 // ESCAPE HATCH: put `date-format-guard:ignore: <reason>` on the line (or the line
 // above) for a genuine machine/wire format. It is a reviewer-facing justification,
 // not a rubber stamp.
@@ -53,7 +61,9 @@
 //     in ~200 places (SQL params, event keys, API fields), so flagging it would be
 //     pure noise. An ISO date leaking into a Go SENTENCE is caught by review and by
 //     the notification-specificity guard, not here;
-//   - Kotlin/TS string concatenation that builds a date by hand from parts;
+//   - a date built by hand from parts in any shape OTHER than check 6's: named
+//     variables (`"$day-$month-$year"`), `+` concatenation, a two-element or
+//     non-indexed join, or parts indexed from different arrays;
 //   - server-rendered copy stored as data (seeded admin_ui_config_entries rows).
 
 import { execFileSync } from "node:child_process";
@@ -291,6 +301,28 @@ export function goCanaryFailures(biztimeSource) {
 
 /* ------------------------------------------------------------- self-test ---- */
 
+// Check 6. One array, three indexes strictly DESCENDING, joined by "-": the reverse of ISO order.
+const REVERSED_DASH_TEMPLATE = /\$\{\s*(\w+)\[(\d)\]\s*\}-\$\{\s*\1\[(\d)\]\s*\}-\$\{\s*\1\[(\d)\]\s*\}/g;
+const REVERSED_DASH_JOIN = /\.split\(\s*["'`]-["'`]\s*\)\s*\.(?:reverse|reversed)\(\)\s*\.(?:join|joinToString)\(\s*["'`]-["'`]/g;
+
+export function handRolledDashDateFailures(source) {
+  const failures = [];
+  const lines = source.split("\n");
+  const hit = (index, text) => {
+    const lineNo = source.slice(0, index).split("\n").length;
+    if (!ignored(lines, lineNo)) failures.push({ line: lineNo, text });
+  };
+  let match;
+  REVERSED_DASH_TEMPLATE.lastIndex = 0;
+  while ((match = REVERSED_DASH_TEMPLATE.exec(source)) !== null) {
+    const [a, b, c] = [Number(match[2]), Number(match[3]), Number(match[4])];
+    if (a > b && b > c) hit(match.index, match[0]);
+  }
+  REVERSED_DASH_JOIN.lastIndex = 0;
+  while ((match = REVERSED_DASH_JOIN.exec(source)) !== null) hit(match.index, match[0]);
+  return failures;
+}
+
 function assert(condition, message) {
   if (!condition) {
     console.error(`self-test FAIL: ${message}`);
@@ -397,6 +429,22 @@ function selfTest() {
   // ...but a real copy literal on a line with a trailing comment still fails
   assert(goCopyDateFailures('x := "starts on 03 Aug 2026" // caption').length === 1, "copy date beside a comment not flagged");
 
+  // 6. a date hand-assembled from its ISO parts in REVERSE order into a DASH string -- the
+  //    VendorsFormatting.farmDate defect (2026-09-25) that rendered "01-09-2026" on the phone's
+  //    Sales, Vendors, Feed Purchases and Market screens while every pattern scan above stayed green.
+  const vendorsFarmDate = 'internal fun farmDate(iso: String?): String {\n    val parts = iso.orEmpty().split("-")\n    return if (parts.size == 3 && parts[0].length == 4) "${parts[2]}-${parts[1]}-${parts[0]}" else iso.orEmpty()\n}';
+  assert(handRolledDashDateFailures(vendorsFarmDate).length === 1, "Kotlin reversed-parts dash date (VendorsFormatting.farmDate) not flagged");
+  assert(handRolledDashDateFailures("const [y, m, d] = iso.split(\"-\");\nreturn `${p[2]}-${p[1]}-${p[0]}`;").length === 1, "TS reversed-parts dash template not flagged");
+  assert(handRolledDashDateFailures('return iso.split("-").reverse().join("-");').length === 1, "TS split/reverse/join dash date not flagged");
+  assert(handRolledDashDateFailures('return iso.split("-").reversed().joinToString("-")').length === 1, "Kotlin split/reversed/joinToString dash date not flagged");
+  assert(handRolledDashDateFailures("return `${m[3]}-${m[2]}-${m[1]}`;").length === 1, "regex-group reversed dash date not flagged");
+  // wire formats and the compliant slash form pass
+  assert(handRolledDashDateFailures("return `${p[0]}-${p[1]}-${p[2]}`;").length === 0, "ISO-order wire assembly wrongly flagged");
+  assert(handRolledDashDateFailures('"${parts[2]}/${parts[1]}/${parts[0]}"').length === 0, "compliant slash date wrongly flagged");
+  assert(handRolledDashDateFailures('return iso.split("-").reverse().join("/");').length === 0, "slash reverse-join wrongly flagged");
+  assert(handRolledDashDateFailures('const key = `${a[2]}-${b[1]}-${c[0]}`;').length === 0, "three DIFFERENT arrays wrongly read as one date");
+  assert(handRolledDashDateFailures(`return \`\${p[2]}-\${p[1]}-\${p[0]}\`; // ${IGNORE} legacy export filename`).length === 0, "reversed-dash ignore marker not honoured");
+
   assert(goCanaryFailures('const FarmDateFormat = "02/01/2006"').length === 0, "good FarmDateFormat flagged");
   assert(goCanaryFailures('const FarmDateFormat = "02-01-2006"').length === 1, "dashed FarmDateFormat not caught");
 
@@ -444,6 +492,15 @@ function main() {
     }
     for (const hit of androidLabelFieldFailures(androidSource)) {
       failures.push(`${file}:${hit.line}: ${hit.field} is named for a reader but holds a wire/ISO value — rename it (…Iso) and format at the point it becomes visible`);
+    }
+  }
+
+  // 6. a date hand-assembled in reverse order into a dash string (Kotlin + admin-web TS/TSX)
+  for (const file of [...tracked("apps/goatos-android"), ...tracked("apps/admin-web")]) {
+    if (!/\.(kt|ts|tsx)$/.test(file) || file.includes("/test/") || file.includes("/androidTest/") || file.includes(".test.")) continue;
+    if (file.includes("node_modules/")) continue;
+    for (const hit of handRolledDashDateFailures(readFileSync(resolve(repo, file), "utf8"))) {
+      failures.push(`${file}:${hit.line}: a date assembled by hand in reverse order with dashes (${hit.text}) — render DD/MM/YYYY via GoatOsDates / fmtDate (or mark ${IGNORE} <reason>)`);
     }
   }
 

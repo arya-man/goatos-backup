@@ -83,7 +83,7 @@ another zone must not shift a drive onto a different date than the console shows
 ## Machine gate
 
 `make date-format-guard` (`tools/agent-hooks/check-date-format.mjs`), in
-`make guardrails` and `make ci-local`. Five checks:
+`make guardrails` and `make ci-local`. Six checks:
 
 1. **Web canary** — `fmtDate`/`fmtDateTime` still compose day/month/year with
    slashes. Catches a helper refactor even when no feature file changed.
@@ -98,6 +98,13 @@ another zone must not shift a drive onto a different date than the console shows
 5. **Backend scan** — a Go layout combining a WORD month (`Jan`/`January`) with a
    day is display copy by construction and must go through `biztime.FarmDate`.
    Plus a canary on `FarmDateFormat`.
+6. **Hand-rolled dash date** (2026-09-26) — a Kotlin/TS/TSX source assembling a
+   date from its ISO parts in REVERSE order into a dash string
+   (`"${parts[2]}-${parts[1]}-${parts[0]}"` over one array, or
+   `split("-").reverse().join("-")`). That is how `VendorsFormatting.farmDate`
+   showed `01-09-2026` on four phone screens while checks 1-5 passed. ISO-order
+   assembly and the slash form pass. Blind spot: named variables
+   (`"$day-$month-$year"`), `+` concatenation, and parts from different arrays.
 
 The self-test is adversarial: it asserts the guard **rejects** the retired dash
 form, the retired compact axis, every retired Android pattern, and a Go
