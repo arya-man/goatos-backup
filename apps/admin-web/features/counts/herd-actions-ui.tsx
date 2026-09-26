@@ -209,7 +209,7 @@ export function Drawer({
           <X className="ic" aria-hidden="true" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers className="hr-dialog-bd">{children}</DialogContent>
+      <DialogContent dividers className="hr-dialog-bd" sx={{ pt: 1 }}>{children}</DialogContent>
     </Dialog>
   );
 }

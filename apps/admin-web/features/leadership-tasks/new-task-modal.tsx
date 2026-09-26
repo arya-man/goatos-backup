@@ -135,7 +135,7 @@ export function NewTaskModal({
                 <X className="ic" aria-hidden="true" />
               </IconButton>
             </DialogTitle>
-            <DialogContent dividers>
+            <DialogContent dividers sx={{ pt: 1 }}>
             <form
               action={action}
               className="lt-modal-bd"

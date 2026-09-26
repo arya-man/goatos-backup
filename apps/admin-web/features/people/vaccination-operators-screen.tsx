@@ -1320,7 +1320,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>{shiftOp?.person_display_name || 'Operator'} · {scopedParkName || 'Vaccination operator'}</Typography>
               </div>
             </DialogTitle>
-            <DialogContent sx={{ display: 'grid', gap: 2 }}>
+            <DialogContent sx={{ display: 'grid', gap: 2, pt: 1 }}>
               <div className="ctl" style={{ flexWrap: 'wrap', paddingTop: 'var(--sp-1)' }}>
                 <MuiTextField
                   select
@@ -1430,7 +1430,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                 <Iconify icon="mingcute:close-line" />
               </IconButton>
             </DialogTitle>
-            <DialogContent dividers>
+            <DialogContent dividers sx={{ pt: 1 }}>
               <div className="rangelab">
                 <span>Pick leave dates</span>
                 <b id="lmRange">

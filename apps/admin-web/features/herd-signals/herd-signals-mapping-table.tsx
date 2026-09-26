@@ -460,7 +460,7 @@ function MappingDialog({
         </IconButton>
       </DialogTitle>
 
-      <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+      <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 1.5, pt: 1 }}>
         {needsAnimal ? (
           <AnimalPicker selected={animal} onSelect={setAnimal} liveTags={liveTags} liveTagsState={liveTagsState} />
         ) : (

@@ -145,7 +145,7 @@ export function EditTaskModal({
                 <X className="ic" aria-hidden="true" />
               </button>
             </DialogTitle>
-            <DialogContent dividers>
+            <DialogContent dividers sx={{ pt: 1 }}>
             <form action={action} className="lt-modal-bd">
               <input ref={keyRef} type="hidden" name="idempotency_key" />
               <input type="hidden" name="return_to" value={returnTo} />

@@ -226,7 +226,7 @@ export function PersonAccessModal({
           </IconButton>
         </DialogTitle>
 
-        <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
           {error ? (
             <Alert severity="error" role="alert">
               {error}
