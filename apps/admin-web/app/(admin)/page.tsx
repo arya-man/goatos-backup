@@ -1,12 +1,11 @@
 import { ControlTowerPage } from "@/features/control-tower";
-import { landingWindow, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "@/features/weighing";
+import { landingWindow, sexFilterFromUrl, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "@/features/weighing";
 import { getAdminWebBootstrap } from "@/lib/api/server";
 import { todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { redirect } from "next/navigation";
 import { hrefWithWindow } from "./landing-href.mjs";
-import { sexFilterFromUrl } from "@/features/weighing/sex-filter";
 
 export const dynamic = "force-dynamic";
 

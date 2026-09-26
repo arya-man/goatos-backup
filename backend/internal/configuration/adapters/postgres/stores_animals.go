@@ -255,6 +255,11 @@ func (stageStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) erro
 	return fenced(ctx, tx, tag.RowsAffected(), `SELECT 1 FROM animal_stage_lookup WHERE tenant_id = $1 AND animal_stage_id = $2::uuid`, t, id)
 }
 
+// projection-review: membership=protocol_rule_dimensions rows of PUBLISHED protocol_versions naming the code; group_key=rule_id (DISTINCT before counting); join_cardinality=each dimension row joins exactly one protocol_versions row on its primary key, and one rule expands into many dimension rows (species x stage x sex x breed), collapsed by the DISTINCT rule_id so a rule counts once; pagination=none, one count per register row, independent of the list page; scope=tenant_id plus the one code
+//   - producer unique key: protocol_rule_dimensions (protocol_rule_dimension_id); consumer counts DISTINCT rule_id.
+//   - multiplicity: dimensions N per rule, versions 1 per dimension -> collapsed to 1 per rule.
+//   - numerator/denominator: n/a (a count, no ratio).
+//
 // sqlPublishedRuleUsage counts the PUBLISHED vaccination rules one of whose compiled dimensions
 // names a code. Formatted with the dimension column and the SQL expression for the code ($1 is the
 // tenant). Each dimension row names exactly one value ('all' is the wildcard), so an exact,

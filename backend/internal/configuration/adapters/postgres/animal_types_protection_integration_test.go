@@ -186,3 +186,139 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'vaccination', 'cfg-test', $4, $5, $6, $7)
 		t.Fatalf("publish: %v", err)
 	}
 }
+
+// seedRuleVersion writes one vaccination protocol version in the given status with ONE rule whose
+// compiled dimensions are the cross product of the given species and sexes, all naming stage.
+func seedRuleVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, code, status, stage string, species, sexes []string) {
+	t.Helper()
+	var protocolID, versionID, ruleID string
+	if err := pool.QueryRow(ctx, `INSERT INTO protocol_definitions (tenant_id, code, name, category, status) VALUES ($1::uuid, $2, 'Test plan', 'vaccination', 'active') RETURNING protocol_id::text`, cfgTenant, code).Scan(&protocolID); err != nil {
+		t.Fatalf("protocol definition: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO protocol_versions (tenant_id, protocol_id, version, effective_from, status) VALUES ($1::uuid, $2::uuid, 1, DATE '2026-01-01', 'draft') RETURNING protocol_version_id::text`, cfgTenant, protocolID).Scan(&versionID); err != nil {
+		t.Fatalf("protocol version: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO protocol_rules (tenant_id, protocol_version_id, dose_code, trigger_type) VALUES ($1::uuid, $2::uuid, 'dose_'||$3, 'calendar') RETURNING rule_id::text`, cfgTenant, versionID, status).Scan(&ruleID); err != nil {
+		t.Fatalf("protocol rule: %v", err)
+	}
+	for _, sp := range species {
+		for _, sx := range sexes {
+			if _, err := pool.Exec(ctx, `INSERT INTO protocol_rule_dimensions (tenant_id, protocol_version_id, rule_id, category, selector_key, species, animal_stage, sex)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'vaccination', $4, $5, $6, $7)`, cfgTenant, versionID, ruleID, code+"|"+sp+"|"+sx, sp, stage, sx); err != nil {
+				t.Fatalf("rule dimension: %v", err)
+			}
+		}
+	}
+	if status != "draft" {
+		if _, err := pool.Exec(ctx, `UPDATE protocol_versions SET status = $2 WHERE protocol_version_id = $1::uuid`, versionID, status); err != nil {
+			t.Fatalf("set version status %s: %v", status, err)
+		}
+	}
+}
+
+func ruleUsage(t *testing.T, ctx context.Context, repo *Repository, stageID string) int {
+	t.Helper()
+	u, err := repo.Usage(ctx, cfgTenant, domain.RegStages, stageID)
+	if err != nil {
+		t.Fatalf("usage: %v", err)
+	}
+	for _, c := range u.Uses {
+		if c.Noun == "vaccination rules" {
+			return c.Count
+		}
+	}
+	return 0
+}
+
+// One rule compiles into MANY dimension rows (every species x sex it targets); the stage it names is
+// held by ONE rule, never by four.
+func TestStageRuleUsageCountsOneRuleAcrossMultipleDimensions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedConfigurationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 15*time.Second)
+	if _, err := pool.Exec(ctx, `INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, sort_order) VALUES ($1::uuid,'Warmup','Warm-up',60)`, cfgTenant); err != nil {
+		t.Fatalf("seed stage: %v", err)
+	}
+	seedRuleVersion(t, ctx, pool, "vaccination.fan_out", "published", "Warmup", []string{"goat", "sheep"}, []string{"female", "male"})
+	page, err := repo.List(ctx, cfgTenant, domain.RegStages, ports.ListParams{Status: "all", Limit: 100})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, r := range page.Rows {
+		if domain.FieldString(r.Fields, "code") == "Warmup" {
+			if got := ruleUsage(t, ctx, repo, r.ID); got != 1 {
+				t.Fatalf("one rule across 4 dimension rows must count once, got %d", got)
+			}
+			return
+		}
+	}
+	t.Fatal("Warmup not listed")
+}
+
+// Only a PUBLISHED version holds a code: a draft is not in force yet and a retired one no longer
+// is, so neither may stop the farm removing a stage.
+func TestStageRuleUsageStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedConfigurationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 15*time.Second)
+	for _, c := range []struct {
+		status string
+		want   int
+	}{{"draft", 0}, {"retired", 0}, {"published", 1}} {
+		stage := "Stage " + c.status
+		var id string
+		if err := pool.QueryRow(ctx, `INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, sort_order) VALUES ($1::uuid, $2, $2, 70) RETURNING animal_stage_id::text`, cfgTenant, stage).Scan(&id); err != nil {
+			t.Fatalf("seed stage: %v", err)
+		}
+		seedRuleVersion(t, ctx, pool, "vaccination.status_"+c.status, c.status, stage, []string{"goat"}, []string{"female"})
+		if got := ruleUsage(t, ctx, repo, id); got != c.want {
+			t.Fatalf("a %s version: usage %d, want %d", c.status, got, c.want)
+		}
+	}
+}
+
+// A row's usage is its own whole count, whatever page of the list it lands on: paging the Stages
+// register one row at a time must report the same holds as the unpaged list.
+func TestStageUsageCountsHoldAcrossPageBoundary(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedConfigurationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 15*time.Second)
+	whole, err := repo.List(ctx, cfgTenant, domain.RegStages, ports.ListParams{Status: "all", Limit: 100})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := map[string]int{}
+	for _, r := range whole.Rows {
+		want[r.ID] = r.Counts["animals"]
+	}
+	seen := 0
+	cursor := ""
+	for i := 0; i < 50; i++ {
+		page, err := repo.List(ctx, cfgTenant, domain.RegStages, ports.ListParams{Status: "all", Limit: 1, Cursor: cursor})
+		if err != nil {
+			t.Fatalf("page %d: %v", i, err)
+		}
+		for _, r := range page.Rows {
+			seen++
+			if r.Counts["animals"] != want[r.ID] {
+				t.Fatalf("%s holds %d animals on a one-row page, %d unpaged", r.Display, r.Counts["animals"], want[r.ID])
+			}
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if seen != len(whole.Rows) {
+		t.Fatalf("paging saw %d rows, the whole list has %d", seen, len(whole.Rows))
+	}
+}
