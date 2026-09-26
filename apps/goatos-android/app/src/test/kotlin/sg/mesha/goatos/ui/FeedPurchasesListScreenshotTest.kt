@@ -22,7 +22,8 @@ import sg.mesha.goatos.feature.vendors.VendorsTone
 /**
  * Feed purchase cards at phone width (Sales phone E2E 2026-09-26): a full feed name beside the
  * delivery chip was cut to "Mesha Adult Conc…". The name wraps to a second line instead, and the
- * rest of the card (load, quantity, date, payment) is still all there.
+ * rest of the card (load, quantity, date, payment) is still all there. The vendor in the bottom
+ * line beside the payment chip was cut the same way; it wraps too.
  */
 class FeedPurchasesListScreenshotTest {
     @get:Rule
@@ -35,9 +36,9 @@ class FeedPurchasesListScreenshotTest {
     fun longFeedNames() {
         val cards = listOf(
             // Real catalog names from the farm's ledger, the longest first.
-            card("1", "Mesha Adult Concentrate Sheep", "In transit", VendorsTone.WARN, "Part paid", VendorsTone.WARN),
-            card("2", "Mesha Kids Sheep Concentrate", "Delivered", VendorsTone.OK, "Paid", VendorsTone.OK),
-            card("3", "Dry Masoor Bhusa", "Delivered", VendorsTone.OK, "Not paid", VendorsTone.DANGER),
+            card("1", "Mesha Adult Concentrate Sheep", "In transit", VendorsTone.WARN, "Part paid", VendorsTone.WARN, "Sri Venkateswara Agro Feeds and Traders"),
+            card("2", "Mesha Kids Sheep Concentrate", "Delivered", VendorsTone.OK, "Paid", VendorsTone.OK, "Sri Lakshmi Traders"),
+            card("3", "Dry Masoor Bhusa", "Delivered", VendorsTone.OK, "Not paid", VendorsTone.DANGER, "Kaveri Fodder Suppliers Channapatna"),
         )
         paparazzi.snapshot(name = "feed_purchases_long_feed_names") {
             GoatOsTheme {
@@ -53,10 +54,10 @@ class FeedPurchasesListScreenshotTest {
         }
     }
 
-    private fun card(id: String, feed: String, delivery: String, deliveryTone: VendorsTone, payment: String, paymentTone: VendorsTone) =
+    private fun card(id: String, feed: String, delivery: String, deliveryTone: VendorsTone, payment: String, paymentTone: VendorsTone, vendor: String) =
         FeedPurchaseCardUi(
             listKey = id, purchaseId = id, feedItem = feed, loadLine = "CBE · Load 32$id",
-            quantityLine = "4,000 kg · ₹1,20,000", metaLine = "Bought 24/09/2026 · Sri Lakshmi Traders",
+            quantityLine = "4,000 kg · ₹1,20,000", metaLine = "Bought 24/09/2026 · $vendor",
             deliveryLabel = delivery, deliveryTone = deliveryTone, paymentLabel = payment, paymentTone = paymentTone,
         )
 }

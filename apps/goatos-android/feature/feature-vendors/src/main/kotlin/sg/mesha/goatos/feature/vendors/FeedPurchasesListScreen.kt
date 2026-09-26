@@ -123,7 +123,9 @@ private fun FeedPurchaseCard(card: FeedPurchaseCardUi, onClick: () -> Unit) {
         }
         Text(text = card.quantityLine, color = MeshaColors.Ink, style = MeshaType.rowValue, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text = card.metaLine, color = MeshaColors.Muted, style = MeshaType.rowCaption, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            // Who the load was bought from is read off this line: the vendor wraps to a second line
+            // rather than cut to "Sri Venkateswara Agro…" beside the payment chip on a 360 dp phone.
+            Text(text = card.metaLine, color = MeshaColors.Muted, style = MeshaType.rowCaption, maxLines = META_LINE_MAX_LINES, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             VendorsChip(label = card.paymentLabel, tone = card.paymentTone)
         }
     }
@@ -131,3 +133,4 @@ private fun FeedPurchaseCard(card: FeedPurchaseCardUi, onClick: () -> Unit) {
 
 private const val ADD_LABEL = "Record purchase"
 private const val FEED_NAME_MAX_LINES = 2
+private const val META_LINE_MAX_LINES = 2
