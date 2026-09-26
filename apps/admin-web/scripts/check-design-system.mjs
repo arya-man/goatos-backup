@@ -211,6 +211,7 @@ const CHECKS = {
   "section-server-fn-sx": { tier: "p0", why: "a template section under components/minimal/sections/ that styles with a function sx ((theme) => …) must start with 'use client': a Server Component page renders it, and a function prop cannot cross to the client MUI part (\"Functions cannot be passed directly to Client Components\", the whole page falls back to client rendering or 500s)" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
+  "server-function-prop": { tier: "p0", why: "a SERVER module (reachable from an app/ page/layout/loading without crossing a \"use client\" file) passes a function sx / (theme) => callback to an MUI element: MUI parts are client components, so the render crashes with 'Functions cannot be passed directly to Client Components' (/sales/sold, digest 3801663639) while typecheck and next build stay green. Mark the module \"use client\" or use an object sx with theme tokens" },
   "client-api-without-use-client": { tier: "p0", why: "a module that calls a client-only React/Next API (useState/useEffect/useRef/useTransition/useRouter/useSearchParams/usePathname/useLinkStatus …) or wires a JSX event handler (onClick={…}) must start with \"use client\"; otherwise a server component that imports it breaks `next build` (typecheck does not catch it)" },
   "hand-drawn-skeleton": { tier: "p0", why: "loading shapes come only from the shared blocks in components/app/skeletons (they render the same Card/Grid/Tabs/Table parts as the page): a loading.tsx or a features/**/*skeleton*.tsx composes those blocks and nothing else (no MUI Skeleton, no raw elements, no inline style, no legacy .skel/.kit-sk classes), and no other app code draws its own MUI Skeleton" },
   "url-keyed-panel": { tier: "p0", why: "a page with a URL-driven tab strip / segment / chip / select / pager / date filter must render its data panels through <UrlSuspense> (components/app/url-suspense.tsx) keyed by the params they read, and every such control navigates through useUrlTabNav / useUrlNavigate / announceUrlNav: the click moves the tab and swaps the panel to its skeleton in the same frame, header/tabs/filters stay mounted, content streams in (Ravi 2026-09-27: 'the tab transition HANGS')" },
@@ -235,6 +236,45 @@ function clientApiFindings(text, rel) {
     if (CLIENT_ONLY_API.test(line) || (rel.endsWith(".tsx") && JSX_HANDLER.test(line))) out.push({ line: index + 1, snippet: line.trim() });
   });
   return out.slice(0, 1);
+}
+
+const SERVER_ENTRY = /(^|\/)(page|layout|loading|template|not-found|default)\.tsx$/;
+const FUNCTION_SX = /\bsx=\{\s*\(|\bsx=\{\s*\[[^\]]*=>|\(\s*theme\s*\)\s*=>/;
+function serverFunctionPropFindings(root) {
+  const appDir = join(root, "app");
+  if (!existsSync(appDir)) return [];
+  const resolveSpec = (spec, from) => {
+    let base;
+    if (spec.startsWith("@/")) base = join(root, spec.slice(2));
+    else if (spec.startsWith(".")) base = join(dirname(from), spec);
+    else return null;
+    for (const c of [base, `${base}.tsx`, `${base}.ts`, join(base, "index.tsx"), join(base, "index.ts")]) {
+      if (/\.tsx?$/.test(c) && existsSync(c) && statSync(c).isFile()) return c;
+    }
+    return null;
+  };
+  const seen = new Set();
+  const queue = walk(appDir).filter((f) => SERVER_ENTRY.test(f.split(sep).join("/")));
+  const out = [];
+  while (queue.length) {
+    const abs = queue.pop();
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    let text;
+    try { text = readFileSync(abs, "utf8"); } catch { continue; }
+    if (USE_CLIENT_FIRST.test(text) || /^\s*["']use server["']/.test(text)) continue;
+    if (abs.endsWith(".tsx")) {
+      const lines = text.split("\n");
+      const at = lines.findIndex((line) => !/^\s*(\/\/|\*|\/\*)/.test(line) && FUNCTION_SX.test(line));
+      if (at >= 0) out.push({ file: toRel(root, abs), line: at + 1, snippet: lines[at] });
+    }
+    for (const m of text.matchAll(/(?:import|export)\s[^'"`;]*?from\s*["']([^"']+)["']/g)) {
+      if (/^\s*import\s+type\s/.test(m[0]) || /^\s*export\s+type\s/.test(m[0])) continue;
+      const r = resolveSpec(m[1], abs);
+      if (r && !seen.has(r)) queue.push(r);
+    }
+  }
+  return out;
 }
 
 function runGuard(root, { themeDiff }) {
@@ -390,6 +430,12 @@ function runGuard(root, { themeDiff }) {
       findings.push(finding("route-template-map-missing", "docs/design/route-template-map.json", 1, "route-template-map.json is missing"));
     }
   }
+
+  // guard: server-function-prop (INTEGRATOR 2026-09-27). Walk the SERVER module graph from every
+  // app/ route entry (page/layout/loading/template/not-found/default), stopping at "use client"
+  // files, and refuse a function sx / (theme) => callback in any server module: it is a function
+  // handed to an MUI client component. Generalises section-client-boundary to every folder.
+  for (const hit of serverFunctionPropFindings(root)) findings.push(finding("server-function-prop", hit.file, hit.line, hit.snippet));
 
   // Pages mapped in docs/design/page-template-map.md must not fall back to the pastel KpiCard
   // tint/gradient or AnalyticsWidgetSummary (the look Ravi rejected on /sales/sold). The import
@@ -1017,11 +1063,22 @@ async function selfTest() {
   put("app/(admin)/tabbed/loading.tsx", "export default function L() { return null; }\n");
   put("app/(admin)/keyed/page.tsx", 'import { KeyedPage } from "@/features/tabbed";\nexport default function Page() { return <KeyedPage />; }\n');
   put("app/(admin)/keyed/loading.tsx", "export default function L() { return null; }\n");
+  // server-function-prop: a page renders a server module with a function sx (flagged); a client
+  // module with the same sx and a server module reached only through it are not.
+  put("app/(admin)/sfp/page.tsx", 'import { Bars } from "@/features/sfp/bars";\nimport { ClientBox } from "@/features/sfp/client-box";\nexport default function Page() { return <div className="kit-page"><Bars /><ClientBox /></div>; }\n');
+  put("app/(admin)/sfp/loading.tsx", "export default function L() { return null; }\n");
+  put("features/sfp/bars.tsx", 'import LinearProgress from "@mui/material/LinearProgress";\nexport const Bars = () => <LinearProgress sx={(theme) => ({ height: 8 })} />;\n');
+  put("features/sfp/client-box.tsx", '"use client";\nimport { Inner } from "./inner";\nexport const ClientBox = () => <Inner />;\n');
+  put("features/sfp/inner.tsx", 'import Box from "@mui/material/Box";\nexport const Inner = () => <Box sx={[(theme) => ({ p: 1 })]} />;\n');
   const { findings } = runGuard(root, { themeDiff: false });
   const got = new Set(findings.map((f) => f.check));
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");
   const missing = expected.filter((c) => !got.has(c));
   const okPageFlagged = findings.some((f) => f.file === "app/(admin)/ok/page.tsx");
+  if (findings.some((f) => f.check === "server-function-prop" && f.file !== "features/sfp/bars.tsx")) {
+    console.error(`design_system_self_test=FAIL server-function-prop flagged a client-only module: ${findings.filter((f) => f.check === "server-function-prop").map((f) => f.file).join(", ")}`);
+    process.exit(1);
+  }
   if (findings.some((f) => f.check === "client-api-without-use-client" && f.file === "components/client-ok.tsx")) {
     console.error("design_system_self_test=FAIL client-api-without-use-client flagged a \"use client\" module");
     process.exit(1);

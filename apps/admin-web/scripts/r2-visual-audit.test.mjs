@@ -82,3 +82,39 @@ test("compareBlocks: an optional skeleton block the page skipped is not an extra
   const required = compareBlocks(skel.map(({ optional, ...b }) => b), loaded);
   assert.equal(required.extra.length + required.mismatched.length > 0, true);
 });
+
+test("per-route ratchet: any new failure on a shell/touched route fails, other routes keep the P0 ratchet", () => {
+  const pat = (pattern, routes, p0 = false) => ({ pattern, label: pattern, p0, routes, routeCount: routes.length });
+  const baseline = { "tap|button": 2 };
+  const routeBaseline = { "/verify": ["contrast|a|x", "tap|button"], "/other": ["tap|button"] };
+  const patterns = [
+    pat("contrast|a|x", ["/verify"]), // known on /verify
+    pat("contrast|b|y", ["/verify"]), // NEW on a strict route -> fails although not P0
+    pat("contrast|c|z", ["/elsewhere"]), // new but not strict, not P0 -> passes
+    pat("tap|button", ["/verify", "/other"], true), // P0, not grown
+  ];
+  const fails = gateFailures(patterns, baseline, false, { strictRoutes: new Set(["/verify"]), routeBaseline });
+  assert.deepEqual(fails.map((f) => f.pattern), ["contrast|b|y"]);
+  assert.match(fails[0].why, /new on \/verify/);
+  // without a per-route baseline the old P0-only behaviour holds
+  assert.deepEqual(gateFailures(patterns, baseline, false, {}).map((f) => f.pattern), []);
+});
+
+test("touched files map to routes through the import graph; shell files flag the shell", async () => {
+  const { routesForFiles, fastRouteSet, SHELL_ROUTES } = await import("./r2-visual-audit.mjs");
+  const routes = discoverRoutes(join(appRoot, "app", "(admin)"));
+  const verifyPage = routes.find((r) => r.route === "/verify");
+  assert.ok(verifyPage, "/verify page exists");
+  const direct = routesForFiles([`app/(admin)/verify/page.tsx`], routes, appRoot);
+  assert.equal(direct.routes[0].route, "/verify");
+  assert.equal(direct.routes[0].distance, 0);
+  const shell = routesForFiles(["components/mesha-shell.tsx"], routes, appRoot);
+  assert.equal(shell.shell, true, "the shell component is reached from the (admin) layout");
+  const css = routesForFiles(["app/mesha-theme.css"], routes, appRoot);
+  assert.equal(css.shell, true, "global css is shell");
+  const none = routesForFiles(["docs/x.md"], routes, appRoot);
+  assert.equal(none.routes.length, 0);
+  const set = fastRouteSet([{ route: "/verify", distance: 0 }, { route: "/a", distance: 1 }, { route: "/b", distance: 2 }], { cap: 1 });
+  assert.deepEqual(set.routes, [...SHELL_ROUTES, "/a"]);
+  assert.deepEqual(set.skipped, ["/b"]);
+});

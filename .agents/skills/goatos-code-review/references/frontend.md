@@ -377,6 +377,11 @@ submit — is a write path and inherits the repo idempotency contract. Check:
 
 - [ ] Every module using a client-only hook or JSX event handler starts with `"use client"`
       (guard: `client-api-without-use-client`); the push ran `next build`
+- [ ] No server module passes a function `sx` / `(theme) =>` callback to an MUI element (guard:
+      `server-function-prop`); a function crossing the RSC boundary crashes the page at render
+- [ ] Shell unchanged vs template: sidebar column 16px + item padding 12px, transparent header
+      IconButtons, filters clear of the Tabs strip, TableSortLabel headers (guard: r2 visual gate
+      `shell|*`; `npm run visual:gate -- --fast` ran before the push)
 
 ## Error, Loading, and Accessibility
 

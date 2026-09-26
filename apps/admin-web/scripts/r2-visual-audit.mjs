@@ -196,11 +196,92 @@ export const isP0 = (pattern) => P0_PATTERNS.some((re) => re.test(pattern));
  * Gate decision. Without a baseline (or strict) every P0 pattern fails. With a baseline
  * (pattern -> route count, shrink-only like the design-system ratchet) a P0 pattern fails
  * when it is new or reaches more routes than recorded.
+ *
+ * Per-route ratchet (INTEGRATOR 2026-09-27): when `strictRoutes` (the shell routes plus the routes
+ * the push touched) and a per-route baseline (`routeBaseline`: route -> [pattern]) are given, ANY
+ * failure pattern — P0 or not — that a strict route shows and its baseline entry does not list
+ * fails too. Shell checks (`shell|…`) are P0, so a new shell failure fails on every route.
  */
-export function gateFailures(patterns, baseline, strict) {
+export function gateFailures(patterns, baseline, strict, { strictRoutes = null, routeBaseline = null } = {}) {
   const p0 = patterns.filter((p) => p.p0);
-  if (strict || !baseline) return p0.map((p) => ({ ...p, why: "P0" }));
-  return p0.filter((p) => !(p.pattern in baseline) || p.routeCount > baseline[p.pattern]).map((p) => ({ ...p, why: p.pattern in baseline ? `grew ${baseline[p.pattern]} -> ${p.routeCount} routes` : "new P0 pattern" }));
+  const out = (strict || !baseline)
+    ? p0.map((p) => ({ ...p, why: "P0" }))
+    : p0.filter((p) => !(p.pattern in baseline) || p.routeCount > baseline[p.pattern]).map((p) => ({ ...p, why: p.pattern in baseline ? `grew ${baseline[p.pattern]} -> ${p.routeCount} routes` : "new P0 pattern" }));
+  if (!strictRoutes || !routeBaseline) return out;
+  const seen = new Set(out.map((p) => p.pattern));
+  for (const p of patterns) {
+    if (seen.has(p.pattern)) continue;
+    const fresh = p.routes.filter((r) => strictRoutes.has(r) && !(routeBaseline[r] || []).includes(p.pattern));
+    if (fresh.length) { out.push({ ...p, why: `new on ${fresh.join(", ")} (touched/shell route, any new failure fails)` }); seen.add(p.pattern); }
+  }
+  return out;
+}
+
+// Five routes that exercise the whole shell (sidebar groups, header, tabs + filter toolbar, sort
+// headers, KPI rows, charts, a table pager). Every fast run audits them, whatever the push touched.
+export const SHELL_ROUTES = ["/verify", "/approvals", "/sales/sold", "/weighing/analytics", "/counts/herd"];
+
+const IMPORT_RE = /(?:import|export)\s[^'"`;]*?from\s*["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)|^\s*import\s*["']([^"']+)["']/gm;
+
+/** Resolve a module specifier from `fromFile` to an app file (repo-relative to appRoot) or null. */
+export function resolveImport(spec, fromFile, appRoot, exists = existsSync) {
+  let base;
+  if (spec.startsWith("@/")) base = join(appRoot, spec.slice(2));
+  else if (spec.startsWith(".")) base = resolve(dirname(fromFile), spec);
+  else return null;
+  for (const cand of [base, `${base}.tsx`, `${base}.ts`, `${base}.mjs`, `${base}.js`, `${base}.css`, join(base, "index.tsx"), join(base, "index.ts")]) {
+    if (/\.(tsx?|mjs|jsx?|css)$/.test(cand) && exists(cand) && !(exists(cand) && statSync(cand).isDirectory())) return cand;
+  }
+  return null;
+}
+
+/**
+ * Which audited routes does a set of changed files touch? A route is touched when a changed file is
+ * its page / loading / a segment layout, or anything those import (transitively, app files only).
+ * Files the root and (admin) layouts import, global CSS, theme/ and layouts/ are the SHELL: a change
+ * there is `shell: true` (the SHELL_ROUTES cover it). Returns routes ordered by import distance.
+ */
+export function routesForFiles(changed, routes, appRoot, { read = (f) => readFileSync(f, "utf8"), exists = existsSync } = {}) {
+  const abs = new Set(changed.map((f) => resolve(appRoot, f.replace(/^apps\/admin-web\//, ""))));
+  const cache = new Map();
+  const importsOf = (file) => {
+    if (cache.has(file)) return cache.get(file);
+    const list = [];
+    cache.set(file, list);
+    if (!/\.(tsx?|mjs|jsx?)$/.test(file)) return list;
+    let text = ""; try { text = read(file); } catch { return list; }
+    for (const m of text.matchAll(IMPORT_RE)) { const r = resolveImport(m[1] || m[2] || m[3], file, appRoot, exists); if (r) list.push(r); }
+    return list;
+  };
+  /** BFS distance from the entry files to the nearest changed file (Infinity when none). */
+  const distance = (entries) => {
+    const seen = new Set(); let frontier = entries.filter((e) => exists(e)); let d = 0;
+    while (frontier.length && d < 40) {
+      for (const f of frontier) if (abs.has(f)) return d;
+      const next = [];
+      for (const f of frontier) { seen.add(f); for (const i of importsOf(f)) if (!seen.has(i)) { seen.add(i); next.push(i); } }
+      frontier = next; d++;
+    }
+    return Infinity;
+  };
+  const shellEntries = [join(appRoot, "app", "layout.tsx"), join(appRoot, "app", "(admin)", "layout.tsx"), join(appRoot, "app", "(admin)", "loading.tsx")];
+  const shell = distance(shellEntries) < Infinity || [...abs].some((f) => /\/(theme|layouts)\//.test(f) || (/\/app\/[^/]+\.css$/.test(f)));
+  const touched = [];
+  for (const r of routes) {
+    const dir = dirname(r.file);
+    const segs = [];
+    for (let d = dir; d.startsWith(join(appRoot, "app", "(admin)")) && d !== join(appRoot, "app", "(admin)"); d = dirname(d)) segs.push(join(d, "layout.tsx"), join(d, "loading.tsx"), join(d, "template.tsx"));
+    const dist = distance([r.file, ...segs]);
+    if (dist < Infinity) touched.push({ route: r.route, distance: dist });
+  }
+  touched.sort((a, b) => a.distance - b.distance || a.route.localeCompare(b.route));
+  return { shell, routes: touched };
+}
+
+/** Fast-run route set: the shell routes + the touched routes (closest first), capped. */
+export function fastRouteSet(touched, { shellRoutes = SHELL_ROUTES, cap = 8 } = {}) {
+  const extra = touched.map((t) => t.route).filter((r) => !shellRoutes.includes(r));
+  return { routes: [...shellRoutes, ...extra.slice(0, cap)], skipped: extra.slice(cap) };
 }
 
 /** Group findings into patterns ranked by distinct routes, then occurrences. */
@@ -707,10 +788,16 @@ async function main() {
   const outDir = resolve(String(args.out ?? join(process.env.R2_AUDIT_OUT_ROOT ?? join(homedir(), "mesha/redesign-shots/r2"), `audit-${stamp}`)));
   const pageMapPath = String(args["page-map"] ?? join(homedir(), "mesha/mui-page-map.md"));
   const concurrency = Number(args.concurrency ?? 5);
-  const checks = new Set(args.checks ? String(args.checks).split(",") : ALL_CHECKS);
+  // --fast: the pre-push lane (~2-3 min): shell routes + touched routes, scan (3 profiles, shell
+  // checks included) + tab/filter interactions; drawers / skeleton / side-by-sides stay in the full run.
+  const fast = !!args.fast;
+  const checks = new Set(args.checks ? String(args.checks).split(",") : fast ? ["scan", "interact"] : ALL_CHECKS);
   const only = args.only ? String(args.only).split(",").map((s) => s.trim()).filter(Boolean) : null;
+  const exactRoutes = args.routes ? String(args.routes).split(",").map((s) => s.trim()).filter(Boolean) : null;
+  const touchedFiles = args["touched-files-from"] ? readFileSync(String(args["touched-files-from"]), "utf8").split("\n").map((s) => s.trim()).filter(Boolean)
+    : args["touched-files"] ? String(args["touched-files"]).split(",").map((s) => s.trim()).filter(Boolean) : null;
   const query = args.query === undefined ? "scope_mode=company" : args.query === true ? "" : String(args.query);
-  const maxInteractions = Number(args["max-interactions"] ?? 10);
+  const maxInteractions = Number(args["max-interactions"] ?? (fast ? 4 : 10));
   const gate = !!args.gate;
   const baselinePath = args.baseline === undefined ? join(scriptDir, "r2-visual-audit-baseline.json") : String(args.baseline);
   // Extra checks from other workers: every scripts/r2-audit-checks/*.mjs exporting
@@ -726,6 +813,17 @@ async function main() {
   const cssIndex = buildCssIndex(appRoot);
   const pageMap = existsSync(pageMapPath) ? parsePageMap(readFileSync(pageMapPath, "utf8")) : new Map();
   let routes = discoverRoutes(join(appRoot, "app", "(admin)"));
+  const allRoutes = routes;
+  // strictRoutes: the routes where ANY new failure fails the gate (shell routes + touched routes)
+  let strictRoutes = null;
+  if (touchedFiles || fast) {
+    const t = touchedFiles ? routesForFiles(touchedFiles, allRoutes, appRoot) : { shell: false, routes: [] };
+    const set = fastRouteSet(t.routes, { cap: Number(args.cap ?? 8) });
+    strictRoutes = new Set([...SHELL_ROUTES, ...t.routes.map((r) => r.route)]);
+    console.log(`r2-visual-audit: ${touchedFiles ? touchedFiles.length : 0} touched files -> shell ${t.shell ? "TOUCHED" : "untouched"}, ${t.routes.length} touched routes${set.skipped.length ? ` (${set.skipped.length} beyond the fast cap, left to the full run: ${set.skipped.slice(0, 12).join(" ")}${set.skipped.length > 12 ? " …" : ""})` : ""}`);
+    if (fast && !exactRoutes && !only) routes = allRoutes.filter((r) => set.routes.includes(r.route));
+  }
+  if (exactRoutes) routes = allRoutes.filter((r) => exactRoutes.includes(r.route));
   if (only) routes = routes.filter((r) => only.some((o) => r.route.includes(o)));
 
   const t0 = Date.now();
@@ -1286,19 +1384,27 @@ async function main() {
     routes: [...routeInfo.values()],
     findings,
   };
-  let baseline = null;
-  if (!args.strict && existsSync(baselinePath)) { try { baseline = JSON.parse(readFileSync(baselinePath, "utf8")).patterns ?? null; } catch {} }
-  const gateFails = gateFailures(patterns, baseline, !!args.strict);
-  report.gate = { p0Patterns: patterns.filter((p) => p.p0).length, baseline: baseline ? baselinePath : null, strict: !!args.strict, failing: gateFails.map((p) => ({ pattern: p.pattern, label: p.label, routeCount: p.routeCount, why: p.why })) };
+  let baseline = null, routeBaseline = null;
+  if (!args.strict && existsSync(baselinePath)) { try { const b = JSON.parse(readFileSync(baselinePath, "utf8")); baseline = b.patterns ?? null; routeBaseline = b.routes ?? null; } catch {} }
+  // a partial run (fast / --routes / --only) judges P0 growth only among the routes it audited
+  const partial = !!(only || exactRoutes || (fast && strictRoutes));
+  const scopedBaseline = baseline && partial && routeBaseline
+    ? Object.fromEntries(Object.keys(baseline).map((k) => [k, routes.filter((r) => (routeBaseline[r.route] || []).includes(k)).length]))
+    : baseline;
+  if (partial && !routeBaseline) log("baseline has no per-route section yet: partial run judges P0 against whole-run counts (run a full audit with --write-baseline)");
+  const gateFails = gateFailures(patterns, scopedBaseline, !!args.strict, { strictRoutes, routeBaseline });
+  report.gate = { p0Patterns: patterns.filter((p) => p.p0).length, baseline: baseline ? baselinePath : null, strict: !!args.strict, fast, strictRoutes: strictRoutes ? [...strictRoutes] : null, failing: gateFails.map((p) => ({ pattern: p.pattern, label: p.label, routeCount: p.routeCount, routes: p.routes, why: p.why })) };
   if (args["write-baseline"]) {
-    const scoped = only ? "partial run (--only): not a full baseline" : null;
-    if (scoped) log("refusing --write-baseline on a partial run");
+    if (partial) log("refusing --write-baseline on a partial run (--fast / --routes / --only)");
     else {
       const prev = baseline ?? {};
       const next = Object.fromEntries(patterns.filter((p) => p.p0).map((p) => [p.pattern, p.routeCount]));
       const grown = Object.entries(next).filter(([k, v]) => k in prev && v > prev[k]);
-      writeFileSync(baselinePath, JSON.stringify({ note: "r2-visual-audit P0 debt: pattern -> route count. Shrink-only: fix patterns and re-run with --write-baseline; never add or grow an entry to land a change.", base: base, generatedAt: new Date().toISOString(), patterns: next }, null, 2) + "\n");
-      log(`wrote baseline ${baselinePath} (${Object.keys(next).length} P0 patterns${grown.length ? `, ${grown.length} GREW` : ""})`);
+      const perRoute = {};
+      for (const p of patterns) for (const r of p.routes) (perRoute[r] ??= []).push(p.pattern);
+      for (const r of Object.keys(perRoute)) perRoute[r].sort();
+      writeFileSync(baselinePath, JSON.stringify({ note: "r2-visual-audit debt. patterns: P0 pattern -> route count; routes: route -> every failure pattern it showed (the per-route ratchet for shell + touched routes). Shrink-only: fix patterns and re-run a FULL audit with --write-baseline; never add or grow an entry to land a change.", base: base, generatedAt: new Date().toISOString(), patterns: next, routes: Object.fromEntries(Object.entries(perRoute).sort()) }, null, 2) + "\n");
+      log(`wrote baseline ${baselinePath} (${Object.keys(next).length} P0 patterns, ${Object.keys(perRoute).length} routes${grown.length ? `, ${grown.length} GREW` : ""})`);
     }
   }
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 2));

@@ -10,8 +10,10 @@
 #      commit. Scoped receipts are revalidated against the exact remote-main base and full
 #      classifier-selected job set. See docs/runbooks/local-release-evidence.md.
 #   3. admin-web visual gate (tools/ci/admin-web-visual-gate.sh --pre-push): when the pushed
-#      commits touch admin-web UI, builds admin-web and runs scripts/r2-visual-audit.mjs; a new or
-#      grown P0 visual pattern blocks the push. Opt out: GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1.
+#      commits touch admin-web UI, runs the FAST gate (5 shell routes + the routes the pushed files
+#      touch; reuses a clean `npm run build` of HEAD, else builds in a machine build slot). A new or
+#      grown P0 pattern, or any new failure on a shell/touched route, blocks the push.
+#      Opt out: GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1.
 # Historically this file only installed guard 1; the name is kept so `make ai-setup` /
 # `make stg-promotion-guard-install` keep working, but it is now a general push-guard installer.
 set -euo pipefail

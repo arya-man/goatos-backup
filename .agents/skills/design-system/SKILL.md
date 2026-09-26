@@ -275,6 +275,21 @@ audit defect on PR #294:
   useSearchParams/usePathname/useLinkStatus or wires a JSX `onX={…}` handler starts with
   `"use client"` (a server module that re-exported next/link's useLinkStatus broke `next build`
   on 2026-09-27). Typecheck does not catch this; only `next build` and this guard do.
+- **No function crosses the server/client line (guard: `server-function-prop`, design:guard p0).** A
+  SERVER module (reached from an app/ page/layout/loading without passing a `"use client"` file)
+  never hands an MUI element a function `sx={(theme) => …}` / `sx={[(theme) => …]}`: MUI parts are
+  client components, so the page renders "Something went wrong" ("Functions cannot be passed
+  directly to Client Components", /sales/sold digest 3801663639) while typecheck and `next build`
+  pass. Use an object sx with theme tokens, or make the module `"use client"`.
+- **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
+  Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
+  NavSectionVertical: content on the logo column), the active item is a translucent primary tint,
+  header controls are transparent template IconButtons, no filter control or its floating label
+  overlaps the Tabs strip, sort headers are TableSortLabel in the header colour (never link blue /
+  underlined), and every stylesheet loads. Run `npm --prefix apps/admin-web run visual:gate -- --fast`
+  before each push (the pre-push hook runs it: 5 shell routes + the routes your change touches; any
+  new failure on those routes fails). Never `next build` into the `.next` a live server is serving:
+  it serves UA defaults (40px list indent, grey buttonface squares, blue links) until restarted.
 
 ## Production bug CLASSES as guards (2026-09-26)
 

@@ -235,6 +235,21 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   axis with the year or range in the select; no plot scrolls sideways inside its card. A shared (whole-column) tooltip stays at
   most `SHARED_TIP_MAX_SERIES` (6) rows; a stacked chart with more series uses the per-segment
   tooltip (`shared: false, intersect: true`) so it never outgrows its card (test `chart-tooltip-fits`).
+- **No function crosses the server/client line (guard: `server-function-prop`, design:guard p0).** A
+  SERVER module (reached from an app/ page/layout/loading without passing a `"use client"` file)
+  never hands an MUI element a function `sx={(theme) => …}` / `sx={[(theme) => …]}`: MUI parts are
+  client components, so the page renders "Something went wrong" ("Functions cannot be passed
+  directly to Client Components", /sales/sold digest 3801663639) while typecheck and `next build`
+  pass. Use an object sx with theme tokens, or make the module `"use client"`.
+- **The shell is gated on every push (guard: r2 visual gate `shell|*`, scripts/r2-audit-checks/shell.mjs).**
+  Sidebar root items + subheaders start at nav.left + 16px with padding-left 12px (template
+  NavSectionVertical: content on the logo column), the active item is a translucent primary tint,
+  header controls are transparent template IconButtons, no filter control or its floating label
+  overlaps the Tabs strip, sort headers are TableSortLabel in the header colour (never link blue /
+  underlined), and every stylesheet loads. Run `npm --prefix apps/admin-web run visual:gate -- --fast`
+  before each push (the pre-push hook runs it: 5 shell routes + the routes your change touches; any
+  new failure on those routes fails). Never `next build` into the `.next` a live server is serving:
+  it serves UA defaults (40px list indent, grey buttonface squares, blue links) until restarted.
 - **A restyle never introduces new UI behaviour.** Changing how something looks must not change what it
   does (clicks, routes, fetches, copy, which fields show). Behaviour changes are separate PRs.
 - **Never reopen a regression-guard item.** The invariants in `docs/design/redesign-regression-guard.md` (tooltips
@@ -863,7 +878,12 @@ IoU < 0.8 or a block missing/extra, tap target < 44px at 390, page sideways scro
 Existing P0 debt is the shrink-only baseline `apps/admin-web/scripts/r2-visual-audit-baseline.json`
 (pattern -> route count): a NEW pattern or one reaching MORE routes fails; `GOATOS_VISUAL_GATE_STRICT=1`
 fails on every P0. Shrink it with `node apps/admin-web/scripts/r2-visual-audit.mjs --write-baseline`
-after a fix; growing it to land a change is a review finding. It runs in the `admin-web` ci-local job
+after a fix; growing it to land a change is a review finding. Per-route ratchet: the baseline also lists every failure
+pattern per route, and on the 5 shell routes (`SHELL_ROUTES`) plus every route the change touches (import
+graph of the changed files) ANY pattern that route's entry does not list fails, P0 or not. `--fast`
+(`npm run visual:gate -- --fast`, the pre-push lane, ~2-3 min incl. no rebuild when `.next` is a clean
+`npm run build` of HEAD) audits only those routes with scan + interactions; the full run stays in
+`make land-check` / ci-local. `--routes /a,/b` audits exact routes. It runs in the `admin-web` ci-local job
 (when `GOATOS_ADMIN_WEB_BASE_URL` is set, so `make land-check` / `make land-main` run it) and from the
 pre-push hook for pushes touching admin-web UI (opt out only with `GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1`,
 stated in the PR). Output: `~/mesha/redesign-shots/r2/audit-<timestamp>/report.md` + `report.json`,
