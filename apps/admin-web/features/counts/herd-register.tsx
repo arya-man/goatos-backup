@@ -266,8 +266,11 @@ export async function HerdRegisterPage({
           </div>
         ) : (
           <div className="alert" style={{ marginBottom: 12 }}>
-	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-            {actionDetail ? <div style={{ marginTop: 6 }}>{actionDetail}</div> : null}
+	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;
+            <span>
+              {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+              {actionDetail ? <span style={{ display: "block", marginTop: 6 }}>{actionDetail}</span> : null}
+            </span>
           </div>
         )
       ) : null}
