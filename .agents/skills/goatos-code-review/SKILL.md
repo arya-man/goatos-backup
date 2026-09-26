@@ -856,6 +856,18 @@ Both lanes are registered in `tools/ci/run-local-ci.sh` under the `admin-web`
 job. Details: `apps/admin-web/AGENTS.md` -> "Component visual regression
 (Storybook)".
 
+**Review lens: the R2 visual gate.** For any admin-web UI diff, require a green
+`make admin-web-visual-gate` (or the `report.md` of
+`node apps/admin-web/scripts/r2-visual-audit.mjs --gate` against the PR build) and read the
+top patterns + side-by-sides. Block when: a tab/filter change flashes the route skeleton or
+reloads the document, dark mode shows a bright/pastel surface, a colour is off the theme palette
+(the report names the stylesheet rule — legacy `frame.css`/`minimal-theme.css` rules fighting MUI
+are the usual cause), a drawer clips its table or has no backdrop, the skeleton shape differs from
+the loaded page (IoU < 0.8), a 390 tap target is under 44px, or the page scrolls sideways. A grown
+`apps/admin-web/scripts/r2-visual-audit-baseline.json` or an unexplained
+`GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1` is a finding.
+
+
 ## Proven performance patterns (from main + #415)
 
 Fix catalog PP-1..PP-22 (bad/good snippet, source commit, enforcing guard or

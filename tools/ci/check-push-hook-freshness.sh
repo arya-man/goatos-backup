@@ -66,6 +66,7 @@ pairs="
 tools/ci/check-local-ci-evidence.mjs:goatos-check-local-ci-evidence.mjs
 tools/ci/check-stg-promotion.mjs:goatos-check-stg-promotion.mjs
 tools/ci/step-input-digest.mjs:step-input-digest.mjs
+tools/ci/admin-web-visual-gate.sh:goatos-admin-web-visual-gate.sh
 "
 
 fail=0

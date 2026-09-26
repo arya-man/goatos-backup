@@ -57,6 +57,8 @@
     "visual:stories": "node scripts/smoke-stories-visual.mjs --require-baseline",
     "visual:stories:update-baseline": "node scripts/smoke-stories-visual.mjs --update-baseline",
     "visual:routes": "node scripts/smoke-routes-visual.mjs --require-baseline",
+    "visual:audit": "node scripts/r2-visual-audit.mjs",
+    "visual:gate": "bash ../../tools/ci/admin-web-visual-gate.sh",
     "visual:routes:drawers": "node scripts/smoke-routes-visual.mjs --require-baseline --open-drawers",
     "visual:routes:update-baseline": "node scripts/smoke-routes-visual.mjs --update-baseline",
     "visual:all": "npm run design:guard && npm run visual:stories && npm run visual:routes"

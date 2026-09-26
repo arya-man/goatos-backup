@@ -9,6 +9,9 @@
 #      to refs/heads/main unless `make ci-local` recorded a SHA-bound receipt for the exact
 #      commit. Scoped receipts are revalidated against the exact remote-main base and full
 #      classifier-selected job set. See docs/runbooks/local-release-evidence.md.
+#   3. admin-web visual gate (tools/ci/admin-web-visual-gate.sh --pre-push): when the pushed
+#      commits touch admin-web UI, builds admin-web and runs scripts/r2-visual-audit.mjs; a new or
+#      grown P0 visual pattern blocks the push. Opt out: GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1.
 # Historically this file only installed guard 1; the name is kept so `make ai-setup` /
 # `make stg-promotion-guard-install` keep working, but it is now a general push-guard installer.
 set -euo pipefail
@@ -42,6 +45,7 @@ installed_evidence_guard="$hooks_dir/goatos-check-local-ci-evidence.mjs"
 # name, or every push dies with ERR_MODULE_NOT_FOUND (2026-09-26: the guard gained the import and
 # this installer kept copying only the guard, so re-running it broke pushes on that machine).
 installed_digest_helper="$hooks_dir/step-input-digest.mjs"
+installed_visual_gate="$hooks_dir/goatos-admin-web-visual-gate.sh"
 marker="GOATOS_PUSH_GUARDS"
 
 # Preserve a foreign (non-marker) pre-push hook once, so we chain rather than clobber.
@@ -57,7 +61,8 @@ fi
 cp "$stg_guard" "$installed_stg_guard"
 cp "$evidence_guard" "$installed_evidence_guard"
 cp "$repo/tools/ci/step-input-digest.mjs" "$installed_digest_helper"
-chmod 0755 "$installed_stg_guard" "$installed_evidence_guard"
+cp "$repo/tools/ci/admin-web-visual-gate.sh" "$installed_visual_gate"
+chmod 0755 "$installed_stg_guard" "$installed_evidence_guard" "$installed_visual_gate"
 
 cat >"$hook" <<'HOOK'
 #!/usr/bin/env bash
@@ -81,6 +86,9 @@ case "$origin" in
   git@github.com:vgoats/goatos.git|ssh://git@github.com/vgoats/goatos.git|https://github.com/vgoats/goatos.git|https://github.com/vgoats/goatos)
     node "$stg_guard" --pre-push <"$payload"
     node "$evidence_guard" --pre-push <"$payload"
+    if [ -x "$hooks_dir/goatos-admin-web-visual-gate.sh" ]; then
+      bash "$hooks_dir/goatos-admin-web-visual-gate.sh" --pre-push <"$payload"
+    fi
     ;;
 esac
 HOOK

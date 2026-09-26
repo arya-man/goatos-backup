@@ -772,6 +772,32 @@ WebView profiles, both themes). `docs/design/README.md` §4 has the exact comman
 lane asserts. Waivers: `scripts/check-design-system-waivers/`, `visual-baselines/*/waivers.json`
 -- shrink-only.
 
+### R2 visual gate (interactive, template-compared)
+
+The R2 visual gate (2026-09-27) sits on top of these lanes: `make admin-web-visual-gate`
+(= `npm --prefix apps/admin-web run visual:gate`, script `tools/ci/admin-web-visual-gate.sh`)
+builds admin-web from the checkout, starts it on a free port against the local API
+(`GOATOS_API_BASE_URL`; or audits `GOATOS_ADMIN_WEB_BASE_URL`) and runs
+`apps/admin-web/scripts/r2-visual-audit.mjs` over EVERY `app/(admin)` route at 1440 dark, 1440 light
+and 390 dark. It INTERACTS: clicks every tab and filter (MutationObserver + 100ms sampling + CDP
+screencast frames), opens drawers/dialogs, soft-navigates with the RSC response held to capture
+`loading.tsx`, and compares against the MUI Minimal template on :3480 (side-by-sides per the page
+map). P0 patterns fail the gate: full-page skeleton flash or document reload on a tab/filter change,
+bright background (luminance > 0.5) in dark mode, a colour outside the theme palette (the CDP rule +
+stylesheet that sets it is named), drawer content clipped or no backdrop, skeleton-vs-loaded block
+IoU < 0.8 or a block missing/extra, tap target < 44px at 390, page sideways scroll, crash / HTTP >= 400.
+Existing P0 debt is the shrink-only baseline `apps/admin-web/scripts/r2-visual-audit-baseline.json`
+(pattern -> route count): a NEW pattern or one reaching MORE routes fails; `GOATOS_VISUAL_GATE_STRICT=1`
+fails on every P0. Shrink it with `node apps/admin-web/scripts/r2-visual-audit.mjs --write-baseline`
+after a fix; growing it to land a change is a review finding. It runs in the `admin-web` ci-local job
+(when `GOATOS_ADMIN_WEB_BASE_URL` is set, so `make land-check` / `make land-main` run it) and from the
+pre-push hook for pushes touching admin-web UI (opt out only with `GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1`,
+stated in the PR). Output: `~/mesha/redesign-shots/r2/audit-<timestamp>/report.md` + `report.json`,
+failures ranked by PATTERN across routes (e.g. "KPI card bg in dark: 23 routes"), plus `sbs/`,
+`frames/`, `drawers/`, `skeleton/` images — open them. New checks from other work plug in as
+`apps/admin-web/scripts/r2-audit-checks/<name>.mjs` (default export `{ name, p0, profiles, run(page, ctx) }`)
+and land in the same pattern summary.
+
 The default smoke lets the calendar drive-target roster be empty (logs
 `identity_calendar_roster=skipped_no_targets`). To hard-assert the
 Display ID / Tag 1 / Tag 2 identity columns on a vaccination drive drawer, run

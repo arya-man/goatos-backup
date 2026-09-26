@@ -916,6 +916,9 @@ run_admin_web() {
     step "admin-web route visual + integrity (desktop/phone/webview, manifest)" npm --prefix apps/admin-web run visual:routes
     step "admin-web drawer visual + integrity (desktop/phone/webview, manifest)" npm --prefix apps/admin-web run visual:routes:drawers
     step "admin-web sales tolerance layout" npm --prefix apps/admin-web run smoke:sales-tolerance-layout:live
+    # R2 visual gate (make admin-web-visual-gate): tab/filter flash, dark bright bg, off-palette,
+    # drawer clip/backdrop, skeleton IoU, 390 tap targets, sideways scroll — new/grown P0 fails.
+    step "admin-web r2 visual gate" make admin-web-visual-gate
     ADMIN_WEB_LIGHTHOUSE_URL="${ADMIN_WEB_LIGHTHOUSE_URL:-${GOATOS_ADMIN_WEB_BASE_URL%/}/weighing/analytics?scope_mode=company}" \
       step "admin-web Lighthouse budget" npm --prefix apps/admin-web run perf:lighthouse
   else

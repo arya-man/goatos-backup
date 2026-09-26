@@ -1171,6 +1171,18 @@ admin-web-phone-viewport-guard:
 	node tools/agent-hooks/check-admin-web-phone-viewport.mjs --self-test
 	node tools/agent-hooks/check-admin-web-phone-viewport.mjs
 
+# admin-web-visual-gate: Ravi's R2 visual gate. Builds admin-web from this checkout, starts it on a
+# free port against the local API (GOATOS_API_BASE_URL, default :8080; or audits
+# GOATOS_ADMIN_WEB_BASE_URL), runs apps/admin-web/scripts/r2-visual-audit.mjs over every
+# app/(admin) route and fails on a NEW or GROWN P0 pattern (tab/filter full-page flash or reload,
+# bright bg in dark, off-palette colour, drawer clip / no backdrop, skeleton IoU < 0.8, tap < 44px
+# at 390, sideways scroll, crash). Baseline: apps/admin-web/scripts/r2-visual-audit-baseline.json
+# (shrink-only). GOATOS_VISUAL_GATE_STRICT=1 fails on every P0. Also runs from the pre-push hook for
+# pushes touching admin-web UI (opt out: GOATOS_SKIP_ADMIN_WEB_VISUAL_GATE=1).
+.PHONY: admin-web-visual-gate
+admin-web-visual-gate:
+	bash tools/ci/admin-web-visual-gate.sh
+
 admin-web-phone-viewport-guard-list:
 	node tools/agent-hooks/check-admin-web-phone-viewport.mjs --list
 
