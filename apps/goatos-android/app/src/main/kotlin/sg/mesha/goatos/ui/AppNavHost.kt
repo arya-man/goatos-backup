@@ -160,6 +160,7 @@ import sg.mesha.goatos.feature.vendors.SaleDetailEvent
 import sg.mesha.goatos.feature.vendors.SaleDetailScreen
 import sg.mesha.goatos.feature.vendors.SaleCreateEvent
 import sg.mesha.goatos.feature.vendors.SaleCreateScreen
+import sg.mesha.goatos.feature.vendors.SalesWriteUnavailableScreen
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsEvent
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
@@ -1542,8 +1543,11 @@ fun AppNavHost(
     canExecutePcCare: Boolean = false,
     canPlanPcCare: Boolean = false,
     canApproveVaccineStock: Boolean = false,
-    /** Whether Sales' write controls are offered (backend `sales_write`; see GoatOsShell). */
-    canWriteSales: Boolean = true,
+    /**
+     * Which Sales writes are offered (backend `sales_write` / `sales_tag`; see [SalesWriteAccess]).
+     * The buttons, the hosted write routes and the sale workflow's tagging step all read this.
+     */
+    salesAccess: SalesWriteAccess = SalesWriteAccess(),
     /**
      * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
      * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
@@ -2900,8 +2904,12 @@ fun AppNavHost(
                     when (event) {
                         WorkflowDetailEvent.Back -> navController.popBackStack()
                         is WorkflowDetailEvent.OpenSaleTagging -> {
-                            vm.onEvent(event)
-                            navController.navigate(Routes.saleTagAnimalsRoute(event.dealId)) { launchSingleTop = true }
+                            // The step is rendered read-only for someone who may not tag (below),
+                            // so this is a second line: never open a flow the server refuses.
+                            if (salesAccess.canTag) {
+                                vm.onEvent(event)
+                                navController.navigate(Routes.saleTagAnimalsRoute(event.dealId)) { launchSingleTop = true }
+                            }
                         }
                         is WorkflowDetailEvent.OpenPromote -> {
                             vm.onEvent(event)
@@ -2934,7 +2942,7 @@ fun AppNavHost(
                     BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                     // SOP-authored steps may ask for photos as well as videos (2026-09-13).
                     BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
-                    WorkflowDetailScreen(state = state, onEvent = onEvent)
+                    WorkflowDetailScreen(state = state.withSaleTaggingFor(salesAccess), onEvent = onEvent)
                 }
             }
         }
@@ -4047,7 +4055,7 @@ fun AppNavHost(
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
             LaunchedEffect(refreshError, appendError) { (refreshError ?: appendError)?.let(vm::onRowsLoadFailed) }
             SalesListScreen(
-                state = state.copy(canAdd = state.canAdd && canWriteSales),
+                state = state.copy(canAdd = state.canAdd && salesAccess.canRecord),
                 rows = rows,
                 onEvent = { event ->
                     when (event) {
@@ -4127,7 +4135,7 @@ fun AppNavHost(
                 SalesPipelinePanel.valueOf(entry.arguments?.getString(Routes.SALES_PANEL_ARG).orEmpty())
             }.getOrDefault(SalesPipelinePanel.BUYER_LEADS)
             SalesLeadBoardScreen(
-                state = state.copy(canRecord = state.canRecord && canWriteSales),
+                state = state.copy(canRecord = state.canRecord && salesAccess.canRecord),
                 panel = panel,
                 rows = rows,
                 onEvent = { event ->
@@ -4150,7 +4158,7 @@ fun AppNavHost(
                 SalesPipelinePanel.valueOf(entry.arguments?.getString(Routes.SALES_PANEL_ARG).orEmpty())
             }.getOrDefault(SalesPipelinePanel.MARKET_QUOTE)
             SalesEvidenceScreen(
-                state = state.copy(canRecord = state.canRecord && canWriteSales),
+                state = state.copy(canRecord = state.canRecord && salesAccess.canRecord),
                 panel = panel,
                 onEvent = { event ->
                     when (event) {
@@ -4161,6 +4169,13 @@ fun AppNavHost(
             )
         }
         composable(Routes.SALE_NEW) {
+            // A deep link or a back stack from before the person's access changed must not mount
+            // the form: they would fill a whole sale and meet a 403 at Save.
+            if (!salesAccess.allows(SalesWriteEntry.RECORD)) {
+                val (title, message) = salesWriteUnavailableCopy(SalesWriteEntry.RECORD)
+                SalesWriteUnavailableScreen(title = title, message = message, onBack = { navController.popBackStack() })
+                return@composable
+            }
             val vm: SaleCreateViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             SaleCreateScreen(
@@ -4180,7 +4195,7 @@ fun AppNavHost(
             val vm: SaleDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             SaleDetailScreen(
-                state = state.copy(canEdit = canWriteSales),
+                state = state.copy(canEdit = salesAccess.canRecord, canTagAnimals = state.canTagAnimals && salesAccess.canTag),
                 onEvent = { event ->
                     when (event) {
                         SaleDetailEvent.Back -> navController.popBackStack()
@@ -4203,6 +4218,11 @@ fun AppNavHost(
             route = Routes.SALE_TAG_ANIMALS,
             arguments = listOf(navArgument(Routes.SALE_ID_ARG) { type = NavType.StringType }),
         ) {
+            if (!salesAccess.allows(SalesWriteEntry.TAG)) {
+                val (title, message) = salesWriteUnavailableCopy(SalesWriteEntry.TAG)
+                SalesWriteUnavailableScreen(title = title, message = message, onBack = { navController.popBackStack() })
+                return@composable
+            }
             val vm: SaleTagAnimalsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             SaleTagAnimalsScreen(
