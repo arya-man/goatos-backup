@@ -1,6 +1,6 @@
 # PR 444 Routines / Preventive Care Landing Progress
 
-Updated: 2026-09-26 15:16 IST
+Updated: 2026-09-26 15:21 IST
 
 ## Scope
 
@@ -17,10 +17,12 @@ Updated: 2026-09-26 15:16 IST
   - `GOATOS_RUN_POSTGRES_TESTS=0 go test ./internal/penroutines/...`
   - `GOATOS_RUN_POSTGRES_TESTS=0 go test ./internal/vaccinationexecution/app ./internal/vaccinationexecution/adapters/postgres -run 'TestShedDrilldown|TestDriveAssignments|TestPartition|Test.*Schedule|Test.*Catalog'`
   - `git diff --check origin/main...HEAD`
+- First `make land-main` attempt failed at `leadership-assistant-coverage-guard`; fixed by adding `docs/ceo-ai/coverage-matrix.md` coverage for `RoleHoldersFromSQL` / `RoutineAssigneeSQL`, then reran the exact guard green.
+- Second `make land-main` attempt failed at `scale-guard-plan-proof`; the changed `driveAssignmentsSQL` line now carries a narrow plan-proof exemption because the added lookup is post-group and keyed by the `shed_partitions` primary key, not a changed scan over goats or obligation tables.
 
 ## Pending
 
-- Run final `make land-main` from the clean isolated worktree after this progress note is committed.
+- Run final `make land-main` from the clean isolated worktree after the scale-guard fix is committed.
 - Verify the final landed SHA matches local `HEAD`, local `origin/main`, and remote `main`.
 - Resolve or close PR #444 only after landing succeeds.
 
@@ -32,6 +34,6 @@ Updated: 2026-09-26 15:16 IST
 
 ## Current State Before Landing Gate
 
-- Rebased candidate SHA before this progress note: `f668e7d761d4bfe7b62dfa50a5964560838c0d96`.
+- Current candidate SHA before the scale-guard fix commit: `84f5cc983835d24d7086ce6da3cfc77f3325bd5a`.
 - Deployment state: not deployed.
 - Judge/review state: no blocking review findings found; local landing certification pending.

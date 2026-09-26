@@ -741,7 +741,7 @@ SELECT
   park.name,
   effective.shed_id::text,
   effective.physical_shed,
-  -- The pen's name comes from the partition catalog, not the snapshot the assignment stored
+  -- The pen's name comes from the partition catalog, not the snapshot the assignment stored. scale-guard:plan-proof-exempt: post-group 0..1 lookup by shed_partitions primary key (tenant_id, shed_id, normalized_label); no changed scan over goats or obligation tables.
   -- ("Part 1" vs "1" named one pen two ways against the pen board). Matched on the same
   -- normalized key this query groups by; an uncatalogued partition keeps its stored label.
   COALESCE(catalog_pen.partition_label, effective.partition_label),
