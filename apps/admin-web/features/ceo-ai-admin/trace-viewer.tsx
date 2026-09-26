@@ -12,7 +12,12 @@ import { CeoAiAdminEvents, trackCeoAiAdminError, trackCeoAiAdminEvent } from "./
 import { TraceViewerStyles } from "./trace-viewer-styles";
 import type { TraceError, TraceRecord } from "./types";
 import { dateTime } from "@/lib/format";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import InputAdornment from "@mui/material/InputAdornment";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import CardContent from "@mui/material/CardContent";
@@ -130,7 +135,7 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
   }, []);
 
   return (
-    <div className="kit-enter mzat-stack">
+    <Stack spacing={3}>
       <TraceViewerStyles />
 
       <div>
@@ -145,43 +150,52 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
             subheader="Step-by-step history for one leadership-assistant request: sub-questions, resolved tool and tier, redacted inputs, row counts, latency, and review verdict. Admin only — this history never appears in the leadership chat answer."
           />
           <CardContent>
-          <form
-            className="mzat-form"
+          {/* Template account form row: outlined TextField and a same-height action button. */}
+          <Box
+            component="form"
+            sx={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: 2 }}
             onSubmit={(e) => {
               e.preventDefault();
               void lookup(requestId);
             }}
           >
-            <label className="mzat-field">
-              <span>Reference</span>
-              <input
-                className="mzat-input"
-                value={requestId}
-                onChange={(e) => setRequestId(e.target.value)}
-                placeholder="e.g. 9f2c1b7a-…"
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-            <Button variant="contained" type="submit" color="primary" loading={view.kind === "loading"} startIcon={<Search />}>
+            <TextField
+              label="Reference"
+              value={requestId}
+              onChange={(e) => setRequestId(e.target.value)}
+              placeholder="e.g. 9f2c1b7a-…"
+              autoComplete="off"
+              sx={{ flex: "1 1 380px", minWidth: 0 }}
+              slotProps={{
+                inputLabel: { shrink: true },
+                htmlInput: { spellCheck: false },
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search size={18} aria-hidden="true" />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <Button variant="contained" type="submit" color="primary" size="large" loading={view.kind === "loading"} startIcon={<Search />} sx={{ minHeight: 56, flex: { xs: "1 1 100%", sm: "0 0 auto" } }}>
               {view.kind === "loading" ? "Looking up…" : "Look up history"}
             </Button>
-          </form>
+          </Box>
           </CardContent>
         </Card>
       </div>
 
       {view.kind === "error" ? (
         <div>
-          <div className="mzat-alert" role="alert">
-            <AlertTriangle aria-hidden="true" />
-            <span>{view.message}</span>
-          </div>
+          <Alert severity="error" role="alert" icon={<AlertTriangle size={20} aria-hidden="true" />}>
+            {view.message}
+          </Alert>
         </div>
       ) : null}
 
       {view.kind === "loaded" ? <TraceDetail trace={view.trace} /> : null}
-    </div>
+    </Stack>
   );
 }
 

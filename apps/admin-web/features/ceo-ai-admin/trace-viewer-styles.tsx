@@ -8,18 +8,6 @@ import type { ReactElement } from "react";
 export function TraceViewerStyles(): ReactElement {
   return (
     <style>{`
-.mzat-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px}
-.mzat-field{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1 1 380px}
-.mzat-field span{font-size:12px;font-weight:600;letter-spacing:.02em;color:var(--fg-muted)}
-.mzat-input{width:100%;height:40px;padding:0 12px;font:inherit;font-size:14px;border-radius:var(--r-md);
-  border:1px solid var(--line-strong);background:var(--paper-2);color:var(--fg);outline:0;
-  transition:border-color var(--dur-fast) var(--ease),box-shadow var(--dur-fast) var(--ease)}
-.mzat-input::placeholder{color:var(--fg-faint)}
-.mzat-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--ring)}
-.mzat-alert{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;border-radius:var(--r-lg);
-  font-size:14px;line-height:1.5;background:var(--error-soft);color:var(--error-ink);
-  border:1px solid color-mix(in srgb,var(--error) 38%,transparent)}
-.mzat-alert svg{width:18px;height:18px;flex:none;margin-top:1px}
 .mzat-metas{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
 .mzat-meta{display:flex;flex-direction:column;gap:6px;padding:16px;border-radius:var(--r-lg);
   background:var(--paper-2);transition:transform 220ms var(--ease),box-shadow 300ms var(--ease)}
@@ -55,14 +43,11 @@ export function TraceViewerStyles(): ReactElement {
 .mzat-note.err{color:var(--error-ink)}
 .mzat-empty{padding:28px 8px;text-align:center;font-size:14px;color:var(--fg-muted)}
 .mzat-stamp{font-size:12px;color:var(--fg-faint)}
-.mzat-stack{display:flex;flex-direction:column;gap:24px}
 @media (max-width:640px){
-  .mzat-form{gap:12px}
-  .mzat-field{flex:1 1 100%}
   .mzat-metas{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
 }
 @media (prefers-reduced-motion: reduce){
-  .mzat-meta,.mzat-table tbody tr,.mzat-pill,.mzat-input{transition:none}
+  .mzat-meta,.mzat-table tbody tr,.mzat-pill{transition:none}
   .mzat-meta:hover{transform:none}
 }
 `}</style>
