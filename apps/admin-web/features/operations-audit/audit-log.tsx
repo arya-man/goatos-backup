@@ -1,51 +1,52 @@
+import Form from "next/form";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import Box from "@mui/material/Box";
+import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
+import Avatar from "@mui/material/Avatar";
 import Accordion from "@mui/material/Accordion";
 import AccordionDetails from "@mui/material/AccordionDetails";
 import AccordionSummary from "@mui/material/AccordionSummary";
 import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import Typography from "@mui/material/Typography";
-import { Label } from "@/components/minimal/label";
 import TextField from "@mui/material/TextField";
+import { varAlpha } from "minimal-shared/utils";
+import { Label } from "@/components/minimal/label";
 import { Iconify } from "@/components/minimal/iconify";
 import { LinkButton } from "@/components/minimal/link-button";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { EmptyContent } from "@/components/minimal/empty-content";
 import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { LinkSelect } from "@/components/app/link-select";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import {
-  AlertTriangle,
   ClipboardList,
-  Clock,
   Database,
   Filter,
   HeartPulse,
   ListFilter,
   Milk,
-  ScrollText,
-  ShieldCheck,
   Scale,
   Syringe,
   Truck,
-  Upload,
-  UserRound,
   Wheat,
   Zap,
 } from "lucide-react";
 
 import { Tag, type Tone } from "@/components/ui-primitives";
-import type { KitTone } from "@/lib/tone";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { TabPanel } from "@/components/minimal/list/animated-tabs";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import {
   firstAuthRequiredError,
   getOperationsAuditSummary,
@@ -58,8 +59,9 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { copy, optionLabel, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { dash, fmtDateTime, joinParts, shortId } from "@/lib/format";
 import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchParams } from "@/lib/search-params";
+import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
+import { AuditAnalytics } from "./audit-analytics";
 import { AuditLogLocalDrawer, type AuditDrawerRecord } from "./audit-log-local-drawer";
-import { WorklistFilters } from "@/components/worklist-filters";
 import Alert from "@mui/material/Alert";
 import { PAGE_SIZE } from "./audit-layout";
 
@@ -147,20 +149,44 @@ export async function OperationsAuditPage({
     };
   });
 
+  const summaryPercent = (n: number) => (summary && summary.actions ? (n / summary.actions) * 100 : 0);
+  const tabCount = (key: string): number | undefined => {
+    if (!summary) return undefined;
+    if (key === activeStatusTab.key) return summary.actions;
+    if (activeStatusTab.key !== "all_results") return undefined;
+    if (key === "awaiting") return summary.awaiting_verification;
+    if (key === "rejected") return summary.rejected;
+    return undefined;
+  };
+  const resetPage = { cursor: null, page: null } as const;
+  const chips: LinkFilterChip[] = [
+    ...(filters.q ? [{ id: "q", label: `${copy(pageContract, "action.search")}:`, value: filters.q, href: hrefWithUpdates(sp, { q: null, ...resetPage }) }] : []),
+    ...(filters.domain
+      ? [{ id: "domain", label: `${copy(pageContract, "filter.family_title_prefix")}:`, value: optionLabel(pageContract, "audit_operation_families", familyForDomain(filters.domain).key), href: hrefWithUpdates(sp, { domain: null, module: null, category: null, ...resetPage }) }]
+      : []),
+    ...(filters.anomaliesOnly ? [{ id: "anomalies", label: `${copy(pageContract, "filter.anomalies_only")}:`, value: "✓", href: hrefWithUpdates(sp, { anomalies_only: null, ...resetPage }) }] : []),
+    ...(filters.actorId || filters.actorType
+      ? [{ id: "actor", label: `${copy(pageContract, "field.actor_id")}:`, value: filters.actorId ? shortId(filters.actorId) : String(filters.actorType), href: hrefWithUpdates(sp, { actor_id: null, actor_type: null, ...resetPage }) }]
+      : []),
+    ...(filters.resourceType ? [{ id: "resource_type", label: `${copy(pageContract, "field.resource_type")}:`, value: filters.resourceType, href: hrefWithUpdates(sp, { resource_type: null, ...resetPage }) }] : []),
+    ...(filters.resourceId ? [{ id: "resource_id", label: `${copy(pageContract, "field.resource_id")}:`, value: shortId(filters.resourceId), href: hrefWithUpdates(sp, { resource_id: null, ...resetPage }) }] : []),
+    ...(filters.module ? [{ id: "module", label: `${copy(pageContract, "field.module")}:`, value: filters.module, href: hrefWithUpdates(sp, { module: null, ...resetPage }) }] : []),
+    ...(filters.category ? [{ id: "category", label: `${copy(pageContract, "field.category")}:`, value: filters.category, href: hrefWithUpdates(sp, { category: null, ...resetPage }) }] : []),
+  ];
+
   return (
     <div className="screen on">
-      <div>
-        <PageHeader
-          title={pageContract.title}
-          crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
-          actions={
-            <button type="button" className="btn" disabled aria-disabled="true" title={copy(pageContract, "reason.export_pending")}>
-              <Upload className="ic" aria-hidden="true" />
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+        actions={
+          <Box component="span" title={copy(pageContract, "reason.export_pending")} sx={{ display: "inline-flex" }}>
+            <Button variant="outlined" color="inherit" disabled aria-disabled="true" startIcon={<Iconify icon="solar:export-bold" />}>
               {copy(pageContract, "action.export")}
-            </button>
-          }
-        />
-      </div>
+            </Button>
+          </Box>
+        }
+      />
 
       {listResult.ok && summaryResult.ok ? null : (
         <Alert severity="error">
@@ -169,140 +195,80 @@ export async function OperationsAuditPage({
         </Alert>
       )}
 
-      <KpiGrid min={210}>
-	        <KPI label={copy(pageContract, "label.actions_in_view")} value={summary ? String(summary.actions) : "—"} hint={copy(pageContract, "label.tap_clear_filters")} tone="info" icon={Zap} href={clearedHref} />
-	        <KPI label={copy(pageContract, "label.awaiting_verification")} value={summary ? String(summary.awaiting_verification) : "—"} hint={copy(pageContract, "label.proof_signoff")} tone="warn" icon={Clock} href={hrefWithUpdates(sp, { status: "verification_pending", result: null, proof_gaps: null, cursor: null, page: null })} />
-	        <KPI label={copy(pageContract, "label.proof_coverage")} value={summary ? `${summary.proof_coverage_percent}%` : "—"} hint={copy(pageContract, "label.tap_proof_gaps")} tone="teal" icon={ShieldCheck} href={hrefWithUpdates(sp, { proof_gaps: filters.proofGaps ? null : "true", cursor: null, page: null })} />
-	        <KPI label={copy(pageContract, "label.flagged_anomalies")} value={summary ? String(summary.anomalies) : "—"} hint={copy(pageContract, "label.anomaly_sources")} tone="dng" icon={AlertTriangle} href={hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", proof_gaps: null, cursor: null, page: null })} />
-      </KpiGrid>
-
-      {/* Operation families — the real backend `domain` filter as ONE kit select (with counts),
-          not a nine-chip cloud (judge M2 round 4 #9). */}
-      <WorklistFilters
-        basePath={PATHNAME}
-        pageParam="page"
-        pageContract={pageContract}
-        fields={[
-          {
-            kind: "select",
-            param: "domain",
-            label: copy(pageContract, "filter.family_title_prefix"),
-            value: filters.domain ?? "",
-            options: OPERATION_FAMILIES.filter((family) => family.domain).map((family) => ({
-              value: family.domain as string,
-              label: `${optionLabel(pageContract, "audit_operation_families", family.key)} · ${operationCounts.get(family.domain ?? "all") ?? 0}`,
-            })),
-            clears: ["module", "category", "cursor", "cursor_stack"],
-          },
+      <AuditAnalytics
+        cells={[
+          { key: "actions", title: copy(pageContract, "label.actions_in_view"), total: copy(pageContract, "label.tap_clear_filters"), price: summary ? String(summary.actions) : "—", percent: summary ? 100 : 0, icon: "solar:bill-list-bold", color: "info", href: clearedHref },
+          { key: "awaiting", title: copy(pageContract, "label.awaiting_verification"), total: copy(pageContract, "label.proof_signoff"), price: summary ? String(summary.awaiting_verification) : "—", percent: summaryPercent(summary?.awaiting_verification ?? 0), icon: "solar:clock-circle-bold", color: "warning", href: hrefWithUpdates(sp, { status: "verification_pending", result: null, proof_gaps: null, ...resetPage }) },
+          { key: "proof", title: copy(pageContract, "label.proof_coverage"), total: copy(pageContract, "label.tap_proof_gaps"), price: summary ? `${summary.proof_coverage_percent}%` : "—", percent: summary?.proof_coverage_percent ?? 0, icon: "solar:shield-check-bold", color: "success", href: hrefWithUpdates(sp, { proof_gaps: filters.proofGaps ? null : "true", ...resetPage }) },
+          { key: "anomalies", title: copy(pageContract, "label.flagged_anomalies"), total: copy(pageContract, "label.anomaly_sources"), price: summary ? String(summary.anomalies) : "—", percent: summaryPercent(summary?.anomalies ?? 0), icon: "solar:danger-triangle-bold", color: "error", href: hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", proof_gaps: null, ...resetPage }) },
         ]}
       />
 
-      {/* Template list card top: status Tabs, then the toolbar (search + the anomalies toggle). */}
-      <Card sx={{ overflow: "visible" }}>
-        <Box sx={{ px: 2.5 }}>
-          <AnimatedTabs
-            ariaLabel={copy(pageContract, "filter.search_label")}
-            value={activeStatusTab.key}
-            items={STATUS_TABS.map((tab) => ({
-              value: tab.key,
-              label: optionLabel(pageContract, "audit_status_tabs", tab.key),
-              href: hrefWithUpdates(sp, { status: tab.status ?? null, result: tab.result ?? null, proof_gaps: tab.proofGaps ? "true" : null, cursor: null, page: null }),
-            }))}
-          />
-        </Box>
-        <Box sx={{ p: 2.5, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
-          <Box component="form" action={PATHNAME} title={copy(pageContract, "filter.search_label")} sx={{ flex: "1 1 280px", minWidth: 0 }}>
-            {preservedHiddenInputs(sp, ["q", "cursor", "page", "cursor_stack", "audit_id"])}
-            <SearchTextField name="q" defaultValue={filters.q ?? ""} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
-          </Box>
-          <LinkButton
-            href={hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", cursor: null, page: null })}
-            replace
-            scroll={false}
-            variant={filters.anomaliesOnly ? "contained" : "outlined"}
-            color={filters.anomaliesOnly ? "primary" : "inherit"}
-            startIcon={<AlertTriangle size={18} aria-hidden="true" />}
-          >
-            {copy(pageContract, "filter.anomalies_only")}
-          </LinkButton>
-        </Box>
-      </Card>
+      {/* Template order list card: status Tabs with Label counts, the toolbar (operation family +
+          search + Anomalies only), the filters result, the Scrollbar table and the pager footer. */}
+      <Card>
+        <AnimatedTabs
+          ariaLabel={copy(pageContract, "filter.search_label")}
+          value={activeStatusTab.key}
+          sx={{ px: { md: 2.5 } }}
+          items={STATUS_TABS.map((tab) => ({
+            value: tab.key,
+            label: optionLabel(pageContract, "audit_status_tabs", tab.key),
+            count: tabCount(tab.key),
+            href: hrefWithUpdates(sp, { status: tab.status ?? null, result: tab.result ?? null, proof_gaps: tab.proofGaps ? "true" : null, ...resetPage }),
+          }))}
+        />
 
-      {/* The status strip re-queries the trail. Keyed on the active tab (and the anomalies
-          toggle, which filters the same list), the two panels cross-fade instead of snapping. */}
-      <TabPanel tabKey={`${activeStatusTab.key}|${filters.anomaliesOnly ? "anom" : "all"}`}>
-      <Box sx={{ display: "grid", gap: 3, gridTemplateColumns: { xs: "minmax(0,1fr)", lg: "288px minmax(0,1fr)" }, alignItems: "start" }}>
-        <Card component="section">
-          <CardHeader
-            sx={{ mb: 2 }}
-            avatar={<UserRound className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
-            title={copy(pageContract, "section.span.title")}
-            action={
-              <Label variant="soft" color="default">
-                {actors.length} {copy(pageContract, "label.operators")}
-              </Label>
-            }
-          />
-          <Box component="form" action={PATHNAME} sx={{ px: 2.5, pb: 1 }}>
-            {preservedHiddenInputs(sp, ["actor_q", "cursor", "page", "cursor_stack", "audit_id"])}
-            <SearchTextField name="actor_q" defaultValue={one(sp, "actor_q") ?? ""} placeholder={copy(pageContract, "filter.actor_placeholder")} />
-          </Box>
-          <Box className="feed auditops" sx={{ px: 2.5, pb: 2 }}>
-            {actors.length === 0 ? (
-              <div className="muted small" style={{ padding: "8px 2px" }}>
-	                {rows.length === 0 ? copy(pageContract, "empty.operators") : copy(pageContract, "empty.operators_filter")}
-              </div>
-            ) : (
-              actors.map((actor) => (
-                <Link
-                  key={actor.key}
-                  href={hrefWithUpdates(sp, { actor_id: actor.actorId ?? null, actor_type: actor.actorId ? null : actor.actorType, cursor: null, page: null, audit_id: null })}
-                  replace
-                  scroll={false}
-                  className={`fitem${filters.actorId === actor.actorId || (!filters.actorId && filters.actorType === actor.actorType) ? " on" : ""}`}
-                  style={{ textDecoration: "none" }}
-                >
-                  <div className="tx">
-                    <b>{actor.actorId ? shortId(actor.actorId) : actor.actorType}</b>
-                    <div className="mt">{actor.lastAction}</div>
-                  </div>
-                  <Tag tone="mut">{actor.count}</Tag>
-                </Link>
-              ))
-            )}
-          </Box>
-        </Card>
+        <OrderTableToolbar
+          filters={
+            <LinkSelect
+              label={copy(pageContract, "filter.family_title_prefix")}
+              value={filters.domain ?? ""}
+              minWidth={200}
+              options={[
+                { value: "", label: copy(pageContract, "filter.all_option"), href: hrefWithUpdates(sp, { domain: null, module: null, category: null, ...resetPage }) },
+                ...OPERATION_FAMILIES.filter((family) => family.domain).map((family) => ({
+                  value: family.domain as string,
+                  label: `${optionLabel(pageContract, "audit_operation_families", family.key)} · ${operationCounts.get(family.domain ?? "all") ?? 0}`,
+                  href: hrefWithUpdates(sp, { domain: family.domain, module: null, category: null, ...resetPage }),
+                })),
+              ]}
+            />
+          }
+          search={
+            <Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
+              {preservedHiddenInputs(sp, ["q", "cursor", "page", "cursor_stack", "audit_id"])}
+              <SearchTextField name="q" defaultValue={filters.q ?? ""} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
+            </Form>
+          }
+          trailing={
+            <LinkButton
+              href={hrefWithUpdates(sp, { anomalies_only: filters.anomaliesOnly ? null : "true", ...resetPage })}
+              replace
+              scroll={false}
+              variant={filters.anomaliesOnly ? "contained" : "outlined"}
+              color={filters.anomaliesOnly ? "primary" : "inherit"}
+              startIcon={<Iconify icon="solar:danger-triangle-bold" />}
+              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
+            >
+              {copy(pageContract, "filter.anomalies_only")}
+            </LinkButton>
+          }
+        />
 
-        {/* min-width:0 lets the 1fr grid track shrink so the wide audit table scrolls inside its own
-            overflow-x container instead of blowing the section past the viewport edge. */}
-        <Card component="section" className="kit-tablecard" sx={{ minWidth: 0 }}>
-          <CardHeader
-            sx={{ mb: 2 }}
-            avatar={<ScrollText className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
-            title={copy(pageContract, "section.activity.title")}
-            action={
-              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", pt: 0.5 }}>
-                {pageTrailMeta(page, rows.length, Boolean(nextHref), pageContract)}
-              </Typography>
-            }
-          />
-	          <div className="bd twrap tablewrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.activity.aria")}>
-	            <Pager prevHref={prevHref} nextHref={nextHref} page={page} count={rows.length} pageContract={pageContract} top />
-            <Table data-enh="1">
-              <TableHead>
-                <TableRow>
-	                  {cols.map((c) => (
-                    <TableCell component="th" key={c}>{c}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
+        <LinkFiltersResult totalResults={rows.length} chips={chips} resetHref={clearedHref} />
+
+        {/* The status strip re-queries the trail; keyed on the tab + anomalies toggle so the panels
+            cross-fade instead of snapping. */}
+        <TabPanel tabKey={`${activeStatusTab.key}|${filters.anomaliesOnly ? "anom" : "all"}`}>
+          <Scrollbar>
+            <Table sx={{ minWidth: 960 }} aria-label={copy(pageContract, "table.activity.aria")}>
+              <TableHeadCustom headCells={cols.map((label, index) => ({ id: `c${index}`, label }))} />
               <TableBody>
                 {rows.length === 0 ? (
                   <TableRow>
-	                    <TableCell colSpan={cols.length}>
-                      <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-	                        {listResult.ok ? copy(pageContract, "empty.activity") : copy(pageContract, "empty.activity_unavailable")}
-                      </div>
+                    <TableCell colSpan={cols.length}>
+                      <EmptyContent filled title={listResult.ok ? copy(pageContract, "empty.activity") : copy(pageContract, "empty.activity_unavailable")} sx={{ py: 10 }} />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -310,51 +276,136 @@ export async function OperationsAuditPage({
                 )}
               </TableBody>
             </Table>
-	            <Pager prevHref={prevHref} nextHref={nextHref} page={page} count={rows.length} pageContract={pageContract} />
-          </div>
-        </Card>
-      </Box>
-      </TabPanel>
+          </Scrollbar>
+        </TabPanel>
 
-      {/* Raw developer fields are NOT the primary UX. They live here for entity-history deep links
-          (resource_type / resource_id) and power-user filtering, preserving the business selections above. */}
-      <Card>
-        <Accordion>
-        <AccordionSummary sx={{ px: 3, py: 2.5 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", minWidth: 0 }}>
-            <Filter className="ic" style={{ color: "var(--muted)" }} aria-hidden="true" />
-            <Typography variant="h6" component="h3">{copy(pageContract, "section.advanced.title")}</Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "label.advanced_note")}</Typography>
-          </Box>
-        </AccordionSummary>
-        <AccordionDetails sx={{ p: 0 }}>
-        <Box component="form" action={PATHNAME} sx={{ px: 3, pt: 1, pb: 3, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
-          {preservedHiddenInputs(sp, ["actor_id", "module", "category", "resource_type", "resource_id", "cursor", "page", "cursor_stack"])}
-          <Field name="actor_id" label={copy(pageContract, "field.actor_id")} value={filters.actorId} placeholder={copy(pageContract, "placeholder.actor_uuid")} width={184} />
-          <Field name="resource_type" label={copy(pageContract, "field.resource_type")} value={filters.resourceType} placeholder={copy(pageContract, "placeholder.goat")} width={120} />
-          <Field name="resource_id" label={copy(pageContract, "field.resource_id")} value={filters.resourceId} placeholder={copy(pageContract, "placeholder.uuid")} width={184} />
-          <Field name="module" label={copy(pageContract, "field.module")} value={filters.module} placeholder={copy(pageContract, "placeholder.source_entry")} width={150} />
-          <Field name="category" label={copy(pageContract, "field.category")} value={filters.category} placeholder={copy(pageContract, "placeholder.accepted_intake")} width={158} />
-          <Button type="submit" variant="contained" color="primary">
-            {copy(pageContract, "filter.apply")}
-          </Button>
-          <LinkButton href={clearedHref} replace scroll={false} color="error" startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
-            {copy(pageContract, "filter.clear_all")}
-          </LinkButton>
-        </Box>
-        </AccordionDetails>
-        </Accordion>
-      </Card>
-	      <AuditLogLocalDrawer
-          records={drawerRecords}
-          initialSelectedAuditId={initialSelectedAuditId}
-          closeHref={closeDrawerHref}
-          pageContract={pageContract}
+        {/* Template pagination footer (links): rows per page is fixed on this cursor trail, so it
+            reads as the value with its reason; Last stays disabled with its reason. */}
+        <TablePaginationLinks
+          page={Math.max(0, page - 1)}
+          rowsPerPage={PAGE_SIZE}
+          count={-1}
+          prevHref={prevHref}
+          nextHref={nextHref}
+          hideActions={!prevHref && !nextHref && page <= 1}
+          first={{ href: prevHref ? PATHNAME : null, label: copy(pageContract, "label.first") }}
+          last={{ href: null, label: copy(pageContract, "label.last"), disabledReason: copy(pageContract, "reason.last_page_disabled") }}
+          rangeLabel={pageTrailMeta(page, rows.length, Boolean(nextHref), pageContract)}
+          prevLabel={copy(pageContract, "label.prev")}
+          nextLabel={copy(pageContract, "label.next")}
+          left={
+            <Box component="span" title={copy(pageContract, "pager.fixed_reason")} sx={{ typography: "body2", display: "inline-flex", alignItems: "center", gap: 1, px: 1 }}>
+              {copy(pageContract, "pager.rows")} <Label variant="soft">{PAGE_SIZE}</Label>
+            </Box>
+          }
         />
+      </Card>
+
+      <Grid container spacing={3}>
+        {/* Operators in this page of the trail: the template list-card anatomy (avatar, name,
+            caption, count Label); a row narrows the trail to that operator. */}
+        <Grid size={{ xs: 12, md: 5 }}>
+          <Card component="section" sx={{ height: 1 }}>
+            <CardHeader
+              title={copy(pageContract, "section.span.title")}
+              action={
+                <Label variant="soft" color="default">
+                  {actors.length} {copy(pageContract, "label.operators")}
+                </Label>
+              }
+            />
+            <Form action={PATHNAME} prefetch={false}>
+              <Box sx={{ px: 3, pt: 2.5 }}>
+                {preservedHiddenInputs(sp, ["actor_q", "cursor", "page", "cursor_stack", "audit_id"])}
+                <SearchTextField name="actor_q" defaultValue={one(sp, "actor_q") ?? ""} placeholder={copy(pageContract, "filter.actor_placeholder")} />
+              </Box>
+            </Form>
+            <Scrollbar sx={{ maxHeight: 420 }}>
+              <Box sx={{ p: 3, pt: 2, display: "flex", flexDirection: "column", gap: 1 }}>
+                {actors.length === 0 ? (
+                  <Typography variant="body2" sx={{ color: "text.secondary", py: 1 }}>
+                    {rows.length === 0 ? copy(pageContract, "empty.operators") : copy(pageContract, "empty.operators_filter")}
+                  </Typography>
+                ) : (
+                  actors.map((actor) => {
+                    const selected = filters.actorId === actor.actorId || (!filters.actorId && filters.actorType === actor.actorType);
+                    const name = actor.actorId ? shortId(actor.actorId) : actor.actorType;
+                    return (
+                      <Link
+                        key={actor.key}
+                        href={hrefWithUpdates(sp, { actor_id: actor.actorId ?? null, actor_type: actor.actorId ? null : actor.actorType, cursor: null, page: null, audit_id: null })}
+                        replace
+                        scroll={false}
+                        aria-current={selected ? "true" : undefined}
+                        style={{ color: "inherit", textDecoration: "none" }}
+                      >
+                        <Box sx={{ gap: 2, px: 1, py: 1, display: "flex", alignItems: "center", borderRadius: "var(--r-md)", minHeight: 44, bgcolor: selected ? "action.selected" : "transparent", "&:hover": { bgcolor: "action.hover" } }}>
+                          <Avatar sx={{ width: 40, height: 40, typography: "subtitle2" }}>{name.slice(0, 1).toUpperCase()}</Avatar>
+                          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                            <Typography variant="subtitle2" noWrap>{name}</Typography>
+                            <Typography variant="caption" noWrap component="div" sx={{ color: "text.secondary", mt: 0.25 }}>
+                              {humanAction(actor.lastAction)}
+                            </Typography>
+                          </Box>
+                          <Label variant="soft" color={selected ? "primary" : "default"}>{actor.count}</Label>
+                        </Box>
+                      </Link>
+                    );
+                  })
+                )}
+              </Box>
+            </Scrollbar>
+          </Card>
+        </Grid>
+
+        {/* Raw developer fields are NOT the primary UX. They live here for entity-history deep links
+            (resource_type / resource_id) and power-user filtering, preserving the selections above. */}
+        <Grid size={{ xs: 12, md: 7 }}>
+          <Card>
+            <Accordion>
+              <AccordionSummary expandIcon={<Iconify icon="eva:arrow-ios-downward-fill" />} sx={{ px: 3, py: 1.5 }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="h6" component="h3">{copy(pageContract, "section.advanced.title")}</Typography>
+                  <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>{copy(pageContract, "label.advanced_note")}</Typography>
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails sx={{ p: 0 }}>
+                <Form action={PATHNAME} prefetch={false}>
+                <Box sx={{ px: 3, pt: 1, pb: 3, display: "grid", gap: 2.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" } }}>
+                  {preservedHiddenInputs(sp, ["actor_id", "module", "category", "resource_type", "resource_id", "cursor", "page", "cursor_stack"])}
+                  <Field name="actor_id" label={copy(pageContract, "field.actor_id")} value={filters.actorId} placeholder={copy(pageContract, "placeholder.actor_uuid")} />
+                  <Field name="resource_type" label={copy(pageContract, "field.resource_type")} value={filters.resourceType} placeholder={copy(pageContract, "placeholder.goat")} />
+                  <Field name="resource_id" label={copy(pageContract, "field.resource_id")} value={filters.resourceId} placeholder={copy(pageContract, "placeholder.uuid")} />
+                  <Field name="module" label={copy(pageContract, "field.module")} value={filters.module} placeholder={copy(pageContract, "placeholder.source_entry")} />
+                  <Field name="category" label={copy(pageContract, "field.category")} value={filters.category} placeholder={copy(pageContract, "placeholder.accepted_intake")} />
+                  <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
+                    <Button type="submit" variant="contained" color="primary">
+                      {copy(pageContract, "filter.apply")}
+                    </Button>
+                    <LinkButton href={clearedHref} replace scroll={false} color="error" startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
+                      {copy(pageContract, "filter.clear_all")}
+                    </LinkButton>
+                  </Box>
+                </Box>
+                </Form>
+              </AccordionDetails>
+            </Accordion>
+          </Card>
+        </Grid>
+      </Grid>
+
+      <AuditLogLocalDrawer
+        records={drawerRecords}
+        initialSelectedAuditId={initialSelectedAuditId}
+        closeHref={closeDrawerHref}
+        pageContract={pageContract}
+      />
     </div>
   );
 }
 
+// Template order-table-row anatomy: two-line time cell, avatar + two-line operation cell, soft
+// status Label; time and action open the record drawer locally (#audit_id).
 function AuditTableRow({ row, searchParams, pageContract }: { row: OperationsAuditRow; searchParams: RouteSearchParams; pageContract: AdminUiPageContract }) {
   const result = metaString(row, "status") ?? metaString(row, "result") ?? (row.anomaly ? "flagged" : "recorded");
   const proof = metaString(row, "proof_id") ?? metaString(row, "proof_ref_id") ?? metaString(row, "media_proof_id") ?? (row.action.includes("proof") ? "proof event" : undefined);
@@ -363,141 +414,49 @@ function AuditTableRow({ row, searchParams, pageContract }: { row: OperationsAud
   const target = targetLabel(row);
   const detailHref = `${hrefWithUpdates(searchParams, { audit_id: null })}#audit_id=${encodeURIComponent(row.audit_id)}`;
   const OperationIcon = operation.icon;
+  const [date, time] = fmtDateTime(row.recorded_at).split(" ");
   return (
-    <TableRow className={row.anomaly ? "audit-anomaly" : undefined}>
-      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
-        <LocalOverlayLink href={detailHref} className="lk small" scroll={false}>
-          {fmtDateTime(row.recorded_at)}
+    <TableRow hover sx={row.anomaly ? { bgcolor: varAlpha("var(--palette-error-mainChannel)", 0.08) } : undefined}>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <LocalOverlayLink href={detailHref} scroll={false} style={{ color: "inherit", textDecoration: "none", display: "block" }}>
+          <Box component="span" sx={{ display: "block", typography: "body2" }}>{date}</Box>
+          <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>{time}</Box>
         </LocalOverlayLink>
       </TableCell>
-      <TableCell>
-        <span className="opcell">
-          <span className="oc">
-            <OperationIcon className="ic" aria-hidden="true" />
-          </span>
-          {operation.label}
-        </span>
-        {operation.detail ? <div className="mt">{operation.detail}</div> : null}
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <Box sx={{ gap: 2, display: "flex", alignItems: "center" }}>
+          <Avatar variant="rounded" sx={{ width: 36, height: 36, bgcolor: "background.neutral", color: "primary.main" }}>
+            <OperationIcon size={18} aria-hidden="true" />
+          </Avatar>
+          <Box sx={{ minWidth: 0 }}>
+            <Box component="span" sx={{ display: "block", typography: "subtitle2" }}>{operation.label}</Box>
+            {operation.detail ? <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>{operation.detail}</Box> : null}
+          </Box>
+        </Box>
       </TableCell>
-      <TableCell>
-        <b className="trc opn">{operator.primary}</b>
-        <div className="mt trc opn">{operator.secondary}</div>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <Box component="span" sx={{ display: "block", typography: "body2" }}>{operator.primary}</Box>
+        <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>{operator.secondary}</Box>
       </TableCell>
-      <TableCell>
-        <LocalOverlayLink href={detailHref} className="lk" scroll={false}>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <LocalOverlayLink href={detailHref} scroll={false} style={{ color: "inherit" }}>
           {humanAction(row.action)}
         </LocalOverlayLink>
       </TableCell>
-      <TableCell>{target.href ? <Link href={target.href} className="gid">{target.label}</Link> : target.label}</TableCell>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>{target.href ? <Link href={target.href} style={{ color: "inherit" }}>{target.label}</Link> : target.label}</TableCell>
       <TableCell>
         <Tag tone={row.anomaly ? "dng" : toneForResult(result)} title={row.anomaly ? copy(pageContract, "label.flagged_anomaly") : undefined}>
           {result}
         </Tag>
       </TableCell>
-      <TableCell>{dash(proof)}</TableCell>
+      <TableCell sx={{ whiteSpace: "nowrap", color: "text.secondary" }}>{dash(proof)}</TableCell>
     </TableRow>
   );
 }
 
-const KPI_TONE: Record<Tone, KitTone> = {
-  ok: "success",
-  warn: "warning",
-  dng: "error",
-  info: "info",
-  mut: "neutral",
-  pur: "violet",
-  teal: "info",
-};
-
-function KPI({
-  label,
-  value,
-  hint,
-  tone,
-  icon: Icon,
-  href,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  tone: Tone;
-  icon: typeof Zap;
-  href?: string | null;
-}) {
-  // A bare integer counts up; anything else (a "%" figure, an em-dash placeholder) renders verbatim.
-  const numeric = /^\d+$/.test(value) ? Number(value) : null;
-  return (
-    <KpiCard
-      label={label}
-      value={numeric ?? value}
-      tone={KPI_TONE[tone]}
-      icon={<Icon />}
-      hint={hint}
-      href={href ?? undefined}
-    />
-  );
-}
-
-function Field({
-  name,
-  label,
-  value,
-  placeholder,
-  width,
-}: {
-  name: string;
-  label: string;
-  value?: string;
-  placeholder: string;
-  width: number;
-}) {
-  const id = `audit-${name}`;
-  return (
-    // Template outlined TextField with a floating label (the template filter form fields).
-    <TextField id={id} name={name} label={label} defaultValue={value ?? ""} placeholder={placeholder} sx={{ width: { xs: 1, sm: width + 40 } }} slotProps={{ inputLabel: { shrink: true } }} />
-  );
-}
-
-function Pager({
-  prevHref,
-  nextHref,
-  page,
-  count,
-  pageContract,
-  top = false,
-}: {
-  prevHref: string | null;
-  nextHref: string | null;
-  page: number;
-  count: number;
-  pageContract: AdminUiPageContract;
-  top?: boolean;
-}) {
-  if (!prevHref && !nextHref && page <= 1) return null;
-
-  // Template table pagination (links): Rows-per-page is fixed on this trail (the backend sizes the
-  // cursor), so it reads as the value with its reason; Last stays disabled with its reason.
-  return (
-    <TablePaginationLinks
-      className="pager2"
-      sx={top ? { borderBottom: 1, borderColor: "divider" } : undefined}
-      page={Math.max(0, page - 1)}
-      rowsPerPage={25}
-      count={-1}
-      prevHref={prevHref}
-      nextHref={nextHref}
-      first={{ href: prevHref ? PATHNAME : null, label: copy(pageContract, "label.first") }}
-      last={{ href: null, label: copy(pageContract, "label.last"), disabledReason: copy(pageContract, "reason.last_page_disabled") }}
-      rangeLabel={pageTrailMeta(page, count, Boolean(nextHref), pageContract)}
-      prevLabel={copy(pageContract, "label.prev")}
-      nextLabel={copy(pageContract, "label.next")}
-      left={
-        <Box component="span" title={copy(pageContract, "pager.fixed_reason")} sx={{ typography: "body2", display: "inline-flex", alignItems: "center", gap: 1 }}>
-          {copy(pageContract, "pager.rows")} <Tag tone="mut">25</Tag>
-        </Box>
-      }
-    />
-  );
+function Field({ name, label, value, placeholder }: { name: string; label: string; value?: string; placeholder: string }) {
+  // Template outlined TextField with a floating label (the template filter form fields).
+  return <TextField id={`audit-${name}`} name={name} label={label} defaultValue={value ?? ""} placeholder={placeholder} fullWidth slotProps={{ inputLabel: { shrink: true } }} />;
 }
 
 function parseFilters(params: RouteSearchParams): OperationsAuditListParams {
@@ -619,13 +578,6 @@ function toneForResult(result: string): Tone {
   if (["queued", "pending", "awaiting", "awaiting_verification", "verification_pending", "rework"].includes(normalized)) return "warn";
   if (["accepted", "success", "succeeded", "completed", "recorded"].includes(normalized)) return "ok";
   return "info";
-}
-
-function accentForTone(tone: Tone): string {
-  if (tone === "warn") return "var(--amber)";
-  if (tone === "dng") return "var(--danger)";
-  if (tone === "teal") return "var(--teal)";
-  return "var(--brand)";
 }
 
 function hrefWithUpdates(params: RouteSearchParams, updates: Record<string, string | boolean | null | undefined>): string {

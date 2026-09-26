@@ -1,10 +1,25 @@
-import { Label } from "@/components/minimal/label";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
+import LinearProgress from "@mui/material/LinearProgress";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { LinkButton } from "@/components/minimal/link-button";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/minimal/sections/order/order-details-history";
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
-import { Activity, ArrowLeft, ArrowRight, Ban, Check, ChevronRight, Gauge, ShieldAlert, Workflow } from "lucide-react";
 import { PageHeader, type PageCrumb } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { getVaccinationActionCenter, getVaccinationActionCenterCounts } from "@/lib/api/server";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
 import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -17,6 +32,7 @@ import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { actionDriveLabel, actionWorkTitle } from "./work-board";
 import { VaccinationFilterButton, VisibleTableSearch, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { stageLabel } from "@/lib/stage-labels";
+import { WorkflowsKpis } from "./workflows-kpis";
 import Alert from "@mui/material/Alert";
 
 // Top-level Workflows screen — vaccination-only, ported from the mock orchestration layout: KPI tiles,
@@ -166,14 +182,26 @@ export async function VaccinationWorkflowsPage({
     { label: pageContract.title },
   ];
 
+  const locationOf = (row: ActionCenterObligation) =>
+    row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label });
+  const timeline: OrderHistoryItem[] = steps.map((step, index) => {
+    const state = chainNodeStates[index];
+    return {
+      key: step.key,
+      title: step.title,
+      body: step.detail,
+      tone: NODE_TONE[state],
+      time: state === "cur" ? copy(pageContract, "label.you_are_here") : state === "next" ? copy(pageContract, "label.next_upper") : undefined,
+    };
+  });
+  const activePct = activeWorkflow && activeWorkflow.expected_count > 0 ? Math.round((activeWorkflow.completed_count / activeWorkflow.expected_count) * 100) : 0;
+
   return (
-	    <div className="kit-enter screen on">
-      <div>
-        <PageHeader title={pageContract.title} crumbs={crumbItems} />
-      </div>
+    <div className="screen on">
+      <PageHeader title={pageContract.title} crumbs={crumbItems} />
 
       {!countsResult.ok || !result.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error">
           {(() => {
             const error = !countsResult.ok ? countsResult.error : !result.ok ? result.error : undefined;
             return error ? <><b>{error.code ?? error.kind}</b>&nbsp;{error.message}</> : null;
@@ -181,231 +209,191 @@ export async function VaccinationWorkflowsPage({
         </Alert>
       ) : null}
 
-      {/* KPI tiles. */}
-      <KpiGrid min={220} className="kit-kpi-wrap">
-        <KpiCard label={copy(pageContract, "label.workflows")} value={totalWorkflows} hint={copy(pageContract, "label.vaccination_chain")} icon={<Workflow />} tone="primary" />
-        <KpiCard label={copy(pageContract, "label.active_runs")} value={activeRuns} hint={copy(pageContract, "label.scheduled_in_progress")} icon={<Activity />} tone={activeRuns ? "info" : "neutral"} />
-        <KpiCard label={copy(pageContract, "label.blocked_gated")} value={blocked} hint={copy(pageContract, "label.awaiting_proof_owner")} icon={<ShieldAlert />} tone={blocked ? "error" : "neutral"} />
-        <KpiCard label={copy(pageContract, "label.avg_progress")} value={avgProgress} unit="%" hint={copy(pageContract, "label.across_shown")} icon={<Gauge />} tone="warning" />
-      </KpiGrid>
+      <WorkflowsKpis
+        items={[
+          { key: "workflows", title: copy(pageContract, "label.workflows"), total: totalWorkflows, caption: copy(pageContract, "label.vaccination_chain") },
+          { key: "active", title: copy(pageContract, "label.active_runs"), total: activeRuns, caption: copy(pageContract, "label.scheduled_in_progress") },
+          { key: "blocked", title: copy(pageContract, "label.blocked_gated"), total: blocked, caption: copy(pageContract, "label.awaiting_proof_owner") },
+          { key: "progress", title: copy(pageContract, "label.avg_progress"), total: `${avgProgress}%`, caption: copy(pageContract, "label.across_shown") },
+        ]}
+      />
 
-      {/* Toolbar — module pill. Only the active vaccination module is visible in this slice. */}
-      <div className="wftoolbar">
-        <SegmentTabs
-          ariaLabel={copy(pageContract, "filter.domains.aria")}
-          value="all"
-          tabs={[{ value: "all", label: <>{copy(pageContract, "label.all_domains")} <Label variant="filled">{totalWorkflows}</Label></>, href: scopeHref(PATH, scope) }]}
-        />
-      </div>
-
-      {/* Catalog (left) + chain-reaction map (right) — mock .wfwrap. */}
-      <div className="wfwrap">
-        <div className="wfcat" id="wfcat" data-filter-scope>
-	          <div className="wfgrp">
-	            {copy(pageContract, "section.catalog.title")}<span className="muted">{totalWorkflows}</span>
-	          </div>
-	          <div className="tbar" style={{ margin: "8px 6px 10px" }}>
-	            <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
-	            <VaccinationFilterButton
-	              pageContract={pageContract}
-	              title={copy(pageContract, "filter.drawer.title")}
-	              searchReason={copy(pageContract, "filter.search_reason")}
-	              filterReason={copy(pageContract, "filter.reason")}
-	              rowsLabel={`${paged.start}-${paged.end} of ${totalWorkflows} rows · ${copy(pageContract, "filter.rows_suffix")}`}
-	              actionHref={scopeHref("/action-center", scope)}
-	              actionLabel={copy(pageContract, "action.open_action_center")}
-	              facets={catalogLabels}
-	            />
-	          </div>
-          {rows.length === 0 ? (
-	            <div className="note" style={{ margin: 6 }}>
-	              {result.ok
-	                ? copy(pageContract, "empty.catalog")
-	                : copy(pageContract, "empty.unavailable")}
-	            </div>
-	          ) : (
-	            rows.map((row, rowIndex) => {
-	              const title = actionWorkTitle(pageContract, row);
-	              const pct = row.expected_count > 0 ? Math.round((row.completed_count / row.expected_count) * 100) : 0;
-	              const isActive = activeWorkflow?.row_id === row.row_id;
-              return (
-                <Link
-                  key={row.row_id}
-                  href={hrefPreservingWorkflowPage(PATH, sp, row.row_id)}
-                  scroll={false}
-                  className={`wfrow cx-row${isActive ? " on" : ""}`}
-                  style={{ "--i": rowIndex } as React.CSSProperties}
-                  aria-current={isActive ? "true" : undefined}
-	                  aria-label={`${copy(pageContract, "action.open_record")} ${title}`}
-	                  title={`${title} · ${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}
-	                >
-	                  <span className="wfdot" style={{ background: TONE_SWATCH[optionTone(pageContract, "severity_chips", row.severity) as Tone] }} />
-	                  <div className="wftx">
-	                    <b title={title}>{title}</b>
-	                    <div className="wfsub" title={`${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}>
-	                      {row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · {optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
-	                    </div>
-                    <div className="wfbar">
-                      <i style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                  <span className="wfruns">{row.expected_count || "—"}</span>
-                </Link>
-              );
-            })
-          )}
-          {rows.length > 0 ? (
-            <VaccinationTablePager
-              pageContract={pageContract}
-              pageSizeOptions={pageSizeOptions}
-              page={paged.page}
-              pageSize={paged.pageSize}
-              total={paged.total}
-              start={paged.start}
-              end={paged.end}
-	              noun={copy(pageContract, "label.workflows")}
-              hrefForPage={pagerHref}
-              hrefForPageSize={pageSizeHref}
+      <Grid container spacing={3}>
+        {/* Workflow catalog on the template order-list anatomy: Tabs with the Label count, the
+            toolbar (visible-row search + Filters drawer), the Scrollbar table, the pager footer. */}
+        <Grid size={{ xs: 12, lg: 8 }}>
+          <Card className="wfcat" id="wfcat" data-filter-scope>
+            <AnimatedTabs
+              ariaLabel={copy(pageContract, "filter.domains.aria")}
+              value="all"
+              sx={{ px: { md: 2.5 } }}
+              items={[{ value: "all", label: copy(pageContract, "label.all_domains"), count: totalWorkflows, href: scopeHref(PATH, scope) }]}
             />
-          ) : null}
-        </div>
+            <OrderTableToolbar
+              search={<Box sx={{ display: "flex" }}><VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} /></Box>}
+              trailing={
+                <VaccinationFilterButton
+                  pageContract={pageContract}
+                  title={copy(pageContract, "filter.drawer.title")}
+                  searchReason={copy(pageContract, "filter.search_reason")}
+                  filterReason={copy(pageContract, "filter.reason")}
+                  rowsLabel={`${paged.start}-${paged.end} of ${totalWorkflows} rows · ${copy(pageContract, "filter.rows_suffix")}`}
+                  actionHref={scopeHref("/action-center", scope)}
+                  actionLabel={copy(pageContract, "action.open_action_center")}
+                  facets={catalogLabels}
+                />
+              }
+            />
+            <Scrollbar>
+              <Table sx={{ minWidth: 680 }} aria-label={copy(pageContract, "section.catalog.title")}>
+                <TableHeadCustom headCells={catalogLabels.map((label, index) => ({ id: `c${index}`, label }))} />
+                <TableBody>
+                  {rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={catalogLabels.length}>
+                        <EmptyContent filled title={result.ok ? copy(pageContract, "empty.catalog") : copy(pageContract, "empty.unavailable")} sx={{ py: 10 }} />
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    rows.map((row) => {
+                      const title = actionWorkTitle(pageContract, row);
+                      const pct = row.expected_count > 0 ? Math.round((row.completed_count / row.expected_count) * 100) : 0;
+                      const isActive = activeWorkflow?.row_id === row.row_id;
+                      const where = `${row.park_name} · ${locationOf(row)}`;
+                      return (
+                        <TableRow key={row.row_id} hover selected={isActive}>
+                          <TableCell sx={{ minWidth: 220 }}>
+                            <Link
+                              href={hrefPreservingWorkflowPage(PATH, sp, row.row_id)}
+                              scroll={false}
+                              className="wfrow"
+                              aria-current={isActive ? "true" : undefined}
+                              aria-label={`${copy(pageContract, "action.open_record")} ${title}`}
+                              title={`${title} · ${where} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}
+                              style={{ color: "inherit", textDecoration: "none", display: "block" }}
+                            >
+                              <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                              <Box component="span" sx={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, bgcolor: TONE_SWATCH[optionTone(pageContract, "severity_chips", row.severity) as Tone] }} />
+                              <Box component="span" sx={{ minWidth: 0, flexGrow: 1 }}>
+                                <Box component="span" sx={{ display: "block", typography: "subtitle2" }}>{title}</Box>
+                                <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>{where}</Box>
+                                <LinearProgress variant="determinate" value={pct} sx={{ mt: 1, height: 4, maxWidth: 200 }} aria-hidden="true" />
+                              </Box>
+                              </Box>
+                            </Link>
+                          </TableCell>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>{stageLabel(row.animal_stage)}</TableCell>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>{row.owner?.operator_name || "—"}</TableCell>
+                          <TableCell sx={{ minWidth: 140, color: "text.secondary", typography: "body2" }}>{row.next_action}</TableCell>
+                          <TableCell>
+                            <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.work_state)}</Tag>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </Scrollbar>
+            {rows.length > 0 ? (
+              <VaccinationTablePager
+                pageContract={pageContract}
+                pageSizeOptions={pageSizeOptions}
+                page={paged.page}
+                pageSize={paged.pageSize}
+                total={paged.total}
+                start={paged.start}
+                end={paged.end}
+                noun={copy(pageContract, "label.workflows")}
+                hrefForPage={pagerHref}
+                hrefForPageSize={pageSizeHref}
+              />
+            ) : null}
+          </Card>
+        </Grid>
 
-        <div className="wfmain">
-          <section className="card">
-            <div className="hd">
-              <Workflow className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-	              <h3>{activeWorkflow ? actionDriveLabel(pageContract, activeWorkflow) : copy(pageContract, "section.chain.title")}</h3>
-              <div className="sp" style={{ flex: 1 }} />
-              {selectedWorkflowId ? (
-	                <Link href={listHref} replace scroll={false} className="btn sm">
-	                  <ArrowLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.back_to_list")}
-	                </Link>
-	              ) : (
-	                <span className="muted small">{pageContract.subtitle}</span>
-	              )}
-            </div>
-            <div className="bd">
-              {selectedWorkflowMissing ? (
-                <div className="note" style={{ marginBottom: 14 }}>
-                  {copy(pageContract, "empty.unavailable")}
-                </div>
-              ) : activeWorkflow ? (
-                <div className="fchipsbar" style={{ marginBottom: 14 }}>
-		                  <Tag tone={optionTone(pageContract, "work_state_filter_chips", activeWorkflow.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", activeWorkflow.work_state)}</Tag>
-		                  <Tag tone={optionTone(pageContract, "severity_chips", activeWorkflow.severity) as Tone}>{optionLabel(pageContract, "severity_chips", activeWorkflow.severity)}</Tag>
-	                  <Tag tone={optionTone(pageContract, "sop_state_chips", activeWorkflow.sop_task_state) as Tone}>{optionLabel(pageContract, "sop_state_chips", activeWorkflow.sop_task_state)}</Tag>
-	                  <Tag tone={optionTone(pageContract, "proof_state_chips", activeWorkflow.proof_state) as Tone}>{optionLabel(pageContract, "proof_state_chips", activeWorkflow.proof_state)}</Tag>
-	                  <Tag tone={optionTone(pageContract, "verification_state_chips", activeWorkflow.verification_state) as Tone}>
-	                    {optionLabel(pageContract, "verification_state_chips", activeWorkflow.verification_state)}
-	                  </Tag>
-                  <div className="sp" style={{ flex: 1 }} />
-                  <span className="muted small">
-	                    {activeWorkflow.completed_count}/{activeWorkflow.expected_count} {copy(pageContract, "label.done")}
-                  </span>
-                </div>
-              ) : null}
-              {/* Stage pills — the lifecycle stages, with done/current highlighted (mock .ostages). */}
-	              <div className="ostages" aria-label={copy(pageContract, "section.chain.aria")}>
-	                {steps.map((c, i) => {
-                  const st = chainNodeStates[i];
-                  return (
-                    <span
-                      key={c.key}
-                      className={`ostage${st === "done" ? " on" : ""}${st === "cur" || st === "blocked" ? " cur" : ""}`}
-                      title={`${c.title}: ${c.detail}`}
-                    >
-                      {stageLabel(c.stage)}
-                    </span>
-                  );
-                })}
-              </div>
+        {/* Right rail (template order details): the selected workflow's chain on the
+            OrderDetailsHistory timeline, then its state card with the next steps. */}
+        <Grid size={{ xs: 12, lg: 4 }}>
+          <Stack spacing={3}>
+            <OrderDetailsHistory
+              title={copy(pageContract, "section.chain.title")}
+              aria-label={copy(pageContract, "section.chain.aria")}
+              action={
+                activeWorkflow ? (
+                  <Tag tone={optionTone(pageContract, "work_state_filter_chips", activeWorkflow.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", activeWorkflow.work_state)}</Tag>
+                ) : undefined
+              }
+              timeline={timeline}
+            />
 
-              {/* Legend (mock). */}
-              <div className="legend" style={{ marginBottom: 14 }}>
-                <span>
-                  <i className="sw" style={{ background: "var(--brand)" }} aria-hidden="true" />
-	                  {copy(pageContract, "label.done")}
-	                </span>
-	                <span>
-	                  <i className="sw" style={{ background: "var(--brand)", boxShadow: "0 0 0 3px var(--brand-soft)" }} aria-hidden="true" />
-	                  {copy(pageContract, "label.current")}
-	                </span>
-	                <span>
-	                  <i className="sw" style={{ background: "var(--info)" }} aria-hidden="true" />
-	                  {copy(pageContract, "label.next")}
-	                </span>
-	                <span>
-	                  <i className="sw" style={{ background: "var(--line)" }} aria-hidden="true" />
-	                  {copy(pageContract, "label.pending")}
-	                </span>
-	                <span>
-	                  <i className="sw" style={{ background: "var(--danger)" }} aria-hidden="true" />
-	                  {copy(pageContract, "label.blocked")}
-	                </span>
-	              </div>
-
-              {/* Chain-reaction map — mock .onode tree with computed done/current/next/pending/blocked + YOU ARE HERE. */}
-	              <div className="otree" role="group" aria-label={copy(pageContract, "section.chain.aria")}>
-	                {steps.map((c, i) => {
-                  const st = chainNodeStates[i];
-                  return (
-                    <div
-                      className={`onode ${st}`}
-                      key={c.key}
-                      title={`${c.title}: ${c.detail}`}
-                    >
-                      <div className="dotn">
-                        {st === "done" ? <Check className="ic" style={{ width: 13, strokeWidth: 2.6 }} aria-hidden="true" /> : i + 1}
-                      </div>
-                      <div className="obody">
-                        <b>{c.title}</b>
-                        <div className="ometa">{c.detail}</div>
-                      </div>
-	                      {st === "cur" ? (
-	                        <span className="here">{copy(pageContract, "label.you_are_here")}</span>
-	                      ) : st === "next" ? (
-	                        <span className="nxt">{copy(pageContract, "label.next_upper")}</span>
-	                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="note" style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <Card>
+              <CardHeader
+                title={activeWorkflow ? actionDriveLabel(pageContract, activeWorkflow) : pageContract.title}
+                subheader={activeWorkflow ? `${activeWorkflow.park_name} · ${locationOf(activeWorkflow)}` : pageContract.subtitle}
+                action={
+                  selectedWorkflowId ? (
+                    <LinkButton href={listHref} replace scroll={false} size="small" color="inherit" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />}>
+                      {copy(pageContract, "action.back_to_list")}
+                    </LinkButton>
+                  ) : undefined
+                }
+              />
+              <Stack spacing={2} sx={{ p: 3 }}>
+                {selectedWorkflowMissing ? (
+                  <Alert severity="warning">{copy(pageContract, "empty.unavailable")}</Alert>
+                ) : activeWorkflow ? (
+                  <>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                      <Tag tone={optionTone(pageContract, "severity_chips", activeWorkflow.severity) as Tone}>{optionLabel(pageContract, "severity_chips", activeWorkflow.severity)}</Tag>
+                      <Tag tone={optionTone(pageContract, "sop_state_chips", activeWorkflow.sop_task_state) as Tone}>{optionLabel(pageContract, "sop_state_chips", activeWorkflow.sop_task_state)}</Tag>
+                      <Tag tone={optionTone(pageContract, "proof_state_chips", activeWorkflow.proof_state) as Tone}>{optionLabel(pageContract, "proof_state_chips", activeWorkflow.proof_state)}</Tag>
+                      <Tag tone={optionTone(pageContract, "verification_state_chips", activeWorkflow.verification_state) as Tone}>{optionLabel(pageContract, "verification_state_chips", activeWorkflow.verification_state)}</Tag>
+                    </Box>
+                    <Box>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", typography: "body2", mb: 1 }}>
+                        <Box component="span" sx={{ color: "text.secondary" }}>{activeWorkflow.completed_count}/{activeWorkflow.expected_count} {copy(pageContract, "label.done")}</Box>
+                        <Box component="span" sx={{ typography: "subtitle2" }}>{activePct}%</Box>
+                      </Box>
+                      <LinearProgress variant="determinate" value={activePct} />
+                    </Box>
+                  </>
+                ) : null}
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  {activeWorkflow ? (
+                    <>
+                      {copy(pageContract, "label.chain_note_selected")} <b>{locationOf(activeWorkflow)}</b>.
+                    </>
+                  ) : rows.length ? (
+                    copy(pageContract, "label.chain_note_open")
+                  ) : (
+                    copy(pageContract, "label.chain_note_empty")
+                  )}
+                </Typography>
                 {activeWorkflow ? (
-                  <>
-                    <ChevronRight className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
-	                    <span>
-	                      {copy(pageContract, "label.chain_note_selected")} <b>{activeWorkflow.operational_location_display || operationalLocationLabel({ shedName: activeWorkflow.shed_name, partitionLabel: activeWorkflow.partition_label })}</b>.
-	                    </span>
-                  </>
-                ) : rows.length ? (
-                  <>
-                    <ChevronRight className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
-	                    <span>{copy(pageContract, "label.chain_note_open")}</span>
-                  </>
-                ) : (
-                  <>
-                    <Ban className="ic" style={{ width: 14, color: "var(--muted)" }} aria-hidden="true" />
-	                    <span>{copy(pageContract, "label.chain_note_empty")}</span>
-                  </>
-                )}
-              </div>
-              {activeWorkflow ? (
-                <div className="row" style={{ marginTop: 14, gap: 10 }}>
-                  <Link href={actionCenterHref} scroll={false} className="btn p">
-                    {copy(pageContract, "action.open_action_center")}
-                    <ArrowRight className="ic" style={{ width: 14 }} aria-hidden="true" />
-                  </Link>
-	                  <Link href={scopeHref(`/workflows/${encodeURIComponent(activeWorkflow.row_id)}`, scope)} className="btn">
-	                    {copy(pageContract, "action.open_record")}
-	                  </Link>
-                </div>
-              ) : null}
-            </div>
-          </section>
-
-        </div>
-      </div>
+                  <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+                    <LinkButton href={actionCenterHref} scroll={false} variant="contained" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" />}>
+                      {copy(pageContract, "action.open_action_center")}
+                    </LinkButton>
+                    <LinkButton href={scopeHref(`/workflows/${encodeURIComponent(activeWorkflow.row_id)}`, scope)} variant="outlined" color="inherit">
+                      {copy(pageContract, "action.open_record")}
+                    </LinkButton>
+                  </Box>
+                ) : null}
+              </Stack>
+            </Card>
+          </Stack>
+        </Grid>
+      </Grid>
     </div>
   );
 }
+
+// Chain node state -> template timeline dot colour.
+const NODE_TONE: Record<NodeState, OrderHistoryTone> = {
+  done: "success",
+  cur: "primary",
+  next: "info",
+  pending: "grey",
+  blocked: "error",
+};

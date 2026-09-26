@@ -1,27 +1,34 @@
 "use client";
 
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Grid from "@mui/material/Grid";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
-import TableBody from "@mui/material/TableBody";
+import Button from "@mui/material/Button";
+import MenuItem from "@mui/material/MenuItem";
 import TableRow from "@mui/material/TableRow";
+import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
-import { FileSpreadsheet, Plus, Search } from "lucide-react";
+import TextField from "@mui/material/TextField";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
+import InputAdornment from "@mui/material/InputAdornment";
 
 import { PageHeader } from "@/components/app/page-header";
-import { Tag } from "@/components/ui-primitives";
-import "./configuration-kit.css";
-import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
-import TextField from "@mui/material/TextField";
-import MenuItem from "@mui/material/MenuItem";
 import { EmptyState } from "@/components/app/empty-state";
-import Button from "@mui/material/Button";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { TableHeadCustom, TablePaginationLinks } from "@/components/minimal/table";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { MailNavItem } from "@/components/minimal/sections/mail/mail-nav-item";
 
 /**
  * PRESENTATION-ONLY replica of the /configuration/items register view (rail · table card) for
  * Storybook and visual judging. `ItemsPage` itself pulls the Server Actions and the API client
  * into its module graph, which a browser bundle cannot carry; this component renders the same
- * classes and anatomy from plain props so the kit treatment can be seen and scored without the
+ * template anatomy (mail nav rail + user-list table card) from plain props so the kit treatment can be seen and scored without the
  * backend. Keep its markup in step with `items-page.tsx`; it renders no copy of its own.
  */
 export type RegisterPreviewGroup = { key: string; label: string; items: { key: string; label: string; count: number; active?: boolean }[] };
@@ -50,121 +57,137 @@ export function RegisterPreview({
   page?: number;
 }) {
   const c = (key: string) => copy[key] ?? key;
+  const hasCounts = rows.some((row) => row.counts);
   return (
-    <div className="screen on cfg-items">
-      <PageHeader title={c("title")} crumbs={[{ label: c("crumb") }, { label: title }]} />
-      <div className="cfg-layout">
-        <aside className="card cfg-rail" aria-label={c("rail.title")}>
-          {groups.map((group) => (
-            <div key={group.key} className="cfg-rail-group">
-              <div className="cfg-rail-title">{group.label}</div>
-              {group.items.map((item) => (
-                <a key={item.key} href="#" className={item.active ? "cfg-rail-item on" : "cfg-rail-item"} aria-current={item.active ? "page" : undefined}>
-                  <span>{item.label}</span>
-                  <span className="cfg-rail-count">{item.count}</span>
-                </a>
+    <div className="screen on">
+      <PageHeader
+        title={c("title")}
+        crumbs={[{ label: c("crumb") }, { label: title }]}
+        actions={
+          <Button href="#" variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" />}>
+            {c("action.create_row.label")} {title.toLowerCase()}
+          </Button>
+        }
+      />
+      <Grid container spacing={3}>
+        <Grid size={{ xs: 12, md: 4, lg: 3 }}>
+          <Card component="aside" aria-label={c("rail.title")} sx={{ py: 1.5 }}>
+            <Box component="nav">
+              {groups.map((group) => (
+                <Box key={group.key} component="ul" sx={{ m: 0, px: 1.5, pb: 1, listStyle: "none", display: { xs: "flex", md: "block" }, flexWrap: "wrap", columnGap: 0.5 }}>
+                  <Typography component="li" variant="overline" sx={{ width: 1, display: "block", px: 1, pt: 1.5, pb: 1, color: "text.disabled" }}>
+                    {group.label}
+                  </Typography>
+                  {group.items.map((item) => (
+                    <MailNavItem key={item.key} selected={!!item.active} href="#" label={{ name: item.label, count: item.count }} />
+                  ))}
+                </Box>
               ))}
-            </div>
-          ))}
-        </aside>
-        <section className="card cfg-main kit-tablecard" aria-label={title}>
-          <div className="hd cfg-main-hd" style={{ flexWrap: "wrap" }}>
-            <div>
-              <h3>
-                {title} <Tag tone="mut">{total}</Tag>
-              </h3>
-            </div>
-            <div className="sp" style={{ flex: 1 }} />
-            <a href="#" className="btn sm ghost">
-              <FileSpreadsheet className="ic" style={{ width: 14 }} aria-hidden="true" />
-              {c("sheet.title")}
-            </a>
-            <Button href="#" variant="contained" color="primary" size="small" startIcon={<Plus size={14} aria-hidden="true" />}>
-              {c("action.create_row.label")} {title.toLowerCase()}
-            </Button>
-          </div>
-          <div className="tbar">
-            <form className="tsearch" role="search" onSubmit={(event) => event.preventDefault()}>
-              <Search className="ic" aria-hidden="true" />
-              <input name="q" placeholder={`${c("search.placeholder")} ${title.toLowerCase()}`} aria-label={c("search.placeholder")} />
-            </form>
-            {filters.map((filter) => (
-              <TextField
-                key={filter.label}
-                select
-                label={filter.label}
-                value={filter.value}
-                sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
-                slotProps={{ inputLabel: { shrink: true } }}
-              >
-                <MenuItem value={filter.value}>{filter.value}</MenuItem>
-              </TextField>
-            ))}
-            <div className="sp" style={{ flex: 1 }} />
-            <SegmentTabs
+            </Box>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 12, md: 8, lg: 9 }}>
+          <Card component="section" aria-label={title}>
+            <CardHeader
+              title={title}
+              action={
+                <Button href="#" size="small" color="inherit" variant="outlined" startIcon={<Iconify icon="solar:file-text-bold" />}>
+                  {c("sheet.title")}
+                </Button>
+              }
+            />
+            <AnimatedTabs
               ariaLabel={c("column.status")}
               value={status}
-              tabs={(["active", "archived", "all"] as const).map((key) => ({ value: key, label: c(`status.${key}`), href: "#" }))}
+              sx={{ px: { md: 2.5 }, mt: 1 }}
+              items={(["active", "archived", "all"] as const).map((key) => ({ value: key, label: c(`status.${key}`), count: key === status ? total : undefined, href: "#" }))}
             />
-          </div>
-          <div className="bd">
+            <OrderTableToolbar
+              filters={filters.map((filter) => (
+                <Box key={filter.label} className="order-toolbar-filter">
+                  <TextField select fullWidth label={filter.label} value={filter.value} slotProps={{ inputLabel: { shrink: true } }}>
+                    <MenuItem value={filter.value}>{filter.value}</MenuItem>
+                  </TextField>
+                </Box>
+              ))}
+              search={
+                <form role="search" onSubmit={(event) => event.preventDefault()}>
+                  <TextField
+                    fullWidth
+                    name="q"
+                    placeholder={`${c("search.placeholder")} ${title.toLowerCase()}`}
+                    slotProps={{
+                      htmlInput: { "aria-label": c("search.placeholder") },
+                      input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                  />
+                </form>
+              }
+            />
             {rows.length === 0 ? (
               <EmptyState title={c("empty.rows")} />
             ) : (
-              <div className="tablewrap" tabIndex={0} role="group" aria-label={title}>
-                <Table className="tbl">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell component="th">{c("column.display")}</TableCell>
-                      {columns.map((column) => (
-                        <TableCell component="th" key={column.key}>{column.label}</TableCell>
-                      ))}
-                      {rows.some((row) => row.counts) ? (
-                        <TableCell component="th">{c("column.counts")}</TableCell>
-                      ) : null}
-                      <TableCell component="th">{c("column.status")}</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {rows.map((row) => (
-                      <TableRow key={row.id} className={row.status === "archived" ? "cfg-archived" : undefined}>
-                        <TableCell>
-                          <a href="#" className="cfg-row-link">
-                            <b>{row.cells.name ?? row.id}</b>
-                          </a>
-                          {row.builtin ? (
-                            <span className="muted small" style={{ marginLeft: 8 }}>
-                              {c("tag.builtin")}
-                            </span>
-                          ) : null}
-                        </TableCell>
-                        {columns.map((column) => (
-                          <TableCell key={column.key} className={column.numeric ? "num" : undefined}>
-                            {column.mono ? <span className="mono muted">{row.cells[column.key] ?? "—"}</span> : (row.cells[column.key] ?? "—")}
+              <Scrollbar>
+                <Box tabIndex={0} role="group" aria-label={title}>
+                  <Table sx={{ minWidth: 720 }}>
+                    <TableHeadCustom
+                      headCells={[
+                        { id: "display", label: c("column.display") },
+                        ...columns.map((column) => ({ id: column.key, label: column.label, align: column.numeric ? ("right" as const) : undefined })),
+                        ...(hasCounts ? [{ id: "counts", label: c("column.counts") }] : []),
+                        { id: "status", label: c("column.status") },
+                      ]}
+                    />
+                    <TableBody>
+                      {rows.map((row) => (
+                        <TableRow key={row.id} hover>
+                          <TableCell>
+                            <a href="#" className="cfg-row-link">
+                              <Typography component="span" variant="subtitle2">
+                                {row.cells.name ?? row.id}
+                              </Typography>
+                            </a>
+                            {row.builtin ? (
+                              <Label variant="soft" sx={{ ml: 1 }}>
+                                {c("tag.builtin")}
+                              </Label>
+                            ) : null}
                           </TableCell>
-                        ))}
-                        {rows.some((r) => r.counts) ? <TableCell className="muted small">{row.counts ?? "—"}</TableCell> : null}
-                        <TableCell>
-                          <Tag tone={row.status === "active" ? "ok" : "mut"}>{c(`status.${row.status}`)}</Tag>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                          {columns.map((column) => (
+                            <TableCell key={column.key} align={column.numeric ? "right" : "left"} sx={column.mono ? { color: "text.secondary" } : undefined}>
+                              {row.cells[column.key] ?? "—"}
+                            </TableCell>
+                          ))}
+                          {hasCounts ? <TableCell sx={{ color: "text.secondary" }}>{row.counts ?? "—"}</TableCell> : null}
+                          <TableCell>
+                            <Label variant="soft" color={row.status === "active" ? "success" : "default"}>
+                              {c(`status.${row.status}`)}
+                            </Label>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+              </Scrollbar>
             )}
             <TablePaginationLinks
-              className="pmx-pager"
-              page={0}
+              page={Math.max(0, page - 1)}
               rowsPerPage={Math.max(rows.length, 1)}
               count={-1}
               rangeLabel={rows.length === 0 ? "0" : `1–${rows.length} ${c("pager.of")} ${total}`}
               prevLabel={c("action.previous")}
               nextLabel={c("action.next")}
             />
-          </div>
-        </section>
-      </div>
+          </Card>
+        </Grid>
+      </Grid>
     </div>
   );
 }

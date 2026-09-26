@@ -1,21 +1,34 @@
 // A GET form through next/form: Apply is a soft navigation (the page stays on screen), not a document reload.
+import { visuallyHidden } from "@mui/utils";
 import Form from "next/form";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
-import TableBody from "@mui/material/TableBody";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
 import TableRow from "@mui/material/TableRow";
+import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
+import TextField from "@mui/material/TextField";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
+import InputAdornment from "@mui/material/InputAdornment";
 import { TAP_MIN } from "@/components/minimal/_shared/tap";
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
-import { BookOpen, FileSpreadsheet, Plus, Search, Settings } from "lucide-react";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom, TablePaginationLinks, type TableHeadCellProps } from "@/components/minimal/table";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { MailNavItem } from "@/components/minimal/sections/mail/mail-nav-item";
 
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { Tag, type Tone } from "@/components/ui-primitives";
-import { ProcurementPager } from "@/features/procurement";
 import { controlEnabled, copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   ConfigurationColumn,
@@ -28,14 +41,12 @@ import type {
 import type { ApiResult, ApiUiError } from "@/lib/api/server";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { CatalogueLists, type CatalogueList } from "./catalogue-lists";
-import "./configuration-kit.css";
 import { RegisterFilter } from "./register-filter";
+import { RegisterFiltersResult, type RegisterFilterChip } from "./register-filters-result";
 import { RowActions } from "./row-actions";
 import { RowDrawerForm } from "./row-drawer";
 import { SheetDrawer } from "./sheet-drawer";
 import { WorkbookDrawer } from "./workbook-drawer";
-import Alert from "@mui/material/Alert";
-import Button from "@mui/material/Button";
 
 /**
  * /configuration/items (maintainer instruction 2026-09-18, from the Claude prototype merged in
@@ -67,7 +78,7 @@ const PARAM_PAGE = "page";
 const PARAM_STACK = "cursor_stack";
 const DEFAULT_REGISTER = "parks";
 
-const STATUS_TONE: Record<ConfigurationRow["status"], Tone> = { active: "ok", archived: "mut" };
+const STATUS_COLOR: Record<ConfigurationRow["status"], LabelColor> = { active: "success", archived: "default" };
 
 /** Rebuilds the page URL from the current params with a patch; paging keys are always dropped. */
 function href(params: RouteSearchParams, patch: Record<string, string | undefined>, keepPaging = false): string {
@@ -241,7 +252,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       id: "new",
       eyebrow: register.label,
       title: `${c("drawer.create_title")} ${register.one.toLowerCase()}`,
-      icon: <Settings className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:settings-bold" width={20} />,
       body: <RowDrawerForm pageContract={pageContract} register={register} options={data.options} canEdit={canCreate} canSetStatus={false} canDelete={false} listHref={listHref} />,
     });
   }
@@ -253,7 +264,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
         id: row.id,
         eyebrow: register.label,
         title: writable && canEdit && !rowReadOnly ? `${c("drawer.edit_title")} ${register.one.toLowerCase()}` : row.display,
-        icon: <Settings className="ic" aria-hidden="true" />,
+        icon: <Iconify icon="solar:settings-bold" width={20} />,
         body: (
           <RowDrawerForm
             pageContract={pageContract}
@@ -329,7 +340,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
         id: LIST_EDIT_PREFIX + "new:" + selectedRoot.id,
         eyebrow: listsRegister.label,
         title: `${c("drawer.create_title")} ${listsRegister.one.toLowerCase()}`,
-        icon: <Settings className="ic" aria-hidden="true" />,
+        icon: <Iconify icon="solar:settings-bold" width={20} />,
         body: <RowDrawerForm pageContract={pageContract} register={listsRegister} options={data.options} canEdit={canCreate} canSetStatus={false} canDelete={false} listHref={listHref} defaults={{ parent_id: selectedRoot.id }} />,
       });
     }
@@ -338,7 +349,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
         id: LIST_EDIT_PREFIX + "new",
         eyebrow: listsRegister.label,
         title: `${c("drawer.create_title")} ${listsRegister.one.toLowerCase()}`,
-        icon: <Settings className="ic" aria-hidden="true" />,
+        icon: <Iconify icon="solar:settings-bold" width={20} />,
         body: <RowDrawerForm pageContract={pageContract} register={listsRegister} options={data.options} canEdit={canCreate} canSetStatus={false} canDelete={false} listHref={listHref} />,
       });
     }
@@ -347,7 +358,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
         id: LIST_EDIT_PREFIX + list.id,
         eyebrow: listsRegister.label,
         title: canEdit ? `${c("drawer.edit_title")} ${listsRegister.one.toLowerCase()}` : list.display,
-        icon: <Settings className="ic" aria-hidden="true" />,
+        icon: <Iconify icon="solar:settings-bold" width={20} />,
         body: <RowDrawerForm pageContract={pageContract} register={listsRegister} row={list} options={data.options} canEdit={canEdit} canSetStatus={canSetStatus} canDelete={canDelete} listHref={listHref} />,
       });
     }
@@ -358,7 +369,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       id: SHEET_EDIT_ID,
       eyebrow: register.label,
       title: c("sheet.title"),
-      icon: <FileSpreadsheet className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:file-text-bold" width={20} />,
       body: <SheetDrawer pageContract={pageContract} register={register} canWrite={canImport} />,
     });
   }
@@ -370,7 +381,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       id: WORKBOOK_EDIT_ID,
       eyebrow: c("crumb"),
       title: c("workbook.title"),
-      icon: <BookOpen className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:bill-list-bold" width={20} />,
       body: <WorkbookDrawer pageContract={pageContract} canWrite={canImportWorkbook} registerLabels={registerLabels} />,
     });
   }
@@ -382,7 +393,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       id: REFLIST_EDIT_PREFIX + "new",
       eyebrow: referenceListsRegister.label,
       title: `${c("drawer.create_title")} ${referenceListsRegister.one.toLowerCase()}`,
-      icon: <Settings className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:settings-bold" width={20} />,
       body: <RowDrawerForm pageContract={pageContract} register={referenceListsRegister} options={data.options} canEdit={canCreate} canSetStatus={false} canDelete={false} listHref={listHref} />,
     });
   }
@@ -391,7 +402,7 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
       id: REFLIST_EDIT_PREFIX + register.list_key,
       eyebrow: referenceListsRegister.label,
       title: canEdit ? `${c("drawer.edit_title")} ${referenceListsRegister.one.toLowerCase()}` : data.openList.display,
-      icon: <Settings className="ic" aria-hidden="true" />,
+      icon: <Iconify icon="solar:settings-bold" width={20} />,
       body: <RowDrawerForm pageContract={pageContract} register={referenceListsRegister} row={data.openList} options={data.options} canEdit={canEdit} canSetStatus={canSetStatus} canDelete={canDelete} listHref={listHref} />,
     });
   }
@@ -400,272 +411,361 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
 
   const groups = catalog?.groups ?? [];
 
+  // Tabs (template user list): the status strip with Label counts. The rail counts ACTIVE rows, so
+  // the Active tab always carries that number; the tab on screen carries the page's own total.
+  const statusCount = (status: "active" | "archived" | "all"): number | undefined => {
+    if (page && params.status === status) return status === "active" && register ? (catalog?.counts[register.key] ?? page.total) : page.total;
+    if (status === "active" && register) return catalog?.counts[register.key];
+    return undefined;
+  };
+
+  // Applied filters (template filters-result row): search + every register filter in the URL.
+  const filterChips: RegisterFilterChip[] = [];
+  if (params.q) filterChips.push({ key: PARAM_Q, label: c("search.placeholder"), value: params.q, href: href(sp, { [PARAM_Q]: undefined }) });
+  for (const column of filterColumns) {
+    if (isCatalogue && column.key === "category_id") continue;
+    const value = params.filters[column.key];
+    if (!value) continue;
+    const optionLabel = (column.type === "enum" ? column.options?.find((option) => option.value === value)?.label : data.options[column.ref ?? ""]?.find((option) => option.id === value)?.label) ?? value;
+    filterChips.push({ key: column.key, label: column.label, value: optionLabel, href: href(sp, { [FILTER_PREFIX + column.key]: undefined, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) }) });
+  }
+  const resetPatch: Record<string, string | undefined> = { [PARAM_Q]: undefined };
+  for (const column of filterColumns) if (!(isCatalogue && column.key === "category_id")) resetPatch[FILTER_PREFIX + column.key] = undefined;
+
+  const headCells: TableHeadCellProps[] = [
+    // A register that names its own display column is headed by THAT column's own label, which the
+    // backend contract carries: the Animals table used to file an animal tag under the generic
+    // header, and an animal has no name.
+    { id: "display", label: isCatalogue ? c("column.item") : displayColumnLabel },
+    ...(isCatalogue ? [{ id: "tracking", label: c("column.tracking") }] : []),
+    ...(isCatalogue ? [] : listColumns).map((column) => ({ id: column.key, label: column.label, align: column.type === "number" ? ("right" as const) : undefined })),
+    ...(hasCounts && !isCatalogue ? [{ id: "counts", label: c("column.counts") }] : []),
+    { id: "status", label: c("column.status") },
+    // The actions column carries no heading: its buttons name themselves.
+    ...(rowActionsOffered ? [{ id: "actions", label: <Box component="span" sx={visuallyHidden}>{c("action.row_actions")}</Box>, width: 88 }] : []),
+  ];
+
   return (
-    <div className="screen on cfg-items">
-      <PageHeader title={pageContract.title} crumbs={[{ label: c("crumb") }, { label: pageContract.title }]} />
+    <div className="screen on">
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: c("crumb") }, { label: pageContract.title }]}
+        actions={
+          register && writable && canCreate ? (
+            <Button component={LocalOverlayLink} href={editHref("new")} scroll={false} variant="contained" color="primary" startIcon={<Iconify icon="mingcute:add-line" />}>
+              {c("action.create_row.label")} {register.one.toLowerCase()}
+            </Button>
+          ) : undefined
+        }
+      />
 
-      {!data.registers.ok ? (
-        <Alert severity="error">
-          <b>{data.registers.error.code ?? data.registers.error.kind}</b>&nbsp;{data.registers.error.message}
-        </Alert>
-      ) : null}
-      {data.loadErrors.map((error, index) => (
-        <Alert severity="error" key={`${error.code ?? error.kind}-${index}`}>
-          <b>{error.code ?? error.kind}</b>&nbsp;{error.message}
-        </Alert>
-      ))}
-
-      <div className={isCatalogue ? "cfg-layout cfg-layout-3" : "cfg-layout"}>
-        <aside className="card cfg-rail" aria-label={c("rail.title")}>
-          {groups.map((group) => {
-            const members = registers.filter((item) => item.group === group.key && !item.hidden);
-            if (!members.length && group.key !== REFERENCE_GROUP) return null;
-            return (
-              <div key={group.key} className="cfg-rail-group">
-                <div className="cfg-rail-title">{group.label}</div>
-                {members.map((item) => {
-                  const active = item.key === params.register;
-                  return (
-                    <Link key={item.key} href={registerHref(sp, item.key)} scroll={false} className={active ? "cfg-rail-item on" : "cfg-rail-item"} aria-current={active ? "page" : undefined}>
-                      <span>{item.label}</span>
-                      <span className="cfg-rail-count">{catalog?.counts[item.key] ?? 0}</span>
-                    </Link>
-                  );
-                })}
-                {group.key === REFERENCE_GROUP && referenceListsRegister && canCreate ? (
-                  <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + "new" }, true)} scroll={false} className="cfg-rail-add">
-                    <Plus className="ic" aria-hidden="true" /> {c("reference.add_list")}
-                  </LocalOverlayLink>
-                ) : null}
-              </div>
-            );
-          })}
-        </aside>
-
-        {isCatalogue ? (
-          <CatalogueLists
-            copy={{
-              "lists.title": c("lists.title"),
-              "lists.all": c("lists.all"),
-              "lists.catalogues": c("lists.catalogues"),
-              "lists.yours": c("lists.yours"),
-              "lists.new": c("lists.new"),
-              "lists.search": c("lists.search"),
-              "column.status": c("column.status"),
-              "status.active": c("status.active"),
-              "status.archived": c("status.archived"),
-              "action.edit_row.label": c("action.edit_row.label"),
-            }}
-            lists={catalogueLists}
-            allHref={href(sp, { [FILTER_PREFIX + "category_id"]: undefined, [PARAM_EDIT]: undefined })}
-            allCount={catalog?.counts[register?.key ?? ""] ?? 0}
-            current={selectedRoot?.id ?? ""}
-            canEdit={canEdit}
-            newHref={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + "new" }, true)}
-          />
+      <Stack spacing={3}>
+        {!data.registers.ok ? (
+          <Alert severity="error">
+            <b>{data.registers.error.code ?? data.registers.error.kind}</b>&nbsp;{data.registers.error.message}
+          </Alert>
         ) : null}
+        {data.loadErrors.map((error, index) => (
+          <Alert severity="error" key={`${error.code ?? error.kind}-${index}`}>
+            <b>{error.code ?? error.kind}</b>&nbsp;{error.message}
+          </Alert>
+        ))}
 
-        <section className="card cfg-main kit-tablecard" aria-label={register?.label ?? c("crumb")}>
-          <div className="hd cfg-main-hd" style={{ flexWrap: "wrap" }}>
-            <div>
-              <h3>
-                {register?.label ?? params.register}{" "}
-                {/* Same number as the rail: the rail counts ACTIVE rows, so the header shows the
-                    active count on the default view and the page's own total under a status filter. */}
-                {page ? <Tag tone="mut">{params.status === "active" && register ? (catalog?.counts[register.key] ?? page.total) : page.total}</Tag> : null}
-              </h3>
-            </div>
-            <div className="sp" style={{ flex: 1 }} />
-            {register?.list_key && canEdit && data.openList ? (
-              <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + register.list_key }, true)} scroll={false} className="btn sm ghost">
-                {c("reference.edit_list")}
-              </LocalOverlayLink>
-            ) : null}
-            {register && canExport && !register.hidden ? (
-              <LocalOverlayLink href={editHref(SHEET_EDIT_ID)} scroll={false} className="btn sm ghost" data-testid="sheet-open">
-                <FileSpreadsheet className="ic" style={{ width: 14 }} aria-hidden="true" />
-                {c("sheet.title")}
-              </LocalOverlayLink>
-            ) : null}
-            {canExportWorkbook ? (
-              <LocalOverlayLink href={editHref(WORKBOOK_EDIT_ID)} scroll={false} className="btn sm ghost" data-testid="workbook-open">
-                <BookOpen className="ic" style={{ width: 14 }} aria-hidden="true" />
-                {c("workbook.open")}
-              </LocalOverlayLink>
-            ) : null}
-            {register?.read_only && register.edit_href ? (
-              <Link href={register.edit_href} className="btn sm">
-                {c("action.edit_elsewhere")} {register.edit_label ?? register.edit_href}
-              </Link>
-            ) : null}
-            {register && writable && canCreate ? (
-              <Button component={LocalOverlayLink} href={editHref("new")} scroll={false} variant="contained" color="primary" size="small" startIcon={<Plus size={14} aria-hidden="true" />}>
-                {c("action.create_row.label")} {register.one.toLowerCase()}
-              </Button>
-            ) : null}
-          </div>
-          {!canWrite ? <div className="note" style={{ margin: "10px 16px 0" }}>{c("configure.disabled_no_access")}</div> : null}
-
-          {isCatalogue && selectedRoot ? (
-            <div className="cfg-sublists" aria-label={c("lists.sublists")}>
-              <div className="subtabs">
-                <Link href={href(sp, { [FILTER_PREFIX + "category_id"]: selectedRoot.id, [PARAM_EDIT]: undefined })} scroll={false} className={params.filters.category_id === selectedRoot.id ? "on" : ""}>
-                  {c("lists.all_in")} {String(selectedRoot.fields.name ?? selectedRoot.display)}
-                </Link>
-                {subLists.map((list) => (
-                  <Link key={list.id} href={list.href} scroll={false} className={params.filters.category_id === list.id ? "on" : ""} style={{ marginLeft: list.depth * 10 }}>
-                    {list.name} <span className="cbq">{list.count}</span>
-                  </Link>
-                ))}
-              </div>
-              {canEdit && params.filters.category_id && params.filters.category_id !== selectedRoot.id ? (
-                <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + params.filters.category_id }, true)} scroll={false} className="btn sm ghost">
-                  {c("action.edit_row.label")}
-                </LocalOverlayLink>
-              ) : null}
-              {canCreate ? (
-                <LocalOverlayLink href={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + "new:" + selectedRoot.id }, true)} scroll={false} className="btn sm ghost">
-                  <Plus className="ic" style={{ width: 13 }} aria-hidden="true" /> {c("lists.new_under")} {String(selectedRoot.fields.name ?? selectedRoot.display)}
-                </LocalOverlayLink>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="tbar">
-            <Form action={ITEMS_PATH} prefetch={false} className="tsearch" role="search">
-              <input type="hidden" name={PARAM_REGISTER} value={params.register} />
-              {params.status !== "active" ? <input type="hidden" name={PARAM_STATUS} value={params.status} /> : null}
-              {Object.entries(params.filters).map(([key, value]) => (
-                <input key={key} type="hidden" name={FILTER_PREFIX + key} value={value} />
-              ))}
-              <Search className="ic" aria-hidden="true" />
-              <input name={PARAM_Q} defaultValue={params.q ?? ""} placeholder={`${c("search.placeholder")} ${(register?.label ?? "").toLowerCase()}`} aria-label={c("search.placeholder")} />
-            </Form>
-            {filterColumns.filter((column) => !(isCatalogue && column.key === "category_id")).map((column) => {
-              const enumOptions: ConfigurationRefOption[] | null = column.type === "enum" ? (column.options ?? []).map((option) => ({ id: option.value, label: option.label })) : null;
-              const opts = (enumOptions ?? data.options[column.ref ?? ""] ?? []).filter((option) => {
-                // A pen filter narrows to the chosen park when both filters are offered.
-                if (column.key === "pen_id" && params.filters.park_id) return option.parent_id === params.filters.park_id;
-                return true;
-              });
-              const hrefFor: Record<string, string> = { "": href(sp, { [FILTER_PREFIX + column.key]: undefined, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) }) };
-              for (const option of opts) hrefFor[option.id] = href(sp, { [FILTER_PREFIX + column.key]: option.id, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) });
-              const label = column.key === "department" ? c("filter.department.all") : column.label;
-              return <RegisterFilter key={column.key} label={label} allLabel={copy(pageContract, "filter.all", "All")} current={params.filters[column.key] ?? ""} options={opts.map((option) => ({ value: option.id, label: option.label }))} hrefFor={hrefFor} />;
-            })}
-            <div className="sp" style={{ flex: 1 }} />
-            <SegmentTabs
-              ariaLabel={c("column.status")}
-              value={params.status}
-              keepScroll
-              tabs={(["active", "archived", "all"] as const).map((status) => ({ value: status, label: c(`status.${status}`), href: href(sp, { [PARAM_STATUS]: status === "active" ? undefined : status }) }))}
-            />
-          </div>
-
-          <div className="bd">
-            {data.rows && !data.rows.ok ? (
-              <Alert severity="error">
-                <b>{data.rows.error.code ?? data.rows.error.kind}</b>&nbsp;{data.rows.error.message}
-              </Alert>
-            ) : null}
-            {!register ? (
-              <EmptyState title={c("empty.rows")} />
-            ) : rows.length === 0 ? (
-              <EmptyState title={params.q || Object.keys(params.filters).length ? c("empty.search") : c("empty.rows")} />
-            ) : (
-              <div className="tablewrap" tabIndex={0} role="group" aria-label={register.label}>
-                <Table className="tbl">
-                  <TableHead>
-                    <TableRow>
-                      {/* A register that names its own display column is headed by THAT column's
-                          own label, which the backend contract carries: the Animals table used to
-                          file an animal tag under the generic header, and an animal has no name. */}
-                      <TableCell component="th">{isCatalogue ? c("column.item") : displayColumnLabel}</TableCell>
-                      {isCatalogue ? <TableCell component="th">{c("column.tracking")}</TableCell> : null}
-                      {(isCatalogue ? [] : listColumns).map((column) => (
-                        <TableCell component="th" key={column.key}>{column.label}</TableCell>
-                      ))}
-                      {hasCounts && !isCatalogue ? <TableCell component="th">{c("column.counts")}</TableCell> : null}
-                      <TableCell component="th">{c("column.status")}</TableCell>
-                      {/* The actions column carries no heading: its buttons name themselves, and a
-                          heading over a 2-button cell reads as a data column that is always blank. */}
-                      {rowActionsOffered ? <TableCell component="th" aria-label={c("action.row_actions")} /> : null}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {rows.map((row) => (
-                      <TableRow key={row.id} className={row.status === "archived" ? "cfg-archived" : undefined}>
-                        {/* Phone: the row link is a 44px tap target, not a 16px inline word. */}
-                        <TableCell sx={{ "& .cfg-row-link": { display: { xs: "flex", md: "inline" }, alignItems: "center", minHeight: { xs: TAP_MIN, md: 0 } } }}>
-                          <LocalOverlayLink href={editHref(row.id)} scroll={false} className="cfg-row-link">
-                            <b>{row.display}</b>
-                          </LocalOverlayLink>
-                          {row.is_builtin ? (
-                            <span className="muted small" style={{ marginLeft: 8 }}>
-                              {c("tag.builtin")}
-                            </span>
-                          ) : null}
-                          {isCatalogue ? (
-                            <div className="muted small">
-                              {[String(row.fields.unit ?? ""), row.labels.category_id ?? "", departmentLabel(row.fields.department)].filter(Boolean).join(" · ")}
-                            </div>
-                          ) : null}
-                        </TableCell>
-                        {isCatalogue ? <TableCell>{row.fields.tracking ? <Tag tone="mut">{String(row.fields.tracking)}</Tag> : null}</TableCell> : null}
-                        {(isCatalogue ? [] : listColumns).map((column) => (
-                          <TableCell key={column.key} className={column.type === "number" ? "num" : undefined}>
-                            {column.type === "code" || column.key === "code" ? <span className="mono muted">{fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}</span> : fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}
-                          </TableCell>
+        <Grid container spacing={3}>
+          {/* Left rail: the template mail nav (MailNavItem rows under overline subheaders). */}
+          <Grid size={{ xs: 12, md: 4, lg: 3 }}>
+            <Stack spacing={3}>
+              <Card component="aside" aria-label={c("rail.title")} sx={{ py: 1.5 }}>
+                <Box component="nav">
+                  {groups.map((group) => {
+                    const members = registers.filter((item) => item.group === group.key && !item.hidden);
+                    if (!members.length && group.key !== REFERENCE_GROUP) return null;
+                    return (
+                      <Box
+                        key={group.key}
+                        component="ul"
+                        sx={{
+                          m: 0,
+                          px: 1.5,
+                          pb: 1,
+                          listStyle: "none",
+                          // Phone: the rail wraps into rows of items instead of a screen-long column.
+                          display: { xs: "flex", md: "block" },
+                          flexWrap: "wrap",
+                          columnGap: 0.5,
+                        }}
+                      >
+                        <Typography component="li" variant="overline" sx={{ width: 1, display: "block", px: 1, pt: 1.5, pb: 1, color: "text.disabled" }}>
+                          {group.label}
+                        </Typography>
+                        {members.map((item) => (
+                          <MailNavItem
+                            key={item.key}
+                            selected={item.key === params.register}
+                            href={registerHref(sp, item.key)}
+                            label={{ name: item.label, count: catalog?.counts[item.key] ?? 0 }}
+                          />
                         ))}
-                        {hasCounts && !isCatalogue ? (
-                          <TableCell className="muted small">
-                            {row.counts
-                              ? Object.entries(row.counts)
-                                  .filter(([, n]) => n > 0)
-                                  .map(([noun, n]) => `${n} ${noun.replace(/_/g, " ")}`)
-                                  .join(" · ") || placeholder
-                              : placeholder}
-                          </TableCell>
+                        {group.key === REFERENCE_GROUP && referenceListsRegister && canCreate ? (
+                          <Box component="li" sx={{ display: "flex", pl: 0.5, pt: 0.5 }}>
+                            <Button component={LocalOverlayLink} href={href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + "new" }, true)} scroll={false} size="small" color="primary" startIcon={<Iconify icon="mingcute:add-line" />} sx={{ minHeight: { xs: TAP_MIN, md: 0 } }}>
+                              {c("reference.add_list")}
+                            </Button>
+                          </Box>
                         ) : null}
-                        <TableCell>
-                          <Tag tone={STATUS_TONE[row.status]}>{c(`status.${row.status}`)}</Tag>
-                        </TableCell>
-                        {rowActionsOffered ? (
-                          <TableCell className="cfg-rowacts-cell">
-                            <RowActions
-                              register={params.register}
-                              rowId={row.id}
-                              rowVersion={row.row_version}
-                              status={row.status}
-                              isBuiltin={row.is_builtin}
-                              editHref={editHref(row.id)}
-                              canEdit={rowsWritable && canEdit && row.fields.read_only !== true}
-                              canSetStatus={rowsWritable && canSetStatus && row.fields.read_only !== true}
-                              canDelete={rowsWritable && canDelete && row.fields.read_only !== true}
-                              labels={rowActionLabels}
-                            />
-                          </TableCell>
-                        ) : null}
-                      </TableRow>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              </Card>
+
+              {isCatalogue ? (
+                <CatalogueLists
+                  copy={{
+                    "lists.title": c("lists.title"),
+                    "lists.all": c("lists.all"),
+                    "lists.catalogues": c("lists.catalogues"),
+                    "lists.yours": c("lists.yours"),
+                    "lists.new": c("lists.new"),
+                    "lists.search": c("lists.search"),
+                    "column.status": c("column.status"),
+                    "status.active": c("status.active"),
+                    "status.archived": c("status.archived"),
+                    "action.edit_row.label": c("action.edit_row.label"),
+                  }}
+                  lists={catalogueLists}
+                  allHref={href(sp, { [FILTER_PREFIX + "category_id"]: undefined, [PARAM_EDIT]: undefined })}
+                  allCount={catalog?.counts[register?.key ?? ""] ?? 0}
+                  current={selectedRoot?.id ?? ""}
+                  canEdit={canEdit}
+                  newHref={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + "new" }, true)}
+                />
+              ) : null}
+            </Stack>
+          </Grid>
+
+          {/* The register: template user list anatomy (Card > Tabs + Label counts > toolbar >
+              filters result > TableHeadCustom table > pagination). */}
+          <Grid size={{ xs: 12, md: 8, lg: 9 }}>
+            <Card component="section" aria-label={register?.label ?? c("crumb")}>
+              <CardHeader
+                title={register?.label ?? params.register}
+                sx={{ flexWrap: "wrap", gap: 1.5, "& .MuiCardHeader-action": { m: 0, display: "flex", flexWrap: "wrap", gap: 1 } }}
+                action={
+                  <>
+                    {register?.list_key && canEdit && data.openList ? (
+                      <Button component={LocalOverlayLink} href={href(sp, { [PARAM_EDIT]: REFLIST_EDIT_PREFIX + register.list_key }, true)} scroll={false} size="small" color="inherit" variant="outlined" startIcon={<Iconify icon="solar:pen-bold" />}>
+                        {c("reference.edit_list")}
+                      </Button>
+                    ) : null}
+                    {register && canExport && !register.hidden ? (
+                      <Button component={LocalOverlayLink} href={editHref(SHEET_EDIT_ID)} scroll={false} size="small" color="inherit" variant="outlined" startIcon={<Iconify icon="solar:file-text-bold" />} data-testid="sheet-open">
+                        {c("sheet.title")}
+                      </Button>
+                    ) : null}
+                    {canExportWorkbook ? (
+                      <Button component={LocalOverlayLink} href={editHref(WORKBOOK_EDIT_ID)} scroll={false} size="small" color="inherit" variant="outlined" startIcon={<Iconify icon="solar:bill-list-bold" />} data-testid="workbook-open">
+                        {c("workbook.open")}
+                      </Button>
+                    ) : null}
+                    {register?.read_only && register.edit_href ? (
+                      <Button component={Link} href={register.edit_href} size="small" color="inherit" variant="contained">
+                        {c("action.edit_elsewhere")} {register.edit_label ?? register.edit_href}
+                      </Button>
+                    ) : null}
+                  </>
+                }
+              />
+
+              {!canWrite ? (
+                <Alert severity="info" sx={{ mx: 2.5, mt: 2 }}>
+                  {c("configure.disabled_no_access")}
+                </Alert>
+              ) : null}
+
+              <AnimatedTabs
+                ariaLabel={c("column.status")}
+                value={params.status}
+                sx={{ px: { md: 2.5 }, mt: 1 }}
+                items={(["active", "archived", "all"] as const).map((status) => ({
+                  value: status,
+                  label: c(`status.${status}`),
+                  count: statusCount(status),
+                  href: href(sp, { [PARAM_STATUS]: status === "active" ? undefined : status }),
+                }))}
+              />
+
+              {isCatalogue && selectedRoot ? (
+                <Box aria-label={c("lists.sublists")} sx={{ px: 2.5, pt: 2, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+                  <AnimatedTabs
+                    variant="pill"
+                    ariaLabel={c("lists.sublists")}
+                    value={params.filters.category_id ?? ""}
+                    items={[
+                      { value: selectedRoot.id, label: `${c("lists.all_in")} ${String(selectedRoot.fields.name ?? selectedRoot.display)}`, href: href(sp, { [FILTER_PREFIX + "category_id"]: selectedRoot.id, [PARAM_EDIT]: undefined }) },
+                      ...subLists.map((list) => ({ value: list.id, label: `${"· ".repeat(list.depth)}${list.name}`, count: list.count, href: list.href })),
+                    ]}
+                  />
+                  {canEdit && params.filters.category_id && params.filters.category_id !== selectedRoot.id ? (
+                    <Button component={LocalOverlayLink} href={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + params.filters.category_id }, true)} scroll={false} size="small" color="inherit" startIcon={<Iconify icon="solar:pen-bold" />}>
+                      {c("action.edit_row.label")}
+                    </Button>
+                  ) : null}
+                  {canCreate ? (
+                    <Button component={LocalOverlayLink} href={href(sp, { [PARAM_EDIT]: LIST_EDIT_PREFIX + "new:" + selectedRoot.id }, true)} scroll={false} size="small" color="primary" startIcon={<Iconify icon="mingcute:add-line" />}>
+                      {c("lists.new_under")} {String(selectedRoot.fields.name ?? selectedRoot.display)}
+                    </Button>
+                  ) : null}
+                </Box>
+              ) : null}
+
+              <OrderTableToolbar
+                filters={filterColumns
+                  .filter((column) => !(isCatalogue && column.key === "category_id"))
+                  .map((column) => {
+                    const enumOptions: ConfigurationRefOption[] | null = column.type === "enum" ? (column.options ?? []).map((option) => ({ id: option.value, label: option.label })) : null;
+                    const opts = (enumOptions ?? data.options[column.ref ?? ""] ?? []).filter((option) => {
+                      // A pen filter narrows to the chosen park when both filters are offered.
+                      if (column.key === "pen_id" && params.filters.park_id) return option.parent_id === params.filters.park_id;
+                      return true;
+                    });
+                    const hrefFor: Record<string, string> = { "": href(sp, { [FILTER_PREFIX + column.key]: undefined, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) }) };
+                    for (const option of opts) hrefFor[option.id] = href(sp, { [FILTER_PREFIX + column.key]: option.id, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) });
+                    const label = column.key === "department" ? c("filter.department.all") : column.label;
+                    return (
+                      <Box key={column.key} className="order-toolbar-filter">
+                        <RegisterFilter label={label} allLabel={copy(pageContract, "filter.all", "All")} current={params.filters[column.key] ?? ""} options={opts.map((option) => ({ value: option.id, label: option.label }))} hrefFor={hrefFor} />
+                      </Box>
+                    );
+                  })}
+                search={
+                  <Form action={ITEMS_PATH} prefetch={false} role="search">
+                    <input type="hidden" name={PARAM_REGISTER} value={params.register} />
+                    {params.status !== "active" ? <input type="hidden" name={PARAM_STATUS} value={params.status} /> : null}
+                    {Object.entries(params.filters).map(([key, value]) => (
+                      <input key={key} type="hidden" name={FILTER_PREFIX + key} value={value} />
                     ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-            {/* Kit footer wording: the slice this page shows against the whole-filter total the
-                backend reports; cursor paging, so the arrows are real links. */}
-            <ProcurementPager
-              prevHref={previousHref(sp)}
-              nextHref={nextHref(sp, page?.next_cursor)}
-              page={pageNo}
-              count={rows.length}
-              noun={c("pager.noun").replace(/s$/, "")}
-              forceVisible={rows.length > 0}
-              rangeLabel={rows.length === 0 ? "0" : `${(pageNo - 1) * params.limit + 1}–${(pageNo - 1) * params.limit + rows.length} ${copy(pageContract, "pager.of", "of")} ${page?.total ?? rows.length}`}
-            />
-          </div>
-        </section>
-      </div>
+                    <TextField
+                      key={`${params.register}:${params.q ?? ""}`}
+                      fullWidth
+                      name={PARAM_Q}
+                      defaultValue={params.q ?? ""}
+                      placeholder={`${c("search.placeholder")} ${(register?.label ?? "").toLowerCase()}`}
+                      slotProps={{
+                        htmlInput: { "aria-label": c("search.placeholder") },
+                        input: {
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                            </InputAdornment>
+                          ),
+                        },
+                      }}
+                    />
+                  </Form>
+                }
+              />
+
+              <RegisterFiltersResult total={page?.total ?? rows.length} chips={filterChips} resetHref={href(sp, resetPatch)} />
+
+              {data.rows && !data.rows.ok ? (
+                <Alert severity="error" sx={{ mx: 2.5, mb: 2 }}>
+                  <b>{data.rows.error.code ?? data.rows.error.kind}</b>&nbsp;{data.rows.error.message}
+                </Alert>
+              ) : null}
+              {!register ? (
+                <EmptyState title={c("empty.rows")} />
+              ) : rows.length === 0 ? (
+                <EmptyState title={params.q || Object.keys(params.filters).length ? c("empty.search") : c("empty.rows")} />
+              ) : (
+                <Scrollbar>
+                  <Box tabIndex={0} role="group" aria-label={register.label}>
+                    <Table sx={{ minWidth: 720 }}>
+                      <TableHeadCustom headCells={headCells} />
+                      <TableBody>
+                        {rows.map((row) => (
+                          <TableRow key={row.id} hover>
+                            {/* Phone: the row link is a 44px tap target, not a 16px inline word. */}
+                            <TableCell sx={{ "& .cfg-row-link": { display: { xs: "flex", md: "inline" }, alignItems: "center", minHeight: { xs: TAP_MIN, md: 0 }, color: "inherit", textDecoration: "none" } }}>
+                              <LocalOverlayLink href={editHref(row.id)} scroll={false} className="cfg-row-link">
+                                <Typography component="span" variant="subtitle2">
+                                  {row.display}
+                                </Typography>
+                              </LocalOverlayLink>
+                              {row.is_builtin ? (
+                                <Label variant="soft" sx={{ ml: 1 }}>
+                                  {c("tag.builtin")}
+                                </Label>
+                              ) : null}
+                              {isCatalogue ? (
+                                <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
+                                  {[String(row.fields.unit ?? ""), row.labels.category_id ?? "", departmentLabel(row.fields.department)].filter(Boolean).join(" · ")}
+                                </Typography>
+                              ) : null}
+                            </TableCell>
+                            {isCatalogue ? <TableCell>{row.fields.tracking ? <Label variant="soft">{String(row.fields.tracking)}</Label> : null}</TableCell> : null}
+                            {(isCatalogue ? [] : listColumns).map((column) => (
+                              <TableCell key={column.key} align={column.type === "number" ? "right" : "left"} sx={column.type === "code" || column.key === "code" ? { color: "text.secondary" } : undefined}>
+                                {fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}
+                              </TableCell>
+                            ))}
+                            {hasCounts && !isCatalogue ? (
+                              <TableCell sx={{ color: "text.secondary" }}>
+                                {row.counts
+                                  ? Object.entries(row.counts)
+                                      .filter(([, n]) => n > 0)
+                                      .map(([noun, n]) => `${n} ${noun.replace(/_/g, " ")}`)
+                                      .join(" · ") || placeholder
+                                  : placeholder}
+                              </TableCell>
+                            ) : null}
+                            <TableCell>
+                              <Label variant="soft" color={STATUS_COLOR[row.status]}>
+                                {c(`status.${row.status}`)}
+                              </Label>
+                            </TableCell>
+                            {rowActionsOffered ? (
+                              <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                                <RowActions
+                                  register={params.register}
+                                  rowId={row.id}
+                                  rowVersion={row.row_version}
+                                  status={row.status}
+                                  isBuiltin={row.is_builtin}
+                                  editHref={editHref(row.id)}
+                                  canEdit={rowsWritable && canEdit && row.fields.read_only !== true}
+                                  canSetStatus={rowsWritable && canSetStatus && row.fields.read_only !== true}
+                                  canDelete={rowsWritable && canDelete && row.fields.read_only !== true}
+                                  labels={rowActionLabels}
+                                />
+                              </TableCell>
+                            ) : null}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Box>
+                </Scrollbar>
+              )}
+
+              {/* Template footer: the slice this page shows against the whole-filter total the
+                  backend reports; cursor paging, so the arrows are real links. */}
+              {rows.length > 0 || pageNo > 1 ? (
+                <TablePaginationLinks
+                  page={Math.max(0, pageNo - 1)}
+                  rowsPerPage={params.limit}
+                  count={page?.total ?? -1}
+                  prevHref={previousHref(sp)}
+                  nextHref={nextHref(sp, page?.next_cursor)}
+                  rangeLabel={rows.length === 0 ? "0" : `${(pageNo - 1) * params.limit + 1}–${(pageNo - 1) * params.limit + rows.length} ${copy(pageContract, "pager.of", "of")} ${page?.total ?? rows.length}`}
+                  prevLabel={copy(pageContract, "action.prev_page", "Previous page")}
+                  nextLabel={copy(pageContract, "action.next_page", "Next page")}
+                />
+              ) : null}
+            </Card>
+          </Grid>
+        </Grid>
+      </Stack>
 
       <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={register?.label ?? c("crumb")} closeLabel={c("action.close")} />
     </div>

@@ -1,3 +1,5 @@
+'use client';
+
 // Copied from the licensed MUI Minimal template (sections/overview/e-commerce/ecommerce-widget-summary.tsx).
 // Change: values accept pre-formatted strings; the chart hides below two points.
 import type { WidgetSummaryBaseProps } from './types';

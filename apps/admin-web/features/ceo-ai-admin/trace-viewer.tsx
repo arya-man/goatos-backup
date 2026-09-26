@@ -1,29 +1,29 @@
 "use client";
-import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
-import TableBody from "@mui/material/TableBody";
-import TableRow from "@mui/material/TableRow";
-import TableCell from "@mui/material/TableCell";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Database, ListTree, Search, SearchX } from "lucide-react";
+
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import Divider from "@mui/material/Divider";
+import TextField from "@mui/material/TextField";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
+import InputAdornment from "@mui/material/InputAdornment";
+
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { OrderDetailsHistory, type OrderHistoryItem } from "@/components/minimal/sections/order/order-details-history";
+import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
+import { EmptyState } from "@/components/app/empty-state";
+import { dateTime } from "@/lib/format";
 
 import { CeoAiAdminEvents, trackCeoAiAdminError, trackCeoAiAdminEvent } from "./telemetry";
-import { TraceViewerStyles } from "./trace-viewer-styles";
 import type { TraceError, TraceRecord } from "./types";
-import { dateTime } from "@/lib/format";
-import Alert from "@mui/material/Alert";
-import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
-import InputAdornment from "@mui/material/InputAdornment";
-import Stack from "@mui/material/Stack";
-import TextField from "@mui/material/TextField";
-import Card from "@mui/material/Card";
-import CardHeader from "@mui/material/CardHeader";
-import CardContent from "@mui/material/CardContent";
-import { toneVars, type KitTone } from "@/lib/tone";
-import { IconBadge } from "@/components/app/icon-badge";
-import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 
 // CeoAiAdminTraceViewer is the ADMIN-ONLY step-trace debug surface. An
 // engineer/admin (ceo_internal/superadmin — enforced server-side by the
@@ -35,8 +35,10 @@ import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs"
 // The component holds no business data and no gating logic: the proxy + backend
 // own auth. A non-admin session receives 403, surfaced honestly below.
 //
-// Presentation only uses shared mesha theme tokens through the kit + the scoped
-// `mzat-` styles, so the surface is correct in both the dark and light themes.
+// Layout: the template order-details page (sections/order/view/order-details-view.tsx) — a
+// lookup toolbar card (OrderTableToolbar), then Grid md 8/4: the step trace as
+// OrderDetailsHistory (timeline + dashed summary) and the question/verdict cards on the left,
+// the request facts as OrderDetailsDelivery rows in the right-rail Card.
 
 type ViewState =
   | { kind: "idle" }
@@ -44,7 +46,7 @@ type ViewState =
   | { kind: "loaded"; trace: TraceRecord }
   | { kind: "error"; status: number; message: string };
 
-const STATUS_TONE: Record<string, KitTone> = {
+const STATUS_COLOR: Record<string, LabelColor> = {
   ok: "success",
   rejected: "warning",
   over_budget: "warning",
@@ -52,13 +54,8 @@ const STATUS_TONE: Record<string, KitTone> = {
   error: "error",
 };
 
-function toneFor(status: string): KitTone {
-  return STATUS_TONE[status] ?? "neutral";
-}
-
-function chipStyle(tone: KitTone) {
-  const t = toneVars(tone);
-  return { background: t.soft, color: t.ink };
+function colorFor(status: string): LabelColor {
+  return STATUS_COLOR[status] ?? "default";
 }
 
 async function fetchTrace(requestId: string): Promise<{ ok: true; trace: TraceRecord } | { ok: false; status: number; message: string }> {
@@ -136,62 +133,54 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
 
   return (
     <Stack spacing={3}>
-      <TraceViewerStyles />
-
-      <div>
-        <Card>
-          <CardHeader
-            title={
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                <IconBadge icon={<ListTree />} tone="primary" size="sm" />
-                Assistant request history (admin)
-              </span>
+      <Card>
+        <CardHeader
+          title="Assistant request history (admin)"
+          subheader="Step-by-step history for one leadership-assistant request: sub-questions, resolved tool and tier, redacted inputs, row counts, latency, and review verdict. Admin only — this history never appears in the leadership chat answer."
+        />
+        <Box
+          component="form"
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void lookup(requestId);
+          }}
+        >
+          <OrderTableToolbar
+            search={
+              <TextField
+                fullWidth
+                label="Reference"
+                value={requestId}
+                onChange={(e) => setRequestId(e.target.value)}
+                placeholder="e.g. 9f2c1b7a-…"
+                autoComplete="off"
+                slotProps={{
+                  inputLabel: { shrink: true },
+                  htmlInput: { spellCheck: false },
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
             }
-            subheader="Step-by-step history for one leadership-assistant request: sub-questions, resolved tool and tier, redacted inputs, row counts, latency, and review verdict. Admin only — this history never appears in the leadership chat answer."
+            trailing={
+              <Button variant="contained" type="submit" color="primary" size="large" loading={view.kind === "loading"} startIcon={<Iconify icon="eva:search-fill" />} sx={{ flexShrink: 0 }}>
+                {view.kind === "loading" ? "Looking up…" : "Look up history"}
+              </Button>
+            }
           />
-          <CardContent>
-          {/* Template account form row: outlined TextField and a same-height action button. */}
-          <Box
-            component="form"
-            sx={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: 2 }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void lookup(requestId);
-            }}
-          >
-            <TextField
-              label="Reference"
-              value={requestId}
-              onChange={(e) => setRequestId(e.target.value)}
-              placeholder="e.g. 9f2c1b7a-…"
-              autoComplete="off"
-              sx={{ flex: "1 1 380px", minWidth: 0 }}
-              slotProps={{
-                inputLabel: { shrink: true },
-                htmlInput: { spellCheck: false },
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search size={18} aria-hidden="true" />
-                    </InputAdornment>
-                  ),
-                },
-              }}
-            />
-            <Button variant="contained" type="submit" color="primary" size="large" loading={view.kind === "loading"} startIcon={<Search />} sx={{ flex: { xs: "1 1 100%", sm: "0 0 auto" } }}>
-              {view.kind === "loading" ? "Looking up…" : "Look up history"}
-            </Button>
-          </Box>
-          </CardContent>
-        </Card>
-      </div>
+        </Box>
+      </Card>
 
       {view.kind === "error" ? (
-        <div>
-          <Alert severity="error" role="alert" icon={<AlertTriangle size={20} aria-hidden="true" />}>
-            {view.message}
-          </Alert>
-        </div>
+        <Alert severity="error" role="alert">
+          {view.message}
+        </Alert>
       ) : null}
 
       {view.kind === "loaded" ? <TraceDetail trace={view.trace} /> : null}
@@ -202,161 +191,145 @@ export function CeoAiAdminTraceViewer({ initialRequestId = "" }: { initialReques
 function TraceDetail({ trace }: { trace: TraceRecord }): React.ReactElement {
   const steps = useMemo(() => trace.steps ?? [], [trace.steps]);
   const views = useMemo(() => trace.source_views ?? [], [trace.source_views]);
-  const [tab, setTab] = useState("steps");
-  const tabs = useMemo(
-    () => [
-      { value: "steps", label: "Steps", icon: <ListTree />, count: steps.length },
-      { value: "sources", label: "Sources", icon: <Database />, count: views.length },
-    ],
-    [steps.length, views.length],
-  );
+
+  const timeline: OrderHistoryItem[] = steps.map((step, i) => ({
+    key: String(i),
+    tone: step.err ? "error" : i === 0 ? "primary" : "grey",
+    title: (
+      <Box component="span" sx={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 1 }}>
+        {`${i + 1}. ${step.tool_name || "—"}`}
+        <Label variant="soft" sx={{ textTransform: "none" }}>{step.route || "—"}</Label>
+      </Box>
+    ),
+    body: (
+      <>
+        <Box component="span" sx={{ display: "block", color: "text.primary", overflowWrap: "anywhere" }}>
+          {step.sub_question || "—"}
+        </Box>
+        {step.params ? (
+          <Box
+            component="pre"
+            sx={{ m: 0, mt: 1, p: 1.5, borderRadius: "var(--r-sm)", bgcolor: "background.neutral", typography: "caption", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+          >
+            {step.params}
+          </Box>
+        ) : null}
+        {step.verdict ? (
+          <Box component="span" sx={{ display: "block", mt: 0.5 }}>
+            verdict: {step.verdict}
+          </Box>
+        ) : null}
+        {step.err ? (
+          <Box component="span" sx={{ display: "block", mt: 0.5, color: "error.main" }}>
+            error: {step.err}
+          </Box>
+        ) : null}
+      </>
+    ),
+    time: `${step.duration_ms} ms · ${step.row_count} rows`,
+  }));
 
   return (
-    <>
-      <div>
-        <Card>
-          <CardHeader title="Request summary" subheader={`Recorded ${dateTime(trace.created_at)}`} />
-          <CardContent>
-          <div className="mzat-metas">
-            <Meta
-              label="Status"
-              value={
-                <span className="mzat-chip" style={chipStyle(toneFor(trace.status))}>
-                  {trace.status || "—"}
-                </span>
-              }
-            />
-            <Meta label="Route tier" value={trace.route_tier || "—"} />
-            <Meta label="Tool" value={trace.tool_called || "—"} />
-            <Meta label="Latency" value={`${trace.latency_ms} ms`} />
-            <Meta label="Rows" value={String(trace.row_count)} />
-            <Meta label="Actor role" value={trace.actor_role || "—"} />
-            <Meta label="Model" value={trace.model_version || "—"} />
-            <Meta label="Prompt" value={trace.prompt_version || "—"} />
-          </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div>
-        <Card>
-          <CardHeader title="Question (redacted)" />
-          <CardContent>
-            <p className="mzat-body">{trace.question_redacted || "—"}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {trace.rejection_reason ? (
-        <div>
+    <Grid container spacing={3}>
+      <Grid size={{ xs: 12, md: 8 }}>
+        <Box sx={{ gap: 3, display: "flex", flexDirection: "column" }}>
           <Card>
-            <CardHeader title="Rejection reason" />
-            <CardContent>
-              <p className="mzat-body" style={{ color: "var(--warning-ink)" }}>
-                {trace.rejection_reason}
-              </p>
-            </CardContent>
+            <CardHeader title="Question (redacted)" />
+            <Typography variant="body2" sx={{ p: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+              {trace.question_redacted || "—"}
+            </Typography>
           </Card>
-        </div>
-      ) : null}
 
-      {trace.review_verdict ? (
-        <div>
-          <Card>
-            <CardHeader title="Review verdict" />
-            <CardContent>
-              <p className="mzat-body">{trace.review_verdict}</p>
-            </CardContent>
-          </Card>
-        </div>
-      ) : null}
-
-      <div>
-        <Card>
-          <div style={{ padding: "24px 24px 0" }}>
-            <AnimatedTabs items={tabs} value={tab} onChange={setTab} variant="pill" ariaLabel="Request history detail" />
-          </div>
-          <TabPanel tabKey={tab}>
-          {tab === "steps" ? (
-            <div style={{ padding: "16px 8px 8px" }}>
-              {steps.length === 0 ? (
-                <p className="mzat-empty">
-                  <SearchX aria-hidden="true" style={{ display: "block", margin: "0 auto 10px", width: 22, height: 22 }} />
-                  No steps recorded for this request.
-                </p>
-              ) : (
-                <div className="mzat-tablewrap">
-                  <Table className="mzat-table">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell component="th" style={{ width: 56 }}>#</TableCell>
-                        <TableCell component="th" style={{ width: 140 }}>Route</TableCell>
-                        <TableCell component="th" style={{ width: 200 }}>Tool</TableCell>
-                        <TableCell component="th">Sub-question</TableCell>
-                        <TableCell component="th" className="mzat-num" style={{ width: 96 }}>
-                          Latency
-                        </TableCell>
-                        <TableCell component="th" className="mzat-num" style={{ width: 80 }}>
-                          Rows
-                        </TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {steps.map((step, i) => (
-                        <TableRow key={i}>
-                          <TableCell>
-                            <span className="mzat-idx">{i + 1}</span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="mzat-pill">{step.route || "—"}</span>
-                          </TableCell>
-                          <TableCell style={{ fontWeight: 600 }}>{step.tool_name || "—"}</TableCell>
-                          <TableCell>
-                            <div className="mzat-q">{step.sub_question || "—"}</div>
-                            {step.params ? <pre className="mzat-params">{step.params}</pre> : null}
-                            {step.verdict ? <p className="mzat-note">verdict: {step.verdict}</p> : null}
-                            {step.err ? <p className="mzat-note err">error: {step.err}</p> : null}
-                          </TableCell>
-                          <TableCell className="mzat-num">{step.duration_ms} ms</TableCell>
-                          <TableCell className="mzat-num">{step.row_count}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </div>
+          {steps.length === 0 ? (
+            <Card>
+              <CardHeader title="Steps" />
+              <EmptyState title="No steps recorded for this request." />
+            </Card>
           ) : (
-            <div style={{ padding: "20px 24px 24px" }}>
-              {views.length === 0 ? (
-                <p className="mzat-empty">No source views recorded for this request.</p>
-              ) : (
-                <div className="mzat-pills">
-                  {views.map((v) => (
-                    <span key={v} className="mzat-pill">
-                      {v}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+            <OrderDetailsHistory
+              title={
+                <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+                  Steps <Label variant="soft">{steps.length}</Label>
+                </Box>
+              }
+              timeline={timeline}
+              summary={[
+                { key: "latency", label: "Latency", value: `${trace.latency_ms} ms` },
+                { key: "rows", label: "Rows", value: String(trace.row_count) },
+                { key: "tier", label: "Route tier", value: trace.route_tier || "—" },
+                { key: "tool", label: "Tool", value: trace.tool_called || "—" },
+              ]}
+            />
           )}
-          </TabPanel>
+
+          {trace.rejection_reason ? (
+            <Card>
+              <CardHeader title="Rejection reason" />
+              <Typography variant="body2" sx={{ p: 3, color: "warning.main", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {trace.rejection_reason}
+              </Typography>
+            </Card>
+          ) : null}
+
+          {trace.review_verdict ? (
+            <Card>
+              <CardHeader title="Review verdict" />
+              <Typography variant="body2" sx={{ p: 3, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {trace.review_verdict}
+              </Typography>
+            </Card>
+          ) : null}
+        </Box>
+      </Grid>
+
+      <Grid size={{ xs: 12, md: 4 }}>
+        <Card>
+          <OrderDetailsDelivery
+            title="Request summary"
+            rows={[
+              { key: "status", label: "Status", value: <Label variant="soft" color={colorFor(trace.status)}>{trace.status || "—"}</Label> },
+              { key: "recorded", label: "Recorded", value: dateTime(trace.created_at) },
+              { key: "tier", label: "Route tier", value: trace.route_tier || "—" },
+              { key: "tool", label: "Tool", value: trace.tool_called || "—" },
+              { key: "latency", label: "Latency", value: `${trace.latency_ms} ms` },
+              { key: "rows", label: "Rows", value: String(trace.row_count) },
+            ]}
+          />
+
+          <Divider sx={{ borderStyle: "dashed" }} />
+          <OrderDetailsDelivery
+            title="Model"
+            rows={[
+              { key: "actor", label: "Actor role", value: trace.actor_role || "—" },
+              { key: "model", label: "Model", value: trace.model_version || "—" },
+              { key: "prompt", label: "Prompt", value: trace.prompt_version || "—" },
+              { key: "reference", label: "Reference", value: trace.request_id || "—" },
+            ]}
+          />
+
+          <Divider sx={{ borderStyle: "dashed" }} />
+          <CardHeader
+            title={
+              <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+                Sources <Label variant="soft">{views.length}</Label>
+              </Box>
+            }
+          />
+          <Box sx={{ p: 3, display: "flex", flexWrap: "wrap", gap: 1 }}>
+            {views.length === 0 ? (
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                No source views recorded for this request.
+              </Typography>
+            ) : (
+              views.map((v) => (
+                <Label key={v} variant="soft" color="info" sx={{ textTransform: "none" }}>
+                  {v}
+                </Label>
+              ))
+            )}
+          </Box>
         </Card>
-      </div>
-
-      <div>
-        <p className="mzat-stamp">Recorded {dateTime(trace.created_at)}</p>
-      </div>
-    </>
-  );
-}
-
-function Meta({ label, value }: { label: string; value: React.ReactNode }): React.ReactElement {
-  return (
-    <div className="mzat-meta">
-      <div className="mzat-meta-k">{label}</div>
-      <div className="mzat-meta-v">{value}</div>
-    </div>
+      </Grid>
+    </Grid>
   );
 }

@@ -22,6 +22,7 @@
     "components/minimal/sections/order/order-details-customer.tsx": "src/sections/order/order-details-customer.tsx",
     "components/minimal/sections/order/order-details-items.tsx": "src/sections/order/order-details-items.tsx",
     "components/minimal/sections/order/order-table-toolbar.tsx": "src/sections/order/order-table-toolbar.tsx",
+    "components/minimal/sections/mail/mail-nav-item.tsx": "src/sections/mail/mail-nav-item.tsx",
 
     "components/minimal/index.ts": "src/components/index.ts",
     "components/minimal/sections/user/user-table-row.tsx": "src/sections/user/user-table-row.tsx",

@@ -1,37 +1,47 @@
+import Form from "next/form";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
-import CardHeader from "@mui/material/CardHeader";
 import TextField from "@mui/material/TextField";
-import { Iconify } from "@/components/minimal/iconify";
-import { LinkButton } from "@/components/minimal/link-button";
-import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import Typography from "@mui/material/Typography";
 import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
-import Link from "@/components/no-prefetch-link";
+import { Iconify } from "@/components/minimal/iconify";
+import { LinkButton } from "@/components/minimal/link-button";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import { TableHeadCustom } from "@/components/minimal/table/table-head-custom";
+import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import type { InvoiceAnalyticColor } from "./dlq-analytics";
+import { OrderTableToolbar } from "@/components/minimal/sections/order/order-table-toolbar";
+import { fPercent } from "@/components/minimal/_shared/format-number";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, DatabaseZap, ShieldAlert, Trash2 } from "lucide-react";
 
-import type { KitTone } from "@/lib/tone";
 import { PageHeader } from "@/components/app/page-header";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
-import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
+import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listOutboxDLQ, type OutboxDLQMessage, type OutboxDLQStatus } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dash, fmtDateTime, shortId } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { LinkFiltersResult, type LinkFilterChip } from "@/components/app/link-filters-result";
+import { DLQAnalytics } from "./dlq-analytics";
 import { DLQLocalDrawer, type DLQDrawerRecord } from "./dlq-local-drawer";
 import Alert from "@mui/material/Alert";
 
 const PATHNAME = "/operations/dlq";
 const STATUS_KEYS = ["dead_letter", "failed", "discarded"] as const;
+const DRAWER_PARAMS = { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null } as const;
 
+// Template invoice list view (sections/invoice/view/invoice-list-view.tsx): the InvoiceAnalytic strip
+// in its own Card, then the list Card — status Tabs with Label counts, the toolbar
+// (sections/order/order-table-toolbar), the filters result, the Scrollbar table with TableHeadCustom
+// and the pagination footer. Rows open the DLQ record drawer locally (#dlq_id).
 export async function OperationsDLQPage({
   searchParams,
   pageContract,
@@ -43,7 +53,8 @@ export async function OperationsDLQPage({
   const status = parseStatus(one(sp, "status"));
   const eventType = one(sp, "event_type")?.trim();
   const topic = one(sp, "topic")?.trim();
-  const q = one(sp, "q")?.trim().toLowerCase() ?? "";
+  const rawQ = one(sp, "q")?.trim() ?? "";
+  const q = rawQ.toLowerCase();
   const result = await listOutboxDLQ({ status, eventType, topic, limit: 100 });
   const authError = firstAuthRequiredError(result);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
@@ -52,7 +63,7 @@ export async function OperationsDLQPage({
   const rows = q ? allRows.filter((row) => matchesSearch(row, q)) : allRows;
   const initialSelectedOutboxId = one(sp, "dlq_id");
   const cols = tableLabels(pageContract, "dlq-events");
-  const closeDrawerHref = hrefWithUpdates(sp, { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null });
+  const closeDrawerHref = hrefWithUpdates(sp, DRAWER_PARAMS);
   const drawerRows: DLQDrawerRecord[] = allRows.map((row) => ({
     outbox_id: row.outbox_id,
     event_type: row.event_type,
@@ -72,21 +83,31 @@ export async function OperationsDLQPage({
   }));
   const actionKey = one(sp, "action_key");
   const actionStatus = one(sp, "action_status");
+  const total = allRows.length;
+  const share = (n: number) => (total ? (n / total) * 100 : 0);
+  const analytics: { key: string; label: string; count: number; color: InvoiceAnalyticColor; icon: "solar:danger-triangle-bold" | "solar:danger-bold" | "solar:trash-bin-trash-bold" | "solar:bill-list-bold" }[] = [
+    { key: "dead_letter", label: copy(pageContract, "label.dead_letter_count"), count: countStatus(allRows, "dead_letter"), color: "error", icon: "solar:danger-triangle-bold" },
+    { key: "failed", label: copy(pageContract, "label.failed_count"), count: countStatus(allRows, "failed"), color: "warning", icon: "solar:danger-bold" },
+    { key: "discarded", label: copy(pageContract, "label.discarded_count"), count: countStatus(allRows, "discarded"), color: "secondary", icon: "solar:trash-bin-trash-bold" },
+    { key: "rows", label: copy(pageContract, "label.rows_in_view"), count: rows.length, color: "info", icon: "solar:bill-list-bold" },
+  ];
+  const chips: LinkFilterChip[] = [
+    ...(rawQ ? [{ id: "q", label: `${copy(pageContract, "action.search")}:`, value: rawQ, href: hrefWithUpdates(sp, { q: null, ...DRAWER_PARAMS }) }] : []),
+    ...(eventType ? [{ id: "event_type", label: `${copy(pageContract, "filter.event_type_label")}:`, value: eventType, href: hrefWithUpdates(sp, { event_type: null, ...DRAWER_PARAMS }) }] : []),
+    ...(topic ? [{ id: "topic", label: `${copy(pageContract, "filter.topic_label")}:`, value: topic, href: hrefWithUpdates(sp, { topic: null, ...DRAWER_PARAMS }) }] : []),
+  ];
 
   return (
     <div className="screen on">
-      <div>
-        <PageHeader
-          title={pageContract.title}
-          crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
-          actions={
-            <Link href="/operations/audit?domain=operations&module=dlq" className="btn">
-              <ShieldAlert className="ic" aria-hidden="true" />
-              {copy(pageContract, "action.open_audit")}
-            </Link>
-          }
-        />
-      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+        actions={
+          <LinkButton href="/operations/audit?domain=operations&module=dlq" variant="outlined" color="inherit" startIcon={<Iconify icon="solar:shield-check-bold" />}>
+            {copy(pageContract, "action.open_audit")}
+          </LinkButton>
+        }
+      />
 
       {result.ok ? null : (
         <Alert severity="error">
@@ -101,86 +122,87 @@ export async function OperationsDLQPage({
         </Alert>
       ) : null}
 
-      <div>
-      <KpiGrid min={210}>
-        <KPI label={copy(pageContract, "label.dead_letter_count")} value={String(countStatus(allRows, "dead_letter"))} tone="dng" icon={ShieldAlert} />
-        <KPI label={copy(pageContract, "label.failed_count")} value={String(countStatus(allRows, "failed"))} tone="warn" icon={AlertTriangle} />
-        <KPI label={copy(pageContract, "label.discarded_count")} value={String(countStatus(allRows, "discarded"))} tone="mut" icon={Trash2} />
-        <KPI label={copy(pageContract, "label.rows_in_view")} value={String(rows.length)} tone="info" icon={DatabaseZap} />
-      </KpiGrid>
-      </div>
+      <DLQAnalytics
+        cells={analytics.map((cell) => ({
+          key: cell.key,
+          title: cell.label,
+          total: fPercent(share(cell.count)),
+          price: cell.count,
+          percent: share(cell.count),
+          icon: cell.icon,
+          color: cell.color,
+        }))}
+      />
 
-      {/* Template list card: status Tabs (Label counts), then the toolbar (search + event-type / topic). */}
-      <Card sx={{ overflow: "visible" }}>
-        <Box sx={{ px: 2.5 }}>
+      <Card data-filter-scope>
         <AnimatedTabs
           value={status}
           ariaLabel={copy(pageContract, "filter.search_label")}
+          sx={{ px: { md: 2.5 } }}
           items={STATUS_KEYS.map((key) => ({
             value: key,
             label: optionLabel(pageContract, "dlq_status_tabs", key),
             // The count is the whole reason an operator picks one of these tabs over another.
             count: countStatus(allRows, key),
-            href: hrefWithUpdates(sp, { status: key, dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null }),
+            href: hrefWithUpdates(sp, { status: key, ...DRAWER_PARAMS }),
           }))}
         />
-        </Box>
-        <Box sx={{ p: 2.5, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
-          <Box component="form" action={PATHNAME} title={copy(pageContract, "filter.search_label")} sx={{ flex: "1 1 280px", minWidth: 0 }}>
-            {hiddenInputs(sp, ["q", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
-            <SearchTextField name="q" defaultValue={one(sp, "q") ?? ""} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
-          </Box>
-          <Box component="form" action={PATHNAME} sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
-            {hiddenInputs(sp, ["event_type", "topic", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
-            <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} defaultValue={eventType ?? ""} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} defaultValue={topic ?? ""} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
-            <Button type="submit" variant="contained" color="primary">
-              {copy(pageContract, "filter.apply")}
-            </Button>
-          </Box>
-          <LinkButton href={PATHNAME} replace scroll={false} color="error" startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
-            {copy(pageContract, "filter.clear_all")}
-          </LinkButton>
-        </Box>
-      </Card>
 
-      <div>
-      <TabPanel tabKey={status}>
-      <Card component="section" className="kit-tablecard" sx={{ minWidth: 0 }}>
-        <CardHeader
-          avatar={<DatabaseZap className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
-          title={copy(pageContract, "section.events.title")}
+        <OrderTableToolbar
+          filters={
+            <Form action={PATHNAME} prefetch={false} style={{ display: "contents" }}>
+              {hiddenInputs(sp, ["event_type", "topic", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
+              <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} placeholder={copy(pageContract, "filter.event_type_placeholder")} defaultValue={eventType ?? ""} sx={{ width: { xs: 1, md: 200 }, flexShrink: 0 }} slotProps={{ inputLabel: { shrink: true } }} />
+              <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} placeholder={copy(pageContract, "filter.topic_placeholder")} defaultValue={topic ?? ""} sx={{ width: { xs: 1, md: 200 }, flexShrink: 0 }} slotProps={{ inputLabel: { shrink: true } }} />
+              <Button type="submit" variant="contained" color="primary" sx={{ flexShrink: 0 }}>
+                {copy(pageContract, "filter.apply")}
+              </Button>
+            </Form>
+          }
+          search={
+            <Form action={PATHNAME} prefetch={false} title={copy(pageContract, "filter.search_label")}>
+              {hiddenInputs(sp, ["q", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
+              <SearchTextField name="q" defaultValue={rawQ} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
+            </Form>
+          }
         />
-        <Alert severity="info" sx={{ mx: 3, mt: 2, mb: 2 }}>
-          {copy(pageContract, "pager.fixed_reason")}
-        </Alert>
-        <div className="bd twrap tablewrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.events.aria")}>
-          <Table data-enh="1" className="operations-dlq-table">
-            <TableHead>
-              <TableRow>
-                {cols.map((label) => (
-                  <TableCell component="th" key={label}>{label}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={cols.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {result.ok ? copy(pageContract, "empty.events") : copy(pageContract, "empty.events_unavailable")}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                rows.map((row) => <DLQTableRow key={row.outbox_id} row={row} searchParams={sp} pageContract={pageContract} />)
-              )}
-            </TableBody>
-          </Table>
-        </div>
+
+        <LinkFiltersResult totalResults={rows.length} chips={chips} resetHref={PATHNAME} />
+
+        <TabPanel tabKey={status}>
+          <Scrollbar>
+            <Table sx={{ minWidth: 960 }} aria-label={copy(pageContract, "section.events.aria")}>
+              <TableHeadCustom headCells={cols.map((label, index) => ({ id: `c${index}`, label }))} />
+              <TableBody>
+                {rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={cols.length}>
+                      <EmptyContent filled title={result.ok ? copy(pageContract, "empty.events") : copy(pageContract, "empty.events_unavailable")} sx={{ py: 10 }} />
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((row) => <DLQTableRow key={row.outbox_id} row={row} closeHref={closeDrawerHref} pageContract={pageContract} />)
+                )}
+              </TableBody>
+            </Table>
+          </Scrollbar>
+        </TabPanel>
+
+        <TablePaginationLinks
+          page={0}
+          rowsPerPage={100}
+          count={rows.length}
+          hideActions
+          rangeLabel={`${rows.length} / ${total}`}
+          prevLabel={copy(pageContract, "action.previous")}
+          nextLabel={copy(pageContract, "action.next")}
+          left={
+            <Typography variant="caption" sx={{ color: "text.secondary", px: 1 }}>
+              {copy(pageContract, "pager.fixed_reason")}
+            </Typography>
+          }
+        />
       </Card>
-      </TabPanel>
-      </div>
 
       <DLQLocalDrawer
         rows={drawerRows}
@@ -192,42 +214,38 @@ export async function OperationsDLQPage({
   );
 }
 
-function DLQTableRow({ row, searchParams, pageContract }: { row: OutboxDLQMessage; searchParams: RouteSearchParams; pageContract: AdminUiPageContract }) {
-  const closeHref = hrefWithUpdates(searchParams, { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null });
+function DLQTableRow({ row, closeHref, pageContract }: { row: OutboxDLQMessage; closeHref: string; pageContract: AdminUiPageContract }) {
   const href = `${closeHref}#dlq_id=${encodeURIComponent(row.outbox_id)}`;
   return (
-    <TableRow>
-      <TableCell>
-        <LocalOverlayLink href={href} className="celllink" scroll={false}>
-          <ClipText title={row.event_type} className="strong">
+    <TableRow hover>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <LocalOverlayLink href={href} scroll={false} style={{ color: "inherit", textDecoration: "none", display: "block" }}>
+          <Box component="span" sx={{ display: "block", typography: "subtitle2" }} title={row.event_type}>
             {row.event_type}
-          </ClipText>
-          <span className="mt">{shortId(row.event_id)}</span>
+          </Box>
+          <Box component="span" sx={{ display: "block", typography: "caption", color: "text.disabled", mt: 0.5 }}>
+            {shortId(row.event_id)}
+          </Box>
         </LocalOverlayLink>
       </TableCell>
-      <TableCell>
-        <ClipText title={row.topic}>{row.topic}</ClipText>
-        <div className="mt">
-          <Tag tone={toneForStatus(row.status, pageContract)}>{optionLabel(pageContract, "dlq_status_tabs", row.status)}</Tag>
-        </div>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <Box component="span" sx={{ display: "block", mb: 0.5 }} title={row.topic}>
+          {row.topic}
+        </Box>
+        <Tag tone={toneForStatus(row.status, pageContract)}>{optionLabel(pageContract, "dlq_status_tabs", row.status)}</Tag>
       </TableCell>
       <TableCell>{row.attempt_count}</TableCell>
       <TableCell>{row.replay_count}</TableCell>
-      <TableCell>
-        <ClipText title={row.last_error}>{dash(row.last_error)}</ClipText>
+      <TableCell sx={{ minWidth: 260, maxWidth: 420 }}>
+        <Box component="span" title={row.last_error} sx={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          {dash(row.last_error)}
+        </Box>
       </TableCell>
-      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
+      <TableCell sx={{ whiteSpace: "nowrap", color: "text.secondary" }}>
         {fmtDateTime(row.updated_at)}
       </TableCell>
     </TableRow>
   );
-}
-
-const KPI_TONE: Record<Tone, KitTone> = { ok: "success", warn: "warning", dng: "error", info: "info", mut: "neutral", pur: "violet", teal: "info" };
-
-function KPI({ label, value, tone, icon: Icon }: { label: string; value: string; tone: Tone; icon: typeof DatabaseZap }) {
-  const numeric = /^\d+$/.test(value) ? Number(value) : null;
-  return <KpiCard label={label} value={numeric ?? value} tone={KPI_TONE[tone]} icon={<Icon />} />;
 }
 
 function parseStatus(raw: string | undefined): OutboxDLQStatus {

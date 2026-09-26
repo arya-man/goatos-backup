@@ -1,40 +1,93 @@
 import Box from "@mui/material/Box";
 import Card from "@mui/material/Card";
-import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
 import Grid from "@mui/material/Grid";
 import Stack from "@mui/material/Stack";
 import Divider from "@mui/material/Divider";
-import Typography from "@mui/material/Typography";
-import { PageHeader } from "@/components/app/page-header";
-import Link from "@/components/no-prefetch-link";
+import LinearProgress from "@mui/material/LinearProgress";
+import { Iconify } from "@/components/minimal/iconify";
+import { LinkButton } from "@/components/minimal/link-button";
+import { OrderDetailsToolbar } from "@/components/minimal/sections/order/order-details-toolbar";
+import { OrderDetailsHistory, type OrderHistoryItem, type OrderHistoryTone } from "@/components/minimal/sections/order/order-details-history";
+import { OrderDetailsCustomer } from "@/components/minimal/sections/order/order-details-customer";
+import { OrderDetailsDelivery } from "@/components/minimal/sections/order/order-details-delivery";
+import type { LabelColor } from "@/components/minimal/label";
 import { operationalLocationLabel } from "@/lib/operational-location";
-import { ArrowLeft, Syringe } from "lucide-react";
-import { getVaccinationWorkflowDrilldown } from "@/lib/api/server";
+import { getVaccinationWorkflowDrilldown, type WorkflowNode } from "@/lib/api/server";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { type Tone } from "./process-integrity";
-import { WorkflowStepper } from "./workflow-stepper";
 import { Tag } from "@/components/ui-primitives";
+import { fmtDateTime } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { actionDriveLabel, actionWorkTitle } from "./work-board";
 import { stageLabel } from "@/lib/stage-labels";
 import Alert from "@mui/material/Alert";
 
-// Order-details layout twin from sections/order/view/order-details-view.tsx:
-// toolbar (back + title + status chips) on top, Grid xs=12 md=8 main column, Grid xs=12 md=4
-// right summary Card with dashed dividers between blocks. Feature markup + data unchanged;
-// only the frame moves onto the template shape.
-function SummaryBlock({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <Stack spacing={0.5}>
-      <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4 }}>
-        {label}
-      </Typography>
-      <Typography variant="body2" sx={{ color: "text.primary", wordBreak: "break-word" }}>
-        {value}
-      </Typography>
-    </Stack>
-  );
+// Template order details view (sections/order/view/order-details-view.tsx): OrderDetailsToolbar
+// (back, title, status Label, date line, actions) over Grid md 8 / md 4 — the obligation chain on
+// the OrderDetailsHistory timeline (with its dashed summary) on the left, the right-rail Card of
+// OrderDetailsCustomer / OrderDetailsDelivery blocks split by dashed Dividers.
+
+const TONE_LABEL: Record<Tone, LabelColor> = { ok: "success", warn: "warning", dng: "error", info: "info", mut: "default", pur: "secondary", teal: "info" };
+
+// Heuristic tone for a free-text node state — done/accepted/published → ok, rejected/blocked → dng, etc.
+export function nodeTone(state: string): Tone {
+  const s = normalizeState(state);
+  if (/(reject|block|fail|overdue)/.test(s)) return "dng";
+  if (/(pending|await|progress|submitted|uploaded|open)/.test(s)) return "warn";
+  if (s === "missing" || s.includes("missing")) return "warn";
+  if (isDone(state)) return "ok";
+  if (s === "planned") return "info";
+  if (/(not_started|not started|scheduled|n\/a|skipped)/.test(s)) return "mut";
+  return "info";
+}
+
+function isDone(state: string): boolean {
+  return new Set(["accepted", "complete", "completed", "done", "published", "posted", "verified", "generated"]).has(normalizeState(state));
+}
+
+function isBlocked(node: WorkflowNode): boolean {
+  return !!node.blocker || /(reject|block|fail|overdue)/.test(normalizeState(node.state));
+}
+
+function normalizeState(state: string): string {
+  return state.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+}
+
+// The canonical obligation chain as template timeline rows: done steps fill primary, the first
+// not-done step is the current one (info, or error when it is blocked), the rest stay grey.
+function chainTimeline(nodes: WorkflowNode[]): OrderHistoryItem[] {
+  const firstPendingIdx = nodes.findIndex((n) => !isDone(n.state));
+  return nodes.map((node, index) => {
+    const done = isDone(node.state);
+    const blocked = isBlocked(node) && !done;
+    const tone: OrderHistoryTone = done ? "primary" : blocked ? "error" : index === firstPendingIdx ? "info" : "grey";
+    const who = [node.actor, node.owner].filter(Boolean).join(" · ");
+    return {
+      key: node.key,
+      title: node.label,
+      tone,
+      body: (
+        <Box component="span" sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
+          <Tag tone={nodeTone(node.state)}>{node.state}</Tag>
+          {who ? <span>{who}</span> : null}
+          {node.evidence ? (
+            <Tag tone="teal">
+              <Iconify icon="solar:videocamera-record-bold" width={14} sx={{ mr: 0.5 }} />
+              {node.evidence}
+            </Tag>
+          ) : null}
+          {node.blocker ? (
+            <Box component="span" sx={{ color: "error.main", display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+              <Iconify icon="solar:forbidden-circle-bold" width={16} />
+              {node.blocker}
+            </Box>
+          ) : null}
+        </Box>
+      ),
+      time: node.timestamp ? fmtDateTime(node.timestamp) : undefined,
+    };
+  });
 }
 
 export async function VaccinationWorkflowDrilldownPage({
@@ -65,17 +118,17 @@ export async function VaccinationWorkflowDrilldownPage({
 
   if (!result.ok) {
     return (
-      <div className="kit-enter screen on">
-        <div>
-          <PageHeader title={pageContract.title || copy(pageContract, "fallback.title")} backHref={backHref} crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }]} />
-        </div>
+      <div className="screen on">
+        <OrderDetailsToolbar title={pageContract.title || copy(pageContract, "fallback.title")} subtitle={copy(pageContract, "crumb")} backHref={backHref} backLabel={backLabel} />
         <Alert severity="error" role="alert">
           <b>{copy(pageContract, "error.row_unavailable", "This workflow record could not be opened.")}</b>
-          <span className="muted small" style={{ marginLeft: 8 }}>{result.error.code ?? result.error.kind}</span>
+          <Box component="span" sx={{ ml: 1, color: "text.secondary" }}>{result.error.code ?? result.error.kind}</Box>
         </Alert>
-        <Link href={backHref} className="btn">
-          <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {backLabel}
-        </Link>
+        <Box>
+          <LinkButton href={backHref} variant="outlined" color="inherit" startIcon={<Iconify icon="eva:arrow-ios-back-fill" />}>
+            {backLabel}
+          </LinkButton>
+        </Box>
       </div>
     );
   }
@@ -84,105 +137,96 @@ export async function VaccinationWorkflowDrilldownPage({
   const title = actionWorkTitle(pageContract, row);
   const drive = actionDriveLabel(pageContract, row);
   const shedLine = row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label });
-
-  // Template OrderDetailsToolbar puts the status Label right next to the title. Same shape:
-  // work-state pill leads, other computed state pills follow, all inside the header actions slot.
-  const statusStrip = (
-    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
-      <Syringe className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
-      <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.work_state)}</Tag>
-      <Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag>
-      <Tag tone={optionTone(pageContract, "sop_state_chips", row.sop_task_state) as Tone}>{optionLabel(pageContract, "sop_state_chips", row.sop_task_state)}</Tag>
-      <Tag tone={optionTone(pageContract, "proof_state_chips", row.proof_state) as Tone}>{optionLabel(pageContract, "proof_state_chips", row.proof_state)}</Tag>
-      <Tag tone={optionTone(pageContract, "verification_state_chips", row.verification_state) as Tone}>{optionLabel(pageContract, "verification_state_chips", row.verification_state)}</Tag>
+  const workTone = optionTone(pageContract, "work_state_filter_chips", row.work_state) as Tone;
+  const pct = row.expected_count > 0 ? Math.round((row.completed_count / row.expected_count) * 100) : 0;
+  const progress = (
+    <Box component="span" sx={{ display: "block", minWidth: 160 }}>
+      <Box component="span" sx={{ display: "flex", justifyContent: "space-between", gap: 2, mb: 0.75 }}>
+        <span>
+          <b>{row.completed_count}</b> / {row.expected_count} {copy(pageContract, "label.done")}
+        </span>
+        <Box component="span" sx={{ typography: "subtitle2" }}>{pct}%</Box>
+      </Box>
+      <LinearProgress variant="determinate" value={pct} />
     </Box>
   );
 
   return (
-    <div className="kit-enter screen on">
-      <div>
-        <PageHeader
-          title={title}
-          backHref={backHref}
-          crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }, { label: drive }, { label: row.park_name }, { label: shedLine }, { label: stageLabel(row.animal_stage) }]}
-          actions={statusStrip}
-        />
-      </div>
+    <div className="screen on">
+      <OrderDetailsToolbar
+        title={title}
+        status={optionLabel(pageContract, "work_state_filter_chips", row.work_state)}
+        statusColor={TONE_LABEL[workTone] ?? "default"}
+        subtitle={[copy(pageContract, "crumb"), drive, row.park_name, shedLine, stageLabel(row.animal_stage)].join(" · ")}
+        backHref={backHref}
+        backLabel={backLabel}
+        actions={
+          <>
+            <Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag>
+            <Tag tone={optionTone(pageContract, "sop_state_chips", row.sop_task_state) as Tone}>{optionLabel(pageContract, "sop_state_chips", row.sop_task_state)}</Tag>
+            <Tag tone={optionTone(pageContract, "proof_state_chips", row.proof_state) as Tone}>{optionLabel(pageContract, "proof_state_chips", row.proof_state)}</Tag>
+            <Tag tone={optionTone(pageContract, "verification_state_chips", row.verification_state) as Tone}>{optionLabel(pageContract, "verification_state_chips", row.verification_state)}</Tag>
+            <LinkButton href={scopeHref("/action-center", scope, {}, { ac_row: row.row_id })} variant="contained" startIcon={<Iconify icon="solar:list-bold" />}>
+              {copy(pageContract, "action.action_center")}
+            </LinkButton>
+          </>
+        }
+      />
 
-      {row.blocker_reason ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}><div>{row.blocker_reason}</div>
-        </Alert>
-      ) : null}
+      {row.blocker_reason ? <Alert severity="error">{row.blocker_reason}</Alert> : null}
 
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, md: 8 }}>
-          <Box sx={{ gap: 3, display: "flex", flexDirection: { xs: "column-reverse", md: "column" } }}>
-            <Card className="wf-chain-card" aria-label={copy(pageContract, "section.chain.title")}>
-              <CardHeader
-                sx={{
-                  flexWrap: "wrap",
-                  rowGap: 1.5,
-                  [`& .${cardHeaderClasses.action}`]: { m: 0, flex: { xs: "1 1 100%", sm: "0 0 auto" }, minWidth: 0, maxWidth: "100%" },
-                }}
-                title={
-                  <span className="gp-card-title" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                    <Syringe className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-                    {copy(pageContract, "section.chain.title")}
-                  </span>
-                }
-                action={<span className="muted small">{copy(pageContract, "section.chain.next_prefix")} {row.next_action}</span>}
-              />
-              <Box sx={{ p: 3 }}>
-                <WorkflowStepper nodes={nodes} />
-              </Box>
-            </Card>
-          </Box>
+          <OrderDetailsHistory
+            aria-label={copy(pageContract, "section.chain.title")}
+            title={copy(pageContract, "section.chain.title")}
+            timeline={chainTimeline(nodes)}
+            summary={[
+              { key: "drive", label: copy(pageContract, "label.drive", "Drive"), value: drive },
+              { key: "progress", label: copy(pageContract, "label.progress", "Progress"), value: progress },
+              { key: "next", label: `${copy(pageContract, "section.chain.next_prefix")}`, value: row.next_action },
+            ]}
+          />
         </Grid>
 
         <Grid size={{ xs: 12, md: 4 }}>
           <Card>
-            <Box sx={{ p: 3 }}>
-              <Stack spacing={2}>
-                <SummaryBlock label={copy(pageContract, "label.drive", "Drive")} value={drive} />
-                <SummaryBlock label={copy(pageContract, "label.park", "Park")} value={row.park_name} />
-                <SummaryBlock label={copy(pageContract, "label.pen", "Pen")} value={shedLine} />
-                <SummaryBlock label={copy(pageContract, "label.stage", "Stage")} value={stageLabel(row.animal_stage)} />
-              </Stack>
-            </Box>
+            <OrderDetailsCustomer
+              title={copy(pageContract, "label.vaccination_drive")}
+              name={drive}
+              lines={[row.protocol_name, row.owner?.operator_name || copy(pageContract, "label.unassigned")]}
+            />
 
             <Divider sx={{ borderStyle: "dashed" }} />
-            <Box sx={{ p: 3 }}>
-              <SummaryBlock
-                label={copy(pageContract, "label.progress", "Progress")}
-                value={<><b>{row.completed_count}</b> / {row.expected_count} {copy(pageContract, "label.done")}</>}
-              />
-            </Box>
+            <OrderDetailsDelivery
+              title={copy(pageContract, "label.vaccination")}
+              rows={[
+                { key: "park", label: copy(pageContract, "label.park", "Park"), value: row.park_name },
+                { key: "pen", label: copy(pageContract, "label.pen", "Pen"), value: shedLine },
+                { key: "stage", label: copy(pageContract, "label.stage", "Stage"), value: stageLabel(row.animal_stage) },
+                { key: "next", label: copy(pageContract, "label.next_action", "Next action"), value: row.next_action },
+              ]}
+            />
 
             <Divider sx={{ borderStyle: "dashed" }} />
-            <Box sx={{ p: 3 }}>
-              <SummaryBlock
-                label={copy(pageContract, "label.next_action", "Next action")}
-                value={row.next_action}
-              />
-            </Box>
-
-            <Divider sx={{ borderStyle: "dashed" }} />
-            <Box sx={{ p: 3, display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+            <Stack spacing={1} sx={{ p: 3, alignItems: "flex-start" }}>
               {row.goat_id ? (
-                <Link href={`/goats/${encodeURIComponent(row.goat_id)}`} className="lk small">
-                  {copy(pageContract, "action.goat_passport")} →
-                </Link>
+                <LinkButton href={`/goats/${encodeURIComponent(row.goat_id)}`} size="small" color="inherit" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" width={16} />}>
+                  {copy(pageContract, "action.goat_passport")}
+                </LinkButton>
               ) : null}
-              <Link href={scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shed_id)}`, scope, { mode: "park", park: row.park_id }, row.partition_label ? { partition_label: row.partition_label } : {})} className="lk small">
-                {copy(pageContract, "action.shed_execution")} →
-              </Link>
-              <Link href={scopeHref("/action-center", scope, {}, { ac_row: row.row_id })} className="lk small">
-                {copy(pageContract, "action.action_center")} →
-              </Link>
-              <Link href={scopeHref("/protocol-adherence", scope)} className="lk small">
-                {copy(pageContract, "action.protocol_adherence")} →
-              </Link>
-            </Box>
+              <LinkButton
+                href={scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(row.shed_id)}`, scope, { mode: "park", park: row.park_id }, row.partition_label ? { partition_label: row.partition_label } : {})}
+                size="small"
+                color="inherit"
+                endIcon={<Iconify icon="eva:arrow-ios-forward-fill" width={16} />}
+              >
+                {copy(pageContract, "action.shed_execution")}
+              </LinkButton>
+              <LinkButton href={scopeHref("/protocol-adherence", scope)} size="small" color="inherit" endIcon={<Iconify icon="eva:arrow-ios-forward-fill" width={16} />}>
+                {copy(pageContract, "action.protocol_adherence")}
+              </LinkButton>
+            </Stack>
           </Card>
         </Grid>
       </Grid>

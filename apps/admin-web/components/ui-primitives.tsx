@@ -9,7 +9,7 @@ import { Label, type LabelColor } from "@/components/minimal/label";
 export type Tone = "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal";
 
 // Shared status pill: the template `Label` (soft), tone mapped onto the template palette.
-const TONE_COLOR: Record<Tone, LabelColor> = {
+export const TONE_COLOR: Record<Tone, LabelColor> = {
   ok: "success",
   warn: "warning",
   dng: "error",

@@ -1,12 +1,21 @@
 "use client";
 
-import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
-
-import { Layers, Lock, Pencil, Plus, Search } from "lucide-react";
 import { useState } from "react";
 
-import Link from "@/components/no-prefetch-link";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Button from "@mui/material/Button";
+import CardHeader from "@mui/material/CardHeader";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { MailNavItem } from "@/components/minimal/sections/mail/mail-nav-item";
 
 /**
  * The Lists panel of Items & categories (the prototype's middle column): "All items", the
@@ -14,6 +23,9 @@ import { LocalOverlayLink } from "@/components/local-overlay-link";
  * each with the number of items it holds. Choosing a list is a real navigation (the items table
  * is filtered server-side, whole subtree); the search box and the Active / Archived toggle
  * only narrow the list of NAMES already on screen, which is why they are local state.
+ *
+ * Template anatomy: a Card with CardHeader + count Label, the template search TextField, and the
+ * mail nav rail (`MailNavItem`) for the lists, with a trailing edit IconButton per list.
  *
  * Renders no copy of its own: every label arrives resolved from the page contract, and every
  * href is precomputed by the server component.
@@ -32,6 +44,14 @@ export type CatalogueList = {
   href: string;
   editHref: string;
 };
+
+function Subheader({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography component="li" variant="overline" sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1, pt: 2, pb: 1, color: "text.disabled" }}>
+      {children}
+    </Typography>
+  );
+}
 
 export function CatalogueLists({
   copy,
@@ -58,31 +78,50 @@ export function CatalogueLists({
   const catalogues = shown.filter((list) => list.builtin);
   const yours = shown.filter((list) => !list.builtin);
   const row = (list: CatalogueList) => (
-    <div key={list.id} className={list.id === current ? "cfg-list on" : "cfg-list"} style={{ paddingLeft: 10 + list.depth * 14 }}>
-      <Link href={list.href} scroll={false} className="cfg-list-link" aria-current={list.id === current ? "page" : undefined}>
-        {list.locked ? <Lock className="ic" aria-hidden="true" /> : null}
-        <span className="cfg-list-name">{list.name}</span>
-        <span className="cfg-list-count">{list.count}</span>
-      </Link>
-      {canEdit ? (
-        <LocalOverlayLink href={list.editHref} scroll={false} className="cfg-list-edit" aria-label={`${copy["action.edit_row.label"]} ${list.name}`}>
-          <Pencil className="ic" aria-hidden="true" />
-        </LocalOverlayLink>
-      ) : null}
-    </div>
+    <MailNavItem
+      key={list.id}
+      selected={list.id === current}
+      href={list.href}
+      depth={list.depth}
+      label={{ name: list.name, count: list.count, icon: list.locked ? "solar:lock-password-outline" : undefined }}
+      action={
+        canEdit ? (
+          <IconButton component={LocalOverlayLink} href={list.editHref} scroll={false} size="small" aria-label={`${copy["action.edit_row.label"]} ${list.name}`}>
+            <Iconify icon="solar:pen-bold" width={18} />
+          </IconButton>
+        ) : null
+      }
+    />
   );
   return (
-    <aside className="card cfg-lists" aria-label={copy["lists.title"]}>
-      <div className="hd">
-        <h3>
-          {copy["lists.title"]} <span className="cfg-count">{lists.filter((l) => !l.archived).length}</span>
-        </h3>
-      </div>
-      <div className="cfg-lists-bar">
-        <label className="tsearch">
-          <Search className="ic" aria-hidden="true" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={copy["lists.search"]} aria-label={copy["lists.search"]} />
-        </label>
+    <Card component="aside" aria-label={copy["lists.title"]}>
+      <CardHeader
+        title={
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+            {copy["lists.title"]}
+            <Label variant="soft">{lists.filter((l) => !l.archived).length}</Label>
+          </Box>
+        }
+        sx={{ pb: 2 }}
+      />
+      <Box sx={{ px: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+        <TextField
+          size="small"
+          fullWidth
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={copy["lists.search"]}
+          slotProps={{
+            htmlInput: { "aria-label": copy["lists.search"] },
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
         <SegmentTabs
           ariaLabel={copy["column.status"]}
           value={status}
@@ -91,33 +130,31 @@ export function CatalogueLists({
             { value: "archived", label: copy["status.archived"], onClick: () => setStatus("archived") },
           ]}
         />
-      </div>
-      <div className="cfg-lists-body">
-        {status === "active" && !needle ? (
-          <div className={current === "" ? "cfg-list on" : "cfg-list"}>
-            <Link href={allHref} scroll={false} className="cfg-list-link" aria-current={current === "" ? "page" : undefined}>
-              <Layers className="ic" aria-hidden="true" />
-              <span className="cfg-list-name">{copy["lists.all"]}</span>
-              <span className="cfg-list-count">{allCount}</span>
-            </Link>
-          </div>
-        ) : null}
-        {catalogues.length ? (
-          <>
-            <div className="cfg-lists-title">
-              <Lock className="ic" aria-hidden="true" /> {copy["lists.catalogues"]}
-            </div>
-            {catalogues.map(row)}
-          </>
-        ) : null}
-        <div className="cfg-lists-title">{copy["lists.yours"]}</div>
-        {yours.map(row)}
+      </Box>
+      <Box component="nav">
+        <Box component="ul" sx={{ m: 0, p: 0, pb: 1.5, px: 1.5, listStyle: "none" }}>
+          {status === "active" && !needle ? (
+            <MailNavItem selected={current === ""} href={allHref} label={{ name: copy["lists.all"], count: allCount, icon: "solar:list-bold" }} />
+          ) : null}
+          {catalogues.length ? (
+            <>
+              <Subheader>
+                <Iconify icon="solar:lock-password-outline" width={14} /> {copy["lists.catalogues"]}
+              </Subheader>
+              {catalogues.map(row)}
+            </>
+          ) : null}
+          <Subheader>{copy["lists.yours"]}</Subheader>
+          {yours.map(row)}
+        </Box>
         {canEdit ? (
-          <LocalOverlayLink href={newHref} scroll={false} className="cfg-list-new">
-            <Plus className="ic" aria-hidden="true" /> {copy["lists.new"]}
-          </LocalOverlayLink>
+          <Box sx={{ px: 2, pb: 2 }}>
+            <Button component={LocalOverlayLink} href={newHref} scroll={false} size="small" color="primary" startIcon={<Iconify icon="mingcute:add-line" />}>
+              {copy["lists.new"]}
+            </Button>
+          </Box>
         ) : null}
-      </div>
-    </aside>
+      </Box>
+    </Card>
   );
 }
