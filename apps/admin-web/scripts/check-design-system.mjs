@@ -168,6 +168,7 @@ const CHECKS = {
   "technical-copy": { tier: "waivable", why: "user-visible copy must not name Firebase/config/backend/API/tokens/HTTP codes/null/NaN/stack — say what the person can do instead" },
   "raw-chart-lib": { tier: "waivable", why: "only Apex (components/minimal/chart, components/kit) and the two inline helpers (svg-bars/svg-series) are palette-locked and hover-proven; recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts are refused" },
   "route-template-map-missing": { tier: "waivable", why: "every route in scripts/smoke-visual-live.mjs must have an entry in docs/design/route-template-map.json so the MUI Minimal template section it is built on is discoverable" },
+  "section-client-boundary": { tier: "p0", why: "a template section under components/minimal/sections/ that uses hooks or a function sx/theme callback must start with 'use client'; a server page rendering it would otherwise pass a function to a client component and crash at render (typecheck cannot see it)" },
   "page-template-no-pastel": { tier: "p0", why: "a page listed in docs/design/page-template-map.md must not use KpiCard variant tint/gradient or AnalyticsWidgetSummary (pastel in dark); KPI rows are the template Ecommerce/Course/Banking widget summaries" },
   "unsourced-minimal-file": { tier: "p0", why: "components/minimal/ holds template-derived code only; every file needs an entry in docs/design/template-sources.json mapping it to a Minimal template source path" },
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
@@ -340,6 +341,18 @@ function runGuard(root, { themeDiff }) {
   // tint/gradient or AnalyticsWidgetSummary (the look Ravi rejected on /sales/sold). The import
   // side of the map is `page-template-map` below.
   for (const hit of pageTemplatePastelFindings(root)) findings.push(finding("page-template-no-pastel", hit.file, hit.line, hit.snippet));
+  {
+    const sectionsDir = join(root, "components", "minimal", "sections");
+    if (existsSync(sectionsDir)) {
+      for (const abs of walk(sectionsDir).filter((f) => /\.tsx?$/.test(f))) {
+        const text = readFileSync(abs, "utf8");
+        if (/^\s*['"]use client['"]/.test(text)) continue;
+        const lines = text.split("\n");
+        const at = lines.findIndex((line) => !/^\s*(\/\/|\*)/.test(line) && /\(theme\)\s*=>|\buse(?:Theme|State|Callback|Effect|Memo|Chart)\(/.test(line));
+        if (at >= 0) findings.push(finding("section-client-boundary", toRel(root, abs), at + 1, lines[at]));
+      }
+    }
+  }
 
   // components/minimal/ holds ONLY template-derived code (verbatim, near-verbatim, or a
   // structural adaptation). Every file must have a source entry in
@@ -771,6 +784,7 @@ async function selfTest() {
     "| `/pastel` | Ecommerce overview | `features/pastel-page.tsx` | `components/minimal/widgets` |",
   ].join("\n"));
   put("features/pastel-page.tsx", 'import { KpiCard } from "@/components/minimal/widgets";\nexport const P = () => <KpiCard variant="tint" label="x" value={1} />;\n');
+  put("components/minimal/sections/overview/demo/server-section.tsx", "export const S = () => <LinearProgress sx={[(theme) => ({ height: 8 })]} />;\n");
   const { findings } = runGuard(root, { themeDiff: false });
   const got = new Set(findings.map((f) => f.check));
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");

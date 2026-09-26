@@ -1,10 +1,11 @@
 import Card from "@mui/material/Card";
 import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
-import CardContent from "@mui/material/CardContent";
-import { RadialStat } from "@/components/app/radial-stat";
+import Grid from "@mui/material/Grid";
+import Typography from "@mui/material/Typography";
+import { Label } from "@/components/minimal/label";
+import { EcommerceSaleByGender } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sale-by-gender";
 import { EmptyState } from "@/components/app/empty-state";
-import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { Tag } from "@/components/ui-primitives";
+import { KpiCard } from "@/components/minimal/widgets";
 import { KpiValue } from "./kpi-value";
 import { redirect } from "next/navigation";
 
@@ -38,16 +39,7 @@ import { tableOrderFromParams, type TableOrder } from "./table-order";
 import { salesErrorText } from "./sales-error";
 import Box from "@mui/material/Box";
 import type { SxProps, Theme } from "@mui/material/styles";
-import { PHONE, cardTableScrollSx } from "./procurement-sx";
-
-// Phone deck: two widgets per row with no icon badge, so the figure is sized to stay on one line
-// instead of a rupee amount breaking mid-number.
-const BUYER_KPI_SX: SxProps<Theme> = {
-  [PHONE]: {
-    "& .kit-kpi-value": { fontSize: "var(--fs-h4) !important", whiteSpace: "nowrap", overflowWrap: "normal" },
-    "& .kit-kpi-value .proc-kpi-value": { flexWrap: "nowrap" },
-  },
-};
+import { cardTableScrollSx } from "./procurement-sx";
 
 // The buyer ledger is a fixed-layout table (template invoice list density) with set column shares;
 // it scrolls inside its card from a 70rem floor (65rem on a phone).
@@ -160,96 +152,88 @@ function BuyerSections({
   };
 
   return (
-    <>
-      {/* The headline deck, on the kit KPI card: tinted surface, watermark icon behind the
-          number and the same figure the page printed before, through the same formatters. */}
-      <Box sx={BUYER_KPI_SX}>
-      <KpiGrid className="sales-kpi-row">
-        <KpiCard
-          variant="gradient"
-          tone="primary"
-          label={copy(pageContract, "kpi.buyers")}
-          value={<KpiValue value={summary.buyers} />}
-          watermark={<Users aria-hidden="true" />}
-          // Older contracts lack this optional standalone detail; never reuse the
-          // legacy key, whose sentence follows an unregistered-buyer count (0dd2097e3).
-          hint={optionalCopy(pageContract, "kpi.buyers.closed_sale_detail") ? copy(pageContract, "kpi.buyers.closed_sale_detail") : undefined}
-        />
-        <KpiCard
-          variant="tint"
-          tone="info"
-          label={copy(pageContract, "kpi.repeat_buyers")}
-          value={<KpiValue value={summary.repeat_buyers} />}
-          watermark={<Repeat aria-hidden="true" />}
-          hint={`${num(repeatPct, 0)}% · ${copy(pageContract, "kpi.repeat_buyers.detail")}`}
-        />
-        <KpiCard
-          variant="tint"
-          tone="success"
-          label={copy(pageContract, "kpi.repeat_revenue")}
-          value={<KpiValue value={summary.repeat_revenue} kind="inr" />}
-          watermark={<IndianRupee aria-hidden="true" />}
-          hint={`${num(summary.repeat_revenue_pct, 0)}% ${copy(pageContract, "kpi.repeat_revenue.detail")} · ${num(summary.purchases)} ${copy(pageContract, "kpi.purchases.detail")}`}
-        />
-        <KpiCard
-          variant="tint"
-          tone="warning"
-          label={copy(pageContract, "kpi.outstanding")}
-          value={<KpiValue value={summary.outstanding} kind="inr" />}
-          watermark={<IndianRupee aria-hidden="true" />}
-          hint={copy(pageContract, "kpi.outstanding.detail")}
-        />
-      </KpiGrid>
-      </Box>
+    <Grid container spacing={3}>
+      {/* Headline figures: plain KpiCards (template CourseWidgetSummary anatomy), two by two
+          beside the repeat-share radial -- the Ecommerce overview's widget + Sale-by-gender row. */}
+      <Grid size={{ xs: 12, lg: 8 }}>
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <KpiCard
+              tone="primary"
+              label={copy(pageContract, "kpi.buyers")}
+              value={<KpiValue value={summary.buyers} />}
+              icon={<Users aria-hidden="true" />}
+              hint={
+                // Older contracts lack this optional standalone detail; never reuse the
+                // legacy key, whose sentence follows an unregistered-buyer count (0dd2097e3).
+                optionalCopy(pageContract, "kpi.buyers.closed_sale_detail") ? copy(pageContract, "kpi.buyers.closed_sale_detail") : undefined
+              }
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <KpiCard
+              tone="info"
+              label={copy(pageContract, "kpi.repeat_buyers")}
+              value={<KpiValue value={summary.repeat_buyers} />}
+              icon={<Repeat aria-hidden="true" />}
+              hint={`${num(repeatPct, 0)}% · ${copy(pageContract, "kpi.repeat_buyers.detail")}`}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <KpiCard
+              tone="success"
+              label={copy(pageContract, "kpi.repeat_revenue")}
+              value={<KpiValue value={summary.repeat_revenue} kind="inr" />}
+              icon={<IndianRupee aria-hidden="true" />}
+              hint={`${num(summary.repeat_revenue_pct, 0)}% ${copy(pageContract, "kpi.repeat_revenue.detail")} · ${num(summary.purchases)} ${copy(pageContract, "kpi.purchases.detail")}`}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <KpiCard
+              tone="warning"
+              label={copy(pageContract, "kpi.outstanding")}
+              value={<KpiValue value={summary.outstanding} kind="inr" />}
+              icon={<IndianRupee aria-hidden="true" />}
+              hint={copy(pageContract, "kpi.outstanding.detail")}
+            />
+          </Grid>
+        </Grid>
+      </Grid>
 
-      {/* The two shares the summary already carries, as gauges. Both numbers are the backend's
-          own percentages — nothing is derived here that the deck above did not already print. */}
-      <Box sx={{ mt: { xs: 1.5, sm: 1.75 } }}>
-      <Card>
-        <CardHeader
+      {/* The two shares the summary already carries, as the template Sale-by-gender radial. Both
+          numbers are the backend's own percentages -- nothing is derived here that the figures
+          beside it did not already print. */}
+      <Grid size={{ xs: 12, lg: 4 }}>
+        <EcommerceSaleByGender
           title={copy(pageContract, "kpi.repeat_buyers")}
-          action={<Tag tone="info">{num(summary.repeat_buyers)} / {num(summary.buyers)}</Tag>}
-          sx={{ alignItems: "center", px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 3 }, [`& .${cardHeaderClasses.action}`]: { alignSelf: "center", m: 0 } }}
-        />
-        <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-        {/* Template analytics radial pair (AnalyticsCurrentVisits-style gauges) centred in the card. */}
-        <Box
-          sx={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "flex-start",
-            justifyContent: { xs: "space-between", sm: "center" },
-            columnGap: { xs: 1.5, sm: 5.5 },
-            rowGap: { xs: 1.5, sm: 2.25 },
+          total={`${num(summary.repeat_buyers)} / ${num(summary.buyers)}`}
+          totalLabel={copy(pageContract, "kpi.buyers")}
+          chart={{
+            series: [
+              { label: copy(pageContract, "kpi.repeat_buyers"), value: Math.round(repeatPct * 10) / 10, display: `${num(repeatPct, 0)}%` },
+              { label: copy(pageContract, "kpi.repeat_revenue"), value: Math.round(summary.repeat_revenue_pct * 10) / 10, display: `${num(summary.repeat_revenue_pct, 0)}%` },
+            ],
           }}
-        >
-          <RadialStat
-            value={repeatPct}
-            tone="info"
-            caption={copy(pageContract, "kpi.repeat_buyers")}
-          />
-          <RadialStat
-            value={summary.repeat_revenue_pct}
-            tone="success"
-            caption={copy(pageContract, "kpi.repeat_revenue")}
-          />
-        </Box>
-        </CardContent>
-      </Card>
-      </Box>
+          sx={{ height: 1 }}
+        />
+      </Grid>
 
-      <section
-        className="card"
-        aria-label={copy(pageContract, "section.buyers.title")}
-      >
+      <Grid size={12}>
+      {/* Template table card: CardHeader with the whole-list count, the buyer table, pager. */}
+      <Card component="section" aria-label={copy(pageContract, "section.buyers.title")}>
         <CardHeader
           title={copy(pageContract, "section.buyers.title")}
-          sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", alignItems: "center" }}
+          action={
+            <Label variant="soft" color={analytics.total_buyers ? "info" : "default"}>
+              {num(analytics.total_buyers)} {copy(pageContract, "summary.buyers")}
+            </Label>
+          }
+          sx={{ mb: 3, [`& .${cardHeaderClasses.action}`]: { alignSelf: "center" } }}
         />
         {!showPhones ? (
-          <p className="muted small" style={{ marginTop: 0 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ px: 3, mb: 2 }}>
             {phoneHiddenReason}
-          </p>
+          </Typography>
         ) : null}
         <Box
           tabIndex={0}
@@ -296,8 +280,9 @@ function BuyerSections({
             denseTargetId="sales-buyers-analytics"
           />
         ) : null}
-      </section>
-    </>
+      </Card>
+      </Grid>
+    </Grid>
   );
 }
 
@@ -344,7 +329,7 @@ export async function SalesBuyerAnalyticsPage({
       <SalesPageHeader pageContract={pageContract} />
 
       {!result.ok ? (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error" sx={{ mb: 3 }}>
           {salesErrorText(result.error, copy(pageContract, "error.load"))}
         </Alert>
       ) : null}

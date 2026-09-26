@@ -409,3 +409,4 @@ style nit — it lies to an operator about herd state. Require explicit states.
 ## Admin-web page fidelity checklist
 
 - [ ] **No pastel fallback on mapped pages (guard `page-template-no-pastel`, p0).** A page with a row in `docs/design/page-template-map.md` must not render `KpiCard variant="tint"/"gradient"` or `AnalyticsWidgetSummary`; KPI rows are `EcommerceWidgetSummary` / `CourseWidgetSummary` / `BankingWidgetSummary`, charts are template chart cards (CardHeader + select), lists use the template table anatomy.
+- [ ] **Template sections keep their client boundary (guard `section-client-boundary`, p0).** A file under `apps/admin-web/components/minimal/sections/` that calls a hook or passes a function `sx`/`(theme) =>` callback must start with `'use client'`; a server page rendering it would pass a function across the RSC boundary and crash at render. `next build` must pass before every push.

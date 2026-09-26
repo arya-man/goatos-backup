@@ -1,3 +1,5 @@
+'use client';
+
 // Copied from the licensed MUI Minimal template
 // (next-ts src/sections/overview/e-commerce/ecommerce-sales-overview.tsx).
 // Mesha changes (data plumbing only, anatomy untouched):
