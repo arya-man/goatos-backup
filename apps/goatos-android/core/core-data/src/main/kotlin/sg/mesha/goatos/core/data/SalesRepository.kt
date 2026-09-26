@@ -391,6 +391,9 @@ class DefaultSalesRepository(
         const val LOG_TAG = "GoatOsSales"
         const val SALES_CACHE_SHAPE = "sales-v1"
         const val SALES_CACHED_QUERIES = 4
+
+        /** A ledger refresh re-reads at most this many pages (see SalesDealRemoteMediator). */
+        const val REFRESH_MAX_PAGES = 10
         const val DEAL_KEY_PREFIX = "sale:"
         fun dealScopeMetaKey(scopeKey: String) = "sales-deal-scope:" + scopeKey
         const val OPTIONS_KEY = "sales-options"
@@ -500,23 +503,42 @@ class DefaultSalesRepository(
                 }
             }
             return try {
-                val response = api.getSalesDeals(farm = farm.ifBlank { null }, limit = VENDORS_PAGE_SIZE, offset = offset)
+                // A REFRESH re-reads every page up to where the person is, one ordinary page per
+                // request. Re-reading page one alone wiped the rows below it, so a refresh at the
+                // bottom of the ledger threw the person back to the top (Sales phone E2E
+                // 2026-09-26). The Room source reloads around the anchor, so the window it needs
+                // is the anchor plus half a page; bounded so a refresh never walks the whole ledger.
+                val rowsWanted = if (loadType == LoadType.REFRESH) {
+                    ((state.anchorPosition ?: 0) + VENDORS_PAGE_SIZE / 2 + 1)
+                        .coerceAtMost(VENDORS_PAGE_SIZE * REFRESH_MAX_PAGES)
+                } else {
+                    1
+                }
+                val deals = mutableListOf<SalesDealDto>()
+                var nextOffset = offset
+                var total: Int
+                do {
+                    val response = api.getSalesDeals(farm = farm.ifBlank { null }, limit = VENDORS_PAGE_SIZE, offset = nextOffset)
+                    deals += response.deals
+                    nextOffset += response.deals.size
+                    total = response.total
+                    val pageEnded = response.deals.isEmpty() || nextOffset >= total
+                } while (!pageEnded && nextOffset - offset < rowsWanted)
                 val now = clock()
-                val nextOffset = offset + response.deals.size
-                val endReached = response.deals.isEmpty() || nextOffset >= response.total
+                val endReached = deals.isEmpty() || nextOffset >= total
                 database.withTransaction {
                     val itemDao = database.salesDealItemDao()
                     if (loadType == LoadType.REFRESH) itemDao.deleteQuery(queryKey)
                     val base = if (loadType == LoadType.REFRESH) 0 else itemDao.countForQuery(queryKey)
                     itemDao.upsertAll(
-                        response.deals.mapIndexed { index, deal ->
+                        deals.distinctBy { it.dealId }.mapIndexed { index, deal ->
                             SalesDealItemEntity(queryKey = queryKey, grainKey = deal.dealId, sortIndex = base + index, dtoJson = json.encodeToString(deal), updatedAt = now)
                         },
                     )
                     // This scope's whole-filter count, beside its rows -- never a count shared
                     // across farm filters. The detail reads the rows above, not a per-deal blob.
                     database.vendorsBlobCacheDao().upsert(
-                        VendorsBlobCacheEntity(dealScopeMetaKey(queryKey), json.encodeToString(SalesDealScopeMeta(response.total, now)), now),
+                        VendorsBlobCacheEntity(dealScopeMetaKey(queryKey), json.encodeToString(SalesDealScopeMeta(total, now)), now),
                     )
                     database.salesDealRemoteKeyDao().upsert(SalesDealRemoteKeyEntity(queryKey, nextOffset.toString(), endReached, now))
                     database.salesDealRemoteKeyDao().deleteOutsideNewestQueries(SALES_CACHED_QUERIES)

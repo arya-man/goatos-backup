@@ -55,6 +55,25 @@ class SalesLedgerStatesTest {
         assertEquals("10 sales", vm.state.value.countLine)
     }
 
+    /**
+     * Sales phone E2E 2026-09-26: a refresh at the bottom of the ledger threw the person back to
+     * the top. Each refresh built a brand-new pager (a refresh counter sat in its key), which
+     * starts again from row 0. A refresh must reload the SAME pager in place.
+     */
+    @Test
+    fun `a refresh reloads the ledger in place instead of starting a new one from the top`() = runTest(dispatcher) {
+        val repo = LedgerRepo()
+        val vm = SalesListViewModel(repo, Quiet, Silent, RecordingToxinSyncRepository())
+        backgroundScope.launch { vm.rows.collect {} }
+        vm.bind("Sales")
+        vm.onEvent(SalesListEvent.Refresh)
+        vm.onEvent(SalesListEvent.Refresh)
+        assertEquals("one pager for the All filter, kept across refreshes", listOf(""), repo.pagers)
+        assertTrue("the paging cursor is left to the reload, never deleted beside it", repo.invalidated.isEmpty())
+        vm.onEvent(SalesListEvent.SelectFarm("CBE"))
+        assertEquals("a different farm is a different ledger", listOf("", "CBE"), repo.pagers)
+    }
+
     @Test
     fun `a sale this phone does not hold shows a not-found state instead of an empty screen`() = runTest(dispatcher) {
         val vm = SaleDetailViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "gone")), LedgerRepo(), RecordingToxinSyncRepository(), NoWorkflowsRepo, Quiet, Silent)
@@ -130,6 +149,12 @@ private class LedgerRepo(
     override fun observeOptions(): Flow<SalesOptionsDto?> = flowOf(SalesOptionsDto(farms = listOf("CBE", "CPT")))
     override suspend fun refreshOptions() = Unit
     override fun observeDeal(dealId: String): Flow<SalesDealDto?> = flowOf(deal)
-    override suspend fun invalidateDeals(farm: String) = Unit
+    val invalidated = mutableListOf<String>()
+    override suspend fun invalidateDeals(farm: String) { invalidated += farm }
+    val pagers = mutableListOf<String>()
+    override fun deals(farm: String): Flow<androidx.paging.PagingData<SalesDealDto>> {
+        pagers += farm
+        return flowOf(androidx.paging.PagingData.empty())
+    }
     override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = AppResult.Err("offline")
 }

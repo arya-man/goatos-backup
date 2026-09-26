@@ -153,7 +153,7 @@ class SalesListViewModel @Inject constructor(
     private val syncRepository: SyncRepository,
 ) : ViewModel() {
 
-    private data class Scope(val farm: String = "", val title: String = "", val refreshNonce: Int = 0)
+    private data class Scope(val farm: String = "", val title: String = "")
 
     private val scope = MutableStateFlow(Scope())
     private val _isRefreshing = MutableStateFlow(false)
@@ -188,8 +188,14 @@ class SalesListViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SalesListUiState())
 
     @OptIn(ExperimentalCoroutinesApi::class)
+    // ONE Pager per farm filter. A refresh reloads THIS pager (the screen calls rows.refresh()),
+    // which keeps the person's place; building a new pager per refresh -- as a refresh counter
+    // in this key used to -- started the ledger again from row 0, so a refresh at the bottom of
+    // the list threw the person back to the top (Sales phone E2E 2026-09-26).
     val rows: Flow<PagingData<SaleCardUi>> = scope
-        .flatMapLatest { current -> repository.deals(current.farm).map { page -> page.map { it.toCardUi() } } }
+        .map { it.farm }
+        .distinctUntilChanged()
+        .flatMapLatest { farm -> repository.deals(farm).map { page -> page.map { it.toCardUi() } } }
         .cachedIn(viewModelScope)
 
     fun onEvent(event: SalesListEvent) {
@@ -216,10 +222,10 @@ class SalesListViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
-                // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
-                runCatching { repository.invalidateDeals(scope.value.farm) }
+                // The rows themselves are reloaded in place by the screen's rows.refresh(). Deleting
+                // the scope's paging cursor here as well raced that reload: landing after it, it
+                // left the ledger reading "end of list" at the bottom.
                 repository.refreshOptions()
-                scope.value = scope.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
             } finally {
                 _isRefreshing.value = false
             }

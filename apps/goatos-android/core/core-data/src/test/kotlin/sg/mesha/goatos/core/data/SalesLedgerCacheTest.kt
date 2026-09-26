@@ -106,6 +106,44 @@ class SalesLedgerCacheTest {
         }
     }
 
+    /**
+     * Sales phone E2E 2026-09-26: refreshing at the bottom of the ledger threw the person back to
+     * the top. REFRESH wiped the scope and kept page one only, so row 44 no longer existed to
+     * return to. A refresh re-reads the pages up to where the person is, one page per request.
+     */
+    @Test
+    fun `a refresh at the bottom of the ledger keeps every row up to where the person is`() = runTest {
+        withRepo { repo, db, backend ->
+            val all = repo.dealMediator("")
+            all.load(LoadType.REFRESH, state())
+            all.load(LoadType.APPEND, state())
+            all.load(LoadType.APPEND, state())
+            val key = db.salesDealItemDao().rowsForDeal("all-44").single().queryKey
+            assertEquals(45, db.salesDealItemDao().countForQuery(key))
+            backend.requests.clear()
+
+            val atTheBottom = PagingState<Int, SalesDealItemEntity>(emptyList(), 44, PagingConfig(20), 0)
+            assertTrue(all.load(LoadType.REFRESH, atTheBottom) is RemoteMediator.MediatorResult.Success)
+
+            assertEquals("row 44 is still there to scroll back to", 45, db.salesDealItemDao().countForQuery(key))
+            assertEquals(44, db.salesDealItemDao().rowsForDeal("all-44").single().sortIndex)
+            assertEquals("page by page, never one oversized request", listOf(0, 20, 40), backend.requests.map { it.second })
+            assertTrue("the ledger still knows it is at its end", all.load(LoadType.APPEND, atTheBottom) is RemoteMediator.MediatorResult.Success)
+            assertEquals(listOf(0, 20, 40), backend.requests.map { it.second })
+        }
+    }
+
+    @Test
+    fun `a refresh at the top still reads only the first page`() = runTest {
+        withRepo { repo, db, backend ->
+            val all = repo.dealMediator("")
+            all.load(LoadType.REFRESH, state())
+            backend.requests.clear()
+            all.load(LoadType.REFRESH, PagingState<Int, SalesDealItemEntity>(emptyList(), 3, PagingConfig(20), 0))
+            assertEquals(listOf(0), backend.requests.map { it.second })
+        }
+    }
+
     @Test
     fun `saving one lead keeps the board's cursor`() = runTest {
         withRepo { repo, _, backend ->
