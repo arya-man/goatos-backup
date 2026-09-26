@@ -181,9 +181,7 @@ class SaleTaggingViewModel @Inject constructor(
     private data class Basket(
         val dto: SaleCandidateDto,
         val weight: String = "",
-        val rate: String = "",
         val weightError: String = "",
-        val rateError: String = "",
         val blockedReason: String = "",
     )
 
@@ -242,8 +240,8 @@ class SaleTaggingViewModel @Inject constructor(
                 goatId = b.dto.goatId,
                 tag = b.dto.tagLabel(),
                 location = b.dto.operationalLocationDisplay,
-                weight = b.weight, rate = b.rate,
-                weightError = b.weightError, rateError = b.rateError,
+                weight = b.weight,
+                weightError = b.weightError,
                 blockedReason = b.blockedReason,
             )
         }
@@ -280,9 +278,6 @@ class SaleTaggingViewModel @Inject constructor(
             is SaleTaggingEvent.Remove -> local.update { l -> l.copy(basket = l.basket.filterNot { it.dto.goatId == event.goatId }, message = null) }
             is SaleTaggingEvent.WeightChanged -> local.update { l ->
                 l.copy(basket = l.basket.map { if (it.dto.goatId == event.goatId) it.copy(weight = event.value, weightError = "") else it }, message = null)
-            }
-            is SaleTaggingEvent.RateChanged -> local.update { l ->
-                l.copy(basket = l.basket.map { if (it.dto.goatId == event.goatId) it.copy(rate = event.value, rateError = "") else it }, message = null)
             }
             SaleTaggingEvent.Submit -> submit()
             SaleTaggingEvent.DismissMessage -> local.update { it.copy(message = null) }
@@ -384,10 +379,9 @@ class SaleTaggingViewModel @Inject constructor(
         val errors = l.basket.map { b ->
             b.copy(
                 weightError = if (SaleTaggingRules.weightLooksValid(b.weight)) "" else WEIGHT_NEEDED,
-                rateError = if (SaleTaggingRules.rateLooksValid(b.rate)) "" else RATE_NEEDED,
             )
         }
-        if (errors.any { it.weightError.isNotBlank() || it.rateError.isNotBlank() }) {
+        if (errors.any { it.weightError.isNotBlank() }) {
             local.update { it.copy(basket = errors, message = SaleTaggingRules.HINT_FIGURES) }
             return
         }
@@ -421,7 +415,6 @@ class SaleTaggingViewModel @Inject constructor(
                 salesDealId = dealId,
                 goatIds = ids,
                 animalWeightsKg = l.basket.associate { it.dto.goatId to it.weight.trim() },
-                animalRatesRupees = l.basket.associate { it.dto.goatId to it.rate.trim() },
             )
             when (val result = repository.confirmAllocation(l.confirmKey, request)) {
                 is AppResult.Ok -> {
@@ -481,10 +474,7 @@ class SaleTaggingViewModel @Inject constructor(
     private fun SaleAllocationAnimalDto.toDoneUi() = SaleTaggingDoneAnimalUi(
         tag = tagNumber.ifBlank { "—" },
         location = operationalLocationDisplay,
-        figures = dotJoin(
-            weightKg.takeIf { it.isNotBlank() }?.let { "$it kg" },
-            rateRupees.toDoubleOrNull()?.let { rupees(it) },
-        ),
+        figures = weightKg.takeIf { it.isNotBlank() }?.let { "$it kg" }.orEmpty(),
     )
 
     private companion object {
@@ -495,6 +485,5 @@ class SaleTaggingViewModel @Inject constructor(
         const val ALREADY_IN_BASKET = "That animal is already in the basket"
         const val CANNOT_SELL = "This animal cannot be sold yet"
         const val WEIGHT_NEEDED = "Enter the weight in kg"
-        const val RATE_NEEDED = "Enter the rate in rupees"
     }
 }

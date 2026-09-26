@@ -307,7 +307,7 @@ data class FeedPurchaseDetailUiState(
 @Immutable
 data class FeedPurchasePaymentUi(
     val paymentId: String,
-    /** "01-09-2026" */
+    /** "01/09/2026" */
     val paidOn: String,
     /** "₹8,000" */
     val amount: String,

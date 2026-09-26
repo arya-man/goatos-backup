@@ -141,11 +141,6 @@ type SaleAllocationRow struct {
 	// decimal string so kilograms never round-trip through a float. Required on every new
 	// confirm; the app layer validates it before the command is built.
 	WeightKg string
-	// RateRupees is the price agreed for THIS animal, as the park head typed it at tagging
-	// (maintainer decision 2026-09-11), a decimal string for the same reason. Optional on the
-	// wire -- the web drawer does not carry it -- and the phone's tag-only flow requires it;
-	// "" stores NULL.
-	RateRupees string
 }
 
 // RecordSaleAllocationsCommand confirms a picked set onto a sale.
@@ -207,7 +202,7 @@ type SaleAllocationPreview struct {
 }
 
 // SaleAllocationAnimal is ONE animal tagged to a sale as the read-back lists it: the tag and
-// pen SNAPSHOTTED at tagging, the weight and the rate typed for it. The park head resuming a
+// pen SNAPSHOTTED at tagging, and the weight typed for it. The park head resuming a
 // half-tagged sale reads these to see what is already done; the figures are strings so a
 // numeric never round-trips through a float.
 type SaleAllocationAnimal struct {
@@ -217,9 +212,8 @@ type SaleAllocationAnimal struct {
 	ShedName                   string
 	PartitionLabel             string
 	OperationalLocationDisplay string
-	// WeightKg / RateRupees are "" when the row predates the column that holds them.
-	WeightKg   string
-	RateRupees string
+	// WeightKg is "" when the row predates the column that holds it (000282).
+	WeightKg string
 }
 
 // SaleAllocationResult is what a confirm applied.
@@ -241,8 +235,8 @@ type SaleAllocationReader interface {
 	ReadSaleCandidateRows(ctx context.Context, tenantID, excludeDealID string, goatIDs []string) (map[string]SaleCandidateRow, error)
 	// ListSaleAllocations returns the animals tagged to one deal, shed-wise.
 	ListSaleAllocations(ctx context.Context, tenantID, salesDealID string) ([]SaleAllocationShedGroup, error)
-	// ListSaleAllocationAnimals returns the same animals one per row, with the weight and
-	// rate recorded for each. Bounded by the deal's own count.
+	// ListSaleAllocationAnimals returns the same animals one per row, with the weight
+	// recorded for each. Bounded by the deal's own count.
 	ListSaleAllocationAnimals(ctx context.Context, tenantID, salesDealID string) ([]SaleAllocationAnimal, error)
 	// ListSaleLocations is the picker's park/shed/pen vocabulary, legacy alias shed rows
 	// excluded. See the adapter for why offering them is the reported empty-picker bug.

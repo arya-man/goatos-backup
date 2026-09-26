@@ -9,7 +9,6 @@ package sg.mesha.goatos.feature.vendors
  */
 object SaleTaggingRules {
     private val weightPattern = Regex("""^\d{1,5}(\.\d{1,2})?$""")
-    private val ratePattern = Regex("""^\d{1,10}(\.\d{1,2})?$""")
 
     /** A weight the backend accepts: kg more than zero, up to two decimals (numeric(7,2)). */
     fun weightLooksValid(raw: String): Boolean {
@@ -17,15 +16,9 @@ object SaleTaggingRules {
         return weightPattern.matches(v) && (v.toDoubleOrNull() ?: 0.0) > 0.0
     }
 
-    /** A rate the backend accepts: rupees more than zero, up to two decimals (numeric(12,2)). */
-    fun rateLooksValid(raw: String): Boolean {
-        val v = raw.trim()
-        return ratePattern.matches(v) && (v.toDoubleOrNull() ?: 0.0) > 0.0
-    }
-
     /**
      * Whether Submit may be offered. The sale must be filled EXACTLY (the backend's count gate:
-     * no half now and half later), every animal must carry a weight and a rate, and nothing in the
+     * no half now and half later), every animal must carry a weight, and nothing in the
      * basket may be one the review refused.
      */
     fun submitGate(basket: List<SaleTaggingBasketAnimalUi>, remaining: Int): SubmitGate = when {
@@ -33,7 +26,7 @@ object SaleTaggingRules {
         basket.any { it.blockedReason.isNotBlank() } -> SubmitGate(false, HINT_BLOCKED)
         basket.size < remaining -> SubmitGate(false, "${remaining - basket.size} more ${if (remaining - basket.size == 1) "animal" else "animals"} to tag before you can submit")
         basket.size > remaining -> SubmitGate(false, "Remove ${basket.size - remaining}: this sale needs only $remaining more")
-        basket.any { !weightLooksValid(it.weight) || !rateLooksValid(it.rate) } -> SubmitGate(false, HINT_FIGURES)
+        basket.any { !weightLooksValid(it.weight) } -> SubmitGate(false, HINT_FIGURES)
         else -> SubmitGate(true, "")
     }
 
@@ -63,5 +56,5 @@ object SaleTaggingRules {
 
     const val HINT_EMPTY = "Scan or type a tag to start"
     const val HINT_BLOCKED = "Remove the animals that cannot be sold"
-    const val HINT_FIGURES = "Enter a weight and a rate for every animal"
+    const val HINT_FIGURES = "Enter a weight for every animal"
 }

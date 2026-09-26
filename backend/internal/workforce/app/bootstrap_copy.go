@@ -486,7 +486,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		},
 	},
 	// Tag-only Sales (maintainer decision 2026-09-11): a PARK HEAD tags the animals of a sale
-	// from the pen -- reader or hand-typed tag, rate per animal, submit when all are tagged --
+	// from the pen -- reader or hand-typed tag, weight per animal, submit when all are tagged --
 	// and sees NOTHING ELSE of Sales: no ledger, no buyer, no money, no pipeline, no vendors.
 	//
 	// The module KEY is `sale_allocation`, the capability tick that already names this exact

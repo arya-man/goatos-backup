@@ -11660,16 +11660,6 @@ components:
             with `invalid_weight`, and nothing is written.
           additionalProperties:
             type: string
-        animal_rates_rupees:
-          type: object
-          description: >-
-            The price in rupees agreed for each picked animal, keyed by goat id, as decimal
-            strings (maintainer decision 2026-09-11). OPTIONAL: the web drawer records none, the
-            phone's tag-only flow sends one per animal. Ignored by preview. A malformed value is
-            refused with `invalid_rate`; a value for an animal not in goat_ids with
-            `rate_for_unknown_animal`; either refusal writes nothing.
-          additionalProperties:
-            type: string
         reason:
           type: string
           maxLength: 500
@@ -11770,7 +11760,7 @@ components:
           type: array
           description: >-
             One row per tagged animal (GET read-back only; absent on a confirm): the tag and
-            pen snapshotted at tagging, and the weight and rate recorded for it.
+            pen snapshotted at tagging, and the weight recorded for it.
           items:
             $ref: "#/components/schemas/SaleAllocationAnimal"
     SaleAllocationAnimal:
@@ -11798,9 +11788,6 @@ components:
         weight_kg:
           type: string
           description: Decimal string; absent when the row predates weight at tagging.
-        rate_rupees:
-          type: string
-          description: Decimal string; absent when no per-animal rate was recorded.
     SaleTaggingQueueResponse:
       type: object
       additionalProperties: false

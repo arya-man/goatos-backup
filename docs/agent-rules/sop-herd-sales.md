@@ -84,8 +84,8 @@ a person who holds the permission WITHOUT `sales.read`, and it follows the `/peo
 it adds the module to anyone, clearing it removes it). The queue `/admin/goats/sale-tagging`
 carries NO buyer and NO money. Every allocation route is clamped to the caller's park, for the
 animals AND for the sale's own farm (`403 park_out_of_scope`). The phone tags by Bluetooth reader
-or typed tag, takes a weight (required) and a RATE PER ANIMAL (`goat_sale_allocations.rate_rupees`,
-migration `000443`, optional on the wire), and submits only when the sale is filled exactly.
+or typed tag, takes each animal's weight (required) and NO price, and submits only when the sale is filled
+exactly.
 Migration `000443` also writes the tick for every park head already on /people and as the
 `park_head` job default. Do not "simplify" by granting the park head `sales.read` so the queue
 can show the buyer: that lights up the whole Sales module. Canonical prose:

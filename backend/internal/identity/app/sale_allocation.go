@@ -155,8 +155,8 @@ func (s *SaleAllocationService) scopeFarms(ctx context.Context, tenantID string,
 
 // refuseSaleOutsideScope clamps the SALE, not only its animals: a park-scoped caller may act on
 // a sale recorded at one of their own parks and on no other. Without it a park head could tag
-// animals from their own pen onto another park's sale, or read back any sale's tags, weights and
-// rates by id. A tenant-wide caller is never looked up.
+// animals from their own pen onto another park's sale, or read back any sale's tags and weights by
+// id. A tenant-wide caller is never looked up.
 func (s *SaleAllocationService) refuseSaleOutsideScope(ctx context.Context, tenantID, dealID string, allowed []string) error {
 	if allowed == nil {
 		return nil
@@ -299,13 +299,6 @@ type ConfirmSaleAllocationInput struct {
 	// in GoatIDs: a sale weight is what the Sales page's weight bands are made of, and an
 	// animal tagged without one would be sold with no record of what left.
 	AnimalWeightsKg map[string]string
-	// AnimalRatesRupees is the price agreed for each picked animal, keyed by goat id, as the
-	// park head typed it at tagging (maintainer decision 2026-09-11). OPTIONAL on the wire:
-	// the web drawer records no per-animal rate, so a confirm without it stays valid. When a
-	// value is present it must be a positive amount with at most two decimals, and it must
-	// name an animal in GoatIDs -- a rate for an animal that is not being tagged is a client
-	// bug, not something to store.
-	AnimalRatesRupees map[string]string
 	// AllowedParkIDs is the caller's resolved park scope; nil is tenant-wide. See
 	// ListSaleCandidatesInput.
 	AllowedParkIDs []string
@@ -329,10 +322,6 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 		return nil, err
 	}
 	weights, err := validateAnimalWeights(goatIDs, input.AnimalWeightsKg)
-	if err != nil {
-		return nil, err
-	}
-	rates, err := validateAnimalRates(goatIDs, input.AnimalRatesRupees)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +349,7 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 			blocked = append(blocked, c)
 			continue
 		}
-		rows = append(rows, ports.SaleAllocationRow{GoatID: c.GoatID, RowVersion: c.RowVersion, WeightKg: weights[c.GoatID], RateRupees: rates[c.GoatID]})
+		rows = append(rows, ports.SaleAllocationRow{GoatID: c.GoatID, RowVersion: c.RowVersion, WeightKg: weights[c.GoatID]})
 	}
 	if len(blocked) > 0 {
 		return nil, blockedConflict(blocked)
@@ -490,37 +479,6 @@ func validateAnimalWeights(goatIDs []string, weights map[string]string) (map[str
 	return out, nil
 }
 
-// saleRatePattern is a positive rupee amount with at most two decimals (numeric(12,2)).
-var saleRatePattern = regexp.MustCompile(`^\d{1,10}(\.\d{1,2})?$`)
-
-// validateAnimalRates checks the OPTIONAL per-animal rates. Absent or blank is fine; a value
-// that is present must be a positive amount, and must name an animal being tagged.
-func validateAnimalRates(goatIDs []string, rates map[string]string) (map[string]string, error) {
-	out := make(map[string]string, len(rates))
-	if len(rates) == 0 {
-		return out, nil
-	}
-	named := make(map[string]bool, len(goatIDs))
-	for _, id := range goatIDs {
-		named[id] = true
-	}
-	for rawID, rawRate := range rates {
-		id := strings.TrimSpace(rawID)
-		rate := strings.TrimSpace(rawRate)
-		if rate == "" {
-			continue
-		}
-		if !named[id] {
-			return nil, BadRequest("rate_for_unknown_animal", "a rate was given for an animal that is not being tagged")
-		}
-		if !saleRatePattern.MatchString(rate) || strings.Trim(rate, "0.") == "" {
-			return nil, BadRequest("invalid_rate", "every rate must be an amount in rupees more than zero, up to two decimals")
-		}
-		out[id] = rate
-	}
-	return out, nil
-}
-
 func validateAllocationInput(tenantID, dealID string, goatIDs []string) (string, string, []string, error) {
 	tenant := strings.TrimSpace(tenantID)
 	if tenant == "" {
@@ -628,7 +586,7 @@ func (s *SaleAllocationService) GetSaleAllocation(ctx context.Context, tenantID,
 }
 
 // GetSaleAllocationAnimals reads back the animals one sale is made of, one per row, with the
-// weight and rate recorded for each. Same deal-id rules as GetSaleAllocation.
+// weight recorded for each. Same deal-id rules as GetSaleAllocation.
 func (s *SaleAllocationService) GetSaleAllocationAnimals(ctx context.Context, tenantID, salesDealID string, allowed []string) ([]ports.SaleAllocationAnimal, error) {
 	tenant := strings.TrimSpace(tenantID)
 	if tenant == "" {

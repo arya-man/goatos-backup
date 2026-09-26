@@ -11,8 +11,8 @@ import org.junit.Test
  * backend makes so the screen holds Submit back for the same reason the server would refuse.
  */
 class SaleTaggingRulesTest {
-    private fun animal(id: String, weight: String = "30", rate: String = "5000", blocked: String = "") =
-        SaleTaggingBasketAnimalUi(id, "tag-$id", "Castro 1", weight, rate, "", "", blocked)
+    private fun animal(id: String, weight: String = "30", blocked: String = "") =
+        SaleTaggingBasketAnimalUi(id, "tag-$id", "Castro 1", weight, "", blocked)
 
     @Test
     fun `submit needs the sale filled exactly`() {
@@ -23,11 +23,11 @@ class SaleTaggingRulesTest {
     }
 
     @Test
-    fun `submit needs a weight and a rate on every animal`() {
+    fun `submit needs a weight on every animal`() {
         assertEquals(SaleTaggingRules.HINT_FIGURES, SaleTaggingRules.submitGate(listOf(animal("a", weight = "")), 1).hint)
-        assertEquals(SaleTaggingRules.HINT_FIGURES, SaleTaggingRules.submitGate(listOf(animal("a", rate = "0")), 1).hint)
-        assertEquals(SaleTaggingRules.HINT_FIGURES, SaleTaggingRules.submitGate(listOf(animal("a", rate = "5000.125")), 1).hint)
-        assertTrue(SaleTaggingRules.submitGate(listOf(animal("a", weight = "32.5", rate = "5200.50")), 1).enabled)
+        assertEquals(SaleTaggingRules.HINT_FIGURES, SaleTaggingRules.submitGate(listOf(animal("a", weight = "0")), 1).hint)
+        assertEquals(SaleTaggingRules.HINT_FIGURES, SaleTaggingRules.submitGate(listOf(animal("a", weight = "32.125")), 1).hint)
+        assertTrue(SaleTaggingRules.submitGate(listOf(animal("a", weight = "32.5")), 1).enabled)
     }
 
     @Test

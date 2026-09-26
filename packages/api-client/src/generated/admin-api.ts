@@ -1078,7 +1078,7 @@ export interface paths {
         };
         /**
          * Park/shed/pen vocabulary for the sale animal picker.
-         * @description The picker's CATALOG. Legacy partition-alias shed rows are excluded: the farm's pens exist twice in the location register (canonical shed plus its pen catalog, and old rows literally named "Castro 1"), and the alias rows hold no animals and no pens, so offering them gave an operator a choice that could only return an empty list. Sheds that can yield no candidate at all are likewise omitted.
+         * @description The picker's CATALOG. Legacy partition-alias shed rows are excluded: the farm's pens exist twice in the location register (canonical shed plus its pen catalog, and old rows literally named "Castro 1"), and the alias rows hold no animals and no pens, so offering them gave an operator a choice that could only return an empty list. Sheds that can yield no candidate at all are likewise omitted. A park-scoped caller (a park head tagging from the pen) is served their own parks and pens only, so the phone never offers a park the picker would then refuse.
          */
         get: operations["listSaleLocations"];
         put?: never;
@@ -1180,7 +1180,7 @@ export interface paths {
         };
         /**
          * Read back the animals one recorded sale is made of, shed-wise.
-         * @description The sales ledger stores no goat_id (the sales module reads no herd table), so the deal-to-animal mapping is read from here. Location and identifier are the SNAPSHOT taken when the animal was tagged, not the goat's present location -- a sold animal's row keeps moving and would make an old sale re-describe itself.
+         * @description The sales ledger stores no goat_id (the sales module reads no herd table), so the deal-to-animal mapping is read from here. Location and identifier are the SNAPSHOT taken when the animal was tagged, not the goat's present location -- a sold animal's row keeps moving and would make an old sale re-describe itself. A park-scoped caller may read back only a sale recorded at one of their own parks; another park's sale is refused 403 park_out_of_scope.
          */
         get: operations["getSaleAllocation"];
         put?: never;
@@ -4557,10 +4557,6 @@ export interface components {
             animal_weights_kg?: {
                 [key: string]: string;
             };
-            /** @description The price in rupees agreed for each picked animal, keyed by goat id, as decimal strings (maintainer decision 2026-09-11). OPTIONAL: the web drawer records none, the phone's tag-only flow sends one per animal. Ignored by preview. A malformed value is refused with `invalid_rate`; a value for an animal not in goat_ids with `rate_for_unknown_animal`; either refusal writes nothing. */
-            animal_rates_rupees?: {
-                [key: string]: string;
-            };
             reason?: string;
         };
         /** @description The picked animals of ONE operational shed -- the gather list, in the order a person walks the farm. */
@@ -4596,7 +4592,7 @@ export interface components {
             /** @description How many animals this sale is now made of. */
             allocated: number;
             shed_groups: components["schemas"]["SaleAllocationShedGroup"][];
-            /** @description One row per tagged animal (GET read-back only; absent on a confirm): the tag and pen snapshotted at tagging, and the weight and rate recorded for it. */
+            /** @description One row per tagged animal (GET read-back only; absent on a confirm): the tag and pen snapshotted at tagging, and the weight recorded for it. */
             animals?: components["schemas"]["SaleAllocationAnimal"][];
         };
         SaleAllocationAnimal: {
@@ -4611,8 +4607,6 @@ export interface components {
             operational_location_display: string;
             /** @description Decimal string; absent when the row predates weight at tagging. */
             weight_kg?: string;
-            /** @description Decimal string; absent when no per-animal rate was recorded. */
-            rate_rupees?: string;
         };
         SaleTaggingQueueResponse: {
             deals: components["schemas"]["SaleTaggingDeal"][];

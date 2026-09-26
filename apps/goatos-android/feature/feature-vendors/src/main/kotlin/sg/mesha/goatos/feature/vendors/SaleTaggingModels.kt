@@ -8,7 +8,7 @@ import androidx.compose.runtime.Immutable
 /**
  * UI models for the park head's TAG-ONLY Sales module (maintainer decision 2026-09-11): the
  * sales at their park still owed animals, and tagging those animals from the pen -- reader or
- * hand-typed tag, a rate per animal, submit when all are tagged. Nothing else of Sales is on
+ * hand-typed tag, a weight per animal, submit when all are tagged. Nothing else of Sales is on
  * these screens: no buyer, no money, no pipeline.
  *
  * Every business sentence is BACKEND-OWNED and rendered verbatim: `remaining`, the pen name,
@@ -26,7 +26,7 @@ data class SaleTaggingCardUi(
     val title: String,
     /** "12 animals · 8 tagged" */
     val countLine: String,
-    /** "Sale date 11-09-2026" */
+    /** "Sale date 11/09/2026" */
     val metaLine: String,
     /** "4 to tag", backend `remaining`. */
     val remainingChip: String,
@@ -55,7 +55,7 @@ sealed interface SaleTaggingListEvent {
 // Tagging one sale
 // ---------------------------------------------------------------------------------------------
 
-/** One animal in the basket with the weight and rate typed for it. */
+/** One animal in the basket with the weight typed for it. */
 @Immutable
 data class SaleTaggingBasketAnimalUi(
     val goatId: String,
@@ -64,10 +64,8 @@ data class SaleTaggingBasketAnimalUi(
     /** Backend pen name, VERBATIM. */
     val location: String,
     val weight: String,
-    val rate: String,
     /** Blank until Submit finds the box empty or wrong. */
     val weightError: String,
-    val rateError: String,
     /** Backend farm copy when the review refused this animal; blank otherwise. */
     val blockedReason: String,
 )
@@ -128,7 +126,6 @@ sealed interface SaleTaggingEvent {
     data class AddMatch(val goatId: String) : SaleTaggingEvent
     data class Remove(val goatId: String) : SaleTaggingEvent
     data class WeightChanged(val goatId: String, val value: String) : SaleTaggingEvent
-    data class RateChanged(val goatId: String, val value: String) : SaleTaggingEvent
     data object Submit : SaleTaggingEvent
     data object Done : SaleTaggingEvent
     data object DismissMessage : SaleTaggingEvent

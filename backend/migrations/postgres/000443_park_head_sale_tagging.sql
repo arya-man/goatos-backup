@@ -1,29 +1,13 @@
 -- +goose Up
--- seed-fixture-guard:ignore: an additive nullable column on the sale allocation snapshot plus
--- per-person access rows for one module surface; no vaccination/HRMS seed contract change.
+-- seed-fixture-guard:ignore: per-person access rows and one job default for one module surface;
+-- no vaccination/HRMS seed contract change.
 --
 -- PARK HEADS TAG ANIMALS TO A SALE, AND NOTHING ELSE OF SALES (maintainer decision 2026-09-11).
 --
--- Three parts, one decision.
+-- Two parts, one decision. The weight typed per animal at tagging already has its column
+-- (weight_kg, 000282); the park head records no price (maintainer decision 2026-09-26).
 --
--- 1. RATE PER ANIMAL. When the park head tags an animal to a sale from the pen they also type
---    the price agreed for THAT animal. It is a fact about this allocation -- what this animal
---    fetched on this sale -- so it lives on the allocation snapshot beside the tag, the pen and
---    the weight (000282), never on the goat and never on the ledger's deal-level sales value.
---    Nullable: the web drawer records no per-animal rate, and rows tagged before this column
---    existed have none. Same CHECK shape as weight_kg.
-ALTER TABLE public.goat_sale_allocations
-  ADD COLUMN IF NOT EXISTS rate_rupees numeric(12, 2);
-
-ALTER TABLE public.goat_sale_allocations
-  DROP CONSTRAINT IF EXISTS goat_sale_allocations_rate_check,
-  ADD CONSTRAINT goat_sale_allocations_rate_check
-    CHECK (rate_rupees IS NULL OR rate_rupees > 0);
-
-COMMENT ON COLUMN public.goat_sale_allocations.rate_rupees IS
-  'Price in rupees agreed for this animal, typed at tagging (maintainer decision 2026-09-11). NULL when not recorded.';
-
--- 2. THE TAG-ONLY PHONE MODULE FOR EVERY PARK HEAD ALREADY BACKFILLED.
+-- 1. THE TAG-ONLY PHONE MODULE FOR EVERY PARK HEAD ALREADY BACKFILLED.
 --
 --    A person's phone modules are their TICKS (person_module_access, 000219), and the role map
 --    in capability_backfill.go is dead data after the 2026-08-24 cutover: adding
@@ -66,7 +50,7 @@ INSERT INTO public.person_module_access_sale_tagging_backfill (tenant_id, workfo
 SELECT tenant_id, workforce_member_id FROM inserted
 ON CONFLICT DO NOTHING;
 
--- 3. THE SAME TICK AS THE PARK HEAD JOB'S DEFAULT. Picking "Park head" for a NEW person on /people
+-- 2. THE SAME TICK AS THE PARK HEAD JOB'S DEFAULT. Picking "Park head" for a NEW person on /people
 --    pre-fills from designation_module_defaults, so without this row a park head hired tomorrow
 --    would reach no tagging screen until somebody remembered to tick it by hand. Additive only
 --    and ledgered like the person rows: an admin who later edits the default keeps the edit.
@@ -100,7 +84,3 @@ WHERE d.designation_code = b.designation_code
   AND d.surface = 'mobile'
   AND d.module_key = 'sale_allocation';
 DROP TABLE IF EXISTS public.designation_module_defaults_sale_tagging_backfill;
-
-ALTER TABLE public.goat_sale_allocations
-  DROP CONSTRAINT IF EXISTS goat_sale_allocations_rate_check,
-  DROP COLUMN IF EXISTS rate_rupees;

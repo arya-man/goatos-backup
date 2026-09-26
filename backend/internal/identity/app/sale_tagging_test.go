@@ -9,7 +9,7 @@ import (
 
 // The tag-only Sales surface (maintainer decision 2026-09-11): a park head tags animals to a
 // sale from THEIR park. These tests pin the two server-side halves of that -- the park clamp
-// on every allocation step, and the optional rate per animal -- with the fakes, on the same
+// on every allocation step and the tag-only queue -- with the fakes, on the same
 // service the production handler calls.
 
 const (
@@ -93,68 +93,6 @@ func TestPreviewAndPickerRefuseAnotherPark(t *testing.T) {
 	}
 }
 
-// The rate is OPTIONAL on the wire (the web drawer sends none) and carried per animal when
-// present. A malformed rate, or one for an animal not being tagged, refuses the whole confirm
-// and writes nothing -- a rate silently dropped would read to the sales desk as "no price
-// agreed" for an animal the park head priced.
-func TestConfirmCarriesAnOptionalRatePerAnimal(t *testing.T) {
-	svc, repo, _ := newSaleService(
-		candidate(1, shedA, "Castro", "1", "9051", "alive"),
-		candidate(2, shedB, "Gandhi", "2", "9052", "alive"),
-	)
-	base := ConfirmSaleAllocationInput{
-		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-r",
-		SalesDealID: saleDeal, GoatIDs: []string{goatID(1), goatID(2)},
-		AnimalWeightsKg: weightsFor([]string{goatID(1), goatID(2)}),
-	}
-	for name, tc := range map[string]struct {
-		rates map[string]string
-		code  string
-	}{
-		"zero":           {map[string]string{goatID(1): "0"}, "invalid_rate"},
-		"negative":       {map[string]string{goatID(1): "-5000"}, "invalid_rate"},
-		"not a number":   {map[string]string{goatID(1): "five thousand"}, "invalid_rate"},
-		"three decimals": {map[string]string{goatID(1): "5000.125"}, "invalid_rate"},
-		"unknown animal": {map[string]string{goatID(3): "5000"}, "rate_for_unknown_animal"},
-	} {
-		in := base
-		in.AnimalRatesRupees = tc.rates
-		_, err := svc.ConfirmSaleAllocation(context.Background(), in)
-		appErr, ok := err.(*Error)
-		if !ok || appErr.Code != tc.code {
-			t.Fatalf("%s: err = %#v, want %s", name, err, tc.code)
-		}
-		if repo.recorded != nil {
-			t.Fatalf("%s: nothing may be written, got %+v", name, repo.recorded)
-		}
-	}
-
-	// Absent rates: the confirm is valid and every row carries "" (stored as NULL).
-	if _, err := svc.ConfirmSaleAllocation(context.Background(), base); err != nil {
-		t.Fatalf("confirm without rates: %v", err)
-	}
-	for _, row := range repo.recorded.Rows {
-		if row.RateRupees != "" {
-			t.Fatalf("row %s rate = %q, want blank when none was sent", row.GoatID, row.RateRupees)
-		}
-	}
-
-	// Present rates ride each row by goat id, trimmed; a blank entry means "none" for that one.
-	repo.recorded = nil
-	in := base
-	in.IdempotencyKey = "confirm-r2"
-	in.AnimalRatesRupees = map[string]string{goatID(1): " 5200.50 ", goatID(2): ""}
-	if _, err := svc.ConfirmSaleAllocation(context.Background(), in); err != nil {
-		t.Fatalf("confirm with rates: %v", err)
-	}
-	want := map[string]string{goatID(1): "5200.50", goatID(2): ""}
-	for _, row := range repo.recorded.Rows {
-		if row.RateRupees != want[row.GoatID] {
-			t.Fatalf("row %s rate = %q want %q", row.GoatID, row.RateRupees, want[row.GoatID])
-		}
-	}
-}
-
 // The queue is narrowed to the FARM CODES of the caller's parks (the ledger names a sale's farm
 // by code, never by park id) and FAILS CLOSED: a park scope that resolves to no farm sees an
 // empty queue, never every farm's. A tenant-wide caller (nil scope) asks with no filter.
@@ -196,8 +134,8 @@ func TestTaggingQueueNarrowsToTheCallersFarmsAndFailsClosed(t *testing.T) {
 }
 
 // THE SALE'S OWN FARM IS IN SCOPE TOO. Clamping the animals alone let a park head tag animals
-// from their own pen onto a sale another park recorded, and read back any sale's tags, weights
-// and rates by id. A park-scoped caller is refused a sale whose farm is not one of their parks'
+// from their own pen onto a sale another park recorded, and read back any sale's tags and weights
+// by id. A park-scoped caller is refused a sale whose farm is not one of their parks'
 // codes on the review, the confirm and the read-back -- before anything is read about animals or
 // written. Tenant-wide callers (nil scope) are untouched.
 func TestPreviewConfirmAndReadBackRefuseASaleAtAnotherPark(t *testing.T) {

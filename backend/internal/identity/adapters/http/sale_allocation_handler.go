@@ -162,10 +162,7 @@ type saleAllocationRequest struct {
 	// animal_weights_kg: live weight per picked goat id, as decimal strings (maintainer
 	// decision 2026-09-08). Ignored by preview; required for every animal on confirm.
 	AnimalWeightsKg map[string]string `json:"animal_weights_kg,omitempty"`
-	// animal_rates_rupees: the price agreed per picked goat id, as decimal strings (maintainer
-	// decision 2026-09-11). OPTIONAL; the phone's tag-only flow sends one for every animal.
-	AnimalRatesRupees map[string]string `json:"animal_rates_rupees,omitempty"`
-	Reason            string            `json:"reason,omitempty"`
+	Reason          string            `json:"reason,omitempty"`
 }
 
 type saleShedGroupPayload struct {
@@ -193,8 +190,8 @@ type saleConfirmResponse struct {
 	SalesDealID string                 `json:"sales_deal_id"`
 	Allocated   int                    `json:"allocated"`
 	ShedGroups  []saleShedGroupPayload `json:"shed_groups"`
-	// Animals is the one-per-animal read-back (GET only): tag, pen, weight and rate as
-	// recorded at tagging. Absent on a confirm response.
+	// Animals is the one-per-animal read-back (GET only): tag, pen and weight as recorded
+	// at tagging. Absent on a confirm response.
 	Animals []saleAllocationAnimalPayload `json:"animals,omitempty"`
 }
 
@@ -206,7 +203,6 @@ type saleAllocationAnimalPayload struct {
 	PartitionLabel             string `json:"partition_label,omitempty"`
 	OperationalLocationDisplay string `json:"operational_location_display"`
 	WeightKg                   string `json:"weight_kg,omitempty"`
-	RateRupees                 string `json:"rate_rupees,omitempty"`
 }
 
 // saleTaggingQueueResponse is the park head's tag-only queue. NO buyer, NO money.
@@ -319,16 +315,15 @@ func (h *SaleAllocationHandler) ConfirmSaleAllocation(w http.ResponseWriter, r *
 		return
 	}
 	result, err := h.service.ConfirmSaleAllocation(r.Context(), app.ConfirmSaleAllocationInput{
-		TenantID:          tenantID(r),
-		ActorID:           actorID(r),
-		IdempotencyKey:    r.Header.Get("Idempotency-Key"),
-		TraceID:           traceID(r),
-		SalesDealID:       req.SalesDealID,
-		GoatIDs:           req.GoatIDs,
-		AnimalWeightsKg:   req.AnimalWeightsKg,
-		AnimalRatesRupees: req.AnimalRatesRupees,
-		AllowedParkIDs:    allowed,
-		Reason:            req.Reason,
+		TenantID:        tenantID(r),
+		ActorID:         actorID(r),
+		IdempotencyKey:  r.Header.Get("Idempotency-Key"),
+		TraceID:         traceID(r),
+		SalesDealID:     req.SalesDealID,
+		GoatIDs:         req.GoatIDs,
+		AnimalWeightsKg: req.AnimalWeightsKg,
+		AllowedParkIDs:  allowed,
+		Reason:          req.Reason,
 	})
 	if err != nil {
 		h.respondSaleError(w, r, err)
@@ -371,7 +366,7 @@ func (h *SaleAllocationHandler) GetSaleAllocation(w http.ResponseWriter, r *http
 		out.Animals = append(out.Animals, saleAllocationAnimalPayload{
 			GoatID: a.GoatID, TagNumber: a.TagNumber, ShedID: a.ShedID, ShedName: a.ShedName,
 			PartitionLabel: a.PartitionLabel, OperationalLocationDisplay: a.OperationalLocationDisplay,
-			WeightKg: a.WeightKg, RateRupees: a.RateRupees,
+			WeightKg: a.WeightKg,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

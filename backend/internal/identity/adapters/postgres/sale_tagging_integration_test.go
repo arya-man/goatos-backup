@@ -12,7 +12,7 @@ import (
 )
 
 // The tag-only Sales surface (maintainer decision 2026-09-11), proved on the real SQL: the rate
-// typed per animal lands on the allocation row and reads back beside the weight, and the park
+// weight typed per animal reads back one row per animal, and the park
 // head's queue lists exactly the live animal sales still owed animals for the farms asked.
 
 const (
@@ -34,9 +34,9 @@ ON CONFLICT (id) DO UPDATE SET animal_count = EXCLUDED.animal_count, status = EX
 	}
 }
 
-// RATE PER ANIMAL, ROUND TRIP. The rate rides the confirm beside the weight, "" stores NULL, and
-// the one-per-animal read-back returns each figure as the decimal string it was typed as.
-func TestConfirmCarriesTheRatePerAnimalAndReadsItBack(t *testing.T) {
+// WEIGHT PER ANIMAL, READ BACK ONE ROW PER ANIMAL. The park head resuming a half-tagged sale reads
+// these; each weight comes back as the decimal string stored, beside the snapshotted pen.
+func TestTheWeightPerAnimalReadsBackOneRowPerAnimal(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool, repo := startCorrectionWriteDB(t, ctx)
@@ -48,9 +48,9 @@ func TestConfirmCarriesTheRatePerAnimalAndReadsItBack(t *testing.T) {
 	seedSaleAllocationDeal(t, ctx, pool, saleDealA, 2)
 
 	if _, err := repo.RecordSaleAllocations(ctx, saleAllocCmd(saleDealA, []ports.SaleAllocationRow{
-		{GoatID: one, RowVersion: goatRowVersion(t, pool, one), WeightKg: "32.5", RateRupees: "5200.50"},
-		{GoatID: two, RowVersion: goatRowVersion(t, pool, two), WeightKg: "41", RateRupees: ""},
-	}, "confirm-rate")); err != nil {
+		{GoatID: one, RowVersion: goatRowVersion(t, pool, one), WeightKg: "32.5"},
+		{GoatID: two, RowVersion: goatRowVersion(t, pool, two), WeightKg: "41"},
+	}, "confirm-weight")); err != nil {
 		t.Fatalf("RecordSaleAllocations: %v", err)
 	}
 
@@ -65,22 +65,15 @@ func TestConfirmCarriesTheRatePerAnimalAndReadsItBack(t *testing.T) {
 	for _, a := range animals {
 		byID[a.GoatID] = a
 	}
-	if got := byID[one]; got.WeightKg != "32.50" || got.RateRupees != "5200.50" {
-		t.Fatalf("animal one = weight %q rate %q, want 32.50 / 5200.50", got.WeightKg, got.RateRupees)
+	if got := byID[one]; got.WeightKg != "32.50" {
+		t.Fatalf("animal one weight = %q, want 32.50", got.WeightKg)
 	}
-	if got := byID[two]; got.WeightKg != "41.00" || got.RateRupees != "" {
-		t.Fatalf("animal two = weight %q rate %q, want 41.00 / blank (NULL)", got.WeightKg, got.RateRupees)
+	if got := byID[two]; got.WeightKg != "41.00" {
+		t.Fatalf("animal two weight = %q, want 41.00", got.WeightKg)
 	}
 	// The display is the canonical composition, never a hand-rolled join.
 	if byID[one].OperationalLocationDisplay != "Castro 1" {
 		t.Fatalf("display = %q, want Castro 1", byID[one].OperationalLocationDisplay)
-	}
-	var stored *string
-	if err := pool.QueryRow(ctx, `SELECT rate_rupees::text FROM goat_sale_allocations WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, ssTenant, two).Scan(&stored); err != nil {
-		t.Fatalf("read stored rate: %v", err)
-	}
-	if stored != nil {
-		t.Fatalf("a blank rate must store NULL, got %q", *stored)
 	}
 }
 

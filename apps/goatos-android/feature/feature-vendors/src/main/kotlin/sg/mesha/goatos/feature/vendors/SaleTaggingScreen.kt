@@ -38,7 +38,7 @@ import sg.mesha.goatos.core.ui.LoadingSkeletonList
 /**
  * Tagging one sale from the pen (hosted drill under the tag-only queue; maintainer decision
  * 2026-09-11). Scan a tag with the Bluetooth reader or type it, the animal lands in the basket,
- * a weight and a rate are typed against it, and Submit is offered once the sale is filled exactly.
+ * a weight is typed against it, and Submit is offered once the sale is filled exactly.
  *
  * The basket is the whole screen: no park or pen picker (the park is the caller's own, clamped on
  * the server) and no ledger, buyer or money anywhere.
@@ -196,15 +196,6 @@ private fun BasketRow(animal: SaleTaggingBasketAnimalUi, onEvent: (SaleTaggingEv
                 error = animal.weightError.ifBlank { null },
                 modifier = Modifier.weight(1f),
             )
-            VendorsTextField(
-                animal.rate,
-                { onEvent(SaleTaggingEvent.RateChanged(animal.goatId, it)) },
-                LABEL_RATE,
-                required = true,
-                keyboard = KeyboardType.Decimal,
-                error = animal.rateError.ifBlank { null },
-                modifier = Modifier.weight(1f),
-            )
         }
     }
 }
@@ -239,6 +230,5 @@ private const val ADD = "Add"
 private const val LABEL_BASKET = "TAGGED IN THIS SESSION"
 private const val LABEL_ALREADY = "ALREADY TAGGED"
 private const val LABEL_WEIGHT = "Weight (kg)"
-private const val LABEL_RATE = "Rate (₹)"
 private const val REMOVE = "Remove"
 private const val DONE = "Done"

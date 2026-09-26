@@ -278,8 +278,6 @@ data class SaleAllocationRequestDto(
     @SerialName("goat_ids") val goatIds: List<String>,
     /** Live weight per goat id as typed (maintainer decision 2026-09-08). Empty on preview; required on confirm. */
     @SerialName("animal_weights_kg") val animalWeightsKg: Map<String, String> = emptyMap(),
-    /** Price per goat id as typed by the park head at tagging (maintainer decision 2026-09-11). Optional on the wire. */
-    @SerialName("animal_rates_rupees") val animalRatesRupees: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -315,7 +313,7 @@ data class SaleAllocationDto(
     @SerialName("animals") val animals: List<SaleAllocationAnimalDto> = emptyList(),
 )
 
-/** One animal already tagged to a sale: tag and pen as snapshotted, weight and rate as recorded. */
+/** One animal already tagged to a sale: tag and pen as snapshotted, weight as recorded. */
 @Serializable
 data class SaleAllocationAnimalDto(
     @SerialName("goat_id") val goatId: String,
@@ -325,9 +323,8 @@ data class SaleAllocationAnimalDto(
     @SerialName("partition_label") val partitionLabel: String = "",
     /** BACKEND-composed pen name, VERBATIM. */
     @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
-    /** Decimal strings; blank when never recorded. */
+    /** Decimal string; blank when never recorded. */
     @SerialName("weight_kg") val weightKg: String = "",
-    @SerialName("rate_rupees") val rateRupees: String = "",
 )
 
 // ---------------------------------------------------------------------------------------------
