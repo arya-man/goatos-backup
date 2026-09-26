@@ -12,7 +12,7 @@
 -- param: to_date date    last IST business date, inclusive (default: today IST)
 -- param: park_code text  CBE | CPT | PARIGI (park code or name); empty/all = every active park
 -- param: sex text        male | female; empty/all = both sexes
--- param: origin text     farm_born | purchased; empty/all = both
+-- param: origin text     farm_born | procured_no_load | procured_load (purchased = procured_load); empty/all = every origin
 -- param: weighing text   all | individual | whole_pen (default all)
 -- Statistic (app's): gain = animal-weighted mean. Each scanned animal (same-animal key: two active
 -- tags of one goat merge) with >=2 weigh DAYS inside the window (last weigh of each IST day; pairs of
@@ -31,8 +31,11 @@ WITH w AS (
                /*param:to_date*/(now() AT TIME ZONE 'Asia/Kolkata')::date/*end*/::date AS t,
                lower(btrim(/*param:park_code*/''/*end*/::text)) AS park_code,
                CASE lower(btrim(/*param:sex*/''/*end*/::text)) WHEN 'male' THEN 'male' WHEN 'female' THEN 'female' ELSE '' END AS sexf,
-               CASE replace(lower(btrim(/*param:origin*/''/*end*/::text)), ' ', '_') WHEN 'farm_born' THEN 'farm_born'
-                    WHEN 'born' THEN 'farm_born' WHEN 'purchased' THEN 'purchased' WHEN 'bought' THEN 'purchased' ELSE '' END AS originf,
+               CASE replace(replace(replace(lower(btrim(/*param:origin*/''/*end*/::text)), ' ', '_'), '(', ''), ')', '')
+                    WHEN 'farm_born' THEN 'farm_born' WHEN 'born' THEN 'farm_born'
+                    WHEN 'procured_no_load' THEN 'procured_no_load' WHEN 'no_load' THEN 'procured_no_load'
+                    WHEN 'procured_load' THEN 'procured_load' WHEN 'load' THEN 'procured_load'
+                    WHEN 'purchased' THEN 'procured_load' WHEN 'bought' THEN 'procured_load' ELSE '' END AS originf,
                replace(lower(btrim(/*param:weighing*/'all'/*end*/::text)), '-', '_') AS weighingf) p
 ),
 b AS (SELECT (w.f::timestamp AT TIME ZONE 'Asia/Kolkata') AS s, ((w.t + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') AS e,
@@ -60,10 +63,13 @@ akmap AS (SELECT tag, canonical_tag FROM (
 ident AS (SELECT DISTINCT ON (lower(btrim(gi.identifier_value))) lower(btrim(gi.identifier_value)) AS tag, gi.goat_id
   FROM goat_identifiers gi WHERE gi.tenant_id IN (SELECT tenant_id FROM parks)
   ORDER BY lower(btrim(gi.identifier_value)), gi.created_at DESC),
--- origin_scope.go (only consulted when an origin filter is set)
+-- origin_scope.go (only consulted when an origin filter is set). THREE cohorts since 26/09/2026
+-- (platform/animalorigin): on a load -> procured_load; else origin_type 'birth' -> farm_born; else
+-- 'procured' -> procured_no_load; else none. Before that, farm_born meant "on no load".
 bought AS (SELECT DISTINCT goat_id FROM procurement_load_goats WHERE tenant_id IN (SELECT tenant_id FROM parks)),
-origin_tags AS (SELECT wd.tag FROM id_weighed wd JOIN ident i ON i.tag = wd.tag, b
-  WHERE b.origin_on AND (EXISTS (SELECT 1 FROM bought x WHERE x.goat_id = i.goat_id)) = (b.originf = 'purchased')),
+origin_tags AS (SELECT wd.tag FROM id_weighed wd JOIN ident i ON i.tag = wd.tag
+  JOIN goats g ON g.goat_id = i.goat_id, b
+  WHERE b.origin_on AND (CASE WHEN EXISTS (SELECT 1 FROM bought x WHERE x.goat_id = g.goat_id) THEN 'procured_load' WHEN g.origin_type = 'birth' THEN 'farm_born' WHEN g.origin_type = 'procured' THEN 'procured_no_load' END) = b.originf),
 scoped AS (SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, c.park_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
   FROM weighing_campaign_sheds cs JOIN weighing_campaigns c ON c.campaign_id = cs.campaign_id AND c.tenant_id = cs.tenant_id, b
   WHERE c.park_id IN (SELECT location_id FROM parks) AND cs.status <> 'canceled'
@@ -91,9 +97,7 @@ origin_buckets AS (SELECT src.location_id, src.partition_label
      OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
         = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
   GROUP BY src.location_id, src.partition_label, b.originf
-  HAVING count(*) > 0 AND CASE WHEN b.originf = 'purchased'
-      THEN count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought x WHERE x.goat_id = g.goat_id)) = count(*)
-      ELSE count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought x WHERE x.goat_id = g.goat_id)) = 0 END),
+  HAVING count(*) > 0 AND count(*) FILTER (WHERE (CASE WHEN EXISTS (SELECT 1 FROM bought x WHERE x.goat_id = g.goat_id) THEN 'procured_load' WHEN g.origin_type = 'birth' THEN 'farm_born' WHEN g.origin_type = 'procured' THEN 'procured_no_load' END) = b.originf) = count(*)),
 -- scanned (individual) arm
 latest AS (SELECT DISTINCT ON (COALESCE(ak.canonical_tag, lower(btrim(o.scanned_identifier))))
          COALESCE(ak.canonical_tag, lower(btrim(o.scanned_identifier))) AS tag, o.weight_kg

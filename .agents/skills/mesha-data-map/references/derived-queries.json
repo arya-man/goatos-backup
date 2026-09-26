@@ -3,15 +3,15 @@
   "queries": [
     {
       "query": ".agents/skills/mesha-data-map/references/adg-by-breed.sql",
-      "verified": "2026-09-24",
+      "verified": "2026-09-26",
       "derived_from": [
         {
           "path": "apps/admin-web/features/weighing/weights-analytics.tsx",
-          "sha256": "22a5f7955759520ed127cafe7a38fbea32bb1ce5c65cc1743613f900b7869978"
+          "sha256": "0225f51ec28828831b2035223e078f22f5281342f7cfc977b347e447f46a0316"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/weight_demographics.go",
-          "sha256": "db029c24e1bee7bb3bd217aedb80ddb3c4d58452afde670ce74eea958f8c4d84"
+          "sha256": "9dbe6d83f66938a5ec235925c49b7886dac990c80d075da7a8294ee30c58186a"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/identity_scope.go",
@@ -19,7 +19,7 @@
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/origin_scope.go",
-          "sha256": "82ade2a36ba52d44d813f850a1a981a6307380706cad0efd89497ef0ac55c8a6"
+          "sha256": "085754017b4c03936bef93f5924f0c48a67d4367aa10f205cdacd2c4ddf40c65"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/sex_scope.go",
@@ -27,7 +27,7 @@
         },
         {
           "path": "backend/internal/weighing/app/service.go",
-          "sha256": "de16d0fc97fa1f7fd3bf765e619ec11e8a619e1c6510045facc95144a8b85c8e"
+          "sha256": "fc49941bec3f9cd229ac902882e6c06fead514db8ecd854d8355365ee83a0c32"
         }
       ]
     },
@@ -47,15 +47,15 @@
     },
     {
       "query": ".agents/skills/mesha-data-map/references/cost-per-kg-gain.sql",
-      "verified": "2026-09-24",
+      "verified": "2026-09-26",
       "derived_from": [
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "3edfc35331f22845759ef4f48da87a5db1636ca20a624d4876ca6b117be8d7ef"
+          "sha256": "aaa9229a8d0c1ab4d7f4653006253bc712758ea6c12ba79d2aa5c641d3f8634f"
         },
         {
           "path": "backend/internal/growthdirector/domain/fcr.go",
-          "sha256": "95d8a13c10251a85124fbd3778f5258b0d10b0a5f1adcc68ff5e7f29acce867f"
+          "sha256": "26a61dbcf875d0b1e15b0eb046c880f923c501d55edb8082f6242148d9a99eca"
         }
       ]
     },
@@ -83,7 +83,7 @@
       "derived_from": [
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "3edfc35331f22845759ef4f48da87a5db1636ca20a624d4876ca6b117be8d7ef"
+          "sha256": "aaa9229a8d0c1ab4d7f4653006253bc712758ea6c12ba79d2aa5c641d3f8634f"
         }
       ]
     },
@@ -108,7 +108,7 @@
       "derived_from": [
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "3edfc35331f22845759ef4f48da87a5db1636ca20a624d4876ca6b117be8d7ef"
+          "sha256": "aaa9229a8d0c1ab4d7f4653006253bc712758ea6c12ba79d2aa5c641d3f8634f"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/shed_partition_resolve.go",
@@ -131,7 +131,7 @@
         },
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "3edfc35331f22845759ef4f48da87a5db1636ca20a624d4876ca6b117be8d7ef"
+          "sha256": "aaa9229a8d0c1ab4d7f4653006253bc712758ea6c12ba79d2aa5c641d3f8634f"
         },
         {
           "path": "backend/internal/weighing/adapters/postgres/shed_partition_resolve.go",

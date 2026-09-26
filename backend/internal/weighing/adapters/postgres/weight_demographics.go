@@ -139,6 +139,7 @@ func weightDemographicsPruneInactiveSectionSelects(query string, sections map[st
          GROUP BY ss.stage
        ) parts GROUP BY stage
      ) gs) ELSE '[]'::jsonb END`, `'[]'::jsonb`)
+	// scale-guard:plan-proof-exempt: the 2026-09-26 origin change adds a third bound array to an existing in-memory CASE (tag = ANY / EXISTS over unnest of bound arrays); no new table, join or predicate on a stored column, so it cannot move a plan
 	replaceInactive(sections["origin"],
 		`CASE WHEN $24::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, origin, n, g) ORDER BY breed, origin), '[]'::jsonb)
      FROM (
@@ -486,6 +487,7 @@ WITH _param_types AS (
     $13::text[] AS farm_born_partition_labels,
     $14::uuid[] AS purchased_location_ids,
     $15::text[] AS purchased_partition_labels,
+    -- scale-guard:plan-proof-exempt: the 2026-09-26 origin change adds a third bound array to an existing in-memory CASE (tag = ANY / EXISTS over unnest of bound arrays); no new table, join or predicate on a stored column, so it cannot move a plan
     $16::text[] AS procured_no_load_tags,
     $17::uuid[] AS procured_no_load_location_ids,
     $18::text[] AS procured_no_load_partition_labels,
@@ -1883,6 +1885,7 @@ SELECT
         SELECT CASE
           WHEN EXISTS (SELECT 1 FROM unnest($12::uuid[], $13::text[]) AS fb(loc, part)
                        WHERE fb.loc = sp.location_id AND fb.part = sp.partition_label) THEN 'farm_born'
+          -- scale-guard:plan-proof-exempt: the 2026-09-26 origin change adds a third bound array to an existing in-memory CASE (tag = ANY / EXISTS over unnest of bound arrays); no new table, join or predicate on a stored column, so it cannot move a plan
           WHEN EXISTS (SELECT 1 FROM unnest($17::uuid[], $18::text[]) AS pn(loc, part)
                        WHERE pn.loc = sp.location_id AND pn.part = sp.partition_label) THEN 'procured_no_load'
           WHEN EXISTS (SELECT 1 FROM unnest($14::uuid[], $15::text[]) AS pu(loc, part)

@@ -11,7 +11,7 @@
 -- param: to_date date    last IST date inclusive (default: latest weighing date, capped at today)
 -- param: park_code text  CBE | CPT (code or name); empty/all = every active park
 -- param: sex text        male | female; empty/all = both (tab default male)
--- param: origin text     farm_born | purchased; empty/all = both
+-- param: origin text     farm_born | procured_no_load | procured_load (purchased = procured_load); empty/all = every origin
 -- param: weighing text   individual | whole_pen; empty/all = both
 -- Verified 2026-09-24 (2026-08-03..2026-09-23): all sexes ALL ₹334/kg (tab ₹334); male ALL ₹318/kg (tab ₹318).
 -- Not here: gain value / margin / break-even (sale price per species x stage x sex) and the estimated-by-breed split: see logic/fcr.md.
@@ -25,7 +25,7 @@ WITH prm AS (SELECT '00000000-0000-4000-8000-000000000001'::uuid t,
        (now() AT TIME ZONE 'Asia/Kolkata')::date) + 1) td,
     lower(btrim(/*param:park_code*/''/*end*/::text)) pc,
     CASE lower(btrim(/*param:sex*/''/*end*/::text)) WHEN 'male' THEN 'male' WHEN 'female' THEN 'female' ELSE '' END sx,
-    CASE replace(lower(btrim(/*param:origin*/''/*end*/::text)),' ','_') WHEN 'farm_born' THEN 'farm_born' WHEN 'purchased' THEN 'purchased' ELSE '' END org,
+    CASE replace(replace(replace(lower(btrim(/*param:origin*/''/*end*/::text)),' ','_'),'(',''),')','') WHEN 'farm_born' THEN 'farm_born' WHEN 'procured_no_load' THEN 'procured_no_load' WHEN 'no_load' THEN 'procured_no_load' WHEN 'procured_load' THEN 'procured_load' WHEN 'purchased' THEN 'procured_load' ELSE '' END org,
     CASE replace(lower(btrim(/*param:weighing*/''/*end*/::text)),'-','_') WHEN 'individual' THEN 'individual_animal' WHEN 'individual_animal' THEN 'individual_animal'
       WHEN 'whole_pen' THEN 'per_shed_partition' WHEN 'per_shed_partition' THEN 'per_shed_partition' ELSE '' END cat) x),
 idm AS (
@@ -76,17 +76,22 @@ feed_rows AS (SELECT r.shed_id pen_shed_id,
 pens AS (SELECT pen_shed_id,pen_key,count(*) rounds,(array_agg(avg_kg ORDER BY period_start_date,d))[1] first_avg,
   (array_agg(animals ORDER BY period_start_date DESC,d DESC))[1] last_animals FROM pen_rounds GROUP BY 1,2),
 res AS (SELECT p.pen_shed_id,p.pen_key,g.goat_id,g.breed,lower(g.sex) sex,lower(g.species) species,
-  EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) bought
+  EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) bought,
+  CASE WHEN EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) THEN 'procured_load' WHEN g.origin_type='birth' THEN 'farm_born' WHEN g.origin_type='procured' THEN 'procured_no_load' END ocls
   FROM pens p JOIN goats g ON g.lifecycle_status='alive' AND g.shed_id=p.pen_shed_id LEFT JOIN goat_shed_partitions gsp ON gsp.goat_id=g.goat_id
   WHERE regexp_replace(lower(btrim(COALESCE(NULLIF(gsp.partition_label,'whole'),''))),'^[-\s]*(part|pt)?[\s.-]*','')=p.pen_key),
 wtd AS (SELECT sr.pen_shed_id,sr.pen_key,g.goat_id,g.breed,lower(g.sex) sex,lower(g.species) species,
-  EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) bought
+  EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) bought,
+  CASE WHEN EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) THEN 'procured_load' WHEN g.origin_type='birth' THEN 'farm_born' WHEN g.origin_type='procured' THEN 'procured_no_load' END ocls
   FROM (SELECT DISTINCT pen_shed_id,pen_key,animal_key FROM scan_rounds) sr JOIN goat_identifiers gi ON gi.normalized_value=upper(sr.animal_key) JOIN goats g ON g.goat_id=gi.goat_id),
 coh_src AS (SELECT * FROM res UNION ALL SELECT w.* FROM wtd w WHERE NOT EXISTS (SELECT 1 FROM res r WHERE r.pen_shed_id=w.pen_shed_id AND r.pen_key=w.pen_key)),
 coh AS (SELECT pen_shed_id,pen_key,count(*) n,
   CASE WHEN count(DISTINCT sex)=1 AND min(sex)<>'' THEN min(sex) ELSE 'mixed' END sex,
   CASE WHEN count(DISTINCT breed)=1 AND btrim(min(breed))<>'' THEN lower(btrim(min(breed))) ELSE 'mixed' END breed,
-  CASE WHEN count(*) FILTER (WHERE bought)=count(*) THEN 'purchased' WHEN count(*) FILTER (WHERE bought)=0 THEN 'farm_born' ELSE 'mixed' END origin,
+  -- Three origin cohorts since 26/09/2026 (platform/animalorigin, FCR originFor): every resident agrees or 'mixed'.
+  CASE WHEN count(*) FILTER (WHERE ocls='procured_load')=count(*) THEN 'procured_load'
+       WHEN count(*) FILTER (WHERE ocls='farm_born')=count(*) THEN 'farm_born'
+       WHEN count(*) FILTER (WHERE ocls='procured_no_load')=count(*) THEN 'procured_no_load' ELSE 'mixed' END origin,
   bool_and(species IN ('goat','sheep')) priced FROM coh_src GROUP BY 1,2),
 lump_seg AS (SELECT pen_shed_id,pen_key,d_prev,d,(avg_kg-avg_prev)*1000.0/(d-d_prev) adg_g FROM (
   SELECT lr.*, lag(d) OVER w d_prev, lag(avg_kg) OVER w avg_prev FROM lump_rounds lr WINDOW w AS (PARTITION BY pen_shed_id,pen_key ORDER BY period_start_date,d)) x WHERE d_prev IS NOT NULL AND d>d_prev),
