@@ -741,7 +741,10 @@ SELECT
   park.name,
   effective.shed_id::text,
   effective.physical_shed,
-  effective.partition_label,
+  -- The pen's name comes from the partition catalog, not the snapshot the assignment stored
+  -- ("Part 1" vs "1" named one pen two ways against the pen board). Matched on the same
+  -- normalized key this query groups by; an uncatalogued partition keeps its stored label.
+  COALESCE(catalog_pen.partition_label, effective.partition_label),
   effective.animal_count,
   CASE
     WHEN effective.batch_status IN ('planned', 'in_progress')
@@ -766,6 +769,11 @@ SELECT
   effective.total_doses,
   effective.capacity_status
 FROM effective_assignments effective
+-- 0..1 per row: shed_partitions' primary key is (tenant_id, shed_id, normalized_label).
+LEFT JOIN shed_partitions catalog_pen
+  ON catalog_pen.tenant_id = $1::uuid
+ AND catalog_pen.shed_id = effective.shed_id
+ AND catalog_pen.normalized_label = effective.partition_key
 JOIN workforce_members wm
   ON wm.tenant_id = $1::uuid
  AND wm.workforce_member_id = effective.operator_id
