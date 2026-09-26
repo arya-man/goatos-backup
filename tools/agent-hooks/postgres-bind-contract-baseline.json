@@ -39,7 +39,6 @@
   "internal/verification/adapters/postgres/video_log.go|unverified-dynamic-bind": 1,
   "internal/weighing/adapters/postgres/campaign_sheds_page.go|unverified-dynamic-bind": 2,
   "internal/weighing/adapters/postgres/operator_summaries.go|unverified-dynamic-bind": 1,
-  "internal/weighing/adapters/postgres/origin_scope.go|unverified-dynamic-bind": 2,
   "internal/weighing/adapters/postgres/sex_scope.go|unverified-dynamic-bind": 1,
   "internal/weighing/adapters/postgres/weight_history.go|unverified-dynamic-bind": 1,
   "internal/weighingsop/adapters/postgres/rules_source.go|unverified-dynamic-bind": 1,

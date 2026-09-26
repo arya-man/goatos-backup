@@ -15,6 +15,7 @@ import { PensTable, type PensTableRow } from "./pens-table";
 import { FeedWeightBandCard } from "./feed-weight-band-card";
 import { PenWeekGainTable, type PenWeekGainPoint } from "./pen-week-gain-table";
 import { LoadWeekGainTable, type LoadWeekGainPoint } from "./load-week-gain-table";
+import { ORIGIN_KEYS, canonicalOriginRedirect, originFromParam } from "@/lib/animal-origin";
 import { fmtDate, todayIso } from "@/lib/format";
 import {
   firstAuthRequiredError,
@@ -190,7 +191,11 @@ export async function WeighingWeightsAnalyticsPage({
   // option would be the blank one and would read back as the male default on the next request.
   const sexChoice = sexFilter === "" ? "all" : sexFilter;
   const rawOrigin = one(params, ORIGIN_PARAM);
-  const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
+  // A bookmark from the two-way filter (`origin=purchased`) is rewritten to its three-way key so
+  // the control shows the cohort the figures are actually filtered to.
+  const legacyOrigin = canonicalOriginRedirect("/weighing/analytics", params);
+  if (legacyOrigin) redirect(legacyOrigin);
+  const originFilter = originFromParam(rawOrigin);
 
   // WEEK is the default and anything unrecognised falls back to it, because a bucket the backend
   // would refuse must not take the whole tab down over a hand-typed URL. `month` is a rolling
@@ -463,15 +468,14 @@ export async function WeighingWeightsAnalyticsPage({
     },
     {
       // Same as /weighing/weights: absent means every origin, while the explicit values narrow
-      // every analytics read to farm-born or purchased kids.
+      // every analytics read to one origin: farm born, procured (no load) or procured (load).
       kind: "select",
       param: ORIGIN_PARAM,
       label: copy(pageContract, "filter.origin.label"),
       allowAll: true,
       value: originFilter,
       options: [
-        { value: "farm_born", label: copy(pageContract, "view.origin.farm_born") },
-        { value: "purchased", label: copy(pageContract, "view.origin.purchased") },
+        ...ORIGIN_KEYS.map((key) => ({ value: key, label: copy(pageContract, `view.origin.${key}`) })),
       ],
     },
   ];
@@ -972,7 +976,7 @@ function BreedTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
 }
 
 /**
- * BIRTH-WISE — farm born against purchased, per breed.
+ * BIRTH-WISE — farm born, procured (no load) and procured (load), per breed.
  *
  * A breed with only one kind shows ONE bar, which is the honest rendering: the farm buys sheep
  * and breeds goats, and drawing an empty bar for the side that does not exist would read as a
@@ -982,32 +986,22 @@ function BreedTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
  */
 function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; demo: WeightDemographicsResponse | null }) {
   const buckets = demo?.gain_by_breed_origin ?? [];
-  const born = new Map(buckets.filter((b) => b.origin === "farm_born").map((b) => [b.label, b]));
-  const bought = new Map(buckets.filter((b) => b.origin === "purchased").map((b) => [b.label, b]));
-  const breeds = [...new Set([...born.keys(), ...bought.keys()])].sort((a, b) =>
-    a.localeCompare(b, undefined, { numeric: true }),
+  const byOrigin = new Map(
+    ORIGIN_KEYS.map((key) => [key, new Map(buckets.filter((b) => b.origin === key).map((b) => [b.label, b]))] as const),
   );
+  const breeds = [...new Set(buckets.map((b) => b.label))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
   const groups: BarGroup[] = breeds.map((breed) => {
     const bars: GroupedBar[] = [];
-    const bornBucket = born.get(breed);
-    const boughtBucket = bought.get(breed);
-    if (bornBucket) {
+    for (const key of ORIGIN_KEYS) {
+      const bucket = byOrigin.get(key)?.get(breed);
+      if (!bucket) continue;
       bars.push({
-        key: `${breed}-born`,
-        label: copy(pageContract, "view.origin.farm_born"),
-        value: Math.round(bornBucket.median_gain_g_per_day),
-        seriesKey: "farm_born",
-        noteLabel: `${bornBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
-      });
-    }
-    if (boughtBucket) {
-      bars.push({
-        key: `${breed}-bought`,
-        label: copy(pageContract, "view.origin.purchased"),
-        value: Math.round(boughtBucket.median_gain_g_per_day),
-        seriesKey: "purchased",
-        noteLabel: `${boughtBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        key: `${breed}-${key}`,
+        label: copy(pageContract, `view.origin.${key}`),
+        value: Math.round(bucket.median_gain_g_per_day),
+        seriesKey: key,
+        noteLabel: `${bucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
       });
     }
     return { key: breed, heading: breed, bars };
@@ -1021,11 +1015,10 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
       <p className="muted small">{copy(pageContract, "section.birth.caption")}</p>
       <GroupedBars
         groups={groups}
-        // Both sides share the g/day scale, unlike Breed-wise: these two bars ARE the same
-        // measure over two cohorts, which is the entire comparison.
+        // All three share the g/day scale, unlike Breed-wise: these bars ARE the same measure
+        // over three cohorts, which is the entire comparison.
         series={[
-          { key: "farm_born", scaleKey: "gain", label: copy(pageContract, "view.origin.farm_born"), unit: "g", fractionDigits: 0 },
-          { key: "purchased", scaleKey: "gain", label: copy(pageContract, "view.origin.purchased"), unit: "g", fractionDigits: 0 },
+          ...ORIGIN_KEYS.map((key) => ({ key, scaleKey: "gain", label: copy(pageContract, `view.origin.${key}`), unit: "g", fractionDigits: 0 })),
         ]}
         emptyLabel={copy(pageContract, "empty.birth.body")}
         chartLabel={copy(pageContract, "section.birth.aria")}

@@ -4,10 +4,10 @@ Index: page scope · base SQL · 1 Farm FCR · 2 Gain value · 3 Feed spent + co
 
 ## Page scope (applies to every metric)
 - Endpoint: `GET /growth-director/fcr?park_id&from&to&sex&origin&weighing_category` (one read carries every figure; UI divides nothing).
-  Route handler.go:50, `GetFCR` handler.go:60 -> app/service.go:138 (validates sex male|female, origin farm_born|purchased, category individual_animal|per_shed_partition, `all`->'') -> postgres/fcr.go:390 `GetFCR` -> domain/fcr.go:336 `BuildFCRReport`.
+  Route handler.go:50, `GetFCR` handler.go:60 -> app/service.go:138 (validates sex male|female, origin farm_born|procured_no_load|procured_load with retired purchased mapped to procured_load, category individual_animal|per_shed_partition, `all`->'') -> postgres/fcr.go:390 `GetFCR` -> domain/fcr.go:336 `BuildFCRReport`.
   UI: features/weighing/weights-analytics.tsx:358 `getWeighingFCR({...scope, ...readWindow})`; fcr-tab.tsx, fcr-pens-table.tsx.
 - Window: landing-window.ts:51 — explicit `wt_from`/`wt_to` (clamped to today) else default_from (landing-window-constants.ts; DB `weighing_calendar_config`: stg = fixed_date 2026-08-03) through `latest_weighing_date` (stg 2026-09-23). Backend window = [from 00:00 IST, to+1 00:00 IST) on `accepted_at`; feed_day in [from, to+1) (service.go:231 resolveWindow).
-- Sex: default **male** (weights-analytics.tsx:195); `sex=all` -> '' (both). Origin: farm_born|purchased|'' . Both are PEN-grain agree-or-neither filters (domain/fcr.go:562): a pen passes only if its cohort sex/origin equals the filter exactly — mixed pens drop out of any sex/origin filter.
+- Sex: default **male** (weights-analytics.tsx:195); `sex=all` -> '' (both). Origin: farm_born|procured_no_load|procured_load|'' . Both are PEN-grain agree-or-neither filters (domain/fcr.go:562): a pen passes only if its cohort sex/origin equals the filter exactly — mixed pens drop out of any sex/origin filter.
 - Cohort = live residents in the pen (goats alive, shed_id + scrubbed goat_shed_partitions label) — fallback to animals scanned in the pen in-window when the pen has no live residents (fcr.go:207-240, domain :517).
 - Feed = **directed sheet kg, as-fed** (feed_direction_issue_rows.quantity_kg, issues state issued|amended|locked), NOT dry matter, NOT measured intake. NULL quantity = blocked cell, never 0.
 - Gain = segment ADG x fed head-days/1000. Segment = two consecutive rounds of one pen (ordered period_start_date, d). Whole-pen arm: Δ pen average_weight_kg / days (latest non-withdrawn, non-rejected shed observation per pen per campaign). Scanned arm: mean per-animal daily gain over animals weighed in BOTH rounds (identity merge through ResolveAnimalIdentityMap: double-tagged animals keyed by canonical tag, identity_scope.go:146). Rejected scans dropped. Head-days = Σ over feed days in [d_prev, d) of max(head_count) per (pen, day, shed_tag_key, breed_key).
@@ -21,7 +21,8 @@ psql vars: `-v from=2026-08-03 -v to=2026-09-23 -v cat= -v sex=male -v origin=` 
 ```sql
 WITH prm AS (SELECT '00000000-0000-4000-8000-000000000001'::uuid t,
   ARRAY['00000000-0000-4000-8000-000000003001','00000000-0000-4000-8000-000000003002']::uuid[] parks,
-  :'from'::date fd, (:'to'::date + 1) td, :'cat'::text cat, :'sex'::text sx, :'origin'::text org),
+  :'from'::date fd, (:'to'::date + 1) td, :'cat'::text cat, :'sex'::text sx,
+  CASE WHEN :'origin'::text='purchased' THEN 'procured_load' ELSE :'origin'::text END org),
 idm AS (
   SELECT tag, canonical_tag FROM (
     SELECT i.tag, first_value(i.tag) OVER (PARTITION BY i.goat_id ORDER BY (i.identifier_type='animal_identifier_1') DESC, i.tag) canonical_tag,
@@ -70,17 +71,23 @@ feed_rows AS (SELECT r.shed_id pen_shed_id,
 pens AS (SELECT pen_shed_id,pen_key,count(*) rounds,(array_agg(avg_kg ORDER BY period_start_date,d))[1] first_avg,
   (array_agg(animals ORDER BY period_start_date DESC,d DESC))[1] last_animals FROM pen_rounds GROUP BY 1,2),
 res AS (SELECT p.pen_shed_id,p.pen_key,g.goat_id,g.breed,lower(g.sex) sex,lower(g.species) species,
-  EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) bought
+  CASE WHEN EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) THEN 'procured_load'
+       WHEN g.origin_type='birth' THEN 'farm_born'
+       WHEN g.origin_type='procured' THEN 'procured_no_load'
+       ELSE '' END origin
   FROM pens p JOIN goats g ON g.lifecycle_status='alive' AND g.shed_id=p.pen_shed_id LEFT JOIN goat_shed_partitions gsp ON gsp.goat_id=g.goat_id
   WHERE regexp_replace(lower(btrim(COALESCE(NULLIF(gsp.partition_label,'whole'),''))),'^[-\s]*(part|pt)?[\s.-]*','')=p.pen_key),
 wtd AS (SELECT sr.pen_shed_id,sr.pen_key,g.goat_id,g.breed,lower(g.sex) sex,lower(g.species) species,
-  EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) bought
+  CASE WHEN EXISTS (SELECT 1 FROM procurement_load_goats plg WHERE plg.goat_id=g.goat_id) THEN 'procured_load'
+       WHEN g.origin_type='birth' THEN 'farm_born'
+       WHEN g.origin_type='procured' THEN 'procured_no_load'
+       ELSE '' END origin
   FROM (SELECT DISTINCT pen_shed_id,pen_key,animal_key FROM scan_rounds) sr JOIN goat_identifiers gi ON gi.normalized_value=upper(sr.animal_key) JOIN goats g ON g.goat_id=gi.goat_id),
 coh_src AS (SELECT * FROM res UNION ALL SELECT w.* FROM wtd w WHERE NOT EXISTS (SELECT 1 FROM res r WHERE r.pen_shed_id=w.pen_shed_id AND r.pen_key=w.pen_key)),
 coh AS (SELECT pen_shed_id,pen_key,count(*) n,
   CASE WHEN count(DISTINCT sex)=1 AND min(sex)<>'' THEN min(sex) ELSE 'mixed' END sex,
   CASE WHEN count(DISTINCT breed)=1 AND btrim(min(breed))<>'' THEN lower(btrim(min(breed))) ELSE 'mixed' END breed,
-  CASE WHEN count(*) FILTER (WHERE bought)=count(*) THEN 'purchased' WHEN count(*) FILTER (WHERE bought)=0 THEN 'farm_born' ELSE 'mixed' END origin,
+  CASE WHEN count(DISTINCT origin)=1 AND min(origin)<>'' THEN min(origin) ELSE 'mixed' END origin,
   bool_and(species IN ('goat','sheep')) priced FROM coh_src GROUP BY 1,2),
 lump_seg AS (SELECT pen_shed_id,pen_key,d_prev,d,(avg_kg-avg_prev)*1000.0/(d-d_prev) adg_g FROM (
   SELECT lr.*, lag(d) OVER w d_prev, lag(avg_kg) OVER w avg_prev FROM lump_rounds lr WINDOW w AS (PARTITION BY pen_shed_id,pen_key ORDER BY period_start_date,d)) x WHERE d_prev IS NOT NULL AND d>d_prev),
@@ -182,8 +189,9 @@ SELECT m.b,count(*) pens,round((sum(ok.feed_kg*m.n/m.tot)/sum(ok.gain_kg*m.n/m.t
 - verified 2026-09-24 male -> Coimbatore 9.73 (₹335/kg, 12 pens, margin ₹1,70,571); Channapatna 8.55 (₹296/kg, 9 pens, margin ₹1,87,546).
 - CEO: "Coimbatore vs Channapatna FCR?" / "Kaunsa farm feed me behtar hai?"
 
-## 14 Farm born against purchased
-- Pen origin: purchased if every cohort animal is in procurement_load_goats, farm_born if none, else mixed. verified 2026-09-24 male -> purchased 8.91 (11 pens), farm_born 10.85 (8), mixed 6.98 (2).
+## 14 Farm born, procured (no load), procured (load)
+- Pen origin (three cohorts since 26/09/2026, platform/animalorigin; FCR domain originFor): per animal, on a load -> procured_load, else origin_type 'birth' -> farm_born, else 'procured' -> procured_no_load, else none. A pen takes a cohort only when EVERY cohort animal has it; otherwise mixed (an animal with no recorded origin makes its pen mixed). Before 26/09/2026 farm_born meant "on no load", so it also held animals bought without a load.
+- verified 2026-09-26 (STG, cost-per-kg-gain.sql, 27/08-26/09): farm_born FCR 11.67 (26 pens), procured_load 8.91 (11), procured_no_load 1 pen with no FCR. Older figure, two-way rule: 2026-09-24 male -> purchased 8.91 (11 pens), farm_born 10.85 (8), mixed 6.98 (2).
 - CEO: "Khareede hue jaanwar better convert karte hain ya ghar ke?"
 
 ## 15 Pens table (columns: pen, cohort, animals, weighed, daily gain, head-days, gain kg, feed kg, FCR, feed cost, gain value, margin, ₹/kg gain, feed sheet)

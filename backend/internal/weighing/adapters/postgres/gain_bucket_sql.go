@@ -12,7 +12,7 @@ import (
 // weightDemographicsAnchorParam is the placeholder the demographics query's month variant counts
 // its 30-day blocks back from. It is the next number after that query's existing parameters, and it
 // lives here beside the renderer so the two cannot drift apart.
-const weightDemographicsAnchorParam = 34
+const weightDemographicsAnchorParam = 37
 
 // The two date shapes the Time-wise series bucket on: a scan's `accepted_at` (a timestamptz, read
 // in Asia/Kolkata) and a pen weigh's `d` (already an IST date). Both live in the query templates as

@@ -1230,7 +1230,7 @@ export async function getShedWeights(params: {
   /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
   sex?: string;
   /**
-   * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
+   * `farm_born` / `procured_no_load` / `procured_load` narrows every figure to kids of that origin; omitted means every
    * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
    * scanned weigh taken in the same pen are on the same side of it.
    */
@@ -1326,7 +1326,7 @@ export async function getWeightDemographics(params: {
   /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
   sex?: string;
   /**
-   * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
+   * `farm_born` / `procured_no_load` / `procured_load` narrows every figure to kids of that origin; omitted means every
    * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
    * scanned weigh taken in the same pen are on the same side of it.
    */
@@ -1379,7 +1379,7 @@ export async function getFeedWeightBand(params: {
   to?: string;
   /** `male` / `female`, resolved by the weighing module's sex scope; omitted means every kid. */
   sex?: string;
-  /** `farm_born` / `purchased`, resolved by the weighing module's origin scope; omitted means all. */
+  /** `farm_born` / `procured_no_load` / `procured_load`, resolved by the weighing module's origin scope; omitted means all. */
   origin?: string;
   /** `individual_animal` / `per_shed_partition`; omitted means both ways of weighing. */
   weighing_category?: string;
@@ -1412,7 +1412,7 @@ export async function getWeighingGrowth(params: {
   /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
   sex?: string;
   /**
-   * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
+   * `farm_born` / `procured_no_load` / `procured_load` narrows every figure to kids of that origin; omitted means every
    * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
    * scanned weigh taken in the same pen are on the same side of it.
    */
@@ -1462,7 +1462,7 @@ export async function getGrowthDirector(params: {
   /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
   sex?: string;
   /**
-   * `farm_born` / `purchased` narrows every figure to kids of that origin; omitted means every
+   * `farm_born` / `procured_no_load` / `procured_load` narrows every figure to kids of that origin; omitted means every
    * kid. Origin is a fact about the PEN a purchase load was put into, so a whole-shed weigh and a
    * scanned weigh taken in the same pen are on the same side of it.
    */
@@ -1500,7 +1500,7 @@ export async function getWeighingFCR(params: {
   to?: string;
   /** `male` / `female`, applied at PEN grain: a pen counts only when every resident is that sex. */
   sex?: string;
-  /** `farm_born` / `purchased`, applied at PEN grain for the same reason. */
+  /** `farm_born` / `procured_no_load` / `procured_load`, applied at PEN grain for the same reason. */
   origin?: string;
   weighing_category?: string;
 }): Promise<ApiResult<GrowthFCRResponse>> {

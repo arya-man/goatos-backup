@@ -10,6 +10,7 @@ import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { ORIGIN_KEYS, canonicalOriginRedirect, originFromParam } from "@/lib/animal-origin";
 import { fmtDate, todayIso } from "@/lib/format";
 import { sharesOfWhole } from "@/lib/shares";
 import {
@@ -72,7 +73,7 @@ const SHED_VIEW_PARAM = "shed_view";
 // Which kids the WHOLE PAGE counts (maintainer, 2026-08-26). Absent means all of them, so a link
 // that predates the Sex filter keeps meaning what it showed when it was written.
 const SEX_PARAM = "sex";
-// Farm born or purchased (maintainer, 2026-09-01). Absent means both, so a link that predates this
+// Farm born, procured (no load) or procured (load) (maintainer, 2026-09-01; three-way since 2026-09-26). Absent means both, so a link that predates this
 // filter keeps meaning what it showed when it was written -- deliberately UNLIKE the Sex filter
 // beside it, which defaults to male: there is no "the number the farm cares about" side here, and
 // defaulting to one would hide half the herd from a reader who never chose.
@@ -261,7 +262,11 @@ export async function WeighingWeightsPage({
   // emptying the page, for the same reason the sex fallback does -- a hand-edited URL must not take
   // the screen down.
   const rawOrigin = one(params, ORIGIN_PARAM);
-  const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
+  // A bookmark from the two-way filter (`origin=purchased`) is rewritten to its three-way key so
+  // the control shows the cohort the figures are actually filtered to.
+  const legacyOrigin = canonicalOriginRedirect("/weighing/weights", params);
+  if (legacyOrigin) redirect(legacyOrigin);
+  const originFilter = originFromParam(rawOrigin);
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
@@ -478,8 +483,7 @@ export async function WeighingWeightsPage({
       allowAll: true,
       value: originFilter,
       options: [
-        { value: "farm_born", label: copy(pageContract, "view.origin.farm_born") },
-        { value: "purchased", label: copy(pageContract, "view.origin.purchased") },
+        ...ORIGIN_KEYS.map((key) => ({ value: key, label: copy(pageContract, `view.origin.${key}`) })),
       ],
     },
   ];

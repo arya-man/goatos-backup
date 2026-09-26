@@ -3,15 +3,21 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/animalorigin"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
-// Origin scoping for the Weights REPORTING screen: FARM BORN vs PURCHASED.
+// Origin scoping for the Weights REPORTING screen: FARM BORN, PROCURED (NO LOAD), PROCURED (LOAD).
+//
+// THREE COHORTS SINCE 2026-09-26 (maintainer decision). Until then "farm born" meant "carries no
+// load row", which filed every animal bought WITHOUT a recorded load -- 659 of the live herd that
+// day -- as farm born. Farm born now needs the register to say so (goats.origin_type = 'birth'),
+// the rule the Sales Farm born page already used; see platform/animalorigin for the whole rule.
 //
 // The maintainer asked for a second cohort filter beside Sex (2026-09-01): the farm buys kids in
 // loads and also breeds its own, and the two grow differently enough that reading them together
@@ -51,17 +57,30 @@ import (
 //     this narrows what a REPORT counts, never what the field may capture.
 //   - An empty origin returns an EMPTY scope and every caller reads that as "no filter", so the
 //     unfiltered page runs the query it ran before this file existed.
+//
+// The three origin cohorts (maintainer decision 2026-09-26). The rule and its order live in
+// platform/animalorigin; the SQL below mirrors animalorigin.Classify exactly -- on a load first,
+// then goats.origin_type 'birth', then 'procured', else no cohort.
 const (
-	// OriginFarmBorn is an animal with no procurement load row. It is the COMPLEMENT of purchased
-	// rather than a positively recorded fact: the farm records what it buys, not what it breeds, so
-	// "no load row" is the only evidence of farm birth there is. An animal whose tag resolves to
-	// nothing has no load row EITHER, which is why an unresolved tag is claimed by neither side
-	// instead of falling into this one by default.
-	OriginFarmBorn = "farm_born"
-	// OriginPurchased is an animal carrying a procurement load row, or a whole-shed pen every one
-	// of whose live residents carries one.
-	OriginPurchased = "purchased"
+	// OriginFarmBorn is an animal the register marks born here (origin_type = 'birth') that sits on
+	// no procurement load. It USED to be "no load row", which filed every bought-without-a-load
+	// animal as farm born; that complement reading is retired.
+	OriginFarmBorn = animalorigin.FarmBorn
+	// OriginProcuredNoLoad is an animal marked procured that sits on no recorded load.
+	OriginProcuredNoLoad = animalorigin.ProcuredNoLoad
+	// OriginProcuredLoad is an animal on a procurement load, or a whole-shed pen every one of whose
+	// live residents is.
+	OriginProcuredLoad = animalorigin.ProcuredLoad
+	// OriginPurchased is the retired two-way key for "on a load". Still accepted as a filter value
+	// and normalized to OriginProcuredLoad; never emitted.
+	OriginPurchased = animalorigin.LegacyPurchased
 )
+
+// originClassSQL is animalorigin.Classify in SQL for the goat aliased g, reading the `bought` CTE.
+// Every arm of both queries below classifies through this one expression.
+const originClassSQL = `(CASE WHEN EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id) THEN '` + animalorigin.ProcuredLoad + `'
+              WHEN g.origin_type = 'birth' THEN '` + animalorigin.FarmBorn + `'
+              WHEN g.origin_type = 'procured' THEN '` + animalorigin.ProcuredNoLoad + `' END)`
 
 // originScopeShedTargetsCTE is the whole-shed resolution shared with the sex scope, byte for
 // byte (see scopeShedTargetsCTE in sex_scope.go for the rule and why it is set-based); pinned
@@ -120,16 +139,11 @@ shed_targets AS MATERIALIZED (
 // a caller who mistypes a filter has made a bad REQUEST, and telling them the server broke sends
 // them looking in the wrong place.
 func normalizeOriginFilter(origin string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(origin)) {
-	case "":
-		return "", nil
-	case OriginFarmBorn:
-		return OriginFarmBorn, nil
-	case OriginPurchased:
-		return OriginPurchased, nil
-	default:
+	normalized, ok := animalorigin.Normalize(origin)
+	if !ok {
 		return "", fmt.Errorf("%w: unsupported origin filter %q", ports.ErrInvalidArgument, origin)
 	}
+	return normalized, nil
 }
 
 func (r *Repository) resolveOriginScope(ctx context.Context, tenantID string, parkIDs []string, origin string, periodStart, periodEnd time.Time) (ReportScope, error) {
@@ -168,9 +182,11 @@ func resolveOriginBucketScope(ctx context.Context, pool *pgxpool.Pool, tenantID 
 		return out, nil
 	}
 
-	q := originBucketScopeQuery
-
-	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, normalized).Scan(&out.LocationIDs, &out.PartitionLabels); err != nil {
+	bound, err := sqlbind.Bind(originBucketScopeQuery, tenantID, parkIDs, normalized)
+	if err != nil {
+		return ReportScope{}, fmt.Errorf("weighing: bind origin bucket scope: %w", err)
+	}
+	if err := pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&out.LocationIDs, &out.PartitionLabels); err != nil {
 		return ReportScope{}, err
 	}
 	if err := assertBucketArraysAgree("origin bucket scope", out); err != nil {
@@ -211,11 +227,13 @@ func resolveOriginScope(ctx context.Context, pool *pgxpool.Pool, tenantID string
 		return out, nil
 	}
 
-	q := originScopeQuery
-
+	bound, err := sqlbind.Bind(originScopeQuery, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime)
+	if err != nil {
+		return ReportScope{}, fmt.Errorf("weighing: bind origin scope: %w", err)
+	}
 	// The two bucket arrays are aggregated under the SAME ORDER BY over the same rows, so index i
 	// names one bucket in both.
-	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime).Scan(
+	if err := pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(
 		&out.Tags, &out.AllTimeTags, &out.LocationIDs, &out.PartitionLabels,
 	); err != nil {
 		return ReportScope{}, err
@@ -295,13 +313,15 @@ origin_tags AS (
   SELECT w.tag
   FROM weighed w
   JOIN ident i ON i.tag = w.tag
-  WHERE (EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = i.goat_id)) = ($5::text = ` + "'" + OriginPurchased + "'" + `)
+  JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
+  WHERE ` + originClassSQL + ` = $5::text
 ),
 origin_tags_ever AS (
   SELECT w.tag
   FROM weighed_ever w
   JOIN ident i ON i.tag = w.tag
-  WHERE (EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = i.goat_id)) = ($5::text = ` + "'" + OriginPurchased + "'" + `)
+  JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
+  WHERE ` + originClassSQL + ` = $5::text
 ),
 -- A whole-shed weigh has no tags, so it is attributed by the cohort its pen holds. The bucket
 -- points at a PARTITION (Castro 1) but the herd register puts the animals on the physical shed
@@ -331,12 +351,9 @@ origin_buckets AS (
         = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
   GROUP BY src.location_id, src.partition_label
   HAVING count(*) > 0
-     AND CASE WHEN $5::text = ` + "'" + OriginPurchased + "'" + `
-              -- ALL bought: every resident carries a load row.
-              THEN count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = count(*)
-              -- NONE bought.
-              ELSE count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = 0
-         END
+     -- EVERY resident answers the selected cohort. A resident answering another cohort, or none
+     -- (no recorded origin), keeps the pen out of this cohort.
+     AND count(*) FILTER (WHERE ` + originClassSQL + ` = $5::text) = count(*)
 )
 SELECT
   (SELECT COALESCE(array_agg(tag), '{}') FROM origin_tags),
@@ -368,10 +385,7 @@ bought AS (
         = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
   GROUP BY src.location_id, src.partition_label
   HAVING count(*) > 0
-     AND CASE WHEN $3::text = ` + "'" + OriginPurchased + "'" + `
-              THEN count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = count(*)
-              ELSE count(*) FILTER (WHERE EXISTS (SELECT 1 FROM bought b WHERE b.goat_id = g.goat_id)) = 0
-         END
+     AND count(*) FILTER (WHERE ` + originClassSQL + ` = $3::text) = count(*)
 )
 SELECT
   (SELECT COALESCE(array_agg(location_id::text ORDER BY location_id::text, partition_label), '{}') FROM origin_buckets),

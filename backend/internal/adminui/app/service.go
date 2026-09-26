@@ -797,7 +797,7 @@ func pages() []domain.PageContract {
 		// Weights analytics -- six tabs over the SAME reads the Weights page uses, so the two
 		// screens can never disagree about a number. It declares ONE table (the shed-wise tab's
 		// figures); every other tab is a chart, and a chart is not a TableContract.
-		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — ADG Analytics", "Growth cut eight ways: overall, by breed, by farm-born vs purchased, by pen type, by weight band, by week, by purchased load, and feed conversion.", "module-surface",
+		page("weighing-analytics", "/weighing/analytics", "/weighing/analytics", "Kids — ADG Analytics", "Growth cut eight ways: overall, by breed, by origin (farm born, procured without a load, procured on a load), by pen type, by weight band, by week, by purchased load, and feed conversion.", "module-surface",
 			// The shed table on the General tab, which is the Weights page's own table read from
 			// the same endpoint -- so the two screens cannot disagree about a shed's figures.
 			//
@@ -1633,9 +1633,10 @@ func weighingWeightsCopy() map[string]string {
 		// differently enough that reading them together answers nothing. It is a fact about the
 		// PEN a load was put into, so a pen's whole-shed weighs and its scanned weighs always
 		// land on the same side of this filter.
-		"filter.origin.label":   "Origin",
-		"view.origin.farm_born": "Farm born",
-		"view.origin.purchased": "Purchased",
+		"filter.origin.label":          "Origin",
+		"view.origin.farm_born":        "Farm born",
+		"view.origin.procured_no_load": "Procured (no load)",
+		"view.origin.procured_load":    "Procured (load)",
 		// One caption per grain, because the denominator sentence has to name the kids it
 		// actually counted. Reusing the combined caption under the male view would tell a
 		// reader the bands add up to the kids weighed twice when they add up to the MALE kids
@@ -5787,10 +5788,10 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Birth-wise. The two halves deliberately need not add up to the whole, and saying so
 			// is the difference between an honest gap and apparent missing data.
-			"section.birth.title":   "Farm born vs purchased",
-			"section.birth.caption": "Daily gain for each breed under the selected weighing mode, split by where the kids came from. A breed shows one bar when the farm only has one kind. Kids whose origin is not recorded are counted in neither, so the two sides need not add up to the breed's own total.",
+			"section.birth.title":   "Farm born, procured (no load) and procured (load)",
+			"section.birth.caption": "Daily gain for each breed under the selected weighing mode, split by where the kids came from: born here, bought with no recorded load, or bought on a load. A breed shows a bar only for the kinds the farm has. Kids whose origin is not recorded are counted in none, so the bars need not add up to the breed's own total.",
 			"section.birth.aria":    "Daily gain by breed and origin",
-			"empty.birth.body":      "No breed has a farm-born or purchased kid with a second weigh in this period.",
+			"empty.birth.body":      "No breed has a farm-born or procured kid with a second weigh in this period.",
 
 			// Pen-wise: daily gain per breed, one bar per PEN TYPE. The types and their names are
 			// the farm's Pen types register (migration 000437), served as the pen_types option group;
@@ -6114,24 +6115,25 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.fcr.band.aria":      "Feed conversion ratio by weight band",
 			"section.fcr.park.title":     "FCR by park",
 			"section.fcr.park.aria":      "Feed conversion ratio by park",
-			"section.fcr.origin.title":   "Farm born against purchased",
-			"section.fcr.origin.caption": "Purchased means every live resident of the pen came off a load; a pen holding both is claimed by neither.",
+			"section.fcr.origin.title":   "Farm born, procured without a load and procured on a load",
+			"section.fcr.origin.caption": "A pen joins one of the three only when every live resident belongs to it: born here, bought with no recorded load, or bought on a load. A pen that mixes them, or holds an animal with no recorded origin, is shown as mixed.",
 			"section.fcr.origin.aria":    "Feed conversion ratio by origin",
 
-			"series.fcr":            "FCR",
-			"unit.fcr":              "kg/kg",
-			"value.fcr.pens":        "pens",
-			"value.fcr.pen":         "pen",
-			"value.fcr.kids":        "kids",
-			"label.fcr.mixed":       "Mixed",
-			"label.fcr.mixed_breed": "Mixed breeds",
-			"label.fcr.mixed_sex":   "Male and female",
-			"label.fcr.unknown":     "Not recorded",
-			"label.fcr.farm_born":   "Farm born",
-			"label.fcr.purchased":   "Purchased",
-			"label.fcr.break_even":  "Break-even",
-			"label.fcr.whole_pen":   "whole pen",
-			"label.fcr.scanned":     "scanned",
+			"series.fcr":                 "FCR",
+			"unit.fcr":                   "kg/kg",
+			"value.fcr.pens":             "pens",
+			"value.fcr.pen":              "pen",
+			"value.fcr.kids":             "kids",
+			"label.fcr.mixed":            "Mixed",
+			"label.fcr.mixed_breed":      "Mixed breeds",
+			"label.fcr.mixed_sex":        "Male and female",
+			"label.fcr.unknown":          "Not recorded",
+			"label.fcr.farm_born":        "Farm born",
+			"label.fcr.procured_no_load": "Procured (no load)",
+			"label.fcr.procured_load":    "Procured (load)",
+			"label.fcr.break_even":       "Break-even",
+			"label.fcr.whole_pen":        "whole pen",
+			"label.fcr.scanned":          "scanned",
 
 			"table.fcr.title":                 "Pens",
 			"table.fcr.aria":                  "FCR by pen",

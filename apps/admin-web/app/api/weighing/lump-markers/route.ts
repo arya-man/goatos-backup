@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getWeighingDates } from "@/lib/api/server";
+import { originFromParam } from "@/lib/animal-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
     from,
     to,
     sex: sex === "male" || sex === "female" ? sex : undefined,
-    origin: origin === "farm_born" || origin === "purchased" ? origin : undefined,
+    origin: originFromParam(origin) || undefined,
     weighing_category:
       weighing === "individual_animal" || weighing === "per_shed_partition" ? weighing : undefined,
   });

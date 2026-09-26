@@ -6,12 +6,12 @@ All values: goatos-stg, verified 24/09/2026, params unless stated: all parks (CB
 
 ## 0. Page scope (applies to every tab)
 - UI: apps/admin-web/features/weighing/weights-analytics.tsx. Tab param `tab` = general|breed|birth|shed|weight|time|load|fcr (:124). Reads per tab: :259-360.
-- Filters -> API params: Park `park` -> park_id (empty = every park the viewer may monitor, service.go resolveMonitorParkScope); Period `wt_from`/`wt_to` -> from/to (inclusive IST business dates); Weighing `weighing` = all|individual_animal|per_shed_partition -> weighing_category (all -> ''); Sex `sex`: ABSENT = **male** (:195), `sex=all` -> '' (both), female; Origin `origin` farm_born|purchased, absent = both.
+- Filters -> API params: Park `park` -> park_id (empty = every park the viewer may monitor, service.go resolveMonitorParkScope); Period `wt_from`/`wt_to` -> from/to (inclusive IST business dates); Weighing `weighing` = all|individual_animal|per_shed_partition -> weighing_category (all -> ''); Sex `sex`: ABSENT = **male** (:195), `sex=all` -> '' (both), female; Origin `origin` farm_born|procured_no_load|procured_load, absent = all; retired `purchased` links canonicalize to procured_load.
 - Default window (landing-window.ts:51, landing-window-constants.ts): explicit wt_from/wt_to (future end clamped to today) else from = SOP copy `weights.window.*` (fallback 2026-08-03, floor 2026-07-05) through `latest_weighing_date` from GET /weighing/weighing-dates under the same park/sex/origin/weighing filters (400-day lookback; falls back to today). On stg today that is 2026-08-03 .. 2026-09-22 for males (09-23 only has female weighs).
 - Backend window: [from 00:00 IST, to+1 00:00 IST) on accepted_at (app/service.go resolveWeighingWindow ~:2190; growth ~:1877). API default when from/to omitted: 15 days ending today (never hit from this page).
 - Shared rules (all ADG figures): rejected scans (`weighing_observations.verification_status='rejected'`) and withdrawn/rejected whole-pen weighs (`weighing_shed_observations.withdrawn_at IS NOT NULL` or rejected) are excluded; PENDING is included; canceled buckets (`weighing_campaign_sheds.status='canceled'`) excluded. There is no separate "rework" filter in these reads: a reworked scan is a normal row unless rejected, and history rows are de-duplicated by latest-per-animal (shed_weights.go ind :197).
 - Identity merge: identity_scope.go:146 — a goat with two ACTIVE RFIDs (animal_identifier_1/2) keys under one canonical tag (identifier_1 first). growth/shed reads resolve it over [from-400d, to+1); demographics over [from-90d, to+1).
-- Sex scope (sex_scope.go:201): scanned tag counts when the goat behind its newest goat_identifiers row (any status) has that sex (tags weighed in [from-90d, to+1)); a whole-pen bucket counts only when EVERY live resident of the pen (pen, else parent shed + partition, scrubbed "Part N" key) has that sex (sexed_buckets :276). Mixed pens drop out of any sex filter. Origin scope (origin_scope.go): purchased = goat in procurement_load_goats; farm_born = not; pens agree-or-neither (origin_buckets :318).
+- Sex scope (sex_scope.go:201): scanned tag counts when the goat behind its newest goat_identifiers row (any status) has that sex (tags weighed in [from-90d, to+1)); a whole-pen bucket counts only when EVERY live resident of the pen (pen, else parent shed + partition, scrubbed "Part N" key) has that sex (sexed_buckets :276). Mixed pens drop out of any sex filter. Origin scope (origin_scope.go): procured_load = goat in procurement_load_goats; farm_born = goats.origin_type birth and not on a load; procured_no_load = goats.origin_type procured and not on a load; blank/imported/unknown stays in All only; pens agree-or-neither (origin_buckets :318).
 - Two ADG engines on this page (TRAP — they differ slightly by design):
   - **growth.go** (General gain cards, pens-table gain, Time-wise overall): scanned pairs = CONSECUTIVE weighs per animal key (every weigh, ordered by accepted_at), pair kept if IST-day gap > 0.
   - **weight_demographics.go** (Breed, Birth, Pen-wise, Weight bands, Time-wise breed/pen/load): LAST weigh per animal per IST day, then consecutive days.
@@ -102,15 +102,16 @@ CEO questions: "What is our daily weight gain right now?" / "Abhi daily gain kit
 ## 2. Breed-wise (gain + average weight per breed)
 GET /weighing/weight-demographics sections=dimensions -> gain_by_breed (bar = Math.round, "N animals") + by_breed (avg kg toFixed(1)). **Use references/adg-by-breed.sql** (verified against the dashboard; params from_date/to_date/park_code/sex/origin/weighing). Gain and weight are different populations (weight = every animal weighed once; gain = >=2 weigh days + pens that moved). Whole pens only count when all live residents are one breed (and the filtered sex). CEO: "Which breed grows fastest?" / "Kaunsi breed sabse tez badhti hai?".
 
-## 3. Birth-wise (farm-born vs purchased per breed)
+## 3. Birth-wise (farm born, procured no load, procured load per breed)
 - GET weight-demographics sections=origin -> gain_by_breed_origin (weight_demographics.go:1147). Field is named median_gain_g_per_day but IS the animal-weighted mean. UI Math.round; a breed with one origin shows one bar.
-- Formula: demographics gain (scanned per-day-last pairs + claimed pens). Scanned animal's origin = its tag in farm_born / purchased tag list (goat in procurement_load_goats = purchased); pen origin = all live residents agree; a pen must also be single-breed (and single-sex under a Sex filter). Unknown-origin animals are in neither bar, so bars need not add to Breed-wise.
+- Formula: demographics gain (scanned per-day-last pairs + claimed pens). Scanned animal's origin = the cohort its goat falls in (three since 26/09/2026, platform/animalorigin: on a load -> procured_load, else origin_type 'birth' -> farm_born, else 'procured' -> procured_no_load, else none); pen origin = all live residents agree; a pen must also be single-breed (and single-sex under a Sex filter). Unknown-origin animals are in no bar, so bars need not add to Breed-wise.
 - Page Origin filter still narrows the population first.
-- Value: Anantapur Sheep farm-born **199 g (85)** / purchased **161 g (339)**; Beetal farm-born 127 (38); Sojat 135 (22); Malai 99 (11); Osmanabadi 81 (7); Sirohi 114 (4); Beetal x Sojat 149 (6); Malai x Sojat 115 (3); Beetal x Malai 110 (2); Boer x Beetal 218 (1); Boer x Malai 200 (1).
+- Value (two-way rule, before 26/09/2026 -- re-verify): Anantapur Sheep farm-born **199 g (85)** / purchased **161 g (339)**; Beetal farm-born 127 (38); Sojat 135 (22); Malai 99 (11); Osmanabadi 81 (7); Sirohi 114 (4); Beetal x Sojat 149 (6); Malai x Sojat 115 (3); Beetal x Malai 110 (2); Boer x Beetal 218 (1); Boer x Malai 200 (1).
 - SQL: adg-by-breed.sql CTEs `w` .. `claim` (drop its final SELECT; in `latest` also select s.location_id, s.partition_label; in `resolved_gain` also select ag.tag and LEFT JOIN latest l ON l.tag = ag.tag for l.location_id, l.partition_label), then:
 ```sql
-tag_origin AS (SELECT wd.tag, CASE WHEN EXISTS (SELECT 1 FROM bought x WHERE x.goat_id=i.goat_id) THEN 'purchased' ELSE 'farm_born' END origin
-  FROM id_weighed wd JOIN ident i ON i.tag=wd.tag),
+tag_origin AS (SELECT wd.tag, CASE WHEN EXISTS (SELECT 1 FROM bought x WHERE x.goat_id=i.goat_id) THEN 'procured_load'
+    WHEN g.origin_type='birth' THEN 'farm_born' WHEN g.origin_type='procured' THEN 'procured_no_load' END origin
+  FROM id_weighed wd JOIN ident i ON i.tag=wd.tag JOIN goats g ON g.goat_id=i.goat_id),
 all_targets AS (/* o_targets without the origin_on gate */ SELECT DISTINCT s.location_id, s.partition_label,
     COALESCE(CASE WHEN occ.shed_id IS NOT NULL THEN s.location_id END, phys.location_id) resolved_id,
     COALESCE(NULLIF(s.partition_label,''), NULLIF((regexp_match(loc.name,'\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1],''),'') rpart
@@ -118,9 +119,10 @@ all_targets AS (/* o_targets without the origin_on gate */ SELECT DISTINCT s.loc
   LEFT JOIN o_parent_sheds phys ON phys.parent_location_id=loc.parent_location_id AND phys.name=regexp_replace(loc.name,'\s*(-\s*)?(Part\s*)?[0-9]+$','')
   WHERE s.weighing_category='per_shed_partition'),
 bucket_origin AS (SELECT src.location_id, src.partition_label,
-    CASE WHEN bool_and(EXISTS (SELECT 1 FROM bought x WHERE x.goat_id=g.goat_id)) THEN 'purchased'
-         WHEN NOT bool_or(EXISTS (SELECT 1 FROM bought x WHERE x.goat_id=g.goat_id)) THEN 'farm_born' END origin
+    CASE WHEN count(DISTINCT oc) = 1 AND count(oc) = count(*) THEN min(oc) END origin
   FROM all_targets src JOIN goats g ON g.shed_id=src.resolved_id AND g.lifecycle_status='alive'
+  CROSS JOIN LATERAL (SELECT CASE WHEN EXISTS (SELECT 1 FROM bought x WHERE x.goat_id=g.goat_id) THEN 'procured_load'
+    WHEN g.origin_type='birth' THEN 'farm_born' WHEN g.origin_type='procured' THEN 'procured_no_load' END oc) o
   LEFT JOIN goat_shed_partitions gsp ON gsp.goat_id=g.goat_id
   WHERE src.rpart='' OR regexp_replace(lower(btrim(gsp.partition_label)),'^(part|pt)[\s.-]*','')=regexp_replace(lower(btrim(src.rpart)),'^(part|pt)[\s.-]*','')
   GROUP BY 1,2)
@@ -130,7 +132,7 @@ SELECT breed, origin, sum(n) animals, round(sum(gs)/sum(n)) g_per_day FROM (
   SELECT c.breed, bo.origin, sum(ls.animals), sum(ls.animals*ls.g_per_day) FROM lump_span ls JOIN claim c USING (location_id, partition_label)
     JOIN bucket_origin bo USING (location_id, partition_label) WHERE bo.origin IS NOT NULL GROUP BY 1,2) x GROUP BY 1,2 ORDER BY 1,2;
 ```
-- Traps: stg purchased = only Anantapur Sheep (the farm buys sheep, breeds goats). Scanned origin match is on the canonical tag vs raw-tag lists (a double-tagged animal scanned on its secondary tag may fall out; rare).
+- Traps: stg procured_load = only Anantapur Sheep; procured_no_load is ~all adults (mothers, bucks) that are not weighed, so it is usually empty here (the farm buys sheep, breeds goats). Scanned origin match is on the canonical tag vs raw-tag lists (a double-tagged animal scanned on its secondary tag may fall out; rare).
 - CEO: "Do our own-born kids grow faster than bought ones?" / "Ghar ke paida bachhe kharide hue se zyada tez badhte hain kya?"
 
 ## 4. Pen-wise (daily gain per breed, one bar per pen type)

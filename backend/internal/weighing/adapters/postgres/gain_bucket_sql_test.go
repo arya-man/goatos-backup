@@ -26,7 +26,7 @@ func TestWeekBucketKeepsTheCalendarWeekAndNeverNamesTheAnchor(t *testing.T) {
 			if !strings.Contains(tc.query, "date_trunc('week'") {
 				t.Fatalf("the week variant must bucket on the calendar week")
 			}
-			if strings.Contains(tc.query, "$15::date") || strings.Contains(tc.query, "$34::date") {
+			if strings.Contains(tc.query, "$15::date") || strings.Contains(tc.query, "$37::date") {
 				t.Fatalf("the week variant must not name the anchor parameter it does not bind")
 			}
 		})
@@ -41,7 +41,7 @@ func TestMonthBucketReplacesEveryCalendarWeekWithA30DayBlock(t *testing.T) {
 		name, query, anchor string
 	}{
 		{"growth", growthWeeklyGainMonthQuery, "$15::date"},
-		{"demographics", bucketedQuery(demographicsTemplateFromSource(t), domain.GainBucketMonth, weightDemographicsAnchorParam), "$34::date"},
+		{"demographics", bucketedQuery(demographicsTemplateFromSource(t), domain.GainBucketMonth, weightDemographicsAnchorParam), "$37::date"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if strings.Contains(tc.query, "date_trunc('week'") {
@@ -61,8 +61,8 @@ func TestMonthBucketReplacesEveryCalendarWeekWithA30DayBlock(t *testing.T) {
 // day sits in the most recent block, the block before it starts 30 days earlier, and the block
 // start is always 29 days before its last day.
 func TestRollingBucketExprIsAnchorMinus29MinusWholeBlocks(t *testing.T) {
-	got := rollingBucketExpr("$34::date", "d")
-	want := "($34::date - 29 - 30 * (($34::date - d) / 30))"
+	got := rollingBucketExpr("$37::date", "d")
+	want := "($37::date - 29 - 30 * (($37::date - d) / 30))"
 	if got != want {
 		t.Fatalf("rolling bucket expression:\n got %s\nwant %s", got, want)
 	}

@@ -51,9 +51,9 @@ ON CONFLICT (location_id) DO NOTHING`, mixedShed, repoTenant, repoPark)
 
 	// Two residents of ONE pen: one bought, one not. That is the mixed pen in miniature.
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-920001', 'Beetal', 'male', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid),
-       ($3::uuid, $2::uuid, 'G-920002', 'Beetal', 'male', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id, origin_type)
+VALUES ($1::uuid, $2::uuid, 'G-920001', 'Beetal', 'male', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid, NULL),
+       ($3::uuid, $2::uuid, 'G-920002', 'Beetal', 'male', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid, 'birth')
 ON CONFLICT (goat_id) DO UPDATE SET shed_id = EXCLUDED.shed_id`,
 		boughtGoat, repoTenant, homeGoat, repoParty, mixedShed, repoPark)
 
@@ -83,7 +83,7 @@ ON CONFLICT DO NOTHING`, repoTenant, loadID, boughtGoat)
 	windowFrom := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	windowTo := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
 
-	purchased, err := repo.resolveOriginScope(ctx, repoTenant, []string{repoPark}, OriginPurchased, windowFrom, windowTo)
+	purchased, err := repo.resolveOriginScope(ctx, repoTenant, []string{repoPark}, OriginProcuredLoad, windowFrom, windowTo)
 	if err != nil {
 		t.Fatalf("resolveOriginScope(purchased): %v", err)
 	}
@@ -146,10 +146,10 @@ VALUES ($1::uuid, $2::uuid, 'Vega North', 'shed', $4::uuid, 'active'),
 ON CONFLICT (location_id) DO NOTHING`, boughtShed, repoTenant, homeShed, repoPark)
 
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ('00000000-0000-4000-8000-0000000095b1'::uuid, $1::uuid, 'G-950001', 'Beetal', 'male', 'kid', 'alive', 'kid', $2::uuid, $3::uuid, $5::uuid, $3::uuid),
-       ('00000000-0000-4000-8000-0000000095b2'::uuid, $1::uuid, 'G-950002', 'Beetal', 'male', 'kid', 'alive', 'kid', $2::uuid, $3::uuid, $5::uuid, $3::uuid),
-       ('00000000-0000-4000-8000-0000000095b3'::uuid, $1::uuid, 'G-950003', 'Beetal', 'male', 'kid', 'alive', 'kid', $2::uuid, $4::uuid, $5::uuid, $4::uuid)
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id, origin_type)
+VALUES ('00000000-0000-4000-8000-0000000095b1'::uuid, $1::uuid, 'G-950001', 'Beetal', 'male', 'kid', 'alive', 'kid', $2::uuid, $3::uuid, $5::uuid, $3::uuid, NULL),
+       ('00000000-0000-4000-8000-0000000095b2'::uuid, $1::uuid, 'G-950002', 'Beetal', 'male', 'kid', 'alive', 'kid', $2::uuid, $3::uuid, $5::uuid, $3::uuid, NULL),
+       ('00000000-0000-4000-8000-0000000095b3'::uuid, $1::uuid, 'G-950003', 'Beetal', 'male', 'kid', 'alive', 'kid', $2::uuid, $4::uuid, $5::uuid, $4::uuid, 'birth')
 ON CONFLICT (goat_id) DO UPDATE SET shed_id = EXCLUDED.shed_id`,
 		repoTenant, repoParty, boughtShed, homeShed, repoPark)
 
@@ -173,7 +173,7 @@ ON CONFLICT DO NOTHING`, repoTenant, loadID)
 	windowFrom := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	windowTo := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
 
-	purchased, err := repo.resolveOriginScope(ctx, repoTenant, []string{repoPark}, OriginPurchased, windowFrom, windowTo)
+	purchased, err := repo.resolveOriginScope(ctx, repoTenant, []string{repoPark}, OriginProcuredLoad, windowFrom, windowTo)
 	if err != nil {
 		t.Fatalf("resolveOriginScope(purchased): %v", err)
 	}
@@ -250,7 +250,7 @@ ON CONFLICT DO NOTHING`, repoTenant, loadA, loadB, twoLoadGoat)
 	windowFrom := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	windowTo := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
 
-	purchased, err := repo.resolveOriginScope(ctx, repoTenant, []string{repoPark}, OriginPurchased, windowFrom, windowTo)
+	purchased, err := repo.resolveOriginScope(ctx, repoTenant, []string{repoPark}, OriginProcuredLoad, windowFrom, windowTo)
 	if err != nil {
 		t.Fatalf("resolveOriginScope(purchased): %v", err)
 	}

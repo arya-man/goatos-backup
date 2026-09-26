@@ -330,7 +330,7 @@ test("the sex filter reaches the demographics read on both arms", () => {
     "utf8",
   );
   // The per-animal arm is narrowed upstream, where the tag is already resolved to its animal...
-  assert.match(repo, /\$28::bool AND \(\$5::text = '' OR lower\(btrim\(gt\.sex\)\) = \$5::text\)/);
+  assert.match(repo, /\$31::bool AND \(\$5::text = '' OR lower\(btrim\(gt\.sex\)\) = \$5::text\)/);
   // ...and an unknown value is refused rather than silently widening the filter.
   assert.match(repo, /sexFilter, sexErr := normalizeSexFilter\(sex\)/);
   // An empty filter keeps every row INCLUDING tags that resolve to no animal, which is what the

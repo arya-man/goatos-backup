@@ -1,6 +1,7 @@
 import { ControlTowerPage } from "@/features/control-tower";
 import { landingWindow, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "@/features/weighing";
 import { getAdminWebBootstrap } from "@/lib/api/server";
+import { originFromParam } from "@/lib/animal-origin";
 import { todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
@@ -39,8 +40,7 @@ async function landingHref(landing: { href: string; copy?: Record<string, string
 
   const rawSex = one(params, "sex");
   const sexFilter = rawSex === "female" ? "female" : rawSex === "all" ? "" : "male";
-  const rawOrigin = one(params, "origin");
-  const originFilter = rawOrigin === "farm_born" || rawOrigin === "purchased" ? rawOrigin : "";
+  const originFilter = originFromParam(one(params, "origin"));
   const modeFilter = weighingModeFilter(one(params, "weighing"));
   const weighingCategoryFilter = modeFilter !== "all" ? modeFilter : "";
   const today = todayIso();

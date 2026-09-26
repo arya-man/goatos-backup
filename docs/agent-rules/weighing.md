@@ -131,6 +131,17 @@ meaning (`identity_count` -> `animal_count`, `BandMovement.pair_identities` -> `
 leaving the tag-matching counts untouched since a pen carries no tag to match. Canonical prose:
 `docs/decisions/weights-origin-filter.md`.
 
+THREE ORIGINS, NOT TWO (maintainer decision 2026-09-26, SUPERSEDING the two cohorts above -- the
+per-animal and agree-or-neither rules stand). "Farm born" meant "on no load" and so held every
+animal bought WITHOUT a recorded load (659 of the live herd that day). The filter is now **Farm
+born / Procured (no load) / Procured (load)**, keys `farm_born` / `procured_no_load` /
+`procured_load`, with the retired `purchased` still accepted as `procured_load`. Per animal, in
+order: on a load -> Procured (load); else `goats.origin_type = 'birth'` -> Farm born; else
+`'procured'` -> Procured (no load); else no cohort (never guessed). ONE statement of the rule:
+`backend/internal/platform/animalorigin`; every SQL site mirrors `Classify`. The Sales Farm born
+and Load wise pages already used this split -- a new origin surface must use it too. Canonical
+prose: `docs/decisions/weights-origin-filter.md` -> "Three origins, not two".
+
 
 ONE DAILY-GAIN NUMBER, AND WHOLE-SHED PENS ARE IN IT (maintainer decision 2026-08-26, same day,
 SUPERSEDING the individual-only headline). The farm's daily gain is the ANIMAL-WEIGHTED MEAN over

@@ -246,13 +246,13 @@ func TestWeightDemographicsSectionedReadsGateProducerCTEs(t *testing.T) {
 		`needLump := sectionSet["composition"] || sectionSet["dimensions"] || sectionSet["weight_bands"]`,
 		`needGain := sectionSet["dimensions"] || sectionSet["origin"] || sectionSet["shed_type"] || sectionSet["weight_bands"] || sectionSet["gain_thresholds"]`,
 		`needWeeklyGain := sectionSet["weekly_gain"]`,
-		`AND $26::bool`,
-		`AND ($28::bool OR $30::bool)`,
-		`FROM paired WHERE $28::bool`,
-		`WHERE $27::bool`,
-		`WHERE $29::bool`,
+		`AND $29::bool`,
+		`AND ($31::bool OR $33::bool)`,
+		`FROM paired WHERE $31::bool`,
 		`WHERE $30::bool`,
-		`WHERE $22::bool`,
+		`WHERE $32::bool`,
+		`WHERE $33::bool`,
+		`WHERE $25::bool`,
 	} {
 		if !strings.Contains(src, required) {
 			t.Fatalf("weight demographics section fast path missing %q", required)
@@ -309,14 +309,15 @@ func TestShedPartitionShortcutOnlyHandlesSectionsItPopulates(t *testing.T) {
 
 func TestWeightDemographicsPrunesInactiveSectionSelectReferences(t *testing.T) {
 	query := `SELECT
-  CASE WHEN $21::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, origin, n, g) ORDER BY breed, origin), '[]'::jsonb)
+  CASE WHEN $24::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, origin, n, g) ORDER BY breed, origin), '[]'::jsonb)
      FROM (
        SELECT breed, origin, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
          SELECT breed, origin, count(*)::bigint n, sum(g)::float8 gsum
          FROM (
            SELECT rg.breed, rg.g,
                   CASE WHEN rg.tag = ANY($10::text[]) THEN 'farm_born'
-                       WHEN rg.tag = ANY($11::text[]) THEN 'purchased' END AS origin
+                       WHEN rg.tag = ANY($16::text[]) THEN 'procured_no_load'
+                       WHEN rg.tag = ANY($11::text[]) THEN 'procured_load' END AS origin
            FROM resolved_gain rg WHERE rg.breed IS NOT NULL
          ) scanned
          WHERE origin IS NOT NULL
@@ -330,8 +331,10 @@ func TestWeightDemographicsPrunesInactiveSectionSelectReferences(t *testing.T) {
            SELECT CASE
              WHEN EXISTS (SELECT 1 FROM unnest($12::uuid[], $13::text[]) AS fb(loc, part)
                           WHERE fb.loc = ls.location_id AND fb.part = ls.partition_label) THEN 'farm_born'
+             WHEN EXISTS (SELECT 1 FROM unnest($17::uuid[], $18::text[]) AS pn(loc, part)
+                          WHERE pn.loc = ls.location_id AND pn.part = ls.partition_label) THEN 'procured_no_load'
              WHEN EXISTS (SELECT 1 FROM unnest($14::uuid[], $15::text[]) AS pu(loc, part)
-                          WHERE pu.loc = ls.location_id AND pu.part = ls.partition_label) THEN 'purchased'
+                          WHERE pu.loc = ls.location_id AND pu.part = ls.partition_label) THEN 'procured_load'
            END AS origin
          ) pen ON pen.origin IS NOT NULL
          -- Same claim rule as every other whole-shed arm: the pen counts for a reader only when
@@ -340,7 +343,7 @@ func TestWeightDemographicsPrunesInactiveSectionSelectReferences(t *testing.T) {
          GROUP BY sc.breed, pen.origin
        ) parts GROUP BY breed, origin
      ) gbo) ELSE '[]'::jsonb END,
-  CASE WHEN $24::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, week_start, n, g) ORDER BY breed, week_start), '[]'::jsonb)
+  CASE WHEN $27::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, week_start, n, g) ORDER BY breed, week_start), '[]'::jsonb)
      FROM (
        SELECT breed, week_start, sum(n)::bigint AS n, (sum(gsum) / NULLIF(sum(n), 0))::float8 AS g
        FROM (
@@ -361,10 +364,10 @@ func TestWeightDemographicsPrunesInactiveSectionSelectReferences(t *testing.T) {
        ) parts GROUP BY breed, week_start
      ) gbw) ELSE '[]'::jsonb END`
 	pruned := weightDemographicsPruneInactiveSectionSelects(query, map[string]bool{"weekly_gain": true})
-	if strings.Contains(pruned, "resolved_gain") || strings.Contains(pruned, "farm_born") || strings.Contains(pruned, "$21::bool") {
+	if strings.Contains(pruned, "resolved_gain") || strings.Contains(pruned, "farm_born") || strings.Contains(pruned, "$24::bool") {
 		t.Fatalf("weekly_gain section must not reference inactive origin arm after pruning:\n%s", pruned)
 	}
-	if !strings.Contains(pruned, "animal_gain_week") || !strings.Contains(pruned, "$24::bool") {
+	if !strings.Contains(pruned, "animal_gain_week") || !strings.Contains(pruned, "$27::bool") {
 		t.Fatalf("weekly_gain section must keep the weekly arm:\n%s", pruned)
 	}
 }
@@ -377,13 +380,13 @@ func TestWeightDemographicsRealSectionQueriesPruneInactiveResults(t *testing.T) 
 	}
 
 	selectorBySection := map[string]string{
-		"composition":     "$19::bool",
-		"dimensions":      "$20::bool",
-		"origin":          "$21::bool",
-		"shed_type":       "$22::bool",
-		"weight_bands":    "$23::bool",
-		"weekly_gain":     "$24::bool",
-		"gain_thresholds": "$25::bool",
+		"composition":     "$22::bool",
+		"dimensions":      "$23::bool",
+		"origin":          "$24::bool",
+		"shed_type":       "$25::bool",
+		"weight_bands":    "$26::bool",
+		"weekly_gain":     "$27::bool",
+		"gain_thresholds": "$28::bool",
 	}
 	cases := []struct {
 		name     string

@@ -227,7 +227,13 @@ cohort AS (
          jsonb_agg(jsonb_build_object('key', lower(btrim(g.breed)), 'label', g.breed, 'animals', 1) ORDER BY g.breed)
            FILTER (WHERE g.goat_id IS NOT NULL) AS breed_members,
          count(g.goat_id) FILTER (WHERE EXISTS (
-           SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS bought
+           SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS bought,
+         -- The other two origin cohorts, per platform/animalorigin: a load wins, then the register's
+         -- origin_type. An animal with neither is in no cohort, so it keeps its pen out of all three.
+         count(g.goat_id) FILTER (WHERE g.origin_type = 'birth' AND NOT EXISTS (
+           SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS born,
+         count(g.goat_id) FILTER (WHERE g.origin_type = 'procured' AND NOT EXISTS (
+           SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS no_load
   FROM pens p
   LEFT JOIN goats g ON g.tenant_id = $1::uuid AND g.lifecycle_status = 'alive' AND g.shed_id = p.pen_shed_id
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = $1::uuid AND gsp.goat_id = g.goat_id
@@ -246,7 +252,13 @@ weighed_cohort AS (
          jsonb_agg(jsonb_build_object('key', lower(btrim(g.breed)), 'label', g.breed, 'animals', 1) ORDER BY g.breed)
            FILTER (WHERE g.goat_id IS NOT NULL) AS breed_members,
          count(g.goat_id) FILTER (WHERE EXISTS (
-           SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS bought
+           SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS bought,
+         -- The other two origin cohorts, per platform/animalorigin: a load wins, then the register's
+         -- origin_type. An animal with neither is in no cohort, so it keeps its pen out of all three.
+         count(g.goat_id) FILTER (WHERE g.origin_type = 'birth' AND NOT EXISTS (
+           SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS born,
+         count(g.goat_id) FILTER (WHERE g.origin_type = 'procured' AND NOT EXISTS (
+           SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS no_load
   FROM (SELECT DISTINCT pen_shed_id, pen_key, animal_key FROM scan_rounds) sr
   JOIN goat_identifiers gi ON gi.tenant_id = $1::uuid AND gi.normalized_value = upper(sr.animal_key)
   JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = gi.goat_id
@@ -353,8 +365,8 @@ SELECT p.pen_shed_id::text, p.pen_key,
        (SELECT min(bp.pen_partition_label) FROM bucket_pen bp WHERE bp.pen_shed_id = p.pen_shed_id AND bp.pen_key = p.pen_key) AS bucket_label,
        wf.feed_label,
        p.rounds, p.first_d::text, p.last_d::text, p.first_avg, p.last_animals, p.modes,
-       c.residents, c.breeds, COALESCE(c.breed, ''), c.sexes, COALESCE(c.sex, ''), c.species_n, COALESCE(c.species, ''), cm.mix, c.breed_members, c.bought,
-       wc.animals, wc.breeds, COALESCE(wc.breed, ''), wc.sexes, COALESCE(wc.sex, ''), wc.species_n, COALESCE(wc.species, ''), wm.mix, wc.breed_members, wc.bought,
+       c.residents, c.breeds, COALESCE(c.breed, ''), c.sexes, COALESCE(c.sex, ''), c.species_n, COALESCE(c.species, ''), cm.mix, c.breed_members, c.bought, c.born, c.no_load,
+       wc.animals, wc.breeds, COALESCE(wc.breed, ''), wc.sexes, COALESCE(wc.sex, ''), wc.species_n, COALESCE(wc.species, ''), wm.mix, wc.breed_members, wc.bought, wc.born, wc.no_load,
        wf.feed_kg::float8, wf.blocked_cells,
        COALESCE(gl.g, gs.g)::float8, (CASE WHEN gl.g IS NOT NULL THEN gl.animals ELSE gs.animals END)::int
 FROM pens p
@@ -612,15 +624,15 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 		var row domain.FCRPenRow
 		var shedName string
 		var bucketLabel, feedLabel *string
-		var residents, breeds, sexes, speciesN, bought *int
+		var residents, breeds, sexes, speciesN, bought, born, noLoad *int
 		var residentMix, weighedMix, residentBreeds, weighedBreeds []byte
-		var wAnimals, wBreeds, wSexes, wSpeciesN, wBought *int
+		var wAnimals, wBreeds, wSexes, wSpeciesN, wBought, wBorn, wNoLoad *int
 		var firstAvg, windowFeed *float64
 		var blocked, genAnimals *int
 		if err := rows.Scan(&row.LocationID, &row.PenKey, &shedName, &row.ParkID, &row.ParkName, &row.ParkCode, &bucketLabel, &feedLabel,
 			&row.Rounds, &row.FirstWeighDate, &row.LastWeighDate, &firstAvg, &row.LatestAnimals, &row.Modes,
-			&residents, &breeds, &row.Breed, &sexes, &row.Sex, &speciesN, &row.Species, &residentMix, &residentBreeds, &bought,
-			&wAnimals, &wBreeds, &row.WeighedBreed, &wSexes, &row.WeighedSex, &wSpeciesN, &row.WeighedSpecies, &weighedMix, &weighedBreeds, &wBought,
+			&residents, &breeds, &row.Breed, &sexes, &row.Sex, &speciesN, &row.Species, &residentMix, &residentBreeds, &bought, &born, &noLoad,
+			&wAnimals, &wBreeds, &row.WeighedBreed, &wSexes, &row.WeighedSex, &wSpeciesN, &row.WeighedSpecies, &weighedMix, &weighedBreeds, &wBought, &wBorn, &wNoLoad,
 			&windowFeed, &blocked, &row.GeneralADGGPerDay, &genAnimals); err != nil {
 			return nil, err
 		}
@@ -662,11 +674,13 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 		if row.WeighedBreedMembers, mixErr = decodeFCRBreedMembers(weighedBreeds); mixErr != nil {
 			return nil, mixErr
 		}
-		if bought != nil {
-			row.BoughtResidents = *bought
+		for dst, src := range map[*int]*int{&row.BoughtResidents: bought, &row.FarmBornResidents: born, &row.NoLoadResidents: noLoad} {
+			if src != nil {
+				*dst = *src
+			}
 		}
 		for dst, src := range map[*int]*int{&row.WeighedAnimals: wAnimals, &row.WeighedBreeds: wBreeds, &row.WeighedSexes: wSexes,
-			&row.WeighedSpeciesN: wSpeciesN, &row.WeighedBought: wBought} {
+			&row.WeighedSpeciesN: wSpeciesN, &row.WeighedBought: wBought, &row.WeighedFarmBorn: wBorn, &row.WeighedNoLoad: wNoLoad} {
 			if src != nil {
 				*dst = *src
 			}

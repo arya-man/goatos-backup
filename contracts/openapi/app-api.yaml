@@ -1035,8 +1035,8 @@ paths:
           name: origin
           schema:
             type: string
-            enum: [farm_born, purchased]
-          description: Optional farm-born/purchased narrowing, with whole-shed rows included only when the pen is attributable.
+            enum: [farm_born, procured_no_load, procured_load, purchased]
+          description: Optional origin narrowing (farm born, procured without a load, procured on a load; `purchased` is the retired alias of `procured_load`), with whole-shed rows included only when the pen is attributable.
         - in: query
           name: weighing_category
           schema:
@@ -1710,16 +1710,19 @@ paths:
           in: query
           required: false
           description: >-
-            `farm_born` or `purchased` to report on kids of that origin only; omitted means every
-            kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
-            The farm both breeds its own kids and buys them in loads, and the two grow differently
-            enough that reading them together answers nothing.
+            `farm_born`, `procured_no_load` or `procured_load` to report on kids of that origin
+            only; omitted means every kid. `purchased`, the retired two-way key, is still accepted
+            and means `procured_load`. An unknown value is REJECTED rather than ignored, for the
+            same reason `sex` is. The farm breeds its own kids, buys them on recorded loads, and has
+            bought some with no recorded load, and the three grow differently enough that reading
+            them together answers nothing.
 
-            Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh
-            carries a tag, so it is claimed through the animal that tag resolves to: purchased when
-            that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh
-            carries no tag, so it is claimed through its pen and ONLY when every live resident
-            agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because
+            Resolved PER ANIMAL wherever the evidence allows it (platform/animalorigin, maintainer
+            decision 2026-09-26): on a procurement load -> `procured_load`; else the register's
+            origin `birth` -> `farm_born`; else origin `procured` -> `procured_no_load`; anything
+            else answers no cohort. An individually scanned weigh is claimed through the animal its
+            tag resolves to. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and
+            ONLY when every live resident answers the same cohort. A pen that mixes them is claimed by NEITHER side, because
             one average weight cannot be divided between two cohorts; do NOT assume a pen is
             uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4
             were bought, and treating that pen as purchased whole is the defect this rule exists to
@@ -1728,7 +1731,7 @@ paths:
             from, so the two filtered halves need not sum to the unfiltered total.
 
             Selecting `sex` and `origin` together reports the kids in BOTH.
-          schema: {type: string, enum: [farm_born, purchased]}
+          schema: {type: string, enum: [farm_born, procured_no_load, procured_load, purchased]}
         - name: weighing_category
           in: query
           required: false
@@ -1956,16 +1959,19 @@ paths:
           in: query
           required: false
           description: >-
-            `farm_born` or `purchased` to report on kids of that origin only; omitted means every
-            kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
-            The farm both breeds its own kids and buys them in loads, and the two grow differently
-            enough that reading them together answers nothing.
+            `farm_born`, `procured_no_load` or `procured_load` to report on kids of that origin
+            only; omitted means every kid. `purchased`, the retired two-way key, is still accepted
+            and means `procured_load`. An unknown value is REJECTED rather than ignored, for the
+            same reason `sex` is. The farm breeds its own kids, buys them on recorded loads, and has
+            bought some with no recorded load, and the three grow differently enough that reading
+            them together answers nothing.
 
-            Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh
-            carries a tag, so it is claimed through the animal that tag resolves to: purchased when
-            that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh
-            carries no tag, so it is claimed through its pen and ONLY when every live resident
-            agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because
+            Resolved PER ANIMAL wherever the evidence allows it (platform/animalorigin, maintainer
+            decision 2026-09-26): on a procurement load -> `procured_load`; else the register's
+            origin `birth` -> `farm_born`; else origin `procured` -> `procured_no_load`; anything
+            else answers no cohort. An individually scanned weigh is claimed through the animal its
+            tag resolves to. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and
+            ONLY when every live resident answers the same cohort. A pen that mixes them is claimed by NEITHER side, because
             one average weight cannot be divided between two cohorts; do NOT assume a pen is
             uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4
             were bought, and treating that pen as purchased whole is the defect this rule exists to
@@ -1974,7 +1980,7 @@ paths:
             from, so the two filtered halves need not sum to the unfiltered total.
 
             Selecting `sex` and `origin` together reports the kids in BOTH.
-          schema: {type: string, enum: [farm_born, purchased]}
+          schema: {type: string, enum: [farm_born, procured_no_load, procured_load, purchased]}
         - name: weighing_category
           in: query
           required: false
@@ -2080,16 +2086,19 @@ paths:
           in: query
           required: false
           description: >-
-            `farm_born` or `purchased` to report on kids of that origin only; omitted means every
-            kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
-            The farm both breeds its own kids and buys them in loads, and the two grow differently
-            enough that reading them together answers nothing.
+            `farm_born`, `procured_no_load` or `procured_load` to report on kids of that origin
+            only; omitted means every kid. `purchased`, the retired two-way key, is still accepted
+            and means `procured_load`. An unknown value is REJECTED rather than ignored, for the
+            same reason `sex` is. The farm breeds its own kids, buys them on recorded loads, and has
+            bought some with no recorded load, and the three grow differently enough that reading
+            them together answers nothing.
 
-            Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh
-            carries a tag, so it is claimed through the animal that tag resolves to: purchased when
-            that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh
-            carries no tag, so it is claimed through its pen and ONLY when every live resident
-            agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because
+            Resolved PER ANIMAL wherever the evidence allows it (platform/animalorigin, maintainer
+            decision 2026-09-26): on a procurement load -> `procured_load`; else the register's
+            origin `birth` -> `farm_born`; else origin `procured` -> `procured_no_load`; anything
+            else answers no cohort. An individually scanned weigh is claimed through the animal its
+            tag resolves to. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and
+            ONLY when every live resident answers the same cohort. A pen that mixes them is claimed by NEITHER side, because
             one average weight cannot be divided between two cohorts; do NOT assume a pen is
             uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4
             were bought, and treating that pen as purchased whole is the defect this rule exists to
@@ -2098,7 +2107,7 @@ paths:
             from, so the two filtered halves need not sum to the unfiltered total.
 
             Selecting `sex` and `origin` together reports the kids in BOTH.
-          schema: {type: string, enum: [farm_born, purchased]}
+          schema: {type: string, enum: [farm_born, procured_no_load, procured_load, purchased]}
         - name: weighing_category
           in: query
           required: false
@@ -2218,16 +2227,19 @@ paths:
           in: query
           required: false
           description: >-
-            `farm_born` or `purchased` to report on kids of that origin only; omitted means every
-            kid. An unknown value is REJECTED rather than ignored, for the same reason `sex` is.
-            The farm both breeds its own kids and buys them in loads, and the two grow differently
-            enough that reading them together answers nothing.
+            `farm_born`, `procured_no_load` or `procured_load` to report on kids of that origin
+            only; omitted means every kid. `purchased`, the retired two-way key, is still accepted
+            and means `procured_load`. An unknown value is REJECTED rather than ignored, for the
+            same reason `sex` is. The farm breeds its own kids, buys them on recorded loads, and has
+            bought some with no recorded load, and the three grow differently enough that reading
+            them together answers nothing.
 
-            Resolved PER ANIMAL wherever the evidence allows it. An individually scanned weigh
-            carries a tag, so it is claimed through the animal that tag resolves to: purchased when
-            that animal came off a procurement load, farm born when it did not. A WHOLE-SHED weigh
-            carries no tag, so it is claimed through its pen and ONLY when every live resident
-            agrees -- all bought, or none. A pen holding both is claimed by NEITHER side, because
+            Resolved PER ANIMAL wherever the evidence allows it (platform/animalorigin, maintainer
+            decision 2026-09-26): on a procurement load -> `procured_load`; else the register's
+            origin `birth` -> `farm_born`; else origin `procured` -> `procured_no_load`; anything
+            else answers no cohort. An individually scanned weigh is claimed through the animal its
+            tag resolves to. A WHOLE-SHED weigh carries no tag, so it is claimed through its pen and
+            ONLY when every live resident answers the same cohort. A pen that mixes them is claimed by NEITHER side, because
             one average weight cannot be divided between two cohorts; do NOT assume a pen is
             uniform, because a real one is not (CPT Mandela 1 - Part 1 holds 13 kids of which 4
             were bought, and treating that pen as purchased whole is the defect this rule exists to
@@ -2236,7 +2248,7 @@ paths:
             from, so the two filtered halves need not sum to the unfiltered total.
 
             Selecting `sex` and `origin` together reports the kids in BOTH.
-          schema: {type: string, enum: [farm_born, purchased]}
+          schema: {type: string, enum: [farm_born, procured_no_load, procured_load, purchased]}
         - name: weighing_category
           in: query
           required: false
@@ -2321,7 +2333,7 @@ paths:
         - name: origin
           in: query
           required: false
-          schema: {type: string, enum: [all, farm_born, purchased]}
+          schema: {type: string, enum: [all, farm_born, procured_no_load, procured_load, purchased]}
         - name: weighing_category
           in: query
           required: false
@@ -40947,19 +40959,19 @@ components:
       additionalProperties: false
       required: [label, origin, animals, median_gain_g_per_day]
       description: >-
-        One breed's daily gain for ONE origin -- farm born or purchased. Same measure and same
+        One breed's daily gain for ONE origin -- farm born, procured without a load, or procured on a load. Same measure and same
         population rule as WeighingWeightGainBucket, split by where the animals came from.
         Resolved PER ANIMAL for a scanned weigh and agree-or-neither for a whole-shed pen, the
-        identical rule the Weights page's Farm born / Purchased filter follows.
-        THE TWO SIDES NEED NOT ADD UP to the breed's own gain_by_breed entry: an animal whose load
-        is not recorded is claimed by neither side while still counting in the breed total. Render
-        the halves as a comparison, never as a partition of the whole.
+        identical rule the Weights page's Farm born / Procured (no load) / Procured (load) filter
+        follows. THE THREE NEED NOT ADD UP to the breed's own gain_by_breed entry: an animal with
+        no recorded origin and no load is claimed by none of them while still counting in the
+        breed total. Render them as a comparison, never as a partition of the whole.
       properties:
         label: {type: string, description: "The breed, as stored. Clients render it; they do not re-map it."}
         origin:
           type: string
-          enum: [farm_born, purchased]
-          description: "Never emitted for an animal or pen that is on neither side."
+          enum: [farm_born, procured_no_load, procured_load]
+          description: "Never emitted for an animal or pen that answers none of the three."
         animals:
           type: integer
           description: "Scanned kids of this breed and origin with a computable gain, plus the head counts of the pens claimed for this origin."
@@ -41211,7 +41223,7 @@ components:
           items: {$ref: "#/components/schemas/WeighingWeightGainBucket"}
         gain_by_breed_origin:
           type: array
-          description: "Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither."
+          description: "Daily gain per breed split by origin: farm born, procured without a load, procured on a load (platform/animalorigin). The three need not add up to gain_by_breed -- an animal on no load whose origin the register does not record, and a pen whose residents do not all share one origin, are claimed by none."
           items: {$ref: "#/components/schemas/WeighingWeightGainOriginBucket"}
         gain_by_breed_shed_type:
           type: array

@@ -1,6 +1,10 @@
-# The Weights page filters by FARM BORN vs PURCHASED
+# The Weights page filters by ORIGIN (farm born / procured no load / procured load since 2026-09-26)
 
 Maintainer decision, 2026-09-01.
+
+> **SUPERSEDED 2026-09-26 on the COHORTS — see "Three origins, not two" at the end.** The filter
+> now has three values: Farm born, Procured (no load), Procured (load). "Farm born" no longer
+> means "on no load".
 
 ## What was asked for
 
@@ -289,3 +293,49 @@ The band chart also stopped being a fixed-height box. It has a FIXED SIX rows an
 so `tall` (300px) only ever left dead space under the last bar; `wbars-bands` sizes to its content
 with a `max-height` for safety, and the empty state keeps a `min-height` so it cannot collapse onto
 the caption.
+
+
+## Three origins, not two (maintainer decision 2026-09-26)
+
+> "we have three different types: farm born, procured without load, and procured load-wise ...
+> I think we have mixed farm born and procured without load ... it should be three ways"
+
+The two-way filter answered "farm born" with "carries no procurement load row". That read the
+farm's records as if every animal not bought on a load was bred here, but the register also holds
+animals marked **procured** that sit on no recorded load. On STG, 2026-09-26, alive animals:
+
+| Cohort | Register evidence | Alive |
+|---|---|---|
+| Farm born | `origin_type = 'birth'`, on no load | 508 |
+| Procured (no load) | `origin_type = 'procured'`, on no load | 659 |
+| Procured (load) | on a procurement load (58 marked procured, 333 with no origin) | 391 |
+
+So "Farm born" on Weights held 1,167 animals, 659 of them bought. The Sales pages were already
+right: Farm born reads `origin_type = 'birth'`, Load wise reads load membership.
+
+**The rule, per animal, in this order** (`backend/internal/platform/animalorigin`, the one Go
+statement of it; every SQL site mirrors `Classify` and names that package):
+
+1. on any procurement load → **Procured (load)** — the load wins, because it is what the buyer wrote
+2. else `origin_type = 'birth'` → **Farm born**
+3. else `origin_type = 'procured'` → **Procured (no load)**
+4. anything else (no origin, `imported`) → **no cohort**: still counted unfiltered, never guessed
+
+A whole-shed pen joins a cohort only when every live resident answers it; a pen that mixes them,
+or holds an animal with no recorded origin, is claimed by none — the agree-or-neither rule above,
+now over three cohorts.
+
+Wire keys: `farm_born`, `procured_no_load`, `procured_load`. The retired `purchased` is still
+ACCEPTED as a filter value and means `procured_load` — which is what it always meant — so a
+bookmarked URL keeps working; it is never emitted.
+
+Surfaces moved together: the Weights and ADG Analytics origin filter (every card on the page),
+the gain-by-breed-by-origin chart (three bars per breed), the Growth Director reads, the FCR tab's
+origin section and filter, the feed weight-band origin filter, and the load-animal reads. Sales
+Farm born, Sales Load wise, Counts Mortality and Ask Mesha already used this split and did not
+change. The weighing isolation boundary does not widen: `origin_scope.go` already read `goats`
+under this exception; it now also reads that row's `origin_type` column.
+
+Pinned by `animalorigin.TestClassifyPutsTheLoadFirstAndGuessesNothing`,
+`TestFCROriginKeepsFarmBornApartFromProcuredWithoutALoad` and
+`TestNormalizeOriginFilterRejectsUnknownValuesAsInvalidArgument` (legacy `purchased` row).

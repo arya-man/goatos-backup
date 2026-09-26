@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/animalorigin"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -109,8 +110,9 @@ load_goats AS (
     -- Sex is the animal's own, from the register: a load animal weighed only inside a whole pen
     -- carries no scanned tag, so a tag list could never place it.
     AND ($5::text = '' OR lower(btrim(g.sex)) = $5::text)
-    -- Every load animal was bought: Farm born holds none of them, Purchased holds all.
-    AND $6::text <> 'farm_born'
+    -- Every load animal is Procured (load) by the origin rule (platform/animalorigin: a load wins
+    -- over the recorded origin), so only that cohort -- or no origin filter -- keeps them.
+    AND $6::text IN ('', 'procured_load')
   ORDER BY plg.goat_id, pl.purchase_date DESC NULLS LAST, pl.load_id
 ),
 -- A load is shown while at least one of its animals is still on the farm (maintainer decision
@@ -334,7 +336,7 @@ func (r *Repository) loadAnimalWindow(ctx context.Context, tenantID string, park
 		return out, nil
 	}
 	bound, err := sqlbind.Bind(loadAnimalsWindowSQL, tenantID, parkIDs, periodStart, periodEnd,
-		strings.ToLower(strings.TrimSpace(sex)), strings.ToLower(strings.TrimSpace(origin)), weighingCategory, "", "")
+		strings.ToLower(strings.TrimSpace(sex)), loadAnimalOrigin(origin), weighingCategory, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("weighing: bind load animals: %w", err)
 	}
@@ -378,7 +380,7 @@ func (r *Repository) loadAnimalBuckets(ctx context.Context, tenantID string, par
 	}
 	query := bucketedQuery(loadAnimalsBucketTemplate, scope.Bucket, 10)
 	args := []any{tenantID, parkIDs, periodStart, periodEnd,
-		strings.ToLower(strings.TrimSpace(sex)), strings.ToLower(strings.TrimSpace(origin)), weighingCategory,
+		strings.ToLower(strings.TrimSpace(sex)), loadAnimalOrigin(origin), weighingCategory,
 		strings.TrimSpace(scope.PenLocationID), strings.TrimSpace(scope.PenPartitionLabel)}
 	if scope.Bucket == domain.GainBucketMonth {
 		args = append(args, gainBucketAnchor(periodEnd))
@@ -418,4 +420,12 @@ func decodeLoadAnimalPlacements(raw []byte) ([]domain.LoadPlacement, error) {
 		_, _, p.OperationalLocationDisplay = oploc.ResolveComposedName("", p.ShedDisplayName, p.PartitionLabel)
 	}
 	return mergeSameOperationalLocation(out), nil
+}
+
+// loadAnimalOrigin normalizes the origin filter for the load-animal reads, so the retired
+// "purchased" key still means the load cohort. An unknown value never reaches here: the service
+// refuses it (validateOriginFilter) before any read runs.
+func loadAnimalOrigin(origin string) string {
+	normalized, _ := animalorigin.Normalize(origin)
+	return normalized
 }

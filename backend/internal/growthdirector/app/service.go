@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	"github.com/vgoats/goatos/backend/internal/growthdirector/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/animalorigin"
 	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -158,8 +159,8 @@ func (s *Service) GetFCR(ctx context.Context, actor domain.Actor, parkID, fromBu
 	if sex != "" && sex != "male" && sex != "female" {
 		return domain.FCRReport{}, ports.ErrInvalidArgument
 	}
-	origin = strings.ToLower(strings.TrimSpace(origin))
-	if origin != "" && origin != domain.OriginFarmBorn && origin != domain.OriginPurchased {
+	origin, ok := animalorigin.Normalize(origin)
+	if !ok {
 		return domain.FCRReport{}, ports.ErrInvalidArgument
 	}
 	settings, err := s.repo.GrowthSettings(ctx, actor.TenantID)
