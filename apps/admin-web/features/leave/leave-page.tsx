@@ -7,10 +7,11 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import MuiCard from "@mui/material/Card";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
-import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
+import CardHeader from "@mui/material/CardHeader";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import { StatStrip } from "@/components/minimal/widgets/stat-strip";
@@ -131,14 +132,13 @@ export async function LeavePage({
         crumbs={[{ label: copy(pageContract, "crumb", "Operations") }, { label: copy(pageContract, "crumb.section", "People") }, { label: t("page.title") }]}
       />
 
-      <div className="kit-enter">
+      <Stack spacing={3}>
         {feedbackText ? (
           <Alert
             severity={feedback.status === "error" ? "error" : "success"}
             icon={feedback.status === "error" ? <CircleAlert size={18} aria-hidden="true" /> : <CircleCheck size={18} aria-hidden="true" />}
             data-testid="leave-feedback"
             role="status"
-            sx={{ mb: 2 }}
           >
             {feedbackText}
           </Alert>
@@ -147,7 +147,7 @@ export async function LeavePage({
         {mayList && Object.values(statusCounts).some((n) => Number(n) > 0) ? (
           // Spec §5 strip over the status taxonomy the tabs already use; hidden while every count is 0.
           // Template invoice list: the InvoiceAnalytic row inside its own Card.
-          <MuiCard sx={{ mb: 2 }}>
+          <MuiCard>
             <StatStrip
               cells={[
                 { key: "pending", icon: <CircleDot aria-hidden="true" />, label: t("filter.status.pending"), value: String(statusCounts.pending), tone: "warning" },
@@ -167,7 +167,7 @@ export async function LeavePage({
 
         {mayDecide ? (
           <div>
-            <Card className="kit-tablecard" data-testid="leave-queue" sx={{ mb: 2 }}>
+            <Card className="kit-tablecard" data-testid="leave-queue">
               <CardHeader
                 sx={{ pt: 2.5, px: 3, pb: 1.5, mb: 2, alignItems: "center" }}
                 title={
@@ -291,20 +291,14 @@ export async function LeavePage({
           <div>
             <Card className="kit-tablecard" data-testid="leave-list">
               <CardHeader
-                sx={{
-                  pt: 2.5,
-                  px: 3,
-                  pb: 1.5,
-                  mb: 2,
-                  alignItems: "center",
-                  gap: 1.5,
-                  flexWrap: "wrap",
-                  [`& .${cardHeaderClasses.action}`]: { m: 0, flex: { xs: "1 1 100%", sm: "0 0 auto" }, minWidth: 0, maxWidth: "100%" },
-                }}
+                sx={{ pt: 2.5, px: 3, pb: 1.5, alignItems: "center" }}
                 title={listTable.title}
-                action={
-                  <AnimatedTabs
-                    variant="pill"
+              />
+              {/* Template user list: the status Tabs (Label counts) are the card's first row; scroll
+                  arrows keep every status reachable on a phone. */}
+              <AnimatedTabs
+                    scrollButtons="auto"
+                    sx={{ px: { xs: 1, sm: 2.5 }, mb: 2 }}
                     ariaLabel={t("filter.status.all")}
                     value={statusFilter || "all"}
                     items={STATUS_FILTERS.map((key) => ({
@@ -314,8 +308,6 @@ export async function LeavePage({
                       count: key ? listAll.filter((r) => r.status === key).length : listAll.length,
                       href: hrefWith(sp, { status: key || null, cursor: null, lv_status: null, lv_code: null }),
                     }))}
-                  />
-                }
               />
               {list && !list.ok ? (
                 <Alert severity="error" icon={<CircleAlert size={18} aria-hidden="true" />} role="alert" sx={{ mx: 3, mb: 2 }}>
@@ -397,7 +389,7 @@ export async function LeavePage({
             <Alert severity="error">{control(pageContract, "leave_list").disabled_reason ?? ""}</Alert>
           </div>
         ) : null}
-      </div>
+      </Stack>
     </div>
   );
 }

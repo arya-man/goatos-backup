@@ -6,6 +6,7 @@ import TableCell from "@mui/material/TableCell";
 import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { AlarmClock, CalendarCheck2, ClipboardCheck, ListChecks, Plus, RotateCcw, Send } from "lucide-react";
 
@@ -420,26 +421,23 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
         }
       />
 
-      <div className="kit-enter">
+      <Stack spacing={3}>
         {!data.list.ok ? (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert severity="error">
             {data.list.error.message}
           </Alert>
         ) : null}
 
         {/* A deck of zeros is a wall, not a reading: the tiles render only once a day has counts. */}
         {tasks && summaryTiles.some((tile) => Number(tasks.summary[tile.key]) > 0) ? (
-          <div>
-            <KpiGrid min={200}>
-              {summaryTiles.map((tile) => (
-                <KpiCard key={tile.key} label={c(tile.copyKey)} value={tasks.summary[tile.key]} tone={tile.tone} icon={tile.icon} />
-              ))}
-            </KpiGrid>
-          </div>
+          <KpiGrid>
+            {summaryTiles.map((tile) => (
+              <KpiCard key={tile.key} label={c(tile.copyKey)} value={tasks.summary[tile.key]} tone={tile.tone} icon={tile.icon} />
+            ))}
+          </KpiGrid>
         ) : null}
 
-        <div style={{ marginTop: 16 }}>
-          <Card className="kit-tablecard" aria-label={routinesTable.title}>
+        <Card className="kit-tablecard" aria-label={routinesTable.title}>
             <CardHeader
               sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
               title={
@@ -526,10 +524,8 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
               </RoutinesTableChrome>
             )}
           </Card>
-        </div>
 
-        <div style={{ marginTop: 16 }}>
-          <Card className="kit-tablecard" aria-label={tasksTable.title}>
+        <Card className="kit-tablecard" aria-label={tasksTable.title}>
             <CardHeader
               sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
               title={
@@ -626,8 +622,7 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
             )}
 
           </Card>
-        </div>
-      </div>
+      </Stack>
 
       <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={c("drawer.routine.title")} closeLabel={c("action.close")} />
     </div>

@@ -214,8 +214,8 @@ export function KpiCard({ label, value, format, digits, unit, icon, tone = "prim
               flexShrink: 0,
               alignSelf: "flex-start",
               borderRadius: "50%",
-              // Hidden in a phone two-up deck: the badge would squeeze the label to a word per line.
-              display: { xs: "none", sm: "inline-flex" },
+              // KpiGrid stacks one widget per row at xs, so the badge always shows (template widgets).
+              display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
               color: color ? `${color}.main` : "text.secondary",

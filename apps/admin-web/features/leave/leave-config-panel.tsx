@@ -52,7 +52,7 @@ export function LeaveConfigPanel({
   };
 
   return (
-    <Card data-testid="leave-config" sx={{ p: { xs: 2, sm: 3 }, mb: 2 }}>
+    <Card data-testid="leave-config" sx={{ p: { xs: 2, sm: 3 } }}>
       <CardHeader
         sx={{ p: 0, mb: 2, alignItems: "center" }}
         title={

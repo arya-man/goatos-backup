@@ -5,7 +5,13 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Accordion from "@mui/material/Accordion";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import AccordionSummary from "@mui/material/AccordionSummary";
 import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Typography from "@mui/material/Typography";
+import { Label } from "@/components/minimal/label";
 import TextField from "@mui/material/TextField";
 import { Iconify } from "@/components/minimal/iconify";
 import { LinkButton } from "@/components/minimal/link-button";
@@ -142,7 +148,7 @@ export async function OperationsAuditPage({
   });
 
   return (
-    <div className="kit-enter screen on">
+    <div className="screen on">
       <div>
         <PageHeader
           title={pageContract.title}
@@ -157,7 +163,7 @@ export async function OperationsAuditPage({
       </div>
 
       {listResult.ok && summaryResult.ok ? null : (
-        <Alert severity="error" style={{ marginBottom: 14 }}>
+        <Alert severity="error">
           <b>{!listResult.ok ? listResult.error.code ?? listResult.error.kind : summaryResult.ok ? copy(pageContract, "error.audit_unavailable") : summaryResult.error.code ?? summaryResult.error.kind}</b>
           &nbsp;{!listResult.ok ? listResult.error.message : summaryResult.ok ? copy(pageContract, "error.summary_unavailable") : summaryResult.error.message}
         </Alert>
@@ -192,8 +198,8 @@ export async function OperationsAuditPage({
       />
 
       {/* Template list card top: status Tabs, then the toolbar (search + the anomalies toggle). */}
-      <Card sx={{ mb: 1.75, overflow: "visible" }}>
-        <Box sx={{ px: { md: 2.5 } }}>
+      <Card sx={{ overflow: "visible" }}>
+        <Box sx={{ px: 2.5 }}>
           <AnimatedTabs
             ariaLabel={copy(pageContract, "filter.search_label")}
             value={activeStatusTab.key}
@@ -225,19 +231,23 @@ export async function OperationsAuditPage({
       {/* The status strip re-queries the trail. Keyed on the active tab (and the anomalies
           toggle, which filters the same list), the two panels cross-fade instead of snapping. */}
       <TabPanel tabKey={`${activeStatusTab.key}|${filters.anomaliesOnly ? "anom" : "all"}`}>
-      <div className="gridside">
-        <section className="card">
-          <div className="hd">
-            <UserRound className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-	            <h3>{copy(pageContract, "section.span.title")}</h3>
-            <div className="sp" style={{ flex: 1 }} />
-            <span className="pill">{actors.length} {copy(pageContract, "label.operators")}</span>
-          </div>
+      <Box sx={{ display: "grid", gap: 3, gridTemplateColumns: { xs: "minmax(0,1fr)", lg: "288px minmax(0,1fr)" }, alignItems: "start" }}>
+        <Card component="section">
+          <CardHeader
+            sx={{ mb: 2 }}
+            avatar={<UserRound className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
+            title={copy(pageContract, "section.span.title")}
+            action={
+              <Label variant="soft" color="default">
+                {actors.length} {copy(pageContract, "label.operators")}
+              </Label>
+            }
+          />
           <Box component="form" action={PATHNAME} sx={{ px: 2.5, pb: 1 }}>
             {preservedHiddenInputs(sp, ["actor_q", "cursor", "page", "cursor_stack", "audit_id"])}
             <SearchTextField name="actor_q" defaultValue={one(sp, "actor_q") ?? ""} placeholder={copy(pageContract, "filter.actor_placeholder")} />
           </Box>
-          <div className="bd feed auditops">
+          <Box className="feed auditops" sx={{ px: 2.5, pb: 2 }}>
             {actors.length === 0 ? (
               <div className="muted small" style={{ padding: "8px 2px" }}>
 	                {rows.length === 0 ? copy(pageContract, "empty.operators") : copy(pageContract, "empty.operators_filter")}
@@ -260,20 +270,22 @@ export async function OperationsAuditPage({
                 </Link>
               ))
             )}
-          </div>
-        </section>
+          </Box>
+        </Card>
 
         {/* min-width:0 lets the 1fr grid track shrink so the wide audit table scrolls inside its own
             overflow-x container instead of blowing the section past the viewport edge. */}
-        <section className="card kit-tablecard" style={{ minWidth: 0 }}>
-          <div className="hd">
-            <ScrollText className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-	            <h3>{copy(pageContract, "section.activity.title")}</h3>
-            <div className="sp" style={{ flex: 1 }} />
-            <span className="small muted">
-              {pageTrailMeta(page, rows.length, Boolean(nextHref), pageContract)}
-            </span>
-          </div>
+        <Card component="section" className="kit-tablecard" sx={{ minWidth: 0 }}>
+          <CardHeader
+            sx={{ mb: 2 }}
+            avatar={<ScrollText className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />}
+            title={copy(pageContract, "section.activity.title")}
+            action={
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", pt: 0.5 }}>
+                {pageTrailMeta(page, rows.length, Boolean(nextHref), pageContract)}
+              </Typography>
+            }
+          />
 	          <div className="bd twrap tablewrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.activity.aria")}>
 	            <Pager prevHref={prevHref} nextHref={nextHref} page={page} count={rows.length} pageContract={pageContract} top />
             <Table data-enh="1">
@@ -300,19 +312,23 @@ export async function OperationsAuditPage({
             </Table>
 	            <Pager prevHref={prevHref} nextHref={nextHref} page={page} count={rows.length} pageContract={pageContract} />
           </div>
-        </section>
-      </div>
+        </Card>
+      </Box>
       </TabPanel>
 
       {/* Raw developer fields are NOT the primary UX. They live here for entity-history deep links
           (resource_type / resource_id) and power-user filtering, preserving the business selections above. */}
-      <details className="card" style={{ marginTop: 14 }}>
-        <summary className="hd" style={{ cursor: "pointer", listStyle: "revert" }}>
-          <Filter className="ic" style={{ color: "var(--muted)" }} aria-hidden="true" />
-	          <h3>{copy(pageContract, "section.advanced.title")}</h3>
-          <span className="muted small" style={{ marginLeft: 8 }}>{copy(pageContract, "label.advanced_note")}</span>
-        </summary>
-        <Box component="form" action={PATHNAME} sx={{ p: 2.5, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
+      <Card>
+        <Accordion>
+        <AccordionSummary sx={{ px: 3, py: 2.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", minWidth: 0 }}>
+            <Filter className="ic" style={{ color: "var(--muted)" }} aria-hidden="true" />
+            <Typography variant="h6" component="h3">{copy(pageContract, "section.advanced.title")}</Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>{copy(pageContract, "label.advanced_note")}</Typography>
+          </Box>
+        </AccordionSummary>
+        <AccordionDetails sx={{ p: 0 }}>
+        <Box component="form" action={PATHNAME} sx={{ px: 3, pt: 1, pb: 3, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
           {preservedHiddenInputs(sp, ["actor_id", "module", "category", "resource_type", "resource_id", "cursor", "page", "cursor_stack"])}
           <Field name="actor_id" label={copy(pageContract, "field.actor_id")} value={filters.actorId} placeholder={copy(pageContract, "placeholder.actor_uuid")} width={184} />
           <Field name="resource_type" label={copy(pageContract, "field.resource_type")} value={filters.resourceType} placeholder={copy(pageContract, "placeholder.goat")} width={120} />
@@ -326,7 +342,9 @@ export async function OperationsAuditPage({
             {copy(pageContract, "filter.clear_all")}
           </LinkButton>
         </Box>
-      </details>
+        </AccordionDetails>
+        </Accordion>
+      </Card>
 	      <AuditLogLocalDrawer
           records={drawerRecords}
           initialSelectedAuditId={initialSelectedAuditId}

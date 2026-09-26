@@ -6,6 +6,7 @@ import { varAlpha } from "minimal-shared/utils";
 import Box from "@mui/material/Box";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
+import type { SxProps, Theme } from "@mui/material/styles";
 import { Label } from "@/components/minimal/label";
 import { cx } from "@/lib/tone";
 
@@ -30,6 +31,9 @@ export type AnimatedTabsProps = {
   className?: string;
   /** "brand": the active tab's count Label is the primary colour. */
   countTone?: "brand";
+  /** Template scroll arrows (`scrollButtons="auto"`, also on touch) for strips that overflow a phone. */
+  scrollButtons?: "auto";
+  sx?: SxProps<Theme>;
 };
 
 /**
@@ -38,7 +42,7 @@ export type AnimatedTabsProps = {
  * clicked tab becomes active NOW and the strip shows a pending line until the URL catches up; a
  * stale guess is dropped the moment `value` moves.
  */
-export const AnimatedTabs = memo(function AnimatedTabs({ items, value, onChange, variant = "underline", ariaLabel, className, countTone }: AnimatedTabsProps) {
+export const AnimatedTabs = memo(function AnimatedTabs({ items, value, onChange, variant = "underline", ariaLabel, className, countTone, scrollButtons, sx }: AnimatedTabsProps) {
   const [optimistic, setOptimistic] = useState<string | null>(null);
   const active = optimistic && optimistic !== value ? optimistic : value;
   const pending = optimistic !== null && optimistic !== value;
@@ -51,16 +55,18 @@ export const AnimatedTabs = memo(function AnimatedTabs({ items, value, onChange,
         if (!items.find((item) => item.value === next)?.href) onChange?.(next);
       }}
       variant="scrollable"
-      scrollButtons={false}
+      scrollButtons={scrollButtons ?? false}
+      allowScrollButtonsMobile={scrollButtons === "auto"}
       indicatorColor={variant === "pill" ? "custom" : undefined}
       aria-label={ariaLabel}
       aria-busy={pending || undefined}
       className={cx("kit-tabs", pending && "kit-tabs-pending", className)}
-      sx={
+      sx={[
         variant === "pill"
           ? { width: "fit-content", maxWidth: "100%" }
-          : (theme) => ({ boxShadow: `inset 0 -2px 0 0 ${varAlpha(theme.vars.palette.grey["500Channel"], 0.08)}` })
-      }
+          : (theme) => ({ boxShadow: `inset 0 -2px 0 0 ${varAlpha(theme.vars.palette.grey["500Channel"], 0.08)}` }),
+        ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
+      ]}
     >
       {items.map((item) => {
         const isActive = item.value === active;
