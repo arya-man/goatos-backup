@@ -40,8 +40,6 @@
     "components/minimal/_shared/tap.ts": "src/theme/core/components/button.tsx",
     "components/minimal/_shared/phone-tap-styles.tsx": "src/theme/core/components/button.tsx",
 
-    "components/minimal/bar-charts/bar-charts.tsx": "src/components/chart/chart.tsx",
-    "components/minimal/bar-charts/geometry.ts": "src/components/chart/use-chart.ts",
 
     "components/minimal/calendar/calendar-toolbar.tsx": "src/sections/calendar/calendar-toolbar.tsx",
     "components/minimal/calendar/styles.tsx": "src/sections/calendar/styles.tsx",

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
+import { chartColor } from "@/components/app/chart-colors";
 import { Chart, useChart } from "@/components/minimal/chart";
 import { cx, type KitTone } from "@/lib/tone";
 
@@ -25,7 +26,8 @@ export function RadialStat({ value, size = 112, tone = "primary", color, centerL
   const theme = useTheme();
   const pct = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
   const key = PALETTE_KEY[tone];
-  const stops = color ? [color, color] : key ? [theme.vars.palette[key].light, theme.vars.palette[key].main] : [theme.vars.palette.text.secondary, theme.vars.palette.text.primary];
+  // Palette values, not CSS variables: Apex does colour maths on the gradient stops (EcommerceSaleByGender).
+  const stops = color ? [chartColor(theme, color), chartColor(theme, color)] : key ? [theme.palette[key].light, theme.palette[key].main] : [theme.palette.grey[500], theme.palette.grey[600]];
   const shown = Number(pct.toFixed(digits));
   const label = centerLabel ?? `${shown.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
   const chartOptions = useChart({
@@ -52,7 +54,7 @@ export function RadialStat({ value, size = 112, tone = "primary", color, centerL
   });
   return (
     <Box className={cx("kit-radial", className)} role="img" aria-label={label} sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1.5 }}>
-      <Chart type="radialBar" series={[shown]} options={chartOptions} deps={[label]} sx={{ width: size, height: size }} />
+      <Chart type="radialBar" series={[shown]} options={chartOptions} sx={{ width: size, height: size }} />
       {caption ? (
         <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center", lineHeight: 1.4 }}>
           {caption}

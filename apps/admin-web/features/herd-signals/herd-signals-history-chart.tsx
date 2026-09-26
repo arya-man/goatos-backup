@@ -1,6 +1,8 @@
 "use client";
 
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
+import { alpha, useTheme } from "@mui/material/styles";
+import { chartColor } from "@/components/app/chart-colors";
 import { Chart, useChart } from "@/components/minimal/chart";
 import { niceCeiling } from "@/components/chart-scale";
 import { fmtClockIst, fmtDelta, fmtRssi } from "./format";
@@ -35,6 +37,8 @@ export function HistoryChart({
   // correlation-not-cause copy in herd-signals-history-fullscreen.tsx, which this renders under.
   markers?: ChartMarker[];
 }) {
+  const theme = useTheme();
+  const p = theme.palette;
   const rawMaxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0), baseline ?? 0);
   // Keep zero/gap-heavy tags from collapsing into a useless 1.0 / 0.7 / 0.3 / 0 axis. The mock's
   // mini chart always reads on a few-hundred-count scale, even when the selected tag is quiet.
@@ -56,15 +60,15 @@ export function HistoryChart({
   // total is its own colour and never classified as a spike.
   const points = buckets.map((bucket) => {
     const x = new Date(bucket.bucket_start).getTime();
-    if (bucket.is_gap) return { x, y: maxDelta, fillColor: "color-mix(in srgb, var(--danger) 26%, transparent)" };
+    if (bucket.is_gap) return { x, y: maxDelta, fillColor: alpha(p.error.main, 0.26) };
     const delta = bucket.motion_delta ?? 0;
     let fillColor: string;
     if (bucket.gap_delta) {
-      fillColor = "var(--purple)";
+      fillColor = p.secondary.main;
     } else {
       const bucketBaseline = scaledBaseline(bucket.bucket_seconds);
       const spike = delta > maxDelta * 0.85 && delta > (bucketBaseline ?? 0) * 3;
-      fillColor = delta === 0 ? "var(--line)" : delta < (bucketBaseline ?? 999999) ? "var(--muted)" : spike ? "var(--warn)" : "var(--ok)";
+      fillColor = delta === 0 ? p.grey[400] : delta < (bucketBaseline ?? 999999) ? p.grey[500] : spike ? p.warning.main : p.primary.main;
     }
     // A zero reading still draws a sliver on the baseline so "packets, no movement" stays visible.
     return { x, y: Math.max(delta, maxDelta * 0.015), fillColor };
@@ -86,7 +90,6 @@ export function HistoryChart({
     },
     stroke: { width: 0 },
     plotOptions: { bar: { columnWidth: "92%", borderRadius: 0 } },
-    states: { hover: { filter: { type: "darken" } } },
     tooltip: { enabled: false },
     grid: { padding: { left: 4, right: 4 } },
     xaxis: {
@@ -99,9 +102,9 @@ export function HistoryChart({
     yaxis: { min: 0, max: maxDelta, tickAmount: height < 160 ? 2 : 4, labels: { formatter: formatAxisTick } },
     annotations: {
       yaxis: lineBaseline
-        ? [{ y: Math.min(lineBaseline, maxDelta), borderColor: "var(--muted)", strokeDashArray: 4, label: { text: `baseline ${Math.round(lineBaseline)}`, borderWidth: 0, style: { background: "transparent", color: "var(--muted)" } } }]
+        ? [{ y: Math.min(lineBaseline, maxDelta), borderColor: p.grey[500], strokeDashArray: 4, label: { text: `baseline ${Math.round(lineBaseline)}`, borderWidth: 0, style: { background: "transparent", color: p.grey[500] } } }]
         : [],
-      xaxis: (markers ?? []).map((marker) => ({ x: marker.atMs, borderColor: marker.color, strokeDashArray: 0 })),
+      xaxis: (markers ?? []).map((marker) => ({ x: marker.atMs, borderColor: chartColor(theme, marker.color), strokeDashArray: 0 })),
     },
   });
 

@@ -415,3 +415,19 @@ style nit — it lies to an operator about herd state. Require explicit states.
 - [ ] **Template sections keep their client boundary (guard `section-client-boundary`, p0).** A file under `apps/admin-web/components/minimal/sections/` that calls a hook or passes a function `sx`/`(theme) =>` callback must start with `'use client'`; a server page rendering it would pass a function across the RSC boundary and crash at render. `next build` must pass before every push. Modules that import `useLinkStatus` / `useRouter` / `useSearchParams` / `usePathname` straight from `next/link` or `next/navigation` must start with `'use client'` (test `client-only-hook-directive`, `components/client-only-hooks-directive.test.mjs`).
 - [ ] **No legacy card shells on mapped pages (guard `page-template-legacy-card`, p0).** A mapped page must not render `className="card"` / `"wchart"` / `"wtable"` / `"kpi"` sections or `<h2 className="h">`; every block is a template section card (Card + CardHeader) and the legacy CSS behind those classes is deleted with it.
 - [ ] **Sidebar and header are the template dashboard layout (guard `shell-nav-template`, p0; test `components/sidebar-viewport.test.mjs`).** The nav is `NavSectionVertical` / `NavSectionMini` (layouts/template/nav-section, verbatim) inside `layouts/dashboard/nav-vertical.tsx` / `nav-mobile.tsx`, fed by the backend bootstrap nav. The whole nav scrolls in the template `Scrollbar`, logo fixed; only the active group opens (no `default_open` subtrees); no custom nav footer (`navBottom`, `msh-foot`, `navigation.footer` - the template only has the optional NavUpgrade card, which we do not use); the phone nav is the template drawer (`var(--layout-nav-mobile-width)` over the template backdrop, no full-width/opaque scrim, no extra close button; Android Back closes it). Header right order follows the template: notifications (IconButton + Badge + solar bell) -> theme toggle (template Settings slot) -> account; the park scope is the template WorkspacesPopover trigger in the header left slot (`layouts/components/workspaces-button.tsx`).
+
+### Admin-web charts checklist (R2CHARTS, 2026-09-27)
+
+- [ ] ApexCharts only through `components/minimal/chart` Chart + useChart; the wrapper files are the
+      template's bytes (`chart-wrapper-verbatim`, `chart-bypasses-usechart`).
+- [ ] No `dataLabels.enabled` / bar `total` labels and no `states:` override in our chart code
+      (`chart-data-labels`, `chart-states-override`); figures go in the tooltip and legend totals.
+- [ ] Series colours are palette channels resolved by `chartColor` / `chartRamp`
+      (`components/app/chart-colors`), never raw `var(--…)` / hex / `color-mix()` (`chart-raw-colour`).
+- [ ] No page CSS / sx targets `.apexcharts-*` (`chart-tooltip-css`); no plot scrolls sideways inside
+      its card (it clips the tooltip).
+- [ ] One chart per card: CardHeader title/subheader + ChartSelect action, ChartLegends with totals,
+      then the chart; short month axis labels with the year/range in the select.
+- [ ] r2-visual-audit `chart-hover` (P0) is clean: hovered tooltip never clipped, no raw
+      "chart with N data series" text.
+

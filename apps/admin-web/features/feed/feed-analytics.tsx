@@ -929,7 +929,8 @@ function distinctSliceColors(slices: PieSlice[]): PieSlice[] {
     const tokens = colorVar.match(/var\(--[a-z]+(?:-[a-z]+)*\)/g) ?? [];
     const chartTokens = tokens.filter((t) => !/--(ink|panel)\)/.test(t));
     if (chartTokens.length > 1) return colorVar;
-    return (tokens[0] ?? colorVar).replace(/-[dl]\)$/, ")");
+    // A palette channel ("info.dark") is its hue ("info").
+    return (tokens[0] ?? colorVar.split(".")[0]).replace(/-[dl]\)$/, ")");
   };
   const used = new Set<string>();
   return slices.map((slice) => {

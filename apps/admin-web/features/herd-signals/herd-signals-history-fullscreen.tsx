@@ -78,7 +78,7 @@ const KIND_META: Record<HerdSignalActivityResponse["events"][number]["kind"], { 
   weighing: { label: "Weighing", color: (p) => p.info.main },
   treatment: { label: "Treatment", color: (p) => p.error.main },
   hoof_trimming: { label: "Hoof trimming", color: (p) => p.primary.darker },
-  shed_move: { label: "Pen move", color: () => "var(--muted)" },
+  shed_move: { label: "Pen move", color: (p) => p.grey[500] },
 };
 const OVERLAY_KINDS = Object.keys(KIND_META) as (keyof typeof KIND_META)[];
 

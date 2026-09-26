@@ -19,38 +19,31 @@
 // Series colours reuse the exact ordering of components/svg-bars.tsx so an entity keeps the same
 // colour on every chart of a page (colour follows the entity, never its rank on one chart).
 
-// Twelve DISTINCT hues, every one a LOCKED Mesha token (app/mesha-theme.css), no blends: the six
-// base tokens first (an entity keeps its colour on every chart), then six token inks chosen for
-// the widest separation in BOTH modes (worst pair CIE76 dE 14.1 light, well above the old
-// info/purple blend). The old tail mixed tokens with color-mix(), which put seven colours on
-// screen that were in no palette (judge 4 P1-8); mui-palette-lock now fails a blend in a series
-// array. Past twelve series, seriesColorVar tints these with ink/panel.
+// Twelve series colours, every one a theme PALETTE CHANNEL (components/app/chart-colors resolves
+// it to the active scheme's colour for ApexCharts): the order an entity keeps on every chart of a
+// page. No error red: an ordinary category never wears the colour that means "at risk". Past
+// twelve series the ramp wraps.
 export const SERIES_VARS = [
-  "var(--brand)",
-  "var(--info)",
-  "var(--amber)",
-  "var(--purple)",
-  "var(--teal)",
-  "var(--danger)",
-  "var(--info-ink)",
-  "var(--warning-ink)",
-  "var(--success-ink)",
-  "var(--gain-under)",
-  "var(--gain-hi)",
-  "var(--danger-tag-ink)",
+  "primary",
+  "info",
+  "warning",
+  "secondary",
+  "info.light",
+  "grey.500",
+  "info.dark",
+  "warning.dark",
+  "success.dark",
+  "secondary.light",
+  "primary.darker",
+  "warning.light",
 ] as const;
 
 import { EmptyState } from "./app/empty-state";
 import { axisCeiling, quarterTicks } from "./chart-scale";
-import { SeriesLegendView, SeriesLinesChart, SeriesPieChart, StackedColumnsChart, type AxisTick } from "./series-charts";
+import { ColumnsChartCard, SeriesLegendView, SeriesLinesChart, SeriesPieChart, StackedColumnsChart, type AxisTick, type ColumnsCardView } from "./series-charts";
 
-export function seriesColorVar(index: number) {
-  const base = SERIES_VARS[index % SERIES_VARS.length];
-  const cycle = Math.floor(index / SERIES_VARS.length);
-  if (cycle === 0) return base;
-  const mix = cycle % 2 === 1 ? "var(--ink)" : "var(--panel)";
-  const share = cycle % 2 === 1 ? 74 : 82;
-  return `color-mix(in srgb, ${base} ${share}%, ${mix})`;
+export function seriesColorVar(index: number): string {
+  return SERIES_VARS[index % SERIES_VARS.length];
 }
 
 const nf = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
@@ -108,11 +101,10 @@ export function StackedColumns({
   emptyLabel,
   formatValue,
   formatTick,
-  columnFigures = false,
 }: {
   days: StackedDay[];
   seriesLabels: string[];
-  /** Fill per series, when the caller's legend owns the colours; defaults to the palette by index. */
+  /** Fill per series (palette channels), when the caller's legend owns the colours; defaults to the ramp. */
   seriesColors?: string[];
   /** Leave a series out of a day's tooltip when its value that day is 0. */
   hideZeroInTip?: boolean;
@@ -123,43 +115,122 @@ export function StackedColumns({
   formatValue?: (value: number) => string;
   /** Y tick formatter (default: en-IN number). Gets the axis top so every tick on one axis uses the same unit (no "75k" beside "1L"). */
   formatTick?: (value: number, axisMax: number) => string;
-  /**
-   * Print each slot's total on its column and label EVERY slot (month-by-month report charts);
-   * the plot keeps a minimum column width and scrolls inside the card on a phone. A measured 0
-   * prints its figure on the baseline.
-   */
-  columnFigures?: boolean;
 }) {
-  const totals = days.map((d) => d.segments.reduce((a, b) => a + b, 0));
-  if (days.length === 0 || !totals.some((total) => total > 0)) {
+  const view = columnsView(days, { seriesLabels, seriesColors, valueNoun, formatValue, formatTick, label: "", axisLabel: (d) => fmtDay(d.label) });
+  if (!view) {
     return <EmptyState title={emptyLabel} />;
   }
-  const rawMax = Math.max(1, ...totals);
-  // Round ceiling so the quarter gridlines carry round figures; integer scale when every total is.
-  const integer = totals.every((t) => Number.isInteger(t));
-  const max = axisCeiling(rawMax, integer);
-  const count = Math.max(seriesLabels.length, ...days.map((d) => d.segments.length));
-  const series = Array.from({ length: count }, (_, s) => ({
-    name: seriesLabels[s] ?? "",
-    color: seriesColors?.[s] ?? seriesColorVar(s),
-    data: days.map((d) => d.segments[s] ?? 0),
-    tips: days.map((d) => {
-      const v = d.segments[s] ?? 0;
-      return formatValue ? formatValue(v) : withNoun(v, valueNoun);
-    }),
-  }));
   return (
     <StackedColumnsChart
-      categories={days.map((d) => fmtDay(d.label))}
-      series={series}
-      extras={days.map((d) => d.extra ?? [])}
-      max={max}
-      yTicks={axisTicks(max, integer, (v) => (formatTick ? formatTick(v, max) : nf(v)))}
+      categories={view.categories}
+      titles={view.titles}
+      series={view.series}
+      extras={view.extras}
+      max={view.max}
+      yTicks={view.yTicks}
       hideZeroInTip={hideZeroInTip}
       chartLabel={chartLabel}
-      columnFigures={columnFigures ? totals.map((t) => (formatValue ? formatValue(t) : nf(t))) : undefined}
     />
   );
+}
+
+type ColumnsViewOptions = {
+  label: string;
+  seriesLabels: string[];
+  seriesColors?: string[];
+  valueNoun: string;
+  formatValue?: (value: number) => string;
+  formatTick?: (value: number, axisMax: number) => string;
+  /** Short axis label for a slot; the tooltip title stays the slot's full `label`. */
+  axisLabel: (day: StackedDay) => string;
+};
+
+/** Every string one column view needs, composed on the server; null when nothing was recorded. */
+function columnsView(days: StackedDay[], o: ColumnsViewOptions): ColumnsCardView | null {
+  const totals = days.map((d) => d.segments.reduce((a, b) => a + b, 0));
+  if (days.length === 0 || !totals.some((total) => total > 0)) return null;
+  // Round ceiling so the quarter gridlines carry round figures; integer scale when every total is.
+  const integer = totals.every((t) => Number.isInteger(t));
+  const max = axisCeiling(Math.max(1, ...totals), integer);
+  const count = Math.max(o.seriesLabels.length, ...days.map((d) => d.segments.length));
+  const fmt = (v: number) => (o.formatValue ? o.formatValue(v) : withNoun(v, o.valueNoun));
+  const series = Array.from({ length: count }, (_, s) => ({
+    name: o.seriesLabels[s] ?? "",
+    // Bars lead with primary.dark, as the template's column cards do.
+    color: o.seriesColors?.[s] ?? (s === 0 ? "primary.dark" : seriesColorVar(s)),
+    data: days.map((d) => d.segments[s] ?? 0),
+    tips: days.map((d) => fmt(d.segments[s] ?? 0)),
+  }));
+  return {
+    label: o.label,
+    categories: days.map(o.axisLabel),
+    titles: days.map((d) => fmtDay(d.label)),
+    series,
+    extras: days.map((d) => d.extra ?? []),
+    max,
+    yTicks: axisTicks(max, integer, (v) => (o.formatTick ? o.formatTick(v, max) : nf(v))),
+    totals: series.map((s) => fmt(s.data.reduce((a, b) => a + b, 0))),
+  };
+}
+
+const MONTH_SHORT = new Intl.DateTimeFormat("en-IN", { month: "short", timeZone: "UTC" });
+
+/**
+ * A month-by-month column chart in its own template chart card (EcommerceYearlySales anatomy):
+ * the card title and subheader, a select of the calendar YEARS the months cover (latest first
+ * shown), the legend with each series' total for the selected year, and the chart with SHORT
+ * month labels ("Apr"); the tooltip title keeps the full month ("Apr 2025"). `key` of each day is
+ * its month, "YYYY-MM".
+ */
+export function MonthlyColumnsCard({
+  title,
+  subheader,
+  months,
+  seriesLabels,
+  seriesColors,
+  hideZeroInTip = false,
+  valueNoun,
+  chartLabel,
+  emptyLabel,
+  formatValue,
+  formatTick,
+}: {
+  title: string;
+  subheader?: string;
+  months: StackedDay[];
+  seriesLabels: string[];
+  seriesColors?: string[];
+  hideZeroInTip?: boolean;
+  valueNoun: string;
+  chartLabel: string;
+  emptyLabel: string;
+  formatValue?: (value: number) => string;
+  formatTick?: (value: number, axisMax: number) => string;
+}) {
+  const years = [...new Set(months.map((m) => m.key.slice(0, 4)))].sort();
+  const views = years
+    .map((year) =>
+      columnsView(
+        months.filter((m) => m.key.startsWith(year)),
+        {
+          label: year,
+          seriesLabels,
+          seriesColors,
+          valueNoun,
+          formatValue,
+          formatTick,
+          axisLabel: (d) => {
+            const m = /^(\d{4})-(\d{2})/.exec(d.key);
+            return m ? MONTH_SHORT.format(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1))) : d.label;
+          },
+        },
+      ),
+    )
+    .filter((v): v is ColumnsCardView => v !== null);
+  if (views.length === 0) {
+    return <ColumnsChartCard title={title} subheader={subheader} views={[]} emptyLabel={emptyLabel} hideZeroInTip={hideZeroInTip} chartLabel={chartLabel} />;
+  }
+  return <ColumnsChartCard title={title} subheader={subheader} views={views} hideZeroInTip={hideZeroInTip} chartLabel={chartLabel} />;
 }
 
 export type LineSeries = {

@@ -290,3 +290,25 @@ Full pattern → guard table and the how-to-add-a-page ordering: `docs/design/RE
 - **No legacy card shells on mapped pages (guard `page-template-legacy-card`, p0).** A page with a row in `docs/design/page-template-map.md` must not render `className="card"` / `"wchart"` / `"wtable"` / `"kpi"` sections or `<h2 className="h">` headings: every block is a template section card (Card + CardHeader, e.g. `BankingBalanceStatistics`, `AnalyticsWebsiteVisits`, `EcommerceSaleByGender`) fed our data, and the legacy CSS behind those classes is deleted as pages stop using it.
 - **Sidebar and header are the template dashboard layout (guard `shell-nav-template`, p0; test `components/sidebar-viewport.test.mjs`).** The nav is `NavSectionVertical` / `NavSectionMini` (layouts/template/nav-section, verbatim) inside `layouts/dashboard/nav-vertical.tsx` / `nav-mobile.tsx`, fed by the backend bootstrap nav. The whole nav scrolls in the template `Scrollbar`, logo fixed; only the active group opens (no `default_open` subtrees); no custom nav footer (`navBottom`, `msh-foot`, `navigation.footer` - the template only has the optional NavUpgrade card, which we do not use); the phone nav is the template drawer (`var(--layout-nav-mobile-width)` over the template backdrop, no full-width/opaque scrim, no extra close button; Android Back closes it). Header right order follows the template: notifications (IconButton + Badge + solar bell) -> theme toggle (template Settings slot) -> account; the park scope is the template WorkspacesPopover trigger in the header left slot (`layouts/components/workspaces-button.tsx`).
 - **Server-rendered sections need 'use client' for function sx (guard `section-server-fn-sx`, p0).** A template section under `components/minimal/sections/` is rendered straight from Server Component pages; if it styles with `sx={(theme) => …}` / `sx={[(theme) => …]}` it must start with `'use client'`, or the function crosses the server/client boundary and the page throws "Functions cannot be passed directly to Client Components" (whole route falls back to client rendering or 500s).
+
+## Charts: template Chart + useChart, verbatim (R2CHARTS, 2026-09-27)
+
+**Charts are the template's `Chart` + `useChart`, verbatim (Ravi 2026-09-27, R2CHARTS).** The
+  /sales/sold month-by-month bug class (grey hover column, clipped tooltip, raw "bar chart with 1 data
+  series" text, a figure on every bar, fat neon bars, two-line "Apr 2025" axis, three charts in one
+  card under overline sub-headings) is guarded, P0, in `design:guard`
+  (`scripts/lib/chart-template-guards.mjs`): `chart-wrapper-verbatim` (components/minimal/chart
+  chart.tsx / use-chart.ts / styles.css are the template's bytes, sha256-pinned),
+  `chart-data-labels` (no `dataLabels.enabled` / bar `total` labels in our charts),
+  `chart-states-override` (no `states:`), `chart-bypasses-usechart` (ApexCharts only via
+  Chart + useChart), `chart-raw-colour` (`colors`/`fillColor` never a raw `var(--…)`, hex or
+  `color-mix()`: resolve palette channels with `chartColor` / `chartRamp` from
+  `components/app/chart-colors`; bars lead with `primary.dark`), `chart-tooltip-css` (no
+  `.apexcharts-*` CSS outside the template chart styles). Runtime half: the r2-visual-audit plugin
+  `scripts/r2-audit-checks/chart-hover.mjs` hovers every chart and fails on a clipped tooltip or the
+  raw a11y string (`components/app/apex-globals.ts` turns ApexCharts' SVG `<title>` off). One chart
+  per card with the template anatomy (CardHeader title/subheader + ChartSelect action, ChartLegends
+  with totals, then the chart: EcommerceYearlySales / AppAreaInstalled); short month labels on the
+  axis with the year or range in the select; no plot scrolls sideways inside its card. A shared (whole-column) tooltip stays at
+  most `SHARED_TIP_MAX_SERIES` (6) rows; a stacked chart with more series uses the per-segment
+  tooltip (`shared: false, intersect: true`) so it never outgrows its card (test `chart-tooltip-fits`).

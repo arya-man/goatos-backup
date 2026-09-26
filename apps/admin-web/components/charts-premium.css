@@ -11,27 +11,7 @@
  */
 
 
-/* ---- empty state --------------------------------------------------------
-   A deliberate, SHORT block: an empty chart that keeps a full-height canvas reads as a chart that
-   failed to load, and one that collapses to a line of text reads as a layout bug. A dashed frame at
-   a fraction of the plot height says "nothing to draw here" and then gets out of the way. */
-.cx-empty {
-  display: grid;
-  place-items: center;
-  min-height: 96px;
-  margin: 8px 14px 14px;
-  padding: 14px;
-  border: 1px dashed color-mix(in srgb, var(--line) 85%, transparent);
-  border-radius: 12px;
-  text-align: center;
-}
-
 /* ---- KPI sparkline (components/kit/kpi-card.tsx) --------------------------
    Sits to the right of the figure, bottom-aligned with it, and shrinks with the card. */
 
 .sales-farm-value-bars { margin: 10px 0 16px; }
-
-/* ---- axis text floors -------------------------------------------------------
-   No axis label under 11px anywhere: the herd-signals history strip's 9px ticks were texture, not
-   labels (the strip is the template ApexCharts Chart; .hchart is its root class). */
-.herd-signals-page .hchart text { font-size: 11px; }

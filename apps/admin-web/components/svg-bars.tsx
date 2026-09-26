@@ -3,24 +3,22 @@
 //
 // Horizontal bar charts (plain and stacked) on the licensed MUI Minimal template's ApexCharts
 // `Chart`: AnalyticsConversionRates for the bars, AppAreaInstalled for the stack. The drawing
-// lives in the client component components/minimal/bar-charts/bar-charts.tsx.
+// lives in the client component components/app/bar-charts.tsx.
 //
 // These exports stay SERVER-SAFE wrappers (no "use client") so the server pages that call them do
 // not change: every visible string -- the value label beside each bar, its share, the tooltip
 // line, the stacked split -- is composed HERE and handed to the client chart as plain data, so no
 // formatter or function ever crosses the server/client boundary.
 //
-// Every colour is a CSS custom property, never a hex literal; the template Chart resolves each
-// `var(--x)` to the live colour for the active light/dark scheme.
+// Every colour is a palette channel name (or a legacy token), resolved to the active scheme's
+// theme colour by components/app/chart-colors in the client chart.
 //
 // This component renders NO copy of its own. Titles, captions, legends, empty states and the
 // value noun are all passed in already resolved from the backend page contract by the caller.
 
-import "./charts-premium.css";
+import { EmptyState } from "./app/empty-state";
+import { HorizontalBars, StackedHorizontalBars, type HorizontalBarRow, type StackedBarRow, type StackedBarSeries } from "./app/bar-charts";
 
-import { HorizontalBars, StackedHorizontalBars, type HorizontalBarRow, type StackedBarRow, type StackedBarSeries } from "./minimal/bar-charts/bar-charts";
-
-export { VISIBLE_BARS, barsViewHeight } from "./minimal/bar-charts/geometry";
 
 export type SvgBarDatum = {
   key: string;
@@ -88,11 +86,7 @@ export function SvgBars({
   const total = showShare ? data.reduce((sum, d) => sum + d.value, 0) : 0;
 
   if (bars.length === 0) {
-    return (
-      <div className="cx-empty muted small">
-        {emptyLabel}
-      </div>
-    );
+    return <EmptyState title={emptyLabel} />;
   }
 
   const rows: HorizontalBarRow[] = bars.map((datum) => {
@@ -102,7 +96,6 @@ export function SvgBars({
       key: datum.key,
       label: datum.label,
       value: datum.value,
-      valueLabel: share ? `${figure} · ${share}` : figure,
       tipValue: share ? `${figure} ${valueNoun} · ${share}` : `${figure} ${valueNoun}`,
     };
   });
@@ -168,11 +161,7 @@ export function SvgStackedBars({
 }) {
   const bars = data.filter((datum) => datum.total > 0).slice(0, maxBars);
   if (bars.length === 0) {
-    return (
-      <div className="cx-empty muted small">
-        {emptyLabel}
-      </div>
-    );
+    return <EmptyState title={emptyLabel} />;
   }
 
   // Segment order and identity come from the first bar; every bar carries the same segment keys.
@@ -194,7 +183,7 @@ export function SvgStackedBars({
   const rows: StackedBarRow[] = bars.map((datum) => {
     const breakdown = segmentText(datum);
     const figure = datum.total.toLocaleString("en-IN");
-    return { key: datum.key, label: datum.label, totalLabel: breakdown ? `${figure} · ${breakdown}` : figure, totalShort: figure };
+    return { key: datum.key, label: datum.label, title: `${datum.label} · ${breakdown ? `${figure} · ${breakdown}` : figure}` };
   });
 
   return <StackedHorizontalBars rows={rows} series={series} chartLabel={chartLabel} />;

@@ -3,10 +3,10 @@
 //
 // Compact day-by-day column chart ("did we keep up?") on the licensed MUI Minimal template's
 // ApexCharts `Chart`: AnalyticsWebsiteVisits (grouped columns). The drawing lives in the client
-// component components/minimal/bar-charts/bar-charts.tsx.
+// component components/app/bar-charts.tsx.
 //
 // This export stays a SERVER-SAFE wrapper (no "use client") so its server caller does not change:
-// every visible string -- the figure above each column, the tooltip values, the day labels -- is
+// every visible string -- the tooltip values, the day labels -- is
 // composed HERE and handed to the client chart as plain data. No hex literals, and NO copy of its
 // own: the accessible chart name, the series nouns and the empty state are passed in already
 // resolved from the backend page contract by the caller.
@@ -15,9 +15,8 @@
 // "are we keeping up". Both share ONE value axis, so a day with 3 verdicts against 40 arrivals can
 // never draw as two equal-height marks -- the exact comparison this chart exists to make.
 
-import "./charts-premium.css";
-
-import { ColumnBars, type ColumnBarSeries } from "./minimal/bar-charts/bar-charts";
+import { EmptyState } from "./app/empty-state";
+import { ColumnBars, type ColumnBarSeries } from "./app/bar-charts";
 
 export type SvgColumnDatum = {
   key: string;
@@ -47,21 +46,16 @@ export function SvgColumnBars({
 }) {
   const hasAnyValue = data.some((d) => d.value > 0 || (d.compareValue ?? 0) > 0);
   if (data.length === 0 || !hasAnyValue) {
-    return (
-      <div className="cx-empty muted small">
-        {emptyLabel}
-      </div>
-    );
+    return <EmptyState title={emptyLabel} />;
   }
 
   const figure = (value: number) => value.toLocaleString("en-IN");
-  // A zero is passed through as 0: it draws no column (no minimum visible height) but still
-  // prints its "0" at the baseline, because a zero day is exactly the one a reader interrogates.
+  // A zero is passed through as 0: it draws no column, and its tooltip still reads "0".
   const series: ColumnBarSeries[] = [
     {
       key: "value",
       name: valueNoun,
-      color: "var(--brand)",
+      color: "primary.dark",
       values: data.map((d) => d.value),
       labels: data.map((d) => figure(d.value)),
     },
@@ -70,7 +64,7 @@ export function SvgColumnBars({
     series.push({
       key: "compare",
       name: compareNoun ?? "",
-      color: "var(--amber)",
+      color: "warning",
       values: data.map((d) => (d.compareValue == null ? null : d.compareValue)),
       labels: data.map((d) => (d.compareValue == null ? "" : figure(d.compareValue))),
     });

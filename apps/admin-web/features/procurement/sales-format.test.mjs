@@ -133,9 +133,8 @@ test("sales chart bar labels stay whole and suffix-free", () => {
   assert.match(salesSource, /<SalesSoldMonthly/);
   assert.match(salesSource, /display: inr\(Math\.round\(band\.avg_price_per_kg\)\)/);
   assert.doesNotMatch(salesSource, /display: `\$\{inr\(Math\.round\(band\.avg_price_per_kg\)\)\} \$\{perKgSuffix\}`/);
-  assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.avg_purchase_weight_kg == null \? null : numCompactWhole\(load\.avg_purchase_weight_kg\)/s);
-  assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.landed_price_per_kg == null \? null : inr\(Math\.round\(load\.landed_price_per_kg\)\)/s);
-  assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.fattening_days == null \? null : numCompactWhole\(load\.fattening_days\)/s);
+  // No figure is printed on a bar any more (Ravi 2026-09-27); the tooltip carries it.
+  assert.doesNotMatch(loadwiseSource, /barLabels/);
 });
 
 test("loadwise Weighs now stays visible for part-sold loads", () => {

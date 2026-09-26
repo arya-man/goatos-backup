@@ -177,8 +177,8 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
     never a stylesheet `display:none` on its class (DataTable's emotion styles win).
   - `css-token-defined`: every `var(--token)` a component reads is defined in a stylesheet, set locally,
     MUI-generated, or has a fallback. Deleting a token means replacing its readers with theme values.
-  - `chart-ramp-distinct`: the categorical ramp (`components/app/chart-colors.ts`) has 7 distinct hues
-    and no error red.
+  - `chart-ramp-distinct`: the categorical ramp (`components/app/chart-colors.ts`, palette channels)
+    has no repeated channel, four different hues first, and no error red.
   - `page-header-action-slot`: no stylesheet restyles `PageHeader` layout through a className.
   - `no-card-in-card`: stacked phone table rows are divider rows (`border-bottom`), never bordered,
     rounded cards inside the table card; a KPI deck never sits inside another card (known offenders
@@ -197,6 +197,25 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   useSearchParams/usePathname/useLinkStatus or wires a JSX `onX={…}` handler starts with
   `"use client"` (a server module that re-exported next/link's useLinkStatus broke `next build`
   on 2026-09-27). Typecheck does not catch this; only `next build` and this guard do.
+- **Charts are the template's `Chart` + `useChart`, verbatim (Ravi 2026-09-27, R2CHARTS).** The
+  /sales/sold month-by-month bug class (grey hover column, clipped tooltip, raw "bar chart with 1 data
+  series" text, a figure on every bar, fat neon bars, two-line "Apr 2025" axis, three charts in one
+  card under overline sub-headings) is guarded, P0, in `design:guard`
+  (`scripts/lib/chart-template-guards.mjs`): `chart-wrapper-verbatim` (components/minimal/chart
+  chart.tsx / use-chart.ts / styles.css are the template's bytes, sha256-pinned),
+  `chart-data-labels` (no `dataLabels.enabled` / bar `total` labels in our charts),
+  `chart-states-override` (no `states:`), `chart-bypasses-usechart` (ApexCharts only via
+  Chart + useChart), `chart-raw-colour` (`colors`/`fillColor` never a raw `var(--…)`, hex or
+  `color-mix()`: resolve palette channels with `chartColor` / `chartRamp` from
+  `components/app/chart-colors`; bars lead with `primary.dark`), `chart-tooltip-css` (no
+  `.apexcharts-*` CSS outside the template chart styles). Runtime half: the r2-visual-audit plugin
+  `scripts/r2-audit-checks/chart-hover.mjs` hovers every chart and fails on a clipped tooltip or the
+  raw a11y string (`components/app/apex-globals.ts` turns ApexCharts' SVG `<title>` off). One chart
+  per card with the template anatomy (CardHeader title/subheader + ChartSelect action, ChartLegends
+  with totals, then the chart: EcommerceYearlySales / AppAreaInstalled); short month labels on the
+  axis with the year or range in the select; no plot scrolls sideways inside its card. A shared (whole-column) tooltip stays at
+  most `SHARED_TIP_MAX_SERIES` (6) rows; a stacked chart with more series uses the per-segment
+  tooltip (`shared: false, intersect: true`) so it never outgrows its card (test `chart-tooltip-fits`).
 - **A restyle never introduces new UI behaviour.** Changing how something looks must not change what it
   does (clicks, routes, fetches, copy, which fields show). Behaviour changes are separate PRs.
 - **Never reopen a regression-guard item.** The invariants in `docs/design/redesign-regression-guard.md` (tooltips

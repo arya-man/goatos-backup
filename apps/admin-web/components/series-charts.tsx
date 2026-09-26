@@ -1,15 +1,24 @@
 "use client";
 
-// Client half of components/svg-series.tsx: the template's ApexCharts `Chart` + `useChart` base
-// options, fed ONLY serializable props. The server wrapper in svg-series.tsx has already composed
-// every visible string (DD/MM/YYYY categories, tooltip figures per series per point, y tick labels
-// for a fixed axis top), so nothing here formats a number or a date and nothing here owns copy.
-// Style follows components/app/trend-chart.tsx (TrendChart).
+// Client half of components/svg-series.tsx: the template's ApexCharts `Chart` + `useChart`, fed
+// ONLY serializable props. The server wrapper has already composed every visible string (short
+// categories, tooltip figures per series per point, y tick labels for a fixed axis top), so
+// nothing here formats a number or a date and nothing here owns copy.
+//
+// Template sources (next-ts/src/sections/overview): the column chart is AppAreaInstalled /
+// BankingBalanceStatistics, the area chart EcommerceYearlySales, the donut AppCurrentDownload, and
+// the chart card (title, subheader, year select, legend with totals, one chart) EcommerceYearlySales.
+// The base options are useChart's, untouched: no data labels, no hover-state override, the
+// template tooltip, colours from the theme palette (components/app/chart-colors).
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
 import Divider from "@mui/material/Divider";
 import { useTheme } from "@mui/material/styles";
-import { Chart, ChartLegends, useChart, type ChartOptions } from "@/components/minimal/chart";
+import { chartColor } from "@/components/app/chart-colors";
+import { EmptyState } from "@/components/app/empty-state";
+import { Chart, ChartLegends, ChartSelect, useChart, type ChartOptions } from "@/components/minimal/chart";
 import { chartClasses } from "@/components/minimal/chart/classes";
 
 export type AxisTick = { value: number; label: string };
@@ -18,63 +27,18 @@ type TipRow = { label: string; value: string };
 
 type Series<T> = {
   name: string;
-  /** A theme token (`var(--x)`), resolved against the page for Apex (a past-twelve tint may be a blend). */
+  /** A palette channel ("primary", "info.dark") or a legacy Mesha token; see chart-colors. */
   color: string;
   data: T[];
   /** Tooltip figure per point, composed by the server; "" where the point has no figure. */
   tips: string[];
 };
 
-/** Chart heights (template overview cards run 280-364 on desktop). */
-const STACKED_HEIGHT = { xs: 260, md: 320 } as const;
-const LINES_HEIGHT = { xs: 240, md: 280 } as const;
 const PIE_SIZE = 240;
-/** Smallest reserved width for a y tick column. */
-const Y_MIN_WIDTH = 36;
+/** EcommerceYearlySales chart height. */
+const LINES_HEIGHT = 320;
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-
-/** Width of the element the chart draws into (0 before the first observation). */
-function useHostWidth(): [React.RefObject<HTMLDivElement | null>, number] {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [w, setW] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === "undefined") return undefined;
-    const ro = new ResizeObserver((es) => {
-      const next = Math.floor(es[0]?.contentRect.width ?? 0);
-      setW((prev) => (Math.abs(prev - next) < 1 ? prev : next));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, w];
-}
-
-/**
- * Time-axis labels at a REGULAR step from the first point, sized to the plot width; the final
- * point is always labelled, and a step tick closer than one full step to it yields so the last two
- * labels never crowd (TrendChart's rule).
- */
-function regularTickIndexes(categories: string[], plotW: number): Set<number> {
-  const out = new Set<number>();
-  if (categories.length === 0) return out;
-  const longest = categories.reduce((m, l) => Math.max(m, l.length), 1);
-  const labelPx = Math.min(longest, 16) * 6.6 + 12;
-  const step = Math.max(1, Math.ceil(categories.length / Math.max(1, Math.floor(plotW / (labelPx * 1.5)))));
-  const idx: number[] = [];
-  for (let i = 0; i < categories.length; i += step) idx.push(i);
-  const last = categories.length - 1;
-  if (idx[idx.length - 1] !== last) {
-    if (last - idx[idx.length - 1] < step && idx.length > 1) idx.pop();
-    idx.push(last);
-  }
-  idx.forEach((i) => out.add(i));
-  return out;
-}
-
-/** Tick column width from its widest precomputed label, so a long figure widens the axis, never clips. */
-const yWidthOf = (ticks: AxisTick[]) => Math.max(Y_MIN_WIDTH, ticks.reduce((m, t) => Math.max(m, t.label.length), 0) * 7 + 12);
 
 /** Same figure within floating-point noise of the scale. */
 const near = (a: number, b: number, scale: number) => scale * 1e-6 >= Math.abs(a - b);
@@ -96,18 +60,23 @@ function tipFigure(series: { tips: string[] }[], hideZero: boolean) {
   };
 }
 
-/** Tooltip title: the DD/MM/YYYY category, then any extra pre-formatted rows under it. */
-function tipTitle(categories: string[], extras?: TipRow[][]) {
+/** Tooltip title: the full category (e.g. "Apr 2025"), then any extra pre-formatted rows. */
+function tipTitle(titles: string[], extras?: TipRow[][]) {
   return (_v: number | string, opts?: { dataPointIndex?: number }) => {
     const i = opts?.dataPointIndex ?? -1;
-    const title = escapeHtml(categories[i] ?? String(_v));
+    const title = escapeHtml(titles[i] ?? String(_v));
     const rows = extras?.[i] ?? [];
     return rows.length === 0 ? title : `${title}${rows.map((r) => `<br/>${escapeHtml(r.label)}: <b>${escapeHtml(r.value)}</b>`).join("")}`;
   };
 }
 
+// ----------------------------------------------------------------------
+
 export type StackedColumnsChartProps = {
+  /** Axis labels, short ("Apr"). */
   categories: string[];
+  /** Tooltip titles, full ("Apr 2025"); defaults to the categories. */
+  titles?: string[];
   series: Series<number>[];
   /** Extra tooltip rows per slot in a different unit (e.g. the rupees behind a head count). */
   extras: TipRow[][];
@@ -115,93 +84,129 @@ export type StackedColumnsChartProps = {
   yTicks: AxisTick[];
   hideZeroInTip: boolean;
   chartLabel: string;
-  /**
-   * Figure printed on top of each column (the stack total), composed by the server; "" prints
-   * nothing (no figure recorded). When given, EVERY slot carries its category and the plot keeps
-   * a minimum column width, scrolling sideways inside the card on a phone instead of thinning.
-   */
-  columnFigures?: string[];
+  /** Chart box sx height (template cards: 320). */
+  height?: number;
 };
 
-/** Two-line axis label ("Apr" over "2025") for a labelled-every-slot month axis. */
-const twoLine = (label: string) => {
-  const cut = label.lastIndexOf(" ");
-  return cut > 0 ? [label.slice(0, cut), label.slice(cut + 1)] : label;
-};
+/**
+ * A shared (whole-column) tooltip lists one row per series; past this many rows it grows taller
+ * than the chart card and the card clips it (/feed/analytics "Daily directed feed", 14 feeds).
+ * Beyond it the tooltip names only the hovered segment (the legend carries the series).
+ */
+export const SHARED_TIP_MAX_SERIES = 6;
 
-/** Stacked columns on the template's AppAreaInstalled options (stacked, stroke 0, 40% columns). */
-export function StackedColumnsChart({ categories, series, extras, max, yTicks, hideZeroInTip, chartLabel, columnFigures }: StackedColumnsChartProps) {
+/** Columns on the template's AppAreaInstalled options (stacked when there is more than one series). */
+export function StackedColumnsChart({ categories, titles, series, extras, max, yTicks, hideZeroInTip, chartLabel, height = 320 }: StackedColumnsChartProps) {
   const theme = useTheme();
-  const [hostRef, hostW] = useHostWidth();
-  const colors = series.map((s) => s.color);
-  const yWidth = yWidthOf(yTicks);
-  const everySlot = columnFigures !== undefined;
-  const ticks = regularTickIndexes(categories, Math.max(0, (hostW || 600) - yWidth - 24));
-  const figureAt = (_v?: unknown, opts?: { dataPointIndex?: number }) => columnFigures?.[opts?.dataPointIndex ?? -1] ?? "";
-  const figureStyle = { fontWeight: 600, color: theme.vars.palette.text.secondary };
-  const chartOptions = useChart({
-    colors,
-    chart: { stacked: true },
-    stroke: { width: 0 },
-    legend: { show: false },
-    xaxis: everySlot
-      ? { categories: categories.map(twoLine), labels: { rotate: 0, hideOverlappingLabels: false, trim: false }, tooltip: { enabled: false } }
-      : {
-          categories,
-          overwriteCategories: categories.map((l, i) => (ticks.has(i) ? l : "")),
-          labels: { rotate: 0, hideOverlappingLabels: false, trim: false },
-          tooltip: { enabled: false },
-        },
-    yaxis: { min: 0, max, tickAmount: 4, labels: { minWidth: yWidth, formatter: tickLabel(yTicks, max) } },
-    // One series: the figure rides the column top (a measured 0 sits on the baseline). Stacked:
-    // one total above the whole stack, never a figure per segment.
-    dataLabels:
-      everySlot && series.length === 1
-        ? { enabled: true, offsetY: -18, formatter: figureAt, style: { fontWeight: 600, colors: [figureStyle.color] } }
-        : { enabled: false },
-    plotOptions: {
-      bar: {
-        columnWidth: "40%",
-        borderRadiusWhenStacked: "last",
-        dataLabels: {
-          position: "top",
-          hideOverflowingLabels: false,
-          ...(everySlot && series.length > 1 ? { total: { enabled: true, formatter: figureAt, style: figureStyle } } : {}),
-        },
+  const colors = series.map((s) => chartColor(theme, s.color));
+  const options = useMemo<ChartOptions>(
+    () => ({
+      colors,
+      chart: { stacked: series.length > 1 },
+      stroke: { width: 0 },
+      xaxis: { categories },
+      yaxis: { min: 0, max, tickAmount: 4, labels: { formatter: tickLabel(yTicks, max) } },
+      tooltip: {
+        shared: series.length <= SHARED_TIP_MAX_SERIES,
+        intersect: series.length > SHARED_TIP_MAX_SERIES,
+        hideEmptySeries: hideZeroInTip,
+        x: { formatter: tipTitle(titles ?? categories, extras) },
+        y: { formatter: tipFigure(series, hideZeroInTip) },
       },
-    },
-    tooltip: {
-      shared: true,
-      intersect: false,
-      hideEmptySeries: hideZeroInTip,
-      x: { formatter: tipTitle(categories, extras) },
-      y: { formatter: tipFigure(series, hideZeroInTip) },
-    },
-  } satisfies ChartOptions);
-  const chart = (
+      plotOptions: { bar: { columnWidth: "40%" } },
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [colors.join(), categories, titles, series, extras, max, yTicks, hideZeroInTip],
+  );
+  const chartOptions = useChart(options);
+  return (
     <Chart
       type="bar"
       series={series.map((s) => ({ name: s.name, data: s.data }))}
       options={chartOptions}
-      deps={[columnFigures, extras, series.map((s) => s.tips)]}
-      sx={{ height: STACKED_HEIGHT }}
+      role="img"
+      aria-label={chartLabel}
+      slotProps={{ loading: { p: 2.5 } }}
+      sx={{ pl: 1, py: 2.5, pr: 2.5, height }}
     />
   );
-  if (!everySlot) {
-    return (
-      <div className="kit-chart" ref={hostRef} role="img" aria-label={chartLabel}>
-        {chart}
-      </div>
-    );
-  }
+}
+
+// ----------------------------------------------------------------------
+
+export type ColumnsCardView = {
+  /** The select option: the year or range the view covers ("2025", "Apr 2025 - Mar 2026"). */
+  label: string;
+  categories: string[];
+  titles: string[];
+  series: Series<number>[];
+  extras: TipRow[][];
+  max: number;
+  yTicks: AxisTick[];
+  /** Legend figure per series for this view (its total), pre-formatted. */
+  totals: string[];
+};
+
+/**
+ * One column chart in the template's chart card (EcommerceYearlySales anatomy): CardHeader title +
+ * subheader with the year/range select as its action, the legend with each series' total, then
+ * the chart.
+ */
+export function ColumnsChartCard({
+  title,
+  subheader,
+  views,
+  hideZeroInTip,
+  chartLabel,
+  emptyLabel,
+}: {
+  title: string;
+  subheader?: string;
+  views: ColumnsCardView[];
+  /** Shown in the card when no view has a figure. */
+  emptyLabel?: string;
+  hideZeroInTip: boolean;
+  chartLabel: string;
+}) {
+  const theme = useTheme();
+  const [selected, setSelected] = useState(views[views.length - 1]?.label ?? "");
+  const view = views.find((v) => v.label === selected) ?? views[views.length - 1];
   return (
-    <div className="kit-chart chart-slots-scroll" ref={hostRef} role="img" aria-label={chartLabel} tabIndex={0}>
-      <div className="chart-slots-plot" style={{ ["--chart-slots" as string]: categories.length }}>
-        {chart}
-      </div>
-    </div>
+    <Card>
+      <CardHeader
+        title={title}
+        subheader={subheader}
+        action={view ? <ChartSelect options={views.map((v) => v.label)} value={view.label} onChange={setSelected} /> : undefined}
+        sx={{ mb: 3 }}
+      />
+      {view ? (
+        <>
+          <ChartLegends
+            colors={view.series.map((s) => chartColor(theme, s.color))}
+            labels={view.series.map((s) => s.name)}
+            values={view.totals}
+            sx={{ px: 3, gap: (theme) => theme.spacing(3) }}
+          />
+          <StackedColumnsChart
+            key={view.label}
+            categories={view.categories}
+            titles={view.titles}
+            series={view.series}
+            extras={view.extras}
+            max={view.max}
+            yTicks={view.yTicks}
+            hideZeroInTip={hideZeroInTip}
+            chartLabel={chartLabel}
+          />
+        </>
+      ) : (
+        <EmptyState title={emptyLabel} />
+      )}
+    </Card>
   );
 }
+
+// ----------------------------------------------------------------------
 
 export type SeriesLinesChartProps = {
   categories: string[];
@@ -217,56 +222,58 @@ export type SeriesLinesChartProps = {
 /**
  * Multi-line chart on the template's EcommerceYearlySales area options: the gradient sits under the
  * PRIMARY series only, nulls stay gaps, a point with no neighbour draws a dot. A secondary series
- * rides a second y axis (BankingBalanceStatistics-style apex multi-yaxis, `opposite: true`), dashed.
+ * rides a second y axis (`opposite: true`), dashed.
  */
 export function SeriesLinesChart({ categories, series, max, yTicks, secondary, hideZeroInTip, chartLabel }: SeriesLinesChartProps) {
-  const [hostRef, hostW] = useHostWidth();
-  const all = secondary ? [...series, secondary] : series;
-  const colors = all.map((s) => s.color);
-  const yWidth = yWidthOf(yTicks);
-  const secondaryWidth = secondary ? yWidthOf(secondary.yTicks) : 0;
-  const ticks = regularTickIndexes(categories, Math.max(0, (hostW || 600) - yWidth - secondaryWidth - 24));
-  const has = (s: Series<number | null>, k: number) => k >= 0 && k < s.data.length && s.data[k] != null;
-  const primaryAxis = { min: 0, max, tickAmount: 4, labels: { minWidth: yWidth, formatter: tickLabel(yTicks, max) } };
-  // Set AFTER useChart: its deep merge would fold an axis ARRAY into the base yaxis object
-  // ({ 0: …, 1: …, tickAmount }), which Apex reads as one broken axis.
+  const theme = useTheme();
+  const all = useMemo(() => (secondary ? [...series, secondary] : series), [series, secondary]);
+  const colors = all.map((s) => chartColor(theme, s.color));
+  const options = useMemo<ChartOptions>(() => {
+    const has = (s: Series<number | null>, k: number) => k >= 0 && k < s.data.length && s.data[k] != null;
+    return {
+      colors,
+      stroke: { width: all.map((_, i) => (secondary && i === all.length - 1 ? 2 : 2.5)), dashArray: all.map((_, i) => (secondary && i === all.length - 1 ? 4 : 0)) },
+      fill: { type: all.map((_, i) => (i === 0 ? "gradient" : "solid")), opacity: all.map((_, i) => (i === 0 ? 1 : 0)) },
+      markers: {
+        discrete: all.flatMap((s, i) =>
+          s.data.flatMap((_, k) => (has(s, k) && !has(s, k - 1) && !has(s, k + 1) ? [{ seriesIndex: i, dataPointIndex: k, size: 5, fillColor: colors[i], strokeColor: colors[i] }] : [])),
+        ),
+      },
+      xaxis: { categories, tooltip: { enabled: false } },
+      tooltip: {
+        shared: true,
+        intersect: false,
+        hideEmptySeries: hideZeroInTip,
+        x: { formatter: tipTitle(categories) },
+        y: { formatter: tipFigure(all, hideZeroInTip) },
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colors.join(), all, categories, hideZeroInTip]);
+  const chartOptions = useChart(options);
+  const primaryAxis = { min: 0, max, tickAmount: 4, labels: { formatter: tickLabel(yTicks, max) } };
+  // Set AFTER useChart: its deep merge would fold an axis ARRAY into the base yaxis object.
   const yaxis: ChartOptions["yaxis"] = secondary
     ? [
         // Apex maps series i to yaxis i: every primary series shares the one visible left scale.
         ...series.map((_, i) => ({ ...primaryAxis, show: i === 0 })),
-        { min: 0, max: secondary.max, tickAmount: 4, opposite: true, labels: { minWidth: secondaryWidth, formatter: tickLabel(secondary.yTicks, secondary.max) } },
+        { min: 0, max: secondary.max, tickAmount: 4, opposite: true, labels: { formatter: tickLabel(secondary.yTicks, secondary.max) } },
       ]
     : primaryAxis;
-  const chartOptions = useChart({
-    colors,
-    legend: { show: false },
-    stroke: { width: all.map((_, i) => (secondary && i === all.length - 1 ? 2 : 2.5)), dashArray: all.map((_, i) => (secondary && i === all.length - 1 ? 4 : 0)) },
-    fill: { type: all.map((_, i) => (i === 0 ? "gradient" : "solid")), opacity: all.map((_, i) => (i === 0 ? 1 : 0)) },
-    markers: {
-      discrete: all.flatMap((s, i) =>
-        s.data.flatMap((_, k) => (has(s, k) && !has(s, k - 1) && !has(s, k + 1) ? [{ seriesIndex: i, dataPointIndex: k, size: 5, fillColor: colors[i], strokeColor: colors[i] }] : [])),
-      ),
-    },
-    xaxis: {
-      categories,
-      overwriteCategories: categories.map((l, i) => (ticks.has(i) ? l : "")),
-      labels: { rotate: 0, hideOverlappingLabels: false },
-      tooltip: { enabled: false },
-    },
-    tooltip: {
-      shared: true,
-      intersect: false,
-      hideEmptySeries: hideZeroInTip,
-      x: { formatter: tipTitle(categories) },
-      y: { formatter: tipFigure(all, hideZeroInTip) },
-    },
-  } satisfies ChartOptions);
   return (
-    <div className="kit-chart" ref={hostRef} role="img" aria-label={chartLabel}>
-      <Chart type="area" series={all.map((s) => ({ name: s.name, data: s.data }))} options={{ ...chartOptions, yaxis }} deps={[categories, all.map((s) => s.tips)]} sx={{ height: LINES_HEIGHT }} />
-    </div>
+    <Chart
+      type="area"
+      series={all.map((s) => ({ name: s.name, data: s.data }))}
+      options={{ ...chartOptions, yaxis }}
+      role="img"
+      aria-label={chartLabel}
+      slotProps={{ loading: { p: 2.5 } }}
+      sx={{ pl: 1, py: 2.5, pr: 2.5, height: LINES_HEIGHT }}
+    />
   );
 }
+
+// ----------------------------------------------------------------------
 
 export type SeriesPieChartProps = {
   slices: { label: string; value: number; color: string; /** Centre figure on hover. */ valueLabel: string; /** Legend figure (with noun). */ legendValue: string; pct: string }[];
@@ -277,11 +284,11 @@ export type SeriesPieChartProps = {
 
 /**
  * Donut on the template's AppCurrentDownload (72% hole, total in the centre, ChartLegends under a
- * dashed Divider). Hover reads from the centre label, as the template AppCurrentDownload does. The legend puts
- * each figure BESIDE its label and lets a long label wrap inside the card.
+ * dashed Divider). Hover reads from the centre label, as the template does.
  */
 export function SeriesPieChart({ slices, totalLabel, centerCaption, chartLabel }: SeriesPieChartProps) {
-  const colors = slices.map((s) => s.color);
+  const theme = useTheme();
+  const colors = slices.map((s) => chartColor(theme, s.color));
   const valueFor = (value: number | string) => slices.find((s) => near(s.value, Number(value), 1e-3))?.valueLabel ?? String(value);
   const chartOptions = useChart({
     chart: { sparkline: { enabled: true } },
@@ -302,44 +309,40 @@ export function SeriesPieChart({ slices, totalLabel, centerCaption, chartLabel }
     },
   } satisfies ChartOptions);
   return (
-    <div className="kit-donut-wrap" role="img" aria-label={chartLabel}>
-      <Chart type="donut" series={slices.map((s) => s.value)} options={chartOptions} deps={[slices, totalLabel]} sx={{ my: 3, mx: "auto", width: PIE_SIZE, height: PIE_SIZE, maxWidth: 1 }} />
+    <>
+      <Chart type="donut" series={slices.map((s) => s.value)} options={chartOptions} role="img"
+      aria-label={chartLabel} sx={{ my: 6, mx: "auto", width: PIE_SIZE, height: PIE_SIZE }} />
       <Divider sx={{ borderStyle: "dashed" }} />
       <ChartLegends
         labels={slices.map((s) => s.label)}
-        colors={slices.map((s) => s.color)}
+        colors={colors}
         sublabels={slices.map((s) => s.pct)}
         values={slices.map((s) => s.legendValue)}
-        sx={{ p: 3, justifyContent: "center", columnGap: 3, rowGap: 1.5 }}
-        slotProps={{
-          wrapper: { sx: { flexDirection: "row", alignItems: "baseline", flexWrap: "wrap", columnGap: 1, minWidth: 0, maxWidth: 1 } },
-          root: { sx: { minWidth: 0 } },
-          label: { sx: { flexShrink: 1, minWidth: 0, overflowWrap: "anywhere" } },
-          value: { sx: { mt: 0, typography: "subtitle2", whiteSpace: "nowrap" } },
-        }}
+        sx={{ p: 3, justifyContent: "center" }}
       />
-    </div>
+    </>
   );
 }
 
-/** The template's ChartLegends as the shared cartesian legend: dot, label, optional figure, top-right. */
+/** The template's ChartLegends as the shared cartesian legend: dot, label, optional figure. */
 export function SeriesLegendView({ entries }: { entries: { label: string; colorVar: string; value?: string; hatched?: boolean }[] }) {
+  const theme = useTheme();
   const withValues = entries.some((e) => e.value);
+  const colors = entries.map((e) => chartColor(theme, e.colorVar));
   // A hatched series (a striped bar) gets a striped dot, so its key reads like its bars.
   const hatchSx = Object.fromEntries(
     entries.flatMap((e, i) =>
       e.hatched
-        ? [[`& > li:nth-of-type(${i + 1}) .${chartClasses.legends.item.dot}`, { backgroundColor: "transparent", backgroundImage: `repeating-linear-gradient(135deg, ${e.colorVar} 0 2px, var(--palette-background-paper) 2px 4px)` }]]
+        ? [[`& > li:nth-of-type(${i + 1}) .${chartClasses.legends.item.dot}`, { backgroundColor: "transparent", backgroundImage: `repeating-linear-gradient(135deg, ${colors[i]} 0 2px, ${theme.vars.palette.background.paper} 2px 4px)` }]]
         : [],
     ),
   );
   return (
     <ChartLegends
       labels={entries.map((e) => e.label)}
-      colors={entries.map((e) => e.colorVar)}
+      colors={colors}
       values={withValues ? entries.map((e) => e.value ?? "") : undefined}
-      sx={{ justifyContent: "flex-end", columnGap: 2, rowGap: 1, pb: 1.5, ...hatchSx }}
-      slotProps={withValues ? undefined : { value: { sx: { display: "none" } } }}
+      sx={{ px: 3, gap: (t) => t.spacing(3), ...hatchSx }}
     />
   );
 }

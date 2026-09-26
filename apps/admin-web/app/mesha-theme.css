@@ -3118,25 +3118,6 @@ select:disabled { opacity: .45 }
    inside the card. */
 .hbarlist{padding:2px 14px}
 
-/* Grouped columns (components/grouped-columns.tsx, ApexCharts): each load gets a slot wide enough
-   for one figure per bar side by side and for its axis lines (--gcols-slot, sized from the labels),
-   plus the y-axis column; a long load list scrolls sideways inside the card, never the page. */
-.gcols-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;padding:0 8px}
-.gcols-plot{height:340px;min-width:calc(var(--gcols-n,1) * var(--gcols-slot,64px) + 64px)}
-@media(max-width:680px){.gcols-plot{height:300px}}
-/* Load wise on a phone (main, 2026-09-25): the hover card lives inside the chart's own horizontal
-   scroller, so a card wider than the phone ("Load 126 · Ramesh Reddy (CBE Castro 1)", the assumed-value
-   basis) was cut at the scroller's edge. It spans the screen instead (fixed, so the scroller cannot
-   clip it) just under the top bar, and its lines wrap. Apex positions the card inline, hence !important. */
-@media(max-width:680px){
-  .sales-loads-page .gcols-chart .apexcharts-tooltip{position:fixed!important;top:72px!important;left:16px!important;right:16px!important;bottom:auto!important;min-width:0;max-width:none;transform:none!important}
-  .sales-loads-page .gcols-chart .apexcharts-tooltip-title,.sales-loads-page .gcols-chart .apexcharts-tooltip-text{white-space:normal}
-}
-/* Stacked columns with a figure on every slot (components/series-charts.tsx columnFigures, the
-   month-by-month sales charts): every month keeps its label and figure, so on a phone the plot
-   holds 56px per month (room for a "₹20.5k" figure) and scrolls sideways inside the card instead of dropping labels. */
-.chart-slots-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
-@media(max-width:680px){.chart-slots-plot{min-width:calc(var(--chart-slots,1) * 56px)}}
 
 @media(max-width:760px){
   .sales-ready-tolerance{grid-template-columns:1fr}

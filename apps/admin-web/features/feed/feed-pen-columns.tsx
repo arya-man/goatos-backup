@@ -72,7 +72,6 @@ export function FeedPenColumns({
               height={220}
               data={pen.days.map((day) => ({ day: day.day, label: day.label, directed: day.directed, verified: day.verified, detail: day.detail }))}
               xKey="label"
-              xLines
               series={[
                 { key: "directed", label: directedLabel, color: "var(--primary)" },
                 { key: "verified", label: verifiedLabel, color: "var(--info)" },

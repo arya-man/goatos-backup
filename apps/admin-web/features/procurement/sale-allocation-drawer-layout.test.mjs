@@ -34,7 +34,9 @@ test("a card's bare empty line is padded and muted, at zero specificity", () => 
   assert.match(css, /:where\(\.card\)>:where\(\.empty\)\{padding:14px 16px;color:var\(--muted\)/);
 });
 
-test("on a phone the Load wise hover card spans the screen instead of being cut by its chart scroller", () => {
-  // MUI redesign: the chart is the template ApexCharts chart, so the card is its .apexcharts-tooltip.
-  assert.match(css, /\.sales-loads-page \.gcols-chart \.apexcharts-tooltip\{position:fixed!important;top:72px!important;left:16px!important;right:16px!important;/);
+test("the Load wise hover card is the template tooltip, never clipped by a chart scroller", () => {
+  // Ravi 2026-09-27: the plot no longer scrolls inside the card (the scroller was what cut the
+  // card), so no page CSS repositions the template's .apexcharts-tooltip.
+  assert.doesNotMatch(css, /apexcharts-tooltip/);
+  assert.doesNotMatch(css, /\.gcols-scroll/);
 });

@@ -9,7 +9,10 @@
 //    server page cannot hand this client card a formatter function;
 //  - the chart is keyed by the selection so a new unit redraws cleanly, and a series may carry a
 //    per-month `notes` line for its tooltip;
-//  - the series' `empty` (or the card's) renders in place of the chart when it has no data.
+//  - the series' `empty` (or the card's) renders in place of the chart when it has no data;
+//  - month categories ("Apr 2025") draw SHORT on the axis ("Apr", as the template's demo months)
+//    and the year or range they cover rides in the select ("Revenue · 2025-26"); the tooltip
+//    title keeps the full month.
 
 import type { CardProps } from '@mui/material/Card';
 import type { ChartOptions } from '@/components/minimal/chart';
@@ -22,6 +25,19 @@ import { useTheme } from '@mui/material/styles';
 import CardHeader from '@mui/material/CardHeader';
 
 import { Chart, useChart, ChartSelect, ChartLegends } from '@/components/minimal/chart';
+
+// ----------------------------------------------------------------------
+
+const MONTH = /^([A-Z][a-z]{2}) (\d{4})$/;
+
+/** "Apr 2025".."Sep 2026" -> axis ["Apr", ..., "Sep"] and range "2025-26"; null when not months. */
+function shortMonths(categories: string[]): { axis: string[]; range: string } | null {
+  const parts = categories.map((c) => MONTH.exec(c));
+  if (parts.length === 0 || parts.some((m) => !m)) return null;
+  const years = [...new Set(parts.map((m) => m![2]))];
+  const range = years.length === 1 ? years[0] : `${years[0]}-${years[years.length - 1].slice(2)}`;
+  return { axis: parts.map((m) => m![1]), range };
+}
 
 // ----------------------------------------------------------------------
 
@@ -65,12 +81,19 @@ export function EcommerceYearlySales({ title, subheader, empty, formatters, char
   const currentSeries = chart.series.find((i) => i.name === selectedSeries) ?? chart.series[0];
   const format = formatters[currentSeries?.format ?? 'number'];
   const axisMax = Math.max(0, ...(currentSeries?.data ?? []).flatMap((row) => row.data));
+  const categories = currentSeries?.categories ?? [];
+  const months = shortMonths(categories);
+  const optionLabel = (item: Props['chart']['series'][number]) => {
+    const range = shortMonths(item.categories)?.range;
+    return range ? `${item.name} · ${range}` : item.name;
+  };
 
   const chartOptions = useChart({
     colors: chartColors,
-    xaxis: { categories: currentSeries?.categories ?? [] },
+    xaxis: { categories: months?.axis ?? categories },
     yaxis: { labels: { formatter: (value: number) => format.axis(value, axisMax) } },
     tooltip: {
+      x: { formatter: (value: number | string, opts?: { dataPointIndex?: number }) => categories[opts?.dataPointIndex ?? -1] ?? String(value) },
       y: {
         formatter: (value: number, opts?: { dataPointIndex?: number }) => {
           const note = currentSeries?.notes?.[opts?.dataPointIndex ?? -1];
@@ -93,11 +116,11 @@ export function EcommerceYearlySales({ title, subheader, empty, formatters, char
         title={title}
         subheader={subheader}
         action={
-          chart.series.length > 1 ? (
+          chart.series.length > 1 || months ? (
             <ChartSelect
-              options={chart.series.map((item) => item.name)}
-              value={currentSeries?.name ?? ''}
-              onChange={handleChangeSeries}
+              options={chart.series.map(optionLabel)}
+              value={currentSeries ? optionLabel(currentSeries) : ''}
+              onChange={(label) => handleChangeSeries(chart.series.find((item) => optionLabel(item) === label)?.name ?? label)}
             />
           ) : null
         }

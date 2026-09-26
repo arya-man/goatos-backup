@@ -30,6 +30,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { muiPaletteLockFindings, templateNeutralFindings } from "./lib/mui-palette-lock.mjs";
+import { CHART_TEMPLATE_CHECKS, CHART_TEMPLATE_SELFTEST, chartTemplateFindings } from "./lib/chart-template-guards.mjs";
 import { BRAND_LOCK, TOKEN_FILE, isDriftRemoval, retiredNeutralFindings, primaryStateFindings, themeLockFindings } from "./lib/design-palette.mjs";
 import {
   RATCHET_CHECKS,
@@ -211,6 +212,8 @@ const CHECKS = {
   "client-api-without-use-client": { tier: "p0", why: "a module that calls a client-only React/Next API (useState/useEffect/useRef/useTransition/useRouter/useSearchParams/usePathname/useLinkStatus …) or wires a JSX event handler (onClick={…}) must start with \"use client\"; otherwise a server component that imports it breaks `next build` (typecheck does not catch it)" },
   "hand-drawn-skeleton": { tier: "p0", why: "loading shapes come only from the shared blocks in components/app/skeletons (they render the same Card/Grid/Tabs/Table parts as the page): a loading.tsx or a features/**/*skeleton*.tsx composes those blocks and nothing else (no MUI Skeleton, no raw elements, no inline style, no legacy .skel/.kit-sk classes), and no other app code draws its own MUI Skeleton" },
   "app-wrapper-css-import": { tier: "p0", why: "components/app/ holds thin behaviour wrappers over template + MUI components only; they must not import .css / .module.css — style through the template component's props/theme instead" },
+  // Charts are the template's Chart + useChart, verbatim, palette colours (scripts/lib/chart-template-guards.mjs).
+  ...Object.fromEntries(Object.entries(CHART_TEMPLATE_CHECKS).map(([check, why]) => [check, { tier: "p0", why }])),
   // MUI Minimal kit + token enforcement (scripts/lib/design-kit-ratchet.mjs). Ratchet tier:
   // counted per check|file against an explicit allowance that may only shrink.
   ...Object.fromEntries(Object.entries(RATCHET_CHECKS).map(([check, why]) => [check, { tier: "ratchet", why }])),
@@ -330,6 +333,13 @@ function runGuard(root, { themeDiff }) {
       }
     });
     if (chartFile && !hasTooltip) findings.push(finding("chart-without-tooltip", file.rel, 1, "<chart root without <Tooltip>/ChartTooltipCard>"));
+  }
+
+  // Chart template guards: verbatim wrapper, no data labels / states override / raw colours /
+  // apex CSS, no ApexCharts outside useChart.
+  {
+    const scanned = files.filter((f) => !/\.(test|stories)\.(tsx?|mjs)$/.test(f.rel) && (CODE_EXT.has(f.rel.slice(f.rel.lastIndexOf("."))) || STYLE_EXT.has(f.rel.slice(f.rel.lastIndexOf(".")))));
+    for (const hit of chartTemplateFindings(root, scanned)) findings.push(finding(hit.check, hit.file, hit.line, hit.snippet));
   }
 
   // Backend copy tables reachable from this repo (backend/internal/adminui): the same rule.
@@ -972,6 +982,7 @@ async function selfTest() {
   put("layouts/dashboard/nav-vertical.tsx", "export const V = () => <Scrollbar fillContent><NavSectionVertical data={d} /></Scrollbar>;\n");
   put("layouts/dashboard/nav-mobile.tsx", "export const M = () => <Drawer slotProps={{ backdrop: { sx: { bgcolor: 'var(--bg)' } }, paper: { sx: { width: '100vw' } } }}><NavSectionVertical data={d} /></Drawer>;\n");
   put("layouts/dashboard/layout.tsx", 'export const L = () => <NavMobile slots={{ bottomArea: navBottom }} />;\n');
+  for (const [rel, text] of Object.entries(CHART_TEMPLATE_SELFTEST)) put(rel, text);
   const { findings } = runGuard(root, { themeDiff: false });
   const got = new Set(findings.map((f) => f.check));
   const expected = Object.keys(CHECKS).filter((c) => c !== "theme-token-drift" && c !== "brand-lock");

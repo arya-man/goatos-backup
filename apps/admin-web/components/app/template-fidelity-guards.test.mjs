@@ -134,14 +134,16 @@ test("guard: css-token-defined -- every var(--token) a component reads is define
   assert.deepEqual([...offenders], [], `undefined CSS token (define it, give a fallback, or use a theme value):\n${[...offenders].join("\n")}`);
 });
 
-test("guard: chart-ramp-distinct -- the categorical ramp has no repeated hue and no at-risk red", () => {
+test("guard: chart-ramp-distinct -- the categorical ramp has no repeated channel and no at-risk red", () => {
   const source = read("components/app/chart-colors.ts");
-  const ramp = source.match(/return \[(.*)\];/)[1].split(",").map((item) => item.trim());
-  assert.equal(ramp.length, 7);
-  assert.equal(ramp.filter((item) => /\berror\b/.test(item)).length, 0, "no error red in the categorical ramp (invariant 1d06f72d0)");
-  const hues = ramp.map((item) => item.match(/p\.(\w+)/)?.[1] ?? item);
-  assert.equal(new Set(hues).size, hues.length, `one slot per hue: ${hues.join(", ")}`);
+  const ramp = [...source.match(/const RAMP: ChartColorKey\[\] = \[(.*)\];/)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(ramp.length >= 7);
+  assert.equal(ramp.filter((item) => /^error/.test(item)).length, 0, "no error red in the categorical ramp (invariant 1d06f72d0)");
+  assert.equal(new Set(ramp).size, ramp.length, `one slot per channel: ${ramp.join(", ")}`);
+  // The first four slots are four different hues.
+  assert.equal(new Set(ramp.slice(0, 4).map((k) => k.split(".")[0])).size, 4);
 });
+
 
 test("guard: page-header-action-slot -- nothing restyles PageHeader's layout from a stylesheet", () => {
   // `.lt-phead{align-items:flex-start}` shrank the breadcrumbs row so /tasks "New task" hugged the

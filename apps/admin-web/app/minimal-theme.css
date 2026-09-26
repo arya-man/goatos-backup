@@ -114,7 +114,6 @@ select option{background:var(--paper);color:var(--fg)}
 @media(max-width:880px){.btn{min-height:44px}.btn.sm{min-height:44px;padding-top:8px;padding-bottom:8px}}
 .kit-press:active{transform:scale(.92)}
 
-.kit-chart{position:relative;width:100%;min-width:0}
 
 .kit-pagehead{display:flex;align-items:center;gap:12px;min-width:0}
 .kit-pagehead h1{margin:0 auto 0 0;font-size:28px;line-height:36px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -193,7 +192,6 @@ select option{background:var(--paper);color:var(--fg)}
 .card>h2.h+p.muted.small{margin:4px 0 20px;font-size:14px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* ---------- Charts ---------- */
-.kit-donut-wrap{display:grid;gap:16px}
 
 /* ---------- Tables ---------- */
 .screen th:not(.MuiTableCell-root),.main th:not(.MuiTableCell-root){background:rgb(var(--g500-rgb)/.08);color:var(--fg-muted);font-size:14px;font-weight:600;padding:16px}

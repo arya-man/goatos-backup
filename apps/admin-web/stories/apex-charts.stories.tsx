@@ -4,7 +4,7 @@ import CardHeader from "@mui/material/CardHeader";
 import { GroupedColumns, type GroupedDatum, type GroupedSeries } from "@/components/grouped-columns";
 import { SvgBars, SvgStackedBars } from "@/components/svg-bars";
 import { SvgColumnBars } from "@/components/svg-column-bars";
-import { SeriesLines, SeriesPie, StackedColumns } from "@/components/svg-series";
+import { MonthlyColumnsCard, SeriesLines, SeriesPie, StackedColumns } from "@/components/svg-series";
 import { HistoryChart } from "@/features/herd-signals/herd-signals-history-chart";
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
 import { Frame, MOBILE, StateBlock, States } from "./_fixtures";
@@ -79,6 +79,7 @@ const MONEY_LOADS = [
 ];
 // Month by month: every month labelled with its figure, a measured 0 on the baseline.
 const MONTHS = ["Mar 2026", "Apr 2026", "May 2026", "Jun 2026", "Jul 2026", "Aug 2026", "Sep 2026"];
+const MONTH_KEYS = ["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"];
 const MANURE = [47000, 95000, 27000, 26000, 14000, 10000, 0];
 
 const feedDays = DAYS.map((day, i) => ({
@@ -143,23 +144,20 @@ function All() {
           />
         </Card>
       </StateBlock>
-      <StateBlock label="GroupedColumns: figure on every bar incl. 0, absent value blank, wrapped load labels">
+      <StateBlock label="GroupedColumns: grouped loads, figures in the tooltip, absent value blank">
         <Card sx={{ p: { xs: 2, sm: 3 } }}><CardHeader sx={{ p: 0, mb: 2 }} title="Animals per load" /><GroupedColumns series={LOAD_SERIES} data={LOADS} chartLabel="Animals per load" emptyLabel="No loads" /></Card>
         <Card sx={{ p: { xs: 2, sm: 3 } }}><CardHeader sx={{ p: 0, mb: 2 }} title="Money per load" /><GroupedColumns series={MONEY_SERIES} data={MONEY_LOADS} money chartLabel="Money per load" emptyLabel="No loads" /></Card>
         <Card sx={{ p: { xs: 2, sm: 3 } }}><CardHeader sx={{ p: 0, mb: 2 }} title="Empty" /><GroupedColumns series={LOAD_SERIES} data={[]} chartLabel="Empty" emptyLabel="No loads in this window" /></Card>
       </StateBlock>
-      <StateBlock label="StackedColumns month by month: figure on every column, every month labelled, 0 on the baseline">
-        <Card sx={{ p: { xs: 2, sm: 3 } }}>
-          <CardHeader sx={{ p: 0, mb: 2 }} title="Manure sold by month" />
-          <StackedColumns
-            days={MONTHS.map((m, i) => ({ key: m, label: m, segments: [MANURE[i]], extra: [{ label: "Manure revenue", value: `₹${(MANURE[i] * 1.6).toLocaleString("en-IN")}` }] }))}
-            seriesLabels={["Manure (kg)"]}
-            valueNoun="kg"
-            chartLabel="Manure sold by month"
-            emptyLabel="No manure sold"
-            columnFigures
-          />
-        </Card>
+      <StateBlock label="MonthlyColumnsCard: template chart card, short months, year select, legend total">
+        <MonthlyColumnsCard
+          title="Manure sold by month"
+          months={MONTHS.map((m, i) => ({ key: MONTH_KEYS[i], label: m, segments: [MANURE[i]], extra: [{ label: "Manure revenue", value: `₹${(MANURE[i] * 1.6).toLocaleString("en-IN")}` }] }))}
+          seriesLabels={["Manure (kg)"]}
+          valueNoun="kg"
+          chartLabel="Manure sold by month"
+          emptyLabel="No manure sold"
+        />
       </StateBlock>
       <StateBlock label="StackedColumns (AppAreaInstalled): 30 days, last day labelled">
         <Card sx={{ p: { xs: 2, sm: 3 } }}>

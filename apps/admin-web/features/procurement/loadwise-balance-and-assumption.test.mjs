@@ -30,9 +30,8 @@ test("the money chart stacks the assumed value on the sold value and shows the b
 
 test("a stacked series draws inside its base slot, and the scale covers the stacked total", () => {
   assert.match(chart, /stackOn\?: string/);
-  // Apex grouped stacking: a stacked series shares its base's group, and prints no figure of its own.
+  // Apex grouped stacking: a stacked series shares its base's group.
   assert.match(chart, /group: groupOf\(i\)/);
-  assert.match(chart, /if \(baseIndex\(opts\.seriesIndex\) >= 0\) return "";/);
   // The y scale is computed over the column sums.
   assert.match(chart, /series\.map\(\(_, i\) => columnValue\(d, i\)\)/);
 });

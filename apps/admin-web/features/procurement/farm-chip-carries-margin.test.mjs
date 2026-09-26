@@ -38,7 +38,7 @@ test("the farm chips render through the live-URL link, which follows in-place UR
 // MUI redesign: the grouped columns are the template ApexCharts chart; its legend is ChartLegends.
 test("the striped series' key is striped too, against the panel colour", () => {
   const legend = readFileSync(new URL("../../components/series-charts.tsx", import.meta.url), "utf8");
-  assert.match(legend, /repeating-linear-gradient\(135deg, \$\{e\.colorVar\} 0 2px, var\(--palette-background-paper\) 2px 4px\)/);
+  assert.match(legend, /repeating-linear-gradient\(135deg, \$\{colors\[i\]\} 0 2px, \$\{theme\.vars\.palette\.background\.paper\} 2px 4px\)/);
 });
 
 test("every swatch (legend and bar) carries the okHatch stripe, not a fifth solid colour", () => {

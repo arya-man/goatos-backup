@@ -19,7 +19,7 @@ import Stack from "@mui/material/Stack";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LoadwiseLoad, LoadwiseSales } from "@/lib/api/procurement";
 import type { ApiResult } from "@/lib/api/server";
-import { humanDate, inr, inrCompact, num, numCompactWhole, signedInr, signedInrCompact } from "./sales-format";
+import { humanDate, inr, inrCompact, num, signedInr, signedInrCompact } from "./sales-format";
 import { salesErrorText } from "./sales-error";
 import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
@@ -350,18 +350,6 @@ export function LoadwiseSection({
                       ? `${signedInrCompact(load.profit_loss)} · ${copy(pageContract, "loadwise.realised.label")} ${signedInrCompact(load.realised_profit_loss)}`
                       : signedInrCompact(load.profit_loss),
                 ],
-                // The column the assumption sits on prints the TOTAL it reaches -- realised plus
-                // assumed -- so the figure above a stacked bar is its height.
-                barLabels: [
-                  load.purchase_value == null ? null : inrCompact(load.purchase_value),
-                  (load.sold_value > 0 ? load.sold_value : 0) + (load.assumed_value ?? 0) > 0
-                    ? inrCompact((load.sold_value > 0 ? load.sold_value : 0) + (load.assumed_value ?? 0))
-                    : load.sold === 0
-                      ? null
-                      : inrCompact(load.sold_value),
-                  null,
-                  load.profit_loss == null || load.profit_loss <= 0 ? null : signedInrCompact(load.profit_loss),
-                ],
                 // HOW the assumed part was assumed, in the backend's own sentence.
                 tipLines: load.assumed_value_basis ? [load.assumed_value_basis] : undefined,
                 subLabel: `${num(load.sold)} / ${num(load.purchased)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()}`,
@@ -408,16 +396,6 @@ export function LoadwiseSection({
                       ]
                     : []),
                 ],
-                barLabels: [
-                  load.avg_purchase_weight_kg == null ? null : numCompactWhole(load.avg_purchase_weight_kg),
-                  load.avg_sale_weight_kg == null ? null : numCompactWhole(load.avg_sale_weight_kg),
-                  ...(currentWeights
-                    ? [(() => {
-                        const now = currentWeightFor(load, currentWeights);
-                        return now == null ? null : numCompactWhole(now.averageKg);
-                      })()]
-                    : []),
-                ],
                 // The sale average is over the animals actually WEIGHED on the way out, which is
                 // fewer than sold on some loads. Saying so here is the difference between a sample
                 // and a claim about the whole load.
@@ -449,10 +427,6 @@ export function LoadwiseSection({
                   load.sale_price_per_kg == null
                     ? copy(pageContract, "value.not_sold_yet")
                     : inr(load.sale_price_per_kg, 2),
-                ],
-                barLabels: [
-                  load.landed_price_per_kg == null ? null : inr(Math.round(load.landed_price_per_kg)),
-                  load.sale_price_per_kg == null ? null : inr(Math.round(load.sale_price_per_kg)),
                 ],
                 subLabel: load.vendor_name,
               }))}
@@ -486,10 +460,6 @@ export function LoadwiseSection({
                     : `${num(load.days_on_farm_so_far)} ${copy(pageContract, "value.days")} · ${num(
                         load.remaining,
                       )} ${copy(pageContract, "value.still_on_farm")}`,
-                ],
-                barLabels: [
-                  load.fattening_days == null ? null : numCompactWhole(load.fattening_days),
-                  load.days_on_farm_so_far == null ? null : numCompactWhole(load.days_on_farm_so_far),
                 ],
                 // "Sold, alive in any case at the bottom" (maintainer, 2026-09-25): under EVERY bar
                 // the load's split -- sold, still on farm, or both -- so the finished span reads as

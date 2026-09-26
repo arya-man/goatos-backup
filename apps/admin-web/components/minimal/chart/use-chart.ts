@@ -2,7 +2,7 @@ import type { Theme } from '@mui/material/styles';
 import type { ChartOptions } from './types';
 
 import { useMemo } from 'react';
-import { toMerged } from 'es-toolkit';
+import { merge } from 'es-toolkit';
 import { varAlpha } from 'minimal-shared/utils';
 
 import { useTheme } from '@mui/material/styles';
@@ -15,9 +15,7 @@ export function useChart(updatedOptions?: ChartOptions): ChartOptions {
   const baseOptions = useMemo(() => baseChartOptions(theme), [theme]);
 
   return useMemo(
-    // Mesha change: toMerged, not merge. merge MUTATES its target, and the target is the memoized
-    // base shared by every chart on the page, so one chart's options leaked into the next one's.
-    () => (updatedOptions ? toMerged(baseOptions, updatedOptions) : baseOptions),
+    () => (updatedOptions ? merge(baseOptions, updatedOptions) : baseOptions),
     [baseOptions, updatedOptions]
   );
 }
