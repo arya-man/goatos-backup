@@ -272,14 +272,24 @@ function paymentRefusal(error: { code?: string; message: string; status?: number
  * instead of recording the money again. A refusal returns in place -- no redirect, no revalidate --
  * so the form keeps what was typed and shows the backend's reason beside it.
  */
+/** A blank required payment field. The form then shows its contract copy -- never a thrown page crash. */
+const PAYMENT_FIELD_MISSING: SalesPaymentActionError = { code: "sales_invalid_payment", message: "" };
+
+function paymentField(formData: FormData, name: string): string {
+  return (formData.get(name)?.toString() ?? "").trim();
+}
+
 export async function recordSalesDealPaymentAction(formData: FormData): Promise<SalesPaymentActionError | undefined> {
   const dealId = requiredString(formData, "deal_id");
   const note = (formData.get("note")?.toString() ?? "").trim();
+  const receivedOn = paymentField(formData, "received_on");
+  const amount = paymentField(formData, "amount_rupees");
+  if (!receivedOn || !amount) return PAYMENT_FIELD_MISSING;
   const result = await recordSalesDealPayment(
     dealId,
     {
-      received_on: requiredString(formData, "received_on"),
-      amount_rupees: Number(requiredString(formData, "amount_rupees")),
+      received_on: receivedOn,
+      amount_rupees: Number(amount),
       ...(note ? { note } : {}),
     },
     paymentIdempotencyKey(formData),
@@ -296,8 +306,10 @@ export async function updateSalesDealPaymentAction(formData: FormData): Promise<
   const dealId = requiredString(formData, "deal_id");
   const paymentId = requiredString(formData, "payment_id");
   const note = (formData.get("note")?.toString() ?? "").trim();
-  const receivedOn = requiredString(formData, "received_on");
-  const amountRupees = Number(requiredString(formData, "amount_rupees"));
+  const receivedOn = paymentField(formData, "received_on");
+  const amount = paymentField(formData, "amount_rupees");
+  if (!receivedOn || !amount) return PAYMENT_FIELD_MISSING;
+  const amountRupees = Number(amount);
   const result = await updateSalesDealPayment(
     dealId,
     paymentId,

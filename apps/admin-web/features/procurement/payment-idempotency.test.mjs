@@ -25,7 +25,9 @@ function loadAction(name) {
   assert.notEqual(start, -1, `${name} not found`);
   const end = actionsSource.indexOf("\nexport ", start + 1);
   const helperStart = actionsSource.indexOf("function paymentRefusal");
-  const helper = helperStart === -1 ? "" : actionsSource.slice(helperStart, actionsSource.indexOf("\n}\n", helperStart) + 3);
+  // paymentRefusal plus the blank-field guard helpers that sit between it and the first action.
+  const helper =
+    helperStart === -1 ? "" : actionsSource.slice(helperStart, actionsSource.indexOf("export async function recordSalesDealPaymentAction"));
   const js = ts.transpile(helper + actionsSource.slice(start, end === -1 ? undefined : end).replace("export ", ""));
   const keys = [];
   const record = (key) => {
@@ -79,6 +81,22 @@ for (const name of ["recordSalesDealPaymentAction", "updateSalesDealPaymentActio
     assert.deepEqual(keys, []);
   });
 }
+
+for (const name of ["recordSalesDealPaymentAction", "updateSalesDealPaymentAction"]) {
+  for (const blank of ["received_on", "amount_rupees"]) {
+    test(`${name}: a blank ${blank} returns a refusal in place instead of throwing`, async () => {
+      const { run, keys } = loadAction(name);
+      const form = paymentForm("form-key-1");
+      form.set(blank, "");
+      assert.deepEqual({ ...(await run(form)) }, { code: "sales_invalid_payment", message: "" });
+      assert.deepEqual(keys, []);
+    });
+  }
+}
+
+test("a payment submit a field already refused (no date picked) is not posted", () => {
+  assert.match(drawerSource, /if \(event\.defaultPrevented\) return;\s*event\.preventDefault\(\);/);
+});
 
 test("recordSalesDealPaymentAction returns the backend's field sentence in place", async () => {
   const start = actionsSource.indexOf("function paymentRefusal");

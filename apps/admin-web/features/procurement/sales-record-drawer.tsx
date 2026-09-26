@@ -798,6 +798,9 @@ function usePaymentFormAction(action: paymentAction, outcome: string) {
   // the amount and note the desk had typed wiped -- and the next click posted an empty form. The
   // FormData is read at the click, so a double click still carries the one key.
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+    // A field's own submit guard (ThemedDatePicker with no date) already refused this submit and
+    // showed its reason; posting anyway would reach the action without the field.
+    if (event.defaultPrevented) return;
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     startTransition(() => formAction(data));
