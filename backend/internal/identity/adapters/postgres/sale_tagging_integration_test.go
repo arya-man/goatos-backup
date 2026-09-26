@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -136,5 +137,45 @@ func TestTaggingQueueListsOnlyLiveSalesStillOwedAnimalsForTheFarmsAsked(t *testi
 	if _, err := pool.Exec(ctx, `DELETE FROM sales_deals WHERE tenant_id=$1::uuid AND id = ANY($2::uuid[])`,
 		ssTenant, []string{tagDealCBE, tagDealCPT, tagDealManure, tagDealFailed}); err != nil {
 		t.Fatalf("cleanup: %v", err)
+	}
+}
+
+// THE REPLAY LOOKUP, ON THE REAL LEDGER. After a confirm commits, ReplaySaleAllocation answers the
+// same key and fingerprint with the sale's allocation (the animals are sold by then, which is why
+// the service must not re-judge them); a different fingerprint under the same key is a conflict,
+// both here and on the write path's own in-transaction replay; an unknown key is simply not found.
+func TestReplaySaleAllocationAnswersACommittedKeyAndRefusesADifferentBody(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+	f := seedShedStageFixture(t, ctx, pool)
+
+	one := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
+	two := seedStageGoat(t, ctx, pool, f.castroShed, "1", "F2", "adult")
+	seedSaleAllocationDeal(t, ctx, pool, saleDealA, 2)
+	rows := []ports.SaleAllocationRow{
+		{GoatID: one, RowVersion: goatRowVersion(t, pool, one), WeightKg: "30"},
+		{GoatID: two, RowVersion: goatRowVersion(t, pool, two), WeightKg: "31"},
+	}
+	cmd := saleAllocCmd(saleDealA, rows, "replay-lookup")
+	if _, err := repo.RecordSaleAllocations(ctx, cmd); err != nil {
+		t.Fatalf("RecordSaleAllocations: %v", err)
+	}
+
+	got, found, err := repo.ReplaySaleAllocation(ctx, ssTenant, saleDealA, cmd.StoredIdempotencyKey, cmd.RequestHash)
+	if err != nil || !found || got.Allocated != 2 {
+		t.Fatalf("replay of the committed key = %+v found=%v err=%v; want the 2-animal result", got, found, err)
+	}
+	if _, _, err := repo.ReplaySaleAllocation(ctx, ssTenant, saleDealA, cmd.StoredIdempotencyKey, "a-different-body"); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("same key, different fingerprint: err = %v, want ErrIdempotencyConflict", err)
+	}
+	if _, found, err := repo.ReplaySaleAllocation(ctx, ssTenant, saleDealA, cmd.StoredIdempotencyKey+"-unknown", cmd.RequestHash); err != nil || found {
+		t.Fatalf("unknown key: found=%v err=%v, want not found", found, err)
+	}
+	changed := cmd
+	changed.RequestHash = "a-different-body"
+	if _, err := repo.RecordSaleAllocations(ctx, changed); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("write path, same key with a different fingerprint: err = %v, want ErrIdempotencyConflict", err)
 	}
 }

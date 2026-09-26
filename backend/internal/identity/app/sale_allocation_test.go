@@ -17,6 +17,28 @@ type fakeSaleRepo struct {
 	recorded  *ports.RecordSaleAllocationsCommand
 	// catalog is what ListSaleLocations answers; nil means an empty catalog.
 	catalog *ports.SaleLocationCatalog
+	// completed is the idempotency ledger: stored key -> the fingerprint and result of a
+	// confirm that committed, which is what ReplaySaleAllocation answers from.
+	completed map[string]fakeCompletedConfirm
+	// recordCalls counts writes, so a replay can be shown to write nothing.
+	recordCalls int
+}
+
+type fakeCompletedConfirm struct {
+	hash   string
+	result ports.SaleAllocationResult
+}
+
+func (f *fakeSaleRepo) ReplaySaleAllocation(_ context.Context, _, _, storedKey, requestHash string) (*ports.SaleAllocationResult, bool, error) {
+	done, ok := f.completed[storedKey]
+	if !ok {
+		return nil, false, nil
+	}
+	if done.hash != requestHash {
+		return nil, false, ports.ErrIdempotencyConflict
+	}
+	out := done.result
+	return &out, true, nil
 }
 
 func (f *fakeSaleRepo) ListSaleCandidates(context.Context, ports.ListSaleCandidatesParams) ([]ports.SaleCandidateRow, *string, error) {
@@ -55,7 +77,13 @@ func (f *fakeSaleRepo) ListSaleAllocationAnimals(context.Context, string, string
 
 func (f *fakeSaleRepo) RecordSaleAllocations(_ context.Context, cmd ports.RecordSaleAllocationsCommand) (*ports.SaleAllocationResult, error) {
 	f.recorded = &cmd
-	return &ports.SaleAllocationResult{SalesDealID: cmd.SalesDealID, Allocated: len(cmd.Rows)}, nil
+	f.recordCalls++
+	result := ports.SaleAllocationResult{SalesDealID: cmd.SalesDealID, Allocated: len(cmd.Rows)}
+	if f.completed == nil {
+		f.completed = map[string]fakeCompletedConfirm{}
+	}
+	f.completed[cmd.StoredIdempotencyKey] = fakeCompletedConfirm{hash: cmd.RequestHash, result: result}
+	return &result, nil
 }
 
 const (

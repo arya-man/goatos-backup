@@ -246,6 +246,13 @@ type SaleAllocationReader interface {
 // SaleAllocationWriter is the write side.
 type SaleAllocationWriter interface {
 	RecordSaleAllocations(ctx context.Context, cmd RecordSaleAllocationsCommand) (*SaleAllocationResult, error)
+	// ReplaySaleAllocation answers an EXACT REPLAY of a confirm that already committed, from the
+	// idempotency ledger and before anything about the animals is re-read: after the first confirm
+	// the animals are sold and the sale is full, so re-judging them would refuse a retry the
+	// caller is entitled to. found=false means the key is unknown and the confirm runs normally.
+	// A key already held for a DIFFERENT request is ErrIdempotencyConflict; one whose first
+	// attempt has not committed is ErrIdempotencyPending.
+	ReplaySaleAllocation(ctx context.Context, tenantID, salesDealID, storedKey, requestHash string) (result *SaleAllocationResult, found bool, err error)
 }
 
 // SaleLocationCatalog is the picker's park/shed/pen vocabulary.

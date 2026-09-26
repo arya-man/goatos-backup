@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -328,6 +329,24 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 	if err := s.refuseSaleOutsideScope(ctx, tenantID, dealID, input.AllowedParkIDs); err != nil {
 		return nil, err
 	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		reason = "Sold to buyer"
+	}
+	storedKey := strings.Join([]string{tenantID, "sale_allocation", dealID, clientKey}, ":")
+	requestHash, err := saleConfirmFingerprint(tenantID, dealID, goatIDs, weights, reason)
+	if err != nil {
+		return nil, err
+	}
+	// AN EXACT REPLAY IS ANSWERED FROM THE LEDGER, BEFORE THE HERD IS RE-READ. A phone that lost
+	// the reply retries after the first confirm committed: its animals now read "Already sold" and
+	// the sale reads full, so judging them again would refuse the one retry idempotency exists for.
+	// Placed after the park clamp, so a key never opens another park's sale.
+	if replayed, found, err := s.writer.ReplaySaleAllocation(ctx, tenantID, dealID, storedKey, requestHash); err != nil {
+		return nil, mapRepoErr(err)
+	} else if found {
+		return replayed, nil
+	}
 
 	deal, err := s.deals.ReadSaleDeal(ctx, tenantID, dealID)
 	if err != nil {
@@ -368,15 +387,12 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 		return nil, err
 	}
 
-	reason := strings.TrimSpace(input.Reason)
-	if reason == "" {
-		reason = "Sold to buyer"
-	}
 	result, err := s.writer.RecordSaleAllocations(ctx, ports.RecordSaleAllocationsCommand{
 		TenantID:             tenantID,
 		ActorID:              actorID,
 		ClientIdempotencyKey: clientKey,
-		StoredIdempotencyKey: strings.Join([]string{tenantID, "sale_allocation", dealID, clientKey}, ":"),
+		StoredIdempotencyKey: storedKey,
+		RequestHash:          requestHash,
 		TraceID:              input.TraceID,
 		SalesDealID:          dealID,
 		DeclaredAnimalCount:  deal.DeclaredAnimalCount,
@@ -454,6 +470,25 @@ func groupByShed(candidates []ports.SaleCandidate) []ports.SaleAllocationShedGro
 		return out[i].OperationalLocationDisplay < out[j].OperationalLocationDisplay
 	})
 	return out
+}
+
+// saleConfirmFingerprint is the semantic identity of a confirm: the sale, the SET of animals and
+// the weight typed for each, and the reason, all as validated. Order-free (a client that sends
+// the same animals in another order is sending the same request) and computed from the
+// normalised values, so "29" and " 29 " are one request while 29 and 30 are two.
+func saleConfirmFingerprint(tenantID, dealID string, goatIDs []string, weights map[string]string, reason string) (string, error) {
+	ids := append([]string(nil), goatIDs...)
+	sort.Strings(ids)
+	body, err := json.Marshal(struct {
+		SalesDealID string            `json:"sales_deal_id"`
+		GoatIDs     []string          `json:"goat_ids"`
+		WeightsKg   map[string]string `json:"animal_weights_kg"`
+		Reason      string            `json:"reason"`
+	}{dealID, ids, weights, reason})
+	if err != nil {
+		return "", err
+	}
+	return CanonicalRequestHashWithSubject(tenantID, "confirm_sale_allocation", "/admin/goats/sale-allocations/confirm", dealID, body)
 }
 
 // saleWeightPattern is a positive live weight with at most two decimals (numeric(7,2)): up to

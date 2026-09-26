@@ -90,6 +90,23 @@ than an error (`SaleTaggingRules.confirmLanded`).
 The reader is an app-wide singleton and is released on the first tag, on leaving the screen and
 before submit, as the Counts form does.
 
+**An exact replay returns the original result** (maintainer instruction 2026-09-26). The confirm
+stores a fingerprint of the normalised request (sale, the SET of animals, each weight, reason)
+beside its idempotency key. A retry with the same key is answered from the idempotency ledger
+(`ReplaySaleAllocation`) BEFORE the animals are re-judged -- after the first confirm they are sold
+and the sale is full, so judging them again used to refuse the retry with `422 animals_blocked`
+("Already sold"). The same key with a different body is `409 idempotency_conflict`, and a key whose
+first attempt has not committed is `409 idempotency_pending`; the write path's own in-transaction
+replay checks the fingerprint too. The lookup sits AFTER the park clamp, so a key never opens
+another park's sale. Keys stored before this change carry no fingerprint and are accepted as the
+same request. Pinned by `TestAnExactReplayOfACommittedConfirmReturnsTheOriginalResult`
+(mutation-tested: skipping the replay reproduces the "Already sold" refusal) and, on Postgres,
+`TestReplaySaleAllocationAnswersACommittedKeyAndRefusesADifferentBody`. This is the desk's web
+drawer path too.
+
+**Not given to the park head** (maintainer answer 2026-09-26): the Sales SOP's loading-video and
+gate-pass-photo steps. They stay inside the Sales module.
+
 ## What was deliberately not done
 
 - No change to the CXO/sales-desk tag flow (`SaleTagAnimalsScreen`): it keeps its park/pen

@@ -216,3 +216,83 @@ func TestSaleLocationsNarrowToTheCallersParks(t *testing.T) {
 		t.Fatalf("tenant-wide catalog = %+v err=%v, want both parks", all, err)
 	}
 }
+
+// AN EXACT REPLAY RETURNS THE ORIGINAL RESULT. A phone that lost the reply retries the same
+// confirm with the same Idempotency-Key AFTER the server tagged the sale: the animals now read
+// "Already sold" and the sale reads complete, so re-judging them would refuse the retry the caller
+// is entitled to. The replay is answered from the idempotency ledger BEFORE the herd is re-read,
+// writes nothing, and a same-key request with a DIFFERENT body is refused rather than replayed.
+func TestAnExactReplayOfACommittedConfirmReturnsTheOriginalResult(t *testing.T) {
+	svc, repo, deals := newSaleService(
+		candidate(1, shedA, "Castro", "1", "9051", "alive"),
+		candidate(2, shedA, "Castro", "1", "9052", "alive"),
+	)
+	ids := []string{goatID(1), goatID(2)}
+	in := ConfirmSaleAllocationInput{
+		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-replay-1",
+		SalesDealID: saleDeal, GoatIDs: ids, AnimalWeightsKg: map[string]string{goatID(1): "32.4", goatID(2): "29"},
+	}
+	first, err := svc.ConfirmSaleAllocation(context.Background(), in)
+	if err != nil || first.Allocated != 2 {
+		t.Fatalf("first confirm: %+v %v", first, err)
+	}
+	if repo.recorded.RequestHash == "" {
+		t.Fatal("the confirm must store a request fingerprint beside its key")
+	}
+
+	// The world after the first confirm: both animals sold, the sale full.
+	for i := range repo.rows {
+		repo.rows[i].State.LifecycleStatus = "sold"
+	}
+	deals.tagged = 2
+	readsBefore, writesBefore := repo.readCalls, repo.recordCalls
+
+	// Same key, same body -- in a different order, with the weight typed the same way.
+	replay := in
+	replay.GoatIDs = []string{goatID(2), goatID(1)}
+	again, err := svc.ConfirmSaleAllocation(context.Background(), replay)
+	if err != nil {
+		t.Fatalf("exact replay was refused: %v", err)
+	}
+	if again.Allocated != first.Allocated || again.SalesDealID != first.SalesDealID {
+		t.Fatalf("replay = %+v, want the original %+v", again, first)
+	}
+	if repo.readCalls != readsBefore || repo.recordCalls != writesBefore {
+		t.Fatalf("a replay must not re-judge or write: reads %d->%d writes %d->%d", readsBefore, repo.readCalls, writesBefore, repo.recordCalls)
+	}
+
+	// Same key, different weight: not the same request, so it is refused, never replayed.
+	changed := in
+	changed.AnimalWeightsKg = map[string]string{goatID(1): "40", goatID(2): "29"}
+	_, err = svc.ConfirmSaleAllocation(context.Background(), changed)
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "idempotency_conflict" {
+		t.Fatalf("same key, different body: err = %#v, want idempotency_conflict", err)
+	}
+
+	// A NEW key for the same animals is new work, judged as such: they are sold now.
+	fresh := in
+	fresh.IdempotencyKey = "confirm-replay-2"
+	_, err = svc.ConfirmSaleAllocation(context.Background(), fresh)
+	if appErr, ok := err.(*Error); !ok || (appErr.Code != "animals_blocked" && appErr.Code != "sale_already_mapped") {
+		t.Fatalf("new key after the sale is full: err = %#v, want a refusal", err)
+	}
+}
+
+// The replay still sits behind the park clamp: a key cannot be used to read another park's sale.
+func TestAReplayIsStillClampedToTheCallersPark(t *testing.T) {
+	svc, repo, deals := newSaleService(candidateInPark(1, parkA, "9051"))
+	repo.catalog = &ports.SaleLocationCatalog{Parks: []ports.SaleLocationPark{{ParkID: parkA, Label: "CPT"}, {ParkID: parkB, Label: "CBE"}}}
+	in := ConfirmSaleAllocationInput{
+		TenantID: saleTenant, ActorID: saleActor, IdempotencyKey: "confirm-replay-3",
+		SalesDealID: saleDeal, GoatIDs: []string{goatID(1)}, AnimalWeightsKg: weightsFor([]string{goatID(1)}),
+	}
+	if _, err := svc.ConfirmSaleAllocation(context.Background(), in); err != nil {
+		t.Fatalf("tenant-wide confirm: %v", err)
+	}
+	deals.farm = "CBE"
+	in.AllowedParkIDs = []string{parkA}
+	_, err := svc.ConfirmSaleAllocation(context.Background(), in)
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "park_out_of_scope" {
+		t.Fatalf("replay from another park: err = %#v, want park_out_of_scope", err)
+	}
+}
