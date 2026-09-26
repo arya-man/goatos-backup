@@ -176,7 +176,7 @@ export function ClockEntryDrawer({
       open={open}
       onClose={close}
       title={title}
-      width={380}
+      width={480}
       closeLabel={copy(pageContract, "action.close")}
       aria-label={title}
     >

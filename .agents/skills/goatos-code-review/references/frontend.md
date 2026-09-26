@@ -292,6 +292,7 @@ Review checkpoints:
 ## State
 
 - [ ] TanStack Query for server state; React local state for UI-only (open drawer, selected row)
+- [ ] Right drawers use the template `MinimalDrawer` / `DetailDrawer`: visible backdrop, template width 320/360/420/480, header+close, Scrollbar body, footer; any table inside scrolls in `DrawerTableScroll` — nothing clipped at the drawer edge at 1440 or 390 (design:guard `drawer-off-template`, `scripts/r2-drawer-audit.mjs`)
 - [ ] Same-page drawer/modal/popover open and close are owned by a narrow client
       boundary (`LocalOverlayLink`/local history), never a Next `Link`, native
       anchor/form submission, or router push that re-runs the page's Server

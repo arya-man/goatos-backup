@@ -43,6 +43,7 @@ import {
   menuSurfaceFindings,
   tapTargetFindings,
 } from "./lib/design-kit-ratchet.mjs";
+import { drawerTagLines, drawerTemplateFindings, onlyTemplateDrawerWidths } from "./lib/drawer-template.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
@@ -187,7 +188,8 @@ const CHECKS = {
   "hex-colour-in-css": { tier: "waivable", why: "only the two theme files may define colour literals" },
   "tailwind-palette-class": { tier: "waivable", why: "no raw Tailwind palette classes; tokens only" },
   "f2-literal": { tier: "waivable", why: "never show the legacy 'F2' code; lifecycle names only" },
-  "fixed-px-width": { tier: "waivable", why: "fixed px width >= 480 cannot fit a 390px phone; use min(…, 100%)" },
+  "fixed-px-width": { tier: "waivable", why: "fixed px width >= 480 cannot fit a 390px phone; use min(…, 100%) (a template drawer width on MinimalDrawer/DetailDrawer is allowed: phones get the full width)" },
+  "drawer-off-template": { tier: "waivable", why: "right drawer not on the template temporary Drawer: use MinimalDrawer / DetailDrawer (portal, visible backdrop, template width 320/360/420/480, header+close, Scrollbar body, footer); wide tables scroll in DrawerTableScroll (Ravi R2-4)" },
   "prose-under-title": { tier: "waivable", why: "no explanatory paragraph under a title/card header" },
   "raw-float-format": { tier: "waivable", why: "numbers render through lib/format (max 2 decimals); no toFixed(3+) or raw `${n} kg` templates" },
   "chart-without-tooltip": { tier: "waivable", why: "every chart needs the shared tooltip card" },
@@ -268,6 +270,8 @@ function runGuard(root, { themeDiff }) {
     // Code files.
     for (const hit of clientApiFindings(text, file.rel)) findings.push(finding("client-api-without-use-client", file.rel, hit.line, hit.snippet));
     for (const hit of fixedOverlayFindings(text, file.rel)) findings.push(finding("fixed-overlay-no-portal", file.rel, hit.line, hit.snippet));
+    for (const hit of drawerTemplateFindings(text, file.rel)) findings.push(finding("drawer-off-template", file.rel, hit.line, hit.snippet));
+    const drawerLines = drawerTagLines(text);
     for (const hit of menuSurfaceFindings(text, file.rel)) findings.push(finding("raw-menu", file.rel, hit.line, hit.snippet));
     let chartFile = false;
     let hasTooltip = false;
@@ -296,7 +300,7 @@ function runGuard(root, { themeDiff }) {
       if (LIGHT_SURFACE.test(code) && !LIGHT_SURFACE_ALLOWED.has(file.rel)) findings.push(finding("light-surface-literal", file.rel, lineNo, raw));
       if (TAILWIND_PALETTE.test(code)) findings.push(finding("tailwind-palette-class", file.rel, lineNo, raw));
       if (F2_LITERAL.test(code) && !F2_ALLOWED.has(file.rel)) findings.push(finding("f2-literal", file.rel, lineNo, raw));
-      if (FIXED_PX_WIDTH.test(code) && !/max-?[wW]idth|overflow/.test(code)) findings.push(finding("fixed-px-width", file.rel, lineNo, raw));
+      if (FIXED_PX_WIDTH.test(code) && !/max-?[wW]idth|overflow/.test(code) && !(drawerLines.has(lineNo) && onlyTemplateDrawerWidths(code))) findings.push(finding("fixed-px-width", file.rel, lineNo, raw));
       if (CHART_NO_ANIM.test(code)) findings.push(finding("chart-animation-disabled", file.rel, lineNo, raw));
       if (RAW_FLOAT_FIXED.test(code) || RAW_UNIT_TEMPLATE.test(code)) findings.push(finding("raw-float-format", file.rel, lineNo, raw));
       if (RAW_CHART_LIB.test(code)) findings.push(finding("raw-chart-lib", file.rel, lineNo, raw));
@@ -911,6 +915,32 @@ async function selfTest() {
   ].join("\n"));
   put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n.main th{color:var(--fg-muted)}\n.main td:not(.MuiTableCell-root){border-bottom:1px dashed var(--line)}\n");
   put("components/bad.css", ".x { color: #abcdef; }\n.g{background:#0E1512}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");
+  // A template drawer width on the template drawer is allowed (no fixed-px-width, no drawer finding).
+  put("features/ok-drawer.tsx", [
+    '"use client";',
+    'import { MinimalDrawer } from "@/components/minimal/drawer";',
+    'export const d = (',
+    '  <MinimalDrawer',
+    '    open={open}',
+    '    onClose={close}',
+    '    title="Tag animals to sale"',
+    '    width={480}',
+    '  >',
+    '    <div />',
+    '  </MinimalDrawer>',
+    ');',
+  ].join("\n"));
+  // Off-template drawer widths / transparent backdrop / raw MUI Drawer are each caught.
+  put("features/bad-drawer.tsx", [
+    'const DRAWER_WIDTH = 380;',
+    'export const a = <MinimalDrawer open onClose={close} title="x" width={DRAWER_WIDTH} />;',
+    'export const b = <MinimalDrawer open onClose={close} title="x" width={640} />;',
+    'export const c = <DetailDrawer open onClose={close} title="x" closeLabel="Close" size="xl" />;',
+    'export const e = <MinimalDrawer open onClose={close} title="x" invisibleBackdrop />;',
+    'export const f = <Drawer open={open} onClose={close} PaperProps={{ sx: { width: 420 } }} />;',
+    'export const g = <Drawer anchor="left" open={open} onClose={close} />;',
+    'export const h = <aside className={`drawer${open ? " on" : ""}`} aria-label="Tag detail" />;',
+  ].join("\n"));
   // Template code: ratchet-tier sizes are exempt, a foreign palette is still P0.
   put("components/minimal/sections/order/server-fn-sx.tsx", 'import Box from "@mui/material/Box";\nexport const X = () => <Box sx={(theme) => ({ color: theme.palette.text.primary })} />;\n');
   put("components/minimal/tpl.tsx", 'const t = <div style={{ fontSize: 13, borderRadius: 10, padding: 12 }} />;\n');
@@ -959,6 +989,12 @@ async function selfTest() {
   }
   if (findings.some((f) => f.check === "legacy-css-mui-colour" && f.line !== 1)) {
     console.error("design_system_self_test=FAIL legacy-css-mui-colour flagged a :not(.Mui…) exclusion or a transparent reset");
+    process.exit(1);
+  }
+  const okDrawer = findings.filter((f) => f.file === "features/ok-drawer.tsx" && (f.check === "drawer-off-template" || f.check === "fixed-px-width"));
+  const badDrawerLines = findings.filter((f) => f.file === "features/bad-drawer.tsx" && f.check === "drawer-off-template").map((f) => f.line).sort((x, y) => x - y);
+  if (okDrawer.length || badDrawerLines.join(",") !== "2,3,4,5,6,8") {
+    console.error(`design_system_self_test=FAIL drawer-off-template okDrawer=${okDrawer.map((f) => f.check).join(",") || "none"} badDrawerLines=${badDrawerLines.join(",")} (want 2,3,4,5,6,8)`);
     process.exit(1);
   }
   const tplRatchet = findings.filter((f) => f.file === "components/minimal/tpl.tsx" && CHECKS[f.check].tier === "ratchet");

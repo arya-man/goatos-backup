@@ -64,7 +64,7 @@ function FiltersDrawerDemo({ initialOpen = false }: { initialOpen?: boolean }) {
   return (
     <>
       <Button variant="outlined" color="inherit" startIcon={<Iconify icon="ic:round-filter-list" />} onClick={() => setOpen(true)}>Filters</Button>
-      <MinimalDrawer open={open} onClose={() => setOpen(false)} title="Filters" onReset={() => setSick(false)} canReset={sick} invisibleBackdrop>
+      <MinimalDrawer open={open} onClose={() => setOpen(false)} title="Filters" onReset={() => setSick(false)} canReset={sick}>
         <DrawerSection title="Status">
           <FormControlLabel control={<Checkbox checked={sick} onChange={(e) => setSick(e.target.checked)} />} label="Sick only" />
           <FormControlLabel control={<Checkbox />} label="Include sold" />

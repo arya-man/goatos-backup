@@ -2,10 +2,17 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const source = readFileSync(new URL("../app/mesha-theme.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../app/mesha-theme.css", import.meta.url), "utf8");
+const shell = readFileSync(new URL("../components/minimal/drawer/minimal-drawer.tsx", import.meta.url), "utf8");
 
 test("side drawer backdrop stays below the drawer and does not blur the page", () => {
-  assert.match(source, /button\.scrim\{[\s\S]*z-index:210[\s\S]*backdrop-filter:none[\s\S]*\}/);
-  assert.match(source, /button\.scrim\.on\{display:block;opacity:1;pointer-events:auto\}/);
-  assert.match(source, /aside\.drawer\{[\s\S]*z-index:220[\s\S]*\}/);
+  // Remaining scrim users (filter sheets, quick views) keep the no-blur scrim under their panel.
+  assert.match(css, /button\.scrim\{[\s\S]*z-index:210[\s\S]*backdrop-filter:none[\s\S]*\}/);
+  assert.match(css, /button\.scrim\.on\{display:block;opacity:1;pointer-events:auto\}/);
+  // Right drawers are the template temporary MUI Drawer (Ravi R2-4): the Modal stacks its own
+  // backdrop under the paper, and the backdrop is always visible (no invisible prop).
+  assert.match(shell, /<Drawer\s+anchor="right"/);
+  assert.doesNotMatch(shell, /invisible\s*:|invisibleBackdrop/);
+  // The legacy hand-rolled shell is gone for good.
+  assert.doesNotMatch(css, /aside\.drawer\s*\{/);
 });

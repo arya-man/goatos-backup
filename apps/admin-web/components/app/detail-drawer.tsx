@@ -5,7 +5,8 @@ import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
-import { MinimalDrawer } from "@/components/minimal/drawer";
+import { MinimalDrawer, type MinimalDrawerWidth } from "@/components/minimal/drawer";
+import { Scrollbar } from "@/components/minimal/scrollbar";
 
 /**
  * Record/detail drawer on the template MinimalDrawer (portalled MUI Drawer, theme backdrop, focus
@@ -43,7 +44,7 @@ export function DetailDrawer({
   closeLabel: string;
   ariaLabel?: string;
   footer?: ReactNode;
-  /** Paper width from sm up (phones are always full width): md record, lg panel, xl analytics. */
+  /** Paper width from sm up (phones are always full width): md record/panel (template kanban-details 480), sm compact (360). */
   size?: keyof typeof DRAWER_SIZES;
   bodySx?: object;
   paperTestId?: string;
@@ -93,8 +94,9 @@ export function DetailDrawer({
   );
 }
 
-// Template drawer paper widths (MinimalDrawer caps them at 100vw below sm).
-const DRAWER_SIZES = { md: 480, lg: 720, xl: 940 } as const;
+// Template drawer paper widths (MinimalDrawer caps them at 100vw below sm). Nothing wider exists in
+// the template: wide tables scroll inside their own Scrollbar (see DrawerTableScroll).
+const DRAWER_SIZES = { sm: 360, md: 480 } as const satisfies Record<string, MinimalDrawerWidth>;
 
 /** Two-column label/value grid (template details-info rows). */
 export function DrawerMetaGrid({ children, columns = 2 }: { children: ReactNode; columns?: 1 | 2 }) {
@@ -150,4 +152,13 @@ export function DrawerBlock({ title, action, children }: { title: ReactNode; act
       {children}
     </Box>
   );
+}
+
+/**
+ * A table (or any wide block) inside a drawer: it scrolls sideways in its own template Scrollbar
+ * (sections/order/order-details-items pattern: `<Scrollbar><Table sx={{ minWidth }} />`) instead
+ * of squeezing or clipping the columns at the drawer edge.
+ */
+export function DrawerTableScroll({ children }: { children: ReactNode }) {
+  return <Scrollbar sx={{ minWidth: 0, maxWidth: 1 }}>{children}</Scrollbar>;
 }

@@ -127,6 +127,8 @@ MUI `Dialog` (DialogTitle/Content/Actions) / `Drawer` (components/minimal/drawer
 `components/app/skeletons` blocks (the only loading shapes; guard `hand-drawn-skeleton`). Charts: draw-in, floating tooltip card, rounded
 caps, dashed grid, gradient area, donut with centre total.
 
+**Right drawers are the template temporary Drawer** (Ravi R2-4): `MinimalDrawer` (components/minimal/drawer) or `DetailDrawer` (components/app/detail-drawer) only — portalled, anchor right, visible backdrop (never `invisibleBackdrop` / `backdrop: { invisible: true }`), template paper width 320 (filters) / 360 (settings) / 420 (notifications) / 480 (details, forms; `{ xs: 1, sm: 480 }`), sticky header title + close, Scrollbar body, footer actions. No raw MUI `<Drawer>` for a right drawer, no hand-rolled `<aside className="drawer">` + `.scrim`. Wide content never squeezes or clips at the drawer edge: a table sits in `DrawerTableScroll` (own Scrollbar, `Table sx={{ minWidth }}`) and scrolls sideways. Guards: design:guard `drawer-off-template` (static), `scripts/r2-drawer-audit.mjs` (runtime: width, backdrop, no child overflow without its own scroll container).
+
 **Motion.** Page-enter stagger 400ms / 60ms apart / 8px rise; bars 600ms / 40ms stagger;
 charts ~800ms easeInOutSine / 150ms series stagger; tabs slide; dialog scale from 0.96; drawer
 slide; popover fade + 4px; button press 0.98. `prefers-reduced-motion` → none.

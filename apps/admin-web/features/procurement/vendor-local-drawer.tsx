@@ -220,7 +220,7 @@ export function VendorLocalDrawer({
       onClose={close}
       title={isAdding ? title : (vendor?.business_name ?? title)}
       closeLabel={copy(pageContract, "action.close")}
-      width={380}
+      width={480}
       footer={footer}
       aria-label={title}
     >

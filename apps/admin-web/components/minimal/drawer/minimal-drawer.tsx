@@ -1,8 +1,10 @@
 "use client";
 
 // Copied from the licensed MUI Minimal template (sections/calendar/calendar-filters.tsx drawer shell):
-// right-anchored Drawer with a header (title, optional reset-with-dot, close), a Scrollbar body
-// and an optional sticky footer. Used for both filter drawers and detail drawers.
+// right-anchored temporary Drawer with a header (title, optional reset-with-dot, close), a Scrollbar
+// body and an optional sticky footer. Used for both filter drawers and detail drawers.
+// Mesha (Ravi R2-4): the backdrop always dims the page (theme MuiBackdrop, grey.800 @ 48%) and the
+// paper takes one of the template's drawer widths only.
 import type { DrawerProps } from '@mui/material/Drawer';
 
 import Box from '@mui/material/Box';
@@ -17,6 +19,14 @@ import { Iconify } from '../iconify';
 import { Scrollbar } from '../scrollbar';
 import { phoneTapSx } from '../_shared/tap';
 
+/**
+ * The template's right-drawer paper widths: 320 filters / account / file details
+ * (calendar-filters, account-drawer, file-manager-file-details), 360 settings-drawer,
+ * 420 notifications-drawer, 480 kanban-details (`{ xs: 1, sm: 480 }`). Wide content (tables)
+ * scrolls horizontally inside its own Scrollbar (template order-details-items pattern).
+ */
+export type MinimalDrawerWidth = 320 | 360 | 420 | 480;
+
 export type MinimalDrawerProps = Omit<DrawerProps, 'title' | 'onClose'> & {
   open: boolean;
   onClose: () => void;
@@ -26,9 +36,7 @@ export type MinimalDrawerProps = Omit<DrawerProps, 'title' | 'onClose'> & {
   canReset?: boolean;
   footer?: React.ReactNode;
   /** Paper width from sm up; phones get the full width. Default 320. */
-  width?: number;
-  /** Filters keep the page visible (invisible backdrop); details dim it. */
-  invisibleBackdrop?: boolean;
+  width?: MinimalDrawerWidth;
   /** Mesha: accessible name of the close button (page copy; the template says "Close"). */
   closeLabel?: string;
 };
@@ -41,7 +49,6 @@ export function MinimalDrawer({
   canReset,
   footer,
   width = 320,
-  invisibleBackdrop = false,
   closeLabel = 'Close',
   children,
   slotProps,
@@ -54,7 +61,6 @@ export function MinimalDrawer({
       onClose={onClose}
       slotProps={{
         ...slotProps,
-        backdrop: { invisible: invisibleBackdrop },
         paper: {
           ...(slotProps?.paper as object | undefined),
           sx: { width: { xs: 1, sm: width }, maxWidth: '100vw', display: 'flex', flexDirection: 'column' },

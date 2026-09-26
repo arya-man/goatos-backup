@@ -31,7 +31,7 @@ export function NewLoadDrawer({ label, closeLabel, children }: { label: string; 
       >
         {label}
       </Button>
-      <MinimalDrawer open={open} onClose={close} title={label} closeLabel={closeLabel} width={380} keepMounted>
+      <MinimalDrawer open={open} onClose={close} title={label} closeLabel={closeLabel} width={480} keepMounted>
         {children}
       </MinimalDrawer>
     </>
