@@ -29,17 +29,12 @@ assert.match(
   "herd signals mobile table card values must wrap instead of causing page-level overflow",
 );
 
-assert.match(
-  css,
-  /@media\(max-width:760px\)\{[\s\S]*\.herd-signals-page aside\.drawer\{[^}]*width:100vw[^}]*max-width:100vw[^}]*height:100vh[^}]*\}/,
-  "herd signals tag drawer must use the full mobile viewport width",
-);
-
-assert.match(
-  css,
-  /@media\(max-width:760px\)\{[\s\S]*\.herd-signals-page aside\.drawer \.patrow\{[^}]*display:grid[^}]*grid-template-columns:1fr 1fr[^}]*\}/,
-  "herd signals drawer control row must wrap into a mobile grid",
-);
+// The tag drawer is the template temporary drawer (MinimalDrawer via DetailDrawer): full width on a
+// phone ({ xs: 1, sm: 480 }), and its control row wraps (flexWrap) instead of page-scoped CSS.
+const drawerSource = readFileSync(new URL("./herd-signals-drawer.tsx", import.meta.url), "utf8");
+assert.match(drawerSource, /<DetailDrawer\b/, "herd signals tag drawer must be the template drawer (full phone width)");
+assert.match(drawerSource, /flexWrap: "wrap"/, "herd signals drawer control row must wrap on a phone");
+assert.doesNotMatch(css, /\.herd-signals-page aside\.drawer/, "no page-scoped CSS may style the portalled drawer");
 
 assert.match(
   css,

@@ -12,9 +12,14 @@ import type { GoatPassportResponse, VaccinationPassport, VaccinationPassportHist
 import type { VaccinationShedAnimalRow } from "@/lib/api/vaccination-sheds";
 import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { dash, fmtDate } from "@/lib/format";
-import { Syringe, X } from "lucide-react";
+import { Syringe } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import { LinkButton } from "@/components/minimal/link-button";
+import { DetailDrawer, DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerTableScroll } from "@/components/app/detail-drawer";
 
 type GoatPassport = GoatPassportResponse["goat"];
 const DRAWER_ROW_LIMIT = 5;
@@ -136,148 +141,130 @@ function DrawerVaccinationBlock({
   const historyCols = tableLabels(pageContract, "vaccination-history");
 
   return (
-    <div style={{ marginTop: 16 }}>
-      <div
-        className="muted small"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: ".4px",
-          marginBottom: 10,
-        }}
-      >
-        <Syringe className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
-        {copy(pageContract, "section.vaccination.title")}
-      </div>
-
+    <DrawerBlock
+      title={
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+          <Syringe size={16} aria-hidden="true" />
+          {copy(pageContract, "section.vaccination.title")}
+        </Box>
+      }
+    >
       {error ? (
-        <p className="muted small" style={{ marginTop: 8 }}>
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {copy(pageContract, "vaccination.unavailable_prefix")}: {error}
-        </p>
+        </Typography>
       ) : !vaccination ? (
-        <p className="muted small" style={{ margin: 0 }} aria-live="polite">...</p>
+        <Typography variant="body2" sx={{ color: "text.secondary" }} aria-live="polite">...</Typography>
       ) : (
         <>
-          <div className="metagrid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 12 }}>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.next_due")}</div>
-              <div className="v" style={{ fontSize: 13 }}>
-                {vaccination.next_due ? (
-                  <>
-                    {fmtDate(vaccination.next_due.scheduled_for || vaccination.next_due.due_at)}{" "}
-                    <Tag tone={obligationTone(vaccination.next_due.status)}>{vaccination.next_due.status}</Tag>
-                  </>
-                ) : (
-                  copy(pageContract, "vaccination.no_upcoming")
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.open_obligations")}</div>
-              <div className="v">{open.length}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.last_accepted")}</div>
-              <div className="v" style={{ fontSize: 13 }}>
-                {vaccination.last_accepted ? fmtDate(vaccination.last_accepted.administered_at) : copy(pageContract, "label.placeholder")}
-              </div>
-            </div>
-          </div>
+          <DrawerMetaGrid>
+            <DrawerMetaItem label={copy(pageContract, "vaccination.next_due")}>
+              {vaccination.next_due ? (
+                <>
+                  {fmtDate(vaccination.next_due.scheduled_for || vaccination.next_due.due_at)}{" "}
+                  <Tag tone={obligationTone(vaccination.next_due.status)}>{vaccination.next_due.status}</Tag>
+                </>
+              ) : (
+                copy(pageContract, "vaccination.no_upcoming")
+              )}
+            </DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "vaccination.open_obligations")}>{open.length}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "vaccination.last_accepted")} span>
+              {vaccination.last_accepted ? fmtDate(vaccination.last_accepted.administered_at) : copy(pageContract, "label.placeholder")}
+            </DrawerMetaItem>
+          </DrawerMetaGrid>
 
-          <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>
-            {copy(pageContract, "vaccination.open_due_rows")}
-          </div>
+          <Typography variant="subtitle2">{copy(pageContract, "vaccination.open_due_rows")}</Typography>
           {open.length === 0 ? (
-            <p className="muted small" style={{ margin: "0 0 12px" }}>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {copy(pageContract, "vaccination.empty_open")}
-            </p>
+            </Typography>
           ) : (
-            <div style={{ overflowX: "auto", marginBottom: 12 }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    {openCols.slice(0, 4).map((label) => (
-                      <TableCell component="th" key={label}>{label}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {open.slice(0, DRAWER_ROW_LIMIT).map((due) => {
-                    const rowId = realWorkflowRowId(due.workflow_row_id);
-                    return (
-                      <TableRow key={due.obligation_id}>
-                        <TableCell>
-                          <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
-                          {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
-                            <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
-                          ) : null}
-                        </TableCell>
-                        <TableCell>{vaccineRowLabel(due)}</TableCell>
-                        <TableCell><Tag tone={obligationTone(due.status)}>{due.status}</Tag></TableCell>
-                        <TableCell>
-                          {rowId ? (
-                            <Link href={workflowHref(rowId)} className="lk small">
-                              {copy(pageContract, "action.open_workflow")} →
-                            </Link>
-                          ) : (
-                            <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+            <Box tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
+              <DrawerTableScroll>
+                <Table size="small" sx={{ minWidth: 440 }}>
+                  <TableHead>
+                    <TableRow>
+                      {openCols.slice(0, 4).map((label) => (
+                        <TableCell component="th" key={label}>{label}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {open.slice(0, DRAWER_ROW_LIMIT).map((due) => {
+                      const rowId = realWorkflowRowId(due.workflow_row_id);
+                      return (
+                        <TableRow key={due.obligation_id}>
+                          <TableCell>
+                            <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
+                            {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
+                              <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</Typography>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>{vaccineRowLabel(due)}</TableCell>
+                          <TableCell><Tag tone={obligationTone(due.status)}>{due.status}</Tag></TableCell>
+                          <TableCell>
+                            {rowId ? (
+                              <Link href={workflowHref(rowId)} className="lk small">
+                                {copy(pageContract, "action.open_workflow")} →
+                              </Link>
+                            ) : (
+                              <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </DrawerTableScroll>
               {open.length > DRAWER_ROW_LIMIT ? (
-                <p className="muted small" style={{ margin: "6px 0 0" }}>
+                <Typography variant="caption" component="p" sx={{ color: "text.secondary", mt: 1 }}>
                   +{open.length - DRAWER_ROW_LIMIT} more
-                </p>
+                </Typography>
               ) : null}
-            </div>
+            </Box>
           )}
 
-          <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>
-            {copy(pageContract, "vaccination.history")}
-          </div>
+          <Typography variant="subtitle2">{copy(pageContract, "vaccination.history")}</Typography>
           {history.length === 0 ? (
-            <p className="muted small" style={{ margin: 0 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {copy(pageContract, "vaccination.empty_history")}
-            </p>
+            </Typography>
           ) : (
-            <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    {historyCols.slice(0, 5).map((label) => (
-                      <TableCell component="th" key={label}>{label}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {history.slice(0, DRAWER_ROW_LIMIT).map((item) => (
-                    <TableRow key={item.completion_id}>
-                      <TableCell>{fmtDate(item.administered_at)}</TableCell>
-                      <TableCell>{vaccineRowLabel(item)}</TableCell>
-                      <TableCell><Tag tone={historyTone(item.status)}>{item.status}</Tag></TableCell>
-                      <TableCell>{proofLabel(item, pageContract)}</TableCell>
-                      <TableCell><span className="gid" title={item.obligation_id}>{sourceObligationLabel(item.obligation_id)}</span></TableCell>
+            <Box tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
+              <DrawerTableScroll>
+                <Table size="small" sx={{ minWidth: 520 }}>
+                  <TableHead>
+                    <TableRow>
+                      {historyCols.slice(0, 5).map((label) => (
+                        <TableCell component="th" key={label}>{label}</TableCell>
+                      ))}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHead>
+                  <TableBody>
+                    {history.slice(0, DRAWER_ROW_LIMIT).map((item) => (
+                      <TableRow key={item.completion_id}>
+                        <TableCell>{fmtDate(item.administered_at)}</TableCell>
+                        <TableCell>{vaccineRowLabel(item)}</TableCell>
+                        <TableCell><Tag tone={historyTone(item.status)}>{item.status}</Tag></TableCell>
+                        <TableCell>{proofLabel(item, pageContract)}</TableCell>
+                        <TableCell><span className="gid" title={item.obligation_id}>{sourceObligationLabel(item.obligation_id)}</span></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </DrawerTableScroll>
               {history.length > DRAWER_ROW_LIMIT ? (
-                <p className="muted small" style={{ margin: "6px 0 0" }}>
+                <Typography variant="caption" component="p" sx={{ color: "text.secondary", mt: 1 }}>
                   +{history.length - DRAWER_ROW_LIMIT} more
-                </p>
+                </Typography>
               ) : null}
-            </div>
+            </Box>
           )}
         </>
       )}
-    </div>
+    </DrawerBlock>
   );
 }
 
@@ -292,7 +279,7 @@ export function ShedPassportLocalDrawer({
   closeHref: string;
   pageContract: AdminUiPageContract;
 }) {
-  const { displayedItem, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem, drawerOpen, closeDrawer } = useLocalOverlaySelection({
     items: rows,
     itemId: animalId,
     selectionKey: "goat_passport",
@@ -344,69 +331,47 @@ export function ShedPassportLocalDrawer({
   const vaccination = vaccinationPassports[displayedItem.goatId];
   const vaccinationError = vaccinationErrors[displayedItem.goatId];
 
+  const summary = goat?.summary;
   return (
-    <>
-      <button
-        type="button"
-        className={`scrim${drawerOpen ? " on" : ""}`}
-        aria-label={copy(pageContract, "drawer.passport.close_label")}
-        aria-hidden={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
-      />
-      <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label={copy(pageContract, "drawer.passport.aria")} aria-hidden={!drawerOpen} inert={!drawerOpen}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)", fontWeight: 800 }}>G</span>
-          <div>
-            <div className="mt">{goat?.display_id ?? displayedItem.displayId}</div>
-            <h2>{copy(pageContract, "drawer.passport.aria")}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.passport.close_label")} onClick={closeDrawer}>
-            <X className="ic" />
-          </button>
-        </div>
-        <div className="dc">
-          {error ? (
-            <Alert severity="error"><b>{copy(pageContract, "fallback.title")}</b>&nbsp;{error}</Alert>
-          ) : (
-            <>
-              <div className="helpgrid" style={{ marginBottom: 12 }}>
-                <div className="hk">{copy(pageContract, "label.display_id")}</div>
-                <div><span className="gid">{goat?.display_id ?? displayedItem.displayId}</span></div>
-                <div className="hk">{copy(pageContract, "label.tag_1")}</div>
-                <div className="mono">{dash(goat?.summary.animal_identifier_1 ?? displayedItem.tag1)}</div>
-                <div className="hk">{copy(pageContract, "label.tag_2")}</div>
-                <div className="mono">{dash(goat?.summary.animal_identifier_2 ?? displayedItem.tag2)}</div>
-              </div>
-              <div className="helpgrid">
-                <div className="hk">{copy(pageContract, "label.location")}</div>
-                <div>{dash(goat?.summary.location_path.operational_location_display)}</div>
-                <div className="hk">{copy(pageContract, "label.breed_sex")}</div>
-                <div>{dash(goat ? [goat.summary.breed, goat.summary.sex].filter(Boolean).join(" / ") : [displayedItem.breed, displayedItem.sex].filter(Boolean).join(" / "))}</div>
-                <div className="hk">{copy(pageContract, "label.lifecycle")}</div>
-                <div><Tag tone={statusTone(goat?.summary.lifecycle_status ?? displayedItem.lifecycleStatus, "lifecycle")}>{dash(goat?.summary.lifecycle_status ?? displayedItem.lifecycleStatus)}</Tag></div>
-                <div className="hk">{copy(pageContract, "label.health")}</div>
-                <div><Tag tone={statusTone(goat?.summary.health_status ?? displayedItem.healthStatus, "health")}>{dash(goat?.summary.health_status ?? displayedItem.healthStatus)}</Tag></div>
-                <div className="hk">{copy(pageContract, "label.reproductive")}</div>
-                <div><Tag tone={statusTone(goat?.summary.reproductive_status, "breeding")}>{dash(goat?.summary.reproductive_status)}</Tag></div>
-              </div>
-              <DrawerVaccinationBlock
-                vaccination={vaccination}
-                error={vaccinationError}
-                pageContract={pageContract}
-              />
-              {!goat ? <p className="muted small" style={{ marginTop: 14 }} aria-live="polite">…</p> : null}
-            </>
-          )}
-        </div>
-        <div className="df">
-          <Link href={`/goats/${encodeURIComponent(displayedItem.goatId)}`} className="btn p">
+    <DetailDrawer
+      open={drawerOpen}
+      onClose={closeDrawer}
+      title={copy(pageContract, "drawer.passport.aria")}
+      eyebrow={goat?.display_id ?? displayedItem.displayId}
+      icon={<Typography component="span" variant="subtitle2">G</Typography>}
+      ariaLabel={copy(pageContract, "drawer.passport.aria")}
+      closeLabel={copy(pageContract, "drawer.passport.close_label")}
+      footer={
+        <>
+          <LinkButton href={`/goats/${encodeURIComponent(displayedItem.goatId)}`} variant="contained">
             {copy(pageContract, "action.full_change_history")}
-          </Link>
-          <button type="button" className="btn" onClick={closeDrawer}>{copy(pageContract, "action.close")}</button>
-        </div>
-      </aside>
-    </>
+          </LinkButton>
+          <Button variant="outlined" color="inherit" onClick={closeDrawer}>{copy(pageContract, "action.close")}</Button>
+        </>
+      }
+    >
+      {error ? (
+        <Alert severity="error"><b>{copy(pageContract, "fallback.title")}</b>&nbsp;{error}</Alert>
+      ) : (
+        <>
+          <DrawerMetaGrid>
+            <DrawerMetaItem label={copy(pageContract, "label.display_id")}><span className="gid">{goat?.display_id ?? displayedItem.displayId}</span></DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "label.tag_1")}>{dash(summary?.animal_identifier_1 ?? displayedItem.tag1)}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "label.tag_2")}>{dash(summary?.animal_identifier_2 ?? displayedItem.tag2)}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "label.location")}>{dash(summary?.location_path.operational_location_display)}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "label.breed_sex")}>{dash(goat ? [goat.summary.breed, goat.summary.sex].filter(Boolean).join(" / ") : [displayedItem.breed, displayedItem.sex].filter(Boolean).join(" / "))}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "label.lifecycle")}><Tag tone={statusTone(summary?.lifecycle_status ?? displayedItem.lifecycleStatus, "lifecycle")}>{dash(summary?.lifecycle_status ?? displayedItem.lifecycleStatus)}</Tag></DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "label.health")}><Tag tone={statusTone(summary?.health_status ?? displayedItem.healthStatus, "health")}>{dash(summary?.health_status ?? displayedItem.healthStatus)}</Tag></DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "label.reproductive")}><Tag tone={statusTone(summary?.reproductive_status, "breeding")}>{dash(summary?.reproductive_status)}</Tag></DrawerMetaItem>
+          </DrawerMetaGrid>
+          <DrawerVaccinationBlock
+            vaccination={vaccination}
+            error={vaccinationError}
+            pageContract={pageContract}
+          />
+          {!goat ? <Typography variant="body2" sx={{ color: "text.secondary" }} aria-live="polite">…</Typography> : null}
+        </>
+      )}
+    </DetailDrawer>
   );
 }

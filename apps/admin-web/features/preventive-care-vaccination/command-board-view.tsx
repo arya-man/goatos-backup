@@ -22,6 +22,7 @@ import { AlertTriangle, CalendarClock, CalendarX, CircleSlash, Clock, RotateCcw,
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import { MinimalDrawer } from "@/components/minimal/drawer";
+import { DrawerTableScroll } from "@/components/app/detail-drawer";
 import { InfoHint } from "@/components/app/info-hint";
 import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import TextField from "@mui/material/TextField";
@@ -397,7 +398,7 @@ interface CommandBoardViewProps {
 }
 
 /** Detail drawers: the template MinimalDrawer paper width from sm up (phones get the full width). */
-const DRAWER_WIDTH = 380;
+const DRAWER_WIDTH = 480;
 
 const STATUS_KEYS = ["verified", "awaiting", "rework", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
@@ -1635,8 +1636,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <Typography variant="body2" sx={{ color: "text.secondary", px: 2.5, pt: 2 }}>
               {view.kpis.closedWithoutDose} {copy(pageContract, "command_board.closed_drawer.animals_word")}
             </Typography>
-            <Box sx={{ p: 2.5, overflowX: "auto" }}>
-              <Table className="cbm-closed-table">
+            <Box sx={{ p: 2.5 }}>
+              {/* Four columns scroll sideways inside their own template Scrollbar, never clipped. */}
+              <DrawerTableScroll>
+              <Table className="cbm-closed-table" sx={{ minWidth: 440 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell component="th">{copy(pageContract, "command_board.closed_drawer.column.animal")}</TableCell>
@@ -1680,6 +1683,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                   ))}
                 </TableBody>
               </Table>
+              </DrawerTableScroll>
               {(view.kpis.closedWithoutDose ?? 0) > closedAnimals.length ? (
                 <div className="cbm-cohort-detail-muted" style={{ marginTop: 10 }}>
                   {copy(pageContract, "command_board.closed_drawer.capped")} {view.kpis.closedWithoutDose}
@@ -1751,8 +1755,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
 
               {/* Sub-cohorts breakdown table */}
               {selectedCell.members.length > 0 ? (
-                <Box sx={{ overflowX: "auto" }}>
-                <Table className="cbm-cohort-detail-table">
+                <DrawerTableScroll>
+                <Table className="cbm-cohort-detail-table" sx={{ minWidth: 640 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</TableCell>
@@ -1778,7 +1782,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     ))}
                   </TableBody>
                 </Table>
-                </Box>
+                </DrawerTableScroll>
               ) : null}
             </Box>
         </MinimalDrawer>

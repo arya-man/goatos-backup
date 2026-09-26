@@ -172,7 +172,7 @@ function mergeShedCommitResult(preview: ShedImportResponse, committed: ShedImpor
 
 // ---- Dialog shell: template MUI Dialog (portal above the FAB, focus trap + restore, Escape/scrim close,
 // body scroll lock). Browser Back closes it too (the open state is component state, not a URL). ----
-export function Drawer({
+export function HerdActionDialog({
   open,
   onClose,
   closeLabel,
@@ -299,7 +299,7 @@ function RegisterGoatDrawer({
   const canCreate = hasLocations && hasStages;
 
   return (
-    <Drawer
+    <HerdActionDialog
       open={open}
       onClose={onClose}
       closeLabel={copy(pageContract, "action.close")}
@@ -523,7 +523,7 @@ function RegisterGoatDrawer({
           )}
         </div>
       </form>
-    </Drawer>
+    </HerdActionDialog>
   );
 }
 
@@ -546,7 +546,7 @@ function RegisterShedDrawer({
   const canCreate = parks.length > 0;
 
   return (
-    <Drawer
+    <HerdActionDialog
       open={open}
       onClose={onClose}
       closeLabel={copy(pageContract, "action.close")}
@@ -614,7 +614,7 @@ function RegisterShedDrawer({
           )}
         </div>
       </form>
-    </Drawer>
+    </HerdActionDialog>
   );
 }
 
@@ -729,7 +729,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   const failedCount = view ? failedImportRows(view.rows).length : 0;
 
   return (
-    <Drawer
+    <HerdActionDialog
       open={open}
       onClose={close}
       closeLabel={copy(pageContract, "action.close")}
@@ -858,7 +858,7 @@ function BulkImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
           </div>
         </>
       ) : null}
-    </Drawer>
+    </HerdActionDialog>
   );
 }
 
@@ -969,7 +969,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
   const failedCount = view ? failedImportRows(view.rows).length : 0;
 
   return (
-    <Drawer
+    <HerdActionDialog
       open={open}
       onClose={close}
       closeLabel={copy(pageContract, "action.close")}
@@ -1092,7 +1092,7 @@ function ShedImportDrawer({ open, onClose, pageContract }: { open: boolean; onCl
           </div>
         </>
       ) : null}
-    </Drawer>
+    </HerdActionDialog>
   );
 }
 
@@ -1208,7 +1208,7 @@ export function HerdReproductiveEdit({
         <SquarePen className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.edit_reproductive")}
       </button>
 
-      <Drawer
+      <HerdActionDialog
         open={open && canEdit}
         onClose={() => setOpen(false)}
         closeLabel={copy(pageContract, "action.close")}
@@ -1278,7 +1278,7 @@ export function HerdReproductiveEdit({
             <SubmitButton pageContract={pageContract}>{copy(pageContract, "action.save_reproductive")}</SubmitButton>
           </div>
         </form>
-      </Drawer>
+      </HerdActionDialog>
     </>
   );
 }

@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Maximize2, Radio, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Maximize2, Radio } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import Typography from "@mui/material/Typography";
+import { Label, type LabelColor } from "@/components/minimal/label";
+import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem } from "@/components/app/detail-drawer";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
@@ -70,7 +80,7 @@ export function HerdSignalsDrawer({
   initialSelectedId?: string;
   closeHref: string;
 }) {
-  const { displayedItem, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem, drawerOpen, closeDrawer } = useLocalOverlaySelection({
     items: rows,
     itemId: rowId,
     selectionKey: "hs_tag",
@@ -128,190 +138,166 @@ export function HerdSignalsDrawer({
   const titleLine = animalLabel ? `${animalLabel} · ${item.tag_id}` : `Unmapped tag ${item.tag_id}`;
   const subtitleLine = [fmtBleMac(item.tag_mac), location || null, item.gateway_id || null].filter(Boolean).join(" · ");
 
+  const sensorState = (ok: boolean | null | undefined) => (ok === null || ok === undefined ? "—" : ok ? "OK" : "Abnormal");
+
+  // Template temporary drawer (portal, backdrop, focus trapped and returned). The body is portalled
+  // outside `.herd-signals-page`, so it is built from MUI/template parts only, never page-scoped CSS.
   return (
-    <>
-      <button
-        type="button"
-        className={`scrim${drawerOpen ? " on" : ""}`}
-        aria-label="Close tag detail"
-        aria-hidden={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
-      />
-      <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label="Tag detail" aria-hidden={!drawerOpen} inert={!drawerOpen}>
-        <div className="dh">
-          <Radio className="ic" />
-          <div style={{ minWidth: 0 }}>
-            <b>{titleLine}</b>
-            <div className="faint small mono">{subtitleLine || "—"}</div>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label="Close tag detail" onClick={closeDrawer}>
-            <X className="ic" />
-          </button>
-        </div>
-        <div className="dc">
-          {/* Control row directly under the header: pattern + baseline chips, range picker, Expand. */}
-          <div className="patrow" style={{ paddingTop: 0 }}>
-            {item.pattern_state ? <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag> : null}
-            {item.baseline_delta !== null && item.baseline_delta !== undefined ? (
-              <Tag tone="mut">baseline {item.baseline_delta} / 5 min</Tag>
-            ) : null}
-            <span className="sp" style={{ flex: 1 }} />
-            <div className="rangepick" role="group" aria-label="History range">
-              {(["1h", "6h", "24h"] as RangeKey[]).map((key) => (
-                <button key={key} type="button" className={range === key ? "on" : undefined} onClick={() => setRange(key)}>
-                  {key}
-                </button>
-              ))}
-            </div>
-            <LocalOverlayLink href={expandHref} scroll={false} className="btn sm hs-btn" title="Full history, custom date range and farm-activity overlay">
-              <Maximize2 className="ic sm" />
-              Expand
-            </LocalOverlayLink>
-          </div>
+    <DetailDrawer
+      open={drawerOpen}
+      onClose={closeDrawer}
+      title={titleLine}
+      subtitle={subtitleLine || "—"}
+      icon={<Radio aria-hidden="true" />}
+      ariaLabel="Tag detail"
+      closeLabel="Close tag detail"
+    >
+      {/* Control row directly under the header: pattern + baseline chips, range picker, Expand. */}
+      <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+        {item.pattern_state ? <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag> : null}
+        {item.baseline_delta !== null && item.baseline_delta !== undefined ? (
+          <Tag tone="mut">baseline {item.baseline_delta} / 5 min</Tag>
+        ) : null}
+        <Box sx={{ flex: 1 }} />
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={range}
+          onChange={(_, next: RangeKey | null) => {
+            if (next) setRange(next);
+          }}
+          aria-label="History range"
+        >
+          {(["1h", "6h", "24h"] as RangeKey[]).map((key) => (
+            <ToggleButton key={key} value={key}>
+              {key}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+        <Button
+          component={LocalOverlayLink}
+          href={expandHref}
+          scroll={false}
+          size="small"
+          variant="outlined"
+          color="inherit"
+          startIcon={<Maximize2 size={16} aria-hidden="true" />}
+          title="Full history, custom date range and farm-activity overlay"
+        >
+          Expand
+        </Button>
+      </Box>
 
-          {/* Movement-history chart FIRST, above the readings, so it needs no scrolling. */}
-          <div className="card">
-            <div className="bd flush">
-              {chartError ? (
-                // A failed read is a distinct state from "this tag has no history" (empty buckets)
-                // and must never render as a blank/grey panel indistinguishable from either —
-                // docs/modules/herd-signals.md "Required UI states" is explicit about this exact
-                // case. Same icon/heading/retry shape as every other read-failed state in this page.
-                <div className="empty dngstate">
-                  <div className="eicon">
-                    <svg className="ic" viewBox="0 0 24 24">
-                      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-                      <path d="M12 9v4" />
-                      <path d="M12 17h.01" />
-                    </svg>
-                  </div>
-                  <h4>History read failed</h4>
-                  <p>{chartError}.</p>
-                  <div className="eact">
-                    <button type="button" className="btn sm hs-btn" onClick={() => setRetryToken((current) => current + 1)}>
-                      Retry
-                    </button>
-                  </div>
-                </div>
-              ) : buckets === null ? (
-                <div style={{ padding: 20 }}>
-                  <BlockSkeleton card={false} height={110} />
-                </div>
-              ) : (
-                <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={110} onHover={setHovered} />
-              )}
-              <div className="legend">
-                {historyChartLegend().filter((entry) => entry.className !== "b-reconnect").map((entry) =>
-                  entry.dashed ? (
-                    <span key={entry.label}>
-                      <i className={`${entry.className} dashed`} /> {entry.label}
-                    </span>
-                  ) : (
-                    <span key={entry.label}>
-                      <i className={entry.className} style={{ background: "currentColor" }} /> {entry.label}
-                    </span>
-                  ),
-                )}
-              </div>
-              <div className="readout" aria-live="polite">
-                <ChartReadout buckets={buckets} hovered={hovered} />
-              </div>
-              {/* Why this pattern was flagged (0192898c9 / 07e72a680). */}
-              <div className="small faint hs-pattern-note">
-                {item.pattern_state ? `${PATTERN_WHY[item.pattern_state].charAt(0).toUpperCase()}${PATTERN_WHY[item.pattern_state].slice(1)}. ` : ""}
-                Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.
-              </div>
-            </div>
-          </div>
+      {/* Movement-history chart FIRST, above the readings, so it needs no scrolling. */}
+      <Card variant="outlined" sx={{ p: 2 }}>
+        {chartError ? (
+          // A failed read is a distinct state from "this tag has no history" (empty buckets)
+          // and must never render as a blank/grey panel indistinguishable from either —
+          // docs/modules/herd-signals.md "Required UI states" is explicit about this exact case.
+          <Alert
+            severity="error"
+            action={
+              <Button color="inherit" size="small" onClick={() => setRetryToken((current) => current + 1)}>
+                Retry
+              </Button>
+            }
+          >
+            <AlertTitle>History read failed</AlertTitle>
+            {chartError}.
+          </Alert>
+        ) : buckets === null ? (
+          <BlockSkeleton card={false} height={110} />
+        ) : (
+          <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={110} onHover={setHovered} />
+        )}
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, rowGap: 1, pt: 1.5 }}>
+          {historyChartLegend().filter((entry) => entry.className !== "b-reconnect").map((entry) => (
+            <Typography key={entry.label} variant="caption" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}>
+              <Box
+                component="span"
+                aria-hidden="true"
+                sx={
+                  entry.dashed
+                    ? { width: 10, borderTop: "2px dashed var(--info)" }
+                    : { width: 10, aspectRatio: "1", borderRadius: "var(--r-sm)", bgcolor: LEGEND_SWATCH[entry.className] ?? "text.disabled", opacity: LEGEND_OPACITY[entry.className] ?? 1 }
+                }
+              />
+              {entry.label}
+            </Typography>
+          ))}
+        </Box>
+        <Typography variant="caption" component="div" sx={{ color: "text.secondary", pt: 1, "& b": { color: "text.primary", fontVariantNumeric: "tabular-nums" }, "&:empty": { display: "none" } }} aria-live="polite">
+          <ChartReadout buckets={buckets} hovered={hovered} />
+        </Typography>
+        {/* Why this pattern was flagged (0192898c9 / 07e72a680). */}
+        <Typography variant="caption" component="div" sx={{ color: "text.disabled", pt: 1 }}>
+          {item.pattern_state ? `${PATTERN_WHY[item.pattern_state].charAt(0).toUpperCase()}${PATTERN_WHY[item.pattern_state].slice(1)}. ` : ""}
+          Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.
+        </Typography>
+      </Card>
 
-          <dl className="kv">
-            <dt>Tag ID</dt>
-            <dd className="mono">
-              {item.tag_id}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>BLE MAC</dt>
-            <dd className="mono">
-              {fmtBleMac(item.tag_mac)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Animal</dt>
-            <dd>
-              {animalLabel || <span className="muted">Unmapped</span>}
-              <span className="srcl derived">Derived</span>
-            </dd>
-            <dt>Location</dt>
-            <dd>
-              {location || "—"}
-              <span className="srcl correlated">Correlated</span>
-            </dd>
-            <dt>Gateway</dt>
-            <dd className="mono">
-              {drawerGateway(item.gateway_id)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>RSSI</dt>
-            <dd>
-              {fmtRssi(item.rssi_dbm)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Battery voltage</dt>
-            <dd>
-              {drawerBatteryVoltage(item.battery_mv)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Tag temp</dt>
-            <dd>
-              {fmtTagTemp(item.tag_temperature_c)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Motion count</dt>
-            <dd>
-              {fmtDelta(item.motion_count)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-                    <dt>15m motion delta</dt>
-                    <dd title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}>
+      <DrawerMetaGrid>
+        <Reading label="Tag ID" source="direct">{item.tag_id}</Reading>
+        <Reading label="BLE MAC" source="direct">{fmtBleMac(item.tag_mac)}</Reading>
+        <Reading label="Animal" source="derived">{animalLabel || "Unmapped"}</Reading>
+        <Reading label="Location" source="correlated">{location || "—"}</Reading>
+        <Reading label="Gateway" source="direct">{drawerGateway(item.gateway_id)}</Reading>
+        <Reading label="RSSI" source="direct">{fmtRssi(item.rssi_dbm)}</Reading>
+        <Reading label="Battery voltage" source="direct">{drawerBatteryVoltage(item.battery_mv)}</Reading>
+        <Reading label="Tag temp" source="direct">{fmtTagTemp(item.tag_temperature_c)}</Reading>
+        <Reading label="Motion count" source="direct">{fmtDelta(item.motion_count)}</Reading>
+        <Reading
+          label="15m motion delta"
+          source="derived"
+          title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}
+        >
+          {fmtDelta(item.motion_delta)}
+          {item.gap_delta ? <sup title="Gap total">*</sup> : null}
+        </Reading>
+        <Reading label="24h motion delta" source="derived" title="Rolling 24-hour motion-counter delta. Movement units, not steps.">
+          {fmtDelta(item.motion_delta_24h)}
+        </Reading>
+        <Reading label="Movement state" source="inferred">
+          {item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}
+        </Reading>
+        <Reading label="Last seen" source="direct">{fmtAgo(item.last_seen_at, nowMs)}</Reading>
+        <Reading label="Temp sensor" source="direct">{sensorState(item.temperature_sensor_ok)}</Reading>
+        <Reading label="Accelerometer" source="direct">{sensorState(item.accelerometer_sensor_ok)}</Reading>
+        <Reading label="Mapping state" source="derived">
+          {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state]}
+        </Reading>
+      </DrawerMetaGrid>
+    </DetailDrawer>
+  );
+}
 
-                      {fmtDelta(item.motion_delta)}
-                      {item.gap_delta ? <sup title="Gap total">*</sup> : null}
-                      <span className="srcl derived">Derived</span>
-                    </dd>
-                    <dt>24h motion delta</dt>
-                    <dd title="Rolling 24-hour motion-counter delta. Movement units, not steps.">
-                      {fmtDelta(item.motion_delta_24h)}
-                      <span className="srcl derived">Derived</span>
-                    </dd>
-                    <dt>Movement state</dt>
-            <dd>
-              {item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}
-              <span className="srcl inferred">Inferred</span>
-            </dd>
-            <dt>Last seen</dt>
-            <dd>
-              {fmtAgo(item.last_seen_at, nowMs)}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Temp sensor</dt>
-            <dd>
-              {item.temperature_sensor_ok === null || item.temperature_sensor_ok === undefined ? "—" : item.temperature_sensor_ok ? "OK" : "Abnormal"}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Accelerometer</dt>
-            <dd>
-              {item.accelerometer_sensor_ok === null || item.accelerometer_sensor_ok === undefined ? "—" : item.accelerometer_sensor_ok ? "OK" : "Abnormal"}
-              <span className="srcl direct">Direct</span>
-            </dd>
-            <dt>Mapping state</dt>
-            <dd>
-              {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state]}
-              <span className="srcl derived">Derived</span>
-            </dd>
-          </dl>
-        </div>
-      </aside>
-    </>
+// Legend swatches carry the same palette tokens the history chart bars draw with.
+const LEGEND_SWATCH: Record<string, string> = {
+  "b-move": "var(--ok)",
+  "b-low": "var(--muted)",
+  "b-zero": "var(--line)",
+  "b-spike": "var(--warn)",
+  gap: "var(--danger)",
+};
+const LEGEND_OPACITY: Record<string, number> = { "b-low": 0.55, gap: 0.35 };
+
+// Where a reading comes from: read straight off the packet, derived, inferred, or correlated.
+type ReadingSource = "direct" | "derived" | "inferred" | "correlated";
+const SOURCE_LABEL: Record<ReadingSource, { text: string; color: LabelColor }> = {
+  direct: { text: "Direct", color: "success" },
+  derived: { text: "Derived", color: "info" },
+  inferred: { text: "Inferred", color: "secondary" },
+  correlated: { text: "Correlated", color: "warning" },
+};
+
+function Reading({ label, source, title, children }: { label: string; source: ReadingSource; title?: string; children: ReactNode }) {
+  const src = SOURCE_LABEL[source];
+  return (
+    <DrawerMetaItem label={label}>
+      <Box component="span" title={title} sx={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 0.75 }}>
+        {children}
+        <Label variant="soft" color={src.color}>{src.text}</Label>
+      </Box>
+    </DrawerMetaItem>
   );
 }

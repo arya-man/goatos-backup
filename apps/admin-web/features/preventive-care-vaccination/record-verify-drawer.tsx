@@ -1,9 +1,12 @@
 "use client";
 
-import Link from "@/components/no-prefetch-link";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import { LinkButton } from "@/components/minimal/link-button";
+import { DetailDrawer, DrawerMetaGrid, DrawerMetaItem, DrawerNote } from "@/components/app/detail-drawer";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
-import type { RefObject } from "react";
-import { Syringe, X } from "lucide-react";
+import { Syringe } from "lucide-react";
 import type {
   VaccinationOperationsCell,
   VaccinationOperationsCohort,
@@ -35,19 +38,11 @@ function statusMeta(pageContract: AdminUiPageContract, workState: string): { lab
 export function VaccinationRecordFormFields({ cohortShed, vaccineName, pageContract }: { cohortShed: string; vaccineName: string; pageContract: AdminUiPageContract }) {
   return (
     <>
-      <div className="note" style={{ margin: "14px 0 12px" }}>
-        {copy(pageContract, "drawer.record_verify.record_reason")}
-      </div>
-      <div className="metagrid">
-        <div>
-          <div className="k">{copy(pageContract, "drawer.record_verify.form.shed_name")}</div>
-          <div className="v">{cohortShed}</div>
-        </div>
-        <div>
-          <div className="k">{copy(pageContract, "drawer.record_verify.form.vaccine")}</div>
-          <div className="v">{vaccineName}</div>
-        </div>
-      </div>
+      <DrawerNote>{copy(pageContract, "drawer.record_verify.record_reason")}</DrawerNote>
+      <DrawerMetaGrid>
+        <DrawerMetaItem label={copy(pageContract, "drawer.record_verify.form.shed_name")}>{cohortShed}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "drawer.record_verify.form.vaccine")}>{vaccineName}</DrawerMetaItem>
+      </DrawerMetaGrid>
     </>
   );
 }
@@ -83,7 +78,7 @@ export function VaccinationRecordVerifyLocalDrawer({
   pageContract: AdminUiPageContract;
 }) {
   const closeHref = scopeHref(closePath, scope);
-  const { displayedItem, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem, drawerOpen, closeDrawer } = useLocalOverlaySelection({
     items: records,
     itemId: selectionId,
     selectionKey,
@@ -99,7 +94,6 @@ export function VaccinationRecordVerifyLocalDrawer({
       pageContract={pageContract}
       drawerOpen={drawerOpen}
       closeDrawer={closeDrawer}
-      closeButtonRef={closeButtonRef}
     />
   );
 }
@@ -110,14 +104,12 @@ function VaccinationRecordVerifyDrawer({
   pageContract,
   drawerOpen,
   closeDrawer,
-  closeButtonRef,
 }: {
   context: VaccinationRecordContext;
   scope: Scope;
   pageContract: AdminUiPageContract;
   drawerOpen: boolean;
   closeDrawer: () => void;
-  closeButtonRef: RefObject<HTMLButtonElement | null>;
 }) {
   const { cohort, protocol, cell } = context;
   const counts = (cell?.counts ?? cohort.counts ?? {}) as Partial<VaccinationOperationsCounts>;
@@ -133,108 +125,68 @@ function VaccinationRecordVerifyDrawer({
   const adherenceHref = scopeHref("/protocol-adherence", scope);
   const countFor = (key: CountKey): number => Number(counts[key] ?? 0);
 
+  const shedLabel = cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName, partitionLabel: cohort.partitionLabel });
+  const placeholder = copy(pageContract, "label.placeholder");
+
   return (
-    <>
-      <button
-        type="button"
-        className={`scrim${drawerOpen ? " on" : ""}`}
-        aria-label={copy(pageContract, "drawer.record_verify.close_label")}
-        aria-hidden={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
-      />
-      <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label={copy(pageContract, "drawer.record_verify.aria")} aria-hidden={!drawerOpen} inert={!drawerOpen}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <Syringe className="ic" aria-hidden="true" />
-          </span>
-          <div>
-            <div className="mt">{copy(pageContract, "drawer.record_verify.eyebrow")}</div>
-            <h2>{copy(pageContract, "drawer.record_verify.title")}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.record_verify.close_label")} onClick={closeDrawer}>
-            <X className="ic" />
-          </button>
-        </div>
-
-        <div className="dc">
-          <div className="note" style={{ marginBottom: 12 }}>
-            {copy(pageContract, "drawer.record_verify.note")}
-          </div>
-
-          {/* Real cohort × protocol context (RECORD anatomy = .metagrid, never a flat stack). */}
-          <div className="metagrid">
-            <div>
-              <div className="k">{copy(pageContract, "drawer.record_verify.form.shed_name")}</div>
-              <div className="v">
-                {/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
-                {cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName, partitionLabel: cohort.partitionLabel })}
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "drawer.record_verify.form.vaccine")}</div>
-              <div className="v">{vaccineName}</div>
-            </div>
-            <div>
-              <div className="k">{cohortLabels[1]}</div>
-              <div className="v">{cohort.animals || copy(pageContract, "label.placeholder")}</div>
-            </div>
-            <div>
-              <div className="k">{cohortLabels[2]}</div>
-              <div className="v">{cohort.ageBand ?? stageLabel(cohort.stage)}</div>
-            </div>
-            <div>
-              <div className="k">{cohortLabels[3]}</div>
-              <div className="v">{lastDose ? fmtDate(lastDose) : copy(pageContract, "label.placeholder")}</div>
-            </div>
-            <div>
-              <div className="k">{cohortLabels[4]}</div>
-              <div className="v">{nextDue ? fmtDate(nextDue) : copy(pageContract, "label.placeholder")}</div>
-            </div>
-            <div>
-              <div className="k">{cohortLabels[5]}</div>
-              <div className="v">
-                <Tag tone={meta.tone}>{meta.label}</Tag>
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "label.park")}</div>
-              <div className="v">{cohort.parkName}</div>
-            </div>
-          </div>
-
-          {/* Live obligation/completion tallies for this cell (or cohort rollup). */}
-          <div className="chipset" style={{ margin: "14px 0 4px" }}>
-            {countChips.map(({ key, label, tone }) => {
-              const n = countFor(key);
-              if (!n) return null;
-              return (
-                <Tag key={key} tone={(tone || "mut") as Tone}>
-                  {label} · {n}
-                </Tag>
-              );
-            })}
-            {countChips.every(({ key }) => countFor(key) === 0) ? (
-              <span className="muted small">{copy(pageContract, "drawer.record_verify.no_obligations")}</span>
-            ) : null}
-          </div>
-
-          <VaccinationRecordFormFields cohortShed={cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName, partitionLabel: cohort.partitionLabel })} vaccineName={vaccineName} pageContract={pageContract} />
-        </div>
-
-        <div className="df">
-          <Link href={actionCenterHref} className="btn" scroll={false}>
+    <DetailDrawer
+      open={drawerOpen}
+      onClose={closeDrawer}
+      title={copy(pageContract, "drawer.record_verify.title")}
+      eyebrow={copy(pageContract, "drawer.record_verify.eyebrow")}
+      icon={<Syringe aria-hidden="true" />}
+      ariaLabel={copy(pageContract, "drawer.record_verify.aria")}
+      closeLabel={copy(pageContract, "drawer.record_verify.close_label")}
+      footer={
+        <>
+          <LinkButton href={actionCenterHref} scroll={false} variant="contained">
             {copy(pageContract, "action.open_action_center")}
-          </Link>
-          <Link href={adherenceHref} className="btn" scroll={false}>
+          </LinkButton>
+          <LinkButton href={adherenceHref} scroll={false} variant="outlined" color="inherit">
             {copy(pageContract, "action.open_protocol_adherence")}
-          </Link>
-          <button type="button" className="btn" onClick={closeDrawer}>
+          </LinkButton>
+          <Button variant="outlined" color="inherit" onClick={closeDrawer}>
             {copy(pageContract, "action.cancel")}
-          </button>
-        </div>
-      </aside>
-    </>
+          </Button>
+        </>
+      }
+    >
+      <DrawerNote>{copy(pageContract, "drawer.record_verify.note")}</DrawerNote>
+
+      {/* Real cohort × protocol context (RECORD anatomy = two-column meta grid, never a flat stack). */}
+      <DrawerMetaGrid>
+        {/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
+        <DrawerMetaItem label={copy(pageContract, "drawer.record_verify.form.shed_name")}>{shedLabel}</DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "drawer.record_verify.form.vaccine")}>{vaccineName}</DrawerMetaItem>
+        <DrawerMetaItem label={cohortLabels[1]}>{cohort.animals || placeholder}</DrawerMetaItem>
+        <DrawerMetaItem label={cohortLabels[2]}>{cohort.ageBand ?? stageLabel(cohort.stage)}</DrawerMetaItem>
+        <DrawerMetaItem label={cohortLabels[3]}>{lastDose ? fmtDate(lastDose) : placeholder}</DrawerMetaItem>
+        <DrawerMetaItem label={cohortLabels[4]}>{nextDue ? fmtDate(nextDue) : placeholder}</DrawerMetaItem>
+        <DrawerMetaItem label={cohortLabels[5]}>
+          <Tag tone={meta.tone}>{meta.label}</Tag>
+        </DrawerMetaItem>
+        <DrawerMetaItem label={copy(pageContract, "label.park")}>{cohort.parkName}</DrawerMetaItem>
+      </DrawerMetaGrid>
+
+      {/* Live obligation/completion tallies for this cell (or cohort rollup). */}
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+        {countChips.map(({ key, label, tone }) => {
+          const n = countFor(key);
+          if (!n) return null;
+          return (
+            <Tag key={key} tone={(tone || "mut") as Tone}>
+              {label} · {n}
+            </Tag>
+          );
+        })}
+        {countChips.every(({ key }) => countFor(key) === 0) ? (
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {copy(pageContract, "drawer.record_verify.no_obligations")}
+          </Typography>
+        ) : null}
+      </Box>
+
+      <VaccinationRecordFormFields cohortShed={shedLabel} vaccineName={vaccineName} pageContract={pageContract} />
+    </DetailDrawer>
   );
 }

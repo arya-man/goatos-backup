@@ -8,8 +8,12 @@ import {
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate, todayIso } from "@/lib/format";
-import { X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { DetailDrawer } from "@/components/app/detail-drawer";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -31,6 +35,9 @@ export type ScheduleMoveDrawerRow = {
 };
 
 type MoveAction = ComponentProps<"form">["action"];
+
+// The submit button sits in the template drawer footer, outside the form; it posts through `form=`.
+const MOVE_FORM_ID = "schedule-move-form";
 
 function selectedMoveIdFromUrl(): string | undefined {
   const url = new URL(window.location.href);
@@ -55,7 +62,6 @@ export function ScheduleMoveDrawer({
   const [displayedRow, setDisplayedRow] = useState<ScheduleMoveDrawerRow | undefined>(initialRow);
   const [drawerOpen, setDrawerOpen] = useState(Boolean(initialRow));
   const [selectedVaccineCode, setSelectedVaccineCode] = useState(initialRow?.vaccineCodes[0] ?? "");
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const showRow = useCallback((row: ScheduleMoveDrawerRow) => {
     setDisplayedRow(row);
@@ -83,12 +89,6 @@ export function ScheduleMoveDrawer({
     };
   }, [hideRow, rows, showRow]);
 
-  useEffect(() => {
-    if (!drawerOpen) return undefined;
-    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
-  }, [drawerOpen]);
-
   const closeDrawer = useCallback(() => {
     hideRow();
     if (currentHistoryEntryIsLocalOverlay()) {
@@ -98,96 +98,80 @@ export function ScheduleMoveDrawer({
     replaceLocalOverlayUrl(closeHref);
   }, [closeHref, hideRow]);
 
-  useEffect(() => {
-    if (!drawerOpen) return undefined;
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeDrawer();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closeDrawer, drawerOpen]);
-
   if (!displayedRow) return null;
 
+  // Template temporary drawer (portal, backdrop, focus trapped and returned). Escape and the backdrop
+  // land on closeDrawer, which steps the local-overlay history entry back once.
   return (
-    <div className="schedule-drawer-backdrop schedule-move-backdrop" role="presentation" aria-hidden={!drawerOpen} style={{ opacity: drawerOpen ? 1 : 0 }}>
-      <button
-        type="button"
-        className="schedule-drawer-close-layer"
-        aria-label={copy(pageContract, "schedule.move.close")}
-        disabled={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
-      />
-      <aside className="schedule-side-drawer schedule-move-drawer" role="dialog" aria-modal="false" aria-hidden={!drawerOpen} inert={!drawerOpen} aria-labelledby="schedule-move-title" style={{ transform: drawerOpen ? "translateX(0)" : "translateX(100%)" }}>
-        <div className="schedule-drawer-head">
-          <div style={{ minWidth: 0 }}>
-            <span className="eyebrow">{fmtDate(displayedRow.plannedDate)} · {displayedRow.operatorName}</span>
-            <h3 id="schedule-move-title">{copy(pageContract, "schedule.move.title")}</h3>
-            <p className="muted small">
-              {displayedRow.parkName} · {displayedRow.animals} {copy(pageContract, "schedule.unit.animals")} · {displayedRow.totalDoses} {copy(pageContract, "schedule.unit.doses")}
-            </p>
-          </div>
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "schedule.move.close")} onClick={closeDrawer}>
-            <X className="ic" aria-hidden="true" />
-          </button>
-        </div>
-        <form action={action} className="schedule-move-form">
-          <input type="hidden" name="park_id" value={displayedRow.parkId} />
-          <input
-            type="hidden"
-            name="original_drive_date"
-            value={displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate}
-          />
-          <input
-            type="hidden"
-            name="original_drive_dates"
-            value={(displayedRow.vaccineOriginalDateSets[selectedVaccineCode] ?? [
-              displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate,
-            ]).join(",")}
-          />
-          <input type="hidden" name="reason" value={copy(pageContract, "schedule.postpone.reason_default")} />
-          <input type="hidden" name="return_to" value={displayedRow.returnTo} />
-          <div className="schedule-move-field">
-            <input type="hidden" name="vaccine_code" value={selectedVaccineCode} />
-            <TextField
-              select
-              label={copy(pageContract, "schedule.postpone.vaccine")}
-              value={selectedVaccineCode}
-              onChange={(event) => setSelectedVaccineCode(event.target.value)}
-              sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
-              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-            >
-              {displayedRow.vaccineCodes.map((code, index) => (
-                <MenuItem key={code} value={code}>
-                  {displayedRow.vaccineNames[index] ?? code}
-                </MenuItem>
-              ))}
-            </TextField>
-          </div>
-          <label>
-            <span>{copy(pageContract, "schedule.postpone.new_date")}</span>
-            <ThemedDatePicker
-              name="override_date"
-              label={copy(pageContract, "schedule.move.date_placeholder")}
-              min={todayIso()}
-              previousMonthLabel={copy(pageContract, "schedule.move.previous_month")}
-              nextMonthLabel={copy(pageContract, "schedule.move.next_month")}
-              invalidDateText={copy(pageContract, "schedule.move.invalid_future_date")}
-              required
-            />
-            <small className="muted">Requested start date. The system may move this to the nearest safe date if vaccine spacing rules require.</small>
-          </label>
-          <div className="schedule-move-vaccines">
-            {displayedRow.vaccineNames.map((name) => <Tag key={name} tone="teal">{name}</Tag>)}
-          </div>
-          <button className="btn" type="submit">
+    <DetailDrawer
+      open={drawerOpen}
+      onClose={closeDrawer}
+      title={copy(pageContract, "schedule.move.title")}
+      eyebrow={`${fmtDate(displayedRow.plannedDate)} · ${displayedRow.operatorName}`}
+      subtitle={`${displayedRow.parkName} · ${displayedRow.animals} ${copy(pageContract, "schedule.unit.animals")} · ${displayedRow.totalDoses} ${copy(pageContract, "schedule.unit.doses")}`}
+      ariaLabel={copy(pageContract, "schedule.move.title")}
+      closeLabel={copy(pageContract, "schedule.move.close")}
+      footer={
+        <>
+          <Button variant="outlined" color="inherit" onClick={closeDrawer}>
+            {copy(pageContract, "schedule.move.close")}
+          </Button>
+          <Button variant="contained" type="submit" form={MOVE_FORM_ID}>
             {copy(pageContract, "schedule.postpone.action")}
-          </button>
-        </form>
-      </aside>
-    </div>
+          </Button>
+        </>
+      }
+    >
+      <Stack component="form" id={MOVE_FORM_ID} action={action} spacing={2.5}>
+        <input type="hidden" name="park_id" value={displayedRow.parkId} />
+        <input
+          type="hidden"
+          name="original_drive_date"
+          value={displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate}
+        />
+        <input
+          type="hidden"
+          name="original_drive_dates"
+          value={(displayedRow.vaccineOriginalDateSets[selectedVaccineCode] ?? [
+            displayedRow.vaccineOriginalDates[selectedVaccineCode] || displayedRow.originalPlannedDate || displayedRow.plannedDate,
+          ]).join(",")}
+        />
+        <input type="hidden" name="reason" value={copy(pageContract, "schedule.postpone.reason_default")} />
+        <input type="hidden" name="return_to" value={displayedRow.returnTo} />
+        <input type="hidden" name="vaccine_code" value={selectedVaccineCode} />
+        <TextField
+          select
+          fullWidth
+          label={copy(pageContract, "schedule.postpone.vaccine")}
+          value={selectedVaccineCode}
+          onChange={(event) => setSelectedVaccineCode(event.target.value)}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+        >
+          {displayedRow.vaccineCodes.map((code, index) => (
+            <MenuItem key={code} value={code}>
+              {displayedRow.vaccineNames[index] ?? code}
+            </MenuItem>
+          ))}
+        </TextField>
+        <Stack spacing={1}>
+          <Typography variant="subtitle2">{copy(pageContract, "schedule.postpone.new_date")}</Typography>
+          <ThemedDatePicker
+            name="override_date"
+            label={copy(pageContract, "schedule.move.date_placeholder")}
+            min={todayIso()}
+            previousMonthLabel={copy(pageContract, "schedule.move.previous_month")}
+            nextMonthLabel={copy(pageContract, "schedule.move.next_month")}
+            invalidDateText={copy(pageContract, "schedule.move.invalid_future_date")}
+            required
+          />
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            Requested start date. The system may move this to the nearest safe date if vaccine spacing rules require.
+          </Typography>
+        </Stack>
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+          {displayedRow.vaccineNames.map((name) => <Tag key={name} tone="teal">{name}</Tag>)}
+        </Box>
+      </Stack>
+    </DetailDrawer>
   );
 }

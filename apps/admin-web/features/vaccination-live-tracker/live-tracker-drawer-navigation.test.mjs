@@ -26,9 +26,12 @@ test("the drawer reads the vaccination passport route, not a bespoke endpoint", 
   assert.match(drawer, /selectionKey: "goat_passport"/);
 });
 
-test("the drawer body uses the record metagrid, never helpgrid", () => {
-  assert.match(drawer, /className="metagrid"/);
-  assert.ok(!/helpgrid/.test(drawer), "record drawer bodies use .metagrid");
+test("the drawer is the template temporary drawer with the record meta grid, never helpgrid", () => {
+  assert.match(drawer, /<DetailDrawer\b/);
+  assert.match(drawer, /onClose=\{closeDrawer\}/);
+  assert.match(drawer, /<DrawerMetaGrid>/);
+  assert.match(drawer, /<DrawerTableScroll>/, "the obligations table scrolls inside its own Scrollbar, never clipped");
+  assert.ok(!/helpgrid|className=\{?`?"?drawer\b|className="scrim/.test(drawer), "no legacy .drawer/.scrim/.helpgrid shell");
 });
 
 test("the drawer surfaces both tags, so a dual-tagged animal is fully identified", () => {

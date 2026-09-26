@@ -5,10 +5,14 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
-import Link from "@/components/no-prefetch-link";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import { LinkButton } from "@/components/minimal/link-button";
+import { DetailDrawer, DrawerBlock, DrawerMetaGrid, DrawerMetaItem, DrawerTableScroll } from "@/components/app/detail-drawer";
 import { Caption } from "@/components/app/caption";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
-import { Syringe, X } from "lucide-react";
+import { Syringe } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Tag } from "@/components/ui-primitives";
@@ -154,97 +158,95 @@ function HerdDrawerVaccinationBlock({
   const historyCols = tableLabels(pageContract, "vaccination-history");
 
   return (
-    <div style={{ marginTop: 16 }}>
-      <div className="muted small" style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 10 }}>
-        <Syringe className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
-        {copy(pageContract, "section.vaccination.title")}
-      </div>
+    <DrawerBlock
+      title={
+        <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+          <Syringe size={16} aria-hidden="true" />
+          {copy(pageContract, "section.vaccination.title")}
+        </Box>
+      }
+    >
       {error ? (
-        <p className="muted small" style={{ marginTop: 8 }}>{copy(pageContract, "vaccination.unavailable_prefix")}: {error}</p>
+        <Caption>{copy(pageContract, "vaccination.unavailable_prefix")}: {error}</Caption>
       ) : !vaccination ? (
-        <p className="muted small" style={{ margin: 0 }} aria-live="polite">...</p>
+        <Typography variant="body2" sx={{ color: "text.secondary" }} aria-live="polite">...</Typography>
       ) : (
         <>
-          <div className="metagrid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 12 }}>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.next_due")}</div>
-              <div className="v" style={{ fontSize: 13 }}>
-                {vaccination.next_due ? (
-                  <>
-                    {fmtDate(vaccination.next_due.scheduled_for || vaccination.next_due.due_at)}{" "}
-                    <Tag tone={obligationTone(vaccination.next_due.status)}>{vaccination.next_due.status}</Tag>
-                  </>
-                ) : copy(pageContract, "vaccination.no_upcoming")}
-              </div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.open_obligations")}</div>
-              <div className="v">{open.length}</div>
-            </div>
-            <div>
-              <div className="k">{copy(pageContract, "vaccination.last_accepted")}</div>
-              <div className="v" style={{ fontSize: 13 }}>
-                {vaccination.last_accepted ? fmtDate(vaccination.last_accepted.administered_at) : copy(pageContract, "label.placeholder")}
-              </div>
-            </div>
-          </div>
+          <DrawerMetaGrid>
+            <DrawerMetaItem label={copy(pageContract, "vaccination.next_due")}>
+              {vaccination.next_due ? (
+                <>
+                  {fmtDate(vaccination.next_due.scheduled_for || vaccination.next_due.due_at)}{" "}
+                  <Tag tone={obligationTone(vaccination.next_due.status)}>{vaccination.next_due.status}</Tag>
+                </>
+              ) : copy(pageContract, "vaccination.no_upcoming")}
+            </DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "vaccination.open_obligations")}>{open.length}</DrawerMetaItem>
+            <DrawerMetaItem label={copy(pageContract, "vaccination.last_accepted")} span>
+              {vaccination.last_accepted ? fmtDate(vaccination.last_accepted.administered_at) : copy(pageContract, "label.placeholder")}
+            </DrawerMetaItem>
+          </DrawerMetaGrid>
 
-          <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>{copy(pageContract, "vaccination.open_due_rows")}</div>
+          <Typography variant="subtitle2">{copy(pageContract, "vaccination.open_due_rows")}</Typography>
           {open.length === 0 ? (
             <Caption>{copy(pageContract, "vaccination.empty_open")}</Caption>
           ) : (
-            <div style={{ overflowX: "auto", marginBottom: 12 }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
-              <Table>
-                <TableHead>
-                  <TableRow>{openCols.slice(0, 4).map((label) => <TableCell component="th" key={label}>{label}</TableCell>)}</TableRow>
-                </TableHead>
-                <TableBody>
-                  {open.slice(0, DRAWER_ROW_LIMIT).map((due) => (
-                    <TableRow key={due.obligation_id}>
-                      <TableCell>
-                        <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
-                        {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
-                          <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
-                        ) : null}
-                      </TableCell>
-                      <TableCell>{vaccineRowLabel(due)}</TableCell>
-                      <TableCell><Tag tone={obligationTone(due.status)}>{due.status}</Tag></TableCell>
-                      <TableCell><span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {open.length > DRAWER_ROW_LIMIT ? <p className="muted small" style={{ margin: "6px 0 0" }}>+{open.length - DRAWER_ROW_LIMIT} more</p> : null}
-            </div>
+            <Box tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
+              <DrawerTableScroll>
+                <Table size="small" sx={{ minWidth: 440 }}>
+                  <TableHead>
+                    <TableRow>{openCols.slice(0, 4).map((label) => <TableCell component="th" key={label}>{label}</TableCell>)}</TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {open.slice(0, DRAWER_ROW_LIMIT).map((due) => (
+                      <TableRow key={due.obligation_id}>
+                        <TableCell>
+                          <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
+                          {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
+                            <Typography variant="caption" component="div" sx={{ color: "text.secondary" }}>{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</Typography>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>{vaccineRowLabel(due)}</TableCell>
+                        <TableCell><Tag tone={obligationTone(due.status)}>{due.status}</Tag></TableCell>
+                        <TableCell><span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </DrawerTableScroll>
+              {open.length > DRAWER_ROW_LIMIT ? <Caption>+{open.length - DRAWER_ROW_LIMIT} more</Caption> : null}
+            </Box>
           )}
 
-          <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>{copy(pageContract, "vaccination.history")}</div>
+          <Typography variant="subtitle2">{copy(pageContract, "vaccination.history")}</Typography>
           {history.length === 0 ? (
             <Caption>{copy(pageContract, "vaccination.empty_history")}</Caption>
           ) : (
-            <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
-              <Table>
-                <TableHead>
-                  <TableRow>{historyCols.slice(0, 5).map((label) => <TableCell component="th" key={label}>{label}</TableCell>)}</TableRow>
-                </TableHead>
-                <TableBody>
-                  {history.slice(0, DRAWER_ROW_LIMIT).map((h) => (
-                    <TableRow key={h.completion_id}>
-                      <TableCell>{fmtDate(h.administered_at)}</TableCell>
-                      <TableCell>{vaccineRowLabel(h)}</TableCell>
-                      <TableCell><Tag tone={historyTone(h.status)}>{h.status}</Tag></TableCell>
-                      <TableCell>{proofLabel(h, pageContract)}</TableCell>
-                      <TableCell><span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {history.length > DRAWER_ROW_LIMIT ? <p className="muted small" style={{ margin: "6px 0 0" }}>+{history.length - DRAWER_ROW_LIMIT} more</p> : null}
-            </div>
+            <Box tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
+              <DrawerTableScroll>
+                <Table size="small" sx={{ minWidth: 520 }}>
+                  <TableHead>
+                    <TableRow>{historyCols.slice(0, 5).map((label) => <TableCell component="th" key={label}>{label}</TableCell>)}</TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {history.slice(0, DRAWER_ROW_LIMIT).map((h) => (
+                      <TableRow key={h.completion_id}>
+                        <TableCell>{fmtDate(h.administered_at)}</TableCell>
+                        <TableCell>{vaccineRowLabel(h)}</TableCell>
+                        <TableCell><Tag tone={historyTone(h.status)}>{h.status}</Tag></TableCell>
+                        <TableCell>{proofLabel(h, pageContract)}</TableCell>
+                        <TableCell><span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </DrawerTableScroll>
+              {history.length > DRAWER_ROW_LIMIT ? <Caption>+{history.length - DRAWER_ROW_LIMIT} more</Caption> : null}
+            </Box>
           )}
         </>
       )}
-    </div>
+    </DrawerBlock>
   );
 }
 
@@ -263,7 +265,7 @@ export function HerdPassportLocalDrawer({
   returnTo: string;
   pageContract: AdminUiPageContract;
 }) {
-  const { displayedItem: item, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
+  const { displayedItem: item, drawerOpen, closeDrawer } = useLocalOverlaySelection({
     items,
     itemId: herdGoatId,
     selectionKey: "goat_passport",
@@ -297,66 +299,49 @@ export function HerdPassportLocalDrawer({
   const canEditReproductiveStatus = pageContract.route_id === "herd-register";
 
   return (
-    <>
-      <button
-        type="button"
-        className={`scrim${drawerOpen ? " on" : ""}`}
-        aria-label={copy(pageContract, "drawer.passport.close_label")}
-        aria-hidden={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
-        onClick={closeDrawer}
-      />
-      <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label={copy(pageContract, "drawer.passport.aria")} aria-hidden={!drawerOpen} inert={!drawerOpen}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)", fontWeight: 800 }}>G</span>
-          <div>
-            <div className="mt">{item.displayId}</div>
-            <h2>{copy(pageContract, "drawer.passport.aria")}</h2>
-          </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.passport.close_label")} onClick={closeDrawer}>
-            <X className="ic" />
-          </button>
-        </div>
-        <div className="dc">
-          <div className="helpgrid" style={{ marginBottom: 12 }}>
-            <div className="hk">{cols[0]}</div>
-            <div><span className="gid">{item.displayId}</span></div>
-            <div className="hk">{cols[1]}</div>
-            <div className="mono">{dash(item.tag1)}</div>
-            <div className="hk">{cols[2]}</div>
-            <div className="mono">{dash(item.tag2)}</div>
-          </div>
-          <div className="helpgrid">
-            <div className="hk">{cols[3]}</div><div>{item.park}</div>
-            <div className="hk">{cols[4]}</div><div>{item.shed}</div>
-            <div className="hk">{cols[5]}</div><div>{dash(item.breed)}</div>
-            <div className="hk">{cols[6]}</div><div>{dash(item.sex)}</div>
-            <div className="hk">{cols[7]}</div><div>{weightLabel(item.weightKg)}</div>
-            <div className="hk">{cols[8]}</div><div><Tag tone={statusTone(item.lifecycleStatus, "lifecycle")}>{statusLabel(pageContract, "herd_lifecycle", item.lifecycleStatus)}</Tag></div>
-            <div className="hk">{cols[9]}</div><div><Tag tone={statusTone(item.healthStatus, "health")}>{statusLabel(pageContract, "herd_health", item.healthStatus)}</Tag></div>
-            <div className="hk">{cols[10]}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <Tag tone={statusTone(item.reproductiveStatus, "breeding")}>{statusLabel(pageContract, "herd_reproductive", item.reproductiveStatus)}</Tag>
-              {canEditReproductiveStatus ? (
-                <HerdReproductiveEdit
-                  goatId={item.goatId}
-                  displayId={item.displayId}
-                  currentStatus={item.reproductiveStatus}
-                  idempotencyKey={reproductiveIdempotencyKey}
-                  returnTo={returnTo}
-                  pageContract={pageContract}
-                />
-              ) : null}
-            </div>
-          </div>
-          <HerdDrawerVaccinationBlock vaccination={vaccination} error={vaccinationError} pageContract={pageContract} />
-        </div>
-        <div className="df">
-          <Link href={`/goats/${encodeURIComponent(item.goatId)}`} className="btn p">{copy(pageContract, "action.full_change_history")}</Link>
-          <button type="button" className="btn" onClick={closeDrawer}>{copy(pageContract, "action.close")}</button>
-        </div>
-      </aside>
-    </>
+    <DetailDrawer
+      open={drawerOpen}
+      onClose={closeDrawer}
+      title={copy(pageContract, "drawer.passport.aria")}
+      eyebrow={item.displayId}
+      icon={<Typography component="span" variant="subtitle2">G</Typography>}
+      ariaLabel={copy(pageContract, "drawer.passport.aria")}
+      closeLabel={copy(pageContract, "drawer.passport.close_label")}
+      footer={
+        <>
+          <LinkButton href={`/goats/${encodeURIComponent(item.goatId)}`} variant="contained">{copy(pageContract, "action.full_change_history")}</LinkButton>
+          <Button variant="outlined" color="inherit" onClick={closeDrawer}>{copy(pageContract, "action.close")}</Button>
+        </>
+      }
+    >
+      <DrawerMetaGrid>
+        <DrawerMetaItem label={cols[0]}><span className="gid">{item.displayId}</span></DrawerMetaItem>
+        <DrawerMetaItem label={cols[1]}>{dash(item.tag1)}</DrawerMetaItem>
+        <DrawerMetaItem label={cols[2]}>{dash(item.tag2)}</DrawerMetaItem>
+        <DrawerMetaItem label={cols[3]}>{item.park}</DrawerMetaItem>
+        <DrawerMetaItem label={cols[4]}>{item.shed}</DrawerMetaItem>
+        <DrawerMetaItem label={cols[5]}>{dash(item.breed)}</DrawerMetaItem>
+        <DrawerMetaItem label={cols[6]}>{dash(item.sex)}</DrawerMetaItem>
+        <DrawerMetaItem label={cols[7]}>{weightLabel(item.weightKg)}</DrawerMetaItem>
+        <DrawerMetaItem label={cols[8]}><Tag tone={statusTone(item.lifecycleStatus, "lifecycle")}>{statusLabel(pageContract, "herd_lifecycle", item.lifecycleStatus)}</Tag></DrawerMetaItem>
+        <DrawerMetaItem label={cols[9]}><Tag tone={statusTone(item.healthStatus, "health")}>{statusLabel(pageContract, "herd_health", item.healthStatus)}</Tag></DrawerMetaItem>
+        <DrawerMetaItem label={cols[10]} span>
+          <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Tag tone={statusTone(item.reproductiveStatus, "breeding")}>{statusLabel(pageContract, "herd_reproductive", item.reproductiveStatus)}</Tag>
+            {canEditReproductiveStatus ? (
+              <HerdReproductiveEdit
+                goatId={item.goatId}
+                displayId={item.displayId}
+                currentStatus={item.reproductiveStatus}
+                idempotencyKey={reproductiveIdempotencyKey}
+                returnTo={returnTo}
+                pageContract={pageContract}
+              />
+            ) : null}
+          </Box>
+        </DrawerMetaItem>
+      </DrawerMetaGrid>
+      <HerdDrawerVaccinationBlock vaccination={vaccination} error={vaccinationError} pageContract={pageContract} />
+    </DetailDrawer>
   );
 }

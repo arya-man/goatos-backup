@@ -194,11 +194,14 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.match(css, /background:var\(--panel\)/);
 });
 
-test("closed vaccination schedule drawers do not intercept page clicks", () => {
-  assert.match(css, /\.schedule-drawer-backdrop\[aria-hidden="true"\]\{[^}]*pointer-events\s*:\s*none/);
-  assert.match(css, /\.schedule-drawer-backdrop\[aria-hidden="true"\]\{[^}]*visibility\s*:\s*hidden/);
-  assert.match(moveDrawerSource, /disabled=\{!drawerOpen\}/);
-  assert.match(moveDrawerSource, /tabIndex=\{drawerOpen \? 0 : -1\}/);
+test("the schedule move drawer is the template temporary drawer (closed = unmounted modal, never a click trap)", () => {
+  // MUI Drawer (temporary) unmounts its modal + backdrop when closed, so a closed drawer cannot
+  // intercept page clicks; the old hand-made backdrop needed aria-hidden pointer-events rules.
+  assert.match(moveDrawerSource, /<DetailDrawer\b/);
+  assert.match(moveDrawerSource, /open=\{drawerOpen\}/);
+  assert.match(moveDrawerSource, /onClose=\{closeDrawer\}/);
+  assert.doesNotMatch(moveDrawerSource, /schedule-drawer-backdrop|schedule-side-drawer/);
+  assert.doesNotMatch(css, /\.schedule-drawer-backdrop|\.schedule-side-drawer/);
 });
 
 test("vaccination schedule month navigation stays in the operating window", () => {
