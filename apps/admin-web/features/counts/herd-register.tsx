@@ -3,6 +3,7 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import Box from "@mui/material/Box";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { randomUUID } from "node:crypto";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
@@ -278,7 +279,7 @@ export async function HerdRegisterPage({
 	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;
             <span>
               {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-              {actionDetail ? <span style={{ display: "block", marginTop: 6 }}>{actionDetail}</span> : null}
+              {actionDetail ? <Box component="span" sx={{ display: "block", mt: 0.75 }}>{actionDetail}</Box> : null}
             </span>
           </Alert>
         )

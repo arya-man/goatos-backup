@@ -89,7 +89,7 @@ export function MarketTrendSection({
   const unit = trendSeries[0]?.unit_label ?? "";
 
   return (
-    <section className="card wchart" style={{ marginTop: 12 }} aria-label={labels.aria}>
+    <Box component="section" className="card wchart" sx={{ mt: 1.5 }} aria-label={labels.aria}>
       <div className="hd">
         <h3>{labels.title}</h3>
         <div className="sp" style={{ flex: 1 }} />
@@ -125,6 +125,6 @@ export function MarketTrendSection({
         chartLabel={`${labels.title} · ${questionLabel}`}
         emptyLabel={labels.empty}
       />
-    </section>
+    </Box>
   );
 }

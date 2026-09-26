@@ -29,6 +29,7 @@
     "missing-loading-tsx|app/(admin)/configuration/items/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/procurement/page.tsx|no sibling loading.tsx",
+    "missing-loading-tsx|app/(admin)/sales/page.tsx|no sibling loading.tsx",
     "missing-loading-tsx|app/(admin)/verification/page.tsx|no sibling loading.tsx",
     "native-date-input|features/herd-signals/herd-signals-history-fullscreen.tsx|type=\"datetime-local\"",
     "native-date-input|features/herd-signals/herd-signals-history-fullscreen.tsx|type=\"datetime-local\"",
