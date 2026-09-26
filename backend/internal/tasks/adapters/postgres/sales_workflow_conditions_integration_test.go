@@ -17,10 +17,10 @@ import (
 // SALE WORKFLOW CONDITIONS (maintainer decision 2026-09-25, docs/decisions/sales-sop.md -> "A sale
 // without animals" and "A failed sale"), on real Postgres through the production repository path.
 
-// publishV1SaleSOPAndApply000432 installs the 000369 v1 document as the tenant's PUBLISHED
+// publishV1SaleSOPAndApply000443 installs the 000369 v1 document as the tenant's PUBLISHED
 // sales.deal version -- the state every live tenant is in on deploy day -- then runs migration
-// 000432's own Up SQL over it, so the test proves the in-place patch, not a hand-written copy.
-func publishV1SaleSOPAndApply000432(t *testing.T, repo *Repository) {
+// 000443's own Up SQL over it, so the test proves the in-place patch, not a hand-written copy.
+func publishV1SaleSOPAndApply000443(t *testing.T, repo *Repository) {
 	t.Helper()
 	ctx := t.Context()
 	v1, err := os.ReadFile(filepath.Join("..", "..", "domain", "testdata", "sales_deal_000369.json"))
@@ -64,14 +64,14 @@ WHERE sd.tenant_id = $1::uuid AND sd.code = 'sales.deal'
 ON CONFLICT (tenant_id, sop_id, version) DO NOTHING`, wfTenant, string(v1)); err != nil {
 		t.Fatalf("seed v1 sale sop: %v", err)
 	}
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "migrations", "postgres", "000432_sales_sop_sale_has_animals.sql"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "migrations", "postgres", "000443_sales_sop_sale_has_animals.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	up := strings.SplitN(strings.SplitN(string(raw), "-- +goose Down", 2)[0], "-- +goose Up", 2)[1]
 	for i := 0; i < 2; i++ { // twice: the patch is idempotent
 		if _, err := repo.pool.Exec(ctx, up); err != nil {
-			t.Fatalf("apply 000432 (pass %d): %v", i+1, err)
+			t.Fatalf("apply 000443 (pass %d): %v", i+1, err)
 		}
 	}
 	var conditioned int
@@ -85,7 +85,7 @@ WHERE v.tenant_id = $1::uuid AND st.step->>'when' = 'sale_has_animals'`, wfTenan
 		t.Fatal(err)
 	}
 	if conditioned != 3 {
-		t.Fatalf("000432 conditioned %d steps on the published version, want 3", conditioned)
+		t.Fatalf("000443 conditioned %d steps on the published version, want 3", conditioned)
 	}
 }
 
@@ -114,7 +114,7 @@ func saleActionKeys(t *testing.T, repo *Repository, dealID string) (string, []st
 // with every step.
 func TestSaleWithoutAnimalsOpensWithoutAnUnfinishableTagStep(t *testing.T) {
 	repo, _, ctx := newWorkflowRepo(t)
-	publishV1SaleSOPAndApply000432(t, repo)
+	publishV1SaleSOPAndApply000443(t, repo)
 	no, yes := false, true
 	cases := []struct {
 		deal       string
@@ -212,12 +212,12 @@ func TestDealFailedCancelsItsSaleWorkflow(t *testing.T) {
 	}
 }
 
-// TestRepair000433UnsticksExistingSaleWorkflows runs migration 000433's own Up SQL over workflows
+// TestRepair000444UnsticksExistingSaleWorkflows runs migration 000444's own Up SQL over workflows
 // opened the OLD way (every step, whatever was sold): a manure sale (legacy animal_count = 1 on an
 // 'other' line) and an animal line with no head count lose their unfinished tag / loading / gate
 // pass steps, a failed deal's workflow is cancelled, a real animal sale is untouched, and a second
 // run changes nothing.
-func TestRepair000433UnsticksExistingSaleWorkflows(t *testing.T) {
+func TestRepair000444UnsticksExistingSaleWorkflows(t *testing.T) {
 	repo, pool, ctx := newWorkflowRepo(t)
 	deals := []struct {
 		id, product, kind, status string
@@ -254,13 +254,13 @@ WHERE wi.tenant_id = a.tenant_id AND wi.workflow_id = a.workflow_id
   AND wi.subject_ref_id = $2::uuid AND a.tenant_id = $1::uuid AND a.action_key = 'full_payment'`, wfTenant, deals[0].id); err != nil {
 		t.Fatalf("shift payment due date: %v", err)
 	}
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "migrations", "postgres", "000433_sales_workflow_repair_stuck_steps.sql"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "migrations", "postgres", "000444_sales_workflow_repair_stuck_steps.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	up := strings.SplitN(strings.SplitN(string(raw), "-- +goose Down", 2)[0], "-- +goose Up", 2)[1]
 	if _, err := pool.Exec(ctx, up); err != nil {
-		t.Fatalf("apply 000433: %v", err)
+		t.Fatalf("apply 000444: %v", err)
 	}
 	type card struct {
 		state, statuses string
@@ -311,7 +311,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.subject_ref_id = $2::uuid`, wfTenant, deals
 		before[d.id] = read(d.id)
 	}
 	if _, err := pool.Exec(ctx, up); err != nil {
-		t.Fatalf("re-apply 000433: %v", err)
+		t.Fatalf("re-apply 000444: %v", err)
 	}
 	for _, d := range deals {
 		after, was := read(d.id), before[d.id]

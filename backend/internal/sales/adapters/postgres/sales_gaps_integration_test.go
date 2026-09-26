@@ -265,7 +265,7 @@ func TestAReceiptCannotTakeTheTotalPastTheSaleValue(t *testing.T) {
 	}
 }
 
-// Migration 000440 gives every existing advance its receipt row, once: afterwards the running
+// Migration 000447 gives every existing advance its receipt row, once: afterwards the running
 // total is the sum of the listed receipts, and a second run changes nothing. A deal whose total
 // disagrees for some OTHER reason is left alone.
 func TestAdvanceReceiptBackfillIsIdempotent(t *testing.T) {
@@ -273,7 +273,7 @@ func TestAdvanceReceiptBackfillIsIdempotent(t *testing.T) {
 	repo := feedSaleRepo(t, ctx)
 	pool := repo.pool
 
-	// Three sheet-era shapes, written as the pre-000440 code left them: the advance only in the
+	// Three sheet-era shapes, written as the pre-000447 code left them: the advance only in the
 	// running total, with no receipt row.
 	insert := func(advance, received float64, saleDate string) string {
 		t.Helper()
@@ -323,7 +323,7 @@ WHERE d.id = $1 GROUP BY d.payment_received`, c.id).Scan(&rows, &sum, &received)
 // pre-migration rows first (the pgtest template has already applied every migration).
 func advanceBackfillUp(t *testing.T) string {
 	t.Helper()
-	body, err := os.ReadFile("../../../../migrations/postgres/000440_sales_advance_is_a_receipt.sql")
+	body, err := os.ReadFile("../../../../migrations/postgres/000447_sales_advance_is_a_receipt.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,18 +381,18 @@ func TestGetDealRoundTripMatchesTheLedgerRow(t *testing.T) {
 	}
 }
 
-// Migration 000441 marks the advance receipts 000440 inserted, matched exactly as 000440 wrote
+// Migration 000448 marks the advance receipts 000447 inserted, matched exactly as 000447 wrote
 // them: its note and the deal's advance as the amount, one per deal (the earliest). A receipt the
 // desk typed later with the same words, or a receipt whose amount is not the advance, is not
 // the advance. Run on a real DB by executing the migration's own UPDATE, so the test cannot pass
 // against a paraphrase of it.
-func TestAdvanceReceiptMarkerBackfillMatchesThe000440Rows(t *testing.T) {
+func TestAdvanceReceiptMarkerBackfillMatchesThe000447Rows(t *testing.T) {
 	ctx := context.Background()
 	repo := feedSaleRepo(t, ctx)
 
-	matches, err := filepath.Glob("../../../../migrations/postgres/000441_*.sql")
+	matches, err := filepath.Glob("../../../../migrations/postgres/000448_*.sql")
 	if err != nil || len(matches) != 1 {
-		t.Fatalf("migration 000441: %v %v", matches, err)
+		t.Fatalf("migration 000448: %v %v", matches, err)
 	}
 	raw, err := os.ReadFile(matches[0])
 	if err != nil {
@@ -402,7 +402,7 @@ func TestAdvanceReceiptMarkerBackfillMatchesThe000440Rows(t *testing.T) {
 	start := strings.Index(body, "UPDATE public.sales_deal_payments p")
 	end := strings.Index(body[start:], ";")
 	if start < 0 || end < 0 {
-		t.Fatal("000441 backfill UPDATE not found")
+		t.Fatal("000448 backfill UPDATE not found")
 	}
 	backfill := body[start : start+end]
 
@@ -448,6 +448,6 @@ VALUES ($1, $2::uuid, '2026-09-02', $3, $4, $5::timestamptz) RETURNING payment_i
 	}
 	rows.Close()
 	if !marked[from440] || marked[typedLater] || marked[otherAmount] {
-		t.Fatalf("marked = %v; want only the 000440 row %s", marked, from440)
+		t.Fatalf("marked = %v; want only the 000447 row %s", marked, from440)
 	}
 }

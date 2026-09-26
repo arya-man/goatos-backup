@@ -18,7 +18,7 @@
 -- tenant's currently PUBLISHED sales.deal version -- the 000315 shape -- so the version a farm sees
 -- on deploy is the one it already had. Only those three step keys are touched, and only where the
 -- step carries no condition of its own, so an authored version keeps every other edit. A workflow
--- already open is untouched here (it keeps the steps it started with); 000433 repairs those.
+-- already open is untouched here (it keeps the steps it started with); 000444 repairs those.
 -- The seeded document is tasks/domain/sopseed/sales_deal.json (pinned by
 -- TestMigrationEmbedsTheSalesSeed, which also pins this file's three keys).
 
@@ -91,7 +91,7 @@ SELECT sd.tenant_id, sd.sop_id, 1, 'Sale v1', 'published',
        ),
        '{"subject_scope": "task", "types": ["video", "photo"], "required": false, "minimum_count": 0, "verify_before_apply": false, "approval_before_apply": false}'::jsonb,
        '{"min_app_version": "0.2.0", "supported_field_types": ["boolean", "select", "multiselect", "number", "text", "video_proof", "photo_proof"], "supported_proof_actions": ["photo.capture", "video.capture"], "supported_rule_operators": ["equals", "not_equals", "empty", "not_empty", "in"]}'::jsonb,
-       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded sale SOP (migration 000432)."}]}'::jsonb,
+       '{"valid": true, "errors": [], "warnings": [{"code": "seeded", "field": "form_dsl", "message": "Seeded sale SOP (migration 000443)."}]}'::jsonb,
        now()
 FROM public.sop_definitions sd
 WHERE sd.code = 'sales.deal'

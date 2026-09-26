@@ -202,7 +202,7 @@ stayed open and overdue forever.
 - The seeded document puts `"when": "sale_has_animals"` on **tag_animals, loading_video and
   dispatch_note** (the gate pass). The tag step stays a REQUIRED engine step: a conditional tag
   step is still present, so the document publishes (`engine_step_removed` still fires if it is
-  deleted). Migration `000432` adds the condition IN PLACE to each tenant's published version
+  deleted). Migration `000443` adds the condition IN PLACE to each tenant's published version
   (`000369` is untouched; checksummed on STG).
 - **Who decides:** the producer. `sales.deal.recorded` carries `has_live_animals`, computed from the
   deal's LINES inside the recording transaction (`sales/domain.DealWrite.HasLiveAnimals`): an
@@ -213,7 +213,7 @@ stayed open and overdue forever.
   rather than left waiting forever; a branch off a dropped question is dropped with it.
 - On `/sales/sops` the step editor offers the condition as **"Only when the sale has animals"**
   (option group `sop_step_conditions_sales`, backend copy).
-- Migration `000433` repairs workflows already open: the unfinished tag / loading / gate-pass steps
+- Migration `000444` repairs workflows already open: the unfinished tag / loading / gate-pass steps
   of a sale with no live animals are skipped and the card recomputed.
 
 **Not done: a sale EDITED after it opened.** There is no edit path for a deal's lines today (a sale
@@ -279,8 +279,8 @@ event). If any exist, re-emitting the event for those deals is a one-off repair.
 Pinned by `tasks/domain.TestSaleWithoutAnimalsOpensOnlyThePaymentSteps` and siblings,
 `tasks/app.TestSaleRecordedCarriesWhetherTheSaleHasAnimals`, `TestDealFailedCancelsTheSaleWorkflow`,
 `sales/domain.TestHasLiveAnimalsReadsTheAnimalLinesHeadCount`, and on real Postgres
-`TestSaleWithoutAnimalsOpensWithoutAnUnfinishableTagStep` (runs 000432's own SQL),
-`TestDealFailedCancelsItsSaleWorkflow`, `TestRepair000433UnsticksExistingSaleWorkflows`,
+`TestSaleWithoutAnimalsOpensWithoutAnUnfinishableTagStep` (runs 000443's own SQL),
+`TestDealFailedCancelsItsSaleWorkflow`, `TestRepair000444UnsticksExistingSaleWorkflows`,
 `identity/adapters/postgres.TestAFailedSaleReleasesItsTaggedAnimalsBackIntoTheirPens` and
 `TestADealFailedIsFinalAndTakesNoAnimals`, `vaccination/app.TestReturnedToHerdRunReOwesTheWorkItsExitCancelled`,
 `sales/app.TestDealFailedIsFinal`, `identity/app.TestOnlyAFailedDealReleasesItsAnimals` -- each
@@ -302,7 +302,7 @@ Closing an open deal stamps TODAY's business date (Asia/Kolkata, the server's cl
 client's) as its `sale_date`, in the same statement as the status change, so its revenue and the
 feed store's depletion (`feed_sale_depletions.feed_day` follows `sale_date`) land on the day the
 sale actually happened. The date it was recorded for is kept in `sales_deals.planned_sale_date`
-(migration 000434), written on the FIRST close only, served on the deal payload as
+(migration 000445), written on the FIRST close only, served on the deal payload as
 `planned_sale_date`; the audit row carries both dates. A re-close changes nothing. A sale recorded
 already Deal Closed keeps its typed date -- that is its sale date -- and has no planned date.
 
@@ -326,7 +326,7 @@ Pens are park-qualified operational names (oploc); dates DD/MM/YYYY; the feed da
 instant -- the same clock the sale notice reads. Audience: its own catalog key
 `feed.sale_failed_return` (default: the Feed Director), editable on People / HRMS ->
 Notifications. Event key `feed.sale_failed_return:<deal>`; notification type
-`feed_sale_failed_return` (migration 000435 widens the closed type list). A failed sale with no
+`feed_sale_failed_return` (migration 000446 widens the closed type list). A failed sale with no
 tagged animals releases nothing and sends nothing. Pinned by
 `TestFailedSaleTellsTheFeedDirectorWhichPensFeedAsBefore` (mutation-tested on the audience key)
 and the Postgres release test.
@@ -340,7 +340,7 @@ says "immediately", and the sale workflow now counts it from the sale's own busi
 (`tasks/domain.SaleClockAnchor`, Asia/Kolkata days, never hours). A sale dated after the day it is
 recorded anchors at 00:00 IST of its sale date; a sale dated that day or earlier anchors on the
 recording exactly as before. The anchor is stored in `workflow_instances.clock_anchor_at` (migration
-000443, NULL = event_at, which is every other workflow); the card's `event_at` stays the recording
+000449, NULL = event_at, which is every other workflow); the card's `event_at` stays the recording
 moment, so it still lists on the day it was recorded.
 
 When the sale CLOSES, its date is restamped to the close day (rule 2 above), and

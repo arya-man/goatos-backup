@@ -444,7 +444,7 @@ func TestSalesDealPaymentPostgresPaths(t *testing.T) {
 		if got := after.PaymentBalance(); got != 30000 {
 			t.Fatalf("balance = %v want 30000", got)
 		}
-		// The advance taken at the sale is the first receipt (000440); this one is the second.
+		// The advance taken at the sale is the first receipt (000447); this one is the second.
 		if len(after.Payments) != 2 || after.Payments[0].Note != AdvanceReceiptNote || after.Payments[0].AmountRupees != 20000 ||
 			after.Payments[1].AmountRupees != 50000 || after.Payments[1].ReceivedOn != "2026-08-25" {
 			t.Fatalf("payments = %#v want the advance then the one receipt", after.Payments)

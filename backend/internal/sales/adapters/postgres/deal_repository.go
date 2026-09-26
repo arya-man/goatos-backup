@@ -650,7 +650,7 @@ WHERE tenant_id = $1::uuid AND deal_id = $2::uuid AND payment_id = $3::uuid`,
 	}
 	// The advance receipt IS the sale's advance: editing it moves "Advance received" with it, in
 	// this same transaction, so the drawer and the receipts list can never disagree
-	// (migration 000441). An ordinary receipt leaves advance_amount untouched.
+	// (migration 000448). An ordinary receipt leaves advance_amount untouched.
 	if _, err := tx.Exec(ctx, `
 UPDATE public.sales_deals
 SET payment_received = $3,
@@ -755,7 +755,7 @@ WHERE tenant_id = $1::uuid AND deal_id = $2::uuid AND payment_id = $3::uuid`,
 	}
 	// Removing the advance receipt leaves the sale with NO advance, stored exactly as a sale
 	// recorded with the advance left blank (NULL), so "Advance received" reads the same empty
-	// cell. An ordinary receipt leaves advance_amount untouched (migration 000441).
+	// cell. An ordinary receipt leaves advance_amount untouched (migration 000448).
 	if _, err := tx.Exec(ctx, `
 UPDATE public.sales_deals
 SET payment_received = $3,
@@ -879,7 +879,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return domain.Deal{}, err
 	}
 
-	// THE ADVANCE IS THE SALE'S FIRST RECEIPT (migration 000440). payment_received above is seeded
+	// THE ADVANCE IS THE SALE'S FIRST RECEIPT (migration 000447). payment_received above is seeded
 	// with it; this row is what makes that figure a sum of LISTED receipts, so the desk sees the
 	// advance in the receipts list and corrects or removes it like any other -- instead of
 	// re-entering it and doubling the money received. Same transaction and same idempotency
@@ -931,7 +931,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 }
 
 // AdvanceReceiptNote is the note the advance's receipt row carries, both when a sale is recorded
-// and when migration 000440 gives an older advance its row. Farm words: the desk reads it in the
+// and when migration 000447 gives an older advance its row. Farm words: the desk reads it in the
 // receipts list.
 const AdvanceReceiptNote = "Advance at sale"
 
