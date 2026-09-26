@@ -2813,8 +2813,6 @@ aside.drawer.wt-assumptions-drawer .dc .fld>label{display:flex;align-items:cente
 .cal-day.end { background: var(--brand); color:var(--on-brand); font-weight: 800 }
 .legendcal { display: flex; gap: 14px; font-size: 10.5px; color: var(--muted); margin-top: 10px }
 .legendcal i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; vertical-align: middle }
-.modal .err { margin-top: 12px; font-size: 12px; color: var(--danger); background: var(--dangerx); border: 1px solid var(--danger); border-radius: 9px; padding: 9px 11px; display: none }
-.modal .err.on { display: block }
 .modal .mf { display: flex; justify-content: flex-end; gap: 9px; padding: 14px 18px; border-top: 1px solid var(--line); background: var(--panel-2) }
 .ctl { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; margin: 8px 0 4px }
 .fld { display: flex; flex-direction: column; gap: 5px }
@@ -5093,9 +5091,8 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
 }
 
 /* ── People / access editor ──────────────────────────────────────────────────
-   The access modal reuses the verification-review modal anatomy (.vr-modal*),
-   which is already the wide centered overlay in this system. Only the parts a
-   capability grid needs are new. */
+   The access editor is a template MUI Dialog (person-access-launcher.tsx); these
+   are the capability-grid parts inside it. */
 
 /* The setup strip: designation + park scope, above the module grid. */
 .pa-setup { display: flex; flex-wrap: wrap; gap: 18px 26px; padding-bottom: 15px; border-bottom: 1px solid var(--line) }

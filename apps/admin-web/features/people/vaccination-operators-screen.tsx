@@ -35,6 +35,11 @@ import { SkeletonList } from "@/components/app/page-skeletons";
 import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { Avatar } from "@/components/app/avatar";
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import IconButton from "@mui/material/IconButton";
+import { Iconify } from "@/components/minimal/iconify";
+import { MinimalDrawer } from "@/components/minimal/drawer";
+import { useBackCloses } from "@/components/use-back-closes";
 
 type Position = AdminApiComponents['schemas']['Position'];
 type StaffLeave = AdminApiComponents['schemas']['StaffLeaveListResponse']['items'][number];
@@ -330,6 +335,11 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
     setModalOpen(false);
     setModalTarget(null);
   };
+
+  // Android Back closes the leave drawer / the add-leave dialog (house drawer rule). They share
+  // one history entry: opening the dialog from the drawer keeps `open` true, so Back closes the
+  // topmost (the dialog), and the drawer after it only via X / Escape / scrim.
+  useBackCloses(drawerOpen || modalOpen, modalOpen ? closeModal : closeDrawer);
 
   // Shift form
   const openShiftForm = (op: Position) => {
@@ -1247,66 +1257,55 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         </div>
       </div>
 
-      {/* Right Drawer - Leave Details */}
-      {drawerOpen && drawerOp && (
-        <>
-          <div
-            className="dscrim on"
-            onClick={closeDrawer}
-          ></div>
-          <aside className="drawer on" role="dialog" aria-modal="true">
-            <div className="dh">
-              <Avatar name={drawerOp.person_display_name ?? 'OP'} initials={(drawerOp.person_display_name ?? 'OP')[0]} size={34} decorative />
-              <div style={{ flex: 1 }}>
-                <h3>{drawerOp.person_display_name || 'Operator'}</h3>
-                <span>Planned leave</span>
-              </div>
-              <button className="cal-nav" onClick={closeDrawer} title="Close">
-                ✕
-              </button>
-            </div>
-            <div className="db">
-              {!drawerLeaves.length ? (
-                <div className="lvempty">No planned leave. Use &quot;Add leave&quot;.</div>
-              ) : (
+      {/* Right Drawer - Leave Details: template MinimalDrawer (portal, focus trap, Escape / scrim /
+          X, focus back on the opener; Back closes it via useBackCloses). */}
+      <MinimalDrawer
+        open={drawerOpen && Boolean(drawerOp)}
+        onClose={closeDrawer}
+        title={drawerOp?.person_display_name || 'Operator'}
+        aria-label={drawerOp?.person_display_name || 'Operator'}
+        footer={
+          <Button variant="contained" fullWidth onClick={() => openModal(drawerTarget!)}>
+            ＋ Add leave
+          </Button>
+        }
+      >
+        <Box sx={{ p: 2.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>Planned leave</Typography>
+          {!drawerLeaves.length ? (
+            <div className="lvempty">No planned leave. Use &quot;Add leave&quot;.</div>
+          ) : (
+            <>
+              {drawerUpcoming.length > 0 && (
                 <>
-                  {drawerUpcoming.length > 0 && (
-                    <>
-                      <div className="dgrp">Upcoming</div>
-                      {drawerUpcoming.map((r) => (
-                        <div key={r.from} className="lvitem">
-                          <div>
-                            <div className="lvdate">{fmtRange(r)}</div>
-                            <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                  {drawerPast.length > 0 && (
-                    <>
-                      <div className="dgrp">Past</div>
-                      {drawerPast.map((r) => (
-                        <div key={r.from} className="lvitem past">
-                          <div>
-                            <div className="lvdate">{fmtRange(r)}</div>
-                            <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
+                  <Typography variant="overline" component="div" sx={{ color: 'text.secondary', mt: 1 }}>Upcoming</Typography>
+                  {drawerUpcoming.map((r) => (
+                    <div key={r.from} className="lvitem">
+                      <div>
+                        <div className="lvdate">{fmtRange(r)}</div>
+                        <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
+                      </div>
+                    </div>
+                  ))}
                 </>
               )}
-            </div>
-            <div className="df">
-              <button className="btn b" style={{ width: '100%' }} onClick={() => openModal(drawerTarget!)}>
-                ＋ Add leave
-              </button>
-            </div>
-          </aside>
-        </>
-      )}
+              {drawerPast.length > 0 && (
+                <>
+                  <Typography variant="overline" component="div" sx={{ color: 'text.secondary', mt: 1 }}>Past</Typography>
+                  {drawerPast.map((r) => (
+                    <div key={r.from} className="lvitem past">
+                      <div>
+                        <div className="lvdate">{fmtRange(r)}</div>
+                        <div className="lvdays">{daysIn(r)} day{daysIn(r) > 1 ? 's' : ''}</div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+        </Box>
+      </MinimalDrawer>
 
       {/* Modal - Set / Edit shift */}
       {(() => {
@@ -1416,23 +1415,22 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         );
       })()}
 
-      {/* Modal - Add Leave */}
-      {modalOpen && (
-        <>
-          <div className="scrim on" onClick={closeModal}></div>
-          <div className="modal on" role="dialog" aria-modal="true">
-            <div className="mh">
-              <Avatar name={operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name ?? 'OP'} initials={(operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name ?? 'OP')[0]} size={32} decorative />
-              <div>
-                <h3>Add planned leave</h3>
-                <span>{operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name || 'Operator'} · Vaccination operator</span>
-              </div>
-              <div style={{ flex: 1 }}></div>
-              <button className="cal-nav" onClick={closeModal} title="Close">
-                ✕
-              </button>
-            </div>
-            <div className="mb">
+      {/* Modal - Add Leave: template MUI Dialog (custom-dialog layout), portalled above the drawer. */}
+      {(() => {
+        const leaveOpName = operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name;
+        return (
+          <Dialog fullWidth maxWidth="xs" open={modalOpen} onClose={closeModal} slotProps={{ paper: { 'aria-label': 'Add planned leave' } }}>
+            <DialogTitle component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pr: 1.5 }}>
+              <Avatar name={leaveOpName ?? 'OP'} initials={(leaveOpName ?? 'OP')[0]} size={32} decorative />
+              <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                <Typography variant="h6" component="h3">Add planned leave</Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>{leaveOpName || 'Operator'} · Vaccination operator</Typography>
+              </Box>
+              <IconButton onClick={closeModal} aria-label="Close">
+                <Iconify icon="mingcute:close-line" />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent dividers>
               <div className="rangelab">
                 <span>Pick leave dates</span>
                 <b id="lmRange">
@@ -1441,19 +1439,19 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
               </div>
               <div className="cal">
                 <div className="cal-h">
-                  <button className="cal-nav" onClick={() => {
+                  <IconButton size="small" aria-label="Previous month" onClick={() => {
                     setViewMonth(v => v === 0 ? 11 : v - 1);
                     if (viewMonth === 0) setViewYear(y => y - 1);
                   }}>
-                    ‹
-                  </button>
+                    <Iconify icon="eva:arrow-ios-back-fill" />
+                  </IconButton>
                   <div className="mlab">{MON_NAMES[viewMonth]} {viewYear}</div>
-                  <button className="cal-nav" onClick={() => {
+                  <IconButton size="small" aria-label="Next month" onClick={() => {
                     setViewMonth(v => v === 11 ? 0 : v + 1);
                     if (viewMonth === 11) setViewYear(y => y + 1);
                   }}>
-                    ›
-                  </button>
+                    <Iconify icon="eva:arrow-ios-forward-fill" />
+                  </IconButton>
                 </div>
                 <div className="cal-grid">{dow}</div>
                 <div className="cal-grid">{calendarDays}</div>
@@ -1470,22 +1468,22 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                 </span>
               </div>
               {modalError && (
-                <div className="err on" style={{ marginTop: '12px' }}>
+                <Alert severity="error" role="alert" sx={{ mt: 1.5 }}>
                   {modalError}
-                </div>
+                </Alert>
               )}
-            </div>
-            <div className="mf">
-              <button className="btn sm ghost" onClick={closeModal}>
+            </DialogContent>
+            <DialogActions>
+              <Button size="small" variant="outlined" color="inherit" onClick={closeModal}>
                 Cancel
-              </button>
-              <button className="btn b sm" onClick={addLeave}>
+              </Button>
+              <Button size="small" variant="contained" onClick={addLeave}>
                 Add leave
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+              </Button>
+            </DialogActions>
+          </Dialog>
+        );
+      })()}
 
       {/* Toast */}
       {toast && (
