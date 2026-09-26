@@ -309,6 +309,52 @@ data class SaleAllocationDto(
     @SerialName("sales_deal_id") val salesDealId: String = "",
     @SerialName("allocated") val allocated: Int = 0,
     @SerialName("shed_groups") val shedGroups: List<SaleShedGroupDto> = emptyList(),
+    /** One row per tagged animal on the GET read-back; empty on a confirm response. */
+    @SerialName("animals") val animals: List<SaleAllocationAnimalDto> = emptyList(),
+)
+
+/** One animal already tagged to a sale: tag and pen as snapshotted, weight as recorded. */
+@Serializable
+data class SaleAllocationAnimalDto(
+    @SerialName("goat_id") val goatId: String,
+    @SerialName("tag_number") val tagNumber: String = "",
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String = "",
+    /** BACKEND-composed pen name, VERBATIM. */
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    /** Decimal string; blank when never recorded. */
+    @SerialName("weight_kg") val weightKg: String = "",
+)
+
+// ---------------------------------------------------------------------------------------------
+// The park head's tag-only queue (maintainer decision 2026-09-11): `GET /admin/goats/sale-tagging`.
+// NO buyer and NO money on the wire -- the person in the pen tags animals and nothing else.
+// ---------------------------------------------------------------------------------------------
+
+@Serializable
+data class SaleTaggingDealDto(
+    @SerialName("sales_deal_id") val salesDealId: String,
+    @SerialName("sale_date") val saleDate: String = "",
+    /** The ledger's farm code (CBE, CPT), which is also the park's short code. */
+    @SerialName("farm") val farm: String = "",
+    /**
+     * The park the sale was recorded at, resolved on the SERVER: the park the tagging screen
+     * searches. Blank on a row cached by an older build, or when the farm names no active park.
+     */
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("product_type") val productType: String = "",
+    @SerialName("breed") val breed: String = "",
+    @SerialName("declared_animal_count") val declaredAnimalCount: Int = 0,
+    @SerialName("already_tagged") val alreadyTagged: Int = 0,
+    /** BACKEND-derived: declared minus tagged, floored at zero. */
+    @SerialName("remaining") val remaining: Int = 0,
+)
+
+@Serializable
+data class SaleTaggingQueueDto(
+    @SerialName("deals") val deals: List<SaleTaggingDealDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
 )
 
 // ---------------------------------------------------------------------------------------------

@@ -11,6 +11,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/app"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
 // Sale-allocation HTTP surface: pick, review, confirm.
@@ -63,6 +65,28 @@ func RegisterSaleAllocation(mux *http.ServeMux, h *SaleAllocationHandler) {
 	mux.HandleFunc("POST /admin/goats/sale-allocations/preview", h.PreviewSaleAllocation)
 	mux.HandleFunc("POST /admin/goats/sale-allocations/confirm", h.ConfirmSaleAllocation)
 	mux.HandleFunc("GET /admin/goats/sale-allocations/{sales_deal_id}", h.GetSaleAllocation)
+	mux.HandleFunc("GET /admin/goats/sale-tagging", h.ListSaleTaggingQueue)
+	mux.HandleFunc("GET /admin/goats/sale-tagging/{sales_deal_id}", h.GetSaleTaggingDeal)
+}
+
+// allowedParkIDs resolves the caller's park scope for every allocation route (maintainer
+// decision 2026-09-11: a park head tags animals at THEIR park and nowhere else).
+//
+// nil means tenant-wide -- the sales desk and the CXO see every park, exactly as before. A
+// park-scoped caller gets the parks their sale-allocation grant carries, and a caller whose
+// grants resolve to no park at all is refused here rather than served the whole farm. Resolved
+// ONCE at the boundary and handed to the service as a plain list, so the service stays free of
+// request context and testable with a slice.
+func (h *SaleAllocationHandler) allowedParkIDs(w http.ResponseWriter, r *http.Request) ([]string, bool) {
+	decision := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(r.Context(), tenantID(r), "", permissions.SalesAllocateAnimals)
+	if !decision.Allowed {
+		h.respondSaleError(w, r, app.Forbidden(decision.Code, decision.Message))
+		return nil, false
+	}
+	if len(decision.ParkIDs) == 0 {
+		return nil, true
+	}
+	return append([]string(nil), decision.ParkIDs...), true
 }
 
 type saleCandidateListResponse struct {
@@ -99,10 +123,15 @@ func (h *SaleAllocationHandler) ListSaleCandidates(w http.ResponseWriter, r *htt
 	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
 		limit, _ = strconv.Atoi(raw)
 	}
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
 	candidates, cursor, err := h.service.ListSaleCandidates(r.Context(), app.ListSaleCandidatesInput{
-		TenantID: tenantID(r),
-		ParkID:   strings.TrimSpace(q.Get("park_id")),
-		ShedID:   strings.TrimSpace(q.Get("shed_id")),
+		TenantID:       tenantID(r),
+		AllowedParkIDs: allowed,
+		ParkID:         strings.TrimSpace(q.Get("park_id")),
+		ShedID:         strings.TrimSpace(q.Get("shed_id")),
 		// Repeated ?partition_label= params, so several pens of one shed come back in one
 		// page. A person picking for one sale routinely takes animals from more than one.
 		PartitionLabels: q["partition_label"],
@@ -162,6 +191,91 @@ type saleConfirmResponse struct {
 	SalesDealID string                 `json:"sales_deal_id"`
 	Allocated   int                    `json:"allocated"`
 	ShedGroups  []saleShedGroupPayload `json:"shed_groups"`
+	// Animals is the one-per-animal read-back (GET only): tag, pen and weight as recorded
+	// at tagging. Absent on a confirm response.
+	Animals []saleAllocationAnimalPayload `json:"animals,omitempty"`
+}
+
+type saleAllocationAnimalPayload struct {
+	GoatID                     string `json:"goat_id"`
+	TagNumber                  string `json:"tag_number,omitempty"`
+	ShedID                     string `json:"shed_id,omitempty"`
+	ShedName                   string `json:"shed_name,omitempty"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	WeightKg                   string `json:"weight_kg,omitempty"`
+}
+
+// saleTaggingQueueResponse is the park head's tag-only queue. NO buyer, NO money.
+type saleTaggingQueueResponse struct {
+	Deals      []saleTaggingDealPayload `json:"deals"`
+	NextCursor *string                  `json:"next_cursor,omitempty"`
+}
+
+type saleTaggingDealPayload struct {
+	SalesDealID string `json:"sales_deal_id"`
+	SaleDate    string `json:"sale_date"`
+	Farm        string `json:"farm"`
+	// ParkID is the park the sale was recorded at, resolved on the server: the park the tagging
+	// screen searches. Empty when the farm code names no active park.
+	ParkID              string `json:"park_id,omitempty"`
+	ProductType         string `json:"product_type"`
+	Breed               string `json:"breed,omitempty"`
+	DeclaredAnimalCount int    `json:"declared_animal_count"`
+	AlreadyTagged       int    `json:"already_tagged"`
+	Remaining           int    `json:"remaining"`
+}
+
+// ListSaleTaggingQueue serves the park head's queue: the sales at their park still owed
+// animals (maintainer decision 2026-09-11).
+func (h *SaleAllocationHandler) ListSaleTaggingQueue(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 0
+	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
+		limit, _ = strconv.Atoi(raw)
+	}
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
+	deals, cursor, err := h.service.ListSaleTaggingQueue(r.Context(), app.ListSaleTaggingQueueInput{
+		TenantID:       tenantID(r),
+		AllowedParkIDs: allowed,
+		Limit:          limit,
+		Cursor:         strings.TrimSpace(q.Get("cursor")),
+	})
+	if err != nil {
+		h.respondSaleError(w, r, err)
+		return
+	}
+	out := saleTaggingQueueResponse{Deals: make([]saleTaggingDealPayload, 0, len(deals)), NextCursor: cursor}
+	for _, d := range deals {
+		out.Deals = append(out.Deals, saleTaggingDealToPayload(d))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// GetSaleTaggingDeal serves ONE sale for the tagging screen, in the queue's shape, with its park.
+// Same clamp as every allocation route; no buyer and no money.
+func (h *SaleAllocationHandler) GetSaleTaggingDeal(w http.ResponseWriter, r *http.Request) {
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
+	deal, err := h.service.GetSaleTaggingDeal(r.Context(), tenantID(r), r.PathValue("sales_deal_id"), allowed)
+	if err != nil {
+		h.respondSaleError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saleTaggingDealToPayload(*deal))
+}
+
+func saleTaggingDealToPayload(d ports.SaleTaggingDeal) saleTaggingDealPayload {
+	return saleTaggingDealPayload{
+		SalesDealID: d.SalesDealID, SaleDate: d.SaleDate, Farm: d.Farm, ParkID: d.ParkID,
+		ProductType: d.ProductType, Breed: d.Breed,
+		DeclaredAnimalCount: d.DeclaredAnimalCount, AlreadyTagged: d.AlreadyTagged, Remaining: d.Remaining(),
+	}
 }
 
 // PreviewSaleAllocation is the review step. It mutates nothing.
@@ -175,8 +289,12 @@ func (h *SaleAllocationHandler) PreviewSaleAllocation(w http.ResponseWriter, r *
 		h.respondSaleError(w, r, err)
 		return
 	}
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
 	preview, err := h.service.PreviewSaleAllocation(r.Context(), app.PreviewSaleAllocationInput{
-		TenantID: tenantID(r), SalesDealID: req.SalesDealID, GoatIDs: req.GoatIDs,
+		TenantID: tenantID(r), SalesDealID: req.SalesDealID, GoatIDs: req.GoatIDs, AllowedParkIDs: allowed,
 	})
 	if err != nil {
 		h.respondSaleError(w, r, err)
@@ -215,6 +333,10 @@ func (h *SaleAllocationHandler) ConfirmSaleAllocation(w http.ResponseWriter, r *
 		h.respondSaleError(w, r, err)
 		return
 	}
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
 	result, err := h.service.ConfirmSaleAllocation(r.Context(), app.ConfirmSaleAllocationInput{
 		TenantID:        tenantID(r),
 		ActorID:         actorID(r),
@@ -223,6 +345,7 @@ func (h *SaleAllocationHandler) ConfirmSaleAllocation(w http.ResponseWriter, r *
 		SalesDealID:     req.SalesDealID,
 		GoatIDs:         req.GoatIDs,
 		AnimalWeightsKg: req.AnimalWeightsKg,
+		AllowedParkIDs:  allowed,
 		Reason:          req.Reason,
 	})
 	if err != nil {
@@ -238,7 +361,16 @@ func (h *SaleAllocationHandler) ConfirmSaleAllocation(w http.ResponseWriter, r *
 
 // GetSaleAllocation reads back the animals one sale is made of, shed-wise.
 func (h *SaleAllocationHandler) GetSaleAllocation(w http.ResponseWriter, r *http.Request) {
-	groups, err := h.service.GetSaleAllocation(r.Context(), tenantID(r), r.PathValue("sales_deal_id"))
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
+	groups, err := h.service.GetSaleAllocation(r.Context(), tenantID(r), r.PathValue("sales_deal_id"), allowed)
+	if err != nil {
+		h.respondSaleError(w, r, err)
+		return
+	}
+	animals, err := h.service.GetSaleAllocationAnimals(r.Context(), tenantID(r), r.PathValue("sales_deal_id"), allowed)
 	if err != nil {
 		h.respondSaleError(w, r, err)
 		return
@@ -247,11 +379,20 @@ func (h *SaleAllocationHandler) GetSaleAllocation(w http.ResponseWriter, r *http
 	for _, g := range groups {
 		total += g.Animals
 	}
-	writeJSON(w, http.StatusOK, saleConfirmResponse{
+	out := saleConfirmResponse{
 		SalesDealID: r.PathValue("sales_deal_id"),
 		Allocated:   total,
 		ShedGroups:  saleShedGroups(groups),
-	})
+		Animals:     make([]saleAllocationAnimalPayload, 0, len(animals)),
+	}
+	for _, a := range animals {
+		out.Animals = append(out.Animals, saleAllocationAnimalPayload{
+			GoatID: a.GoatID, TagNumber: a.TagNumber, ShedID: a.ShedID, ShedName: a.ShedName,
+			PartitionLabel: a.PartitionLabel, OperationalLocationDisplay: a.OperationalLocationDisplay,
+			WeightKg: a.WeightKg,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func saleShedGroups(in []ports.SaleAllocationShedGroup) []saleShedGroupPayload {
@@ -284,7 +425,11 @@ func decodeSaleBody(body []byte, dest any) error {
 
 // ListSaleLocations serves the picker's park/shed/pen vocabulary.
 func (h *SaleAllocationHandler) ListSaleLocations(w http.ResponseWriter, r *http.Request) {
-	catalog, err := h.service.GetSaleLocations(r.Context(), tenantID(r))
+	allowed, ok := h.allowedParkIDs(w, r)
+	if !ok {
+		return
+	}
+	catalog, err := h.service.GetSaleLocations(r.Context(), tenantID(r), allowed)
 	if err != nil {
 		h.respondSaleError(w, r, err)
 		return

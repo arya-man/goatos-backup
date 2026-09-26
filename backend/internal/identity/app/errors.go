@@ -21,6 +21,13 @@ func Unauthorized(code, message string) *Error {
 	return &Error{Code: code, Message: message, HTTPStatus: 401}
 }
 
+// Forbidden is the caller holding the permission but not the SCOPE: a park-scoped person
+// asking about another park. 403, never 404, so the phone can say "not your park" rather
+// than "no such animal".
+func Forbidden(code, message string) *Error {
+	return &Error{Code: code, Message: message, HTTPStatus: 403}
+}
+
 func Unprocessable(code, message string) *Error {
 	return &Error{Code: code, Message: message, HTTPStatus: 422}
 }

@@ -72,7 +72,6 @@ internal val TYPED_PURCHASE_QUESTIONS: List<Pair<String, PurchaseField>> = listO
     "feed_item_label" to PurchaseField.FEED_ITEM,
     "quantity_kg" to PurchaseField.QUANTITY_KG,
     "vendor" to PurchaseField.VENDOR,
-    "batch_no" to PurchaseField.BATCH_NO,
     "feed_cost" to PurchaseField.FEED_COST,
     "transport_cost" to PurchaseField.TRANSPORT_COST,
     "loading_cost" to PurchaseField.LOADING_COST,
@@ -789,8 +788,6 @@ class FeedPurchaseCreateViewModel @Inject constructor(
                 if (v[PurchaseField.FARM].isNullOrBlank()) errors[PurchaseField.FARM] = REQUIRED
                 if (v[PurchaseField.FEED_ITEM].isNullOrBlank()) errors[PurchaseField.FEED_ITEM] = REQUIRED
                 if (v[PurchaseField.VENDOR].isNullOrBlank()) errors[PurchaseField.VENDOR] = REQUIRED
-                val batchNo = v[PurchaseField.BATCH_NO].orEmpty().trim()
-                if (batchNo.isNotBlank() && (batchNo.toIntOrNull() == null || batchNo.toInt() <= 0)) errors[PurchaseField.BATCH_NO] = WHOLE_NUMBER
                 val qty = v[PurchaseField.QUANTITY_KG].orEmpty().trim()
                 if (qty.toDoubleOrNull() == null || qty.toDouble() <= 0.0) errors[PurchaseField.QUANTITY_KG] = MORE_THAN_ZERO
                 val bought = v[PurchaseField.PURCHASE_DATE].orEmpty()
@@ -830,7 +827,6 @@ class FeedPurchaseCreateViewModel @Inject constructor(
             purchaseDate = get(PurchaseField.PURCHASE_DATE).orEmpty(),
             farm = get(PurchaseField.FARM).orEmpty(),
             feedItem = get(PurchaseField.FEED_ITEM).orEmpty(),
-            batchNo = get(PurchaseField.BATCH_NO).orEmpty().trim().toIntOrNull(),
             quantityKg = get(PurchaseField.QUANTITY_KG).orEmpty().trim().toDouble(),
             feedCost = money(PurchaseField.FEED_COST),
             transportCost = money(PurchaseField.TRANSPORT_COST),
@@ -885,7 +881,6 @@ class FeedPurchaseCreateViewModel @Inject constructor(
         const val KEY_CLIENT_ID = "feed_purchase_create_client_id"
         const val STEP_COUNT = 2
         const val REQUIRED = "Required"
-        const val WHOLE_NUMBER = "Enter a whole number"
         const val MORE_THAN_ZERO = "Must be more than zero"
         const val AMOUNT = "Enter an amount"
         const val NOT_FUTURE = "Cannot be in the future"

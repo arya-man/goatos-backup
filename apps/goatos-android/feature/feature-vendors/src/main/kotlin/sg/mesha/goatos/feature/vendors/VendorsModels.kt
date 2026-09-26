@@ -307,7 +307,7 @@ data class FeedPurchaseDetailUiState(
 @Immutable
 data class FeedPurchasePaymentUi(
     val paymentId: String,
-    /** "01-09-2026" */
+    /** "01/09/2026" */
     val paidOn: String,
     /** "₹8,000" */
     val amount: String,
@@ -334,7 +334,7 @@ sealed interface FeedPurchaseDetailEvent {
 }
 
 enum class PurchaseField {
-    PURCHASE_DATE, FARM, FEED_ITEM, VENDOR, BATCH_NO, QUANTITY_KG, DAYS_OF_STOCK,
+    PURCHASE_DATE, FARM, FEED_ITEM, VENDOR, QUANTITY_KG, DAYS_OF_STOCK,
     REACHED_ON, REACHED_WEIGHT_KG,
     FEED_COST, TRANSPORT_COST, LOADING_COST, UNLOADING_COST, TOTAL_COST, PAYMENT_STATUS, PAYMENT_RELEASED,
     /** The instalment editor's own three fields (maintainer instruction 2026-09-04). */

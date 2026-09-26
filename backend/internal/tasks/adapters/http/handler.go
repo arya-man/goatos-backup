@@ -745,11 +745,11 @@ func (h *Handler) authorizeWorkflowWrite(w http.ResponseWriter, r *http.Request,
 func hasModulePermission(ctx context.Context, module string) bool {
 	switch module {
 	case domain.ModuleSales:
-		// SALES SOP (2026-09-19): a sale workflow is read by anyone the sale itself is visible
-		// to -- the sales desk, the tagger, or a counts writer (park head / operator).
+		// SALES SOP (2026-09-19): a sale workflow is read by the sales desk or a counts writer.
+		// NOT by sales.allocate_animals alone (review of PR #446): a tag-only park head tags from
+		// the pen, the tag step completes itself from the confirm, and the card names the buyer.
 		return hasWorkflowPermission(ctx, permissions.SalesRead) ||
 			hasWorkflowPermission(ctx, permissions.SalesWrite) ||
-			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	case domain.ModuleProcurement:
 		// PROCUREMENT SOP (2026-09-20): a purchase workflow is read by anyone the purchase itself
@@ -772,8 +772,8 @@ func hasModulePermission(ctx context.Context, module string) bool {
 func hasModuleWritePermission(ctx context.Context, module string) bool {
 	switch module {
 	case domain.ModuleSales:
+		// sales.allocate_animals alone answers no step: see hasModulePermission.
 		return hasWorkflowPermission(ctx, permissions.SalesWrite) ||
-			hasWorkflowPermission(ctx, permissions.SalesAllocateAnimals) ||
 			hasWorkflowPermission(ctx, permissions.CountsWrite)
 	case domain.ModuleProcurement:
 		// Read-only procurement access does not answer a step; recording the animals, feed, the

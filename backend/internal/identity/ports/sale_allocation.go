@@ -201,6 +201,21 @@ type SaleAllocationPreview struct {
 	BlockedAnimals []SaleCandidate
 }
 
+// SaleAllocationAnimal is ONE animal tagged to a sale as the read-back lists it: the tag and
+// pen SNAPSHOTTED at tagging, and the weight typed for it. The park head resuming a
+// half-tagged sale reads these to see what is already done; the figures are strings so a
+// numeric never round-trips through a float.
+type SaleAllocationAnimal struct {
+	GoatID                     string
+	TagNumber                  string
+	ShedID                     string
+	ShedName                   string
+	PartitionLabel             string
+	OperationalLocationDisplay string
+	// WeightKg is "" when the row predates the column that holds it (000282).
+	WeightKg string
+}
+
 // SaleAllocationResult is what a confirm applied.
 type SaleAllocationResult struct {
 	SalesDealID string
@@ -220,6 +235,9 @@ type SaleAllocationReader interface {
 	ReadSaleCandidateRows(ctx context.Context, tenantID, excludeDealID string, goatIDs []string) (map[string]SaleCandidateRow, error)
 	// ListSaleAllocations returns the animals tagged to one deal, shed-wise.
 	ListSaleAllocations(ctx context.Context, tenantID, salesDealID string) ([]SaleAllocationShedGroup, error)
+	// ListSaleAllocationAnimals returns the same animals one per row, with the weight
+	// recorded for each. Bounded by the deal's own count.
+	ListSaleAllocationAnimals(ctx context.Context, tenantID, salesDealID string) ([]SaleAllocationAnimal, error)
 	// ListSaleLocations is the picker's park/shed/pen vocabulary, legacy alias shed rows
 	// excluded. See the adapter for why offering them is the reported empty-picker bug.
 	ListSaleLocations(ctx context.Context, tenantID string) (*SaleLocationCatalog, error)
@@ -228,6 +246,13 @@ type SaleAllocationReader interface {
 // SaleAllocationWriter is the write side.
 type SaleAllocationWriter interface {
 	RecordSaleAllocations(ctx context.Context, cmd RecordSaleAllocationsCommand) (*SaleAllocationResult, error)
+	// ReplaySaleAllocation answers an EXACT REPLAY of a confirm that already committed, from the
+	// idempotency ledger and before anything about the animals is re-read: after the first confirm
+	// the animals are sold and the sale is full, so re-judging them would refuse a retry the
+	// caller is entitled to. found=false means the key is unknown and the confirm runs normally.
+	// A key already held for a DIFFERENT request is ErrIdempotencyConflict; one whose first
+	// attempt has not committed is ErrIdempotencyPending.
+	ReplaySaleAllocation(ctx context.Context, tenantID, salesDealID, storedKey, requestHash string) (result *SaleAllocationResult, found bool, err error)
 }
 
 // SaleLocationCatalog is the picker's park/shed/pen vocabulary.
@@ -314,7 +339,54 @@ func (d SaleDeal) Remaining() int {
 // outside identity's own package supplies it.
 type SaleDealReader interface {
 	ReadSaleDeal(ctx context.Context, tenantID, salesDealID string) (*SaleDeal, error)
+	// ListSaleTaggingDeals is the park head's queue (maintainer decision 2026-09-11): the
+	// live animal sales that still owe animals, newest first, keyset-paged. `farms` narrows to
+	// the ledger's farm codes (CBE, CPT); nil means every farm. The rows carry NO buyer and NO
+	// money on purpose -- that is what "tag animals and nothing else" means on the wire.
+	ListSaleTaggingDeals(ctx context.Context, tenantID string, farms []string, limit int, cursor string) ([]SaleTaggingDeal, *string, error)
+	// ReadSaleTaggingDeal is ONE sale in the queue's shape, by id, whether or not it still owes
+	// animals -- the tagging screen reads it so it never depends on the sale being on the cached
+	// first page of the queue. ErrSaleDealNotFound for an unknown id. ParkID is left blank; the
+	// service resolves it.
+	ReadSaleTaggingDeal(ctx context.Context, tenantID, salesDealID string) (*SaleTaggingDeal, error)
+	// ReadSaleDealFarm returns the farm code the sale was recorded at (CBE, CPT, ...). It is
+	// asked ONLY for a park-scoped caller, to refuse a sale recorded at another park; it is a
+	// separate read from ReadSaleDeal because a sale with no animal count (manure) still has a
+	// farm and must still be scope-checked on the read-back.
+	ReadSaleDealFarm(ctx context.Context, tenantID, salesDealID string) (string, error)
 }
+
+// SaleTaggingDeal is one sale as the tag-only queue shows it. Only what a person tagging in a
+// pen needs to recognise the sale and know how many animals are still owed.
+type SaleTaggingDeal struct {
+	SalesDealID string
+	// SaleDate is the ledger's business date, YYYY-MM-DD.
+	SaleDate string
+	// Farm is the ledger's farm code (CBE, CPT), which is also the park's location_code.
+	Farm string
+	// ParkID is the park that farm code names, resolved by the SERVICE from the pen catalog (the
+	// ledger stores no park id). The tagging screen searches this park; resolving it on the
+	// device raced the queue cache (review of PR #446). Blank when the code names no active park.
+	ParkID      string
+	ProductType string
+	Breed       string
+	// DeclaredAnimalCount is what the sale is for; AlreadyTagged how many are done.
+	DeclaredAnimalCount int
+	AlreadyTagged       int
+}
+
+// Remaining is how many animals this sale still needs tagged.
+func (d SaleTaggingDeal) Remaining() int {
+	remaining := d.DeclaredAnimalCount - d.AlreadyTagged
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// SaleTaggingQueuePageSize bounds one page of the tag-only queue: a phone lists a screenful and
+// asks for the next with the cursor.
+const SaleTaggingQueuePageSize = 20
 
 // SaleAllocationPen is ONE pen's share of one sale confirm: where the animals stood when they
 // were tagged, and how many of them. It is what the Feed Director's push names pen by pen.

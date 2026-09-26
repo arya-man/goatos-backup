@@ -74,3 +74,19 @@ Three rules bind future changes:
 Canonical prose: `docs/decisions/sales-sop.md`. Pinned by `TestMigrationEmbedsTheSalesSeed`,
 `TestStepOwnedByHonoursTheAuthoredDesignation`, `TestSalesSOPContract` and, on real Postgres,
 `TestSaleWorkflowRunsTheSalesSOP` (mutation-tested).
+
+## Park Heads Tag Animals To A Sale, And Nothing Else Of Sales (maintainer decision 2026-09-11)
+
+The SOP gives the `tag_animals` step to `park_head`; this is how a park head reaches it. The
+capability module `sale_allocation` (`sales.allocate_animals` alone) is on BOTH surfaces; on the
+phone it is its own module -- "Sales", one bar item "Tag animals" at `/sale-tagging` -- offered to
+a person who holds the permission WITHOUT `sales.read`, and it follows the `/people` tick (ticking
+it adds the module to anyone, clearing it removes it). The queue `/admin/goats/sale-tagging`
+carries NO buyer and NO money. Every allocation route is clamped to the caller's park, for the
+animals AND for the sale's own farm (`403 park_out_of_scope`). The phone tags by Bluetooth reader
+or typed tag, takes each animal's weight (required) and NO price, and submits only when the sale is filled
+exactly.
+Migration `000454` also writes the tick for every park head already on /people and as the
+`park_head` job default. Do not "simplify" by granting the park head `sales.read` so the queue
+can show the buyer: that lights up the whole Sales module. Canonical prose:
+`docs/decisions/sale-tagging-park-head.md`.

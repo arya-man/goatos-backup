@@ -133,6 +133,8 @@ import sg.mesha.goatos.core.network.dto.FeedPurchaseOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedPurchasePageDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
 import sg.mesha.goatos.core.network.dto.SaleAllocationDto
+import sg.mesha.goatos.core.network.dto.SaleTaggingDealDto
+import sg.mesha.goatos.core.network.dto.SaleTaggingQueueDto
 import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
@@ -1211,6 +1213,15 @@ interface AppApiService {
 
     @GET("admin/goats/sale-allocations/{sales_deal_id}")
     suspend fun getSaleAllocation(@Path("sales_deal_id") salesDealId: String): SaleAllocationDto
+
+    @GET("admin/goats/sale-tagging/{sales_deal_id}")
+    suspend fun getSaleTaggingDeal(@Path("sales_deal_id") salesDealId: String): SaleTaggingDealDto
+
+    @GET("admin/goats/sale-tagging")
+    suspend fun getSaleTaggingQueue(
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): SaleTaggingQueueDto
 
     @POST("admin/goats/sale-allocations/preview")
     suspend fun previewSaleAllocation(@Body request: SaleAllocationRequestDto): SalePreviewDto
@@ -2600,6 +2611,11 @@ class RetrofitAppApi(
         service.getSaleCandidates(parkId, shedId, partitionLabels, query, limit, cursor)
 
     override suspend fun getSaleAllocation(salesDealId: String): SaleAllocationDto = service.getSaleAllocation(salesDealId)
+
+    override suspend fun getSaleTaggingQueue(limit: Int?, cursor: String?): SaleTaggingQueueDto =
+        service.getSaleTaggingQueue(limit, cursor)
+
+    override suspend fun getSaleTaggingDeal(salesDealId: String): SaleTaggingDealDto = service.getSaleTaggingDeal(salesDealId)
 
     override suspend fun previewSaleAllocation(request: SaleAllocationRequestDto): SalePreviewDto = service.previewSaleAllocation(request)
 

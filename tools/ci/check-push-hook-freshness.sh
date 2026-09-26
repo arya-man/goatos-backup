@@ -65,6 +65,7 @@ esac
 pairs="
 tools/ci/check-local-ci-evidence.mjs:goatos-check-local-ci-evidence.mjs
 tools/ci/check-stg-promotion.mjs:goatos-check-stg-promotion.mjs
+tools/ci/step-input-digest.mjs:step-input-digest.mjs
 "
 
 fail=0
@@ -161,7 +162,9 @@ else
       git remote add origin git@github.com:vgoats/goatos.git || exit 97
       mkdir -p hooks || exit 97
       cp "$hook" hooks/pre-push || exit 97
-      for f in goatos-check-local-ci-evidence.mjs goatos-check-stg-promotion.mjs; do
+      # step-input-digest.mjs is IMPORTED by the evidence guard: without it the hook crashes, and a
+      # crash exits non-zero exactly like a refusal, so the probe would read a broken gate as proven.
+      for f in goatos-check-local-ci-evidence.mjs goatos-check-stg-promotion.mjs step-input-digest.mjs; do
         [ -f "$hooks_dir/$f" ] && { cp "$hooks_dir/$f" "hooks/$f" || exit 97; }
       done
       chmod +x hooks/* 2>/dev/null

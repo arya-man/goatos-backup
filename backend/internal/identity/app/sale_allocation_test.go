@@ -15,6 +15,30 @@ type fakeSaleRepo struct {
 	// "the confirm never trusts the preview" is actually observable.
 	readCalls int
 	recorded  *ports.RecordSaleAllocationsCommand
+	// catalog is what ListSaleLocations answers; nil means an empty catalog.
+	catalog *ports.SaleLocationCatalog
+	// completed is the idempotency ledger: stored key -> the fingerprint and result of a
+	// confirm that committed, which is what ReplaySaleAllocation answers from.
+	completed map[string]fakeCompletedConfirm
+	// recordCalls counts writes, so a replay can be shown to write nothing.
+	recordCalls int
+}
+
+type fakeCompletedConfirm struct {
+	hash   string
+	result ports.SaleAllocationResult
+}
+
+func (f *fakeSaleRepo) ReplaySaleAllocation(_ context.Context, _, _, storedKey, requestHash string) (*ports.SaleAllocationResult, bool, error) {
+	done, ok := f.completed[storedKey]
+	if !ok {
+		return nil, false, nil
+	}
+	if done.hash != requestHash {
+		return nil, false, ports.ErrIdempotencyConflict
+	}
+	out := done.result
+	return &out, true, nil
 }
 
 func (f *fakeSaleRepo) ListSaleCandidates(context.Context, ports.ListSaleCandidatesParams) ([]ports.SaleCandidateRow, *string, error) {
@@ -41,12 +65,25 @@ func (f *fakeSaleRepo) ListSaleAllocations(context.Context, string, string) ([]p
 }
 
 func (f *fakeSaleRepo) ListSaleLocations(context.Context, string) (*ports.SaleLocationCatalog, error) {
+	if f.catalog != nil {
+		return f.catalog, nil
+	}
 	return &ports.SaleLocationCatalog{}, nil
+}
+
+func (f *fakeSaleRepo) ListSaleAllocationAnimals(context.Context, string, string) ([]ports.SaleAllocationAnimal, error) {
+	return nil, nil
 }
 
 func (f *fakeSaleRepo) RecordSaleAllocations(_ context.Context, cmd ports.RecordSaleAllocationsCommand) (*ports.SaleAllocationResult, error) {
 	f.recorded = &cmd
-	return &ports.SaleAllocationResult{SalesDealID: cmd.SalesDealID, Allocated: len(cmd.Rows)}, nil
+	f.recordCalls++
+	result := ports.SaleAllocationResult{SalesDealID: cmd.SalesDealID, Allocated: len(cmd.Rows)}
+	if f.completed == nil {
+		f.completed = map[string]fakeCompletedConfirm{}
+	}
+	f.completed[cmd.StoredIdempotencyKey] = fakeCompletedConfirm{hash: cmd.RequestHash, result: result}
+	return &result, nil
 }
 
 const (
@@ -77,6 +114,38 @@ type fakeDeals struct {
 	declared int
 	tagged   int
 	err      error
+	// queueCalls records the farm filters the tagging queue was asked with; queueFarmsSeen
+	// is set to true on every call so a nil (tenant-wide) filter is observable too.
+	queueCalls     [][]string
+	queueFarmsSeen bool
+	queue          []ports.SaleTaggingDeal
+	// farm is the code the sale was recorded at; farmReads counts the scope lookups.
+	farm      string
+	farmReads int
+}
+
+func (f *fakeDeals) ReadSaleTaggingDeal(_ context.Context, _, dealID string) (*ports.SaleTaggingDeal, error) {
+	for _, d := range f.queue {
+		if d.SalesDealID == dealID {
+			out := d
+			return &out, nil
+		}
+	}
+	return nil, ports.ErrSaleDealNotFound
+}
+
+func (f *fakeDeals) ReadSaleDealFarm(context.Context, string, string) (string, error) {
+	f.farmReads++
+	if f.farm == "" {
+		return "CPT", nil
+	}
+	return f.farm, nil
+}
+
+func (f *fakeDeals) ListSaleTaggingDeals(_ context.Context, _ string, farms []string, _ int, _ string) ([]ports.SaleTaggingDeal, *string, error) {
+	f.queueCalls = append(f.queueCalls, farms)
+	f.queueFarmsSeen = true
+	return f.queue, nil, nil
 }
 
 func (f *fakeDeals) ReadSaleDeal(context.Context, string, string) (*ports.SaleDeal, error) {

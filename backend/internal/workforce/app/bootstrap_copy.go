@@ -485,6 +485,26 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "work_board", labelKey: "nav.my_work", href: "/work", shared_key: "", priority: 1, requiredPermission: permissions.WorkBoardRead}, //nav-composition:ignore: registry entry
 		},
 	},
+	// Tag-only Sales (maintainer decision 2026-09-11): a PARK HEAD tags the animals of a sale
+	// from the pen -- reader or hand-typed tag, weight per animal, submit when all are tagged --
+	// and sees NOTHING ELSE of Sales: no ledger, no buyer, no money, no pipeline, no vendors.
+	//
+	// The module KEY is `sale_allocation`, the capability tick that already names this exact
+	// authority on the web, so the person_module_access row and the phone module are one fact.
+	// ONE bottom-bar item: the queue is the module. Offered on SalesAllocateAnimals to a
+	// principal who does NOT hold SalesRead (permissionOfferedModuleKeys): a sales reader
+	// already reaches the tag flow inside the Sales module's sale drill, and a second door onto
+	// one flow is what the 2026-09-05 split test bans.
+	"sale_allocation": {
+		key:         "sale_allocation",
+		labelKey:    "module.sale_allocation",
+		landingHref: "/sale-tagging", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    11,
+		contributions: []moduleNavContribution{
+			{key: "sale_tagging", labelKey: "nav.sale_tagging", href: "/sale-tagging", shared_key: "", priority: 1, requiredPermission: permissions.SalesAllocateAnimals}, //nav-composition:ignore: registry entry
+		},
+	},
 	// "leadership_tasks" is the director -> CXO ask desk (maintainer decision 2026-09-04): a
 	// director raises a task for one CXO with a brief and attachments; the CXO opens it and
 	// moves its status. Offered on the PERMISSION every director role and ceo_internal
@@ -1155,6 +1175,14 @@ func permissionOfferedModuleKeys(grants []domain.GrantSummary) []string {
 	if grantsHavePermission(grants, permissions.SalesRead) || grantsHavePermission(grants, permissions.MarketEntry) {
 		keys = append(keys, "sales")
 	}
+	// Tag-only Sales (maintainer decision 2026-09-11) is offered on the ALLOCATION permission to
+	// whoever holds it WITHOUT sales read -- today the park head. The two conditions are both
+	// load-bearing: on the permission so the job that gains or loses the authority gains or
+	// loses the module with it, and NOT-SalesRead so the CXO and the sales desk, who reach the
+	// same tag flow inside their Sales module, are never shown the flow twice.
+	if grantsHavePermission(grants, permissions.SalesAllocateAnimals) && !grantsHavePermission(grants, permissions.SalesRead) {
+		keys = append(keys, "sale_allocation")
+	}
 	// Leadership Tasks (maintainer decision 2026-09-04): every director role and ceo_internal
 	// carry leadership_tasks.read on the JOB ("all the directors"); a park head or operator
 	// holds no such permission and is offered nothing.
@@ -1695,6 +1723,16 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 	}
 
 	keys := narrowOfferToTicks(candidateModuleKeysFrom(grants, grantedModules, fromTicks), ticked)
+	// Tag-only Sales is ALSO configurable from HRMS (maintainer instruction 2026-09-11): a tick
+	// on /people for `sale_allocation` (mobile, do) gives a person the module whatever their job,
+	// and clearing it takes the module away from a park head. The offer above is keyed on the
+	// ROLE and the narrowing can only remove, so a tick alone could never ADD it; this reads the
+	// person's HELD permissions (their ticks once migrated, their roles before) so the tick is
+	// the fact. Same two conditions as the role offer: the allocation authority, without sales
+	// read -- a sales reader reaches the flow inside Sales and is never shown it twice.
+	if scope.has(permissions.SalesAllocateAnimals) && !scope.has(permissions.SalesRead) {
+		keys = appendMissing(keys, "sale_allocation")
+	}
 
 	// Standard path: look up modules in the registry (for operators and leadership).
 	available := make([]moduleDefinition, 0, len(keys))
@@ -1907,6 +1945,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.toxin":               "Tests",
 		"module.vendors":          "Procurement",
 		"module.sales":            "Sales",
+		"module.sale_allocation":  "Sales",
+		"nav.sale_tagging":        "Tag animals",
 		"nav.vendors":             "Vendors",
 		"nav.feed_purchases":      "Feed Purchases",
 		"nav.animal_purchases":    "Animal purchases",
@@ -1974,6 +2014,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.toxin":               "जाँच",
 		"module.vendors":          "खरीद",
 		"module.sales":            "बिक्री",
+		"module.sale_allocation":  "बिक्री",
+		"nav.sale_tagging":        "पशुओं को टैग करें",
 		"nav.vendors":             "विक्रेता",
 		"nav.feed_purchases":      "चारा खरीद",
 		"nav.animal_purchases":    "पशु खरीद",
@@ -2041,6 +2083,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.toxin":               "ಪರೀಕ್ಷೆಗಳು",
 		"module.vendors":          "ಖರೀದಿ",
 		"module.sales":            "ಮಾರಾಟ",
+		"module.sale_allocation":  "ಮಾರಾಟ",
+		"nav.sale_tagging":        "ಪ್ರಾಣಿಗಳನ್ನು ಟ್ಯಾಗ್ ಮಾಡಿ",
 		"nav.vendors":             "ಮಾರಾಟಗಾರರು",
 		"nav.feed_purchases":      "ಮೇವು ಖರೀದಿ",
 		"nav.animal_purchases":    "ಪ್ರಾಣಿ ಖರೀದಿ",
@@ -2108,6 +2152,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.toxin":               "పరీక్షలు",
 		"module.vendors":          "కొనుగోళ్లు",
 		"module.sales":            "అమ్మకాలు",
+		"module.sale_allocation":  "అమ్మకాలు",
+		"nav.sale_tagging":        "జంతువులను ట్యాగ్ చేయండి",
 		"nav.vendors":             "విక్రేతలు",
 		"nav.feed_purchases":      "దాణా కొనుగోళ్లు",
 		"nav.animal_purchases":    "పశువుల కొనుగోళ్లు",

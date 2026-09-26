@@ -292,6 +292,11 @@ data class FeedPurchaseWriteDto(
     @SerialName("purchase_date") val purchaseDate: String,
     @SerialName("farm") val farm: String,
     @SerialName("feed_item") val feedItem: String,
+    /**
+     * NEVER SET: the load number is automatic (maintainer decision 2026-09-26) and the server refuses
+     * a supplied one. Kept only so a purchase queued offline by an older build still decodes -- if
+     * that build carried a typed number, the server says why it was refused.
+     */
     @SerialName("batch_no") val batchNo: Int? = null,
     @SerialName("quantity_kg") val quantityKg: Double,
     @SerialName("feed_cost") val feedCost: Double? = null,

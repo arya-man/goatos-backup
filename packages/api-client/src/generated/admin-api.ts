@@ -1078,9 +1078,49 @@ export interface paths {
         };
         /**
          * Park/shed/pen vocabulary for the sale animal picker.
-         * @description The picker's CATALOG. Legacy partition-alias shed rows are excluded: the farm's pens exist twice in the location register (canonical shed plus its pen catalog, and old rows literally named "Castro 1"), and the alias rows hold no animals and no pens, so offering them gave an operator a choice that could only return an empty list. Sheds that can yield no candidate at all are likewise omitted.
+         * @description The picker's CATALOG. Legacy partition-alias shed rows are excluded: the farm's pens exist twice in the location register (canonical shed plus its pen catalog, and old rows literally named "Castro 1"), and the alias rows hold no animals and no pens, so offering them gave an operator a choice that could only return an empty list. Sheds that can yield no candidate at all are likewise omitted. A park-scoped caller (a park head tagging from the pen) is served their own parks and pens only, so the phone never offers a park the picker would then refuse.
          */
         get: operations["listSaleLocations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-tagging": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The park head's tag-only queue - live animal sales still owed animals.
+         * @description The tag-only Sales surface (maintainer decision 2026-09-11). A park head tags the animals of a sale from the pen and sees NOTHING else of Sales, so this queue carries NO buyer and NO money: only what is needed to recognise the sale and know how many animals are still owed. Clamped to the caller's park scope at the handler; a tenant-wide caller (sales desk, CXO) sees every farm. Keyset-paged, newest first.
+         */
+        get: operations["listSaleTaggingQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-tagging/{sales_deal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One sale for the tag-only screen, with the park it was recorded at.
+         * @description The queue row's shape for ONE sale, whether or not it still owes animals, so the tagging screen never depends on the sale being on the cached first page of the queue. Carries the server-resolved park_id the screen searches. No buyer and no money. Clamped to the caller's park scope: another park's sale is refused 403 park_out_of_scope.
+         */
+        get: operations["getSaleTaggingDeal"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1160,7 +1200,7 @@ export interface paths {
         };
         /**
          * Read back the animals one recorded sale is made of, shed-wise.
-         * @description The sales ledger stores no goat_id (the sales module reads no herd table), so the deal-to-animal mapping is read from here. Location and identifier are the SNAPSHOT taken when the animal was tagged, not the goat's present location -- a sold animal's row keeps moving and would make an old sale re-describe itself.
+         * @description The sales ledger stores no goat_id (the sales module reads no herd table), so the deal-to-animal mapping is read from here. Location and identifier are the SNAPSHOT taken when the animal was tagged, not the goat's present location -- a sold animal's row keeps moving and would make an old sale re-describe itself. A park-scoped caller may read back only a sale recorded at one of their own parks; another park's sale is refused 403 park_out_of_scope.
          */
         get: operations["getSaleAllocation"];
         put?: never;
@@ -4572,6 +4612,45 @@ export interface components {
             /** @description How many animals this sale is now made of. */
             allocated: number;
             shed_groups: components["schemas"]["SaleAllocationShedGroup"][];
+            /** @description One row per tagged animal (GET read-back only; absent on a confirm): the tag and pen snapshotted at tagging, and the weight recorded for it. */
+            animals?: components["schemas"]["SaleAllocationAnimal"][];
+        };
+        SaleAllocationAnimal: {
+            /** Format: uuid */
+            goat_id: string;
+            tag_number?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_name?: string;
+            partition_label?: string;
+            /** @description Backend-composed pen name, rendered verbatim. */
+            operational_location_display: string;
+            /** @description Decimal string; absent when the row predates weight at tagging. */
+            weight_kg?: string;
+        };
+        SaleTaggingQueueResponse: {
+            deals: components["schemas"]["SaleTaggingDeal"][];
+            next_cursor?: string;
+        };
+        /** @description One sale as the tag-only queue shows it. No buyer, no money, on purpose. */
+        SaleTaggingDeal: {
+            /** Format: uuid */
+            sales_deal_id: string;
+            /** Format: date */
+            sale_date: string;
+            /** @description The ledger's farm code (CBE, CPT). */
+            farm: string;
+            /**
+             * Format: uuid
+             * @description The park the sale was recorded at, resolved on the server from the farm code. The tagging screen searches this park. Absent when the farm code names no active park.
+             */
+            park_id?: string;
+            product_type: string;
+            breed?: string;
+            declared_animal_count: number;
+            already_tagged: number;
+            /** @description Backend-derived; declared minus tagged, floored at zero. */
+            remaining: number;
         };
         BulkStatusPreviewRequest: {
             /**
@@ -8099,6 +8178,59 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSaleTaggingQueue: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of sales still owed animals at the caller's park(s). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleTaggingQueueResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getSaleTaggingDeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sales_deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sale. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleTaggingDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["ServerError"];
         };
     };

@@ -267,13 +267,6 @@ export function FeedPurchaseDrawer({
                 <label htmlFor="fp-quantity_kg">{field("quantity_kg")}</label>
                 <input id="fp-quantity_kg" name="quantity_kg" type="number" min={0.001} step="0.001" required />
               </div>
-              <div className="fld">
-                <label htmlFor="fp-batch_no">{field("batch_no")}</label>
-                {/* Blank on purpose: the backend assigns the next load number for this farm and
-                    feed. A default here would guess a number the ledger may already hold. */}
-                <input id="fp-batch_no" name="batch_no" type="number" min={1} step={1} />
-                <div className="muted small">{copy(pageContract, "hint.batch_no")}</div>
-              </div>
 
               <div className="fld">
                 <label htmlFor="fp-feed_cost">{field("feed_cost")}</label>

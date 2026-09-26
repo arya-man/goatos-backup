@@ -1011,6 +1011,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		HealthRead:             {},
 		// Work Board (2026-09-10): the whole park's day, every module, park-scoped.
 		WorkBoardRead: {}, WorkBoardOversee: {},
+		// TAG ANIMALS TO A SALE, AND NOTHING ELSE OF SALES (maintainer decision 2026-09-11). The
+		// sales desk records the sale; the animals physically leave from a PARK, so the park head
+		// is the one standing in the pen with the reader. This is the allocation authority ALONE:
+		// no SalesRead (the ledger, buyer names, money, pipelines), no SalesWrite, no VendorRead.
+		// On the phone that resolves to its own tag-only module (bootstrap_copy.go
+		// "sale_allocation"), and every allocation route is additionally clamped to the park
+		// head's own park at the handler.
+		SalesAllocateAnimals: {},
 	},
 	RolePCDirector: {
 		// Leadership Tasks (2026-09-04): every director raises for the CXO desk.

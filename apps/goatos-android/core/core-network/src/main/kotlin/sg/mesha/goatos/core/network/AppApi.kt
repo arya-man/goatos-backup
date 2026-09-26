@@ -127,6 +127,8 @@ import sg.mesha.goatos.core.network.dto.FeedPurchasePageDto
 import sg.mesha.goatos.core.network.dto.FeedPurchaseWriteDto
 import sg.mesha.goatos.core.network.dto.SaleShedGroupDto
 import sg.mesha.goatos.core.network.dto.SaleAllocationDto
+import sg.mesha.goatos.core.network.dto.SaleTaggingDealDto
+import sg.mesha.goatos.core.network.dto.SaleTaggingQueueDto
 import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
@@ -1781,6 +1783,19 @@ interface AppApi {
 
     /** GET /admin/goats/sale-allocations/{deal} — what is already tagged to this sale. */
     suspend fun getSaleAllocation(salesDealId: String): SaleAllocationDto
+
+    /**
+     * GET /admin/goats/sale-tagging — the park head's tag-only queue (maintainer decision
+     * 2026-09-11): the sales at their park still owed animals. No buyer, no money.
+     */
+    suspend fun getSaleTaggingQueue(limit: Int? = null, cursor: String? = null): SaleTaggingQueueDto
+
+    /**
+     * GET /admin/goats/sale-tagging/{sales_deal_id} — ONE sale in the queue's shape, with the park it
+     * was recorded at, whether or not it still owes animals. The tagging screen reads this rather
+     * than finding the sale in the cached first queue page.
+     */
+    suspend fun getSaleTaggingDeal(salesDealId: String): SaleTaggingDealDto
 
     /** POST /admin/goats/sale-allocations/preview — the review step; mutates nothing. */
     suspend fun previewSaleAllocation(request: SaleAllocationRequestDto): SalePreviewDto
@@ -3567,6 +3582,20 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         SaleCandidatePageDto(candidates = listOf(fakeSaleCandidate()))
 
     override suspend fun getSaleAllocation(salesDealId: String): SaleAllocationDto = SaleAllocationDto(salesDealId = salesDealId)
+
+    override suspend fun getSaleTaggingDeal(salesDealId: String): SaleTaggingDealDto =
+        getSaleTaggingQueue(null, null).deals.firstOrNull { it.salesDealId == salesDealId }
+            ?: SaleTaggingDealDto(salesDealId = salesDealId)
+
+    override suspend fun getSaleTaggingQueue(limit: Int?, cursor: String?): SaleTaggingQueueDto =
+        SaleTaggingQueueDto(
+            deals = listOf(
+                SaleTaggingDealDto(
+                    salesDealId = "deal-1", saleDate = "2026-09-11", farm = "CPT", productType = "Goat",
+                    breed = "Malai", declaredAnimalCount = 3, alreadyTagged = 1, remaining = 2,
+                ),
+            ),
+        )
 
     override suspend fun previewSaleAllocation(request: SaleAllocationRequestDto): SalePreviewDto =
         SalePreviewDto(salesDealId = request.salesDealId, sellable = request.goatIds.size, shedGroups = listOf(SaleShedGroupDto(parkName = "CBE", operationalLocationDisplay = "Castro 1", animals = request.goatIds.size, tagNumbers = listOf("155"))))

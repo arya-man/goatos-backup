@@ -61,9 +61,17 @@ the route's own permission. There is no role-string conditional in the page comp
 
 - **Purchase date may not be in the future**, judged against the **IST business day** — stock the
   farm does not have yet must not deplete a feed sheet.
-- **Batch number is optional.** Left blank, the next number for that farm and feed is assigned
-  inside the write transaction, so two concurrent submits cannot both claim `max+1` (the loser hits
-  `feed_purchases_natural_uq` and is reported as a duplicate, never silently overwritten).
+- **The load number (`batch_no`) is AUTOMATIC** (maintainer decision 2026-09-26, replacing "batch
+  number is optional"). The web and phone forms have no box for it. It is ONE RUNNING COUNT across
+  both farms and every feed -- how the farm's sheet numbered its loads (219 loads, 219 different
+  numbers) and how the desk kept typing it in the app -- so the next load is the tenant's highest
+  number + 1, assigned inside the write transaction under a tenant-wide advisory lock; two
+  concurrent submits cannot both claim `max+1`. (The code used to count per farm AND per feed,
+  which would have handed the next CBE Concentrate load 328, a number a CPT load already carries.) A number a client still supplies -- an older app's box, or a
+  form answer -- is REFUSED `400 feed_purchase_invalid_batch_no` ("Load number is given automatically"), never honoured and never
+  quietly dropped. The feed-purchase SOP cannot ask it either: `batch_no` is a reserved question id
+  (`EntryFormProfile.Reserved`). The number is shown read-only on a recorded load, and the sheet
+  importer is unaffected (it writes the sheet's own numbers directly).
 - **Landed cost:** an explicit total wins; otherwise the feed/transport/loading/unloading parts are
   summed. **Nothing entered stays NULL** — a load whose cost is not yet known is a real state, and
   a zero would report a free load. **Per-kg cost is DERIVED** from total ÷ quantity, never entered,

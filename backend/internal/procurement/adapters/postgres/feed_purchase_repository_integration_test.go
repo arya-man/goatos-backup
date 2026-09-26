@@ -132,7 +132,7 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		}
 	})
 
-	t.Run("assigns the next batch number per farm and feed", func(t *testing.T) {
+	t.Run("assigns the next number of the one running count", func(t *testing.T) {
 		second, err := repo.CreateFeedPurchase(ctx, testTenant, feedWrite(), "", "load-2")
 		if err != nil {
 			t.Fatalf("second load: %v", err)
@@ -140,15 +140,30 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		if second.BatchNo != 2 {
 			t.Fatalf("second load batch_no = %d want 2", second.BatchNo)
 		}
-		// The counter is per (farm, feed): the SAME feed at the OTHER farm starts again at 1.
+		// THE LOAD NUMBER IS AUTOMATIC (maintainer decision 2026-09-26): a number a client supplies
+		// is refused, and the refused write takes no number and leaves no row.
+		supplied := feedWrite()
+		n := 9
+		supplied.BatchNo = &n
+		if _, err := repo.CreateFeedPurchase(ctx, testTenant, supplied, "", "load-supplied"); err == nil {
+			t.Fatal("a supplied load number must be refused")
+		} else if verr, ok := err.(domain.ErrFeedPurchaseValidation); !ok || verr.Field != "batch_no" {
+			t.Fatalf("supplied load number: err = %#v, want a batch_no validation error", err)
+		}
+		var nine int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM feed_purchases WHERE batch_no = 9`).Scan(&nine); err != nil || nine != 0 {
+			t.Fatalf("a refused load number left %d rows (err %v)", nine, err)
+		}
+		// ONE running count (maintainer decision 2026-09-26): the SAME feed at the OTHER farm takes
+		// the next number of the farm's single sequence, never a restart at 1.
 		other := feedWrite()
 		other.FarmLabel = "CBE"
 		cbe, err := repo.CreateFeedPurchase(ctx, testTenant, other, "", "load-3")
 		if err != nil {
 			t.Fatalf("other farm: %v", err)
 		}
-		if cbe.BatchNo != 1 {
-			t.Fatalf("CBE batch_no = %d want 1 -- the counter must not be shared across farms", cbe.BatchNo)
+		if cbe.BatchNo != 3 {
+			t.Fatalf("CBE batch_no = %d want 3 -- both farms share the one running count", cbe.BatchNo)
 		}
 		// Each farm label resolves to its OWN park by location_code -- the same mapping the
 		// importer applies. A label that matched the wrong park would attribute a load, and the
@@ -237,13 +252,16 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		}
 	})
 
-	t.Run("rejects a batch number already recorded", func(t *testing.T) {
+	// A load number cannot be supplied at all any more (automatic, maintainer decision
+	// 2026-09-26), so an already-recorded one is refused as a supplied number, before the unique
+	// index is ever reached.
+	t.Run("refuses any supplied batch number, even one already recorded", func(t *testing.T) {
 		explicit := feedWrite()
 		one := 1
 		explicit.BatchNo = &one
 		_, err := repo.CreateFeedPurchase(ctx, testTenant, explicit, "", "load-dup")
-		if !errors.Is(err, ports.ErrFeedPurchaseDuplicateBatch) {
-			t.Fatalf("duplicate batch => %v, want ErrFeedPurchaseDuplicateBatch", err)
+		if verr, ok := err.(domain.ErrFeedPurchaseValidation); !ok || verr.Field != "batch_no" {
+			t.Fatalf("supplied batch => %v, want a batch_no validation error", err)
 		}
 	})
 

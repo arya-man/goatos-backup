@@ -820,4 +820,15 @@ class TopLevelChromeTest {
         assertTrue(Routes.SALES_VENDOR_DETAIL.startsWith("${Routes.SALES_VENDORS}/vendor/"))
         assertTrue(Routes.VENDOR_DETAIL.startsWith("${Routes.VENDORS}/vendor/"))
     }
+
+    // The park head's tag-only Sales module (maintainer decision 2026-09-11): the backend serves
+    // ONE destination, the queue, so the root is top level (drawer hamburger) and the tagging
+    // drill beneath it is not -- exact membership, never a prefix.
+    @Test
+    fun `the tag-only queue is a root and its tagging drill is not`() {
+        val roots = listOf(Routes.SALE_TAGGING, Routes.VACCINATION)
+        assertTrue(isTopLevelRoute(Routes.SALE_TAGGING, roots))
+        assertFalse(isTopLevelRoute(Routes.saleTaggingSaleRoute("deal-1"), roots))
+        assertFalse(isTopLevelRoute(Routes.SALE_TAGGING_SALE, roots))
+    }
 }

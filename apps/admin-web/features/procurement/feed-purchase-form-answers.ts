@@ -7,7 +7,6 @@ const TYPED_QUESTION_FIELDS: Array<[question: string, field: string]> = [
   ["farm_label", "farm"],
   ["feed_item_label", "feed_item"],
   ["quantity_kg", "quantity_kg"],
-  ["batch_no", "batch_no"],
   ["vendor", "vendor"],
   ["feed_cost", "feed_cost"],
   ["transport_cost", "transport_cost"],

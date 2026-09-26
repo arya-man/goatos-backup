@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -71,7 +72,15 @@ func (r *Repository) RecordSaleAllocations(ctx context.Context, cmd ports.Record
 		// EXACT REPLAY. The key is already held, so the animals were already tagged and
 		// exited by the first call. Read the sale back rather than re-running any of it:
 		// re-applying would try to exit animals that are already sold and fail noisily on
-		// a request the caller is entitled to retry.
+		// a request the caller is entitled to retry. The same key carrying a DIFFERENT
+		// request is refused rather than answered with a result that is not its own.
+		held, readErr := qtx.GetIdempotencyKey(ctx, cmd.StoredIdempotencyKey)
+		if readErr != nil {
+			return nil, fmt.Errorf("identity: record sale allocations: read held key: %w", readErr)
+		}
+		if !saleRequestHashMatches(held.RequestHash, cmd.RequestHash) {
+			return nil, ports.ErrIdempotencyConflict
+		}
 		groups, readErr := r.listSaleAllocationsInTx(ctx, tx, cmd.TenantID, cmd.SalesDealID)
 		if readErr != nil {
 			return nil, readErr
@@ -203,6 +212,40 @@ WHERE tenant_id = $1::uuid AND sales_deal_id = $2::uuid AND status = 'tagged'`,
 
 // insertSaleAllocations writes every allocation row in ONE set-based statement, snapshotting
 // each animal's location and identifier as they stand right now.
+// ReplaySaleAllocation answers an exact replay of a committed confirm from the idempotency
+// ledger (see ports.SaleAllocationWriter). One primary-key read of idempotency_keys; the sale is
+// read back only when the key is found and completed.
+func (r *Repository) ReplaySaleAllocation(ctx context.Context, tenantID, salesDealID, storedKey, requestHash string) (*ports.SaleAllocationResult, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	held, err := r.queries.GetIdempotencyKey(ctx, storedKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("identity: replay sale allocation: %w", err)
+	}
+	if !saleRequestHashMatches(held.RequestHash, requestHash) {
+		return nil, false, ports.ErrIdempotencyConflict
+	}
+	if held.Status != "completed" {
+		return nil, false, ports.ErrIdempotencyPending
+	}
+	groups, err := r.ListSaleAllocations(ctx, tenantID, salesDealID)
+	if err != nil {
+		return nil, false, err
+	}
+	return saleAllocationResult(salesDealID, groups), true, nil
+}
+
+// saleRequestHashMatches compares a held key's fingerprint with this request's. A key stored
+// before confirms carried a fingerprint holds "" and is accepted as the same request: there is
+// nothing to compare, and refusing it would refuse the retry of a confirm that did commit.
+func saleRequestHashMatches(held, request string) bool {
+	held = strings.TrimSpace(held)
+	return held == "" || held == strings.TrimSpace(request)
+}
+
 func (r *Repository) insertSaleAllocations(ctx context.Context, tx pgx.Tx, cmd ports.RecordSaleAllocationsCommand, tenantUUID, dealUUID any) error {
 	goatIDs := make([]string, 0, len(cmd.Rows))
 	// Parallel to goatIDs by construction (same loop, same order): unnest pairs them back up

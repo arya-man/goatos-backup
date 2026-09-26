@@ -38,6 +38,10 @@ hook="$hooks_dir/pre-push"
 prior="$hooks_dir/pre-push.before-goatos-stg-guard"
 installed_stg_guard="$hooks_dir/goatos-check-stg-promotion.mjs"
 installed_evidence_guard="$hooks_dir/goatos-check-local-ci-evidence.mjs"
+# The evidence guard IMPORTS ./step-input-digest.mjs. It is installed beside it under its own
+# name, or every push dies with ERR_MODULE_NOT_FOUND (2026-09-26: the guard gained the import and
+# this installer kept copying only the guard, so re-running it broke pushes on that machine).
+installed_digest_helper="$hooks_dir/step-input-digest.mjs"
 marker="GOATOS_PUSH_GUARDS"
 
 # Preserve a foreign (non-marker) pre-push hook once, so we chain rather than clobber.
@@ -52,6 +56,7 @@ fi
 
 cp "$stg_guard" "$installed_stg_guard"
 cp "$evidence_guard" "$installed_evidence_guard"
+cp "$repo/tools/ci/step-input-digest.mjs" "$installed_digest_helper"
 chmod 0755 "$installed_stg_guard" "$installed_evidence_guard"
 
 cat >"$hook" <<'HOOK'

@@ -28,7 +28,7 @@ data class SaleCardUi(
     val productLine: String,
     /** "12 animals · 300 kg · ₹1,50,000" */
     val valueLine: String,
-    /** "Sold 01-09-2026 · Balance ₹1,00,000" */
+    /** "Sold 01/09/2026 · Balance ₹1,00,000" */
     val metaLine: String,
     /** Backend status word, VERBATIM. */
     val statusLabel: String,
@@ -181,7 +181,7 @@ enum class SalePaymentField { RECEIVED_ON, AMOUNT, NOTE }
 @Immutable
 data class SalePaymentUi(
     val paymentId: String,
-    /** "01-09-2026" */
+    /** "01/09/2026" */
     val receivedOn: String,
     /** "₹50,000" */
     val amount: String,

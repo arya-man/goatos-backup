@@ -1,0 +1,59 @@
+package sg.mesha.goatos.feature.vendors
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * The tag-only flow's client-side rules (maintainer decision 2026-09-11). Each pins a refusal the
+ * backend makes so the screen holds Submit back for the same reason the server would refuse.
+ */
+class SaleTaggingRulesTest {
+    private fun animal(id: String, weight: String = "30", blocked: String = "") =
+        SaleTaggingBasketAnimalUi(id, "tag-$id", "Castro 1", weight, "", blocked)
+
+    @Test
+    fun `submit needs the sale filled exactly`() {
+        assertFalse(SaleTaggingRules.submitGate(emptyList(), 2).enabled)
+        assertEquals("1 more animal to tag before you can submit", SaleTaggingRules.submitGate(listOf(animal("a")), 2).hint)
+        assertEquals("Remove 1: this sale needs only 2 more", SaleTaggingRules.submitGate(listOf(animal("a"), animal("b"), animal("c")), 2).hint)
+        assertTrue(SaleTaggingRules.submitGate(listOf(animal("a"), animal("b")), 2).enabled)
+    }
+
+    @Test
+    fun `submit needs a weight on every animal`() {
+        assertEquals(SaleTaggingRules.HINT_FIGURES, SaleTaggingRules.submitGate(listOf(animal("a", weight = "")), 1).hint)
+        assertEquals(SaleTaggingRules.HINT_FIGURES, SaleTaggingRules.submitGate(listOf(animal("a", weight = "0")), 1).hint)
+        assertEquals(SaleTaggingRules.HINT_FIGURES, SaleTaggingRules.submitGate(listOf(animal("a", weight = "32.125")), 1).hint)
+        assertTrue(SaleTaggingRules.submitGate(listOf(animal("a", weight = "32.5")), 1).enabled)
+    }
+
+    @Test
+    fun `a refused animal holds submit until it is removed`() {
+        assertEquals(SaleTaggingRules.HINT_BLOCKED, SaleTaggingRules.submitGate(listOf(animal("a", blocked = "In quarantine")), 1).hint)
+    }
+
+    @Test
+    fun `a scanned tag resolves only on an exact identifier match`() {
+        data class M(val ids: List<String>)
+        val rows = listOf(M(listOf("982000123456789", "")), M(listOf("982000123456780", "T-42")))
+        assertEquals(rows[0], SaleTaggingRules.exactMatch("982000123456789", rows) { it.ids })
+        assertEquals(rows[1], SaleTaggingRules.exactMatch(" t-42 ", rows) { it.ids })
+        // A substring hit is a different animal: the reader hands back the whole number.
+        assertNull(SaleTaggingRules.exactMatch("12345678", rows) { it.ids })
+        assertNull(SaleTaggingRules.exactMatch("", rows) { it.ids })
+    }
+
+    @Test
+    fun `a failed submit whose animals are all already on the sale landed`() {
+        // The phone lost the reply after the server tagged the sale: every basket animal is on it.
+        assertTrue(SaleTaggingRules.confirmLanded(listOf("a", "b"), setOf("a", "b", "c")))
+        // A genuine refusal: nothing, or only some, of the basket is on the sale.
+        assertFalse(SaleTaggingRules.confirmLanded(listOf("a", "b"), emptySet()))
+        assertFalse(SaleTaggingRules.confirmLanded(listOf("a", "b"), setOf("a")))
+        // An empty basket never reads as landed.
+        assertFalse(SaleTaggingRules.confirmLanded(emptyList(), setOf("a")))
+    }
+}

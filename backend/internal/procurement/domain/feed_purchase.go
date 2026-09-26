@@ -466,12 +466,15 @@ func DeriveFeedPaymentStatus(totalCost *float64, releasedTotal float64, current 
 	return FeedPaymentPending
 }
 
+// FeedLoadNumberAutomatic is why a supplied load number is refused, in the farm's words.
+const FeedLoadNumberAutomatic = "is given automatically -- leave it out and the farm's next load number is used"
+
 // FeedPurchaseWrite is the record-purchase form.
 //
-// BatchNo is a POINTER because "not supplied" and "batch 0" are different requests: the farm
-// numbers a feed's loads 1, 2, 3... within a farm, so an absent batch number means "this is the
-// next load" and the repository assigns max+1 inside the write transaction. An explicitly supplied
-// number is honoured, which is how a load recorded out of order (or a correction) is entered.
+// BatchNo is the load number, and it is AUTOMATIC (maintainer decisions 2026-09-26): the farm numbers
+// every feed load it buys with ONE running count across both farms and all feeds, and the repository
+// assigns the tenant's max+1 inside the write transaction, under a tenant-wide advisory lock. The field survives only so a number a client still sends (an
+// older app, a form answer) reaches Validate and is REFUSED -- it is never honoured.
 type FeedPurchaseWrite struct {
 	PurchaseDate  string
 	FarmLabel     string
@@ -595,8 +598,11 @@ func (w FeedPurchaseWrite) Validate(today time.Time, farms []string) error {
 	if w.QuantityKg <= 0 {
 		return ErrFeedPurchaseValidation{Field: "quantity_kg", Reason: "must be more than zero"}
 	}
-	if w.BatchNo != nil && *w.BatchNo < 1 {
-		return ErrFeedPurchaseValidation{Field: "batch_no", Reason: "must be 1 or more"}
+	// THE LOAD NUMBER IS AUTOMATIC (maintainer decision 2026-09-26): the ledger assigns the farm's
+	// next running load number inside the write. A number a client supplies -- an older app's
+	// box, or a form answer -- is refused rather than honoured or quietly dropped.
+	if w.BatchNo != nil {
+		return ErrFeedPurchaseValidation{Field: "batch_no", Reason: FeedLoadNumberAutomatic}
 	}
 	if err := validateDaysOfStock(w.DaysOfStock); err != nil {
 		return err

@@ -163,6 +163,10 @@ import sg.mesha.goatos.feature.vendors.SaleCreateScreen
 import sg.mesha.goatos.feature.vendors.SalesWriteUnavailableScreen
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsEvent
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsScreen
+import sg.mesha.goatos.feature.vendors.SaleTaggingEvent
+import sg.mesha.goatos.feature.vendors.SaleTaggingListEvent
+import sg.mesha.goatos.feature.vendors.SaleTaggingListScreen
+import sg.mesha.goatos.feature.vendors.SaleTaggingScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -310,6 +314,8 @@ import sg.mesha.goatos.viewmodel.SalesPipelineHubViewModel
 import sg.mesha.goatos.viewmodel.SaleDetailViewModel
 import sg.mesha.goatos.viewmodel.SaleCreateViewModel
 import sg.mesha.goatos.viewmodel.SaleTagAnimalsViewModel
+import sg.mesha.goatos.viewmodel.SaleTaggingListViewModel
+import sg.mesha.goatos.viewmodel.SaleTaggingViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
@@ -764,6 +770,16 @@ object Routes {
     // drill under the sale, never a prefix reuse of a root.
     const val SALE_STEPS = "/sales/sale/{$SALE_ID_ARG}/steps/{$WORKFLOW_ID_ARG}"
     fun saleStepsRoute(dealId: String, workflowId: String): String = "/sales/sale/${Uri.encode(dealId)}/steps/${Uri.encode(workflowId)}"
+    // The park head's TAG-ONLY Sales module (backend module `sale_allocation`, maintainer decision
+    // 2026-09-11). ONE L0 root whose href matches the backend-composed nav item VERBATIM
+    // (bootstrap_copy.go: {key:"sale_tagging", href:"/sale-tagging"}), plus one hosted drill --
+    // tagging one sale -- with Up/Back and NO root chrome, never a prefix reuse of the root. The
+    // literal `/sale/` segment keeps the root from ever reading as a deal id. Deliberately its own
+    // prefix rather than `/sales/...`: this principal holds no Sales module, and hosting the drill
+    // under the Sales prefix would invite a reader to reach the ledger from it.
+    const val SALE_TAGGING = "/sale-tagging"
+    const val SALE_TAGGING_SALE = "/sale-tagging/sale/{$SALE_ID_ARG}"
+    fun saleTaggingSaleRoute(dealId: String): String = "/sale-tagging/sale/${Uri.encode(dealId)}"
 
     // The SELLING half of the one vendor register (maintainer decision 2026-09-05): the agents,
     // butchers, farmers, slaughter houses and companies the farm sells to. It reuses the register
@@ -4236,6 +4252,47 @@ fun AppNavHost(
             )
         }
 
+        // --- Tag-only Sales (module sale_allocation, maintainer decision 2026-09-11) ---------
+        // The park head's queue (L0) and the tagging drill. Module visibility is backend-composed
+        // (offered on sales.allocate_animals to a principal without sales.read); nothing here
+        // gates on a role string, and nothing here can reach the Sales ledger.
+        composable(Routes.SALE_TAGGING) {
+            val vm: SaleTaggingListViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(SALE_TAGGING_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            SaleTaggingListScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is SaleTaggingListEvent.OpenSale -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.saleTaggingSaleRoute(event.dealId))
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.SALE_TAGGING_SALE,
+            arguments = listOf(navArgument(Routes.SALE_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: SaleTaggingViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            SaleTaggingScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        SaleTaggingEvent.Back, SaleTaggingEvent.Done -> {
+                            vm.onEvent(event)
+                            navController.popBackStack()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
         // --- Leadership Tasks (maintainer request 2026-09-04) ------------------------------
         // ONE L0 list (a director's raised tasks / a CXO's assigned ones — the backend decides),
         // plus two hosted drills: the task, and the raise/edit form. Module visibility is
@@ -5429,6 +5486,7 @@ private const val TOXIN_TAB_TITLE = "Tests"
 
 /** The backend's `nav.vendors` / `nav.feed_purchases` labels, mirrored so each L0 header matches its nav item. */
 private const val VENDORS_TAB_TITLE = "Vendors"
+private const val SALE_TAGGING_TAB_TITLE = "Tag animals"
 private const val FEED_PURCHASES_TAB_TITLE = "Feed Purchases"
 // Mirrors the backend nav label ("nav.animal_purchases" in bootstrap_copy.go).
 private const val ANIMAL_PURCHASES_TAB_TITLE = "Animal purchases"

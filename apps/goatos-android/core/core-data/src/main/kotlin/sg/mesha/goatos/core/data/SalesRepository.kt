@@ -30,6 +30,8 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.SaleAllocationDto
 import sg.mesha.goatos.core.network.dto.SaleAllocationRequestDto
 import sg.mesha.goatos.core.network.dto.SaleCandidatePageDto
+import sg.mesha.goatos.core.network.dto.SaleTaggingDealDto
+import sg.mesha.goatos.core.network.dto.SaleTaggingQueueDto
 import sg.mesha.goatos.core.network.dto.SaleLocationsDto
 import sg.mesha.goatos.core.network.dto.SalePreviewDto
 import sg.mesha.goatos.core.network.dto.SalesBuyerLeadDto
@@ -137,6 +139,19 @@ interface SalesRepository {
     suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto>
     suspend fun previewAllocation(request: SaleAllocationRequestDto): AppResult<SalePreviewDto>
     suspend fun confirmAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): AppResult<SaleAllocationDto>
+
+    // The park head's tag-only queue (maintainer decision 2026-09-11). Room-first: the first
+    // page is cached as a blob and observed, so the list is on screen instantly and a refresh
+    // upserts it; further pages ride the cursor live.
+    fun observeTaggingQueue(): Flow<SaleTaggingQueueDto?>
+    suspend fun refreshTaggingQueue(): AppResult<SaleTaggingQueueDto>
+    suspend fun taggingQueuePage(cursor: String): AppResult<SaleTaggingQueueDto>
+
+    // ONE sale for the tagging screen, with the park the SERVER resolved for it. Room-first like
+    // the queue, keyed by the sale, so the screen neither races the queue cache nor depends on the
+    // sale being on its first page (review of PR #446).
+    fun observeTaggingDeal(dealId: String): Flow<SaleTaggingDealDto?>
+    suspend fun refreshTaggingDeal(dealId: String): AppResult<SaleTaggingDealDto>
 }
 
 class DefaultSalesRepository(
@@ -351,6 +366,26 @@ class DefaultSalesRepository(
     override suspend fun confirmAllocation(idempotencyKey: String, request: SaleAllocationRequestDto): AppResult<SaleAllocationDto> = // offline-first-guard:ignore: sale allocation confirm is the server-owned herd mutation; cached confirmation would risk marking stale animals sold.
         call { api.confirmSaleAllocation(idempotencyKey, request) }
 
+    override fun observeTaggingQueue(): Flow<SaleTaggingQueueDto?> = observeBlob(TAGGING_QUEUE_KEY)
+
+    override suspend fun refreshTaggingQueue(): AppResult<SaleTaggingQueueDto> { // offline-first-guard:ignore: persists through putBlob -> vendorsBlobCacheDao().upsert, the same Room blob observeTaggingQueue() reads
+        val result = call { api.getSaleTaggingQueue(VENDORS_PAGE_SIZE, null) }
+        if (result is AppResult.Ok) putBlob(TAGGING_QUEUE_KEY, json.encodeToString(result.value))
+        return result
+    }
+
+    override fun observeTaggingDeal(dealId: String): Flow<SaleTaggingDealDto?> = observeBlob(TAGGING_DEAL_KEY_PREFIX + dealId)
+
+    override suspend fun refreshTaggingDeal(dealId: String): AppResult<SaleTaggingDealDto> { // offline-first-guard:ignore: persists through putBlob -> vendorsBlobCacheDao().upsert, the same Room blob observeTaggingDeal() reads
+        val result = call { api.getSaleTaggingDeal(dealId) }
+        if (result is AppResult.Ok) putBlob(TAGGING_DEAL_KEY_PREFIX + dealId, json.encodeToString(result.value))
+        return result
+    }
+
+    // offline-first-guard:ignore: a further page of the same queue, appended to the cached first page in the state holder
+    override suspend fun taggingQueuePage(cursor: String): AppResult<SaleTaggingQueueDto> =
+        call { api.getSaleTaggingQueue(VENDORS_PAGE_SIZE, cursor.ifBlank { null }) }
+
     private suspend fun <T> call(block: suspend () -> T): AppResult<T> = try {
         AppResult.Ok(block())
     } catch (e: CancellationException) {
@@ -389,6 +424,8 @@ class DefaultSalesRepository(
         const val DEAL_KEY_PREFIX = "sale:"
         fun dealScopeMetaKey(scopeKey: String) = "sales-deal-scope:" + scopeKey
         const val OPTIONS_KEY = "sales-options"
+        const val TAGGING_QUEUE_KEY = "sale-tagging-queue"
+        const val TAGGING_DEAL_KEY_PREFIX = "sale-tagging-deal:"
         const val VENDOR_OPTIONS_KEY = "sales-vendor-options"
     }
 

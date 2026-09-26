@@ -109,6 +109,10 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("verification", SurfaceMobile, LevelOversee)),
 		one(assign("herd_register", SurfaceMobile, LevelView)),
 		one(assign("calendar", SurfaceMobile, LevelView, LevelDo)),
+		// Tag animals to a sale from the pen (maintainer decision 2026-09-11): the allocation
+		// authority alone, phone only. No `sales` row: the ledger, buyers and money stay off
+		// this job. Migration 000454 writes the same row onto every park head already backfilled.
+		one(assign("sale_allocation", SurfaceMobile, LevelDo)),
 		one(assign("config", SurfaceMobile, LevelView)),
 	),
 	// PC Director owns vaccination end to end and executes it too -- unusual for a director,

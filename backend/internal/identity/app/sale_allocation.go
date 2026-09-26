@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -96,6 +97,85 @@ type ListSaleCandidatesInput struct {
 	Query           string
 	Limit           int
 	Cursor          string
+	// AllowedParkIDs is the caller's park scope as the handler resolved it: nil for a
+	// tenant-wide caller, otherwise the parks they may act in. A park head asking about
+	// another park is refused with park_out_of_scope rather than shown its animals.
+	AllowedParkIDs []string
+}
+
+// parkAllowed answers whether parkID sits inside the resolved scope. nil is tenant-wide.
+func parkAllowed(allowed []string, parkID string) bool {
+	if allowed == nil {
+		return true
+	}
+	for _, id := range allowed {
+		if strings.EqualFold(strings.TrimSpace(id), strings.TrimSpace(parkID)) {
+			return true
+		}
+	}
+	return false
+}
+
+// refuseAnimalsOutsideScope is the same clamp on the preview and confirm: every named animal
+// that exists must stand in a park the caller may act in. A missing animal has no park and is
+// left to the gate, which already refuses it as not-in-the-herd.
+func refuseAnimalsOutsideScope(allowed []string, candidates []ports.SaleCandidate) error {
+	if allowed == nil {
+		return nil
+	}
+	for _, c := range candidates {
+		if c.ParkID == "" {
+			continue
+		}
+		if !parkAllowed(allowed, c.ParkID) {
+			return Forbidden("park_out_of_scope", "One or more of these animals stand in a park you do not work in. Tag only animals from your own park.")
+		}
+	}
+	return nil
+}
+
+// scopeFarms turns a park scope into the FARM CODES the sales ledger names a sale by (a park's
+// location_code IS a deal's farm). nil for a tenant-wide caller; an EMPTY, non-nil slice when
+// the scope resolves to no farm, which every caller reads as "nothing is yours".
+func (s *SaleAllocationService) scopeFarms(ctx context.Context, tenantID string, allowed []string) ([]string, error) {
+	if allowed == nil {
+		return nil, nil
+	}
+	catalog, err := s.reader.ListSaleLocations(ctx, tenantID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	farms := []string{}
+	for _, park := range catalog.Parks {
+		if parkAllowed(allowed, park.ParkID) && strings.TrimSpace(park.Label) != "" {
+			farms = append(farms, strings.TrimSpace(park.Label))
+		}
+	}
+	return farms, nil
+}
+
+// refuseSaleOutsideScope clamps the SALE, not only its animals: a park-scoped caller may act on
+// a sale recorded at one of their own parks and on no other. Without it a park head could tag
+// animals from their own pen onto another park's sale, or read back any sale's tags and weights by
+// id. A tenant-wide caller is never looked up.
+func (s *SaleAllocationService) refuseSaleOutsideScope(ctx context.Context, tenantID, dealID string, allowed []string) error {
+	if allowed == nil {
+		return nil
+	}
+	farms, err := s.scopeFarms(ctx, tenantID, allowed)
+	if err != nil {
+		return err
+	}
+	farm, err := s.deals.ReadSaleDealFarm(ctx, tenantID, dealID)
+	if err != nil {
+		return mapSaleDealErr(err)
+	}
+	for _, f := range farms {
+		if strings.EqualFold(f, farm) {
+			return nil
+		}
+	}
+	return Forbidden("park_out_of_scope", "This sale was recorded at a park you do not work in. Tag only the sales of your own park.")
 }
 
 // ListSaleCandidates is the picker read: the animals of a park/shed/pen with each one's
@@ -111,6 +191,9 @@ func (s *SaleAllocationService) ListSaleCandidates(ctx context.Context, input Li
 		return nil, nil, BadRequest("missing_tenant", "tenant scope is required")
 	}
 	parkID := strings.TrimSpace(input.ParkID)
+	if parkID != "" && !parkAllowed(input.AllowedParkIDs, parkID) {
+		return nil, nil, Forbidden("park_out_of_scope", "That park is not one you work in. Pick animals from your own park.")
+	}
 	if !uuidPattern.MatchString(parkID) {
 		return nil, nil, BadRequest("invalid_park_id", "park_id must be a valid UUID")
 	}
@@ -149,6 +232,9 @@ type PreviewSaleAllocationInput struct {
 	TenantID    string
 	SalesDealID string
 	GoatIDs     []string
+	// AllowedParkIDs is the caller's resolved park scope; nil is tenant-wide. See
+	// ListSaleCandidatesInput.
+	AllowedParkIDs []string
 }
 
 // PreviewSaleAllocation is the review step: what you picked, grouped shed-wise, with the
@@ -158,12 +244,18 @@ func (s *SaleAllocationService) PreviewSaleAllocation(ctx context.Context, input
 	if err != nil {
 		return nil, err
 	}
+	if err := s.refuseSaleOutsideScope(ctx, tenantID, dealID, input.AllowedParkIDs); err != nil {
+		return nil, err
+	}
 	deal, err := s.deals.ReadSaleDeal(ctx, tenantID, dealID)
 	if err != nil {
 		return nil, mapSaleDealErr(err)
 	}
 	candidates, err := s.judgeNamedAnimals(ctx, tenantID, dealID, goatIDs)
 	if err != nil {
+		return nil, err
+	}
+	if err := refuseAnimalsOutsideScope(input.AllowedParkIDs, candidates); err != nil {
 		return nil, err
 	}
 
@@ -208,7 +300,10 @@ type ConfirmSaleAllocationInput struct {
 	// in GoatIDs: a sale weight is what the Sales page's weight bands are made of, and an
 	// animal tagged without one would be sold with no record of what left.
 	AnimalWeightsKg map[string]string
-	Reason          string
+	// AllowedParkIDs is the caller's resolved park scope; nil is tenant-wide. See
+	// ListSaleCandidatesInput.
+	AllowedParkIDs []string
+	Reason         string
 }
 
 // ConfirmSaleAllocation records the allocation and exits each animal as sold, in ONE
@@ -231,6 +326,27 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 	if err != nil {
 		return nil, err
 	}
+	if err := s.refuseSaleOutsideScope(ctx, tenantID, dealID, input.AllowedParkIDs); err != nil {
+		return nil, err
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		reason = "Sold to buyer"
+	}
+	storedKey := strings.Join([]string{tenantID, "sale_allocation", dealID, clientKey}, ":")
+	requestHash, err := saleConfirmFingerprint(tenantID, dealID, goatIDs, weights, reason)
+	if err != nil {
+		return nil, err
+	}
+	// AN EXACT REPLAY IS ANSWERED FROM THE LEDGER, BEFORE THE HERD IS RE-READ. A phone that lost
+	// the reply retries after the first confirm committed: its animals now read "Already sold" and
+	// the sale reads full, so judging them again would refuse the one retry idempotency exists for.
+	// Placed after the park clamp, so a key never opens another park's sale.
+	if replayed, found, err := s.writer.ReplaySaleAllocation(ctx, tenantID, dealID, storedKey, requestHash); err != nil {
+		return nil, mapRepoErr(err)
+	} else if found {
+		return replayed, nil
+	}
 
 	deal, err := s.deals.ReadSaleDeal(ctx, tenantID, dealID)
 	if err != nil {
@@ -240,6 +356,9 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 	// Re-read and re-judge at commit time. The preview is never trusted.
 	candidates, err := s.judgeNamedAnimals(ctx, tenantID, dealID, goatIDs)
 	if err != nil {
+		return nil, err
+	}
+	if err := refuseAnimalsOutsideScope(input.AllowedParkIDs, candidates); err != nil {
 		return nil, err
 	}
 	blocked := make([]ports.SaleCandidate, 0)
@@ -268,15 +387,12 @@ func (s *SaleAllocationService) ConfirmSaleAllocation(ctx context.Context, input
 		return nil, err
 	}
 
-	reason := strings.TrimSpace(input.Reason)
-	if reason == "" {
-		reason = "Sold to buyer"
-	}
 	result, err := s.writer.RecordSaleAllocations(ctx, ports.RecordSaleAllocationsCommand{
 		TenantID:             tenantID,
 		ActorID:              actorID,
 		ClientIdempotencyKey: clientKey,
-		StoredIdempotencyKey: strings.Join([]string{tenantID, "sale_allocation", dealID, clientKey}, ":"),
+		StoredIdempotencyKey: storedKey,
+		RequestHash:          requestHash,
 		TraceID:              input.TraceID,
 		SalesDealID:          dealID,
 		DeclaredAnimalCount:  deal.DeclaredAnimalCount,
@@ -354,6 +470,25 @@ func groupByShed(candidates []ports.SaleCandidate) []ports.SaleAllocationShedGro
 		return out[i].OperationalLocationDisplay < out[j].OperationalLocationDisplay
 	})
 	return out
+}
+
+// saleConfirmFingerprint is the semantic identity of a confirm: the sale, the SET of animals and
+// the weight typed for each, and the reason, all as validated. Order-free (a client that sends
+// the same animals in another order is sending the same request) and computed from the
+// normalised values, so "29" and " 29 " are one request while 29 and 30 are two.
+func saleConfirmFingerprint(tenantID, dealID string, goatIDs []string, weights map[string]string, reason string) (string, error) {
+	ids := append([]string(nil), goatIDs...)
+	sort.Strings(ids)
+	body, err := json.Marshal(struct {
+		SalesDealID string            `json:"sales_deal_id"`
+		GoatIDs     []string          `json:"goat_ids"`
+		WeightsKg   map[string]string `json:"animal_weights_kg"`
+		Reason      string            `json:"reason"`
+	}{dealID, ids, weights, reason})
+	if err != nil {
+		return "", err
+	}
+	return CanonicalRequestHashWithSubject(tenantID, "confirm_sale_allocation", "/admin/goats/sale-allocations/confirm", dealID, body)
 }
 
 // saleWeightPattern is a positive live weight with at most two decimals (numeric(7,2)): up to
@@ -460,7 +595,10 @@ func blockedConflict(blocked []ports.SaleCandidate) *Error {
 // This is what lets the Sales page show a recorded deal's real animals: the sales module
 // stores no goat_id, so the mapping is read from here (see migration 000177 for why the
 // mapping lives on the herd side).
-func (s *SaleAllocationService) GetSaleAllocation(ctx context.Context, tenantID, salesDealID string) ([]ports.SaleAllocationShedGroup, error) {
+//
+// allowed is the caller's park scope (nil = tenant-wide); a park-scoped caller is refused a
+// sale recorded at another park.
+func (s *SaleAllocationService) GetSaleAllocation(ctx context.Context, tenantID, salesDealID string, allowed []string) ([]ports.SaleAllocationShedGroup, error) {
 	tenant := strings.TrimSpace(tenantID)
 	if tenant == "" {
 		return nil, BadRequest("missing_tenant", "tenant scope is required")
@@ -468,6 +606,9 @@ func (s *SaleAllocationService) GetSaleAllocation(ctx context.Context, tenantID,
 	deal := strings.TrimSpace(salesDealID)
 	if !uuidPattern.MatchString(deal) {
 		return nil, BadRequest("invalid_sales_deal_id", "sales_deal_id must be a valid UUID")
+	}
+	if err := s.refuseSaleOutsideScope(ctx, tenant, deal, allowed); err != nil {
+		return nil, err
 	}
 	groups, err := s.reader.ListSaleAllocations(ctx, tenant, deal)
 	if err != nil {
@@ -479,8 +620,126 @@ func (s *SaleAllocationService) GetSaleAllocation(ctx context.Context, tenantID,
 	return groups, nil
 }
 
+// GetSaleAllocationAnimals reads back the animals one sale is made of, one per row, with the
+// weight recorded for each. Same deal-id rules as GetSaleAllocation.
+func (s *SaleAllocationService) GetSaleAllocationAnimals(ctx context.Context, tenantID, salesDealID string, allowed []string) ([]ports.SaleAllocationAnimal, error) {
+	tenant := strings.TrimSpace(tenantID)
+	if tenant == "" {
+		return nil, BadRequest("missing_tenant", "tenant scope is required")
+	}
+	deal := strings.TrimSpace(salesDealID)
+	if !uuidPattern.MatchString(deal) {
+		return nil, BadRequest("invalid_sales_deal_id", "sales_deal_id must be a valid UUID")
+	}
+	if err := s.refuseSaleOutsideScope(ctx, tenant, deal, allowed); err != nil {
+		return nil, err
+	}
+	animals, err := s.reader.ListSaleAllocationAnimals(ctx, tenant, deal)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if animals == nil {
+		animals = []ports.SaleAllocationAnimal{}
+	}
+	return animals, nil
+}
+
+// ListSaleTaggingQueueInput scopes the park head's queue.
+type ListSaleTaggingQueueInput struct {
+	TenantID string
+	// AllowedParkIDs is the caller's resolved park scope; nil is tenant-wide. The queue is
+	// narrowed to the FARM CODES of those parks, because the sales ledger names a sale's
+	// farm by code (CBE, CPT), never by park id.
+	AllowedParkIDs []string
+	Limit          int
+	Cursor         string
+}
+
+// ListSaleTaggingQueue is the tag-only list (maintainer decision 2026-09-11): the sales at the
+// caller's park that still owe animals. A park-scoped caller whose parks resolve to no farm
+// code sees an EMPTY queue rather than every farm's -- failing closed is the whole point of a
+// scope.
+func (s *SaleAllocationService) ListSaleTaggingQueue(ctx context.Context, input ListSaleTaggingQueueInput) ([]ports.SaleTaggingDeal, *string, error) {
+	tenant := strings.TrimSpace(input.TenantID)
+	if tenant == "" {
+		return nil, nil, BadRequest("missing_tenant", "tenant scope is required")
+	}
+	farms, err := s.scopeFarms(ctx, tenant, input.AllowedParkIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	if farms != nil && len(farms) == 0 {
+		return []ports.SaleTaggingDeal{}, nil, nil
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > ports.SaleTaggingQueuePageSize {
+		limit = ports.SaleTaggingQueuePageSize
+	}
+	deals, cursor, err := s.deals.ListSaleTaggingDeals(ctx, tenant, farms, limit, strings.TrimSpace(input.Cursor))
+	if err != nil {
+		return nil, nil, mapSaleDealErr(err)
+	}
+	if deals == nil {
+		deals = []ports.SaleTaggingDeal{}
+	}
+	parks, err := s.parksByFarm(ctx, tenant)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range deals {
+		deals[i].ParkID = parks[strings.ToUpper(strings.TrimSpace(deals[i].Farm))]
+	}
+	return deals, cursor, nil
+}
+
+// GetSaleTaggingDeal is ONE sale for the tagging screen, with the park it was recorded at. It sits
+// behind the same clamp as every allocation route, so another park's sale is refused before it is
+// described; a fully tagged sale still resolves (the screen shows what it has just finished).
+func (s *SaleAllocationService) GetSaleTaggingDeal(ctx context.Context, tenantID, salesDealID string, allowed []string) (*ports.SaleTaggingDeal, error) {
+	tenant := strings.TrimSpace(tenantID)
+	if tenant == "" {
+		return nil, BadRequest("missing_tenant", "tenant scope is required")
+	}
+	deal := strings.TrimSpace(salesDealID)
+	if !uuidPattern.MatchString(deal) {
+		return nil, BadRequest("invalid_sales_deal_id", "sales_deal_id must be a valid UUID")
+	}
+	if err := s.refuseSaleOutsideScope(ctx, tenant, deal, allowed); err != nil {
+		return nil, err
+	}
+	got, err := s.deals.ReadSaleTaggingDeal(ctx, tenant, deal)
+	if err != nil {
+		return nil, mapSaleDealErr(err)
+	}
+	parks, err := s.parksByFarm(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	got.ParkID = parks[strings.ToUpper(strings.TrimSpace(got.Farm))]
+	return got, nil
+}
+
+// parksByFarm maps a ledger farm code to its park id through the pen catalog (a park's
+// location_code IS a deal's farm). One catalog read per request, however many rows it labels.
+func (s *SaleAllocationService) parksByFarm(ctx context.Context, tenantID string) (map[string]string, error) {
+	catalog, err := s.reader.ListSaleLocations(ctx, tenantID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	out := make(map[string]string, len(catalog.Parks))
+	for _, p := range catalog.Parks {
+		if code := strings.ToUpper(strings.TrimSpace(p.Label)); code != "" {
+			out[code] = p.ParkID
+		}
+	}
+	return out, nil
+}
+
 // GetSaleLocations serves the picker's park/shed/pen vocabulary.
-func (s *SaleAllocationService) GetSaleLocations(ctx context.Context, tenantID string) (*ports.SaleLocationCatalog, error) {
+//
+// allowed is the caller's park scope (nil = tenant-wide): a park-scoped caller is served their
+// own parks and pens only, so the phone never offers a park the picker would then refuse.
+func (s *SaleAllocationService) GetSaleLocations(ctx context.Context, tenantID string, allowed []string) (*ports.SaleLocationCatalog, error) {
 	tenant := strings.TrimSpace(tenantID)
 	if tenant == "" {
 		return nil, BadRequest("missing_tenant", "tenant scope is required")
@@ -489,7 +748,21 @@ func (s *SaleAllocationService) GetSaleLocations(ctx context.Context, tenantID s
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	return catalog, nil
+	if allowed == nil || catalog == nil {
+		return catalog, nil
+	}
+	out := &ports.SaleLocationCatalog{Parks: []ports.SaleLocationPark{}, Locations: []ports.SaleLocationEntry{}}
+	for _, p := range catalog.Parks {
+		if parkAllowed(allowed, p.ParkID) {
+			out.Parks = append(out.Parks, p)
+		}
+	}
+	for _, l := range catalog.Locations {
+		if parkAllowed(allowed, l.ParkID) {
+			out.Locations = append(out.Locations, l)
+		}
+	}
+	return out, nil
 }
 
 // checkSaleCountGate refuses anything but an exact fill.
