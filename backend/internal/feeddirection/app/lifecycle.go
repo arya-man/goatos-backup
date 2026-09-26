@@ -498,14 +498,20 @@ func (s *Service) sheetCards(ctx context.Context, tenantID string, headers []dom
 		return nil, nil
 	}
 	out := make(map[string]domain.CardContract, len(headers))
+	rulesByVersion := make(map[int]domain.Rules, len(headers))
 	for _, h := range headers {
 		version := h.SOPVersion
 		if stage == domain.StagePacking {
 			version = h.PackingSOPVersion
 		}
-		rules, err := s.pinnedRules(ctx, tenantID, stage, version)
-		if err != nil {
-			return nil, err
+		rules, ok := rulesByVersion[version]
+		if !ok {
+			var err error
+			rules, err = s.pinnedRules(ctx, tenantID, stage, version)
+			if err != nil {
+				return nil, err
+			}
+			rulesByVersion[version] = rules
 		}
 		out[h.Workflow] = cardContract(rules)
 	}
@@ -611,6 +617,12 @@ func (s *Service) loadServedRows(ctx context.Context, tenantID, parkID, feedDay,
 // loadServedSheet is loadServedRows plus the served HEADERS, whose pins name the cards the sheet's
 // stages run under (FEED SOP, 2026-09-16).
 func (s *Service) loadServedSheet(ctx context.Context, tenantID, parkID, feedDay, workflow string) ([]domain.DirectionRow, domain.Lifecycle, []domain.IssueHeader, bool, error) {
+	cacheKey := servedSheetCacheKey(tenantID, parkID, feedDay, workflow)
+	if cached, ok := s.servedSheetCache.Load(cacheKey); ok {
+		entry := cached.(servedSheetCacheEntry)
+		return cloneDirectionRows(entry.rows), cloneLifecycle(entry.lifecycle), cloneIssueHeaders(entry.headers), true, nil
+	}
+
 	headers, err := s.issues.LoadIssueHeaders(ctx, tenantID, parkID, feedDay, workflow)
 	if err != nil {
 		return nil, domain.Lifecycle{}, nil, false, err
@@ -632,7 +644,86 @@ func (s *Service) loadServedSheet(ctx context.Context, tenantID, parkID, feedDay
 	for _, h := range headers {
 		scopeRows = append(scopeRows, domain.ReconstructRows(rowsByIssue[h.IssueID])...)
 	}
-	return scopeRows, aggregateLifecycle(headers), headers, true, nil
+	lifecycle := aggregateLifecycle(headers)
+	if lifecycle.State == domain.IssueStateLocked {
+		s.servedSheetCache.Store(cacheKey, servedSheetCacheEntry{
+			rows:      cloneDirectionRows(scopeRows),
+			lifecycle: cloneLifecycle(lifecycle),
+			headers:   cloneIssueHeaders(headers),
+		})
+	}
+	return scopeRows, lifecycle, headers, true, nil
+}
+
+type servedSheetCacheEntry struct {
+	rows      []domain.DirectionRow
+	lifecycle domain.Lifecycle
+	headers   []domain.IssueHeader
+}
+
+func servedSheetCacheKey(tenantID, parkID, feedDay, workflow string) string {
+	return tenantID + "\x1f" + parkID + "\x1f" + feedDay + "\x1f" + workflow
+}
+
+func cloneDirectionRows(in []domain.DirectionRow) []domain.DirectionRow {
+	out := append([]domain.DirectionRow(nil), in...)
+	for i := range out {
+		out[i].Items = cloneItemQuantities(in[i].Items)
+		out[i].BlockedReasons = append([]domain.BlockedReason(nil), in[i].BlockedReasons...)
+	}
+	return out
+}
+
+func cloneItemQuantities(in []domain.ItemQuantity) []domain.ItemQuantity {
+	out := append([]domain.ItemQuantity(nil), in...)
+	for i := range out {
+		out[i].QuantityKg = cloneStringPtr(in[i].QuantityKg)
+		out[i].GramsPerHead = cloneStringPtr(in[i].GramsPerHead)
+		out[i].ShedFactor = cloneStringPtr(in[i].ShedFactor)
+		if in[i].BlockedReason != nil {
+			reason := *in[i].BlockedReason
+			out[i].BlockedReason = &reason
+		}
+	}
+	return out
+}
+
+func cloneLifecycle(in domain.Lifecycle) domain.Lifecycle {
+	out := in
+	out.IssuedAt = cloneStringPtr(in.IssuedAt)
+	out.AmendedAt = cloneStringPtr(in.AmendedAt)
+	out.LockedAt = cloneStringPtr(in.LockedAt)
+	out.Workflows = append([]domain.WorkflowLifecycle(nil), in.Workflows...)
+	for i := range out.Workflows {
+		out.Workflows[i].IssuedAt = cloneStringPtr(in.Workflows[i].IssuedAt)
+		out.Workflows[i].AmendedAt = cloneStringPtr(in.Workflows[i].AmendedAt)
+		out.Workflows[i].LockedAt = cloneStringPtr(in.Workflows[i].LockedAt)
+		out.Workflows[i].ExpectedIssueAt = cloneStringPtr(in.Workflows[i].ExpectedIssueAt)
+	}
+	return out
+}
+
+func cloneIssueHeaders(in []domain.IssueHeader) []domain.IssueHeader {
+	out := append([]domain.IssueHeader(nil), in...)
+	for i := range out {
+		if in[i].AmendedAt != nil {
+			cp := *in[i].AmendedAt
+			out[i].AmendedAt = &cp
+		}
+		if in[i].LockedAt != nil {
+			cp := *in[i].LockedAt
+			out[i].LockedAt = &cp
+		}
+	}
+	return out
+}
+
+func cloneStringPtr(in *string) *string {
+	if in == nil {
+		return nil
+	}
+	cp := *in
+	return &cp
 }
 
 // servePreviewGenerated LIVE-GENERATES the full scope for a feed day that has NO issued sheet and

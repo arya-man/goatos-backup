@@ -1,3 +1,8 @@
+import type { ReactNode } from "react";
+import { AlertTriangle, CalendarCheck, Clock, Layers, ScanLine, Video } from "lucide-react";
+
+import type { KitTone } from "@/lib/tone";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LiveTrackerKPIs } from "@/lib/api/vaccination-live-tracker";
 import { LiveTick } from "./live-tick";
@@ -25,10 +30,11 @@ export function LiveTrackerKpis({
     .join(" + ");
   const crossFilterReason = copy(pageContract, "kpi.cross_filter_disabled");
 
-  const tiles: Array<{ key: string; modifier: string; label: string; value: number; detail: string; tick?: boolean }> = [
+  const tiles: Array<{ key: string; tone: KitTone; icon: ReactNode; label: string; value: number; detail: string; tick?: boolean }> = [
     {
       key: "scheduled",
-      modifier: "",
+      tone: "primary",
+      icon: <CalendarCheck size={20} aria-hidden="true" />,
       label: copy(pageContract, "kpi.scheduled.label"),
       value: kpis.scheduled_administrations,
       detail: parkSplit
@@ -37,7 +43,7 @@ export function LiveTrackerKpis({
     },
     {
       key: "proofs",
-      modifier: "k-ok",
+      tone: "success", icon: <Video size={20} aria-hidden="true" />,
       label: copy(pageContract, "kpi.proofs.label"),
       value: kpis.proof_videos_received,
       detail: copy(pageContract, "kpi.proofs.detail"),
@@ -45,7 +51,7 @@ export function LiveTrackerKpis({
     },
     {
       key: "scans",
-      modifier: "k-info",
+      tone: "info", icon: <ScanLine size={20} aria-hidden="true" />,
       label: copy(pageContract, "kpi.scans.label"),
       value: kpis.scan_captures,
       detail: copy(pageContract, "kpi.scans.detail"),
@@ -58,7 +64,7 @@ export function LiveTrackerKpis({
       // a Remaining derived from proof arrival read 0 on a drive that was still open. The proofed-
       // but-open figure rides on the same tile so the reader can see both without a seventh tile.
       key: "remaining",
-      modifier: "k-warn",
+      tone: "warning", icon: <Clock size={20} aria-hidden="true" />,
       label: copy(pageContract, "kpi.remaining.label"),
       value: kpis.remaining,
       detail:
@@ -68,14 +74,14 @@ export function LiveTrackerKpis({
     },
     {
       key: "combo",
-      modifier: "k-purple",
+      tone: "violet", icon: <Layers size={20} aria-hidden="true" />,
       label: copy(pageContract, "kpi.combo.label"),
       value: kpis.combo_animals,
       detail: copy(pageContract, "kpi.combo.detail"),
     },
     {
       key: "attention",
-      modifier: "k-dng",
+      tone: "error", icon: <AlertTriangle size={20} aria-hidden="true" />,
       label: copy(pageContract, "kpi.attention.label"),
       value: kpis.attention_count,
       detail: copy(pageContract, "kpi.attention.detail"),
@@ -92,26 +98,30 @@ export function LiveTrackerKpis({
           {copy(pageContract, "kpi.truncated_note")}
         </div>
       ) : null}
-      <div className="lt-kpis">
-      {tiles.map((tile) => (
-        // The mock gives every tile a pointer cursor implying a cross-filter that it never wired.
-        // Rendering it as an inert div with a visible reason is the honest form: the control stays
-        // where the mock put it, and says why it does nothing.
-        <div
-          key={tile.key}
-          className={`kpi lt-kpi${tile.modifier ? ` ${tile.modifier}` : ""}`}
-          aria-disabled="true"
-          title={crossFilterReason}
-        >
-          <div className="lab">{tile.label}</div>
-          <div className="val">{tile.value}</div>
-          <div className="dl">
-            {tile.detail}
-            {tile.tick ? <LiveTick value={tile.value} label={copy(pageContract, "kpi.live_tick")} /> : null}
+      {/* A deck of zeros is a wall, not a reading: the tiles render only once the day has counts. */}
+      {tiles.some((tile) => Number(tile.value) > 0) ? (
+      <KpiGrid min={200}>
+        {tiles.map((tile) => (
+          // The mock gives every tile a pointer cursor implying a cross-filter that it never wired.
+          // Rendering it inert with a visible reason is the honest form: the control stays where the
+          // mock put it, and says why it does nothing.
+          <div key={tile.key} title={crossFilterReason} aria-disabled="true" style={{ minWidth: 0 }}>
+            <KpiCard
+              label={tile.label}
+              value={tile.value}
+              tone={tile.tone}
+              icon={tile.icon}
+              hint={
+                <>
+                  {tile.detail}
+                  {tile.tick ? <LiveTick value={tile.value} label={copy(pageContract, "kpi.live_tick")} /> : null}
+                </>
+              }
+            />
           </div>
-        </div>
-      ))}
-      </div>
+        ))}
+      </KpiGrid>
+      ) : null}
     </>
   );
 }

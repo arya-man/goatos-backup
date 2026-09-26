@@ -1,3 +1,4 @@
+import { Tag } from "@/components/ui-primitives";
 import { Activity, Video } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import { copy, optionalOption, optionLabel, optionTone, optionTitle, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -132,10 +133,7 @@ function ActivityCard({
         {activity.items.length === 0 ? (
           <div className="lt-empty" style={{ padding: "14px 15px" }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <b style={{ fontSize: 13.5 }}>{copy(pageContract, "section.activity.empty_title")}</b>
-              <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-                {copy(pageContract, "section.activity.empty_body")}
-              </span>
+              <b style={{ fontSize: 13.5 }} title={copy(pageContract, "section.activity.empty_body")}>{copy(pageContract, "section.activity.empty_title")}</b>
             </div>
           </div>
         ) : (
@@ -187,7 +185,7 @@ function AttentionCard({
         <Activity className="ic" style={{ color: "var(--warn)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.attention.title")}</h3>
         <div className="sp" style={{ flex: 1 }} />
-        <span className="tag t-warn">{total}</span>
+        <Tag tone="warn">{total}</Tag>
       </div>
       <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 9 }}>
         {truncated ? (

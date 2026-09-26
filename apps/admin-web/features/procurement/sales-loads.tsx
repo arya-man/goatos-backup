@@ -1,7 +1,8 @@
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 
-import Link from "@/components/no-prefetch-link";
-import { LinkPending } from "@/components/link-pending";
+import { PageHeader } from "@/components/app/page-header";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
@@ -87,7 +88,7 @@ export async function SalesLoadsPage({
   if (weightsResult?.ok) {
     currentWeights = {};
     loadPens = {};
-    for (const bucket of weightsResult.data.by_load) {
+    for (const bucket of listOrEmpty(weightsResult.data.by_load)) {
       currentWeights[bucket.load_ref] = { averageKg: bucket.average_weight_kg, animals: bucket.animals };
       loadPens[bucket.load_ref] = pensFromPlacements(bucket.placements);
     }
@@ -111,46 +112,24 @@ export async function SalesLoadsPage({
           533px beside it at 1600px -- so on one row the subtitle is forced to wrap. Lifting the
           toggle clears it vertically (the title itself is short), and the title block goes back to
           its natural width so the sentence renders in full on one line. */}
-      <div className="phead sales-loads-head">
-        <div>
-          <div className="crumb">
-            <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-        {/* Equal spacers either side put the toggle in the MIDDLE of the page header rather than
-            hard against the right edge: it switches the whole page, so it reads as the page's own
-            control instead of an action belonging to the title block.
-            Purchased sits on the left and is selected by default, Farm born on the right.
-            Server-rendered links, so the choice survives a reload and a shared URL.
-            The title block and the trailing spacer carry the SAME flex share, which is what puts
-            the toggle on the header's true midpoint -- two spacers alone would only centre it in
-            the space the title leaves over. */}
-        {/* The toggle exists only while the contract offers more than one view. Farm born is
-            hidden for now (maintainer instruction 2026-09-14), so the backend serves Purchased
-            alone and no chips render; serving a second option brings the toggle back. */}
-        {views.length > 1 ? (
-          <div
-            className="chips sales-loads-tabs"
-            role="group"
-            aria-label={copy(pageContract, "page.tabs.aria")}
-          >
-            {views.map((option) => (
-              <Link
-                key={option.key}
-                href={hrefWithQuery(sp, { view: option.key === DEFAULT_VIEW ? null : option.key })}
-                scroll={false}
-                className={option.key === view ? "btn p" : "btn"}
-                aria-current={option.key === view ? "true" : undefined}
-              >
-                {option.label}
-                <LinkPending />
-              </Link>
-            ))}
-          </div>
-        ) : null}
-      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb"), href: "/sales" }, { label: pageContract.title }]}
+        tabs={
+          views.length > 1 ? (
+            <AnimatedTabs
+              variant="pill"
+              ariaLabel={copy(pageContract, "page.tabs.aria")}
+              value={view}
+              items={views.map((option) => ({
+                value: option.key,
+                label: option.label,
+                href: hrefWithQuery(sp, { view: option.key === DEFAULT_VIEW ? null : option.key }),
+              }))}
+            />
+          ) : undefined
+        }
+      />
 
       <SalesFarmToggle
         pageContract={pageContract}

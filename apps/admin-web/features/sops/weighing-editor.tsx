@@ -1,4 +1,7 @@
 "use client";
+import Box from "@mui/material/Box";
+
+import { Tag } from "@/components/ui-primitives";
 
 // WEIGHING SOP (maintainer decision 2026-09-15, docs/decisions/weighing-sop.md).
 //
@@ -11,10 +14,14 @@
 // field. The scan-and-submit rules (free-flow capture, per-animal video, verification, close)
 // are maintainer locks and are shown, not edited.
 import { useMemo, useState, useTransition } from "react";
-import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronUp, Lock, Plus, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
+import IconButton from "@mui/material/IconButton";
+import MuiTextField from "@mui/material/TextField";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import { EditorHeader, InlineSelect, StickyActions, StudioViewToggle, inspectionEditorSx } from "./editor-chrome";
 import {
   CAPTURE_DEFAULTS_COPY_KEY,
   LUMP_SUM_VIDEO_CEILING,
@@ -42,6 +49,10 @@ import {
 import { publishedHref } from "./published-href";
 import { WeighingFlow, isQuestionList, type WeighingInsert, type WeighingRef } from "./weighing-flow";
 import { publishWeighingVersion, saveWeighingVersion, type WeighingSaveResult } from "./sop-actions";
+import Checkbox from "@mui/material/Checkbox";
+import Radio from "@mui/material/Radio";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Alert from "@mui/material/Alert";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -225,9 +236,9 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
             onRemove={() => removeQuestion(list, q.id)}
           />
         ))}
-        <button type="button" className="btn sm ghost" onClick={() => addQuestion(list)}>
-          <Plus className="ic" /> {copy(pc, "inspection.question.add")}
-        </button>
+        <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => addQuestion(list)}>
+            {copy(pc, "inspection.question.add")}
+          </Button>
       </div>
     );
   }
@@ -241,30 +252,32 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
         <div className="qhead">
           <span className="qnum">{i + 1}</span>
           <span className="qtype">
-            <select value={p.kind} onChange={(e) => updateSlot(list, p.id, { kind: e.target.value as RemovalProofKind })}>
-              {proofKinds.map((k) => (
-                <option key={k.key} value={k.key} title={k.title}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
+            <InlineSelect
+              label={copy(pc, "wsop.removal.proofs")}
+              value={p.kind}
+              minWidth={168}
+              options={proofKinds.map((k) => ({ value: k.key, label: k.label }))}
+              onChange={(next) => updateSlot(list, p.id, { kind: next as RemovalProofKind })}
+            />
           </span>
           {p.key ? <code className="muted small">{p.key}</code> : null}
           <span className="sp" style={{ flex: 1 }} />
-          <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={i === 0} onClick={() => moveSlot(list, p.id, -1)}>
+          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={i === 0} onClick={() => moveSlot(list, p.id, -1)}>
             <ChevronUp className="ic" />
-          </button>
-          <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={i === slots.length - 1} onClick={() => moveSlot(list, p.id, 1)}>
+          </IconButton>
+          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={i === slots.length - 1} onClick={() => moveSlot(list, p.id, 1)}>
             <ChevronDown className="ic" />
-          </button>
-          <button type="button" className="ia del" aria-label={copy(pc, labels.remove)} onClick={() => removeSlot(list, p.id)}>
+          </IconButton>
+          <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, labels.remove)} onClick={() => removeSlot(list, p.id)}>
             <X className="ic" />
-          </button>
+          </IconButton>
         </div>
         <div className="qbody">
           <label className="numfield">
             <span className="numlbl">{copy(pc, labels.title)}</span>
-            <input
+            <MuiTextField
+              fullWidth
+              size="small"
               className="qtext"
               value={p.title}
               onChange={(e) => {
@@ -275,18 +288,16 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           </label>
           <label className="numfield">
             <span className="numlbl">{copy(pc, labels.hint)}</span>
-            <input value={p.hint} onChange={(e) => updateSlot(list, p.id, { hint: e.target.value })} />
+            <MuiTextField fullWidth size="small" value={p.hint} onChange={(e) => updateSlot(list, p.id, { hint: e.target.value })} />
           </label>
           {!p.key ? (
             <label className="numfield">
               <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-              <input value={p.key} onChange={(e) => updateSlot(list, p.id, { key: e.target.value })} />
+              <MuiTextField fullWidth size="small" value={p.key} onChange={(e) => updateSlot(list, p.id, { key: e.target.value })} />
             </label>
           ) : null}
           <div className="qfoot">
-            <label className="chkline">
-              <input type="checkbox" checked={p.required} onChange={(e) => updateSlot(list, p.id, { required: e.target.checked })} /> {copy(pc, "inspection.question.required")}
-            </label>
+            <FormControlLabel className="chkline" control={<Checkbox checked={p.required} onChange={(e) => updateSlot(list, p.id, { required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />
           </div>
         </div>
       </div>
@@ -301,30 +312,32 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
         <div className="qhead">
           <span className="qnum">{i + 1}</span>
           <span className="qtype">
-            <select value={p.kind} onChange={(e) => updateCounted(p.id, { kind: e.target.value as RemovalProofKind })}>
-              {proofKinds.map((k) => (
-                <option key={k.key} value={k.key} title={k.title}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
+            <InlineSelect
+              label={copy(pc, "wsop.capture.proof.title")}
+              value={p.kind}
+              minWidth={168}
+              options={proofKinds.map((k) => ({ value: k.key, label: k.label }))}
+              onChange={(next) => updateCounted(p.id, { kind: next as RemovalProofKind })}
+            />
           </span>
           {p.key ? <code className="muted small">{p.key}</code> : null}
           <span className="sp" style={{ flex: 1 }} />
-          <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={i === 0} onClick={() => moveCounted(p.id, -1)}>
+          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={i === 0} onClick={() => moveCounted(p.id, -1)}>
             <ChevronUp className="ic" />
-          </button>
-          <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={i === rows.lumpSumProofs.length - 1} onClick={() => moveCounted(p.id, 1)}>
+          </IconButton>
+          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={i === rows.lumpSumProofs.length - 1} onClick={() => moveCounted(p.id, 1)}>
             <ChevronDown className="ic" />
-          </button>
-          <button type="button" className="ia del" aria-label={copy(pc, "wsop.capture.proof.remove")} onClick={() => removeCounted(p.id)}>
+          </IconButton>
+          <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "wsop.capture.proof.remove")} onClick={() => removeCounted(p.id)}>
             <X className="ic" />
-          </button>
+          </IconButton>
         </div>
         <div className="qbody">
           <label className="numfield">
             <span className="numlbl">{copy(pc, "wsop.capture.proof.title")}</span>
-            <input
+            <MuiTextField
+              fullWidth
+              size="small"
               className="qtext"
               value={p.title}
               onChange={(e) => {
@@ -335,24 +348,24 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           </label>
           <label className="numfield">
             <span className="numlbl">{copy(pc, "wsop.capture.proof.hint")}</span>
-            <input value={p.hint} onChange={(e) => updateCounted(p.id, { hint: e.target.value })} />
+            <MuiTextField fullWidth size="small" value={p.hint} onChange={(e) => updateCounted(p.id, { hint: e.target.value })} />
           </label>
           {!p.key ? (
             <label className="numfield">
               <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-              <input value={p.key} onChange={(e) => updateCounted(p.id, { key: e.target.value })} />
+              <MuiTextField fullWidth size="small" value={p.key} onChange={(e) => updateCounted(p.id, { key: e.target.value })} />
             </label>
           ) : null}
           <div className="rowf">
             <label className="numfield">
               <span className="numlbl">{copy(pc, "wsop.capture.lump_sum.slot_min")}</span>
-              <input inputMode="numeric" value={p.min} onChange={(e) => updateCounted(p.id, { min: e.target.value })} />
+              <MuiTextField size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={p.min} onChange={(e) => updateCounted(p.id, { min: e.target.value })} />
             </label>
             <label className="numfield">
               <span className="numlbl">
                 {copy(pc, "wsop.capture.lump_sum.slot_max")} (≤ {LUMP_SUM_VIDEO_CEILING})
               </span>
-              <input inputMode="numeric" value={p.max} onChange={(e) => updateCounted(p.id, { max: e.target.value })} />
+              <MuiTextField size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={p.max} onChange={(e) => updateCounted(p.id, { max: e.target.value })} />
             </label>
           </div>
         </div>
@@ -375,35 +388,28 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
   const removalOn = rows.removalMode !== "off";
 
   return (
-    <div className="screen on sop-inspection sop-weighing">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pc, "crumb")} · {pc.title} · <b>{sopName}</b>
-          </div>
-          <h1>{copy(pc, "wsop.title")}</h1>
-          <div className="sub">{copy(pc, "wsop.subtitle")}</div>
-          <div className="muted small" style={{ marginTop: 4 }}>
-            {versionLabel} · {copy(pc, "wsop.notice.pinned")}
-          </div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <div className="subtabs studio-view-toggle" role="tablist" aria-label={copy(pc, "studio.view.label")}>
-          <button type="button" role="tab" className={view === "list" ? "on" : ""} aria-selected={view === "list"} onClick={() => switchView("list")} data-testid="studio-view-list">
-            {copy(pc, "studio.view.list")}
-          </button>
-          <button type="button" role="tab" className={view === "flow" ? "on" : ""} aria-selected={view === "flow"} onClick={() => switchView("flow")} data-testid="studio-view-flow">
-            {copy(pc, "studio.view.flow")}
-          </button>
-        </div>
-        <Link className="btn" href={basePath}>
-          <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
-        </Link>
-      </div>
+    <Box className="kit-enter screen on sop-kit sop-inspection sop-weighing" sx={inspectionEditorSx}>
+      <EditorHeader
+        crumbs={[copy(pc, "crumb"), pc.title, sopName]}
+        title={copy(pc, "wsop.title")}
+        subtitle={copy(pc, "wsop.subtitle")}
+        version={versionLabel}
+        notice={copy(pc, "wsop.notice.pinned")}
+        backHref={basePath}
+        actions={
+          <StudioViewToggle
+            label={copy(pc, "studio.view.label")}
+            listLabel={copy(pc, "studio.view.list")}
+            flowLabel={copy(pc, "studio.view.flow")}
+            value={view}
+            onChange={switchView}
+          />
+        }
+      />
 
       {result ? (
-        <div className={result.ok ? "note" : "alert warn"} style={{ marginBottom: 12 }}>
-          {result.ok ? <span className="tag t-ok">{copy(pc, "modal.builder.notice_ok")}</span> : <AlertTriangle className="ic" />} {result.message}
+        <Alert severity={result.ok ? "info" : "warning"} style={{ marginBottom: 12 }} role="status">
+          {result.ok ? <Tag tone="ok">{copy(pc, "modal.builder.notice_ok")}</Tag> : <AlertTriangle className="ic" />} {result.message}
           {result.report && !result.report.valid ? (
             <ul className="small" style={{ margin: "6px 0 0 16px" }}>
               {result.report.errors.slice(0, 6).map((e, i) => (
@@ -411,7 +417,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               ))}
             </ul>
           ) : null}
-        </div>
+        </Alert>
       ) : null}
 
       {view === "flow" ? (
@@ -420,7 +426,8 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
       {view === "flow" ? null : (
       <>
       {/* 1. Planning */}
-      <section className="card inspection-page">
+      <div>
+      <Card className="card inspection-page">
         <div className="inspection-page-head" style={{ cursor: "default" }}>
           <span className="qnum">1</span>
           <strong>{copy(pc, "wsop.section.planning")}</strong>
@@ -432,22 +439,22 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               <span className="qcfg-title">{copy(pc, "wsop.planning.modes")}</span>
             </div>
             {WEIGHING_MODES.map((mode) => (
-              <label className="chkline" key={mode}>
-                <input type="checkbox" checked={rows.modes.includes(mode)} onChange={(e) => toggleMode(mode, e.target.checked)} /> {copy(pc, `wsop.planning.mode.${mode}`)}
-              </label>
+              <FormControlLabel key={mode} className="chkline" control={<Checkbox checked={rows.modes.includes(mode)} onChange={(e) => toggleMode(mode, e.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, `wsop.planning.mode.${mode}`)}</>} />
             ))}
             <div className="rowf" style={{ marginTop: 8 }}>
               <label className="numfield">
                 <span className="numlbl">{copy(pc, "wsop.planning.default_cap")}</span>
-                <input inputMode="numeric" value={rows.defaultCapPerDay} onChange={(e) => setRows((r) => ({ ...r, defaultCapPerDay: e.target.value }))} />
+                <MuiTextField size="small" slotProps={{ htmlInput: { inputMode: "numeric" } }} value={rows.defaultCapPerDay} onChange={(e) => setRows((r) => ({ ...r, defaultCapPerDay: e.target.value }))} />
               </label>
             </div>
           </div>
         </div>
-      </section>
+      </Card>
+      </div>
 
       {/* 2. Feed & water removal */}
-      <section className="card inspection-page">
+      <div>
+      <Card className="card inspection-page">
         <div className="inspection-page-head" style={{ cursor: "default" }}>
           <span className="qnum">2</span>
           <strong>{copy(pc, "wsop.section.removal")}</strong>
@@ -459,11 +466,9 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               <span className="qcfg-title">{copy(pc, "wsop.removal.mode")}</span>
             </div>
             {removalModes.map((m) => (
-              <label className="chkline" key={m.key}>
-                <input type="radio" name="wsop-removal-mode" value={m.key} checked={rows.removalMode === m.key} onChange={() => setRows((r) => ({ ...r, removalMode: m.key as RemovalMode }))} />{" "}
+              <FormControlLabel key={m.key} className="chkline" control={<Radio name="wsop-removal-mode" value={m.key} checked={rows.removalMode === m.key} onChange={() => setRows((r) => ({ ...r, removalMode: m.key as RemovalMode }))} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
                 <b>{m.label}</b>
-                {m.title ? <span className="muted small"> — {m.title}</span> : null}
-              </label>
+                {m.title ? <span className="muted small"> — {m.title}</span> : null}</>} />
             ))}
           </div>
           {removalOn ? (
@@ -476,7 +481,7 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
                 <div className="rowf" style={{ marginTop: 8 }}>
                   <label className="numfield">
                     <span className="numlbl">{copy(pc, "wsop.removal.cutoff")}</span>
-                    <input type="time" value={rows.removalCutoffTime} onChange={(e) => setRows((r) => ({ ...r, removalCutoffTime: e.target.value }))} />
+                    <MuiTextField size="small" type="time" value={rows.removalCutoffTime} onChange={(e) => setRows((r) => ({ ...r, removalCutoffTime: e.target.value }))} />
                     <span className="muted small">{copy(pc, "wsop.removal.cutoff.hint")}</span>
                   </label>
                 </div>
@@ -488,9 +493,9 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
                 </div>
                 <div className="qlist">
                   {rows.removalProofs.map((p, i) => slotCard("removalProofs", p, i, { title: "wsop.removal.proof.title", hint: "wsop.removal.proof.hint", remove: "wsop.removal.proof.remove" }))}
-                  <button type="button" className="btn sm ghost" onClick={() => addSlot("removalProofs")}>
-                    <Plus className="ic" /> {copy(pc, "wsop.removal.proof.add")}
-                  </button>
+                  <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => addSlot("removalProofs")}>
+            {copy(pc, "wsop.removal.proof.add")}
+          </Button>
                 </div>
               </div>
               <div className="qcfg" style={{ marginTop: 10 }}>
@@ -507,10 +512,12 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
             </p>
           )}
         </div>
-      </section>
+      </Card>
+      </div>
 
       {/* 3. Capture */}
-      <section className="card inspection-page">
+      <div>
+      <Card className="card inspection-page">
         <div className="inspection-page-head" style={{ cursor: "default" }}>
           <span className="qnum">3</span>
           <strong>{copy(pc, "wsop.section.capture")}</strong>
@@ -523,15 +530,12 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               <span className="qcfg-title">{copy(pc, "wsop.capture.individual.title")}</span>
               <span className="muted small">{copy(pc, "wsop.capture.individual.subtitle")}</span>
             </div>
-            <label className="chkline" title={copy(pc, "wsop.capture.individual.locked")}>
-              <input type="checkbox" checked={rows.individualVideoRequired} disabled />
-              <span>
+            <FormControlLabel className="chkline" disabled control={<Checkbox checked={rows.individualVideoRequired} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<><span>
                 {copy(pc, "wsop.capture.individual.video")}{" "}
                 <span className="muted small">
                   <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "wsop.capture.individual.locked_short")}
                 </span>
-              </span>
-            </label>
+              </span></>} />
             <div className="qcfg" style={{ marginTop: 10 }}>
               <div className="qcfg-head">
                 <span className="qcfg-title">{copy(pc, "wsop.capture.individual.proofs")}</span>
@@ -539,9 +543,9 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               </div>
               <div className="qlist">
                 {rows.individualProofs.map((p, i) => slotCard("individualProofs", p, i, { title: "wsop.capture.proof.title", hint: "wsop.capture.proof.hint", remove: "wsop.capture.proof.remove" }))}
-                <button type="button" className="btn sm ghost" onClick={() => addSlot("individualProofs")}>
-                  <Plus className="ic" /> {copy(pc, "wsop.capture.individual.add_capture")}
-                </button>
+                <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => addSlot("individualProofs")}>
+            {copy(pc, "wsop.capture.individual.add_capture")}
+          </Button>
               </div>
               <p className="muted small" style={{ marginTop: 4 }}>
                 {copy(pc, "wsop.capture.individual.at_least_one")}
@@ -569,9 +573,9 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
               </div>
               <div className="qlist">
                 {rows.lumpSumProofs.map((p, i) => countedCard(p, i))}
-                <button type="button" className="btn sm ghost" onClick={addCounted}>
-                  <Plus className="ic" /> {copy(pc, "wsop.capture.lump_sum.add_capture")}
-                </button>
+                <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={addCounted}>
+                  {copy(pc, "wsop.capture.lump_sum.add_capture")}
+                </Button>
               </div>
               <p className="muted small" style={{ marginTop: 4 }}>
                 {copy(pc, "wsop.capture.lump_sum.total_ceiling")} · {fillCopy(copy(pc, "wsop.summary.lump_sum_videos"), { min: lumpWindow.min, max: lumpWindow.max })}
@@ -590,11 +594,12 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
             {copy(pc, "wsop.capture.locked_rules")}
           </p>
         </div>
-      </section>
+      </Card>
+      </div>
 
       </>
       )}
-      <div className="cfgmf inspection-footer">
+      <StickyActions>
         <div>
           {problems.length ? (
             <ul className="small muted" style={{ margin: "4px 0 0 16px" }}>
@@ -606,15 +611,15 @@ export function WeighingEditor({ pageContract: pc, basePath, sopId, sopName, ver
             <span className="muted small">{copy(pc, "wsop.footer.ready")}</span>
           )}
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
+        <span className="spacer" style={{ flex: 1 }} />
+        <Button color="primary" variant="outlined" loading={pending} disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
-        </button>
-        <button type="button" className="btn p" disabled={pending || problems.length > 0} onClick={() => submit(true)}>
-          <Check className="ic" /> {copy(pc, "inspection.action.publish")}
-        </button>
-      </div>
-    </div>
+        </Button>
+        <Button variant="contained" color="primary" startIcon={<Check size={16} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+          {copy(pc, "inspection.action.publish")}
+        </Button>
+      </StickyActions>
+    </Box>
   );
 }
 
@@ -645,10 +650,13 @@ export function QuestionCard({
       <div className="qhead">
         <span className="qnum">{index + 1}</span>
         <span className="qtype">
-          <select
+          <InlineSelect
+            label={copy(pc, "inspection.question.kind")}
             value={q.kind}
-            onChange={(e) => {
-              const kind = e.target.value as WeighingQuestionKind;
+            minWidth={168}
+            options={kinds.map((k) => ({ value: k.key, label: k.label }))}
+            onChange={(next) => {
+              const kind = next as WeighingQuestionKind;
               onChange({
                 kind,
                 allowOther: kind === "choice" && q.allowOther,
@@ -657,29 +665,25 @@ export function QuestionCard({
                   : q.options,
               });
             }}
-          >
-            {kinds.map((k) => (
-              <option key={k.key} value={k.key} title={k.title}>
-                {k.label}
-              </option>
-            ))}
-          </select>
+          />
         </span>
         <span className="sp" style={{ flex: 1 }} />
-        <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
+        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
           <ChevronUp className="ic" />
-        </button>
-        <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
+        </IconButton>
+        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
           <ChevronDown className="ic" />
-        </button>
-        <button type="button" className="ia del" aria-label={copy(pc, "inspection.question.remove")} onClick={onRemove}>
+        </IconButton>
+        <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "inspection.question.remove")} onClick={onRemove}>
           <X className="ic" />
-        </button>
+        </IconButton>
       </div>
       <div className="qbody">
         <label className="numfield">
           <span className="numlbl">{copy(pc, "wsop.question.title")}</span>
-          <input
+          <MuiTextField
+            fullWidth
+            size="small"
             className="qtext"
             value={q.title}
             onChange={(e) => {
@@ -695,7 +699,7 @@ export function QuestionCard({
         {!q.key ? (
           <label className="numfield">
             <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-            <input value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
+            <MuiTextField fullWidth size="small" value={q.key} onChange={(e) => onChange({ key: e.target.value })} />
           </label>
         ) : null}
 
@@ -703,14 +707,16 @@ export function QuestionCard({
           <div className="qcfg">
             <div className="qcfg-head">
               <span className="qcfg-title">{copy(pc, "inspection.question.options")}</span>
-              <button type="button" className="btn sm ghost" onClick={() => onChange({ options: [...q.options, { value: "", label: "" }] })}>
-                <Plus className="ic" /> {copy(pc, "inspection.question.add_option")}
-              </button>
+              <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => onChange({ options: [...q.options, { value: "", label: "" }] })}>
+                {copy(pc, "inspection.question.add_option")}
+              </Button>
             </div>
             {q.options.map((o, i) => (
               <div className="optrow" key={i}>
                 <span className="optmark">{q.kind === "choice" ? <span className="optdot" /> : <span className="optbox" />}</span>
-                <input
+                <MuiTextField
+                  fullWidth
+                  size="small"
                   value={o.label}
                   onChange={(e) => {
                     const label = e.target.value;
@@ -724,15 +730,13 @@ export function QuestionCard({
                   }}
                 />
                 <code className="muted small">{o.value}</code>
-                <button type="button" className="ia del" aria-label={copy(pc, "wsop.question.remove_choice")} onClick={() => onChange({ options: q.options.filter((_, j) => j !== i) })}>
+                <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "wsop.question.remove_choice")} onClick={() => onChange({ options: q.options.filter((_, j) => j !== i) })}>
                   <X className="ic" />
-                </button>
+                </IconButton>
               </div>
             ))}
             {q.kind === "choice" ? (
-              <label className="chkline">
-                <input type="checkbox" checked={q.allowOther} onChange={(e) => onChange({ allowOther: e.target.checked })} /> {copy(pc, "inspection.question.allow_other")}
-              </label>
+              <FormControlLabel className="chkline" control={<Checkbox checked={q.allowOther} onChange={(e) => onChange({ allowOther: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.allow_other")}</>} />
             ) : null}
           </div>
         ) : null}
@@ -742,45 +746,43 @@ export function QuestionCard({
             <div className="rowf">
               <label className="numfield">
                 <span className="numlbl">{copy(pc, "inspection.question.min")}</span>
-                <input value={q.min} inputMode="decimal" onChange={(e) => onChange({ min: e.target.value })} />
+                <MuiTextField size="small" value={q.min} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ min: e.target.value })} />
               </label>
               <label className="numfield">
                 <span className="numlbl">{copy(pc, "inspection.question.max")}</span>
-                <input value={q.max} inputMode="decimal" onChange={(e) => onChange({ max: e.target.value })} />
+                <MuiTextField size="small" value={q.max} slotProps={{ htmlInput: { inputMode: "decimal" } }} onChange={(e) => onChange({ max: e.target.value })} />
               </label>
               <label className="numfield">
                 <span className="numlbl">{copy(pc, "inspection.question.unit")}</span>
-                <input value={q.unit} onChange={(e) => onChange({ unit: e.target.value })} />
+                <MuiTextField size="small" value={q.unit} onChange={(e) => onChange({ unit: e.target.value })} />
               </label>
             </div>
           </div>
         ) : null}
 
         <div className="qfoot">
-          <label className="chkline">
-            <input type="checkbox" checked={q.required} onChange={(e) => onChange({ required: e.target.checked })} /> {copy(pc, "inspection.question.required")}
-          </label>
+          <FormControlLabel className="chkline" control={<Checkbox checked={q.required} onChange={(e) => onChange({ required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />
           <span className="condrow">
             {copy(pc, "inspection.question.only_if")}
-            <select value={q.onlyIfQuestion} onChange={(e) => onChange({ onlyIfQuestion: e.target.value, onlyIfValue: "" })}>
-              <option value="">{copy(pc, "inspection.question.always")}</option>
-              {earlier.filter((e) => e.kind === "choice").map((e) => (
-                <option key={e.key} value={e.key}>
-                  {e.title || e.key}
-                </option>
-              ))}
-            </select>
+            <InlineSelect
+              label={copy(pc, "inspection.question.only_if")}
+              value={q.onlyIfQuestion}
+              options={[
+                { value: "", label: copy(pc, "inspection.question.always") },
+                ...earlier.filter((e) => e.kind === "choice").map((e) => ({ value: e.key, label: e.title || e.key })),
+              ]}
+              onChange={(next) => onChange({ onlyIfQuestion: next, onlyIfValue: "" })}
+            />
             {dep ? (
               <>
                 {copy(pc, "inspection.question.only_if_value")}
-                <select className="condval" value={q.onlyIfValue} onChange={(e) => onChange({ onlyIfValue: e.target.value })}>
-                  <option value="">—</option>
-                  {dep.options.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                <InlineSelect
+                  label={copy(pc, "inspection.question.only_if_value")}
+                  value={q.onlyIfValue}
+                  minWidth={120}
+                  options={[{ value: "", label: "—" }, ...dep.options.map((o) => ({ value: o.value, label: o.label }))]}
+                  onChange={(next) => onChange({ onlyIfValue: next })}
+                />
               </>
             ) : null}
           </span>

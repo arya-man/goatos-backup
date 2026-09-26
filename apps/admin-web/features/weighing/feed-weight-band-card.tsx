@@ -1,12 +1,23 @@
 "use client";
 
+import { SearchTextField } from "@/components/minimal/list/search-text-field";
 import { useEffect, useMemo, useState } from "react";
-import { Search, Wheat } from "lucide-react";
+import { Wheat } from "lucide-react";
 
+import Button from "@mui/material/Button";
+import CardHeader from "@mui/material/CardHeader";
+import { TableFooter } from "@/components/app/table-footer";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
+import "./feed-weight-band-card.css";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedWeightBandResponse } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
+import Box from "@mui/material/Box";
+import Tooltip from "@mui/material/Tooltip";
 import {
   FeedWeightBandTable,
   FeedWeightBandUnmatchedTable,
@@ -301,74 +312,99 @@ export function FeedWeightBandCard({
     singlePark ? { ...contract, columns: contract.columns.map((column) => (column.key === "park" ? { ...column, visible: false } : column)) } : contract;
   const emptyLabel = (all: number, key: string) => (all === 0 ? copy(pageContract, key) : copy(pageContract, "empty.feed_band.filtered"));
 
+  // Kit listbox, not a native <select>: the "" option is the contract's All, same apply-on-change.
   const selectField = (param: keyof State, label: string, value: string, options: { value: string; label: string }[]) => (
-    <label key={param} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-      <span className="muted">{label}</span>
-      <select className="tsize" value={value} onChange={(event) => update({ [param]: event.target.value } as Partial<State>)}>
-        <option value="">{copy(pageContract, "filter.all_option")}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <TextField
+      key={param}
+      select
+      label={label}
+      value={options.some((option) => option.value === value) ? value : ""}
+      onChange={({ target: { value: next } }) => update({ [param]: next } as Partial<State>)}
+      sx={{ minWidth: { xs: 0, sm: 140 }, flexShrink: 0, maxWidth: 1 }}
+      slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+    >
+      <MenuItem value="">{copy(pageContract, "filter.all_option")}</MenuItem>
+      {options.map((option) => (
+        <MenuItem key={option.value} value={option.value}>
+          {option.label}
+        </MenuItem>
+      ))}
+    </TextField>
   );
+  const pageNumber = Math.floor(state.offset / state.limit) + 1;
 
   return (
     <section className="card wtable wt-feedband-card" aria-label={copy(pageContract, "section.feed_band.aria")}>
-      <h2 className="h wt-feedband-head">
-        <Wheat className="ic" size={15} aria-hidden /> {copy(pageContract, "section.feed_band.title")}
-        <span className="wgl-hint">
-          <span className="wgl-i" tabIndex={0} role="note" aria-label={copy(pageContract, "info.feed_band.hint")}>
-            i
-          </span>
-          <span className="wgl-pop">
-            <b>{copy(pageContract, "info.feed_band.title")}</b>
-            <span className="wgl-pop-list">
-              {recon ? (
-                <span title={planTitle}>
-                  <b>{planLine}</b>
-                  {recon.exited_animals > 0 ? ` · ${n(recon.exited_animals)} ${copy(pageContract, "stat.feed_band.exited").toLowerCase()}: ${exitDetail}` : ""}
+      <CardHeader
+        className="wt-feedband-head wt-feedband-kit-head"
+        title={
+          <span className="wt-feedband-title">
+            <Wheat className="ic" size={16} aria-hidden /> {copy(pageContract, "section.feed_band.title")}
+            <span className="wgl-hint">
+              {/* The template Tooltip (hover, focus, tap), portalled so the card cannot clip it. */}
+              <Tooltip
+                enterTouchDelay={0}
+                leaveTouchDelay={8000}
+                slotProps={{ tooltip: { sx: { maxWidth: 360 } } }}
+                title={
+              <Box component="span" sx={{ display: "flex", flexDirection: "column", gap: 0.75, maxHeight: 320, overflowY: "auto", textAlign: "left" }}>
+                <Box component="b" sx={{ typography: "subtitle2" }}>{copy(pageContract, "info.feed_band.title")}</Box>
+                <Box component="span" sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                  {recon ? (
+                    <span title={planTitle}>
+                      <b>{planLine}</b>
+                      {recon.exited_animals > 0 ? ` · ${n(recon.exited_animals)} ${copy(pageContract, "stat.feed_band.exited").toLowerCase()}: ${exitDetail}` : ""}
+                    </span>
+                  ) : null}
+                  <span>{copy(pageContract, "info.feed_band.caption")}</span>
+                  <span>{copy(pageContract, "info.feed_band.plan")}</span>
+                  <span>{copy(pageContract, "info.feed_band.rules")}</span>
+                  <span>{copy(pageContract, "info.feed_band.wt_n")}</span>
+                  <span>{copy(pageContract, "info.feed_band.kg_day")}</span>
+                  <span>{copy(pageContract, "info.feed_band.excluded")}</span>
+                  <span>{copy(pageContract, "info.feed_band.exited")}</span>
+                  <span>{copy(pageContract, "info.feed_band.badges")}</span>
+                </Box>
+              </Box>
+                }
+              >
+                <span className="wgl-i" tabIndex={0} role="note" aria-label={copy(pageContract, "info.feed_band.hint")}>
+                  i
                 </span>
-              ) : null}
-              <span>{copy(pageContract, "info.feed_band.caption")}</span>
-              <span>{copy(pageContract, "info.feed_band.plan")}</span>
-              <span>{copy(pageContract, "info.feed_band.rules")}</span>
-              <span>{copy(pageContract, "info.feed_band.wt_n")}</span>
-              <span>{copy(pageContract, "info.feed_band.kg_day")}</span>
-              <span>{copy(pageContract, "info.feed_band.excluded")}</span>
-              <span>{copy(pageContract, "info.feed_band.exited")}</span>
-              <span>{copy(pageContract, "info.feed_band.badges")}</span>
+              </Tooltip>
             </span>
           </span>
-        </span>
-      </h2>
-      {recon ? null : <p className="muted small">{copy(pageContract, "error.load.body")}</p>}
+        }
+        action={recon ? null : <span className="muted small">{copy(pageContract, "error.load.body")}</span>}
+      />
       <div className="wt-feedband-segments">
-        <nav className="metricseg" aria-label={copy(pageContract, "view.feed_band.aria")}>
-          <button type="button" className={view === "matched" ? "on" : ""} aria-current={view === "matched" ? "true" : undefined} onClick={() => update({ view: "matched" })}>
-            {copy(pageContract, "view.feed_band.matched")} · {n(matchedRows.length)}
-          </button>
-          <button type="button" className={view === "unmatched" ? "on" : ""} aria-current={view === "unmatched" ? "true" : undefined} onClick={() => update({ view: "unmatched", source: "", group: "", band: "" })}>
-            {copy(pageContract, "view.feed_band.unmatched")} · {n(notShownRows.length)}
-          </button>
-        </nav>
+        <AnimatedTabs
+          variant="pill"
+          ariaLabel={copy(pageContract, "view.feed_band.aria")}
+          value={view}
+          onChange={(next) => (next === "unmatched" ? update({ view: "unmatched", source: "", group: "", band: "" }) : update({ view: "matched" }))}
+          items={[
+            { value: "matched", label: copy(pageContract, "view.feed_band.matched"), count: n(matchedRows.length) },
+            { value: "unmatched", label: copy(pageContract, "view.feed_band.unmatched"), count: n(notShownRows.length) },
+          ]}
+        />
         {view === "matched" ? (
           <span className="wt-feedband-animals">
             <span className="muted small">{copy(pageContract, "filter.feed_band.animals")}</span>
-            <nav className="metricseg" aria-label={copy(pageContract, "filter.feed_band.animals")}>
-              <button type="button" className={includeExited ? "" : "on"} aria-current={includeExited ? undefined : "true"} data-testid="fb-animals-on-farm" onClick={() => update({ animals: "on_farm" })}>
-                {copy(pageContract, "value.feed_band.animals.on_farm")}
-              </button>
-              <button type="button" className={includeExited ? "on" : ""} aria-current={includeExited ? "true" : undefined} data-testid="fb-animals-all" onClick={() => update({ animals: "all" })}>
-                {copy(pageContract, "value.feed_band.animals.all")}
-              </button>
-            </nav>
+            <AnimatedTabs
+              variant="pill"
+              ariaLabel={copy(pageContract, "filter.feed_band.animals")}
+              value={includeExited ? "all" : "on_farm"}
+              onChange={(next) => update({ animals: next === "all" ? "all" : "on_farm" })}
+              items={[
+                { value: "on_farm", label: copy(pageContract, "value.feed_band.animals.on_farm") },
+                { value: "all", label: copy(pageContract, "value.feed_band.animals.all") },
+              ]}
+            />
           </span>
         ) : null}
       </div>
-      <div className="tbar" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", flexWrap: "wrap" }} role="group" aria-label={copy(pageContract, "filter.feed_band.aria")}>
+      <div className="tbar wt-feedband-filters" role="group" aria-label={copy(pageContract, "filter.feed_band.aria")}>
         {selectField("type", copy(pageContract, "filter.feed_band.feed_type"), state.type, ["normal", "experiment"].map((key) => ({ value: key, label: typeLabel(key) })))}
         {view === "matched"
           ? selectField("source", copy(pageContract, "filter.feed_band.weight_source"), state.source, ["pen_average", "per_animal"].map((key) => ({ value: key, label: sourceLabel(key) })))
@@ -377,50 +413,34 @@ export function FeedWeightBandCard({
         {selectField("pen", copy(pageContract, "filter.feed_band.pen"), state.pen, pens.map((pen) => ({ value: pen, label: pen })))}
         {view === "matched" ? selectField("group", copy(pageContract, "filter.feed_band.group"), state.group, groups.map((group) => ({ value: group, label: group }))) : null}
         {hasTableFilter ? (
-          <button type="button" className="btn sm" onClick={() => update({ type: "", source: "", band: "", pen: "", group: "" })}>
+          <Button variant="soft" color="inherit" size="small" onClick={() => update({ type: "", source: "", band: "", pen: "", group: "" })}>
             {copy(pageContract, "filter.clear_all")}
-          </button>
+          </Button>
         ) : null}
-        <label className="wt-feedband-search" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
-          <Search className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
-          <input
-            type="search"
-            className="tsize"
-            value={draftSearch}
-            placeholder={copy(pageContract, "filter.feed_band.search")}
-            aria-label={copy(pageContract, "filter.feed_band.search_aria")}
-            onChange={(event) => setDraftSearch(event.target.value)}
-            onBlur={() => update({ search: draftSearch.trim() })}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                update({ search: draftSearch.trim() });
-              }
-            }}
-          />
-        </label>
+        <SearchTextField
+          className="wt-feedband-search"
+          value={draftSearch}
+          placeholder={copy(pageContract, "filter.feed_band.search")}
+          ariaLabel={copy(pageContract, "filter.feed_band.search_aria")}
+          onChange={setDraftSearch}
+          onBlur={() => update({ search: draftSearch.trim() })}
+          onEnter={() => update({ search: draftSearch.trim() })}
+          sx={{ flex: "1 1 220px", width: "auto", minWidth: 0 }}
+        />
       </div>
       {view === "unmatched" ? <p className="muted small wt-feedband-note">{copy(pageContract, "note.feed_band.unmatched")}</p> : null}
       <div className="wt-feedband-stats" role="group" aria-label={copy(pageContract, "section.feed_band.aria")}>
-        {tiles.map((tile) =>
-          tile.href ? (
-            <LocalOverlayLink className="kpi wt-feedband-tile-link" key={tile.label} href={tile.href} scroll={false}>
-              <div className="lab">{tile.label}</div>
-              <div className="val">
-                {tile.value}
-                {tile.sub ? <span className="muted small wt-feedband-tile-sub"> {tile.sub}</span> : null}
-              </div>
-            </LocalOverlayLink>
-          ) : (
-            <div className="kpi" key={tile.label}>
-              <div className="lab">{tile.label}</div>
-              <div className="val">
-                {tile.value}
-                {tile.sub ? <span className="muted small"> {tile.sub}</span> : null}
-              </div>
-            </div>
-          ),
-        )}
+        <KpiGrid min={150} className="wt-feedband-kpis">
+          {tiles.map((tile) =>
+            tile.href ? (
+              <LocalOverlayLink className="wt-feedband-tile-link" key={tile.label} href={tile.href} scroll={false}>
+                <KpiCard label={tile.label} value={tile.value} hint={tile.sub} tone="warning" className="wt-feedband-tile" />
+              </LocalOverlayLink>
+            ) : (
+              <KpiCard key={tile.label} label={tile.label} value={tile.value} hint={tile.sub} tone="neutral" className="wt-feedband-tile" />
+            ),
+          )}
+        </KpiGrid>
       </div>
       {view === "matched" ? (
         <FeedWeightBandTable
@@ -485,28 +505,16 @@ export function FeedWeightBandCard({
           }}
         />
       )}
-      {/* The shared pager shape (.pager2), as buttons: paging is a slice of the payload. */}
-      <div className="pager2">
-        <span className="small muted" style={{ marginRight: "auto" }}>
-          {slice.length === 0
-            ? `0 ${copy(pageContract, "pager.feed_band.noun")}s`
-            : `${n(state.offset + 1)}-${n(state.offset + slice.length)} ${copy(pageContract, "pager.feed_band.noun")}${slice.length === 1 ? "" : "s"} · ${copy(pageContract, "pager.page")} ${Math.floor(state.offset / state.limit) + 1}`}
-        </span>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-          <span className="muted">{copy(pageContract, "pager.rows")}</span>
-          {PAGE_SIZES.map((size) => (
-            <button key={size} type="button" className={size === state.limit ? "btn sm p" : "btn sm"} aria-current={size === state.limit ? "true" : undefined} onClick={() => update({ limit: size })}>
-              {String(size)}
-            </button>
-          ))}
-        </label>
-        <button type="button" className="btn sm" disabled={state.offset === 0} aria-disabled={state.offset === 0} onClick={() => setState((prev) => ({ ...prev, offset: Math.max(0, prev.offset - prev.limit) }))}>
-          {copy(pageContract, "action.previous")}
-        </button>
-        <button type="button" className="btn sm" disabled={state.offset + slice.length >= pageRows.length} aria-disabled={state.offset + slice.length >= pageRows.length} onClick={() => setState((prev) => ({ ...prev, offset: prev.offset + prev.limit }))}>
-          {copy(pageContract, "action.next")}
-        </button>
-      </div>
+      {/* Kit footer: rows-per-page, the visible range, prev/next. Paging is a slice of the payload. */}
+      <TableFooter
+        page={pageNumber}
+        rowsPerPage={state.limit}
+        total={pageRows.length}
+        rowsPerPageOptions={[...PAGE_SIZES]}
+        onPageChange={(next) => setState((prev) => ({ ...prev, offset: (next - 1) * prev.limit }))}
+        onRowsPerPageChange={(size) => update({ limit: size })}
+        left={<span className="small muted">{`${n(pageRows.length)} ${copy(pageContract, "pager.feed_band.noun")}${pageRows.length === 1 ? "" : "s"}`}</span>}
+      />
       <FeedWeightBandExitsDrawer
         scopes={exitScopes}
         initialSelectedId={initial.exitScope}

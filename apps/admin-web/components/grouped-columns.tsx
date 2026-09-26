@@ -1,17 +1,44 @@
+"use client";
+
 // Grouped (multi-series) column chart for full-width report cards — the load-wise counts and
-// money charts on the sales board.
+// money charts on the sales board and Counts Breakdown.
 //
-// Sibling of `month-columns.tsx` and under the same rules: a pure SERVER component, no
-// "use client", no charting library, no hex literals (series colors are THEME TOKEN tones mapped
-// to classes in mesha-theme.css), and NO copy of its own — every visible string arrives already
-// resolved from the backend page contract by the caller. Laid out in HTML so labels hold a fixed
-// readable size; wide load lists scroll inside the chart's own overflow container, never the page.
+// Drawn with the template's ApexCharts `Chart` on AnalyticsWebsiteVisits' options (grouped
+// columns, transparent 2px stroke between bars) with the template's ChartLegends above the plot
+// (AppAreaInstalled). NO copy of its own — every visible string arrives already resolved from the
+// backend page contract by the caller. Wide load lists scroll inside the chart's own overflow box,
+// never the page; the legend stays outside that box so every series is named on screen.
+import { useTheme } from "@mui/material/styles";
+import { Chart, useChart } from "./minimal/chart";
+import { niceCeiling } from "./chart-scale";
+import { SeriesLegendView } from "./series-charts";
+import { inrAxisTick, numAxisTick } from "@/features/procurement/sales-format";
+
+// Series colour per tone: each tone is ONE slot of the validated chart ramp (--chart-1..4, apart
+// from the status colours; see chart-series-ramp.test.mjs), and the tone is named for the colour
+// it draws, so no two names paint the same bar.
+const TONE_VAR: Record<GroupedSeriesTone, string> = {
+  info: "var(--chart-1)",
+  ok: "var(--chart-2)",
+  danger: "var(--chart-3)",
+  warn: "var(--chart-4)",
+  okHatch: "var(--chart-2)",
+};
 
 // `okHatch` is the sold green, striped: a figure that is sold-LIKE but not realised -- animals
-// tagged to a sale that has not closed, or stock carried at an assumed price. The palette has four
-// chart colours and two of them (warn, teal) already share one, so a fifth solid colour would
-// read as one of the others; the stripe is what keeps it distinct at a glance.
-export type GroupedSeriesTone = "brand" | "info" | "ok" | "warn" | "danger" | "teal" | "okHatch";
+// tagged to a sale that has not closed, or stock carried at an assumed price (main 7765efb29). A
+// fifth solid colour would read as one of the four; the stripe keeps it distinct at a glance, on
+// the bar (Apex pattern fill) and on its legend dot.
+export type GroupedSeriesTone = "info" | "ok" | "danger" | "warn" | "okHatch";
+
+/** Share of a load's slot the bar group fills (template default 48% leaves no room per figure). */
+const GROUP_WIDTH = 0.72;
+/** Rough px per character of a caption-size figure / axis line, for sizing a slot. */
+const FIGURE_CHAR_PX = 7.2;
+const AXIS_CHAR_PX = 6.6;
+/** The okHatch stripe: an SVG pattern tile edge and its line weight (chart units, not layout). */
+const HATCH_TILE = 6;
+const HATCH_STROKE = 2;
 
 export type GroupedSeries = {
   key: string;
@@ -52,10 +79,6 @@ export type GroupedDatum = {
   tipLines?: string[];
 };
 
-function toneClass(tone: GroupedSeriesTone): string {
-  return tone === "okHatch" ? "ok-hatch" : tone;
-}
-
 function barLabelFor(datum: GroupedDatum, index: number): string | null {
   const explicit = datum.barLabels?.[index];
   if (explicit !== undefined) return explicit;
@@ -64,11 +87,26 @@ function barLabelFor(datum: GroupedDatum, index: number): string | null {
   return display.split(" · ")[0];
 }
 
+/** Load labels carry a pen bracket ("129 (CPT Godel 2 - Part 1, ...)"): wrap in full at word
+ *  boundaries (codes stay whole) instead of clipping, one axis line per chunk. */
+function wrapLabel(text: string, maxChars = 14): string[] {
+  const lines: string[] = [];
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && (last + " " + word).length <= maxChars) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  return lines.length ? lines : [""];
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
 export function GroupedColumns({
   series,
   data,
   chartLabel,
   emptyLabel,
+  money = false,
 }: {
   series: GroupedSeries[];
   data: GroupedDatum[];
@@ -76,139 +114,106 @@ export function GroupedColumns({
   chartLabel: string;
   /** Resolved from the page contract by the caller. */
   emptyLabel: string;
+  /** The series are rupees: the axis ticks carry the ₹ prefix. */
+  money?: boolean;
 }) {
+  const theme = useTheme();
   const hasAnyValue = data.some((d) => d.values.some((v) => v !== null && v !== 0));
-  if (data.length === 0 || !hasAnyValue) {
-    return (
-      <div className="muted small" style={{ padding: "12px 2px", textAlign: "center" }}>
-        {emptyLabel}
-      </div>
-    );
-  }
-
-  // Series stacked on another draw inside that series' slot; everything else gets its own slot.
-  const stackedOnto = new Map<number, number[]>();
-  series.forEach((s, i) => {
-    if (!s.stackOn) return;
-    const base = series.findIndex((b) => b.key === s.stackOn);
-    if (base < 0 || base >= i) return;
-    stackedOnto.set(base, [...(stackedOnto.get(base) ?? []), i]);
-  });
-  const isStacked = (i: number) => {
+  // A series with `stackOn` draws on top of that EARLIER series in the same column (Apex grouped
+  // stacking: both share one `group`); the scale is computed over the column sums.
+  const baseIndex = (i: number) => {
     const s = series[i];
-    if (!s.stackOn) return false;
+    if (!s.stackOn) return -1;
     const base = series.findIndex((b) => b.key === s.stackOn);
-    return base >= 0 && base < i;
+    return base >= 0 && base < i ? base : -1;
   };
+  const hasStack = series.some((_, i) => baseIndex(i) >= 0);
   const positive = (v: number | null | undefined) => (v != null && v > 0 ? v : 0);
-  const slotTotal = (d: GroupedDatum, i: number) =>
-    positive(d.values[i]) + (stackedOnto.get(i) ?? []).reduce((sum, j) => sum + positive(d.values[j]), 0);
-  const max = Math.max(
-    1,
-    ...data.flatMap((d) =>
-      series.map((_, i) => (isStacked(i) ? 0 : stackedOnto.has(i) ? slotTotal(d, i) : d.values[i] ?? 0)),
-    ),
-  );
+  const columnValue = (d: GroupedDatum, i: number) =>
+    baseIndex(i) >= 0
+      ? 0
+      : positive(d.values[i]) + series.reduce((sum, _, j) => (baseIndex(j) === i ? sum + positive(d.values[j]) : sum), 0);
+  const max = niceCeiling(Math.max(1, ...data.flatMap((d) => series.map((_, i) => columnValue(d, i)))));
+  // Apex groups: every series is its own column unless it stacks on an earlier one.
+  const groupOf = (i: number) => series[baseIndex(i) >= 0 ? baseIndex(i) : i].key;
+  const columns = series.filter((_, i) => baseIndex(i) < 0).length;
+  const categories = data.map((d) => [...wrapLabel(d.axisLabel), ...(d.subLabel ? wrapLabel(d.subLabel) : [])]);
+  // Each load's slot is wide enough for one figure per bar side by side and for its axis lines, so
+  // no two figures collide at any width; the plot scrolls inside the card when that is wider.
+  const longestFigure = Math.max(1, ...data.flatMap((d) => series.map((_, i) => (d.values[i] === null || baseIndex(i) >= 0 ? 0 : (barLabelFor(d, i) ?? "").length))));
+  const longestAxisLine = Math.max(1, ...categories.flat().map((l) => l.length));
+  const slotPx = Math.ceil(Math.max(64, (columns * (longestFigure * FIGURE_CHAR_PX + 10)) / GROUP_WIDTH, longestAxisLine * AXIS_CHAR_PX + 16));
+  const axisTick = money ? inrAxisTick : numAxisTick;
+  const chartOptions = useChart({
+    colors: series.map((s) => TONE_VAR[s.tone]),
+    ...(hasStack ? { chart: { stacked: true } } : null),
+    // Solid bars, apart from the striped okHatch series.
+    fill: {
+      type: series.map((s) => (s.tone === "okHatch" ? "pattern" : "solid")),
+      opacity: 1,
+      pattern: { style: "slantedLines", width: HATCH_TILE, height: HATCH_TILE, strokeWidth: HATCH_STROKE },
+    },
+    stroke: { width: 2, colors: ["transparent"] },
+    legend: { show: false },
+    xaxis: {
+      // The sub-label rides as the category's second line.
+      categories,
+      labels: { rotate: 0, hideOverlappingLabels: false, trim: false },
+    },
+    // Four round ticks on a nice ceiling, ONE unit per axis picked from the top (₹0.6L beside
+    // ₹2.4L, never 60k beside 2.4L).
+    yaxis: { min: 0, max, tickAmount: 4, labels: { formatter: (v: number) => axisTick(v, max) } },
+    // Every bar carries its figure, a measured zero included (printed on the baseline); an absent
+    // value (null) prints nothing, so "not recorded" and "0" stay apart.
+    dataLabels: {
+      enabled: true,
+      offsetY: -18,
+      style: { fontSize: theme.typography.caption.fontSize as string, fontWeight: 600, colors: ["var(--palette-text-secondary)"] },
+      formatter: (_v: number, opts?: { seriesIndex: number; dataPointIndex: number }) => {
+        if (!opts) return "";
+        const datum = data[opts.dataPointIndex];
+        if (!datum || datum.values[opts.seriesIndex] === null) return "";
+        // A stacked segment prints nothing of its own: the column's figure is the base series'
+        // bar label (the caller states the total there when it wants one).
+        if (baseIndex(opts.seriesIndex) >= 0) return "";
+        return barLabelFor(datum, opts.seriesIndex) ?? "";
+      },
+    },
+    plotOptions: { bar: { columnWidth: `${GROUP_WIDTH * 100}%`, dataLabels: { position: "top", hideOverflowingLabels: false } } },
+    tooltip: {
+      shared: true,
+      intersect: false,
+      x: {
+        formatter: (_v: unknown, opts?: { dataPointIndex?: number }) => {
+          const datum = data[opts?.dataPointIndex ?? -1];
+          if (!datum) return "";
+          // Extra hover-only lines (e.g. the day the load reached the farm) ride under the label.
+          const extra = datum.tipLines?.map((line) => `<br/>${escapeHtml(line)}`).join("") ?? "";
+          return `${escapeHtml(datum.label)}${extra}${datum.subLabel ? `<br/>${escapeHtml(datum.subLabel)}` : ""}`;
+        },
+      },
+      y: {
+        formatter: (v: number, opts?: { seriesIndex: number; dataPointIndex: number }) =>
+          (opts ? data[opts.dataPointIndex]?.displays[opts.seriesIndex] : undefined) ?? (v == null ? "" : v.toLocaleString("en-IN")),
+      },
+    },
+  });
 
+  if (data.length === 0 || !hasAnyValue) {
+    return <div className="cx-empty muted small">{emptyLabel}</div>;
+  }
+  const chartSeries = series.map((s, i) => ({
+    name: s.label,
+    data: data.map((d) => d.values[i]),
+    ...(hasStack ? { group: groupOf(i) } : null),
+  }));
   return (
-    <div>
-      <div className="gleg" aria-hidden="true">
-        {series.map((s) => (
-          <span key={s.key}>
-            <span className={`sw ${toneClass(s.tone)}`} />
-            {s.label}
-          </span>
-        ))}
-      </div>
-      <div className="gcols" role="img" aria-label={chartLabel} tabIndex={0}>
-        {data.map((datum) => {
-          // The hover card is rendered in the markup and revealed by CSS, never by a title
-          // attribute: the native tooltip is unstyled, slow to appear, and cannot show a value
-          // per series legibly. Keeping it CSS-only leaves this a pure server component.
-          return (
-            <div className="gcol" key={datum.key}>
-              <span className="gtip" aria-hidden="true">
-                <span className="gtip-h">{datum.label}</span>
-                {series.map((s, i) => (
-                  <span className="gtip-r" key={s.key}>
-                    <span className={`sw ${toneClass(s.tone)}`} />
-                    <span className="gtip-l">{s.label}</span>
-                    <span className="gtip-v">{datum.displays[i]}</span>
-                  </span>
-                ))}
-                {datum.tipLines?.map((line) => (
-                  <span className="gtip-s gtip-wrap" key={line}>
-                    {line}
-                  </span>
-                ))}
-                {datum.subLabel ? <span className="gtip-s">{datum.subLabel}</span> : null}
-              </span>
-              <span className="gcarea">
-                {series.map((s, i) => {
-                  if (isStacked(i)) return null;
-                  const stack = stackedOnto.get(i);
-                  if (stack && slotTotal(datum, i) > 0) {
-                    // One column, segments bottom-up in series order, each sized by its share of
-                    // the column. The figure above is the base series' bar label (the caller
-                    // states the total there when it wants one).
-                    const total = slotTotal(datum, i);
-                    const pct = (total / max) * 100;
-                    const label = barLabelFor(datum, i);
-                    const parts = [i, ...stack].filter((j) => positive(datum.values[j]) > 0);
-                    return (
-                      <span key={s.key} className="gcb">
-                        {label ? <span className="gcval">{label}</span> : null}
-                        <span className="gcstack" style={{ height: `${Math.max(pct, 2).toFixed(1)}%` }}>
-                          {[...parts].reverse().map((j) => (
-                            <span
-                              key={series[j].key}
-                              className={`gcbar ${toneClass(series[j].tone)}`}
-                              style={{ flex: `${positive(datum.values[j])} 1 0` }}
-                            />
-                          ))}
-                        </span>
-                      </span>
-                    );
-                  }
-                  const value = datum.values[i];
-                  if (value === null || value === 0) {
-                    // No bar either way -- there is no height to draw. A MEASURED zero still prints
-                    // its figure on the baseline, because a slot with nothing above it reads as a
-                    // number that failed to load rather than as "none". An ABSENT value keeps the
-                    // hidden placeholder, so the slot still holds its place while "cost not
-                    // recorded" and "0" stay distinguishable -- the tooltip carries the wording.
-                    const zeroLabel = value === 0 ? barLabelFor(datum, i) : null;
-                    if (!zeroLabel) {
-                      return (
-                        <span key={s.key} className="gcb gcempty" aria-hidden="true">
-                          <span className="gcbar none" />
-                        </span>
-                      );
-                    }
-                    return (
-                      <span key={s.key} className="gcb">
-                        <span className="gcval">{zeroLabel}</span>
-                        <span className="gcbar none" />
-                      </span>
-                    );
-                  }
-                  const pct = (value / max) * 100;
-                  const label = barLabelFor(datum, i);
-                  // The figure sits on the bar itself, always visible; the hover card keeps the
-                  // fuller wording (unit qualifiers, head counts) for whoever wants it.
-                  return (
-                    <span key={s.key} className="gcb">
-                      {label ? <span className="gcval">{label}</span> : null}
-                      <span className={`gcbar ${toneClass(s.tone)}`} style={{ height: `${Math.max(pct, 2).toFixed(1)}%` }} />
-                    </span>
-                  );
-                })}
-              </span>
-              <span className="gclab">{datum.axisLabel}</span>
-              {datum.subLabel ? <span className="gcsub">{datum.subLabel}</span> : null}
-            </div>
-          );
-        })}
+    <div className="gcols-chart" role="img" aria-label={chartLabel}>
+      <SeriesLegendView entries={series.map((s) => ({ label: s.label, colorVar: TONE_VAR[s.tone], hatched: s.tone === "okHatch" }))} />
+      <div className="gcols-scroll" tabIndex={0}>
+        <div className="gcols-plot" style={{ ["--gcols-n" as string]: data.length, ["--gcols-slot" as string]: `${slotPx}px` }}>
+          <Chart type="bar" series={chartSeries} options={chartOptions} deps={[data, money]} sx={{ height: 1 }} />
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,15 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
+import { PeopleFormSelect } from "./people-form-select";
 import { Clock } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
+import { EmptyState } from "@/components/app/empty-state";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listAdminClockEntries, type ClockEntry } from "@/lib/api/server";
@@ -8,6 +17,8 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { ClockEntryDrawer } from "./clock-entry-drawer";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
+import Alert from "@mui/material/Alert";
 
 const PAGE_SIZE = 25;
 
@@ -76,11 +87,11 @@ export async function ClockScreen({
   const authError = firstAuthRequiredError(result);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
-  const items: ClockEntry[] = result.ok ? result.data.items : [];
+  const items: ClockEntry[] = result.ok ? listOrEmpty(result.data.items) : [];
   const summary = result.ok ? result.data.summary : { working: 0, clocked_out: 0, not_clocked_in: 0, flagged: 0 };
   const nextCursor = result.ok ? result.data.next_cursor : "";
-  const parks = result.ok ? result.data.parks : [];
-  const designations = result.ok ? result.data.designations : [];
+  const parks = result.ok ? listOrEmpty(result.data.parks) : [];
+  const designations = result.ok ? listOrEmpty(result.data.designations) : [];
   const none = copy(pageContract, "clock.value.none");
 
   const tiles: { key: string; label: string; value: number }[] = [
@@ -93,41 +104,41 @@ export async function ClockScreen({
   return (
     <>
       {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
-        </div>
+        </Alert>
       ) : null}
 
       {/* Whole-filter summary tiles; tapping one narrows the list to that bucket. */}
-      <div className="kpis" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+      <KpiGrid min={180}>
         {tiles.map((tile) => (
-          <Link
+          <KpiCard
             key={tile.key}
+            label={tile.label}
+            value={tile.value}
+            tone={bucket === tile.key ? "info" : "neutral"}
             href={hrefWithQuery(pathname, sp, { bucket: bucket === tile.key ? null : tile.key, cursor: null })}
-            scroll={false}
-            className="card"
-            style={{
-              padding: "10px 16px",
-              minWidth: 130,
-              textDecoration: "none",
-              outline: bucket === tile.key ? "2px solid var(--info)" : undefined,
-            }}
-          >
-            <div className="muted small">{tile.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{tile.value}</div>
-          </Link>
+            hint={bucket === tile.key ? "Filtering \u00b7 click to clear" : undefined}
+          />
         ))}
-      </div>
+      </KpiGrid>
 
       {/* Native GET form: filters round-trip through the URL. tab=clock is
           preserved so submitting stays on this tab. */}
-      <form method="get" action={pathname} className="card" style={{ padding: 12, marginBottom: 14 }}>
+      <form method="get" action={pathname} className="card people-filter-card">
         <input type="hidden" name="tab" value="clock" />
         {bucket ? <input type="hidden" name="bucket" value={bucket} /> : null}
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div className="people-filter-grid">
           <div className="fld">
-            <label htmlFor="clock-date">{copy(pageContract, "clock.filter.date")}</label>
-            <input id="clock-date" name="date" type="date" defaultValue={date} />
+            <label>{copy(pageContract, "clock.filter.date")}</label>
+            <ThemedDatePicker
+              name="date"
+              label={copy(pageContract, "clock.filter.date")}
+              defaultValue={date}
+              previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+              nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+              invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+            />
           </div>
           <div className="fld" style={{ minWidth: 200, flex: 1 }}>
             <label htmlFor="clock-search">{copy(pageContract, "filter.search_label")}</label>
@@ -139,28 +150,26 @@ export async function ClockScreen({
               maxLength={200}
             />
           </div>
-          <div className="fld">
-            <label htmlFor="clock-park">{copy(pageContract, "filter.park")}</label>
-            <select id="clock-park" name="park_id" defaultValue={parkId}>
-              <option value="">{copy(pageContract, "filter.all")}</option>
-              {parks.map((park) => (
-                <option key={park.id} value={park.id}>
-                  {park.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="fld">
-            <label htmlFor="clock-designation">{copy(pageContract, "column.designation")}</label>
-            <select id="clock-designation" name="designation" defaultValue={designation}>
-              <option value="">{copy(pageContract, "filter.all")}</option>
-              {designations.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <PeopleFormSelect
+            className="fld"
+            name="park_id"
+            label={copy(pageContract, "filter.park")}
+            defaultValue={parkId}
+            options={[
+              { value: "", label: copy(pageContract, "filter.all") },
+              ...parks.map((park) => ({ value: park.id, label: park.label })),
+            ]}
+          />
+          <PeopleFormSelect
+            className="fld"
+            name="designation"
+            label={copy(pageContract, "column.designation")}
+            defaultValue={designation}
+            options={[
+              { value: "", label: copy(pageContract, "filter.all") },
+              ...designations.map((option) => ({ value: option.id, label: option.label })),
+            ]}
+          />
           <div className="fld">
             <label aria-hidden="true">&nbsp;</label>
             <button type="submit" className="btn">
@@ -180,24 +189,24 @@ export async function ClockScreen({
         </div>
 
         {items.length === 0 ? (
-          <div className="empty">{copy(pageContract, "clock.empty")}</div>
+          <EmptyState title={copy(pageContract, "clock.empty")} />
         ) : (
-          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "clock.tab.title")}>
-            <table className="people-table" aria-label={copy(pageContract, "clock.tab.title")}>
-              <thead>
-                <tr>
-                  <th>{copy(pageContract, "clock.column.person")}</th>
-                  <th>{copy(pageContract, "clock.column.park")}</th>
-                  <th>{copy(pageContract, "clock.column.designation")}</th>
-                  <th>{copy(pageContract, "clock.column.clock_in")}</th>
-                  <th>{copy(pageContract, "clock.column.clock_out")}</th>
-                  <th>{copy(pageContract, "clock.column.hours")}</th>
-                  <th>{copy(pageContract, "clock.column.location")}</th>
-                  <th>{copy(pageContract, "clock.column.device")}</th>
-                  <th>{copy(pageContract, "clock.column.flags")}</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="twrap tablewrap" tabIndex={0} role="region" aria-label={copy(pageContract, "clock.tab.title")}>
+            <Table className="people-table" aria-label={copy(pageContract, "clock.tab.title")}>
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{copy(pageContract, "clock.column.person")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "clock.column.park")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "clock.column.designation")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "clock.column.clock_in")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "clock.column.clock_out")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "clock.column.hours")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "clock.column.location")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "clock.column.device")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "clock.column.flags")}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {items.map((entry) => {
                   // A not-clocked-in roster row has no entry id and nothing to
                   // drill into; a real clocking opens the detail drawer.
@@ -213,16 +222,16 @@ export async function ClockScreen({
                       content
                     );
                   return (
-                    <tr key={`${entry.workforce_member_id}:${entry.business_date}`}>
-                      <td>{cell(<b>{entry.person_name}</b>)}</td>
-                      <td>{cell(entry.park_label ?? none)}</td>
-                      <td>{cell(entry.designation || none)}</td>
-                      <td>{cell(entry.clock_in_label || none)}</td>
-                      <td>{cell(entry.clock_out_label ?? none)}</td>
-                      <td>{cell(entry.hours_label || none)}</td>
-                      <td className="muted">{cell(entry.location_label || none)}</td>
-                      <td className="muted">{cell(entry.device_label || none)}</td>
-                      <td>
+                    <TableRow key={`${entry.workforce_member_id}:${entry.business_date}`}>
+                      <TableCell>{cell(<b>{entry.person_name}</b>)}</TableCell>
+                      <TableCell>{cell(entry.park_label ?? none)}</TableCell>
+                      <TableCell>{cell(entry.designation || none)}</TableCell>
+                      <TableCell>{cell(entry.clock_in_label || none)}</TableCell>
+                      <TableCell>{cell(entry.clock_out_label ?? none)}</TableCell>
+                      <TableCell>{cell(entry.hours_label || none)}</TableCell>
+                      <TableCell className="muted">{cell(entry.location_label || none)}</TableCell>
+                      <TableCell className="muted">{cell(entry.device_label || none)}</TableCell>
+                      <TableCell>
                         {entry.flags.length === 0
                           ? cell(none)
                           : cell(
@@ -234,12 +243,12 @@ export async function ClockScreen({
                                 ))}
                               </span>,
                             )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
 

@@ -10,14 +10,25 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 
+import Box from "@mui/material/Box";
+import Checkbox from "@mui/material/Checkbox";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import MuiTableFooter from "@mui/material/TableFooter";
+import TableRow from "@mui/material/TableRow";
+
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
+import { EmptyContent } from "@/components/minimal/empty-content";
+import { Scrollbar } from "@/components/minimal/scrollbar";
+import { TableHeadCustom, type TableHeadCellProps } from "@/components/minimal/table";
 
 /**
  * The shared headless table body for admin-web worklists.
  *
- * TanStack Table owns the column model, the header row and the sort state; the markup stays the
- * mock's plain `<table>` anatomy, because fidelity here is the DOM the mock declares, not a widget
- * library's default chrome. Nothing about the mock's table shape is inherited from the library.
+ * TanStack Table owns the column model and the sort state; the markup is the MUI Minimal template's
+ * table kit (Scrollbar, Table, TableHeadCustom, TableRow hover, TableNoData-style empty cell), as in
+ * the template user list.
  *
  * THREE RULES THIS COMPONENT EXISTS TO KEEP, each of which a hand-rolled table on each page has
  * already broken at least once in this repo:
@@ -47,6 +58,41 @@ import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
  *    click never navigates or refetches), and a detail row carries no toggle handler, so clicks
  *    inside it never close the parent.
  */
+
+/**
+ * The row-identity cell: the one column a reader scans down to find their row.
+ *
+ * Exported here rather than left to each page so "Pen A1 / Shed 2 · Park North" is one shape
+ * everywhere — a bold primary line and a muted secondary line in ONE cell, instead of the two
+ * columns a table grows when identity is spread out, which is exactly what makes these tables
+ * scroll sideways on a phone.
+ */
+export function IdentityCell({ primary, secondary, lead }: { primary: React.ReactNode; secondary?: React.ReactNode; lead?: React.ReactNode }) {
+  return (
+    <span className="kit-idcell">
+      {lead ? <span className="kit-idcell-lead">{lead}</span> : null}
+      <span className="kit-idcell-copy">
+        <span className="kit-idcell-primary">{primary}</span>
+        {secondary === undefined || secondary === null ? null : <span className="kit-idcell-secondary">{secondary}</span>}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Row selection. The caller owns the selected set — the table never holds selection state, because
+ * selection outlives the table (a bulk action lives in a toolbar above it) and a table that owned
+ * it would silently drop the set on every sort.
+ */
+export type DataTableSelection<Row> = {
+  selectedIds: ReadonlySet<string> | readonly string[];
+  onToggle: (row: Row, next: boolean) => void;
+  /** Header checkbox. Absent = no select-all. `rows` is the rows currently rendered. */
+  onToggleAll?: (rows: Row[], next: boolean) => void;
+  /** Accessible name of the header checkbox; backend copy from the caller. */
+  selectAllLabel?: string;
+  ariaLabel?: (row: Row) => string;
+};
 
 export type DataTableExpandable<Row> = {
   isOpen: (row: Row) => boolean;
@@ -128,6 +174,10 @@ export function DataTable<Row>({
   footer,
   initialSorting,
   expandable,
+  selection,
+  rowActions,
+  dense,
+  rowActionsHeader,
   serverSort,
 }: {
   columns: ColumnDef<Row>[];
@@ -142,6 +192,18 @@ export function DataTable<Row>({
   initialSorting?: SortingState;
   /** Rule 4 above: rows that open an in-place detail row. */
   expandable?: DataTableExpandable<Row>;
+  /** Leading checkbox column. Selection state is the caller's (see DataTableSelection). */
+  selection?: DataTableSelection<Row>;
+  /**
+   * Trailing per-row control column — in practice a `<RowMenu>`. Placed in its own cell after the
+   * contract's columns so the contract's column list stays exactly what the backend declared, and
+   * the affordance still travels with the row.
+   */
+  rowActions?: (row: Row) => React.ReactNode;
+  /** Header label for the actions column; visually hidden by default. */
+  rowActionsHeader?: React.ReactNode;
+  /** Tightened row rhythm, driven by the table toolbar's dense toggle. */
+  dense?: boolean;
   /**
    * WHOLE-RESULT sorting ("sort all rows", 2026-09-25). When set, a header click does NOT reorder
    * the rows this component holds -- that sorted one page out of hundreds -- but hands the new
@@ -177,97 +239,121 @@ export function DataTable<Row>({
     manualPagination: true,
   });
 
+  const rows = table.getRowModel().rows;
+  const selectedIds = selection
+    ? selection.selectedIds instanceof Set
+      ? selection.selectedIds
+      : new Set(selection.selectedIds as readonly string[])
+    : null;
   // Read on every render, never memoized on `table`: the table instance is identity-stable across
   // renders, so a memo keyed on it would keep an empty-state colSpan from a previous column set.
-  const colCount = table.getVisibleLeafColumns().length;
+  const colCount = table.getVisibleLeafColumns().length + (selection ? 1 : 0) + (rowActions ? 1 : 0);
 
+  const direction = sorting[0] ? (sorting[0].desc ? "desc" : "asc") : undefined;
+  const headCells: TableHeadCellProps[] = [
+    ...(selection && !selection.onToggleAll ? [{ id: "__select", label: "", sortable: false, width: 48 }] : []),
+    ...(table.getHeaderGroups()[0]?.headers ?? []).map((header) => {
+      const meta = header.column.columnDef.meta as DataTableColumnMeta | undefined;
+      return {
+        id: header.id,
+        label: flexRender(header.column.columnDef.header, header.getContext()),
+        sortable: header.column.getCanSort(),
+        sortLabel: `${String(header.column.columnDef.header)} — ${serverSort ? serverSort.sortLabel : "sort this page"}`,
+        align: meta?.align,
+        className: meta?.headerClassName,
+      } satisfies TableHeadCellProps;
+    }),
+    ...(rowActions ? [{ id: "__actions", label: rowActionsHeader ?? <span className="sr-only">Actions</span>, sortable: false, align: "right" as const, className: "kit-actcell" }] : []),
+  ];
+
+  // Template user-list anatomy: Scrollbar > Table (size follows the dense switch) > TableHeadCustom,
+  // rows as TableRow hover, TableNoData-style empty cell. TanStack still owns order and sorting.
   return (
-    <div
-      className={serverSort?.pending ? "tablewrap tablewrap-busy" : "tablewrap"}
+    <Box
+      className={dense ? "kit-dense" : undefined}
       tabIndex={0}
       role="region"
       aria-label={ariaLabel}
       aria-busy={serverSort?.pending || undefined}
+      // Whole-result sort in flight (main d660e4f4c): the rows dim in place and take no clicks until
+      // the re-ordered page arrives.
+      sx={{
+        position: "relative",
+        minWidth: 0,
+        ...(serverSort?.pending ? { "& tbody": { opacity: 0.6, transition: "opacity .12s ease-in-out", pointerEvents: "none" } } : null),
+      }}
     >
-      <table className={className} aria-label={ariaLabel}>
-        <thead>
-          <tr>
-            {table.getHeaderGroups()[0]?.headers.map((header) => {
-              const meta = header.column.columnDef.meta as DataTableColumnMeta | undefined;
-              const canSort = header.column.getCanSort();
-              const direction = header.column.getIsSorted();
-              const label = flexRender(header.column.columnDef.header, header.getContext());
+      <Scrollbar>
+        <Table size={dense ? "small" : "medium"} className={className} aria-label={ariaLabel}>
+          <TableHeadCustom
+            headCells={headCells}
+            order={direction}
+            orderBy={sorting[0]?.id}
+            onSort={(id) => table.getColumn(id)?.toggleSorting(sorting[0]?.id === id ? !sorting[0].desc : false)}
+            rowCount={rows.length}
+            numSelected={selectedIds ? rows.filter((row) => selectedIds.has(row.id)).length : 0}
+            onSelectAllRows={selection?.onToggleAll ? (checked) => selection.onToggleAll?.(rows.map((row) => row.original), checked) : undefined}
+          />
+          {data.length === 0 ? (
+            <TableBody>
+              <TableRow>
+                <TableCell colSpan={colCount}>{typeof empty === "string" || typeof empty === "number" ? <EmptyContent filled title={String(empty)} sx={{ py: 10 }} /> : empty}</TableCell>
+              </TableRow>
+            </TableBody>
+          ) : (
+            rows.map((row) => {
+              const open = expandable ? expandable.isOpen(row.original) : false;
+              const selected = Boolean(selectedIds?.has(row.id));
               return (
-                <th
-                  key={header.id}
-                  className={meta?.headerClassName}
-                  style={meta?.align === "right" ? { textAlign: "right" } : undefined}
-                  // Announced so a screen-reader user hears the current order, not just the label.
-                  aria-sort={!canSort ? undefined : direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
-                >
-                  {canSort ? (
-                    <button
-                      type="button"
-                      className="thsort"
-                      onClick={header.column.getToggleSortingHandler()}
-                      aria-label={`${String(header.column.columnDef.header)} — ${serverSort ? serverSort.sortLabel : "sort this page"}`}
-                    >
-                      {label}
-                      <span aria-hidden="true" className="thsort-ind">
-                        {direction === "asc" ? "▲" : direction === "desc" ? "▼" : "↕"}
-                      </span>
-                    </button>
-                  ) : (
-                    label
-                  )}
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        {data.length === 0 ? (
-          <tbody>
-            <tr>
-              <td colSpan={colCount}>{empty}</td>
-            </tr>
-          </tbody>
-        ) : (
-          table.getRowModel().rows.map((row) => {
-            const open = expandable ? expandable.isOpen(row.original) : false;
-            return (
-              <tbody key={row.id} className={open ? "xgroup open" : undefined}>
-                <tr
-                  className={expandable ? (open ? "xrow open" : "xrow") : undefined}
-                  // The whole line is the affordance. Clicks that land on an interactive control
-                  // inside a cell (an inline editor, a link) keep their own meaning and do not
-                  // toggle: the control handles them and stops propagation.
-                  onClick={expandable ? () => expandable.onToggle(row.original) : undefined}
-                >
-                  {row.getVisibleCells().map((cell) => {
-                    const meta = cell.column.columnDef.meta as DataTableColumnMeta | undefined;
-                    if (meta?.spanned) return null;
-                    return (
-                      <td
-                        key={cell.id}
-                        className={meta?.cellClassName}
-                        colSpan={meta?.colSpan}
-                        style={{
-                          ...(meta?.align === "right" ? { textAlign: "right" } : null),
-                          ...meta?.cellStyle,
-                        }}
+                <TableBody key={row.id} className={open ? "xgroup open" : undefined}>
+                  <TableRow
+                    hover
+                    selected={selected}
+                    className={expandable ? (open ? "xrow open" : "xrow") : undefined}
+                    // The whole line is the affordance. Clicks that land on an interactive control
+                    // inside a cell (an inline editor, a link) keep their own meaning and do not
+                    // toggle: the control handles them and stops propagation.
+                    onClick={expandable ? () => expandable.onToggle(row.original) : undefined}
+                    data-selected={selected ? "true" : undefined}
+                    sx={expandable ? { cursor: "pointer" } : undefined}
+                  >
+                    {selection ? (
+                      <TableCell
+                        padding="checkbox"
+                        // The checkbox is its own affordance: on an expandable table the row click
+                        // opens the detail row, and ticking a box must not also do that.
+                        onClick={(event) => event.stopPropagation()}
                       >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    );
-                  })}
-                </tr>
-                {expandable && open ? expandable.render(row.original) : null}
-              </tbody>
-            );
-          })
-        )}
-        {footer ? <tfoot>{footer}</tfoot> : null}
-      </table>
-    </div>
+                        <Checkbox
+                          checked={selected}
+                          onChange={(event) => selection.onToggle(row.original, event.target.checked)}
+                          slotProps={{ input: { "aria-label": selection.ariaLabel?.(row.original) ?? `Select row ${row.id}` } }}
+                        />
+                      </TableCell>
+                    ) : null}
+                    {row.getVisibleCells().map((cell) => {
+                      const meta = cell.column.columnDef.meta as DataTableColumnMeta | undefined;
+                      if (meta?.spanned) return null;
+                      return (
+                        <TableCell key={cell.id} className={meta?.cellClassName} colSpan={meta?.colSpan} align={meta?.align} style={meta?.cellStyle}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      );
+                    })}
+                    {rowActions ? (
+                      <TableCell className="kit-actcell" align="right" onClick={(event) => event.stopPropagation()}>
+                        {rowActions(row.original)}
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                  {expandable && open ? expandable.render(row.original) : null}
+                </TableBody>
+              );
+            })
+          )}
+          {footer ? <MuiTableFooter>{footer}</MuiTableFooter> : null}
+        </Table>
+      </Scrollbar>
+    </Box>
   );
 }

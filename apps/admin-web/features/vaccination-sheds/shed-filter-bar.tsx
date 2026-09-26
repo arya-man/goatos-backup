@@ -2,7 +2,8 @@
 
 import { useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Search } from "lucide-react";
+import Box from "@mui/material/Box";
+import { SearchTextField } from "@/components/minimal/list/search-text-field";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 // Server-side search for the shed-wise vaccination board. Reads the LIVE URL via useSearchParams and
@@ -38,20 +39,14 @@ export function ShedFilterBar({
   }
 
   return (
-    <div className="tbar" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", flexWrap: "wrap" }}>
-      <form onSubmit={onSearch} className="tsearch" style={{ margin: 0, minWidth: 260, flex: "1 1 280px" }}>
-        <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-        <input
-          name="sheds_q"
-          defaultValue={searchValue}
-          disabled={isPending}
-          placeholder={copy(pageContract, "filter.sheds.search")}
-          aria-label={copy(pageContract, "filter.sheds.search")}
-        />
-      </form>
-      <span className="muted small">
-        {total} {copy(pageContract, "label.sheds_noun")}
-      </span>
-    </div>
+    // Template list toolbar row: keyword search + the result count.
+    <Box sx={{ p: 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
+      <Box component="form" onSubmit={onSearch} sx={{ flex: "1 1 240px", minWidth: 0 }}>
+        <SearchTextField name="sheds_q" defaultValue={searchValue} disabled={isPending} placeholder={copy(pageContract, "filter.sheds.search")} />
+      </Box>
+      <Box component="span" sx={{ ml: "auto", typography: "body2", color: "text.secondary" }}>
+        <strong>{total}</strong> {copy(pageContract, "label.sheds_noun")}
+      </Box>
+    </Box>
   );
 }

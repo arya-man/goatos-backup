@@ -1,5 +1,6 @@
 import { CeoAiAdminTraceViewer } from "@/features/ceo-ai-admin";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { PageHeader } from "@/components/app/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   const params = await searchParams;
   const initialRequestId = one(params, "request_id") ?? "";
   return (
-    <div className="p-6">
+    <div className="screen on">
+      <PageHeader title="Request history" crumbs={[{ label: "Admin" }, { label: "Leadership assistant" }, { label: "Request history" }]} />
       <CeoAiAdminTraceViewer initialRequestId={initialRequestId} />
     </div>
   );

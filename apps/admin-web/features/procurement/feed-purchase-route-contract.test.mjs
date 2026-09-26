@@ -15,3 +15,10 @@ test("feed purchase drawer route param is purchase_id end to end", () => {
   );
   assert.doesNotMatch(pageSource, /feed_purchase_id:\s*purchase\.feed_purchase_id/, "row links must not use the stale param name");
 });
+
+test("feed purchase drawer posts the authored form version and every asked question id", () => {
+  // readFormAnswers drops every typed answer unless the drawer declares the form version and the
+  // question ids it asked; losing these hidden inputs silently sends the write with no answers.
+  assert.match(drawerSource, /name="questionnaire_version"\s+value=\{purchaseForm\.version\}/, "drawer must post questionnaire_version");
+  assert.match(drawerSource, /name="questionnaire_question"\s+value=\{question\.id\}/, "drawer must post one questionnaire_question per authored question");
+});

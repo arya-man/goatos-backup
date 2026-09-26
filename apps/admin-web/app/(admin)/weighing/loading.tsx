@@ -1,15 +1,10 @@
+import { PageHeaderSkeleton } from "@/components/app/page-header";
 import { Scale } from "lucide-react";
 
 export default function Loading() {
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="skel" style={{ width: 170, height: 14, marginBottom: 12 }} />
-          <div className="skel" style={{ width: 250, height: 30, marginBottom: 10 }} />
-          <div className="skel" style={{ width: "100%", maxWidth: 640, height: 18 }} />
-        </div>
-      </div>
+      <PageHeaderSkeleton />
       <nav className="subtabs" aria-label="Weighing analytics loading">
         {[100, 96, 94, 104, 112, 98, 96].map((width, index) => (
           <span key={`${width}-${index}`} className="skel" style={{ width, height: 34 }} aria-hidden="true" />

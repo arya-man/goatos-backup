@@ -56,6 +56,7 @@ export function TaskActivityFeed({
   composer,
   older,
   initialView = "all",
+  loading = false,
 }: {
   activity: readonly LeadershipTaskActivity[];
   notes: TaskRow["notes"];
@@ -66,6 +67,8 @@ export function TaskActivityFeed({
   /** The "older" control, rendered after the list when older rows exist. */
   older?: React.ReactNode;
   initialView?: ActivityView;
+  /** While the full feed is loading the caller shows "Loading activity…"; no empty line beside it. */
+  loading?: boolean;
 }) {
   const [view, setView] = useState<ActivityView>(initialView);
   const panelID = useId();
@@ -147,7 +150,7 @@ export function TaskActivityFeed({
           })}
         </ol>
         </div>
-      ) : (
+      ) : loading ? null : (
         <p className="ltd-quiet" role="tabpanel" id={`${panelID}-panel`} aria-labelledby={`${panelID}-tab-${view}`}>
           {copy(pageContract, emptyKey, emptyFallback)}
         </p>

@@ -185,3 +185,7 @@ test("golden fixture: same-named sheds in different parks share a display string
   // backend/internal/platform/oploc/golden_fixture_test.go -> TestGoldenFixtureKeyDistinguishesSameNamedShedsAcrossParks.
   assert.notEqual(cbe.shedId, cpt.shedId);
 });
+
+test("a shed named exactly like its partition is not doubled", () => {
+  assert.equal(operationalLocationLabel({ shedName: "Fattening", partitionLabel: "Fattening" }), "Fattening");
+});

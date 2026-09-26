@@ -17,11 +17,17 @@
 //
 // Every visible string comes from the page contract, including the default reason that lands in the
 // audit row. This component composes no copy and decides no authority.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { CustomPopover } from "@/components/minimal/custom-popover";
 
 // InlineChoice is one selectable value. `label` is what the cell will show once applied -- the
 // stored value, not a prettier synonym -- and `description`/`hint` are secondary context.
@@ -80,44 +86,28 @@ export function InlineCellEditor({
   const [filter, setFilter] = useState("");
   const [reason, setReason] = useState("");
   const [pending, startTransition] = useTransition();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // The popup renders through a portal with FIXED coordinates, because the cell sits inside the
-  // table's horizontal-scroll container: an absolutely positioned child is clipped at that
-  // container's edge, so a short table cut the list off entirely. Measured in a layout effect
-  // (before paint, so it never flashes at 0,0) and re-placed on scroll/resize; it flips above the
-  // cell when the space below the anchor cannot hold it.
-  const [popStyle, setPopStyle] = useState<React.CSSProperties | null>(null);
+  // The popup is the template popover (CustomPopover): portalled to <body>, so the table's
+  // horizontal-scroll container can never clip it, and placed by MUI against the cell each time it
+  // opens (flipping inside the viewport) -- never from a stale measurement. MUI also closes it on
+  // an outside click and on Escape and hands focus back to the cell.
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
   // One key per INTENT, minted when a preview is accepted and held across retries, so a double
   // click or a retried network failure replays the first write instead of writing twice.
   const [commitKey, setCommitKey] = useState("");
 
   const open = phase.kind !== "closed";
-  const toggleOpen = () => (open ? close() : setPhase({ kind: "picking" }));
-
-  // Outside click and Escape close it, matching every other same-page overlay in the app. Local
-  // state only: this never navigates, so the row behind it is not re-fetched on open or close.
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (rootRef.current?.contains(target)) return;
-      if (popRef.current?.contains(target)) return;
+  // Local state only: this never navigates, so the row behind it is not re-fetched on open or close.
+  const toggleOpen = (anchor: HTMLElement) => {
+    if (open) {
       close();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  });
+      return;
+    }
+    setAnchorEl(anchor);
+    setPhase({ kind: "picking" });
+  };
 
   useEffect(() => {
     if (phase.kind === "picking") inputRef.current?.focus();
@@ -126,7 +116,7 @@ export function InlineCellEditor({
     setPhase({ kind: "closed" });
     setFilter("");
     setCommitKey("");
-    setPopStyle(null);
+    setAnchorEl(null);
   }
 
   // Substring match on the stored value AND its description, because an operator who knows the
@@ -142,38 +132,6 @@ export function InlineCellEditor({
     );
   }, [filter, choices]);
   const choiceLabel = (value: string) => choices.find((choice) => choice.value === value)?.label ?? value;
-
-  // matches.length is a dependency because narrowing the list changes the popup's height, which
-  // can change whether it still fits below the anchor.
-  // A stale popStyle from a previous open never paints: this layout effect re-runs before the
-  // browser paints the reopened popup and re-places it from the fresh anchor rect.
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    const place = () => {
-      const anchor = rootRef.current?.getBoundingClientRect();
-      const pop = popRef.current;
-      if (!anchor || !pop) return;
-      const gap = 6;
-      const margin = 8;
-      const width = pop.offsetWidth || 250;
-      const height = pop.offsetHeight;
-      const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - width - margin));
-      let top = anchor.bottom + gap;
-      if (top + height > window.innerHeight - margin && anchor.top - gap - height >= margin) {
-        top = anchor.top - gap - height;
-      }
-      setPopStyle({ position: "fixed", top, left });
-    };
-    place();
-    // Capture-phase scroll so the table's own horizontal-scroll container repositions the popup
-    // too, not just the document scroll.
-    window.addEventListener("scroll", place, true);
-    window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("scroll", place, true);
-      window.removeEventListener("resize", place);
-    };
-  }, [open, phase.kind, matches.length]);
 
   function pick(value: string) {
     setPhase({ kind: "checking", value });
@@ -212,15 +170,15 @@ export function InlineCellEditor({
   }
 
   return (
-    <div ref={rootRef} className="tagedit">
+    <div className="tagedit">
       <button
         type="button"
         className="tagedit-value"
-        onClick={toggleOpen}
+        onClick={(event) => toggleOpen(event.currentTarget)}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
-          toggleOpen();
+          toggleOpen(event.currentTarget);
         }}
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -229,62 +187,62 @@ export function InlineCellEditor({
         {current ? (renderCurrent?.(current) ?? current) : <span className="muted small">{emptyLabel}</span>}
       </button>
 
-      {open
-        ? createPortal(
-            <div
-              ref={popRef}
-              className="tagedit-pop"
-              // Hidden until the layout effect has measured and placed it, so the first paint never
-              // shows the popup at the viewport origin.
-              style={popStyle ?? { position: "fixed", top: 0, left: 0, visibility: "hidden" }}
-              role="dialog"
-              aria-label={copy(pageContract, "action.retag.hint")}
-            >
+      <CustomPopover
+        open={open}
+        anchorEl={anchorEl}
+        onClose={close}
+        slotProps={{
+          arrow: { placement: "top-left" },
+          paper: { role: "dialog", "aria-label": copy(pageContract, "action.retag.hint"), sx: { width: 260, p: 1.25, whiteSpace: "normal" } },
+        }}
+      >
+        <Box sx={{ display: "grid", gap: 1 }}>
           {phase.kind === "picking" || phase.kind === "checking" ? (
             <>
-              <input
-                ref={inputRef}
-                type="text"
+              <TextField
+                size="small"
+                fullWidth
+                inputRef={inputRef}
+                autoFocus
                 value={filter}
                 onChange={(event) => setFilter(event.target.value)}
                 placeholder={copy(pageContract, "action.retag.search_placeholder")}
-                aria-label={copy(pageContract, "action.retag.search_placeholder")}
+                slotProps={{ htmlInput: { "aria-label": copy(pageContract, "action.retag.search_placeholder") } }}
               />
-              <div className="tagedit-list">
-                {matches.length === 0 ? (
-                  <div className="muted small tagedit-empty">{copy(pageContract, "action.retag.no_matches")}</div>
-                ) : (
-                  matches.map((choice) => (
-                    <button
+              {matches.length === 0 ? (
+                <Typography variant="caption" sx={{ color: "text.secondary", px: 0.25 }}>{copy(pageContract, "action.retag.no_matches")}</Typography>
+              ) : (
+                <MenuList sx={{ maxHeight: 210, overflowY: "auto", overscrollBehavior: "contain" }}>
+                  {matches.map((choice) => (
+                    <MenuItem
                       key={choice.value}
-                      type="button"
-                      className="tagedit-option"
                       disabled={pending}
                       onClick={() => pick(choice.value)}
+                      sx={{ justifyContent: "space-between", alignItems: "baseline", gap: 1.25, whiteSpace: "normal" }}
                     >
-                      <span className="tagedit-option-name">
+                      <Box component="span" sx={{ display: "grid", gap: 0.125, textAlign: "left" }}>
                         <span>{choice.label}</span>
-                        {choice.description ? <span className="muted small">{choice.description}</span> : null}
-                      </span>
-                      {choice.hint ? <span className="muted small">{choice.hint}</span> : null}
-                    </button>
-                  ))
-                )}
-              </div>
+                        {choice.description ? <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>{choice.description}</Typography> : null}
+                      </Box>
+                      {choice.hint ? <Typography variant="caption" component="span" sx={{ color: "text.secondary" }}>{choice.hint}</Typography> : null}
+                    </MenuItem>
+                  ))}
+                </MenuList>
+              )}
               {phase.kind === "checking" ? (
-                <div className="muted small tagedit-foot">{copy(pageContract, "action.retag.checking")}</div>
+                <Typography variant="caption" sx={{ color: "text.secondary", px: 0.25 }}>{copy(pageContract, "action.retag.checking")}</Typography>
               ) : null}
             </>
           ) : null}
 
           {phase.kind === "confirming" ? (
-            <div className="tagedit-confirm">
+            <>
               {/* Subject and count come from the PREVIEW, never from the row: the two can differ,
                   and the operator must confirm what the write will actually do. */}
-              <div className="tagedit-confirm-title">
+              <Typography variant="body2">
                 <b>{choiceLabel(phase.value)}</b> · {phase.preview.subject}
-              </div>
-              <div className="muted small">
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
                 {phase.preview.count === 0
                   ? copy(pageContract, "action.retag.empty_scope")
                   : `${phase.preview.count} ${
@@ -292,52 +250,50 @@ export function InlineCellEditor({
                         ? copy(pageContract, "action.retag.animal_noun")
                         : copy(pageContract, "action.retag.animals_noun")
                     }`}
-              </div>
+              </Typography>
               {phase.preview.consequence ? (
-                <div className="small tagedit-band">{phase.preview.consequence}</div>
+                <Typography variant="caption" sx={{ color: "primary.dark", fontWeight: "fontWeightSemiBold" }}>{phase.preview.consequence}</Typography>
               ) : null}
-              <label className="tagedit-reason">
-                <span className="muted small">{copy(pageContract, "action.retag.reason_label")}</span>
-                <input
-                  type="text"
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                  maxLength={500}
-                  aria-label={copy(pageContract, "action.retag.reason_label")}
-                />
-              </label>
-              <div className="tagedit-actions">
-                <button type="button" className="btn sm" onClick={close} disabled={pending}>
+              <TextField
+                size="small"
+                fullWidth
+                label={copy(pageContract, "action.retag.reason_label")}
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                slotProps={{ htmlInput: { maxLength: 500 }, inputLabel: { shrink: true } }}
+                sx={{ mt: 0.5 }}
+              />
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, justifyContent: "flex-end" }}>
+                <Button size="small" variant="outlined" color="inherit" onClick={close} disabled={pending}>
                   {copy(pageContract, "action.retag.cancel")}
-                </button>
-                <button
-                  type="button"
-                  className="btn sm primary"
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
                   onClick={() => apply(phase.value)}
                   // The backend requires 3..500 characters, so the button states that rule rather
                   // than letting the operator discover it as a server error.
                   disabled={pending || reason.trim().length < 3}
                 >
                   {pending ? copy(pageContract, "action.retag.applying") : copy(pageContract, "action.retag.apply")}
-                </button>
-              </div>
-            </div>
+                </Button>
+              </Box>
+            </>
           ) : null}
 
           {phase.kind === "failed" ? (
-            <div className="tagedit-confirm">
-              <div className="small">{phase.message}</div>
-              <div className="tagedit-actions">
-                <button type="button" className="btn sm" onClick={() => setPhase({ kind: "picking" })}>
+            <>
+              <Typography variant="body2">{phase.message}</Typography>
+              <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                <Button size="small" variant="outlined" color="inherit" onClick={() => setPhase({ kind: "picking" })}>
                   {copy(pageContract, "action.retag.cancel")}
-                </button>
-              </div>
-            </div>
+                </Button>
+              </Box>
+            </>
           ) : null}
-            </div>,
-            document.body,
-          )
-        : null}
+        </Box>
+      </CustomPopover>
     </div>
   );
 }

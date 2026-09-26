@@ -22,5 +22,7 @@ test("milk preparation reuses the shared Feed Packing worklist anatomy", () => {
   assert.match(source, /WorklistFilters/);
   assert.match(source, /WorklistPager/);
   assert.match(source, /className="feed-table"/);
-  assert.match(source, /className="grid g4"/);
+  // The KPI band is now the shared kit grid (<KpiGrid>), which is the same four-up anatomy
+  // Feed Packing renders — the old hand-rolled `grid g4` div no longer exists on either page.
+  assert.match(source, /<KpiGrid/);
 });

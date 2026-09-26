@@ -261,7 +261,7 @@ try {
   await page.waitForURL(/edit=/, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(1500);
   await check("edit: URL has edit=", () => /edit=/.test(page.url()));
-  await check("edit: title is Edit SOP", async () => /Edit SOP/.test(await page.locator(".phead h1").innerText()));
+  await check("edit: title is Edit SOP", async () => /Edit SOP/.test(await page.locator("[data-page-header] h1").innerText()));
   await check("edit: name prefilled from version", async () => (await page.locator(".buildermain input").first().inputValue()).includes(sopName));
   await check("edit: builder-authored SOP not edit-blocked", async () => (await page.locator(".alert.warn").count()) === 0);
   await check("edit: Save enabled (re-save new version)", async () => await page.getByRole("button", { name: /Save draft|Re-save/ }).isEnabled());

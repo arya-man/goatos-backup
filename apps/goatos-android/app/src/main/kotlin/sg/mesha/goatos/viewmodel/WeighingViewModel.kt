@@ -4517,7 +4517,7 @@ private fun String.toWeighingReadMessage(): String {
             normalized.contains("unexpected eof") ||
             normalized.contains("connection reset") ||
             normalized.contains("connection refused") ->
-            "Couldn't load weighing. Check the laptop backend or network, then refresh."
+            "Couldn't load weighing. Check your connection, then refresh."
         isBlank() -> "Couldn't load weighing. Pull to refresh or try again."
         else -> this
     }

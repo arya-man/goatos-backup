@@ -12,8 +12,14 @@
 
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { usePopover } from "minimal-shared/hooks";
+import Box from "@mui/material/Box";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
 
 import { formatDays, splitDays, type DurationUnit } from "./duration-format";
+import MenuItem from "@mui/material/MenuItem";
+import { CustomPopover } from "@/components/minimal/custom-popover";
 
 export { formatDays, splitDays } from "./duration-format";
 
@@ -30,11 +36,16 @@ type Props = {
 };
 
 export function DurationField({ days, onChange, title, plain, disabled }: Props) {
-  const [open, setOpen] = useState(false);
+  // The template popover (CustomPopover): portalled, clamped to the viewport, closed by an outside
+  // click or Escape. It opens ABOVE the field, as the plan's inline chips always have.
+  const pop = usePopover();
+  const open = pop.open;
+  const setOpen = (next: boolean) => {
+    if (!next) pop.onClose();
+  };
   const initial = splitDays(days);
   const [value, setValue] = useState(String(initial.value));
   const [unit, setUnit] = useState<Unit>(initial.unit);
-  const box = useRef<HTMLSpanElement>(null);
   // The last value this field itself committed. While the user is typing, `days`
   // comes back changed on every keystroke, and re-deriving the unit from it
   // rewrote the number under their fingers: typing "3010" days flipped to
@@ -53,22 +64,6 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
     setUnit(next.unit);
   }, [days]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onDocClick(event: MouseEvent) {
-      if (box.current && !box.current.contains(event.target as Node)) setOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
   function commit(nextValue: string, nextUnit: Unit): boolean {
     const n = Number(nextValue);
     // Zero and negatives are not durations. Refusing them here means the
@@ -86,25 +81,28 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
   }
 
   return (
-    <span className="vp-dur" ref={box}>
+    <span className="vp-dur">
       <button
         className={plain ? "f plain" : "f"}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={pop.onOpen}
         aria-expanded={open}
         aria-haspopup="dialog"
         disabled={disabled}
       >
         {formatDays(days)} <ChevronDown className="car" size={11} aria-hidden />
       </button>
-      {open ? (
-        <span className="pop pop-num" role="dialog" aria-label={title}>
-          <span className="pn-l">{title}</span>
-          <span className="durrow">
-            <input
-              className="num"
+      <CustomPopover
+        open={open}
+        anchorEl={pop.anchorEl}
+        onClose={pop.onClose}
+        slotProps={{ arrow: { placement: "bottom-left" }, paper: { role: "dialog", "aria-label": title, sx: { p: 1.5, width: 280 } } }}
+      >
+          <Typography variant="overline" component="span" sx={{ display: "block", color: "text.disabled", mb: 1 }}>{title}</Typography>
+          <Box sx={{ display: "grid", gridTemplateColumns: "minmax(72px, 1fr) minmax(104px, 1fr)", gap: 1, alignItems: "stretch" }}>
+            <TextField
+              size="small"
               type="number"
-              min={1}
               value={value}
               autoFocus
               onChange={(e) => {
@@ -114,34 +112,36 @@ export function DurationField({ days, onChange, title, plain, disabled }: Props)
               onKeyDown={(e) => {
                 if (e.key === "Enter") setOpen(false);
               }}
-              aria-label="How many"
+              slotProps={{ htmlInput: { min: 1, "aria-label": "How many", style: { textAlign: "center" } } }}
             />
-            <select
-              className="durunit"
+            <TextField
+              select
+              label="Unit"
               value={unit}
-              onChange={(e) => {
-                const next = e.target.value as Unit;
+              className="durunit"
+              onChange={({ target: { value: raw } }) => {
+                const next = raw as Unit;
                 setUnit(next);
                 // A unit change with an unusable number used to be dropped in silence:
                 // the select moved, nothing was saved, and the chip still showed the old
                 // unit. Now the field says why.
                 setInvalid(!commit(value, next));
               }}
-              aria-label="Unit"
+              sx={{ minWidth: { xs: 0, sm: 116 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
             >
-              <option value="days">days</option>
-              <option value="weeks">weeks</option>
-              <option value="months">months</option>
-              <option value="years">years</option>
-            </select>
-          </span>
+              <MenuItem value="days">days</MenuItem>
+              <MenuItem value="weeks">weeks</MenuItem>
+              <MenuItem value="months">months</MenuItem>
+              <MenuItem value="years">years</MenuItem>
+            </TextField>
+          </Box>
           {invalid ? (
-            <span className="durwhy" role="status">
+            <Typography variant="caption" component="span" role="status" sx={{ display: "block", mt: 1, color: "error.main" }}>
               Whole numbers only, and at least 1.
-            </span>
+            </Typography>
           ) : null}
-        </span>
-      ) : null}
+      </CustomPopover>
     </span>
   );
 }

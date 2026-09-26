@@ -871,6 +871,56 @@ run_admin_web() {
   step "admin-web sectioned aggregate reads" make admin-web-sectioned-aggregate-reads-guard
   step "admin-web proof media egress" make admin-web-proof-media-egress-guard
   step "admin-web phone viewport"  make admin-web-phone-viewport-guard
+  # Design-system contract (.agents/skills/design-system): brand lock, banned patterns
+  # (native select/date, window.confirm, colour literals, Tailwind palette, "F2", fixed px
+  # widths, prose under titles, charts without tooltip), loading.tsx beside every admin page,
+  # PageShell adoption. Static, offline, every commit; debt is waived by key so it is red only
+  # on a NEW instance. Runs its own --self-test first.
+  step "admin-web design guard"  npm --prefix apps/admin-web run design:guard
+  # Mobile / Android-WebView regression taxonomy (classes 1-7). The static half needs no
+  # app or browser, so it runs on every commit; the full 393px Pixel-5 sweep runs whenever a
+  # live admin-web is reachable (GOATOS_ADMIN_WEB_BASE_URL), beside the other visual guards.
+  step "admin-web mobile webview (static)" npm --prefix apps/admin-web run smoke:webview:static
+  if [ -n "${GOATOS_ADMIN_WEB_BASE_URL:-}" ]; then
+    step "admin-web mobile webview (Pixel 5, both themes)" npm --prefix apps/admin-web run smoke:webview
+  else
+    echo "-- skipping admin-web mobile webview live sweep: set GOATOS_ADMIN_WEB_BASE_URL to run it"
+  fi
+  # Component-level visual regression (Storybook). Needs no live app or API: it
+  # builds storybook-static and diffs every story at 1440x900 AND 390x844 in both
+  # themes against .codex-goatos-render/admin-web-story-baselines, and fails on a
+  # play/interaction function that throws. This is the gate that makes "I changed a
+  # kit component" visible before it reaches a route. Requires Node 24 (engines) and
+  # Playwright chromium (npx playwright install chromium).
+  # `visual:stories` (Paparazzi-style): every story is also run through the render-integrity
+  # probe (overflow, clipped text, empty chart svg, NaN/undefined/"F2" text, raw floats, fonts,
+  # console errors) and fingerprinted against the COMMITTED manifest in
+  # apps/admin-web/visual-baselines/stories/ (pixel diffs when the local PNG baseline exists).
+  # GOATOS_STORYBOOK_URL drives an already-running Storybook instead of building.
+  if fast_local_ci_enabled; then
+    echo "-- skipping admin-web story visual lanes under GOATOS_FAST_LOCAL_CI (run npm --prefix apps/admin-web run visual:stories before pushing UI)"
+  else
+    step "admin-web story visual (1440 + 390, dark + light)" npm --prefix apps/admin-web run smoke:stories:baseline
+    if [ -n "${GOATOS_STORYBOOK_URL:-}" ]; then
+      step "admin-web story visual + integrity (manifest)" npm --prefix apps/admin-web run visual:stories -- --storybook-url "$GOATOS_STORYBOOK_URL"
+    else
+      step "admin-web story visual + integrity (manifest)" npm --prefix apps/admin-web run visual:stories -- --no-build
+    fi
+  fi
+  # Route-level visual regression + the sales tolerance layout guard, beside the
+  # mobile-webview sweep above: both halves of the 390px story need a live app.
+  # `visual:routes` adds the Pixel-5 WebView profile, both themes, the render-integrity probe
+  # and the committed route manifest (apps/admin-web/visual-baselines/routes/).
+  if [ -n "${GOATOS_ADMIN_WEB_BASE_URL:-}" ]; then
+    step "admin-web route visual (laptop + 390, baselines)" npm --prefix apps/admin-web run smoke:visual:baseline
+    step "admin-web route visual + integrity (desktop/phone/webview, manifest)" npm --prefix apps/admin-web run visual:routes
+    step "admin-web drawer visual + integrity (desktop/phone/webview, manifest)" npm --prefix apps/admin-web run visual:routes:drawers
+    step "admin-web sales tolerance layout" npm --prefix apps/admin-web run smoke:sales-tolerance-layout:live
+    ADMIN_WEB_LIGHTHOUSE_URL="${ADMIN_WEB_LIGHTHOUSE_URL:-${GOATOS_ADMIN_WEB_BASE_URL%/}/weighing/analytics?scope_mode=company}" \
+      step "admin-web Lighthouse budget" npm --prefix apps/admin-web run perf:lighthouse
+  else
+    echo "-- skipping admin-web route visual/Lighthouse sweeps: set GOATOS_ADMIN_WEB_BASE_URL to run them"
+  fi
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web-heavy-client-imports-guard" make admin-web-heavy-client-imports-guard
   step "admin-web server/client values" make admin-web-server-client-values-guard

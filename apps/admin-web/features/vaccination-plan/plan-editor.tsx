@@ -12,8 +12,20 @@
  * not before.
  */
 
+import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, X } from "lucide-react";
+import MuiButton from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import MuiTextField from "@mui/material/TextField";
+import Switch from "@mui/material/Switch";
+
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import { PageHeader } from "@/components/app/page-header";
+import MenuItem from "@mui/material/MenuItem";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DurationField, formatDays } from "./duration-field";
@@ -23,6 +35,7 @@ import { publishPlan, saveDraftPlan } from "./plan-actions";
 import { VaccinationAnchorPanel } from "./anchor-panel";
 import { humanDays } from "./plan-model";
 import type { ScheduleRule } from "./plan-model";
+import Alert from "@mui/material/Alert";
 
 type Props = {
   protocolId: string;
@@ -86,6 +99,7 @@ export function VaccinationPlanEditor(props: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [addingVaccine, setAddingVaccine] = useState(false);
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
 
   const dirty = useMemo(
     () => JSON.stringify(plan) !== JSON.stringify(baseline),
@@ -226,36 +240,46 @@ export function VaccinationPlanEditor(props: Props) {
   return (
     <div className="vplan">
       <header className="head">
-        <a
-          className="backlink"
-          href="/vaccination/plan"
-          onClick={(e) => {
-            if (!dirty) return;
-            if (!window.confirm("Leave without saving? Your changes to this draft will be lost.")) {
-              e.preventDefault();
-            }
-          }}
-        >
-          <ArrowLeft size={15} aria-hidden /> Back to plans
-        </a>
-        <div className="head-top">
-          <div>
-            <div className="eyebrow">
-              Editing {props.draftLabel}
-              {props.liveLabel ? ` · based on ${props.liveLabel}` : ""}
-            </div>
-            <h1>Company vaccination plan</h1>
-            <p className="sub">
-              One plan decides which animal gets which vaccine, and when. Publishing it schedules
-              every future vaccination task across both parks.
-            </p>
-          </div>
-          <span className="pill">
-            <span className="dot" />
-            Draft · not live yet
-          </span>
-        </div>
-
+        <PageHeader
+          title="Company vaccination plan"
+          crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan", href: "/vaccination/plan" }, { label: props.draftLabel }]}
+          actions={
+            <>
+              <span className="pill">
+                <span className="dot" />
+                Draft · not live yet
+              </span>
+              <Link
+                className="btn"
+                href="/vaccination/plan"
+                onClick={(e) => {
+                  if (!dirty) return;
+                  e.preventDefault();
+                  setLeaveConfirm(true);
+                }}
+              >
+                <ArrowLeft size={15} aria-hidden /> Back to plans
+              </Link>
+            </>
+          }
+        />
+        <Dialog fullWidth maxWidth="xs" open={leaveConfirm} onClose={() => setLeaveConfirm(false)} slotProps={{ paper: { "aria-label": "Leave without saving" } }}>
+            <DialogTitle sx={{ pb: 2 }}>Leave without saving?</DialogTitle>
+            <DialogContent sx={{ typography: "body2" }}>Your changes to this draft will be lost.</DialogContent>
+            <DialogActions>
+              <MuiButton color="primary" variant="text" onClick={() => setLeaveConfirm(false)}>Stay here</MuiButton>
+              <MuiButton
+                color="primary"
+                variant="contained"
+                onClick={() => {
+                  setLeaveConfirm(false);
+                  router.push("/vaccination/plan");
+                }}
+              >
+                Discard changes
+              </MuiButton>
+            </DialogActions>
+        </Dialog>
         <div className="scope">
           <div>
             <div className="k">Applies to</div>
@@ -282,10 +306,10 @@ export function VaccinationPlanEditor(props: Props) {
           </div>
         </div>
         {error ? (
-          <div className="alert" style={{ marginTop: 16, marginBottom: 0 }}>
+          <Alert severity="error" style={{ marginTop: 16, marginBottom: 0 }}>
             <span className="ic">!</span>
             <span>{error}</span>
-          </div>
+          </Alert>
         ) : null}
       </header>
 
@@ -316,9 +340,9 @@ export function VaccinationPlanEditor(props: Props) {
                 </li>
               ))}
             </ul>
-            <button className="vp-addvac" type="button" onClick={() => setAddingVaccine(true)}>
+            <MuiButton className="vp-addvac" type="button" variant="text" size="small" onClick={() => setAddingVaccine(true)}>
               + Add a vaccine
-            </button>
+            </MuiButton>
           </nav>
           <nav className="rail" aria-label="Plan settings">
             <div className="rail-h">
@@ -376,13 +400,11 @@ export function VaccinationPlanEditor(props: Props) {
               </div>
               <span className="vp-switchrow">
                 <span className="vp-switchlabel">{current.on ? "In this plan" : "Switched off"}</span>
-                <button
+                <Switch
                   className="sws"
-                  role="switch"
-                  aria-checked={current.on}
-                  aria-label={`Include ${current.name}`}
-                  type="button"
-                  onClick={() => updateVaccine(current.code, (v) => ({ ...v, on: !v.on }))}
+                  checked={current.on}
+                  slotProps={{ input: { "aria-label": `Include ${current.name}` } }}
+                  onChange={() => updateVaccine(current.code, (v) => ({ ...v, on: !v.on }))}
                 />
               </span>
             </div>
@@ -437,20 +459,17 @@ export function VaccinationPlanEditor(props: Props) {
                           old
                         </span>
                       </div>
-                      {index > 0 ? (
-                        <p className="hintline" style={{ marginTop: 8 }}>
-                          Counted from the animal&apos;s date of birth, the same as the first dose.
-                        </p>
-                      ) : null}
                     </div>
                   ))}
                 </>
               ) : null}
 
               {current.on ? (
-                <button
+                <MuiButton
                   className="addrow"
                   type="button"
+                  variant="text"
+                  size="small"
                   onClick={() =>
                     updateVaccine(current.code, (v) => ({
                       ...v,
@@ -468,7 +487,7 @@ export function VaccinationPlanEditor(props: Props) {
                   }
                 >
                   + Add a dose from date of birth
-                </button>
+                </MuiButton>
               ) : null}
 
               {current.driveDoses.length > 0 ? (
@@ -504,14 +523,16 @@ export function VaccinationPlanEditor(props: Props) {
               ) : null}
 
               {current.maxLateDays === null && current.on ? (
-                <button
+                <MuiButton
                   className="addrow"
                   type="button"
+                  variant="text"
+                  size="small"
                   style={{ marginTop: 14 }}
                   onClick={() => updateVaccine(current.code, (v) => ({ ...v, maxLateDays: 7 }))}
                 >
                   + Set how late a dose may be
-                </button>
+                </MuiButton>
               ) : null}
 
               {current.maxLateDays !== null ? (
@@ -533,17 +554,9 @@ export function VaccinationPlanEditor(props: Props) {
                 </div>
               ) : null}
 
-              <p className="hintline">
-                The deadline runs forward from the due day only — giving a dose early does not buy
-                extra time.
-              </p>
-
               {current.repeatDays !== null ? (
                 <div className="repeat">
                   <div className="rt">How often to repeat it</div>
-                  <p className="rs">
-                    Change this and every future vaccination date moves with it. No engineer needed.
-                  </p>
                   <div className="sent">
                     <span className="lead">Repeat</span>
                     Do it again every{" "}
@@ -559,30 +572,33 @@ export function VaccinationPlanEditor(props: Props) {
                     {/* Values the picker can express exactly, so clicking a
                         preset and then reading the chip agree. */}
                     {[90, 180, 270, 365, 1095].map((days) => (
-                      <button
+                      <MuiButton
                         className="preset"
                         key={days}
                         type="button"
+                        size="small"
+                        variant={current.repeatDays === days ? "contained" : "outlined"}
                         aria-pressed={current.repeatDays === days}
                         disabled={!current.on}
                         onClick={() => updateVaccine(current.code, (v) => ({ ...v, repeatDays: days }))}
                       >
                         {humanDays(days)}
-                      </button>
+                      </MuiButton>
                     ))}
                   </div>
                 </div>
               ) : (
                 <>
-                  <p className="hintline">This vaccine does not repeat.</p>
-                  {current.on ? (
-                    <button
+                    {current.on ? (
+                    <MuiButton
                       className="addrow"
                       type="button"
+                      variant="text"
+                      size="small"
                       onClick={() => updateVaccine(current.code, (v) => ({ ...v, repeatDays: 365 }))}
                     >
                       + Make it repeat
-                    </button>
+                    </MuiButton>
                   ) : null}
                 </>
               )}
@@ -610,9 +626,10 @@ export function VaccinationPlanEditor(props: Props) {
             </span>
           ) : null}
           <span className="ab-spacer" />
-          <button
-            className="btn ghost sm"
+          <MuiButton
             type="button"
+            variant="outlined"
+            size="small"
             disabled={pending || !dirty}
             onClick={() => {
               setPlan(props.initialPlan);
@@ -620,19 +637,19 @@ export function VaccinationPlanEditor(props: Props) {
             }}
           >
             Reset
-          </button>
-          <button
-            className="btn"
+          </MuiButton>
+          <MuiButton
             type="button"
+            variant="outlined"
             disabled={pending || !dirty || blockedReason !== null}
             title={blockedReason ?? undefined}
             onClick={onSave}
           >
             {pending ? "Working…" : "Save draft"}
-          </button>
-          <button
-            className="btn pubb"
+          </MuiButton>
+          <MuiButton
             type="button"
+            variant="contained"
             disabled={pending || blockedReason !== null || !props.canPublish}
             title={
               blockedReason ??
@@ -641,7 +658,7 @@ export function VaccinationPlanEditor(props: Props) {
             onClick={onPublish}
           >
             Publish plan
-          </button>
+          </MuiButton>
         </div>
       </div>
 
@@ -701,10 +718,6 @@ function AddVaccineModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onCancel]);
 
-  const spacingNote =
-    vaccineType === "live"
-      ? "Live vaccines need 28 days from another live vaccine, and 14 days from a killed one. The system enforces this on its own."
-      : "Killed vaccines need 14 days from any other vaccine. The system enforces this on its own.";
 
   function handleSave() {
     const result = onSave({
@@ -727,14 +740,12 @@ function AddVaccineModal({
   return (
     <div
       className="vp-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add a vaccine to this plan"
+      role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="vp-sheet">
+      <div className="vp-sheet" role="dialog" aria-modal="true" aria-label="Add a vaccine to this plan">
         <div className="vp-head">
           <div>
             <div className="eyebrow" style={{ marginBottom: 4 }}>
@@ -742,38 +753,52 @@ function AddVaccineModal({
             </div>
             <h2>Add a vaccine to this plan</h2>
           </div>
-          <button className="vp-x" type="button" onClick={onCancel} aria-label="Close">
+          <IconButton className="vp-x" type="button" onClick={onCancel} aria-label="Close" size="small">
             <X size={15} aria-hidden />
-          </button>
+          </IconButton>
         </div>
         <div className="vp-body">
-          <p className="vp-lead">
-            Everything marked <b>required</b> must be filled before the plan can be published. The
-            rest can be left as-is.
-          </p>
 
           <div className="vp-nvsec">Basics</div>
           <div className="vp-nvgrid">
-            <label className="vp-nvf">
+            <div className="vp-nvf">
               <span>
                 Name <b>required</b>
               </span>
-              <input ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Brucella" />
-            </label>
-            <label className="vp-nvf">
+              <MuiTextField
+                inputRef={nameRef}
+                fullWidth
+                size="small"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Brucella"
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+            </div>
+            <div className="vp-nvf">
               <span>
                 Short code <b>required</b>
               </span>
-              <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. BRU" />
-            </label>
-            <label className="vp-nvf vp-nvwide">
+              <MuiTextField
+                fullWidth
+                size="small"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="e.g. BRU"
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+            </div>
+            <div className="vp-nvf vp-nvwide">
               <span>What it protects against</span>
-              <input
+              <MuiTextField
+                fullWidth
+                size="small"
                 value={disease}
                 onChange={(e) => setDisease(e.target.value)}
                 placeholder="e.g. Brucellosis"
+                slotProps={{ inputLabel: { shrink: true } }}
               />
-            </label>
+            </div>
           </div>
 
           <div className="vp-nvsec">Biology — this decides the spacing rules</div>
@@ -782,25 +807,35 @@ function AddVaccineModal({
               <span>
                 Live or killed <b>required</b>
               </span>
-              <select value={vaccineType} onChange={(e) => setVaccineType(e.target.value as "live" | "killed")}>
-                <option value="killed">Killed</option>
-                <option value="live">Live</option>
-              </select>
+              <MuiTextField
+                select
+                label="Live or killed"
+                value={vaccineType}
+                onChange={({ target: { value: next } }) => setVaccineType(next as "live" | "killed")}
+                sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+              >
+                <MenuItem value="killed">Killed</MenuItem>
+                <MenuItem value="live">Live</MenuItem>
+              </MuiTextField>
             </label>
             <label className="vp-nvf">
               <span>
                 Bacterial or viral <b>required</b>
               </span>
-              <select
+              <MuiTextField
+                select
+                label="Bacterial or viral"
                 value={pathogenClass}
-                onChange={(e) => setPathogenClass(e.target.value as "bacterial" | "viral")}
+                onChange={({ target: { value: next } }) => setPathogenClass(next as "bacterial" | "viral")}
+                sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
               >
-                <option value="bacterial">Bacterial</option>
-                <option value="viral">Viral</option>
-              </select>
+                <MenuItem value="bacterial">Bacterial</MenuItem>
+                <MenuItem value="viral">Viral</MenuItem>
+              </MuiTextField>
             </label>
           </div>
-          <p className="hintline">{spacingNote}</p>
 
           <div className="vp-nvsec">Who gets it</div>
           <div className="vp-nvgrid">
@@ -808,11 +843,18 @@ function AddVaccineModal({
               <span>
                 Species <b>required</b>
               </span>
-              <select value={species} onChange={(e) => setSpecies(e.target.value as "goat" | "sheep" | "both")}>
-                <option value="both">Goats and sheep</option>
-                <option value="goat">Goats only</option>
-                <option value="sheep">Sheep only</option>
-              </select>
+              <MuiTextField
+                select
+                label="Species"
+                value={species}
+                onChange={({ target: { value: next } }) => setSpecies(next as "goat" | "sheep" | "both")}
+                sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+              >
+                <MenuItem value="both">Goats and sheep</MenuItem>
+                <MenuItem value="goat">Goats only</MenuItem>
+                <MenuItem value="sheep">Sheep only</MenuItem>
+              </MuiTextField>
             </label>
             <label className="vp-nvf vp-nvwide">
               <span>Procurement purpose</span>
@@ -823,9 +865,11 @@ function AddVaccineModal({
                   ["fattening", "Fattening"],
                   ["non_breeding", "Non-breeding"],
                 ].map(([value, label]) => (
-                  <button
+                  <MuiButton
                     key={value}
                     type="button"
+                    size="small"
+                    variant={procurementPurpose === value ? "contained" : "text"}
                     className={procurementPurpose === value ? "is-on" : ""}
                     aria-pressed={procurementPurpose === value}
                     onClick={() =>
@@ -833,7 +877,7 @@ function AddVaccineModal({
                     }
                   >
                     {label}
-                  </button>
+                  </MuiButton>
                 ))}
               </span>
             </label>
@@ -845,13 +889,17 @@ function AddVaccineModal({
               <span>
                 One dose or two <b>required</b>
               </span>
-              <select
+              <MuiTextField
+                select
+                label="One dose or two"
                 value={courseType}
-                onChange={(e) => setCourseType(e.target.value as "single" | "booster")}
+                onChange={({ target: { value: next } }) => setCourseType(next as "single" | "booster")}
+                sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
               >
-                <option value="single">One dose only</option>
-                <option value="booster">First dose + booster</option>
-              </select>
+                <MenuItem value="single">One dose only</MenuItem>
+                <MenuItem value="booster">First dose + booster</MenuItem>
+              </MuiTextField>
             </label>
             <label className="vp-nvf">
               <span>First dose at</span>
@@ -868,14 +916,14 @@ function AddVaccineModal({
               {repeats ? (
                 <span className="durrow" style={{ alignItems: "center" }}>
                   <DurationField days={repeatDays} onChange={setRepeatDays} title="Repeat every" />
-                  <button className="addrow" type="button" style={{ marginTop: 0 }} onClick={() => setRepeats(false)}>
+                  <MuiButton className="addrow" type="button" variant="text" size="small" style={{ marginTop: 0 }} onClick={() => setRepeats(false)}>
                     Does not repeat
-                  </button>
+                  </MuiButton>
                 </span>
               ) : (
-                <button className="addrow" type="button" style={{ marginTop: 0 }} onClick={() => setRepeats(true)}>
+                <MuiButton className="addrow" type="button" variant="text" size="small" style={{ marginTop: 0 }} onClick={() => setRepeats(true)}>
                   + Make it repeat
-                </button>
+                </MuiButton>
               )}
             </label>
             <label className="vp-nvf">
@@ -887,12 +935,12 @@ function AddVaccineModal({
           <div className="vp-nvfoot">
             <span className="hintline">{err}</span>
             <span className="ab-spacer" />
-            <button className="btn ghost sm" type="button" onClick={onCancel}>
+            <MuiButton type="button" variant="outlined" size="small" onClick={onCancel}>
               Cancel
-            </button>
-            <button className="btn" type="button" onClick={handleSave}>
+            </MuiButton>
+            <MuiButton type="button" variant="contained" onClick={handleSave}>
               Add to the draft
-            </button>
+            </MuiButton>
           </div>
         </div>
       </div>
@@ -1006,9 +1054,11 @@ function ProcurementCard({
             <span className="lead">Prior doses</span>
             Vaccinations the seller claims they already gave:
             <span className="seg" role="group" aria-label="Prior doses">
-              <button
+              <MuiButton
                 className="segb"
                 type="button"
+                size="small"
+                variant={adultPriorVaccinationAllowed ? "contained" : "text"}
                 aria-pressed={adultPriorVaccinationAllowed}
                 onClick={() => {
                   onEdit();
@@ -1019,10 +1069,12 @@ function ProcurementCard({
                 }}
               >
                 Count them
-              </button>
-              <button
+              </MuiButton>
+              <MuiButton
                 className="segb"
                 type="button"
+                size="small"
+                variant={!adultPriorVaccinationAllowed ? "contained" : "text"}
                 aria-pressed={!adultPriorVaccinationAllowed}
                 onClick={() => {
                   onEdit();
@@ -1033,7 +1085,7 @@ function ProcurementCard({
                 }}
               >
                 Ignore them
-              </button>
+              </MuiButton>
             </span>
           </div>
         ) : null}
@@ -1042,15 +1094,17 @@ function ProcurementCard({
           <div className="sec-label">What we bought them for</div>
           <span className="seg" role="group" aria-label="Procurement animal purpose">
             {procurementPurposeOptions.map(([value, label]) => (
-              <button
+              <MuiButton
                 key={value}
                 type="button"
+                size="small"
                 className="segb"
+                variant={activePurpose === value ? "contained" : "text"}
                 aria-pressed={activePurpose === value}
                 onClick={() => setActivePurpose(value)}
               >
                 {label}
-              </button>
+              </MuiButton>
             ))}
           </span>
         </div>
@@ -1178,15 +1232,17 @@ function ProcurementWave({
       <div className="sec-label">{title}</div>
       <div className="proc-chips">
         {vaccines.map((vaccine) => (
-          <button
+          <MuiButton
             type="button"
+            size="small"
+            variant={isActive(vaccine) ? "contained" : "outlined"}
             className={isActive(vaccine) ? "proc-chip on" : "proc-chip"}
             aria-pressed={isActive(vaccine)}
             key={vaccine.code}
             onClick={() => onToggle(vaccine.name)}
           >
             {vaccine.name}
-          </button>
+          </MuiButton>
         ))}
       </div>
     </div>
@@ -1332,10 +1388,6 @@ function ProofCard({ mode }: { mode: "shed" | "animal" | null }) {
           <h2>
             How the operator proves it <span className="ro">read-only</span>
           </h2>
-          <p className="s">
-            One choice for the whole plan. It decides what the phone asks for on every vaccination
-            task, whichever vaccine it is.
-          </p>
         </div>
       </div>
       <div className="card-b">
@@ -1382,10 +1434,6 @@ function ImpactCard({ impact }: { impact: ImpactSummary | null }) {
       <div className="card-h">
         <div>
           <h2>What publishing will change</h2>
-          <p className="s">
-            Work already given, and any drive running right now, is untouched. Future dates are
-            rebuilt from this plan.
-          </p>
         </div>
       </div>
       <div className="card-b">

@@ -39,10 +39,38 @@ const SKIP_PATH_PARTS = [
   "features/herd-signals/",  // pre-existing feature-wide gap: built against mock/herd-signals-mock.html before being wired through AdminWebPageContract.copy/option_groups for every literal; documented exception in context/frontend/admin-web-backend-ui-contract.md
   "features/leadership-tasks/",  // new Tasks screen still carries local mock/preview copy while the live route is backed by AdminWebPageContract; documented exception in context/frontend/admin-web-backend-ui-contract.md
   "app/tasks-preview/",  // local-only Tasks preview fixture page, not a production admin route; documented exception in context/frontend/admin-web-backend-ui-contract.md
+  // Same standing as app/tasks-preview/: a local-only gallery of the kit primitives with invented
+  // sample rows, not a production admin route and not in backend nav, so there is no
+  // AdminWebPageContract to source its demo copy from. Documented exception in
+  // context/frontend/admin-web-backend-ui-contract.md.
+  "app/kit-preview/",
+  // Same rationale as components/admin-shell.tsx and app/loading.tsx above: global-error renders
+  // when rendering itself failed, so it cannot assume the contract fetch is reachable.
+  "app/global-error.tsx",
+  // The route shell of the ADMIN/ENGINEERING-only assistant debug surface already skipped as
+  // features/ceo-ai-admin/ (ceo_internal gate enforced server-side, not in backend nav).
+  "app/(admin)/ceo-ai-admin/",
+  // Kit PRIMITIVES carry no page copy: their only literals are default aria-labels and fallback
+  // labels ("Close", "Row actions", "Dense") on shared chrome that belongs to no single page and
+  // therefore to no AdminWebPageContract. Every page-level string a kit component shows is passed
+  // in by its caller, and the caller is still checked. Documented exception in
+  // context/frontend/admin-web-backend-ui-contract.md.
+  "components/kit/",
 ];
 const ALLOW_LINE = [
   /Intl\.DateTimeFormat/,
   /\.key\s*[!=]==?\s*["'](Escape|Enter| )["']/,
+  // Keyboard key NAMES are DOM constants, not copy: a listbox's roving-focus handler compares
+  // event.key against "ArrowDown"/"Home"/"End" and an array of the same, and those strings can
+  // never come from a backend contract.
+  /\.key\s*[!=]==?\s*["'](ArrowDown|ArrowUp|Home|End|Tab|PageUp|PageDown|Escape|Enter)["']/,
+  /\[["'](ArrowDown|ArrowUp|Enter|Escape|Home|End)["'][^\]]*\]\.includes\(/,
+  // copy(pageContract, "key", "Fallback") IS contract-sourced: the literal is the rollout
+  // fallback for a key the backend has not published yet, which is the pattern this guard asks for.
+  /\bcopy\(\s*\w+\s*,\s*["'][\w.-]+["']\s*,/,
+  // A select's defaultValue is an option KEY matched against the backend option_groups list, not
+  // rendered copy -- the visible label still comes from the option the key selects.
+  /\bdefaultValue\s*=\s*["']/,
   /startsWith\(["']TMP-/,
   /toLowerCase\(\)/,
   /const\s+PATH\s*=/,

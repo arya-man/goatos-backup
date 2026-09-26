@@ -1,6 +1,8 @@
 "use client";
 
-import { GitBranch, Plus } from "lucide-react";
+import { EmptyState } from "@/components/app/empty-state";
+
+import { GitBranch, Plus, MousePointerClick } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -147,7 +149,7 @@ export function FollowUpFlow({
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
         </div>
-        {selected ? renderCard(selected, selectedIndex) : <p className="muted" style={{ padding: 16 }}>{copy(pc, "studio.flow.none_selected")}</p>}
+        {selected ? renderCard(selected, selectedIndex) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<MousePointerClick className="ic" />} style={{ padding: 16 }} />}
       </aside>
     </div>
   );

@@ -2,6 +2,7 @@ import { Tag } from "@/components/ui-primitives";
 import type { HerdGateway } from "@/lib/api/herd-signals";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import { fmtAgo, fmtBleMac } from "./format";
+import { EmptyState } from "@/components/app/empty-state";
 
 // The backend does not compute these three aggregates yet (tracked TODO) and may return null until
 // it does. A bare 0 here would report a false fact per docs/modules/herd-signals.md ("read failed"
@@ -53,13 +54,11 @@ function locationLine(gateway: HerdGateway): string {
 export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway[]; nowMs: number }) {
   if (gateways.length === 0) {
     return (
-      <div className="empty">
-        <div className="eicon">
-          <RadioIcon />
-        </div>
-        <h4>No gateways registered yet</h4>
-        <p>No BLE gateway has posted for this tenant. Confirm a gateway is powered and networked.</p>
-      </div>
+      <EmptyState
+        icon={<RadioIcon />}
+        title="No gateways registered yet"
+        description="No BLE gateway has posted for this tenant. Confirm a gateway is powered and networked."
+      />
     );
   }
 
@@ -180,20 +179,15 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
             <Tag tone="mut">Not computed</Tag>
           </div>
           <div className="bd">
-            <div className="empty" style={{ padding: "26px 12px" }}>
-              <div className="eicon">
-                <svg className="ic" viewBox="0 0 24 24">
-                  <rect x="2" y="7" width="16" height="10" rx="2" />
-                  <path d="M22 11v2" />
-                </svg>
-              </div>
-              <h4>No battery outlook on this tab yet</h4>
-              <p>
-                Battery voltage arrives per tag, not per gateway, and the gateway read used by this
-                tab does not carry it. Per-tag battery voltage and its recent direction are on the
-                Live Monitor tab and in each tag&apos;s detail drawer.
-              </p>
-            </div>
+            <EmptyState
+              icon={<svg className="ic" viewBox="0 0 24 24">
+                <rect x="2" y="7" width="16" height="10" rx="2" />
+                <path d="M22 11v2" />
+              </svg>}
+              title="No battery outlook on this tab yet"
+              description="Per-tag battery voltage is on the Live Monitor tab and in each tag's drawer."
+              style={{ padding: "26px 12px" }}
+            />
           </div>
         </div>
       </div>

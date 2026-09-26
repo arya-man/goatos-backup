@@ -136,7 +136,11 @@ export function ToxinFlow({
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
         </div>
-        {selected ? renderCard(selected) : <p className="muted" style={{ padding: 16 }}>{copy(pc, "studio.flow.none_selected")}</p>}
+        {selected ? renderCard(selected) : (
+          <div className="studio-flow-empty muted small" role="status" style={{ padding: 16 }}>
+            {copy(pc, "studio.flow.none_selected")}
+          </div>
+        )}
       </aside>
     </div>
   );

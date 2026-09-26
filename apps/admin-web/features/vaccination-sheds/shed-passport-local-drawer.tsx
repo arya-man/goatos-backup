@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import Link from "@/components/no-prefetch-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
@@ -9,6 +14,7 @@ import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-cont
 import { dash, fmtDate } from "@/lib/format";
 import { Syringe, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import Alert from "@mui/material/Alert";
 
 type GoatPassport = GoatPassportResponse["goat"];
 const DRAWER_ROW_LIMIT = 5;
@@ -190,28 +196,28 @@ function DrawerVaccinationBlock({
             </p>
           ) : (
             <div style={{ overflowX: "auto", marginBottom: 12 }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
-              <table>
-                <thead>
-                  <tr>
+              <Table>
+                <TableHead>
+                  <TableRow>
                     {openCols.slice(0, 4).map((label) => (
-                      <th key={label}>{label}</th>
+                      <TableCell component="th" key={label}>{label}</TableCell>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {open.slice(0, DRAWER_ROW_LIMIT).map((due) => {
                     const rowId = realWorkflowRowId(due.workflow_row_id);
                     return (
-                      <tr key={due.obligation_id}>
-                        <td>
+                      <TableRow key={due.obligation_id}>
+                        <TableCell>
                           <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
                           {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
                             <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
                           ) : null}
-                        </td>
-                        <td>{vaccineRowLabel(due)}</td>
-                        <td><Tag tone={obligationTone(due.status)}>{due.status}</Tag></td>
-                        <td>
+                        </TableCell>
+                        <TableCell>{vaccineRowLabel(due)}</TableCell>
+                        <TableCell><Tag tone={obligationTone(due.status)}>{due.status}</Tag></TableCell>
+                        <TableCell>
                           {rowId ? (
                             <Link href={workflowHref(rowId)} className="lk small">
                               {copy(pageContract, "action.open_workflow")} →
@@ -219,12 +225,12 @@ function DrawerVaccinationBlock({
                           ) : (
                             <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               {open.length > DRAWER_ROW_LIMIT ? (
                 <p className="muted small" style={{ margin: "6px 0 0" }}>
                   +{open.length - DRAWER_ROW_LIMIT} more
@@ -242,26 +248,26 @@ function DrawerVaccinationBlock({
             </p>
           ) : (
             <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
-              <table>
-                <thead>
-                  <tr>
+              <Table>
+                <TableHead>
+                  <TableRow>
                     {historyCols.slice(0, 5).map((label) => (
-                      <th key={label}>{label}</th>
+                      <TableCell component="th" key={label}>{label}</TableCell>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {history.slice(0, DRAWER_ROW_LIMIT).map((item) => (
-                    <tr key={item.completion_id}>
-                      <td>{fmtDate(item.administered_at)}</td>
-                      <td>{vaccineRowLabel(item)}</td>
-                      <td><Tag tone={historyTone(item.status)}>{item.status}</Tag></td>
-                      <td>{proofLabel(item, pageContract)}</td>
-                      <td><span className="gid" title={item.obligation_id}>{sourceObligationLabel(item.obligation_id)}</span></td>
-                    </tr>
+                    <TableRow key={item.completion_id}>
+                      <TableCell>{fmtDate(item.administered_at)}</TableCell>
+                      <TableCell>{vaccineRowLabel(item)}</TableCell>
+                      <TableCell><Tag tone={historyTone(item.status)}>{item.status}</Tag></TableCell>
+                      <TableCell>{proofLabel(item, pageContract)}</TableCell>
+                      <TableCell><span className="gid" title={item.obligation_id}>{sourceObligationLabel(item.obligation_id)}</span></TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               {history.length > DRAWER_ROW_LIMIT ? (
                 <p className="muted small" style={{ margin: "6px 0 0" }}>
                   +{history.length - DRAWER_ROW_LIMIT} more
@@ -362,7 +368,7 @@ export function ShedPassportLocalDrawer({
         </div>
         <div className="dc">
           {error ? (
-            <div className="alert"><b>{copy(pageContract, "fallback.title")}</b>&nbsp;{error}</div>
+            <Alert severity="error"><b>{copy(pageContract, "fallback.title")}</b>&nbsp;{error}</Alert>
           ) : (
             <>
               <div className="helpgrid" style={{ marginBottom: 12 }}>

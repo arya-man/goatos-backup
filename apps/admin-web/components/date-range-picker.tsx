@@ -1,7 +1,21 @@
 "use client";
 
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import dayjs from "dayjs";
+import { varAlpha } from "minimal-shared/utils";
+import Badge from "@mui/material/Badge";
+import Box from "@mui/material/Box";
+import MuiButton from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
+import { DateCalendar } from "@mui/x-date-pickers/DateCalendar";
+import { PickerDay, type PickerDayProps } from "@mui/x-date-pickers/PickerDay";
+import { CustomPopover } from "@/components/minimal/custom-popover";
+import { Iconify } from "@/components/minimal/iconify";
 
 /**
  * A calendar that selects EITHER a single business day or an inclusive span.
@@ -54,14 +68,6 @@ function dateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function sameMonth(left: Date, right: Date): boolean {
-  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
-}
-
-function addMonths(date: Date, delta: number): Date {
-  return new Date(date.getFullYear(), date.getMonth() + delta, 1);
-}
-
 function monthStartKey(date: Date): string {
   return dateKey(new Date(date.getFullYear(), date.getMonth(), 1));
 }
@@ -73,21 +79,6 @@ function monthEndKey(date: Date): string {
 function sameDateKeys(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((value, index) => value === right[index]);
-}
-
-function buildMonthDays(cursor: Date): Date[] {
-  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  const start = new Date(first);
-  start.setDate(first.getDate() - first.getDay());
-  return Array.from({ length: 42 }, (_, index) => {
-    const day = new Date(start);
-    day.setDate(start.getDate() + index);
-    return day;
-  });
-}
-
-function formatMonth(date: Date): string {
-  return new Intl.DateTimeFormat(DATE_DISPLAY_LOCALE, { month: "long", year: "numeric" }).format(date);
 }
 
 // The VISIBLE picker label is DD/MM/YYYY like every other date on the page (maintainer
@@ -108,16 +99,6 @@ function formatFull(date: Date): string {
  *  plain string comparison — no Date object, no timezone re-entry. */
 function strictlyBetween(key: string, from: string, to: string): boolean {
   return key.localeCompare(from) > 0 && key.localeCompare(to) < 0;
-}
-
-function weekdayLabels(): string[] {
-  const sunday = new Date(2026, 7, 2);
-  const formatter = new Intl.DateTimeFormat(DATE_DISPLAY_LOCALE, { weekday: "narrow" });
-  return Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(sunday);
-    day.setDate(sunday.getDate() + index);
-    return formatter.format(day);
-  });
 }
 
 export function DateRangePicker({
@@ -174,8 +155,9 @@ export function DateRangePicker({
   singleDayOnly?: boolean;
   onChange: (from: string, to: string) => void;
 }) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
+  // Template CustomPopover anchored to the outlined trigger (portaled: no card can clip it).
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const open = Boolean(anchor);
 
   const [mode, setMode] = useState<"single" | "range">(() => (singleDayOnly || from === to ? "single" : "range"));
   // The first click of a two-click range selection. Null means "no range in progress".
@@ -190,8 +172,6 @@ export function DateRangePicker({
     return new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   });
 
-  const days = useMemo(() => buildMonthDays(cursor), [cursor]);
-  const weekdays = useMemo(() => weekdayLabels(), []);
   const [fetchedMarkerDates, setFetchedMarkerDates] = useState<readonly string[]>([]);
   const markerMonthStartsInFuture = markerFetchPath ? monthStartKey(cursor) > today : false;
   const visibleMarkerDates = markerFetchPath ? (markerMonthStartsInFuture ? [] : fetchedMarkerDates) : markerDates;
@@ -220,28 +200,10 @@ export function DateRangePicker({
     return () => controller.abort();
   }, [cursor, markerFetchPath, markerMonthStartsInFuture, today]);
 
-  useEffect(() => {
-    function onPointerDown(event: PointerEvent): void {
-      const details = detailsRef.current;
-      if (!details?.open || !event.target || details.contains(event.target as Node)) return;
-      details.open = false;
-    }
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.key !== "Escape" || !detailsRef.current?.open) return;
-      event.preventDefault();
-      detailsRef.current.open = false;
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, []);
 
   function commit(nextFrom: string, nextTo: string): void {
     setRangeStart(null);
-    if (detailsRef.current) detailsRef.current.open = false;
+    setAnchor(null);
     onChange(nextFrom, nextTo);
   }
 
@@ -284,130 +246,121 @@ export function DateRangePicker({
   const previewFrom = rangeStart ?? from;
   const previewTo = rangeStart ?? to;
 
+  // Template anatomy: an outlined field trigger (the invoice toolbar's date inputs) opening a
+  // CustomPopover with the MUI X DateCalendar the template's CustomDateRangePicker uses. The day slot
+  // draws the span band, the ends and the host's markers; selection logic above is unchanged.
+  const Day = (props: PickerDayProps) => {
+    const key = props.day.format("YYYY-MM-DD");
+    const future = key > today;
+    const beforeFloor = minDate ? key < minDate : false;
+    const isEdge = key === previewFrom || key === previewTo;
+    const inRange = strictlyBetween(key, previewFrom, previewTo);
+    const marked = markerDateSet.has(key);
+    const label = marked && labels.markerHint ? `${formatFull(props.day.toDate())}. ${labels.markerHint}` : formatFull(props.day.toDate());
+    return (
+      <Badge
+        overlap="circular"
+        variant="dot"
+        color="info"
+        invisible={!marked || props.outsideCurrentMonth}
+        title={marked ? labels.markerHint : undefined}
+        slotProps={{ badge: { "aria-hidden": true } as never }}
+      >
+        <PickerDay
+          {...props}
+          disabled={future || beforeFloor}
+          selected={isEdge && !props.outsideCurrentMonth}
+          aria-label={label}
+          aria-pressed={isEdge}
+          data-date={key}
+          sx={(theme) => (inRange && !props.outsideCurrentMonth ? { borderRadius: 0, bgcolor: varAlpha(theme.vars.palette.primary.mainChannel, 0.08) } : {})}
+        />
+      </Badge>
+    );
+  };
+
   return (
-    <details
-      ref={detailsRef}
-      className="top-date-picker inline"
-      // A filter row sits well down the page, so on a short window the calendar's last weeks and its
-      // Today button open below the fold. `block: "nearest"` scrolls only as far as it has to, and
-      // does nothing at all when the whole popover already fits — so a tall window never jumps.
-      onToggle={(event) => {
-        if (!event.currentTarget.open) return;
-        popoverRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      }}
-    >
-      <summary className="pscope date-scope" aria-label={labels.aria} data-testid="date-range-picker-trigger">
-        <CalendarDays className="ic" aria-hidden="true" />
-        <span className="date-scope-copy">
-          <span className="date-scope-label">{labels.field}</span>
-          <b className="date-scope-value">{triggerValue}</b>
-        </span>
-        <ChevronDown className="ic date-scope-chevron" aria-hidden="true" />
-      </summary>
-      <div ref={popoverRef} className="top-date-popover" role="group" aria-label={labels.aria} aria-busy={busy}>
-        {singleDayOnly ? null : (
-        <div className="top-date-modes" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "single"}
-            className={`top-date-mode${mode === "single" ? " on" : ""}`}
-            onClick={() => switchMode("single")}
-          >
-            {labels.single}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "range"}
-            className={`top-date-mode${mode === "range" ? " on" : ""}`}
-            onClick={() => switchMode("range")}
-          >
-            {labels.range}
-          </button>
-        </div>
-        )}
-
-        <div className="top-date-head">
-          <button
-            type="button"
-            className="top-date-arrow"
-            aria-label={labels.previousMonth}
-            onClick={() => setCursor((current) => addMonths(current, -1))}
-          >
-            <ChevronLeft className="ic" aria-hidden="true" />
-          </button>
-          <b>{formatMonth(cursor)}</b>
-          <button
-            type="button"
-            className="top-date-arrow"
-            aria-label={labels.nextMonth}
-            onClick={() => setCursor((current) => addMonths(current, 1))}
-          >
-            <ChevronRight className="ic" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="top-date-grid">
-          {weekdays.map((weekday, index) => (
-            <span key={`${weekday}-${index}`} className="top-date-weekday" aria-hidden="true">
-              {weekday}
-            </span>
-          ))}
-          {days.map((day) => {
-            const key = dateKey(day);
-            const future = key > today;
-            const beforeFloor = minDate ? key < minDate : false;
-            const isEdge = key === previewFrom || key === previewTo;
-            const inRange = strictlyBetween(key, previewFrom, previewTo);
-            const marked = markerDateSet.has(key);
-            return (
-              <button
-                key={key}
-                type="button"
-                disabled={future || beforeFloor}
-                className={[
-                  "top-date-day",
-                  sameMonth(day, cursor) ? "" : "outside",
-                  key === today ? "today" : "",
-                  isEdge ? "on" : "",
-                  inRange ? "in-range" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                aria-label={marked && labels.markerHint ? `${formatFull(day)}. ${labels.markerHint}` : formatFull(day)}
-                aria-pressed={isEdge}
-                aria-current={key === today ? "date" : undefined}
-                data-date={key}
-                onClick={() => pickDay(key)}
-              >
-                {day.getDate()}
-                {marked ? (
-                  <span className="top-date-marker" aria-hidden="true" title={labels.markerHint} />
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="top-date-footer">
-          {mode === "range" ? (
-            <span className="top-date-hint">{rangeStart ? labels.rangeEndHint : labels.rangeStartHint}</span>
-          ) : null}
-          {labels.markerHint && markerDateSet.size > 0 ? (
-            <span className="top-date-marker-help" tabIndex={0} aria-label={labels.markerHint}>
-              <span className="top-date-marker sample" aria-hidden="true" />
-              <Info className="ic" aria-hidden="true" />
-              <span className="top-date-marker-tip" role="tooltip">
-                {labels.markerHint}
-              </span>
-            </span>
-          ) : null}
-          <button type="button" onClick={() => commit(today, today)}>
-            {labels.today}
-          </button>
-        </div>
-      </div>
-    </details>
+    <>
+      <TextField
+        label={labels.field}
+        value={triggerValue}
+        onClick={(event) => setAnchor(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
+            event.preventDefault();
+            setAnchor(event.currentTarget);
+          }
+        }}
+        data-testid="date-range-picker-trigger"
+        sx={{ minWidth: { xs: 1, sm: 300 }, cursor: "pointer", "& *": { cursor: "pointer" } }}
+        slotProps={{
+          inputLabel: { shrink: true },
+          htmlInput: { readOnly: true, "aria-label": labels.aria, "aria-haspopup": "dialog", "aria-expanded": open },
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <Iconify icon="solar:calendar-date-bold" sx={{ color: "text.disabled" }} />
+              </InputAdornment>
+            ),
+            endAdornment: (
+              <InputAdornment position="end">
+                <Iconify icon="eva:arrow-ios-downward-fill" width={18} sx={{ color: "text.secondary" }} />
+              </InputAdornment>
+            ),
+          },
+        }}
+      />
+      <CustomPopover open={open} anchorEl={anchor} onClose={() => { setRangeStart(null); setAnchor(null); }} slotProps={{ arrow: { placement: "top-left" } }}>
+        <Box role="group" aria-label={labels.aria} aria-busy={busy} sx={{ p: 1, maxWidth: "calc(100vw - 32px)" }}>
+          {singleDayOnly ? null : (
+            <Tabs
+              value={mode}
+              onChange={(_event, next: "single" | "range") => switchMode(next)}
+              indicatorColor="custom"
+              variant="fullWidth"
+              sx={{ mb: 1 }}
+            >
+              <Tab value="single" label={labels.single} />
+              <Tab value="range" label={labels.range} />
+            </Tabs>
+          )}
+          <DateCalendar
+            value={dayjs(previewTo)}
+            referenceDate={dayjs(cursor)}
+            onChange={(next) => {
+              if (next) pickDay(next.format("YYYY-MM-DD"));
+            }}
+            onMonthChange={(month) => setCursor(new Date(month.year(), month.month(), 1))}
+            maxDate={dayjs(today)}
+            minDate={minDate ? dayjs(minDate) : undefined}
+            showDaysOutsideCurrentMonth
+            fixedWeekNumber={6}
+            views={["day"]}
+            slots={{ day: Day }}
+            slotProps={{ previousIconButton: { "aria-label": labels.previousMonth } as never, nextIconButton: { "aria-label": labels.nextMonth } as never }}
+            sx={{ width: 1, maxWidth: 1, height: "auto" }}
+          />
+          <Box sx={{ px: 1, pb: 0.5, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            {mode === "range" ? (
+              <Box component="span" sx={{ typography: "caption", color: "text.secondary", flex: "1 1 auto" }}>
+                {rangeStart ? labels.rangeEndHint : labels.rangeStartHint}
+              </Box>
+            ) : (
+              <Box sx={{ flex: "1 1 auto" }} />
+            )}
+            {labels.markerHint && markerDateSet.size > 0 ? (
+              <Tooltip title={labels.markerHint}>
+                <IconButton size="small" aria-label={labels.markerHint}>
+                  <Iconify icon="eva:info-outline" width={18} />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+            <MuiButton size="small" variant="outlined" color="inherit" onClick={() => commit(today, today)}>
+              {labels.today}
+            </MuiButton>
+          </Box>
+        </Box>
+      </CustomPopover>
+    </>
   );
 }

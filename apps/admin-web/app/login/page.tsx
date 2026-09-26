@@ -1,5 +1,14 @@
 import Link from "@/components/no-prefetch-link";
-import { AlertTriangle } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
+import { ArrowRight } from "lucide-react";
+
+import { AuthSplitLayout } from "@/layouts/auth-split";
+import { FormHead } from "@/components/auth/form-head";
 import { GoogleLogin } from "@/components/auth/google-login";
 import { LoginSessionGuard } from "@/components/auth/login-session-guard";
 import { getAdminRuntimeStatus, searchGoats } from "@/lib/api/server";
@@ -41,86 +50,60 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
       : "Use the local dashboard shortcut on this machine.";
 
   return (
-    <main className="login-shell">
-      <aside className="login-brand">
-        <div className="brand">
-          <span className="logo">मे</span>
-          <div style={{ display: "flex", flexDirection: "column", lineHeight: 1 }}>
-            <b>Mesha</b>
-            <small>Admin</small>
-          </div>
-        </div>
+    <AuthSplitLayout logoText="M">
+      <FormHead
+        title={completingGoogleRedirect ? "Signing you in" : "Sign in"}
+        description={loginInstruction}
+        sx={{ textAlign: { xs: "center", md: "left" } }}
+      />
 
-        <div className="login-brand-mid">
-          <span className="login-badge">Internal access</span>
-          <h1 className="login-hero">Sign in to run herd operations.</h1>
-          <p className="login-sub muted">
-            Secure entry for goat passports, import review, data quality queues, and operational dashboards.
-          </p>
-        </div>
+      {showGoogleLogin ? (
+        <Stack sx={{ gap: 3 }}>
+          <LoginSessionGuard nextPath={nextPath} />
+          <GoogleLogin nextPath={nextPath} completingGoogleRedirect={completingGoogleRedirect} />
+        </Stack>
+      ) : null}
 
-        <p className="login-brand-foot small muted">Access is limited to approved Mesha accounts.</p>
-      </aside>
+      {showLocalDashboardShortcut ? (
+        <Button
+          component={Link}
+          href={nextPath}
+          prefetch={false}
+          fullWidth
+          size="large"
+          color="inherit"
+          variant="contained"
+          endIcon={<ArrowRight aria-hidden="true" />}
+        >
+          Open local dashboard
+        </Button>
+      ) : null}
 
-      <section className="login-panel">
-        <div className="login-card card">
-          <div className="bd" style={{ padding: "26px 28px 30px" }}>
-            <div className="crumb">
-              Mesha <b>Admin</b>
-            </div>
-            <h1 style={{ margin: "4px 0 0", fontSize: 26, letterSpacing: "-.4px" }}>
-              {completingGoogleRedirect ? "Signing you in" : "Sign in"}
-            </h1>
-            <p className="muted" style={{ margin: "10px 0 0", fontSize: 13.5, lineHeight: 1.6 }}>
-              {loginInstruction}
-            </p>
-
-            {showGoogleLogin ? <LoginSessionGuard nextPath={nextPath} /> : null}
-            {showGoogleLogin ? (
-              <GoogleLogin nextPath={nextPath} completingGoogleRedirect={completingGoogleRedirect} />
-            ) : null}
-
-            {showLocalDashboardShortcut ? (
-              <Link
-                href={nextPath}
-                prefetch={false}
-                className="btn p"
-                style={{ marginTop: 18, width: "100%", justifyContent: "center", height: 46 }}
-              >
-                Open local dashboard
-              </Link>
-            ) : null}
-
-            {showLocalAuthRepair ? (
-              <div className="alert warn" style={{ marginTop: 18 }}>
-                <AlertTriangle className="ic" aria-hidden="true" />
-                <div>
-                  <b style={{ display: "block" }}>Local dashboard is not ready</b>
-                  <span className="muted small" style={{ display: "block", marginTop: 4, lineHeight: 1.6 }}>
-                    The admin server has a local fallback token, but the backend is rejecting it. Restart the local
-                    stack before opening the dashboard.
-                  </span>
-                  <code
-                    className="mono"
-                    style={{
-                      display: "inline-block",
-                      marginTop: 8,
-                      background: "var(--bg)",
-                      border: "1px solid var(--line)",
-                      borderRadius: 8,
-                      padding: "6px 10px",
-                      color: "var(--brand-d)",
-                    }}
-                  >
-                    make dev-local
-                  </code>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </section>
-    </main>
+      {showLocalAuthRepair ? (
+        <Alert severity="warning" sx={{ mt: 2.5 }}>
+          <AlertTitle>Local dashboard is not ready</AlertTitle>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            The admin server has a local fallback token, but the backend is rejecting it. Restart
+            the local stack before opening the dashboard.
+          </Typography>
+          <Box
+            component="code"
+            sx={{
+              mt: 1.5,
+              px: 1.25,
+              py: 0.75,
+              display: "inline-block",
+              borderRadius: "var(--r-sm)",
+              fontFamily: "monospace",
+              fontSize: "var(--fs-caption)",
+              bgcolor: "action.hover",
+            }}
+          >
+            make dev-local
+          </Box>
+        </Alert>
+      ) : null}
+    </AuthSplitLayout>
   );
 }
 

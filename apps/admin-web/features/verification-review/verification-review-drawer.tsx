@@ -7,6 +7,7 @@ import {
 } from "@/components/local-overlay-link";
 import { FileIcon, ImageIcon, Maximize, Minimize, PlayCircle } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, useMemo, useTransition } from "react";
+import { createPortal } from "react-dom";
 
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { VerificationQueueItem } from "@/lib/api/server";
@@ -17,6 +18,9 @@ import { VerificationReviewActionTelemetry } from "./verification-review-telemet
 import { ReviewVideoPlayer } from "./review-video-player";
 import { ReviewEventBuffer } from "./review-events";
 import { submitVerificationReviewEvents } from "./review-events-server";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Alert from "@mui/material/Alert";
 
 /* The re-assign roster machinery that used to live here is GONE with the authority panels it fed.
    It was originally an unconditional SSR fetch of 500 staff positions on every Actions page load,
@@ -93,6 +97,11 @@ export function VerificationReviewDrawer({
   pageContract: AdminUiPageContract;
   statusLabels: Record<string, string>;
 }) {
+  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time DOM lookup after mount
+    setPortalHost(document.body);
+  }, []);
   const initialItem = items.find((item) => item.item_id === initialSelectedId);
   const [activeId, setActiveId] = useState(initialItem?.item_id);
   const [displayedId, setDisplayedId] = useState(initialItem?.item_id);
@@ -199,7 +208,10 @@ export function VerificationReviewDrawer({
   // queue done.
   const nextRowId = currentIndex >= 0 ? (items[currentIndex + 1]?.item_id ?? "") : "";
 
-  return (
+  // Portaled to <body>: the review modal is position:fixed and needs the viewport as its
+  // containing block. SSR renders nothing (the modal is closed until a row is chosen).
+  if (!portalHost) return null;
+  return createPortal(
     <>
       <div
         className={`vr-modal-scrim${drawerOpen ? " on" : ""}`}
@@ -228,7 +240,8 @@ export function VerificationReviewDrawer({
         canGoForward={canGoForward}
         onStepItem={stepItem}
       />
-    </>
+    </>,
+    portalHost,
   );
 }
 
@@ -615,13 +628,13 @@ function VerificationReviewDrawerPanel({
         <div className="vr-modal-bd">
           <VerificationReviewActionTelemetry status={feedback.status} code={feedback.code} />
           {feedback.status ? (
-            <div className={feedback.status === "success" ? "alert ok" : "alert warn"} style={{ marginBottom: 12 }}>
+            <Alert severity={feedback.status === "success" ? "success" : "warning"} style={{ marginBottom: 12 }}>
               {/* The raw server code (missing_reason, permission_denied, ...) is an internal token
                   and must not be the sentence a verifier reads. Resolve it to backend-owned copy,
                   falling back to the generic failure line rather than leaking the token. */}
               <b>{feedback.status === "success" ? text("feedback.done") : text("feedback.failed")}</b>
               {feedback.code ? <>&nbsp;{feedbackMessage(feedback.code)}</> : null}
-            </div>
+            </Alert>
           ) : null}
 
           {!hasEvidence && (
@@ -881,18 +894,22 @@ function VerificationReviewDrawerPanel({
               )}
               {Object.keys(activeVarianceWarnings).length > 0 ? (
                 /* The second Accept carries this confirmation; keep Accept held until it is ticked. */
-                <label className="fld" style={{ marginBottom: 0, display: "flex", gap: 8, alignItems: "center" }}>
-                  <input
-                    form="verdict-form"
-                    type="checkbox"
-                    name="variance_acknowledged"
-                    value="1"
-                    checked={varianceAcknowledged}
-                    onChange={(e) => setVarianceAcknowledgedFor(e.target.checked ? item.item_id : "")}
-                    disabled={verdictSettled}
-                  />
-                  <span>{text("verdict.variance_confirm_label")}</span>
-                </label>
+                <FormControlLabel
+                  className="fld"
+                  disabled={verdictSettled}
+                  control={
+                    <Checkbox
+                      name="variance_acknowledged"
+                      value="1"
+                      checked={varianceAcknowledged}
+                      onChange={(e) => setVarianceAcknowledgedFor(e.target.checked ? item.item_id : "")}
+                      disabled={verdictSettled}
+                      sx={{ p: { xs: 1.5, sm: 1 } }}
+                      slotProps={{ input: { form: "verdict-form" } }}
+                    />
+                  }
+                  label={<span>{text("verdict.variance_confirm_label")}</span>}
+                />
               ) : null}
               {correction.count_label ? (
                 <label className="fld" style={{ marginBottom: 0 }}>

@@ -49,12 +49,23 @@ WITH live AS MATERIALIZED (
 SELECT 'breed'::text AS dim, breed AS key, breed AS label, count(*)::bigint AS animals
   FROM live GROUP BY breed
 UNION ALL
-SELECT 'stage', stage, stage, count(*)::bigint FROM live GROUP BY stage
+-- Stage is LABELLED from the tenant's stage vocabulary (animal_stage_lookup.name: K1 reads
+-- "Milk training", F2-Male "Fattening male"), joined AFTER aggregation on its (tenant_id,
+-- stage_code) unique key, so strictly 1:{0,1}; a code the vocabulary lacks keeps its own text.
+-- The KEY stays the stored code, so filters and links are unchanged.
+SELECT 'stage', s.stage, COALESCE(NULLIF(btrim(asl.name), ''), s.stage), s.animals
+  FROM (SELECT stage, count(*)::bigint AS animals FROM live GROUP BY stage) s
+  LEFT JOIN animal_stage_lookup asl
+         ON asl.tenant_id = $1::uuid AND asl.stage_code = s.stage
 UNION ALL
-SELECT 'sex', sex, sex, count(*)::bigint FROM live GROUP BY sex
+-- Sex and kid/adult keep their stored lowercase KEYS; the LABEL is the farm's word.
+SELECT 'sex', sex,
+       CASE lower(sex) WHEN 'male' THEN 'Male' WHEN 'female' THEN 'Female' ELSE initcap(sex) END,
+       count(*)::bigint
+  FROM live GROUP BY sex
 UNION ALL
 SELECT 'age', CASE WHEN is_kid THEN 'kid' ELSE 'adult' END,
-              CASE WHEN is_kid THEN 'kid' ELSE 'adult' END,
+              CASE WHEN is_kid THEN 'Kid' ELSE 'Adult' END,
               count(*)::bigint
   FROM live GROUP BY 2, 3
 UNION ALL

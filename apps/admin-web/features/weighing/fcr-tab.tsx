@@ -1,3 +1,4 @@
+import { Caption } from "@/components/app/caption";
 import { CalendarRange, Scale, Sprout, Warehouse, Wheat } from "lucide-react";
 
 import { WorklistPager } from "@/components/worklist-pager";
@@ -126,7 +127,7 @@ function GroupCard({
       <h2 className="h">
         {icon} {copy(pageContract, `section.fcr.${id}.title`)}
       </h2>
-      {caption ? <p className="muted small">{caption}</p> : null}
+      {caption ? <Caption>{caption}</Caption> : null}
       <GroupedBars
         groups={bars}
         series={[
@@ -283,7 +284,7 @@ export function FCRTab({
         <h2 className="h">
           <Wheat className="ic" size={15} aria-hidden /> {copy(pageContract, "section.fcr.pens.title")}
         </h2>
-        <p className="muted small">{copy(pageContract, "section.fcr.pens.caption")}</p>
+        <Caption>{copy(pageContract, "section.fcr.pens.caption")}</Caption>
         <WeightBars
           data={penBars}
           emptyLabel={copy(pageContract, "empty.fcr.body")}
@@ -300,14 +301,14 @@ export function FCRTab({
             {copy(pageContract, "label.fcr.break_even")}: <b>{num(s.break_even_fcr, 1)}</b> {copy(pageContract, "unit.fcr")}
           </p>
         ) : null}
-        <p className="muted small">{copy(pageContract, "note.fcr.excluded")}</p>
+        <Caption>{copy(pageContract, "note.fcr.excluded")}</Caption>
       </section>
 
       <section className="card wchart" aria-label={copy(pageContract, "section.fcr.money.aria")}>
         <h2 className="h">
           <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.fcr.money.title")}
         </h2>
-        <p className="muted small">{copy(pageContract, "section.fcr.money.caption")}</p>
+        <Caption>{copy(pageContract, "section.fcr.money.caption")}</Caption>
         <GroupedBars
           groups={moneyGroups}
           series={[
@@ -328,7 +329,7 @@ export function FCRTab({
             <h2 className="h">
               <CalendarRange className="ic" size={15} aria-hidden /> {copy(pageContract, "section.fcr.weekly.title")}
             </h2>
-            <p className="muted small">{copy(pageContract, "section.fcr.weekly.caption")}</p>
+            <Caption>{copy(pageContract, "section.fcr.weekly.caption")}</Caption>
             <WeightBars
               data={weekBars}
               emptyLabel={copy(pageContract, "empty.fcr.body")}
@@ -349,7 +350,7 @@ export function FCRTab({
 
       <section className="card wtable" aria-label={copy(pageContract, "table.fcr.aria")}>
         <h2 className="h">{copy(pageContract, "table.fcr.title")}</h2>
-        <p className="muted small">{copy(pageContract, "table.fcr.caption")}</p>
+        <Caption>{copy(pageContract, "table.fcr.caption")}</Caption>
         {/* Paged on the page's shared offset/limit, exactly like the shed table on the Pen-wise tab:
             the rows are one read, the window is a query param, and the pager is the shared one. */}
         <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "table.fcr.aria")}>
@@ -366,8 +367,8 @@ export function FCRTab({
           hrefForOffset={pager.hrefForOffset}
           hrefForLimit={pager.hrefForLimit}
         />
-        <p className="muted small">{copy(pageContract, "note.fcr.basis")}</p>
-        <p className="muted small">{copy(pageContract, "note.fcr.filters")}</p>
+        <Caption>{copy(pageContract, "note.fcr.basis")}</Caption>
+        <Caption>{copy(pageContract, "note.fcr.filters")}</Caption>
       </section>
     </>
   );

@@ -55,7 +55,7 @@ export function PensTable({
 }) {
   const columns = columnsFromContract<PensTableRow>(contract, {
     park: { cell: (row) => row.park },
-    shed: { cell: (row) => <b>{row.pen}</b> },
+    shed: { cell: (row) => <b style={{ fontWeight: 600, color: "var(--fg, inherit)" }}>{row.pen}</b> },
     // A pen holding more than one breed reads "Mixed breeds" (backend copy) and is never split
     // across them: one pen average cannot be divided between two cohorts.
     breed: {
@@ -76,7 +76,11 @@ export function PensTable({
       sortValue: (row) => row.animals,
     },
     average_weight: {
-      cell: (row) => `${kg(row.averageKg)} kg`,
+      cell: (row) => (
+        <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+          {kg(row.averageKg)} <span className="muted">kg</span>
+        </span>
+      ),
       meta: { cellClassName: "num" },
       sortValue: (row) => row.averageKg,
     },
@@ -85,9 +89,10 @@ export function PensTable({
         row.gainGPerDay == null ? (
           <span className="muted">{labels.noData}</span>
         ) : (
-          <span className={row.gainGPerDay < 0 ? "neg" : undefined}>
+          <Tag tone={row.gainGPerDay < 0 ? "dng" : row.gainGPerDay === 0 ? "mut" : "ok"}>
+            {row.gainGPerDay > 0 ? "+" : ""}
             {Math.round(row.gainGPerDay).toLocaleString("en-IN")} g
-          </span>
+          </Tag>
         ),
       meta: { cellClassName: "num" },
       // A pen with no gain sorts below every measured one in either direction (the table's

@@ -1,6 +1,12 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { ArrowLeft, CalendarClock, Syringe, UserRound, Warehouse } from "lucide-react";
+import { CalendarClock, Syringe, UserRound, Warehouse } from "lucide-react";
 import {
   getVaccinationShedAnimals,
   getVaccinationShedDetail,
@@ -20,6 +26,8 @@ import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ShedPassportLocalDrawer } from "./shed-passport-local-drawer";
 import { operationalLocationLabel } from "@/lib/operational-location";
+import { PageHeader } from "@/components/app/page-header";
+import { EmptyContent } from "@/components/minimal/empty-content";
 
 const ANIMAL_PAGE_SIZE = 100;
 type ShedStatus = VaccinationShedDetail["status"];
@@ -43,27 +51,8 @@ function shedStatusLabel(pageContract: AdminUiPageContract, status: ShedStatus):
 function NotFoundOrError({ shedId, message, backHref, pageContract }: { shedId: string; message: string; backHref: string; pageContract: AdminUiPageContract }) {
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            <Link href={backHref} className="lk">
-              {copy(pageContract, "crumb")}
-            </Link>
-          </div>
-          <h1>{copy(pageContract, "fallback.title")}</h1>
-          <div className="sub">{message}</div>
-        </div>
-      </div>
-      <section className="card">
-        <div className="bd">
-          <p className="muted small" style={{ marginBottom: 12 }}>
-            {shedId}: {copy(pageContract, "fallback.body")}
-          </p>
-          <Link href={backHref} className="btn">
-            <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back")}
-          </Link>
-        </div>
-      </section>
+      <PageHeader title={copy(pageContract, "fallback.title")} backHref={backHref} crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }, { label: message }]} />
+      <EmptyContent filled title={`${shedId}: ${copy(pageContract, "fallback.body")}`} />
     </div>
   );
 }
@@ -194,28 +183,28 @@ function VaccineBreakdownCard({ detail, pageContract }: { detail: VaccinationShe
         </div>
       ) : (
         <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-          <table>
-            <thead>
-              <tr>
+          <Table>
+            <TableHead>
+              <TableRow>
                 {cols.map((c) => (
-                  <th key={c}>{c}</th>
+                  <TableCell component="th" key={c}>{c}</TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {vaccines.map((v) => (
-                <tr key={v.protocolId}>
-                  <td>
+                <TableRow key={v.protocolId}>
+                  <TableCell>
                     <ClipText title={v.name}>{v.name}</ClipText>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <Tag tone={optionTone(pageContract, "work_state_filter_chips", v.workState) as Tone}>
                       {optionLabel(pageContract, "work_state_filter_chips", v.workState)}
                     </Tag>
-                  </td>
-                  <td className="muted">{v.lastDose ? fmtDate(v.lastDose) : copy(pageContract, "label.placeholder")}</td>
-                  <td className="muted">{v.nextDue ? fmtDate(v.nextDue) : copy(pageContract, "label.placeholder")}</td>
-                  <td>
+                  </TableCell>
+                  <TableCell className="muted">{v.lastDose ? fmtDate(v.lastDose) : copy(pageContract, "label.placeholder")}</TableCell>
+                  <TableCell className="muted">{v.nextDue ? fmtDate(v.nextDue) : copy(pageContract, "label.placeholder")}</TableCell>
+                  <TableCell>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                       <span className="muted small">{v.counts.total}</span>
                       {COUNT_CHIPS.filter(({ field }) => (v.counts[field] ?? 0) > 0).map(({ field, key }) => (
@@ -224,11 +213,11 @@ function VaccineBreakdownCard({ detail, pageContract }: { detail: VaccinationShe
                         </Tag>
                       ))}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </section>
@@ -277,19 +266,19 @@ function AnimalRosterCard({
       ) : (
         <>
           <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-            <table className="shed-animal-roster-table">
-              <thead>
-                <tr>
+            <Table className="shed-animal-roster-table">
+              <TableHead>
+                <TableRow>
                   {cols.map((c) => (
-                    <th key={c}>{c}</th>
+                    <TableCell component="th" key={c}>{c}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((a) => {
                   const href = passportHref(a.goatId);
                   const cell = (content: React.ReactNode, extra?: string, withRowLink = false) => (
-                    <td className={extra}>
+                    <TableCell className={extra}>
                       {withRowLink ? (
                         <LocalOverlayLink
                           href={href}
@@ -301,10 +290,10 @@ function AnimalRosterCard({
                         />
                       ) : null}
                       <span className="shed-animal-roster-cell-content">{content}</span>
-                    </td>
+                    </TableCell>
                   );
                   return (
-                    <tr key={a.goatId} className="shed-animal-roster-row">
+                    <TableRow key={a.goatId} className="shed-animal-roster-row">
                       {cell(<span className="gid">{a.displayId}</span>, undefined, true)}
                       {cell(a.tag1 ?? copy(pageContract, "label.placeholder"), "muted")}
                       {cell(a.tag2 ?? copy(pageContract, "label.placeholder"), "muted")}
@@ -328,11 +317,11 @@ function AnimalRosterCard({
                       {cell(a.lastDose ? fmtDate(a.lastDose) : copy(pageContract, "label.placeholder"), "muted")}
                       {cell(a.nextDue ? fmtDate(a.nextDue) : copy(pageContract, "label.placeholder"), "muted")}
                       {cell(<Tag tone={animalVaccinationWorkTone(a.status)}>{animalVaccinationWorkLabel(pageContract, a.status)}</Tag>)}
-                    </tr>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           {nextCursor && loadMoreHref ? (
             <div className="bd" style={{ paddingTop: 12 }}>
@@ -386,7 +375,7 @@ export async function VaccinationShedDetailPage({
   const detailHref = (extra: Record<string, string | undefined> = {}) => scopeHref(currentPath, scope, detailScope, { drive_due_date: driveDueDate, ...extra });
   const backHref = ret && ret.startsWith("/vaccination") ? ret : `${scopeHref("/vaccination", scope, { mode: "park", park: detail.parkId })}#sheds`;
 
-  const animals: VaccinationShedAnimalRow[] = animalsResult.ok ? animalsResult.data.rows : [];
+  const animals: VaccinationShedAnimalRow[] = animalsResult.ok ? listOrEmpty(animalsResult.data.rows) : [];
   const nextCursor = animalsResult.ok ? animalsResult.data.nextCursor ?? null : null;
   const loadMoreHref = nextCursor ? `${detailHref({ ret, animals_cursor: nextCursor })}#animals` : null;
   const passportHref = (goatId: string) => withHash(detailHref({ ret, animals_cursor: animalsCursor, goat_passport: goatId }), "animals");
@@ -404,24 +393,11 @@ export async function VaccinationShedDetailPage({
 
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            <Link href={backHref} className="lk">
-              {copy(pageContract, "crumb")}
-            </Link>{" "}
-            · {detail.parkName} · <b>{shedDisplayName}</b>
-          </div>
-          <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-            {detail.parkName} · {shedDisplayName}
-          </h1>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <Link href={backHref} className="btn">
-          <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back")}
-        </Link>
-      </div>
+      <PageHeader
+        title={`${detail.parkName} · ${shedDisplayName}`}
+        backHref={backHref}
+        crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }, { label: detail.parkName }, { label: shedDisplayName }]}
+      />
 
       {/* Shed overview — animal-level counts + planned sessions + merged status + capacity headline. */}
       <section className="card" style={{ marginBottom: 14 }}>

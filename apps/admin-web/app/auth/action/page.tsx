@@ -1,3 +1,4 @@
+import { AuthSplitLayout } from "@/layouts/auth-split";
 import { PasswordResetAction } from "@/components/auth/password-reset-action";
 import { type RouteSearchParams } from "@/lib/search-params";
 
@@ -10,36 +11,17 @@ export default async function FirebaseAuthActionPage({ searchParams }: { searchP
   const continueHref = safeContinueHref(firstSearchParam(sp.continueUrl));
 
   return (
-    <main className="login-shell">
-      <aside className="login-brand">
-        <div className="brand">
-          <span className="logo">मे</span>
-          <div style={{ display: "flex", flexDirection: "column", lineHeight: 1 }}>
-            <b>Mesha</b>
-            <small>Admin</small>
-          </div>
-        </div>
-
-        <div className="login-brand-mid">
-          <span className="login-badge">Account recovery</span>
-          <h1 className="login-hero">Reset access for herd operations.</h1>
-          <p className="login-sub muted">Protected recovery for approved Mesha dashboard accounts.</p>
-        </div>
-
-        <p className="login-brand-foot small muted">Access is limited to approved Mesha accounts.</p>
-      </aside>
-
-      <section className="login-panel">
-        <div className="login-card card">
-          <div className="bd" style={{ padding: "26px 28px 30px" }}>
-            <div className="crumb">
-              Mesha <b>Admin</b>
-            </div>
-            <PasswordResetAction mode={mode} oobCode={oobCode} continueHref={continueHref} />
-          </div>
-        </div>
-      </section>
-    </main>
+    <AuthSplitLayout
+      logoText="M"
+      slotProps={{
+        section: {
+          title: "Reset access for herd operations.",
+          subtitle: "Protected recovery for approved Mesha dashboard accounts.",
+        },
+      }}
+    >
+      <PasswordResetAction mode={mode} oobCode={oobCode} continueHref={continueHref} />
+    </AuthSplitLayout>
   );
 }
 

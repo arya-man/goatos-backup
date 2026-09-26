@@ -1,5 +1,10 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { User } from "lucide-react";
-import { ClipText } from "@/components/ui-primitives";
+import { ClipText, Tag } from "@/components/ui-primitives";
 import Link from "@/components/no-prefetch-link";
 import {
   copy,
@@ -45,7 +50,7 @@ export function LiveTrackerOperators({
       <div className="hd">
         <User className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.operators.title")}</h3>
-        <span className="tag t-mut">
+        <Tag tone="mut">
           {rows.length}{" "}
           {rows.length === 1
             ? copy(pageContract, "section.operators.count_suffix_one")
@@ -54,7 +59,7 @@ export function LiveTrackerOperators({
           {parkCount === 1
             ? copy(pageContract, "section.operators.park_suffix_one")
             : copy(pageContract, "section.operators.park_suffix")}
-        </span>
+        </Tag>
         <div className="sp" style={{ flex: 1 }} />
         <span className="small muted">{copy(pageContract, "section.operators.drilldown_note")}</span>
       </div>
@@ -62,16 +67,11 @@ export function LiveTrackerOperators({
       {rows.length === 0 ? (
         <div className="bd lt-empty">
           <div style={{ minWidth: 0, flex: 1 }}>
-            <b style={{ fontSize: 14 }}>
+            <b style={{ fontSize: 14 }} title={hasFilter ? copy(pageContract, "section.operators.filtered_body") : copy(pageContract, "section.operators.empty_body")}>
               {hasFilter
                 ? copy(pageContract, "section.operators.filtered_title")
                 : copy(pageContract, "section.operators.empty_title")}
             </b>
-            <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-              {hasFilter
-                ? copy(pageContract, "section.operators.filtered_body")
-                : copy(pageContract, "section.operators.empty_body")}
-            </span>
           </div>
           {hasFilter ? (
             <Link href={resetHref} replace scroll={false} className="btn sm">
@@ -86,17 +86,17 @@ export function LiveTrackerOperators({
           role="group"
           aria-label={copy(pageContract, "section.operators.title")}
         >
-          <table className="lt-operator-table">
-            <thead>
-              <tr>
+          <Table className="lt-operator-table">
+            <TableHead>
+              <TableRow>
                 {cols.map((label, index) => (
-                  <th key={label} className={index >= 3 && index <= 7 ? "num" : undefined} style={index === 8 ? { minWidth: 150 } : undefined}>
+                  <TableCell component="th" key={label} className={index >= 3 && index <= 7 ? "num" : undefined} style={index === 8 ? { minWidth: 150 } : undefined}>
                     {label}
-                  </th>
+                  </TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => {
                 // The bar tracks CLOSURE, the same fact Remaining is derived from, so the bar, the
                 // Remaining cell and the status pill all describe one thing.
@@ -115,24 +115,24 @@ export function LiveTrackerOperators({
                     ? `${copy(pageContract, "section.operators.idle_prefix")} ${row.idle_minutes} ${copy(pageContract, "section.operators.idle_suffix")}`
                     : optionLabel(pageContract, "live_operator_state", stateKey);
                 return (
-                  <tr key={row.operator_id}>
-                    <td>
+                  <TableRow key={row.operator_id}>
+                    <TableCell>
                       <span className="lt-opname">
                         <span className="lt-avx" aria-hidden="true">{initials(row.operator_name)}</span>
                         <ClipText title={row.operator_name}>{row.operator_name}</ClipText>
                       </span>
-                    </td>
-                    <td>{row.park_code || row.park_name || copy(pageContract, "label.placeholder")}</td>
-                    <td className="lt-shedlbl">
+                    </TableCell>
+                    <TableCell>{row.park_code || row.park_name || copy(pageContract, "label.placeholder")}</TableCell>
+                    <TableCell className="lt-shedlbl">
                       {row.current_shed_label || copy(pageContract, "label.placeholder")}
                       <small>{subLine}</small>
-                    </td>
-                    <td className="num">{row.scheduled_administrations}</td>
-                    <td className="num">{row.proof_videos}</td>
-                    <td className="num">{row.scan_captures}</td>
-                    <td className="num">{row.closed_administrations}</td>
-                    <td className="num">{row.remaining}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="num">{row.scheduled_administrations}</TableCell>
+                    <TableCell className="num">{row.proof_videos}</TableCell>
+                    <TableCell className="num">{row.scan_captures}</TableCell>
+                    <TableCell className="num">{row.closed_administrations}</TableCell>
+                    <TableCell className="num">{row.remaining}</TableCell>
+                    <TableCell>
                       <div className="lt-pcell">
                         <div className="lt-pbar">
                           <i className={tone} style={{ width: `${pct(done, row.scheduled_administrations)}%` }} />
@@ -141,8 +141,8 @@ export function LiveTrackerOperators({
                           {done}/{row.scheduled_administrations}
                         </span>
                       </div>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LiveStateTag
                         pageContract={pageContract}
                         group="live_operator_state"
@@ -151,12 +151,12 @@ export function LiveTrackerOperators({
                       >
                         {stateLabel}
                       </LiveStateTag>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {/* Rows may never vanish silently. The KPI tiles are folded from the untruncated rollup,
               so past the cap the Scheduled tile legitimately reads higher than this table sums —
               which is unreadable unless the page says why. */}

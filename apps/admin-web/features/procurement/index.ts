@@ -12,3 +12,4 @@ export { SalesSoldPage } from "./sales-sold";
 export { SourceEntryBoardPage } from "./source-entry-board";
 export { VendorBoardPage } from "./vendor-board";
 export { warmupMeta } from "./work-state";
+export { ProcurementPageSkeleton } from "@/components/procurement-page-skeleton";

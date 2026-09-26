@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 // FARM VALUATION section on Sales Config (maintainer instruction 2026-09-19; the stage list became
 // the farm's own on 2026-09-24). The herd is valued in the stages written here: what each is
@@ -17,10 +22,11 @@ import { useActionState, useMemo, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { salesErrorText } from "./sales-error";
-import { fmtDateTime } from "@/lib/format";
 import type { ApiResult } from "@/lib/api/server";
 import type { StageRegisterEntry, ValuationAssumptions, ValuationBucket, ValuationStage } from "@/lib/api/sales-valuation-server";
 import { saveValuationAction, type ValuationActionState } from "./valuation-actions";
+import { displayStageLabel, fmtValuationSavedAt, storedStageLabel } from "./valuation-display";
+import Alert from "@mui/material/Alert";
 
 const INITIAL: ValuationActionState = { status: "idle", code: "", message: "", ticket: 0 };
 
@@ -72,8 +78,11 @@ export function ValuationSection({
     setAppliedTicket(state.ticket);
     setStages(null);
   }
-  const rows: EditRow[] = stages ?? (v?.stages ?? []).map((st) => ({ ...st, rid: st.stage }));
   const register: StageRegisterEntry[] = v?.stage_register ?? [];
+  // A seeded stage labelled with its raw code (K0..K3) shows the register's name for that code;
+  // the stored label goes back on save unless the farm edits the name (valuation-display.ts).
+  const storedLabels = useMemo(() => new Map((v?.stages ?? []).map((st) => [st.stage, st.label])), [v]);
+  const rows: EditRow[] = stages ?? (v?.stages ?? []).map((st) => ({ ...st, label: displayStageLabel(st.stage, st.label, register), rid: st.stage }));
 
   const byBucket = useMemo(() => {
     const m = new Map<string, ValuationBucket>();
@@ -95,7 +104,7 @@ export function ValuationSection({
           <h3>{copy(pageContract, "section.valuation.title")}</h3>
         </div>
         <div className="bd">
-          <div className="alert">{result.ok ? copy(pageContract, "error.load") : salesErrorText(result.error, copy(pageContract, "error.load"))}</div>
+          <Alert severity="error">{result.ok ? copy(pageContract, "error.load") : salesErrorText(result.error, copy(pageContract, "error.load"))}</Alert>
         </div>
       </section>
     );
@@ -132,47 +141,47 @@ export function ValuationSection({
               rows.map((s, i) => ({
                 stage: s.stage || stageKeyFromLabel(s.label),
                 field_key: s.stage || s.rid,
-                label: s.label,
+                label: storedLabels.has(s.stage) ? storedStageLabel(s.stage, storedLabels.get(s.stage) ?? "", s.label, register) : s.label,
                 display_order: i + 1,
                 matches: s.matches,
               })),
             )}
           />
           <div className="tablewrap sales-valuation-tablewrap">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>{copy(pageContract, "valuation.stage")}</th>
-                  <th>{copy(pageContract, "valuation.covers")}</th>
+            <Table className="tbl">
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{copy(pageContract, "valuation.stage")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "valuation.covers")}</TableCell>
                   {GENDERS.map((g) => (
-                    <th key={g.key} colSpan={2}>
+                    <TableCell component="th" key={g.key} colSpan={2}>
                       {copy(pageContract, g.copyKey)}
-                    </th>
+                    </TableCell>
                   ))}
-                  <th aria-label={copy(pageContract, "valuation.stage.remove")} />
-                </tr>
-                <tr>
-                  <th />
-                  <th />
+                  <TableCell component="th" aria-label={copy(pageContract, "valuation.stage.remove")} />
+                </TableRow>
+                <TableRow>
+                  <TableCell component="th" />
+                  <TableCell component="th" />
                   {GENDERS.map((g) => [
-                    <th key={`${g.key}-w`} className="small muted">
+                    <TableCell component="th" key={`${g.key}-w`} className="small muted">
                       {copy(pageContract, "valuation.fixed_weight")}
-                    </th>,
-                    <th key={`${g.key}-p`} className="small muted">
+                    </TableCell>,
+                    <TableCell component="th" key={`${g.key}-p`} className="small muted">
                       {copy(pageContract, "valuation.price_per_kg")}
-                    </th>,
+                    </TableCell>,
                   ])}
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
+                  <TableCell component="th" />
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((s, i) => {
                   // A row being added is named by its id until the farm leaves the name field; the
                   // key settles ONCE, on blur, so the figures typed beside it land on it.
                   const key = s.stage || s.rid;
                   return (
-                    <tr key={s.rid} data-stage={key}>
-                      <td>
+                    <TableRow key={s.rid} data-stage={key}>
+                      <TableCell>
                         <input
                           value={s.label}
                           onChange={(e) => edit(i, { label: e.target.value })}
@@ -185,8 +194,8 @@ export function ValuationSection({
                           aria-label={copy(pageContract, "valuation.stage")}
                           data-testid={`valuation-stage-label-${key}`}
                         />
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <div className="valuation-covers">
                           {s.matches.map((m) => (
                             <span key={m} className="chip sm valuation-cover-chip">
@@ -222,12 +231,12 @@ export function ValuationSection({
                             </select>
                           ) : null}
                         </div>
-                      </td>
+                      </TableCell>
                       {GENDERS.map((g) => {
                         const bucket = `${key}_${g.key}`;
                         const b = byBucket.get(bucket);
                         return [
-                          <td key={`${bucket}-w`}>
+                          <TableCell key={`${bucket}-w`}>
                             <input
                               name={`weight_${bucket}`}
                               type="number"
@@ -239,8 +248,8 @@ export function ValuationSection({
                               disabled={!canEdit}
                               aria-label={`${copy(pageContract, "valuation.fixed_weight")} · ${s.label} · ${copy(pageContract, g.copyKey)}`}
                             />
-                          </td>,
-                          <td key={`${bucket}-p`}>
+                          </TableCell>,
+                          <TableCell key={`${bucket}-p`}>
                             <input
                               name={`price_${bucket}`}
                               type="number"
@@ -253,10 +262,10 @@ export function ValuationSection({
                               aria-label={`${copy(pageContract, "valuation.price_per_kg")} · ${s.label} · ${copy(pageContract, g.copyKey)}`}
                               data-testid={`valuation-price-${bucket}`}
                             />
-                          </td>,
+                          </TableCell>,
                         ];
                       })}
-                      <td>
+                      <TableCell>
                         {canEdit ? (
                           <button
                             type="button"
@@ -268,12 +277,12 @@ export function ValuationSection({
                             <X className="ic sm" aria-hidden="true" />
                           </button>
                         ) : null}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <p className="muted small market-config-hint">{copy(pageContract, "valuation.fixed_weight.hint")}</p>
 
@@ -323,7 +332,7 @@ export function ValuationSection({
             ) : null}
             {v.updated_at ? (
               <span className="muted small">
-                {copy(pageContract, "valuation.updated")} {fmtDateTime(v.updated_at)}
+                {copy(pageContract, "valuation.updated")} {fmtValuationSavedAt(v.updated_at)}
                 {v.updated_by_name ? ` · ${v.updated_by_name}` : ""}
               </span>
             ) : null}

@@ -121,6 +121,49 @@ renaming routes does NOT require a clean `.next`:
 If you break the dev server: say so, restart it on the SAME port, and confirm
 every route returns its expected status before reporting done.
 
+## UI must match the MUI Minimal kit (enforced, 2026-09-25)
+
+Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate: `npm run design:guard`.
+
+- **Kit components + tokens only.** Build screens from `components/kit` (Button, AnimatedTabs/CountTabs,
+  MUI TextField select, DateRangeField/DateTimeField/TimeField, InfoHint, EmptyState, TableFooter/PagedRows),
+  MUI Dialog/Drawer + template CustomPopover/MenuList (row actions: `components/app/row-menu`) and `DataTable`/`DenseTable`/`Tag`. Raw `<table>`, `<button>`,
+  `<select>`, `role="tablist"`, `role="dialog"`, `role="tooltip"` and hand-rolled `chip` classes in
+  feature code fail the guard. Sizes, radii, shadows and font sizes come from `var(--…)` tokens; a raw
+  px/radius/shadow/font-size literal outside `app/minimal-tokens.css` fails the guard. Colours stay the
+  locked Mesha green palette in `app/mesha-theme.css`.
+- **Adding a component:** spec (add the measured value to the spec + a token in `minimal-tokens.css`)
+  → kit (`components/kit/<name>.tsx`, exported from `index.ts`) → story (`stories/kit/<Name>.stories.tsx`
+  with default/hover/focus/disabled/error/empty/loading and a 390px variant; the lane captures light and
+  dark) → baseline (`npm run visual:stories:update-baseline -- --only <story>`, PNGs opened). A kit file
+  with no story fails `kit-missing-story`.
+- **A restyle never introduces new UI behaviour.** Changing how something looks must not change what it
+  does (clicks, routes, fetches, copy, which fields show). Behaviour changes are separate PRs.
+- **Never reopen a regression-guard item.** The invariants in `docs/design/redesign-regression-guard.md` (tooltips
+  portaled, charts draw in once, tap targets, sticky axes, drawer layering …) are closed; a change that
+  undoes one is a defect even if it matches the spec.
+- **Mobile webview rules:** every control ≥ `var(--tap-min)` (44px) at phone width, fixed overlays render
+  through kit `BodyPortal`/`Sheet`/`Dialog` (never `position:fixed` in place), `100dvh` not `100vh`, no
+  page sideways scroll; wide tables scroll inside their own card.
+- **Existing debt is a ratchet, not a waiver.** `design-system-waivers.json` → `ratchet` lists
+  `check|file` with an allowed count and reason. A file may only go down; new files have 0. Never raise
+  a count or add an entry to land a change (`--update-baseline` refuses to).
+- **MUI Minimal template is the reference.** `~/mesha/mui/Minimal_TypeScript_v7.7.0` on Ravi's
+  laptop (licensed source, **NOT** committed to the repo). Every admin-web area maps to a template
+  SECTION in `docs/design/route-template-map.json`; a NEW page must add its area in the same change
+  or fail `route-template-map-missing`. Palette is the locked Mesha green — template gives structure,
+  density, motion and interaction patterns only, never brand colours, images or copy.
+- **Production bug CLASSES are automated guards.** `scripts/lib/visual-pattern-guards.mjs` (route
+  visual lane) adds `P-text-icon-overlap`, `P-wide-table-no-wrapper`, `P-chart-axis-tiny` (<11px),
+  `P-pinned-bar-blur-flicker`, `P-drawer-filter-mismatch` and `P-chart-hover-remount`. `raw-chart-lib`
+  refuses recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts — charts are Apex (via
+  `components/minimal/chart` or `components/kit`) or the two inline helpers (`svg-bars`, `svg-series`).
+  Full pattern → guard table: `docs/design/README.md` §5b.
+- **Adding a NEW page (ordering):** template section (`docs/design/route-template-map.json`) →
+  minimal component (`components/minimal/<area>` or a kit component) → story (states + 390 + light/dark)
+  → route in `scripts/smoke-visual-live.mjs` → baseline. Verify at 1440 / 390 / 412, dark + light,
+  chart hover interactive, before push.
+
 ## Product Taxonomy (READ FIRST — do not rename these)
 
 These words have fixed meanings in Goat OS:
@@ -570,6 +613,63 @@ npm run responsive:guard
 Open the generated screenshots under
 `.codex-goatos-render/admin-web-screenshots/` before claiming visual QA.
 
+### Component visual regression (Storybook) — required for every UI change
+
+Route sweeps catch a page that breaks; they do not catch a kit component that
+quietly changes everywhere. `scripts/smoke-stories-visual.mjs` is the
+component-level half and needs NO live app or API:
+
+```bash
+npm run storybook                 # http://localhost:6007, for authoring
+npm run smoke:stories             # build + capture, no baseline compare
+npm run smoke:stories:baseline    # THE GATE: compare against committed baselines
+npm run smoke:stories:update-baseline   # ONLY for an intended visual change
+npm run smoke:visual:all          # stories + route baselines + sales tolerance
+# focused while iterating:
+node scripts/smoke-stories-visual.mjs --no-build --only kit-kpicard
+```
+
+It builds `storybook-static`, serves it locally, and drives Playwright over
+EVERY story at **1440x900 (desktop) and 390x844 (mobile)** in **both themes**
+(4 captures per story), diffing each against
+`.codex-goatos-render/admin-web-story-baselines/<storyId>__<viewport>__<theme>.png`
+with pixelmatch (`--max-diff-ratio`, default 0.01). Play/interaction functions
+run as part of the lane: a story whose play function throws fails the run, so
+tabs, pagination, row menus, selects, dialogs and drawers are asserted as
+behaviour, not just as pixels. Evidence + `summary.json` +
+`diffs/<name>.png` land in
+`.codex-goatos-render/admin-web-story-screenshots/<timestamp>/`.
+
+Flags mirror `smoke-visual-live.mjs` exactly: `--baseline-dir`,
+`--update-baseline`, `--require-baseline`, `--max-diff-ratio`; lane-specific:
+`--only`, `--viewports desktop,laptop,tablet,mobile`, `--themes dark,light`,
+`--no-build`, `--port`. Requires Node 24 (`nvm use 24`) and
+`npx playwright install chromium`.
+
+**Rules for Claude, Codex and any other agent — existing AND future work:**
+
+1. Any change to `components/kit/**`, `features/**` or a page's visual shell
+   requires a story in `stories/` covering its real states (default, selected,
+   disabled, loading, empty, error, long text, many rows) and a 390px variant
+   for every table, tab strip, popup/modal/drawer, pagination control and
+   labelled chart.
+2. `npm run smoke:stories:baseline` must pass on BOTH viewports in BOTH themes
+   before any UI push. Desktop-only proof is not proof.
+3. A baseline is rewritten only when the visual change is INTENDED: run
+   `npm run smoke:stories:update-baseline`, then open the changed PNGs and say
+   in the PR/handoff what changed and why. A silent baseline rewrite is a review
+   finding, the same as a silent waiver.
+4. A new route, tab, drawer-owned URL state or dynamic route still requires the
+   route lanes to be updated in the same change (`smoke-visual-live.mjs` +
+   `smoke-visual-route-coverage.test.mjs`), and its 390px lane must be green.
+5. Never change brand tokens/hex in `app/mesha-theme.css` / `app/minimal-theme.css`
+   to make a diff go away.
+
+Both lanes are registered in `tools/ci/run-local-ci.sh` under the `admin-web`
+job: the story lane always runs (skipped only under `GOATOS_FAST_LOCAL_CI=1`,
+which therefore earns no landing receipt), and the route visual + sales
+tolerance lanes run when `GOATOS_ADMIN_WEB_BASE_URL` is set.
+
 For any admin-web change or review that can affect rendered UI, the visual QA
 scope is laptop plus mobile, not desktop-only. Check every affected page,
 nested page tab, left/right sidebar state, drawer/modal/popover, dynamic detail
@@ -582,6 +682,38 @@ responsive guard coverage as a review finding.
 Do not present screenshots as proof until you have visually opened and confirmed
 they show the intended page/state, not login, loading, an error, or a stale
 route.
+
+Mobile/WebView regression lanes (mandatory for every browser-visible change):
+
+```bash
+npm run smoke:webview:static                             # no app/browser needed
+GOATOS_ADMIN_WEB_BASE_URL=http://127.0.0.1:3300 npm run smoke:webview
+npm run smoke:webview:report                             # nothing waived; what a reviewer reads
+node scripts/check-mobile-webview.mjs --routes <route>   # focused, while iterating
+```
+
+`scripts/check-mobile-webview.mjs` sweeps every smoke route at 1440x900 AND a
+Pixel 5 Android-Chrome profile (393x851, mobile UA, touch, deviceScaleFactor), in
+both themes, and asserts the seven recurring defect classes: no sideways page
+scroll or shrink-to-fit zoom, no element off the viewport, every chart
+axis/category label present, non-empty, visible, unclipped and never `----`, no
+tap target under 44px, sticky headers that stick, overlays above their backdrop
+and clickable, wide tables scrolling inside their card, pagination reachable,
+`100dvh` instead of `100vh`, and filter controls still usable at phone width.
+Evidence lands in `.codex-goatos-render/admin-web-webview/<timestamp>/`
+(`report.json` + a PNG per failing route/viewport/theme) -- open the 393px PNGs
+before claiming visual QA. Waivers live in
+`scripts/check-mobile-webview-waivers/mobile-webview-waivers.json`; rewrite them
+only with `npm run smoke:webview:update-baseline`, read every added line, and
+never while the backend is down (every route would waive a contract-unavailable
+page). Taxonomy + fixes: `.agents/skills/mobile-webview-guard/SKILL.md`.
+
+Design-system gate (same standing): `.agents/skills/design-system/SKILL.md`, then
+`npm run design:guard` (static), `npm run visual:stories` (every story, 1440 + 390, both
+themes, interaction frames, render-integrity) and `npm run visual:routes` (desktop / phone /
+WebView profiles, both themes). `docs/design/README.md` §4 has the exact commands and what each
+lane asserts. Waivers: `scripts/check-design-system-waivers/`, `visual-baselines/*/waivers.json`
+-- shrink-only.
 
 The default smoke lets the calendar drive-target roster be empty (logs
 `identity_calendar_roster=skipped_no_targets`). To hard-assert the

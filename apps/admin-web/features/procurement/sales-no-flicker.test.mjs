@@ -17,7 +17,8 @@ test("Market analytics question and city chips are view-only client state", () =
   assert.match(trend, /^"use client";/);
   assert.doesNotMatch(trend, /<Link\b/, "a view-only pick must never navigate");
   assert.match(trend, /replaceLocalOverlayUrl\(/);
-  assert.match(trend, /aria-pressed=\{q\.id === question\}/);
+  // MUI redesign: the chips are template tabs driven by client state (onChange, no href).
+  assert.match(trend, /onChange=\{\(next\) => pick\(next, city\)\}/);
   const page = read("./market-analytics.tsx");
   assert.doesNotMatch(page, /hrefWithQuery\(sp, \{ question:/);
   assert.doesNotMatch(page, /hrefWithQuery\(sp, \{ city:/);
@@ -52,8 +53,17 @@ test("Summary and Farm value stop reading what their filter does not change", ()
 });
 
 test("a pressed chip or pager says it is busy in place", () => {
-  assert.match(read("./sales-chrome.tsx"), /<LinkPending \/>/);
-  for (const file of ["./sales-sold.tsx", "./sales-buyer-analytics.tsx", "./sales-farm-born.tsx", "./sales-loads.tsx", "./market-analytics.tsx"]) {
-    assert.match(read(file), /<LinkPending \/>/, file);
+  // The farm chips are template pill tabs on the MUI redesign: AnimatedTabs draws its own pending
+  // line (aria-busy) on the pressed strip, which is the in-place busy mark.
+  assert.match(read("./sales-chrome.tsx"), /<LiveQueryTabs/);
+  assert.match(read("../../components/minimal/list/animated-tabs.tsx"), /aria-busy=\{pending \|\| undefined\}/);
+  // Pagers are the template TablePaginationLinks (via ProcurementTableFooter), whose arrows turn
+  // into a spinner while their link is pending; chip strips are AnimatedTabs (pending line above).
+  assert.match(read("../../components/minimal/table/table-pagination-links.tsx"), /const \{ pending \} = useLinkStatus\(\);/);
+  for (const file of ["./sales-sold.tsx", "./sales-buyer-analytics.tsx", "./sales-farm-born.tsx"]) {
+    assert.match(read(file), /<ProcurementTableFooter/, file);
+  }
+  for (const file of ["./sales-loads.tsx", "./market-analytics.tsx"]) {
+    assert.match(read(file), /<AnimatedTabs/, file);
   }
 });

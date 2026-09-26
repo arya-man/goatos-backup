@@ -20,7 +20,9 @@ test("admin root route lands on ADG Analytics when its page contract is present"
   assert.match(rootPageSource, /const LANDING_ROUTE_ID = "weighing-analytics"/);
   assert.match(rootPageSource, /const CONTROL_TOWER_LENS = "control-tower"/);
   assert.match(rootPageSource, /one\(sp, "lens"\) === CONTROL_TOWER_LENS/);
-  assert.match(rootPageSource, /item\.route_id === LANDING_ROUTE_ID/);
+  // The landing page is read in FULL (its copy carries the weights-window settings) via the
+  // page-scoped bootstrap view; the shell's summary view carries no page copy (2026-09-19).
+  assert.match(rootPageSource, /getAdminWebPageContract\(LANDING_ROUTE_ID\)/);
   assert.match(rootPageSource, /import \{ landingWindow, sexFilterFromUrl, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM \} from "@\/features\/weighing";/);
   assert.match(rootPageSource, /import \{ hrefWithWindow \} from "\.\/landing-href\.mjs";/);
   assert.match(rootPageSource, /import \{ parseScope, scopeHref \} from "@\/lib\/scope";/);
@@ -31,7 +33,11 @@ test("admin root route lands on ADG Analytics when its page contract is present"
   assert.match(rootPageSource, /const window = await landingWindow\(/);
   assert.match(landingHrefSource, /next\.set\(WINDOW_FROM_PARAM, from\);/);
   assert.match(landingHrefSource, /next\.set\(WINDOW_TO_PARAM, to\);/);
-  assert.match(rootPageSource, /if \(!requestedControlTower && landing\?\.href\) \{\s*redirect\(await landingHref\(landing, sp\)\);/);
+  // proxy.ts sends "/" to the landing page before any render (one document, one skeleton); the page
+  // keeps the same redirect for principals the proxy cannot see, and skips it on `fallback=1`, which
+  // is the landing page bouncing a principal without the ADG contract back to the fallback below.
+  assert.match(rootPageSource, /const fallbackRequested = one\(sp, "fallback"\) === "1";/);
+  assert.match(rootPageSource, /if \(!requestedControlTower && !fallbackRequested && landing\?\.href\) \{\s*redirect\(await landingHref\(landing, sp\)\);/);
   assert.doesNotMatch(rootPageSource, /redirect\(scopeHref\(landing\.href, parseScope\(sp\)\)\);/);
 });
 

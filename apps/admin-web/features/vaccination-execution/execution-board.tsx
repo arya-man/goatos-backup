@@ -1,3 +1,4 @@
+import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
@@ -17,6 +18,7 @@ import {
   WORK_STATE_ORDER,
 } from "./work-state";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
@@ -268,7 +270,7 @@ export async function VaccinationExecutionBoard({
       limit: requestedBackendLimit,
       cursor: executionCursor,
     }));
-  const allRows: VaccinationExecutionRow[] = result.ok ? result.data.rows : [];
+  const allRows: VaccinationExecutionRow[] = result.ok ? listOrEmpty(result.data.rows) : [];
   const nextCursor = result.ok ? result.data.nextCursor ?? null : null;
 
   let rows = allRows;
@@ -340,36 +342,48 @@ export async function VaccinationExecutionBoard({
         <span className="muted small">
           {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {rows.length} {copy(pageContract, "pager.rows").toLowerCase()}
         </span>
-        <span className="muted small">{copy(pageContract, "section.shed_events.row_hint")}</span>
       </div>
 
-      {/* Severity filter */}
-      <div className="chipset" style={{ marginBottom: 10 }}>
-        <Link href={hrefWith({ severity: "all", exec_cursor: undefined, exec_page: "1" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
-          {copy(pageContract, "label.all_severity")}
-        </Link>
-        {SEVERITY_ORDER.map((s) => {
-          const count = sevCounts.get(s) ?? 0;
-          return (
-            <Link key={s} href={hrefWith({ severity: s, exec_cursor: undefined, exec_page: "1" })} replace scroll={false} className={`chip${severityFilter === s ? " on" : ""}`}>
-              {optionLabel(pageContract, "severity_chips", s)} <Tag tone={severityFilter === s ? (optionTone(pageContract, "severity_chips", s) as Tone) : "mut"}>{count}</Tag>
-            </Link>
-          );
-        })}
+      {/* Severity filter — animated pill tabs (sliding indicator, URL-driven). */}
+      <div style={{ marginBottom: 10 }}>
+      <AnimatedTabs
+        variant="pill"
+        ariaLabel={copy(pageContract, "label.all_severity")}
+        value={severityFilter}
+        items={[
+          { value: "all", label: copy(pageContract, "label.all_severity"), href: hrefWith({ severity: "all", exec_cursor: undefined, exec_page: "1" }) },
+          ...SEVERITY_ORDER.map((s) => ({
+            value: s,
+            label: optionLabel(pageContract, "severity_chips", s),
+            count: sevCounts.get(s) ?? 0,
+            href: hrefWith({ severity: s, exec_cursor: undefined, exec_page: "1" }),
+          })),
+        ]}
+      />
       </div>
 
       {/* Work-state filter board (most-broken first). Server-side filter: always render every state as
           navigation (so selecting one never collapses the board), count only in the unfiltered view. */}
-      <div className="chipset" style={{ marginBottom: 8 }}>
-        <Link href={hrefWith({ state: "all", exec_cursor: undefined, exec_page: "1" })} replace scroll={false} className={`chip${stateFilter === "all" ? " on" : ""}`}>
-          {copy(pageContract, "label.all_states")} {showStateCounts ? <Tag tone={stateFilter === "all" ? "ok" : "mut"}>{allRows.length}</Tag> : null}
-        </Link>
-        {(showStateCounts ? WORK_STATE_ORDER.filter((s) => (stateCounts.get(s) ?? 0) > 0) : WORK_STATE_ORDER).map((s) => (
-          <Link key={s} href={hrefWith({ state: s, exec_cursor: undefined, exec_page: "1" })} replace scroll={false} className={`chip${stateFilter === s ? " on" : ""}`}>
-            {optionLabel(pageContract, "work_state_filter_chips", s)}
-            {showStateCounts ? <> <Tag tone="mut">{stateCounts.get(s) ?? 0}</Tag></> : null}
-          </Link>
-        ))}
+      <div style={{ marginBottom: 10 }}>
+      <AnimatedTabs
+        variant="pill"
+        ariaLabel={copy(pageContract, "label.all_states")}
+        value={stateFilter}
+        items={[
+          {
+            value: "all",
+            label: copy(pageContract, "label.all_states"),
+            count: showStateCounts ? allRows.length : undefined,
+            href: hrefWith({ state: "all", exec_cursor: undefined, exec_page: "1" }),
+          },
+          ...(showStateCounts ? WORK_STATE_ORDER.filter((s) => (stateCounts.get(s) ?? 0) > 0) : WORK_STATE_ORDER).map((s) => ({
+            value: s,
+            label: optionLabel(pageContract, "work_state_filter_chips", s),
+            count: showStateCounts ? (stateCounts.get(s) ?? 0) : undefined,
+            href: hrefWith({ state: s, exec_cursor: undefined, exec_page: "1" }),
+          })),
+        ]}
+      />
       </div>
 
       {/* Honest provenance: counts/rows come from a bounded, server-filtered fetch — not tenant-wide totals. */}
@@ -381,6 +395,7 @@ export async function VaccinationExecutionBoard({
         </>
       )}
 
+      <TabPanel tabKey={`${severityFilter}|${stateFilter}`}>
       {parks.length === 0 ? (
         <section className="card">
           <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", flexWrap: "wrap" }}>
@@ -504,6 +519,7 @@ export async function VaccinationExecutionBoard({
         ) : null}
         </>
       )}
+      </TabPanel>
       <LocalOverlayDrawer
         items={rows.map((row) => shedEventDrawerItem(row, scope, pageContract))}
         selectionKey="shed_event"

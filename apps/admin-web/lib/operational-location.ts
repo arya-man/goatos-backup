@@ -75,6 +75,8 @@ function alreadyEndsWithPartition(shed: string, partitionLabel: string): boolean
   const normalizedShed = shed.trim().replace(/\s+/g, " ").toLowerCase();
   const normalizedPartition = partitionLabel.trim().replace(/\s+/g, " ").toLowerCase();
   if (normalizedPartition === "") return false;
+  // A shed whose name IS the partition ("Fattening" / "Fattening") would read "Fattening - Fattening".
+  if (normalizedShed === normalizedPartition) return true;
   if (isBarNumericPartition(normalizedPartition)) {
     return normalizedShed.endsWith(` ${normalizedPartition}`) ||
       normalizedShed.endsWith(` - part ${normalizedPartition}`) ||

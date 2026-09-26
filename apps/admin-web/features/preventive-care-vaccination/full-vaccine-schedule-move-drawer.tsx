@@ -11,6 +11,8 @@ import { fmtDate, todayIso } from "@/lib/format";
 import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 
 export type ScheduleMoveDrawerRow = {
   eventId: string;
@@ -148,14 +150,23 @@ export function ScheduleMoveDrawer({
           />
           <input type="hidden" name="reason" value={copy(pageContract, "schedule.postpone.reason_default")} />
           <input type="hidden" name="return_to" value={displayedRow.returnTo} />
-          <label>
-            <span>{copy(pageContract, "schedule.postpone.vaccine")}</span>
-            <select name="vaccine_code" required value={selectedVaccineCode} onChange={(event) => setSelectedVaccineCode(event.currentTarget.value)}>
+          <div className="schedule-move-field">
+            <input type="hidden" name="vaccine_code" value={selectedVaccineCode} />
+            <TextField
+              select
+              label={copy(pageContract, "schedule.postpone.vaccine")}
+              value={selectedVaccineCode}
+              onChange={(event) => setSelectedVaccineCode(event.target.value)}
+              sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
               {displayedRow.vaccineCodes.map((code, index) => (
-                <option key={code} value={code}>{displayedRow.vaccineNames[index] ?? code}</option>
+                <MenuItem key={code} value={code}>
+                  {displayedRow.vaccineNames[index] ?? code}
+                </MenuItem>
               ))}
-            </select>
-          </label>
+            </TextField>
+          </div>
           <label>
             <span>{copy(pageContract, "schedule.postpone.new_date")}</span>
             <ThemedDatePicker

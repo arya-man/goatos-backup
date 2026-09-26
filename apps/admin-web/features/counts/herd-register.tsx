@@ -1,11 +1,24 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { randomUUID } from "node:crypto";
-import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Baby, CircleSlash, HeartOff, HeartPulse, Tag as TagIcon } from "lucide-react";
 
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import type { KitTone } from "@/lib/tone";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { GoatGlyph } from "@/components/goat-glyph";
+import { DenseTable } from "@/components/dense-table";
 import { Tag } from "@/components/ui-primitives";
-import { dash } from "@/lib/format";
+import { dash, humanizeEnum } from "@/lib/format";
 import { actionFeedbackCopy, copy, optionalOption, readableOptionKey, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -30,6 +43,8 @@ import { HerdActions, type HerdAnimalStageOption, type HerdOperationalLocationOp
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
 import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "./herd-passport-local-drawer";
 import { operationalLocationLabel } from "@/lib/operational-location";
+import { stageLabel } from "@/lib/stage-labels";
+import Alert from "@mui/material/Alert";
 
 /** A status chip's words: the tenant's own label from the page's option group, never the stored key. */
 function statusLabel(pageContract: AdminUiPageContract, groupId: string, value: string | null | undefined): string {
@@ -127,18 +142,19 @@ function buildHerdSummary(pageContract: AdminUiPageContract, summary: HerdRegist
         { total: 0, active: 0, adult: 0, kid: 0, untaggedKid: 0, dead: 0, sold: 0, culled: 0 },
       )
     : null;
-  const fmt = (value: number | undefined) => (totals ? `${value}` : dash(null));
+  // A real number renders as a count-up tile; an unavailable read stays a dash.
+  const fmt = (value: number | undefined): number | string => (totals && typeof value === "number" ? value : dash(null));
   const unavailable = copy(pageContract, "section.summary.unavailable");
-  const activeSub = totals ? `${totals.active} ${copy(pageContract, "label.live_rows")}` : unavailable;
+  const activeSub = totals ? copy(pageContract, "label.live_rows") : unavailable;
   return [
-    { label: copy(pageContract, "label.total_records"), value: fmt(totals?.total), sub: totals ? copy(pageContract, "label.seeded_goat_rows") : unavailable },
-    { label: copy(pageContract, "label.active"), value: fmt(totals?.active), sub: activeSub },
-    { label: copy(pageContract, "label.adults"), value: fmt(totals?.adult), sub: totals ? copy(pageContract, "label.live_scoped_register") : unavailable },
-    { label: copy(pageContract, "label.kids"), value: fmt(totals?.kid), sub: totals ? copy(pageContract, "label.stage_shed_inferred") : unavailable },
-    { label: copy(pageContract, "label.untagged_kids"), value: fmt(totals?.untaggedKid), sub: totals ? copy(pageContract, "label.identity") : unavailable },
-    { label: copy(pageContract, "label.dead"), value: fmt(totals?.dead), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable },
-    { label: copy(pageContract, "label.sold"), value: fmt(totals?.sold), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable },
-    { label: copy(pageContract, "label.culled"), value: fmt(totals?.culled), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable },
+    { label: copy(pageContract, "label.total_records"), value: fmt(totals?.total), sub: totals ? copy(pageContract, "label.seeded_goat_rows") : unavailable, tone: "primary" as KitTone, icon: <GoatGlyph size={22} /> },
+    { label: copy(pageContract, "label.active"), value: fmt(totals?.active), sub: activeSub, tone: "success" as KitTone, icon: <HeartPulse size={22} /> },
+    { label: copy(pageContract, "label.adults"), value: fmt(totals?.adult), sub: totals ? copy(pageContract, "label.live_scoped_register") : unavailable, tone: "info" as KitTone, icon: <GoatGlyph size={22} /> },
+    { label: copy(pageContract, "label.kids"), value: fmt(totals?.kid), sub: totals ? copy(pageContract, "label.stage_shed_inferred") : unavailable, tone: "info" as KitTone, icon: <Baby size={22} /> },
+    { label: copy(pageContract, "label.untagged_kids"), value: fmt(totals?.untaggedKid), sub: totals ? copy(pageContract, "label.identity") : unavailable, tone: "warning" as KitTone, icon: <TagIcon size={22} /> },
+    { label: copy(pageContract, "label.dead"), value: fmt(totals?.dead), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable, tone: "error" as KitTone, icon: <HeartOff size={22} /> },
+    { label: copy(pageContract, "label.sold"), value: fmt(totals?.sold), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable, tone: "violet" as KitTone, icon: <GoatGlyph size={22} /> },
+    { label: copy(pageContract, "label.culled"), value: fmt(totals?.culled), sub: totals ? copy(pageContract, "label.terminal_rows") : unavailable, tone: "neutral" as KitTone, icon: <CircleSlash size={22} /> },
   ];
 }
 
@@ -191,14 +207,14 @@ export async function HerdRegisterPage({
   // Dedicated key for the reproductive edit drawer so it never shares/replays the register create key.
   const reproductiveIdempotencyKey = randomUUID();
   const animalStages: HerdAnimalStageOption[] = stagesResult.ok
-    ? stagesResult.data.items.map((stage) => ({
+    ? listOrEmpty(stagesResult.data.items).map((stage) => ({
         code: stage.stage_code,
-        label: stage.name ? `${stage.stage_code} · ${stage.name}` : stage.stage_code,
+        label: stage.name ? `${stageLabel(stage.stage_code)} · ${stage.name}` : stageLabel(stage.stage_code),
       }))
     : [];
   const operationalLocations: HerdOperationalLocationOption[] = locations.operationalLocations;
 
-  const goats: GoatRow[] = result.ok ? result.data.items : [];
+  const goats: GoatRow[] = result.ok ? listOrEmpty(result.data.items) : [];
   // Honest state: an unavailable summary read shows a dash, not fabricated numbers.
   const summaryCards = buildHerdSummary(pageContract, summaryResult.ok ? summaryResult.data : null);
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
@@ -224,39 +240,32 @@ export async function HerdRegisterPage({
   }));
 
   return (
-    <div className="screen on">
-      <div className="phead">
-        <div>
-	          <div className="crumb">
-	            {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.herd.title")}</b>
-	          </div>
-	          <h1>{pageContract.title}</h1>
-	        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {/* Import sheet + Register goat open real drawers wired to the generated admin goat clients. */}
-        <HerdActions
-          parks={locations.parks}
-          sheds={locations.sheds}
-          operationalLocations={operationalLocations}
-          operationalLocationsAvailable={locations.available}
-          farms={locations.farms}
-          animalStages={animalStages}
-          locationsAvailable={locations.available}
-          stagesAvailable={stagesResult.ok}
-          idempotencyKey={registerIdempotencyKey}
-          returnTo={returnTo}
-          pageContract={pageContract}
+    <div className="kit-enter screen on">
+      <div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.herd.title") }]}
+          actions={
+            <>
+            <HerdActions
+              parks={locations.parks}
+              sheds={locations.sheds}
+              operationalLocations={operationalLocations}
+              operationalLocationsAvailable={locations.available}
+              farms={locations.farms}
+              animalStages={animalStages}
+              locationsAvailable={locations.available}
+              stagesAvailable={stagesResult.ok}
+              idempotencyKey={registerIdempotencyKey}
+              returnTo={returnTo}
+              pageContract={pageContract}
+            />
+            <Button color="primary" variant="outlined" disabled title={copy(pageContract, "reason.report_pending")}>
+              {copy(pageContract, "action.new_report")}
+            </Button>
+            </>
+          }
         />
-        <button
-          type="button"
-          className="btn"
-          disabled
-          aria-disabled="true"
-	          title={copy(pageContract, "reason.report_pending")}
-          style={{ opacity: 0.5, cursor: "not-allowed" }}
-        >
-	          {copy(pageContract, "action.new_report")}
-        </button>
       </div>
 
       {actionStatus ? (
@@ -265,58 +274,68 @@ export async function HerdRegisterPage({
 	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </div>
         ) : (
-          <div className="alert" style={{ marginBottom: 12 }}>
+          <Alert severity="error" style={{ marginBottom: 12 }}>
 	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;
             <span>
               {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
               {actionDetail ? <span style={{ display: "block", marginTop: 6 }}>{actionDetail}</span> : null}
             </span>
-          </div>
+          </Alert>
         )
       ) : null}
 
-      <div className="grid herd-kpi-grid" style={{ marginBottom: 8 }}>
-        {summaryCards.map((card) => (
-          <div key={card.label} className="kpi" title={copy(pageContract, "section.summary.tooltip")}>
-            <div className="lab">{card.label}</div>
-            <div className="val">{card.value}</div>
-            <div className="dl">
-              <span className="muted">{card.sub}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="note" style={{ marginBottom: 16 }}>
-	        {copy(pageContract, "section.summary.note")}
+      <div style={{ marginBottom: 8 }}>
+        <KpiGrid min={210} className="herd-kpi-grid">
+          {summaryCards.map((card) => (
+            <KpiCard key={card.label} tone={card.tone} icon={card.icon} label={card.label} value={card.value} hint={card.sub} />
+          ))}
+        </KpiGrid>
       </div>
 
       {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
+        <Alert severity="error" style={{ marginBottom: 16 }}>
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
-        </div>
+        </Alert>
       ) : null}
 
-      <section className="card">
-        <div className="hd">
-	          <h3>{copy(pageContract, "section.herd.title")}</h3>
-	          <span className="small muted">{herdContext}</span>
-	          <div className="sp" style={{ flex: 1 }} />
-	          <span className="muted small">{copy(pageContract, "section.herd.row_hint")}</span>
-        </div>
+      <div>
+      <Card>
+        <CardHeader
+          title={copy(pageContract, "section.herd.title")}
+          subheader={herdContext}
+          sx={{ pt: 2.25, px: 2.5, pb: 0, mb: 2 }}
+        />
         <HerdFiltersModalClient rowCount={goats.length} pageSize={pageSize} pageSizeOptions={pageSizeOptions} hasFilters={hasFilter} pageContract={pageContract} />
-	        <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.herd.aria")}>
-          <table className="herd-register-table">
-            <thead>
-              <tr>
+        {/* The footer's dense switch is the one piece of client state this server table needs, so
+            the table rides into DenseTable as a server subtree rather than the page going client. */}
+        <DenseTable
+          className="bd"
+          pagination={{
+            page: Math.max(0, page - 1),
+            rowsPerPage: pageSize,
+            count: -1,
+            // Cursor paging publishes no total, so the range ends at the page; the arrows are real
+            // links and say whether more exists.
+            rangeLabel: goats.length === 0 ? "0" : `${(page - 1) * pageSize + 1}–${(page - 1) * pageSize + goats.length}`,
+            prevHref,
+            nextHref,
+            prevLabel: copy(pageContract, "action.previous"),
+            nextLabel: copy(pageContract, "action.next"),
+          }}
+        >
+          <div style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.herd.aria")}>
+          <Table className="herd-register-table">
+            <TableHead>
+              <TableRow>
 	                {cols.map((c) => (
-	                  <th key={c}>{c}</th>
+	                  <TableCell component="th" key={c}>{c}</TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {goats.length === 0 ? (
-                <tr>
-	                  <td colSpan={cols.length}>
+                <TableRow>
+	                  <TableCell colSpan={cols.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
 	                      {result.ok
 	                        ? hasFilter
@@ -324,90 +343,66 @@ export async function HerdRegisterPage({
 	                          : copy(pageContract, "empty.herd")
 	                        : copy(pageContract, "empty.unavailable")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 goats.map((g) => {
                   const href = hrefWithDrawerParam(pathname, sp, "goat_passport", g.goat_id);
                   return (
-                    <tr key={g.goat_id}>
-                      <td>
+                    <TableRow key={g.goat_id}>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <span className="gid">{g.display_id}</span>
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink mono" scroll={false}>{dash(g.animal_identifier_1)}</LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink mono" scroll={false}>{dash(g.animal_identifier_2)}</LocalOverlayLink>
-                      </td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell className="muted">
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>{locationLabel(g, "park")}</LocalOverlayLink>
-                      </td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell className="muted">
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>{locationLabel(g, "shed")}</LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>{dash(g.breed)}</LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{dash(g.sex)}</LocalOverlayLink>
-                      </td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell>
+                        <LocalOverlayLink href={href} className="celllink" scroll={false}>{humanizeEnum(g.sex)}</LocalOverlayLink>
+                      </TableCell>
+                      <TableCell className="muted">
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {weightLabel(g.weight_kg)}{g.weight_kg ? <span className="muted small"> kg</span> : null}
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone={statusTone(g.lifecycle_status, "lifecycle")}>{statusLabel(pageContract, "herd_lifecycle", g.lifecycle_status)}</Tag>
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone={statusTone(g.health_status, "health")}>{statusLabel(pageContract, "herd_health", g.health_status)}</Tag>
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone={statusTone(g.reproductive_status, "breeding")}>{statusLabel(pageContract, "herd_reproductive", g.reproductive_status)}</Tag>
                         </LocalOverlayLink>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })
               )}
-            </tbody>
-          </table>
-        </div>
-        {prevHref || nextHref || page > 1 ? (
-	          <div className="pager2">
-	            <span className="muted small">
-	              {copy(pageContract, "pager.page")} {page} · {goats.length} {copy(pageContract, goats.length === 1 ? "label.row_singular" : "label.row_plural")}
-	              {nextCursor ? ` · ${copy(pageContract, "pager.scale_note")}` : ` · ${copy(pageContract, "pager.end_note")}`}
-            </span>
-            {prevHref ? (
-              <Link href={prevHref} scroll={false} className="btn sm">
-	                <ChevronLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.previous")}
-              </Link>
-            ) : (
-              <span className="btn sm" aria-disabled="true" style={{ opacity: 0.45, cursor: "not-allowed" }}>
-	                <ChevronLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.previous")}
-              </span>
-            )}
-            {nextHref ? (
-              <Link href={nextHref} scroll={false} className="btn sm">
-	                {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
-              </Link>
-            ) : (
-              <span className="btn sm" aria-disabled="true" style={{ opacity: 0.45, cursor: "not-allowed" }}>
-	                {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
-              </span>
-            )}
+            </TableBody>
+          </Table>
           </div>
-        ) : null}
-      </section>
+        </DenseTable>
+      </Card>
+      </div>
       <HerdPassportLocalDrawer
         items={drawerItems}
         initialSelectedId={selectedGoatId}

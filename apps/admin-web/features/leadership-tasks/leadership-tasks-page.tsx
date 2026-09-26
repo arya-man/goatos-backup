@@ -20,7 +20,10 @@ import { raiseLeadershipTaskAction } from "./actions";
 import { LeadershipTasksBoard } from "./leadership-tasks-board";
 import { LeadershipTasksFilters, type TaskStatusChip } from "./leadership-tasks-filters";
 import { LeadershipTasksTableLazy as LeadershipTasksTable } from "./leadership-tasks-table-lazy";
+import { PageHeader } from "@/components/app/page-header";
+import { RetryButton } from "@/components/app/retry-button";
 import { NewTaskModal } from "./new-task-modal";
+import "./leadership-tasks-kit.css";
 import {
   hasTaskFilters,
   hasTaskNarrowing,
@@ -87,7 +90,15 @@ export function LeadershipTasksPage({
   // Preview rows are READ-ONLY on purpose: no status moves, no comment, no edit, so the fixture
   // drawer can never call a live action with a fake id (judge P1, 2026-09-18).
   const tasks = page ? rowsFromPage(page) : preview ? fixtureTasks.map(readOnlyRow) : [];
-  const scopes = page?.scopes?.length ? page.scopes : preview ? fixtureScopes : [];
+  // A failed list read still gets the scope strip: the three scopes are a fixed vocabulary
+  // (task-url TASK_SCOPES), so the reader can switch to a scope that loads instead of staring at
+  // a dead toolbar. Labels come from the contract; counts are unknown, so none are shown.
+  const scopes = page?.scopes?.length
+    ? page.scopes
+    : preview
+      ? fixtureScopes
+      : fixtureScopes.map((scope) => ({ ...scope, label: copy(pageContract, `scope.${scope.key}`, scope.label), count: undefined as unknown as number, total: undefined }));
+  const readFailed = !page && !preview;
   const selectedTaskID = selectedTaskIDProp ?? params.selectedTaskID;
   const selected = selectedTaskID
     ? selectedTask && selectedTask.task_id === selectedTaskID
@@ -141,7 +152,7 @@ export function LeadershipTasksPage({
 
   const scopeOptions: SegmentedOption[] = scopes.map((scope) => ({
     value: scope.key,
-    label: `${scope.label} (${scopeTotal(scope)})`,
+    label: readFailed ? scope.label : `${scope.label} (${scopeTotal(scope)})`,
     // A scope change restarts paging and drops the selected task: a cursor and a row id from one
     // scope mean nothing in another.
     href: tasksHref(
@@ -279,28 +290,23 @@ export function LeadershipTasksPage({
   return (
     <TaskViewProvider initial={params.view}>
     <div className="screen on lt-page">
-      <div className="phead lt-phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")} / <b>{pageContract.title}</b>
-          </div>
-          <h1>{page?.title || pageContract.title}</h1>
-          <div className="sub">
-            {preview ? copy(pageContract, "state.preview") : pageContract.subtitle}
-          </div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {page?.can_raise ? (
-          <NewTaskModal
-            assignees={assignees}
-            action={raiseLeadershipTaskAction}
-            returnTo={`${TASKS_PATHNAME}?scope=assigned_by_me`}
-            pageContract={pageContract}
-          />
-        ) : preview ? (
-          <Tag tone="ok">{copy(pageContract, "state.can_raise")}</Tag>
-        ) : null}
-      </div>
+      <PageHeader
+        className="lt-phead"
+        title={page?.title || pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+        actions={
+          page?.can_raise || readFailed ? (
+            <NewTaskModal
+              assignees={assignees}
+              action={raiseLeadershipTaskAction}
+              returnTo={`${TASKS_PATHNAME}?scope=assigned_by_me`}
+              pageContract={pageContract}
+            />
+          ) : preview ? (
+            <Tag tone="ok">{copy(pageContract, "state.can_raise")}</Tag>
+          ) : null
+        }
+      />
 
       {params.feedbackStatus ? (
         <TaskFeedbackBanner
@@ -349,9 +355,7 @@ export function LeadershipTasksPage({
             current={scopeKey}
             ariaLabel={copy(pageContract, "scope.aria")}
           />
-        ) : (
-          <div className="lt-unavailable">{copy(pageContract, "state.unavailable_tasks")}</div>
-        )}
+        ) : null}
         <div className="ltb-viewswitch">
           <TaskViewToggle options={viewOptions} ariaLabel={copy(pageContract, "board.view.aria", "Task view")} />
         </div>
@@ -386,6 +390,19 @@ export function LeadershipTasksPage({
       />
       </div>
 
+      {/* The list READ failed (nothing to show in either view): one proper error state with a
+          retry, in the kit's state card — never a bare chip over an empty ground. The scope strip
+          above keeps the other scopes one click away. */}
+      {!page && !preview ? (
+        <div className="kit-state lt-unavailable-state" role="alert">
+          <span className="kit-state-icon" aria-hidden="true">
+            <ClipboardList className="ic" />
+          </span>
+          <b className="kit-state-title">{copy(pageContract, "state.unavailable_tasks")}</b>
+          <RetryButton label={copy(pageContract, "action.retry", "Retry")} />
+        </div>
+      ) : null}
+
       {/* The BOARD sits on the page ground like the Work Board's: its columns are the structure,
           so a card box with a "Team progress · 408" header around them was a frame around a
           frame. The LIST keeps the card: a table wants an edge. */}
@@ -404,17 +421,19 @@ export function LeadershipTasksPage({
             activeFilter={params.filter}
             selectedTaskID={selected?.id}
           />
-          <WorklistPager
-            pageContract={pageContract}
-            offset={displayOffset}
-            limit={params.limit}
-            rowCount={tasks.length}
-            hasMore={Boolean(nextHref)}
-            noun={copy(pageContract, "table.tasks.noun")}
-            pageSizeOptions={pageSizeOptions}
-            hrefForOffset={hrefForOffset}
-            hrefForLimit={hrefForLimit}
-          />
+          {hasTasks ? (
+            <WorklistPager
+              pageContract={pageContract}
+              offset={displayOffset}
+              limit={params.limit}
+              rowCount={tasks.length}
+              hasMore={Boolean(nextHref)}
+              noun={copy(pageContract, "table.tasks.noun")}
+              pageSizeOptions={pageSizeOptions}
+              hrefForOffset={hrefForOffset}
+              hrefForLimit={hrefForLimit}
+            />
+          ) : null}
         </div>
       ) : (
         <section className="card lt-card lt-board-empty" style={{ minWidth: 0 }} data-testid="lt-board-empty">

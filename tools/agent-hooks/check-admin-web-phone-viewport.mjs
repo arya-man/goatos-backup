@@ -81,7 +81,13 @@ function isSource(rel) {
     !/\.(test|spec|stories)\.(tsx)$/.test(rel) &&
     !rel.includes("/node_modules/") &&
     !rel.includes("/.next/") &&
-    !rel.includes("/public/")
+    !rel.includes("/public/") &&
+    // Storybook is a DESKTOP authoring surface, not a shipped phone screen: `storybook-static/`
+    // is a build artifact that re-bundles every stylesheet the guard has already read from
+    // source (so each finding would be counted twice), and `.storybook/` story decorators pin
+    // deliberate 1440/1280/768 preview widths. Neither is a page a phone ever loads.
+    !rel.includes("/storybook-static/") &&
+    !rel.includes("/.storybook/")
   );
 }
 
@@ -96,7 +102,7 @@ function walk(dir, acc = []) {
     const full = join(dir, entry);
     const stat = statSync(full);
     if (stat.isDirectory()) {
-      if (["node_modules", ".next", "build", ".turbo", "public"].includes(entry)) continue;
+      if (["node_modules", ".next", "build", ".turbo", "public", "storybook-static", ".storybook"].includes(entry)) continue;
       walk(full, acc);
       continue;
     }

@@ -8,6 +8,8 @@
 // within the two approved Faro packages (@grafana/faro-web-sdk, @grafana/faro-web-tracing) and
 // has no dependency on the React Router-oriented @grafana/faro-react package.
 import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
+import { AlertTriangle } from "lucide-react";
+import Link from "@/components/no-prefetch-link";
 import { faro } from "@grafana/faro-web-sdk";
 import { adminRouteErrorReference, type NextRouteError } from "@/lib/admin-route-error";
 
@@ -28,18 +30,24 @@ function EmergencyErrorContent({
   reference?: string | null;
 }) {
   return (
-    <main className="wrap" style={{ padding: 24 }}>
-      <section className="card">
-        <h1>Something went wrong</h1>
-        <p className="muted">
-          This screen failed to render. The error has been reported. Try again or reload the page.
-        </p>
-        {reference ? <p className="muted">Error reference: {reference}</p> : null}
-        {onRetry ? (
-          <button type="button" className="btn primary" onClick={onRetry}>
-            Try again
-          </button>
-        ) : null}
+    <main className="kit-page kit-error-page">
+      <section className="kit-state kit-state-inline" role="alert">
+        <span className="kit-state-icon" aria-hidden="true">
+          <AlertTriangle />
+        </span>
+        <h1 className="kit-state-title">Something went wrong</h1>
+        <p className="kit-state-body">This screen failed to render. It has been reported.</p>
+        <div className="kit-state-actions">
+          {onRetry ? (
+            <button type="button" className="btn primary" onClick={onRetry}>
+              Try again
+            </button>
+          ) : null}
+          <Link href="/" className="btn">
+            Go to home
+          </Link>
+        </div>
+        {reference ? <span className="kit-state-ref">Ref {reference}</span> : null}
       </section>
     </main>
   );

@@ -1,4 +1,5 @@
 import type { HerdInsightCard, HerdSignalType } from "@/lib/api/herd-signals";
+import { EmptyState } from "@/components/app/empty-state";
 
 const TYPE_LABEL: Record<HerdSignalType, string> = {
   direct: "Direct",
@@ -52,6 +53,7 @@ function TierIcon({ tier }: { tier: HerdSignalType }) {
 export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
   return (
     <>
+      {/* Honesty disclaimer + reading guide (9384d08f4 / 1f0b71be9): what the tag can and cannot detect. */}
       <div className="banner info">
         <svg className="ic" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="9" />
@@ -76,16 +78,15 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
         </div>
       </div>
       {cards.length === 0 ? (
-        <div className="empty">
-          <div className="eicon">
-            <svg className="ic" viewBox="0 0 24 24">
-              <path d="M3 12h4l3 8 4-16 3 8h4" />
-            </svg>
-          </div>
-          <h4>No insight cards yet</h4>
-          <p>Insights are computed from activity windows written as packets arrive.</p>
-        </div>
+        <EmptyState
+          icon={<svg className="ic" viewBox="0 0 24 24">
+            <path d="M3 12h4l3 8 4-16 3 8h4" />
+          </svg>}
+          title="No insight cards yet"
+          description="Insights are computed from activity windows written as packets arrive."
+        />
       ) : (
+        <>
         <div className="grid2">
           {cards.map((card) => (
             <div key={card.key} className="insight">
@@ -101,11 +102,12 @@ export function HerdSignalsInsights({ cards }: { cards: HerdInsightCard[] }) {
                   <small style={{ fontSize: 13, color: "var(--muted)", marginLeft: 4 }}>{card.unit}</small>
                 ) : null}
               </div>
-              <div className="if">{card.formula}</div>
-              {card.caveat ? <div className="idis">{card.caveat}</div> : null}
+              {/* One-line meta: the formula, with the caveat on hover rather than as a paragraph. */}
+              <div className="if" title={card.caveat ?? undefined}>{card.formula}</div>
             </div>
           ))}
         </div>
+        </>
       )}
     </>
   );

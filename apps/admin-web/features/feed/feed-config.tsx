@@ -1,7 +1,12 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { Tag } from "@/components/ui-primitives";
 import { Fragment } from "react";
 import { fmtClock, fmtGrams, fmtSplit } from "./feed-config-format";
 import { redirect } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
 
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location";
@@ -23,6 +28,7 @@ import {
 import { getCensusLocations, listAllFeedConfigPens } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { all, one, type RouteSearchParams } from "@/lib/search-params";
+import { PageHeader } from "@/components/app/page-header";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
@@ -50,6 +56,8 @@ import {
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
 import { groupMissingRates, groupRetiredFeedGaps, type MissingRate, type RetiredFeedGaps } from "./missing-rates";
+import { stageLabel } from "@/lib/stage-labels";
+import Alert from "@mui/material/Alert";
 
 // Feed -> Feed Config. The authored input the daily generation reads: the ration grid, the per-shed
 // factors, the park's session split, and the dispatch clock.
@@ -243,9 +251,7 @@ function SectionError({
 }) {
   if (!result || result.ok) return null;
   return (
-    <div className="alert" style={{ marginBottom: 16 }}>
-      <AlertTriangle className="ic" aria-hidden="true" />
-      <div>
+    <Alert severity="error" style={{ marginBottom: 16 }}><div>
         <b>{copy(pageContract, titleKey)}</b>
         <div className="small muted">
           {/* The message only: the machine code ("invalid_filter", "internal_error") is for logs. A
@@ -253,7 +259,7 @@ function SectionError({
           {result.error.code === "invalid_field" ? copy(pageContract, "state.bad_link") : result.error.message}
         </div>
       </div>
-    </div>
+    </Alert>
   );
 }
 
@@ -591,7 +597,7 @@ export async function FeedConfigPage({
   // grid-derived set so the filter never goes empty.
   const uniqueSorted = (values: string[]) => Array.from(new Set(values)).sort();
   const dedupe = (values: string[]) => Array.from(new Set(values));
-  const toOptions = (values: string[]) => values.map((value) => ({ value, label: value }));
+  const toOptions = (values: string[]) => values.map((value) => ({ value, label: stageLabel(value) }));
   const byDisplayOrder = <T extends { display_order: number }>(rows: readonly T[]) =>
     [...rows].sort((a, b) => a.display_order - b.display_order);
 
@@ -636,6 +642,8 @@ export async function FeedConfigPage({
       value: scope.parkId,
       allowAll: false,
       disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
+      // The single-park constraint (and which park was read when nobody chose one) is this field's helper.
+      note: scope.parkSource === "fallback" && parkName ? `${copy(pageContract, "notice.park_scope_fallback")} ${parkName}` : undefined,
       options: parksByCode.map((park) => ({ value: park.id, label: park.code || park.name })),
     },
     // BREED is the ONLY cohort control here. The options are real breeds from the breed ->
@@ -749,17 +757,11 @@ export async function FeedConfigPage({
   const splitMismatch = activeSessions.length > 0 && splitTotalMilli !== 10000;
 
   return (
-    <div className="screen on">
+    <div className="kit-enter screen on">
       <FeedFaroView routeId={pageContract.route_id} parkId={scope.parkId} />
 
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.ration_grid.title")}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
+      <div>
+      <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.ration_grid.title") }]} />
       </div>
 
       {/* Nobody chose this park — the top bar is company-wide and the page has no park param, so the
@@ -767,30 +769,23 @@ export async function FeedConfigPage({
           screen that shows one park's sheds while the top bar reads company-wide, which is how a
           whole park goes missing with no on-screen sign. Not an error: this page is single-park by
           construction, so it is a notice rather than the .alert used for the split mismatch. */}
-      {scope.parkSource === "fallback" && parkName ? (
-        <div className="note" style={{ marginBottom: 16 }}>
-          {copy(pageContract, "notice.park_scope_fallback")} <b>{parkName}</b>
-        </div>
-      ) : null}
+      {/* The park constraint is the Park filter's helper (InfoHint on the field), not a paragraph. */}
 
       {locations.parks.length === 0 ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>{copy(pageContract, "state.parks_unavailable")}</div>
-        </div>
+        <Alert severity="error" style={{ marginBottom: 16 }}><div>{copy(pageContract, "state.parks_unavailable")}</div>
+        </Alert>
       ) : null}
 
       <SectionError result={ratesResult} titleKey="state.ration_grid_unavailable" pageContract={pageContract} />
 
       {/* ---------------------------------------------------------------- ration grid (editable) */}
+      <div>
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.ration_grid.title")}</h3>
-          <span className="small muted">{copy(pageContract, "section.ration_grid.caption")}</span>
         </div>
         {retiredFeeds.sessions.length + retiredFeeds.experimentPens.length > 0 ? (
-          <div className="alert" style={{ margin: "0 14px 12px" }} role="group" aria-label={copy(pageContract, "section.retired_feeds.title")}>
-            <AlertTriangle className="ic" aria-hidden="true" />
+          <Alert severity="warning" style={{ margin: "0 14px 12px" }} role="group" aria-label={copy(pageContract, "section.retired_feeds.title")}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div>
                 <b>{copy(pageContract, "section.retired_feeds.title")}</b> · {copy(pageContract, "section.retired_feeds.caption")}
@@ -809,27 +804,26 @@ export async function FeedConfigPage({
                 ))}
               </ul>
             </div>
-          </div>
+          </Alert>
         ) : null}
         {missingRates.length > 0 ? (
-          <div className="alert" style={{ margin: "0 14px 12px" }} role="group" aria-label={copy(pageContract, "kpi.gaps.label")}>
-            <AlertTriangle className="ic" aria-hidden="true" />
+          <Alert severity="warning" style={{ margin: "0 14px 12px" }} role="group" aria-label={copy(pageContract, "kpi.gaps.label")}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div>
                 <b>{copy(pageContract, "kpi.gaps.label")}</b> · {copy(pageContract, "section.missing_rates.caption")}
               </div>
               <div className="feed-scroll" style={{ overflowX: "auto", marginTop: 8 }}>
-                <table className="feed-table" aria-label={copy(pageContract, "kpi.gaps.label")}>
-                  <tbody>
+                <Table className="feed-table" aria-label={copy(pageContract, "kpi.gaps.label")}>
+                  <TableBody>
                     {missingRates.map((gap) => (
-                      <tr key={`${gap.rationGroup}|${gap.shedTag}|${gap.feedItem}`}>
-                        <td>{gap.rationGroup}</td>
-                        <td>{gap.shedTag}</td>
-                        <td>{gap.feedItem}</td>
-                        <td className="muted small" style={{ whiteSpace: "normal" }}>
+                      <TableRow key={`${gap.rationGroup}|${gap.shedTag}|${gap.feedItem}`}>
+                        <TableCell>{gap.rationGroup}</TableCell>
+                        <TableCell>{gap.shedTag}</TableCell>
+                        <TableCell>{gap.feedItem}</TableCell>
+                        <TableCell className="muted small" style={{ whiteSpace: "normal" }}>
                           {copy(pageContract, "label.missing_rate_pens")} {gap.pens.join(", ")}
-                        </td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
                           <RationRateEditor
                             pageContract={pageContract}
                             action={saveRationRate}
@@ -838,14 +832,14 @@ export async function FeedConfigPage({
                             shedTag={gap.shedTag}
                             feedItem={gap.feedItem}
                           />
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </div>
-          </div>
+          </Alert>
         ) : null}
         {/* STAGED, not applied per control. Six filters sit on this bar and an author normally
             narrows by several at once — park, then breed, then item — and every one of those picks
@@ -885,13 +879,11 @@ export async function FeedConfigPage({
             ariaLabel={copy(pageContract, "table.ration_grid.aria")}
             action={saveRationRate}
             empty={
-              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                {!ratesResult || ratesResult.ok
+                !ratesResult || ratesResult.ok
                   ? hasGridFilter
                     ? copy(pageContract, "empty.ration_grid_filtered")
                     : copy(pageContract, "empty.ration_grid")
-                  : copy(pageContract, "state.ration_grid_unavailable")}
-              </div>
+                  : copy(pageContract, "state.ration_grid_unavailable")
             }
           />
         </div>
@@ -911,6 +903,7 @@ export async function FeedConfigPage({
         />
         </FeedFilters>
       </section>
+      </div>
 
 
       {/* Feed items are NOT on this page (maintainer instruction 2026-09-22: "I should not see feed
@@ -934,6 +927,7 @@ export async function FeedConfigPage({
           head count, and the workflow switch all describe one pen rather than a cell, and rather
           than a whole shed: Mandela 1's ten pens each carry their own arm and head count. */}
       <SectionError result={experimentResult} titleKey="state.experiment_unavailable" pageContract={pageContract} />
+      <div>
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.experiment.title")}</h3>
@@ -944,13 +938,13 @@ export async function FeedConfigPage({
               really is one park's and carries no park column. The NAME is live data from the
               locations master; both LABELS stay backend-owned. */}
           {experimentAllParks ? (
-            <span className="tag t-mut" title={copy(pageContract, "filter.park_label")}>
+            <Tag tone="mut" title={copy(pageContract, "filter.park_label")}>
               {copy(pageContract, "label.all_parks")}
-            </span>
+            </Tag>
           ) : experimentParkName ? (
-            <span className="tag t-mut" title={copy(pageContract, "filter.park_label")}>
+            <Tag tone="mut" title={copy(pageContract, "filter.park_label")}>
               {experimentParkName}
-            </span>
+            </Tag>
           ) : null}
           <span className="small muted">{copy(pageContract, "section.experiment.caption")}</span>
           <div className="sp" style={{ flex: 1 }} />
@@ -989,26 +983,26 @@ export async function FeedConfigPage({
           role="group"
           aria-label={copy(pageContract, "section.experiment.aria")}
         >
-          <table className="feed-table" aria-label={copy(pageContract, "table.experiment.aria")}>
-            <thead>
-              <tr>
+          <Table className="feed-table" aria-label={copy(pageContract, "table.experiment.aria")}>
+            <TableHead>
+              <TableRow>
                 {/* Headers wrap in THIS table only. "Head count (informational)" is a deliberately
                     long header — the parenthetical is what stops anyone multiplying by it — and held
                     on one line it reserved a column far wider than the two-digit counts under it.
                     Wrapping the header costs a line of height and keeps the whole table inside its
                     container, matching the four tables above. The DATA cells stay nowrap. */}
                 {experimentCols.map((col) => (
-                  <th key={col} style={{ whiteSpace: "normal" }}>
+                  <TableCell component="th" key={col} style={{ whiteSpace: "normal" }}>
                     {col}
-                  </th>
+                  </TableCell>
                 ))}
-                <th style={{ whiteSpace: "normal" }}>{copy(pageContract, "action.edit_experiment_cell")}</th>
-              </tr>
-            </thead>
-            <tbody>
+                <TableCell component="th" style={{ whiteSpace: "normal" }}>{copy(pageContract, "action.edit_experiment_cell")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {experimentSheds.length === 0 ? (
-                <tr>
-                  <td colSpan={experimentCols.length + 1}>
+                <TableRow>
+                  <TableCell colSpan={experimentCols.length + 1}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                       {/* THREE different states, and telling them apart is the whole point. A failed
                           read is an error. An empty UNFILTERED table is a real, meaningful fact: this
@@ -1023,8 +1017,8 @@ export async function FeedConfigPage({
                           : copy(pageContract, "empty.experiment")
                         : copy(pageContract, "state.experiment_unavailable")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 experimentSheds.map((shed) => {
                   // The backend composes this ("Mandela 1 - Part 3"); it is rendered verbatim rather
@@ -1035,7 +1029,7 @@ export async function FeedConfigPage({
 	                    shed.locationDisplay || shedNameById.get(shed.shedId) || shed.shedId;
 	                  const partition = shed.partitionLabel;
 	                  return (
-                    // Fragment.key, not a key on the first <tr>: a pen contributes SEVERAL sibling
+                    // Fragment.key, not a key on the first <TableRow>: a pen contributes SEVERAL sibling
                     // rows, so the fragment is the list item React reconciles and the key belongs on
                     // it. Keying only the inner rows leaves the fragment itself unkeyed.
                     //
@@ -1046,15 +1040,15 @@ export async function FeedConfigPage({
 	                    <Fragment key={shed.shedId + "#partition:" + partition}>
                       {/* One header row per PEN carrying its arm, head count and the workflow
                           switch, then one row per authored feed item beneath it. */}
-                      <tr>
+                      <TableRow>
                         {/* Park, as its own column. The section can now span BOTH parks, and the shed
                             name cannot disambiguate them -- Castro, Gandhi and Yashoda each exist in
                             both. Muted because in a single-park view it repeats the header chip; it
                             is the cross-park view that needs it. */}
-                        <td className="muted">{parkCodeById.get(shed.parkId) ?? shed.parkName}</td>
-                        <td>
+                        <TableCell className="muted">{parkCodeById.get(shed.parkId) ?? shed.parkName}</TableCell>
+                        <TableCell>
                           <b>{shedName}</b>
-                        </td>
+                        </TableCell>
                         {/* The ONLY wrapping cell in this table. Arms are descriptive prose from the
                             workbook and run long ("Mixed (9 Goat F, 1 Sheep F, 5 Goat M) NEW -
                             warmup 20:80"); left nowrap they pushed the table 218px past its
@@ -1063,13 +1057,13 @@ export async function FeedConfigPage({
                             that bans wrapping SHORT business values (RFIDs, dates, "female") which
                             shred into vertical character columns. A sentence-shaped label wrapping
                             to two lines is the correct rendering for it. */}
-                        <td
+                        <TableCell
                           title={copy(pageContract, "label.experiment_category_note")}
                           style={{ maxWidth: 200, whiteSpace: "normal", overflowWrap: "break-word" }}
                         >
-                          {shed.category}
-                        </td>
-                        <td
+                          {stageLabel(shed.category)}
+                        </TableCell>
+                        <TableCell
                           className="muted"
                           style={{ fontVariantNumeric: "tabular-nums" }}
                           title={copy(pageContract, "label.experiment_head_count_note")}
@@ -1077,7 +1071,7 @@ export async function FeedConfigPage({
                           {/* A LIVE census, so 0 is printed as 0: an experiment pen the animals have
                               left is exactly what an author needs to see. */}
                           {shed.liveHeadCount}
-                        </td>
+                        </TableCell>
                         {/* Spans feed_item + quantity + status. Those three are per-CELL values
                             and are blank on a shed header row, so the span reads as a shed-level
                             banner rather than as a value of any one column — and it reaches the
@@ -1085,7 +1079,7 @@ export async function FeedConfigPage({
                             keeps the label from being clipped: the workflow chip is far wider than
                             the per-row status chips the status column is sized for, and squeezing
                             it into that column alone truncated it mid-word. */}
-                        <td colSpan={3}>
+                        <TableCell colSpan={3}>
                           <span
                             className={shed.active ? "tag t-pur" : "tag t-mut"}
                             title={copy(
@@ -1095,8 +1089,8 @@ export async function FeedConfigPage({
                           >
                             {copy(pageContract, shed.active ? "label.experiment_active" : "label.experiment_retired")}
                           </span>
-                        </td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                             {/* The switch offers the OPPOSITE of the current state, so the button
                                 always names the change it makes rather than the state it is in. */}
@@ -1129,8 +1123,8 @@ export async function FeedConfigPage({
                               />
                             ) : null}
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                       {/* A pen returned to the normal grid shows its header row only (maintainer
                           request 2026-09-18). Its cells are retained on the backend so a restore
                           brings the same quantities back, but while the pen is fed from the ration
@@ -1156,13 +1150,13 @@ export async function FeedConfigPage({
                         // The muted weight still sets it apart from a quantity that is actually fed.
                         const authoredZero = isConfiguredZero(quantity);
                         return (
-                          <tr key={row.experiment_config_id}>
-                            <td />
-                            <td />
-                            <td />
-                            <td />
-                            <td>{row.feed_item}</td>
-                            <td
+                          <TableRow key={row.experiment_config_id}>
+                            <TableCell />
+                            <TableCell />
+                            <TableCell />
+                            <TableCell />
+                            <TableCell>{row.feed_item}</TableCell>
+                            <TableCell
                               title={copy(
                                 pageContract,
                                 perAnimal
@@ -1184,13 +1178,13 @@ export async function FeedConfigPage({
                                   {unit}
                                 </span>
                               </span>
-                            </td>
-                            <td>
+                            </TableCell>
+                            <TableCell>
                               <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>
                                 {copy(pageContract, row.status === "active" ? "label.status_active" : "label.status_retired")}
                               </span>
-                            </td>
-                            <td>
+                            </TableCell>
+                            <TableCell>
                               <ExperimentCellEditor
                                 pageContract={pageContract}
                                 action={saveExperimentCell}
@@ -1201,16 +1195,16 @@ export async function FeedConfigPage({
                                 experimentCategory={row.experiment_category}
                                 gramsPerHead={row.grams_per_head}
                               />
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         );
                       })}
                     </Fragment>
                   );
                 })
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         {/* The experiment section paginates too. It had no pager while the ration grid above did, so
@@ -1231,9 +1225,11 @@ export async function FeedConfigPage({
         />
         </FeedFilters>
       </section>
+      </div>
 
       {/* ------------------------------------------------------------- session template (editable) */}
       <SectionError result={sessionsResult} titleKey="state.session_template_unavailable" pageContract={pageContract} />
+      <div>
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.session_template.title")}</h3>
@@ -1242,7 +1238,7 @@ export async function FeedConfigPage({
         {/* Its own full-width row under the header, never inside it: the open form holds a name and
             a share per session, which the header's single line cannot lay out. */}
         {scope.parkId && sessions ? (
-          <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--line)" }}>
+          <div style={{ padding: "var(--sp-1h) var(--sp-2)", borderBottom: "1px solid var(--line)" }}>
             <SessionPlanEditor
               pageContract={pageContract}
               action={saveSessionPlan}
@@ -1258,41 +1254,41 @@ export async function FeedConfigPage({
           role="group"
           aria-label={copy(pageContract, "section.session_template.aria")}
         >
-          <table className="feed-table" aria-label={copy(pageContract, "table.session_template.aria")}>
-            <thead>
-              <tr>
+          <Table className="feed-table" aria-label={copy(pageContract, "table.session_template.aria")}>
+            <TableHead>
+              <TableRow>
                 {sessionCols.map((col) => (
-                  <th key={col}>{col}</th>
+                  <TableCell component="th" key={col}>{col}</TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {(sessions?.items ?? []).length === 0 ? (
-                <tr>
-                  <td colSpan={sessionCols.length}>
+                <TableRow>
+                  <TableCell colSpan={sessionCols.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                       {!sessionsResult || sessionsResult.ok
                         ? copy(pageContract, "empty.session_template")
                         : copy(pageContract, "state.session_template_unavailable")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 (sessions?.items ?? []).map((row) => (
-                  <tr key={row.session_template_id}>
-                    <td style={{ fontVariantNumeric: "tabular-nums" }}>{row.session_no}</td>
-                    <td>{row.session_label}</td>
-                    <td
+                  <TableRow key={row.session_template_id}>
+                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.session_no}</TableCell>
+                    <TableCell>{row.session_label}</TableCell>
+                    <TableCell
                       style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}
                       title={copy(pageContract, "label.session_split_note")}
                     >
                       {fmtSplit(row.split_fraction)}
-                    </td>
+                    </TableCell>
                     {/* The recipe. Cells are rendered POSITIONALLY against the contract's column
                         list, so this sits between split_fraction and status exactly as the contract
                         orders them — a column added to one side only shifts every header sideways,
                         which is what TestFeedTableColumnsAreExact pins. */}
-                    <td style={{ whiteSpace: "normal" }}>
+                    <TableCell style={{ whiteSpace: "normal" }}>
                       <SessionFeedsCell
                         pageContract={pageContract}
                         action={saveSessionFeed}
@@ -1301,28 +1297,28 @@ export async function FeedConfigPage({
                         items={row.items ?? []}
                         catalogItems={catalogItems}
                       />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>
                         {copy(pageContract, row.status === "active" ? "label.status_active" : "label.status_retired")}
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </section>
+      </div>
       {splitMismatch ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>{copy(pageContract, "state.split_mismatch")}</div>
-        </div>
+        <Alert severity="error" style={{ marginBottom: 16 }}><div>{copy(pageContract, "state.split_mismatch")}</div>
+        </Alert>
       ) : null}
 
       {/* -------------------------------------------------------------- feeding schedule (editable) */}
       <SectionError result={scheduleResult} titleKey="state.schedule_unavailable" pageContract={pageContract} />
+      <div>
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.schedule.title")}</h3>
@@ -1335,66 +1331,66 @@ export async function FeedConfigPage({
           role="group"
           aria-label={copy(pageContract, "section.schedule.aria")}
         >
-          <table className="feed-table" aria-label={copy(pageContract, "table.schedule.aria")}>
-            <thead>
-              <tr>
+          <Table className="feed-table" aria-label={copy(pageContract, "table.schedule.aria")}>
+            <TableHead>
+              <TableRow>
                 {scheduleCols.map((col) => (
-                  <th key={col}>{col}</th>
+                  <TableCell component="th" key={col}>{col}</TableCell>
                 ))}
-                <th>{copy(pageContract, "action.edit_schedule")}</th>
-              </tr>
-            </thead>
-            <tbody>
+                <TableCell component="th">{copy(pageContract, "action.edit_schedule")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {(schedule?.items ?? []).length === 0 && missingScheduleWorkflows.length === 0 ? (
-                <tr>
-                  <td colSpan={scheduleCols.length + 1}>
+                <TableRow>
+                  <TableCell colSpan={scheduleCols.length + 1}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                       {!scheduleResult || scheduleResult.ok
                         ? copy(pageContract, "empty.schedule")
                         : copy(pageContract, "state.schedule_unavailable")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 (schedule?.items ?? []).map((row) => (
-                  <tr key={row.schedule_config_id}>
-                    <td>
+                  <TableRow key={row.schedule_config_id}>
+                    <TableCell>
                       <span className={row.workflow === "experiment" ? "tag t-pur" : "tag t-ok"}>
                         {copy(
                           pageContract,
                           row.workflow === "experiment" ? "label.workflow_experiment" : "label.workflow_normal",
                         )}
                       </span>
-                    </td>
+                    </TableCell>
                     {/* Each cell carries the contract's explanation of what its time DOES. These
                         three moments sit hours apart on the same afternoon, so without it the pair
                         14:00 / 15:45 reads as a feeding window rather than issue-and-cutoff. */}
-                    <td
+                    <TableCell
                       style={{ fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.direction_time_note")}
                     >
                       {fmtClock(row.direction_time)}
-                    </td>
-                    <td
+                    </TableCell>
+                    <TableCell
                       style={{ fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.correction_time_note")}
                     >
                       {fmtClock(row.correction_time)}
-                    </td>
+                    </TableCell>
                     {/* An omitted transport time means the park declared NO cutoff — that is UNKNOWN,
                         and rendering it as a blank cell would read as "no deadline". The contract's
                         placeholder is used so the gap is visible as a gap. */}
-                    <td
+                    <TableCell
                       className="muted"
                       style={{ fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.transport_time_note")}
                     >
                       {row.transport_time ? fmtClock(row.transport_time) : copy(pageContract, "label.placeholder")}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <EffectiveWindow validFrom={row.valid_from} validTo={row.valid_to} pageContract={pageContract} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <ScheduleEditor
                         pageContract={pageContract}
                         action={saveSchedule}
@@ -1404,8 +1400,8 @@ export async function FeedConfigPage({
                         correctionTime={row.correction_time}
                         transportTime={row.transport_time}
                       />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
               {/* A park with no schedule for a workflow gets NO feed direction or packing for it --
@@ -1413,14 +1409,14 @@ export async function FeedConfigPage({
                   Configuration > Items & settings starts in exactly that state, so each missing
                   workflow gets its own row here with a set-schedule control. */}
               {missingScheduleWorkflows.map((workflow) => (
-                <tr key={`missing-${workflow.key}`}>
-                  <td>
+                <TableRow key={`missing-${workflow.key}`}>
+                  <TableCell>
                     <span className={workflow.key === "experiment" ? "tag t-pur" : "tag t-ok"}>{workflow.label}</span>
-                  </td>
-                  <td colSpan={Math.max(scheduleCols.length - 1, 1)}>
+                  </TableCell>
+                  <TableCell colSpan={Math.max(scheduleCols.length - 1, 1)}>
                     <span className="tag t-warn">{copy(pageContract, "label.schedule_missing")}</span>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <ScheduleEditor
                       pageContract={pageContract}
                       action={saveSchedule}
@@ -1430,13 +1426,14 @@ export async function FeedConfigPage({
                       correctionTime=""
                       editLabelKey="action.add_schedule"
                     />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </section>
+      </div>
     </div>
   );
 }

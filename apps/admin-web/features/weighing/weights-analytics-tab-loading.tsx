@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Skeleton, SkeletonTable } from "@/components/app/page-skeletons";
 
 export function WeightsAnalyticsTabLoading({
   currentTab,
@@ -37,23 +38,18 @@ export function WeightsAnalyticsTabLoading({
 
   if (!activePendingTab) return null;
 
+  // Shape-matched to the pen table the tab resolves into: a table card (radius, padding), header
+  // band and eight rows on the real column widths (park · pen · weighing chip · count · avg ·
+  // gain · total · date), shimmer sweep, nothing wider than the card.
+  const tracks = activePendingTab === "general" ? ["1.4fr", "1fr", "1fr", "1fr", "1fr"] : ["0.9fr", "1.3fr", "1fr", "0.7fr", "0.8fr", "0.8fr", "0.9fr", "1fr"];
   return (
-    <section className="card wt-tab-skeleton" aria-live="polite" aria-busy="true">
+    <section className="card kit-tablecard wt-tab-skeleton" aria-live="polite" aria-busy="true">
       <div className="wt-skel-head">
-        <span className="skel wt-skel-icon" />
-        <span className="skel wt-skel-title" aria-label={tabLabels[activePendingTab] ?? ""} />
+        <Skeleton width={20} height={20} radius={6} className="wt-skel-icon" />
+        <Skeleton width={220} height={22} radius={8} className="wt-skel-title" />
+        <span className="sr-only">{tabLabels[activePendingTab] ?? ""}</span>
       </div>
-      <span className="skel wt-skel-copy" />
-      <span className="skel wt-skel-copy short" />
-      <div className="wt-skel-bars">
-        {Array.from({ length: activePendingTab === "general" ? 5 : 7 }, (_, index) => (
-          <div className="wt-skel-row" key={index}>
-            <span className="skel wt-skel-label" />
-            <span className="skel wt-skel-bar" />
-            <span className="skel wt-skel-value" />
-          </div>
-        ))}
-      </div>
+      <SkeletonTable rows={8} widths={tracks} />
     </section>
   );
 }

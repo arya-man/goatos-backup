@@ -1,4 +1,4 @@
-import type { AdminWebPageContract } from "@/lib/api/server";
+import type { AdminWebBootstrapResponse, AdminWebPageContract } from "@/lib/api/server";
 
 export type AdminUiPageContract = AdminWebPageContract;
 export type AdminUiTableContract = AdminWebPageContract["tables"][number];
@@ -6,12 +6,13 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
-  // SOP editors may deploy before these fixed copy keys reach the API.
-  ...Object.fromEntries(["counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops"].map((route) => [route, {
-    "inspection.problem.feed_noun": "A feed load",
-    "inspection.problem.vendor_noun": "A vendor",
-    "tsop.unit.wait": "Wait",
-  }])),
+  "audit-log": {
+    "filter.all_option": "All",
+    "filter.bar_aria": "Filter the audit trail",
+  },
+  "people": {
+    "notifications.chip.unsaved": "Unsaved",
+  },
   // Alerts can deploy before the backend publishes the more precise empty-state copy.
   "alerts": {
     "state.empty.incomplete": "No alerts to show from the available checks. Some checks were not completed; this is not an all-clear.",
@@ -38,8 +39,44 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "label.load.status": "Status",
     "status.load.open": "Open",
     "status.load.closed": "Closed",
+    "date.prev_month": "Previous month",
+    "date.next_month": "Next month",
+    "date.invalid": "Pick a valid date.",
+    "action.dense": "Dense",
+    "pager.rows": "Rows",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More",
+  },
+  // FEED + COUNTS page chrome (2026-09-18 redesign). The breadcrumb line, the top-right primary
+  // action and the herd table's footer range are rendered by admin-web on routes whose contracts
+  // predate them; these fallbacks keep those routes alive if admin-web deploys one release before
+  // the backend publishes the keys. Remove an entry once its contract carries the key.
+  "feed-analytics": {
+    "crumb": "Feed",
+    "section.analytics.title": "Analytics",
+    "action.export": "Export",
+  },
+  "feed-direction": {
+    "action.export": "Export",
+  },
+  "feed-packing": {
+    "action.export": "Export",
+  },
+  "feed-config": {
+    "action.export": "Export",
+  },
+  "herd-analytics": {
+    "crumb": "Counts",
+    "section.analytics.title": "Herd analytics",
+    "action.export": "Export",
+  },
+  "milk-preparation": {
+    "action.export": "Export",
   },
   "counts-breakdown": {
+    "action.export": "Export",
     "summary_card.total_animals.label": "Total animals",
     "summary_card.total_animals.kids": "kids",
     "summary_card.total_animals.adults": "adults",
@@ -71,22 +108,6 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "value.not_valued": "not valued",
     "value.valued_animals": "valued",
     "value.weighed": "weighed",
-  },
-  // The singular count nouns (2026-09-26: "1 lines", "1 live animals", "about every 1 days").
-  // Kept alive for a frontend that deploys before the backend serving them.
-  "sales-sold": {
-    "summary.lines.line": "line",
-    "summary.lines.animal": "animal",
-    "summary.lines.piece": "item",
-  },
-  "sales-config": {
-    "summary.lines.line": "line",
-    "summary.lines.animal": "animal",
-    "summary.lines.piece": "item",
-  },
-  "sales-buyer-analytics": {
-    "value.every_day": "about every day",
-    "value.day_ago": "1 day ago",
   },
   // SALES > Purchase and Born page. Its ~60 copy keys all arrived in one change, and admin-web and
   // the backend deploy separately: if the frontend lands first, every one of these throws and
@@ -256,6 +277,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "drawer.alert.guidance": "Use the linked work surfaces to resolve the underlying process gap.",
   },
   "action-center": {
+    "label.row_actions": "Row actions",
     "label.drive_over_cap_required": "capacity shortfall",
     "label.drive_medical_defer": "medical defer",
     "label.drive_terminal_closed": "terminal closed",
@@ -298,6 +320,10 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "calendar.drive.next_page": "Next",
     "calendar.drive.page_label": "Page",
     "calendar.drive.rows_label": "rows",
+    "calendar.view.day": "Day",
+    "calendar.view.agenda": "Agenda",
+    "calendar.toolbar.today": "Today",
+    "calendar.toolbar.view_group_aria": "Calendar view",
   },
   vaccination: {
     "section.inventory_progress.title": "Vaccine fridge stock checks",
@@ -497,6 +523,11 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "action.open_full_schedule": "Full Schedule",
     "action.open_shed_board": "Pen board",
     "action.next_year": "Next year",
+    "pager.dense": "Dense",
+    "action.copy_id": "Copy pen ID",
+    "action.select_all": "Select all",
+    "label.actions": "Actions",
+    "label.row_actions": "Row actions",
   },
   "shed-execution": {
     "action.full_change_history": "Full change history",
@@ -553,6 +584,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "animals.status.culled": "Culled",
   },
   "protocol-adherence": {
+    "crumb": "Command lens · vaccination",
     "gap.capacity_shortfall": "capacity shortfall",
     "vaccine.blue_tongue": "Blue Tongue",
     "vaccine.goat_pox": "Goat Pox",
@@ -622,6 +654,9 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "vaccination.proof_verified": "Proof verified",
     "vaccination.rework_rejected": "Rework rejected",
     "vaccination.unavailable_prefix": "Vaccination data unavailable",
+    "date.prev_month": "Previous month",
+    "date.next_month": "Next month",
+    "date.invalid": "Pick a valid date.",
   },
   // Oversight-analytics copy added with the section's rebuild (mock `card > .hd/.bd` + `.kpi`/`.bar`
   // anatomy). The backend owns these strings (adminui service.go, "verification-review"); these
@@ -696,6 +731,234 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "video_log.download": "Download CSV",
     "video_log.export_truncated": "This day had more videos than one file holds. Narrow the park and download again.",
     "video_log.view_videos": "View videos",
+  },
+  // 2026-09-19 kit-frame rollout: keys the backend publishes from this release on. Kept here so
+  // an admin-web deploy one release ahead (or a stale local API) never blanks a page.
+  "counts-sops": {
+    "filter.status.active": "Published",
+    "filter.status.draft": "Draft",
+    "filter.status.retired": "Retired",
+    "filter.trigger": "Trigger",
+    "filter.trigger.all": "All triggers",
+    "stat.total": "Total",
+    "action.columns": "Columns",
+    "action.more": "More actions",
+    "action.comfortable": "Comfortable cards",
+    "action.dense": "Dense cards",
+    "action.remove_filter": "Remove filter",
+    "action.clear_all": "Clear all",
+    "action.view_details": "View details",
+    "label.details": "Details",
+    "followup.totals.sessions": "session series",
+  },
+  "feed-sops": {
+    "filter.status.active": "Published",
+    "filter.status.draft": "Draft",
+    "filter.status.retired": "Retired",
+    "filter.trigger": "Trigger",
+    "filter.trigger.all": "All triggers",
+    "stat.total": "Total",
+    "action.columns": "Columns",
+    "action.more": "More actions",
+    "action.comfortable": "Comfortable cards",
+    "action.dense": "Dense cards",
+    "action.remove_filter": "Remove filter",
+    "action.clear_all": "Clear all",
+    "action.view_details": "View details",
+    "label.details": "Details",
+    "followup.totals.sessions": "session series",
+  },
+  "milk-sops": {
+    "filter.status.active": "Published",
+    "filter.status.draft": "Draft",
+    "filter.status.retired": "Retired",
+    "filter.trigger": "Trigger",
+    "filter.trigger.all": "All triggers",
+    "stat.total": "Total",
+    "action.columns": "Columns",
+    "action.more": "More actions",
+    "action.comfortable": "Comfortable cards",
+    "action.dense": "Dense cards",
+    "action.remove_filter": "Remove filter",
+    "action.clear_all": "Clear all",
+    "action.view_details": "View details",
+    "label.details": "Details",
+    "followup.totals.sessions": "session series",
+  },
+  "weighing-sops": {
+    "filter.status.active": "Published",
+    "filter.status.draft": "Draft",
+    "filter.status.retired": "Retired",
+    "filter.trigger": "Trigger",
+    "filter.trigger.all": "All triggers",
+    "stat.total": "Total",
+    "action.columns": "Columns",
+    "action.more": "More actions",
+    "action.comfortable": "Comfortable cards",
+    "action.dense": "Dense cards",
+    "action.remove_filter": "Remove filter",
+    "action.clear_all": "Clear all",
+    "action.view_details": "View details",
+    "label.details": "Details",
+    "followup.totals.sessions": "session series",
+  },
+  "procurement-sops": {
+    "filter.status.active": "Published",
+    "filter.status.draft": "Draft",
+    "filter.status.retired": "Retired",
+    "filter.trigger": "Trigger",
+    "filter.trigger.all": "All triggers",
+    "stat.total": "Total",
+    "action.columns": "Columns",
+    "action.more": "More actions",
+    "action.comfortable": "Comfortable cards",
+    "action.dense": "Dense cards",
+    "action.remove_filter": "Remove filter",
+    "action.clear_all": "Clear all",
+    "action.view_details": "View details",
+    "label.details": "Details",
+    "followup.totals.sessions": "session series",
+  },
+  "leave": {
+    "crumb": "Operations",
+    "crumb.section": "People",
+    "reject.title": "Reject leave",
+    "reject.body": "Tell the person why. They will see this.",
+    "action.apply_search": "Apply search",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More actions",
+    "action.next": "Next page",
+    "action.previous": "Previous page",
+    "action.remove_filter": "Remove filter",
+    "action.reset_filters": "Reset filters",
+    "filter.dates": "Leave dates",
+    "filter.dates_from": "From",
+    "filter.dates_to": "To",
+    "filter.designation": "Designation",
+    "filter.designation.all": "All designations",
+    "filter.park": "Park",
+    "filter.park.all": "All parks",
+    "filter.search_label": "Search by person",
+    "filter.search_placeholder": "Search by person",
+    "label.rows_per_page": "Rows",
+  },
+  "pen-routines": {
+    "date.prev_month": "Previous month",
+    "date.next_month": "Next month",
+    "date.invalid": "Pick a valid date.",
+    "action.apply_search": "Apply search",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.dense": "Dense",
+    "action.export": "Export",
+    "action.more": "More actions",
+    "action.remove_filter": "Remove filter",
+    "action.reset_filters": "Reset filters",
+    "filter.assignee": "Assignee",
+    "filter.assignee.all": "All assignees",
+    "filter.role": "Role",
+    "filter.role.all": "All roles",
+    "filter.routine.all": "All routines",
+    "filter.search_label": "Search routines",
+    "filter.state": "State",
+    "filter.state.all": "All states",
+    "filter.status": "Status",
+    "filter.status.all": "All statuses",
+    "label.rows_per_page": "Rows",
+  },
+  "health-config": {
+    "pager.rows": "Rows",
+  },
+  "health-analytics": {
+    "action.manage_protocols": "Health config",
+  },
+  "workflow-record": {
+    "error.row_unavailable": "This workflow record could not be opened.",
+  },
+  "source-entry": {
+    "date.prev_month": "Previous month",
+    "date.next_month": "Next month",
+    "date.invalid": "Pick a valid date.",
+    "field.hour": "Hour",
+    "field.minute": "Minute",
+  },
+  "sales-sold": {
+    // The singular count nouns (2026-09-26: "1 lines", "1 live animals", "about every 1 days").
+    // Kept alive for a frontend that deploys before the backend serving them.
+    "summary.lines.line": "line",
+    "summary.lines.animal": "animal",
+    "summary.lines.piece": "item",
+    "date.prev_month": "Previous month",
+    "date.next_month": "Next month",
+    "date.invalid": "Pick a valid date.",
+    "action.dense": "Dense",
+    "pager.rows": "Rows",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More",
+  },
+  "sales-config": {
+    "summary.lines.line": "line",
+    "summary.lines.animal": "animal",
+    "summary.lines.piece": "item",
+    "date.prev_month": "Previous month",
+    "date.next_month": "Next month",
+    "date.invalid": "Pick a valid date.",
+    "action.dense": "Dense",
+    "pager.rows": "Rows",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More",
+  },
+  "sales-buyer-analytics": {
+    "value.every_day": "about every day",
+    "value.day_ago": "1 day ago",
+    "action.dense": "Dense",
+    "pager.rows": "Rows",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More",
+  },
+  "sales-farm-born": {
+    "action.dense": "Dense",
+    "pager.rows": "Rows",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More",
+  },
+  "feed-purchases": {
+    "action.dense": "Dense",
+    "pager.rows": "Rows",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More",
+  },
+  "vendors": {
+    "action.dense": "Dense",
+    "pager.rows": "Rows",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More",
+  },
+  "sales-vendors": {
+    "action.dense": "Dense",
+    "pager.rows": "Rows",
+    "action.clear_all": "Clear all",
+    "action.columns": "Columns",
+    "action.export": "Export",
+    "action.more": "More",
+  },
+  "sales-market-analytics": {
+    "market.call_time.hour": "Hour",
+    "market.call_time.minute": "Minute",
   },
 };
 
@@ -1094,6 +1357,31 @@ const TABLE_FALLBACKS: Record<string, Record<string, AdminUiTableContract>> = {
     },
   },
 };
+
+// Chrome copy the backend publishes from the 2026-09-19 kit-frame release on; the stale-contract
+// fallback keeps the shell states rendering against an older API.
+const SHELL_COPY_FALLBACKS: Record<string, string> = {
+  "not_found.eyebrow": "Mesha",
+  "not_found.title": "Page not found",
+  "not_found.body": "This page does not exist or has moved.",
+  "not_found.crumb_home": "Home",
+  "not_found.crumb": "Not found",
+  "not_found.home": "Go to home",
+  "a11y.breadcrumb": "Breadcrumb",
+  "a11y.select_all_rows": "Select all rows on this page",
+  "a11y.search": "Search",
+  "a11y.clear_search": "Clear search",
+  "confirm.title": "Please confirm",
+  "confirm.ok": "Confirm",
+  "confirm.cancel": "Cancel",
+};
+
+/** Bootstrap-level (shell) copy: chrome strings that belong to no page contract. Throws on a missing key. */
+export function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {
+  const value = contract.copy[key] ?? SHELL_COPY_FALLBACKS[key];
+  if (typeof value !== "string") throw new Error(`Admin-web bootstrap contract missing copy key ${key}`);
+  return value;
+}
 
 export function copy(page: AdminUiPageContract, key: string, whenAbsent?: string): string {
   const value = page.copy[key];

@@ -8,7 +8,7 @@
  * second auth path, and the authenticated API adapter stays the only way out.
  */
 
-import { getInAppNotificationFeed, postInAppNotificationsRead } from "./notification-feed-server";
+import { postInAppNotificationsRead } from "./notification-feed-server";
 import { isUsableIdempotencyKey, notificationsReadIdempotencyKey } from "./read-idempotency";
 import {
   NOTIFICATION_PAGE_LIMIT,
@@ -25,16 +25,6 @@ export type NotificationFeedActionResult =
  *
  * server-action-read-only: no write, so there is nothing to make idempotent.
  */
-export async function loadNotificationFeedAction(cursor?: string): Promise<NotificationFeedActionResult> {
-  const safeCursor = typeof cursor === "string" && cursor.trim() ? cursor.trim().slice(0, 512) : undefined;
-  const result = await getInAppNotificationFeed({ cursor: safeCursor, limit: NOTIFICATION_PAGE_LIMIT });
-  if (!result.ok) {
-    // The panel renders backend-owned copy for the code; it never composes a sentence from it.
-    return { ok: false, code: result.error.code ?? result.error.kind };
-  }
-  return { ok: true, feed: result.data };
-}
-
 export type MarkNotificationsReadResult = { ok: true; readCount: number } | { ok: false; code: string };
 
 /**

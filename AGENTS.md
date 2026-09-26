@@ -692,6 +692,97 @@ mobile lane of `npm --prefix apps/admin-web run smoke:visual:live`, which is the
 only thing that sees data-dependent overflow. A change proven only at laptop width
 is not proven. Canonical prose: `docs/decisions/admin-web-phone-viewport.md`.
 
+**HARD RULE - every UI change ships COMPONENT STORIES plus desktop AND mobile
+snapshot proof (2026-09-17).** The route sweep is not enough on its own: a kit
+component changes every page at once, so the component itself is pinned too.
+For any change under `apps/admin-web/components/kit/**`, `features/**` or a
+page's visual shell, Claude, Codex and humans must, in the SAME change:
+
+1. Add or update a Storybook story in `apps/admin-web/stories/` covering the
+   real states (default, selected, disabled, loading, empty, error, long text,
+   many rows) and a 390px variant for every table, popup/modal/drawer, tab
+   strip, pagination control and labelled chart.
+2. Run and pass, before pushing:
+
+   ```bash
+   npm --prefix apps/admin-web run smoke:stories:baseline   # 1440x900 + 390x844, dark + light
+   npm --prefix apps/admin-web run smoke:visual:all         # + route baselines + sales tolerance
+   ```
+
+   `scripts/smoke-stories-visual.mjs` builds `storybook-static`, drives every
+   story at both viewports in both themes, runs the play/interaction functions
+   (a throwing play function FAILS the lane) and pixelmatch-diffs each capture
+   against `.codex-goatos-render/admin-web-story-baselines/`. It needs Node 24
+   and Playwright chromium, and no live app or API.
+3. Rewrite baselines only for an INTENDED visual change:
+   `npm --prefix apps/admin-web run smoke:stories:update-baseline`, then open the
+   changed PNGs and state in the PR/handoff what changed and why. A silent
+   baseline rewrite is a review finding.
+4. Desktop-only proof is not proof, and a diff is never resolved by editing
+   brand tokens/hex in `app/mesha-theme.css` / `app/minimal-theme.css`.
+
+Both lanes are registered in `tools/ci/run-local-ci.sh` under the `admin-web`
+job. Details: `apps/admin-web/AGENTS.md` -> "Component visual regression
+(Storybook)".
+
+**HARD RULE - the mobile/WebView taxonomy is enforced by a machine, not by memory
+(2026-09-18).** The same seven defect classes have shipped and been re-fixed ~40
+times: horizontal overflow at phone width, clipped control/cell text, missing or
+`----` chart labels, tap targets under 44px, drawer/overlay scroll traps, `100vh`
+instead of `100dvh`, and filter rows stacking wrong. Every browser-visible
+`apps/admin-web` change -- by Claude, by Codex, by a human -- therefore runs BOTH
+lanes and fixes what they report:
+
+```bash
+npm --prefix apps/admin-web run smoke:webview:static   # source half: 100vh/dvh, backdrop-filter
+GOATOS_ADMIN_WEB_BASE_URL=http://127.0.0.1:3300 \
+  npm --prefix apps/admin-web run smoke:webview        # every smoke route, 1440x900 AND Pixel 5
+                                                       # (393x851, Android UA, touch), BOTH themes
+```
+
+`apps/admin-web/scripts/check-mobile-webview.mjs` reads its route list from
+`scripts/smoke-visual-live.mjs`, so coverage cannot drift; it asserts no page
+sideways-scroll and no shrink-to-fit zoom, no element escaping the viewport,
+every chart axis/category label present, non-empty, visible, unclipped and never
+`----`, no sub-44px tap target, sticky headers that actually stick, modals and
+drawers above their backdrop and clickable, wide tables scrolling inside their
+own card, and pagination fully reachable -- then writes `report.json` plus a PNG
+per failure under `.codex-goatos-render/admin-web-webview/`. Open the 393px PNGs
+before claiming proof. Known debt is waived by key in
+`apps/admin-web/scripts/check-mobile-webview-waivers/mobile-webview-waivers.json`;
+`npm --prefix apps/admin-web run smoke:webview:update-baseline` rewrites it and
+**a waiver list that grew in a UI change is a review finding**, exactly like
+growing the phone-viewport ratchet. Full taxonomy, the concrete check for each
+class, and the how-to-fix: `.agents/skills/mobile-webview-guard/SKILL.md` -- read
+it before touching a page, table, chart, filter bar, drawer, modal or pager.
+
+**The design-system contract is enforced the same way.** `.agents/skills/design-system/SKILL.md`
+holds the locked palette and fonts, the page frame (`PageShell` + `PageHeader`, no description
+slot), the kit every screen is built from, the motion constants and the banned patterns.
+Machine backing, all in `run_admin_web` of `tools/ci/run-local-ci.sh`:
+`npm --prefix apps/admin-web run design:guard` (static, every commit, waivers in
+`apps/admin-web/scripts/check-design-system-waivers/design-system-waivers.json`; P0 brand-lock
+checks cannot be waived), `npm --prefix apps/admin-web run visual:stories` (every Storybook story
+at 1440x900 + 390x844 in both themes, interaction frames, render-integrity probe: overflow,
+clipped text, empty chart svg, `NaN`/`undefined`/`F2` text, raw floats, fonts, console errors)
+and `npm --prefix apps/admin-web run visual:routes` (every smoke route at desktop, phone and
+Android-WebView profiles, both themes, same probe plus tap-target / axis-text / sticky checks).
+Baselines are the committed manifests under `apps/admin-web/visual-baselines/` plus local PNGs;
+rewrite only with the `:update-baseline` scripts for an intended change, PNGs opened. A new
+feature ships with `loading.tsx`, inside `PageShell`, with a story per state, and its route in
+`scripts/smoke-visual-live.mjs` -- otherwise the lanes cannot see it.
+
+**MUI Minimal template is the visual reference.** `~/mesha/mui/Minimal_TypeScript_v7.7.0` on Ravi's
+laptop (licensed source, **NOT** committed to this repo). Every admin-web area maps to a template
+SECTION in `docs/design/route-template-map.json`; a NEW page must add its area in the same change
+or fail `route-template-map-missing`. Charts must be Apex (via `components/minimal/chart` or
+`components/kit`) or the two inline helpers (`svg-bars`, `svg-series`) — `raw-chart-lib` refuses
+recharts / d3 / chart.js / nivo / victory / visx / echarts / highcharts. Production bug CLASSES
+(text-icon overlap, wide-table no wrapper, chart axis <11px, pinned-bar blur flicker,
+drawer-filter mismatch, chart hover re-mount) are runtime checks in
+`apps/admin-web/scripts/lib/visual-pattern-guards.mjs`, wired into the route visual lane. Full
+pattern → guard table + how-to-add-a-page: `docs/design/README.md` §5b + §5c.
+
 For any change that touches `apps/admin-web` Weights UI, Weights page copy,
 Weights charts, generated API contracts used by Weights, or backend read-model
 data consumed by `/weighing/weights`, verify the local Chrome page is not on

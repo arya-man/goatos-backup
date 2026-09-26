@@ -1,4 +1,12 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+
+import { BodyPortal } from "@/components/app/body-portal";
+import { Caption } from "@/components/app/caption";
 
 import { Loader2, SlidersHorizontal, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
@@ -210,13 +218,14 @@ export function WeightsAssumptionsControl({
   }
 
   return (
-    <>
+    <div className="wt-assumptions-control">
       <LocalOverlayLink href={openHref} className="btn sm" scroll={false} aria-haspopup="dialog">
         <SlidersHorizontal className="ic" aria-hidden="true" /> {copy(pageContract, "action.assumptions")}
       </LocalOverlayLink>
 
-      <div className={`scrim${open ? " on" : ""}`} aria-hidden={!open} tabIndex={open ? 0 : -1} onClick={close} />
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open}>
+      <BodyPortal>
+      <div className={`scrim${open ? " on" : ""}`} aria-hidden={!open} tabIndex={open ? 0 : -1} onClick={close} style={{ paddingBottom: "env(safe-area-inset-bottom)" }} />
+      <aside className={`drawer wt-assumptions-drawer${open ? " on" : ""}`} aria-label={title} aria-hidden={!open} inert={!open} style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <div className="dh">
           <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
             <SlidersHorizontal className="ic" aria-hidden="true" />
@@ -231,12 +240,10 @@ export function WeightsAssumptionsControl({
         </div>
 
         <div className="dc">
-          <p className="muted small" style={{ marginTop: 0 }}>
-            {copy(pageContract, "drawer.assumptions.caption")}
-          </p>
+          <Caption>{copy(pageContract, "drawer.assumptions.caption")}</Caption>
 
           <h3 className="h" style={{ marginTop: 12 }}>{copy(pageContract, "drawer.assumptions.prices.title")}</h3>
-          <p className="muted small">{copy(pageContract, "drawer.assumptions.prices.hint")}</p>
+          <Caption>{copy(pageContract, "drawer.assumptions.prices.hint")}</Caption>
           {speciesKeys.map((species) => {
             const price = current.sale_prices.find((row) => priceRowKey(row) === species);
             const defaultText = draft.prices[species] ?? "";
@@ -274,25 +281,25 @@ export function WeightsAssumptionsControl({
                     <p className="muted small" style={{ margin: "6px 0" }}>
                       {copy(pageContract, "drawer.assumptions.prices.by_stage.hint")}
                     </p>
-                    <table className="wt-assume-grid">
-                      <thead>
-                        <tr>
-                          <th scope="col">{copy(pageContract, "drawer.assumptions.prices.stage")}</th>
+                    <Table className="wt-assume-grid">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell component="th" scope="col">{copy(pageContract, "drawer.assumptions.prices.stage")}</TableCell>
                           {sexKeys.map((sex) => (
-                            <th scope="col" key={sex}>
+                            <TableCell component="th" scope="col" key={sex}>
                               {sexLabel(sex)}
-                            </th>
+                            </TableCell>
                           ))}
-                        </tr>
-                      </thead>
-                      <tbody>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
                         {current.stages.map((stage) => (
-                          <tr key={stage.code}>
-                            <th scope="row">{stage.name || stage.code}</th>
+                          <TableRow key={stage.code}>
+                            <TableCell component="th" scope="row">{stage.name || stage.code}</TableCell>
                             {sexKeys.map((sex) => {
                               const key = priceKey(species, stage.code, sex);
                               return (
-                                <td key={sex}>
+                                <TableCell key={sex}>
                                   <input
                                     type="number"
                                     inputMode="decimal"
@@ -303,13 +310,13 @@ export function WeightsAssumptionsControl({
                                     disabled={pending}
                                     onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [key]: event.target.value } }))}
                                   />
-                                </td>
+                                </TableCell>
                               );
                             })}
-                          </tr>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </details>
                 ) : null}
               </div>
@@ -365,6 +372,7 @@ export function WeightsAssumptionsControl({
           </button>
         </div>
       </aside>
-    </>
+      </BodyPortal>
+    </div>
   );
 }

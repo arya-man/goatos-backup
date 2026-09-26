@@ -16,6 +16,7 @@ import { copy, optionGroup, optionLabel, optionTone, tableLabels, type AdminUiOp
 import { scopeHref, type Scope } from "@/lib/scope";
 import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { vaccinationProtocolDisplayName } from "./vaccine-display";
+import { stageLabel } from "@/lib/stage-labels";
 
 // Shared vaccination work-context drawer. Cohort/protocol rows are rollups:
 // they carry counts and links, not a single executable SOP task id.
@@ -181,7 +182,7 @@ function VaccinationRecordVerifyDrawer({
             </div>
             <div>
               <div className="k">{cohortLabels[2]}</div>
-              <div className="v">{cohort.ageBand ?? cohort.stage}</div>
+              <div className="v">{cohort.ageBand ?? stageLabel(cohort.stage)}</div>
             </div>
             <div>
               <div className="k">{cohortLabels[3]}</div>

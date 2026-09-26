@@ -10,8 +10,14 @@ const loadFirebase = () =>
 
 const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
 
-export function FirebaseSessionBridge() {
+/**
+ * `enabled=false` (the server passes it when GOATOS_AUTH_MODE=bearer, i.e. local/dev bearer
+ * sessions) renders nothing and fetches nothing: there is no Firebase project to talk to, so the
+ * bridge only produced a 503 on /api/auth/firebase-config on every route.
+ */
+export function FirebaseSessionBridge({ enabled = true }: { enabled?: boolean } = {}) {
   useEffect(() => {
+    if (!enabled) return undefined;
     let mounted = true;
     let interval: ReturnType<typeof setInterval> | null = null;
     let unsubscribe: (() => void) | null = null;
@@ -50,7 +56,7 @@ export function FirebaseSessionBridge() {
       if (unsubscribe) unsubscribe();
       if (interval) clearInterval(interval);
     };
-  }, []);
+  }, [enabled]);
 
   return null;
 }

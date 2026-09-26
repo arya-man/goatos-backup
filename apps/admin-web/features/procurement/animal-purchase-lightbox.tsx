@@ -70,6 +70,22 @@ export function AnimalPurchaseLightbox({ items, openLabel, closeLabel }: { items
     return () => observer.disconnect();
   }, [items]);
 
+  // A thumbnail that fails to load (expired signed URL, missing poster) shows the titled
+  // placeholder tile instead of the browser's broken-image glyph. Error events do not bubble, so
+  // the strip listens in the capture phase rather than each tile carrying a handler.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const onError = (event: Event) => {
+      const img = event.target;
+      if (!(img instanceof HTMLImageElement) || !img.classList.contains("ap-tile-preview")) return;
+      img.style.display = "none";
+      img.closest(".ap-tile")?.classList.add("ap-tile-broken");
+    };
+    strip.addEventListener("error", onError, true);
+    return () => strip.removeEventListener("error", onError, true);
+  }, []);
+
   return (
     <div ref={stripRef} className="ap-lightbox-strip">
       {items.map((item, index) => {

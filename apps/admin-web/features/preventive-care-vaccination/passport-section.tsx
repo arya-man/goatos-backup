@@ -1,4 +1,10 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
+import { Caption } from "@/components/app/caption";
 import { Syringe } from "lucide-react";
 import {
   getGoatVaccinationPassport,
@@ -129,33 +135,33 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
         <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
           {open.length === 0 ? (
             <div className="bd">
-              <p className="muted small">{copy(pageContract, "vaccination.empty_open")}</p>
+              <Caption>{copy(pageContract, "vaccination.empty_open")}</Caption>
             </div>
           ) : (
-            <table>
-              <thead>
-                <tr>
+            <Table>
+              <TableHead>
+                <TableRow>
                   {tableLabels(pageContract, "vaccination-open-obligations").map((label) => (
-                    <th key={label}>{label}</th>
+                    <TableCell component="th" key={label}>{label}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {open.map((due) => {
                   const rowId = realWorkflowRowId(due.workflow_row_id);
                   return (
-                    <tr key={due.obligation_id}>
-                      <td>
+                    <TableRow key={due.obligation_id}>
+                      <TableCell>
                         <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
                         {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
                           <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
                         ) : null}
-                      </td>
-                      <td>{vaccineRowLabel(due)}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell>{vaccineRowLabel(due)}</TableCell>
+                      <TableCell>
                         <Tag tone={statusTone(due.status)}>{due.status}</Tag>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         {rowId ? (
                           <Link href={workflowHref(rowId)} className="lk small">
                             {copy(pageContract, "action.open_workflow")} →
@@ -163,8 +169,8 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                         ) : (
                           <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
                         )}
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         {rowId ? (
                           <Link href={actionCenterHref(rowId)} className="lk small">
                             {copy(pageContract, "action.open_action_center")} →
@@ -172,12 +178,12 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
                         ) : (
                           <span className="muted small">—</span>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </div>
 
@@ -201,34 +207,34 @@ export async function VaccinationPassportSection({ goatId, pageContract }: { goa
               </p>
             </div>
           ) : (
-            <table>
-              <thead>
-                <tr>
+            <Table>
+              <TableHead>
+                <TableRow>
 	                  {tableLabels(pageContract, "vaccination-history").map((label) => (
-	                    <th key={label}>{label}</th>
+	                    <TableCell component="th" key={label}>{label}</TableCell>
 	                  ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {history.map((h) => (
-                  <tr key={h.completion_id}>
-                    <td>{fmtDate(h.administered_at)}</td>
-                    <td>{vaccineRowLabel(h)}</td>
-                    <td className="muted">{h.route_site || copy(pageContract, "label.placeholder")}</td>
-                    <td>
+                  <TableRow key={h.completion_id}>
+                    <TableCell>{fmtDate(h.administered_at)}</TableCell>
+                    <TableCell>{vaccineRowLabel(h)}</TableCell>
+                    <TableCell className="muted">{h.route_site || copy(pageContract, "label.placeholder")}</TableCell>
+                    <TableCell>
                       <Tag tone={statusTone(h.status)}>{h.status}</Tag>
-                    </td>
-                    <td>{proofLabel(h, pageContract)}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{proofLabel(h, pageContract)}</TableCell>
+                    <TableCell>
                       <span className="gid">{h.obligation_id.slice(0, 8)}</span>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </div>
       </section>

@@ -582,7 +582,7 @@ class VerifyQueueViewModel @Inject constructor(
             }
             delay(320)
         }
-        return "Close saved locally; waiting for backend sync."
+        return "Close saved on this device. It will sync when the connection is back."
     }
 
     private fun clearStaleLocationFilters(data: VerificationQueueResponseDto) {

@@ -1,13 +1,27 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableFooter from "@mui/material/TableFooter";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { redirect } from "next/navigation";
 
-import { ChartHover } from "@/components/chart-hover";
+import { Activity, Baby, HeartOff, HeartPulse, Stethoscope } from "lucide-react";
+
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
+import Card from "@mui/material/Card";
+import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
+import type { KitTone } from "@/lib/tone";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { GoatGlyph } from "@/components/goat-glyph";
 import { SeriesLegend, StackedColumns, seriesColorVar, type StackedDay } from "@/components/svg-series";
 import { Tag } from "@/components/ui-primitives";
 import { copy, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getCountsMortality,
+  listAnimalStages,
   type MortalityBucket,
   type MortalityCrossCell,
   type MortalityResponse,
@@ -15,11 +29,14 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
+import { stageDisplayLabel, stageNameMap, type StageNameMap } from "@/lib/stage-display";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { VaccinationTablePager } from "@/features/preventive-care-vaccination";
 import { HerdAnalyticsDateFilter } from "./herd-analytics-date-filter";
 import { RecentDeathsTable } from "./mortality-tables";
 import { MortalityTelemetry } from "./mortality-telemetry";
+import "./mortality.css";
+import { ProgressBar } from "@/components/app/progress-bar";
 
 // Counts -> Mortality. One question — which animals died, and what did they have in common —
 // asked from every angle the farm can ask it.
@@ -80,12 +97,17 @@ function readWindow(sp: RouteSearchParams): { from?: string; to?: string } {
   return { from, to };
 }
 
-function ChartCard({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
+function withStageNames(buckets: MortalityBucket[], names: StageNameMap): MortalityBucket[] {
+  return buckets.map((bucket) => ({ ...bucket, label: stageDisplayLabel(bucket.label, names) }));
+}
+
+function ChartCard({ title, hint, children, className }: { title: string; hint?: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className="chartcard">
-      <h4>{title}</h4>
-      <div className="cap">{hint}</div>
-      {children}
+    <div className="mortality-cell">
+      <Card className={`kit-tablecard mortality-card${className ? ` ${className}` : ""}`}>
+        <CardHeader title={title} subheader={hint} className="mortality-card-head" slotProps={{ title: { variant: "subtitle1" } }} />
+        {children}
+      </Card>
     </div>
   );
 }
@@ -116,47 +138,47 @@ function RateTable({
 }) {
   if (buckets.length === 0) {
     return (
-      <div className="muted small" style={{ padding: "14px 2px", textAlign: "center" }}>
-        {emptyLabel}
-      </div>
+      <div className="muted small mortality-empty">{emptyLabel}</div>
     );
   }
   const maxRate = Math.max(0, ...buckets.map((b) => b.rate_pct ?? 0));
   return (
-    <table className="mortality-rate-table" aria-label={ariaLabel}>
-      <thead>
-        <tr>
-          <th scope="col" />
-          <th scope="col" className="num">
+    <div className="tablewrap mortality-tablewrap" tabIndex={0} role="group" aria-label={ariaLabel}>
+    <Table className="mortality-rate-table" aria-label={ariaLabel}>
+      <TableHead>
+        <TableRow>
+          <TableCell component="th" scope="col" />
+          <TableCell component="th" scope="col" className="num">
             {deathsLabel}
-          </th>
-          <th scope="col" className="num">
+          </TableCell>
+          <TableCell component="th" scope="col" className="num">
             {animalsLabel}
-          </th>
-          <th scope="col" className="num">
+          </TableCell>
+          <TableCell component="th" scope="col" className="num">
             {rateLabel}
-          </th>
-          <th scope="col" className="bar" />
-        </tr>
-      </thead>
-      <tbody>
+          </TableCell>
+          <TableCell component="th" scope="col" className="bar" />
+        </TableRow>
+      </TableHead>
+      <TableBody>
         {buckets.map((bucket) => {
           const rate = bucket.rate_pct ?? null;
           const width = rate == null || maxRate <= 0 ? 0 : Math.max(rate > 0 ? 2 : 0, (rate / maxRate) * 100);
           return (
-            <tr key={bucket.key || "__unassigned"}>
-              <th scope="row">{bucket.label || unassignedLabel}</th>
-              <td className="num">{bucket.deaths > 0 ? <strong>{nf(bucket.deaths)}</strong> : nf(bucket.deaths)}</td>
-              <td className="num muted">{nf(bucket.animals)}</td>
-              <td className="num">{rate == null ? <span className="muted" title={noRateLabel}>—</span> : pct(rate)}</td>
-              <td className="bar">
-                <span className="mortality-rate-bar" style={{ width: `${width}%` }} aria-hidden="true" />
-              </td>
-            </tr>
+            <TableRow key={bucket.key || "__unassigned"}>
+              <TableCell component="th" scope="row">{bucket.label || unassignedLabel}</TableCell>
+              <TableCell className="num">{bucket.deaths > 0 ? <strong>{nf(bucket.deaths)}</strong> : nf(bucket.deaths)}</TableCell>
+              <TableCell className="num muted">{nf(bucket.animals)}</TableCell>
+              <TableCell className="num">{rate == null ? <span className="muted" title={noRateLabel}>—</span> : pct(rate)}</TableCell>
+              <TableCell className="bar">
+                <ProgressBar value={width} color="var(--error)" className="mortality-rate-track" fillClassName="mortality-rate-bar" />
+              </TableCell>
+            </TableRow>
           );
         })}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
+    </div>
   );
 }
 
@@ -178,9 +200,7 @@ function CrossTable({
 }) {
   if (cells.length === 0) {
     return (
-      <div className="muted small" style={{ padding: "14px 2px", textAlign: "center" }}>
-        {emptyLabel}
-      </div>
+      <div className="muted small mortality-empty">{emptyLabel}</div>
     );
   }
   const rows: { key: string; label: string }[] = [];
@@ -209,55 +229,55 @@ function CrossTable({
   const max = Math.max(1, ...grid.values());
   const grand = [...rowTotals.values()].reduce((a, b) => a + b, 0);
   return (
-    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
-      <table className="mortality-cross-table" aria-label={ariaLabel}>
-        <thead>
-          <tr>
-            <th scope="col" />
+    <div className="tablewrap mortality-tablewrap" tabIndex={0} role="region" aria-label={ariaLabel}>
+      <Table className="mortality-cross-table" aria-label={ariaLabel}>
+        <TableHead>
+          <TableRow>
+            <TableCell component="th" scope="col" />
             {cols.map((col) => (
-              <th key={col.key || "__none"} scope="col" className="num">
+              <TableCell component="th" key={col.key || "__none"} scope="col" className="num">
                 {col.label}
-              </th>
+              </TableCell>
             ))}
-            <th scope="col" className="num total">
+            <TableCell component="th" scope="col" className="num total">
               {totalLabel}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
+            </TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {rows.map((row) => (
-            <tr key={row.key || "__none"}>
-              <th scope="row">{row.label}</th>
+            <TableRow key={row.key || "__none"}>
+              <TableCell component="th" scope="row">{row.label}</TableCell>
               {cols.map((col) => {
                 const value = grid.get(`${row.key}\t${col.key}`) ?? 0;
                 // Heat: the cell's share of the largest cell, as an alpha on the brand colour.
                 const alpha = value === 0 ? 0 : 0.12 + 0.55 * (value / max);
                 return (
-                  <td
+                  <TableCell
                     key={col.key || "__none"}
                     className={`num${value === 0 ? " zero" : ""}`}
                     style={value === 0 ? undefined : { background: `color-mix(in srgb, var(--danger) ${Math.round(alpha * 100)}%, transparent)` }}
                   >
                     {value === 0 ? "·" : nf(value)}
-                  </td>
+                  </TableCell>
                 );
               })}
-              <td className="num total">{nf(rowTotals.get(row.key) ?? 0)}</td>
-            </tr>
+              <TableCell className="num total">{nf(rowTotals.get(row.key) ?? 0)}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-        <tfoot>
-          <tr>
-            <th scope="row">{totalLabel}</th>
+        </TableBody>
+        <TableFooter>
+          <TableRow>
+            <TableCell component="th" scope="row">{totalLabel}</TableCell>
             {cols.map((col) => (
-              <td key={col.key || "__none"} className="num total">
+              <TableCell key={col.key || "__none"} className="num total">
                 {nf(colTotals.get(col.key) ?? 0)}
-              </td>
+              </TableCell>
             ))}
-            <td className="num total">{nf(grand)}</td>
-          </tr>
-        </tfoot>
-      </table>
+            <TableCell className="num total">{nf(grand)}</TableCell>
+          </TableRow>
+        </TableFooter>
+      </Table>
     </div>
   );
 }
@@ -288,66 +308,49 @@ function ShareTable({
 }) {
   if (buckets.length === 0 || totalDeaths === 0) {
     return (
-      <div className="muted small" style={{ padding: "14px 2px", textAlign: "center" }}>
-        {emptyLabel}
-      </div>
+      <div className="muted small mortality-empty">{emptyLabel}</div>
     );
   }
   const max = Math.max(1, ...buckets.map((b) => b.deaths));
   return (
-    <table className="mortality-rate-table" aria-label={ariaLabel}>
-      <thead>
-        <tr>
-          <th scope="col" />
-          {basisLabels ? <th scope="col" /> : null}
-          <th scope="col" className="num">
+    <div className="tablewrap mortality-tablewrap" tabIndex={0} role="group" aria-label={ariaLabel}>
+    <Table className="mortality-rate-table" aria-label={ariaLabel}>
+      <TableHead>
+        <TableRow>
+          <TableCell component="th" scope="col" />
+          {basisLabels ? <TableCell component="th" scope="col" /> : null}
+          <TableCell component="th" scope="col" className="num">
             {deathsLabel}
-          </th>
-          <th scope="col" className="num">
+          </TableCell>
+          <TableCell component="th" scope="col" className="num">
             {shareLabel}
-          </th>
-          <th scope="col" className="bar" />
-        </tr>
-      </thead>
-      <tbody>
+          </TableCell>
+          <TableCell component="th" scope="col" className="bar" />
+        </TableRow>
+      </TableHead>
+      <TableBody>
         {buckets.map((bucket) => {
           const basis = (bucket.basis ?? "none") as "recorded" | "inferred" | "none";
           const share = (bucket.deaths / totalDeaths) * 100;
           const muted = basisLabels ? basis === "none" : false;
           return (
-            <tr key={`${bucket.basis ?? ""}:${bucket.key}`}>
-              <th scope="row">{bucket.label || unassignedLabel || bucket.key}</th>
+            <TableRow key={`${bucket.basis ?? ""}:${bucket.key}`}>
+              <TableCell component="th" scope="row">{bucket.label || unassignedLabel || bucket.key}</TableCell>
               {basisLabels ? (
-                <td>
+                <TableCell>
                   <Tag tone={basis === "recorded" ? "teal" : basis === "inferred" ? "info" : "mut"}>{basisLabels[basis]}</Tag>
-                </td>
+                </TableCell>
               ) : null}
-              <td className="num">{bucket.deaths > 0 ? <strong>{nf(bucket.deaths)}</strong> : <span className="muted">{nf(bucket.deaths)}</span>}</td>
-              <td className="num muted">{bucket.deaths === 0 ? "—" : share < 1 ? "<1%" : pct(Math.round(share * 10) / 10)}</td>
-              <td className="bar">
-                <span
-                  className="mortality-rate-bar"
-                  style={{ width: `${(bucket.deaths / max) * 100}%`, background: muted ? "var(--muted)" : undefined }}
-                  aria-hidden="true"
-                />
-              </td>
-            </tr>
+              <TableCell className="num">{bucket.deaths > 0 ? <strong>{nf(bucket.deaths)}</strong> : <span className="muted">{nf(bucket.deaths)}</span>}</TableCell>
+              <TableCell className="num muted">{bucket.deaths === 0 ? "—" : share < 1 ? "<1%" : pct(Math.round(share * 10) / 10)}</TableCell>
+              <TableCell className="bar">
+                <ProgressBar value={(bucket.deaths / max) * 100} color={muted ? "var(--muted)" : "var(--error)"} className="mortality-rate-track" fillClassName="mortality-rate-bar" />
+              </TableCell>
+            </TableRow>
           );
         })}
-      </tbody>
-    </table>
-  );
-}
-
-function Kpi({ accent, label, value, sub }: { accent: string; label: string; value: React.ReactNode; sub: React.ReactNode }) {
-  return (
-    <div className="kpi">
-      <span className="acc" style={{ background: accent }} />
-      <div className="lab">{label}</div>
-      <div className="val">{value}</div>
-      <div className="dl">
-        <span className="muted">{sub}</span>
-      </div>
+      </TableBody>
+    </Table>
     </div>
   );
 }
@@ -373,15 +376,21 @@ export async function MortalityPage({
   const requestedPage = Math.max(1, Number(one(sp, "md_page")) || 1);
 
   // ONE round trip for the whole screen.
-  const result = await getCountsMortality({
-    park_id: parkId,
-    from: requested.from,
-    to: requested.to,
-    recent_limit: recentLimit,
-    recent_offset: (requestedPage - 1) * recentLimit,
-  });
-  if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
+  const [result, stageResult] = await Promise.all([
+    getCountsMortality({
+      park_id: parkId,
+      from: requested.from,
+      to: requested.to,
+      recent_limit: recentLimit,
+      recent_offset: (requestedPage - 1) * recentLimit,
+    }),
+    // Tenant stage vocabulary — the same read Counts Breakdown and Herd Register make — so the
+    // fattening family can show its configured name instead of its code (see stageDisplayLabel).
+    listAnimalStages(),
+  ]);
+  if (firstAuthRequiredError(result, stageResult)) redirect(INTERNAL_LOGIN_PATH);
   const data: MortalityResponse | null = result.ok ? result.data : null;
+  const stageNames = stageNameMap(stageResult.ok ? stageResult.data.items : undefined);
 
   const pickerLabels: DateRangePickerLabels = {
     field: mc(pageContract, "filter.date"),
@@ -399,12 +408,16 @@ export async function MortalityPage({
 
   if (!data) {
     return (
-      <div className="pagegrid">
+      <div className="kit-enter pagegrid mortality-page">
         <MortalityTelemetry routeId={pageContract.route_id} parkId={parkId} months={0} deaths={0} />
-        <section className="card">
-          <h2 className="h">{mc(pageContract, "error.title")}</h2>
-          <p className="muted small">{mc(pageContract, "error.body")}</p>
-        </section>
+        <div>
+          <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb", "Counts"), href: "/counts/herd" }, { label: pageContract.title }]} />
+        </div>
+        <div>
+          <Card>
+            <CardHeader title={mc(pageContract, "error.title")} subheader={mc(pageContract, "error.body")} sx={{ pb: 3 }} />
+          </Card>
+        </div>
       </div>
     );
   }
@@ -458,14 +471,47 @@ export async function MortalityPage({
     rate == null ? noRate : `${pct(rate)} · ${nf(animals)} ${animalsWord}`;
   const showParks = data.park.length > 1;
   const showSpecies = data.species.length > 1;
+  const stageBuckets = withStageNames(data.stage, stageNames);
+  const seasonByStage = data.season_by_stage.map((cell) => ({ ...cell, col_label: stageDisplayLabel(cell.col_label, stageNames) }));
+  // Sparklines: the backend's own per-month series, one point per month of the window.
+  const sparkDeaths = data.months.map((m) => m.deaths);
+  const sparkKids = data.months.map((m) => m.kids);
+  const sparkAdults = data.months.map((m) => m.adults);
+  // A two-point spark reads as two sticks, not a trend; the deck grows one once the window spans a quarter.
+  const hasSpark = data.months.length >= 4;
+  const kpis: { key: string; tone: KitTone; icon: React.ReactNode; label: string; value: string; hint: string; spark?: number[] }[] = [
+    { key: "deaths", tone: "error", icon: <HeartOff size={22} />, label: mc(pageContract, "kpi.deaths.label"), value: nf(totals.deaths), hint: "", spark: sparkDeaths },
+    {
+      key: "rate",
+      tone: "primary",
+      icon: <Activity size={22} />,
+      label: mc(pageContract, "kpi.rate.label"),
+      value: pct(totals.rate_pct) ?? "—",
+      hint: totals.rate_pct == null ? noRate : `${nf(totals.animals)} ${animalsWord} · ${mc(pageContract, "kpi.rate.sub")}`,
+    },
+    { key: "kids", tone: "warning", icon: <Baby size={22} />, label: mc(pageContract, "kpi.kids.label"), value: nf(totals.kid_deaths), hint: rateWithAnimals(totals.kid_rate_pct, totals.kid_animals), spark: sparkKids },
+    { key: "adults", tone: "violet", icon: <GoatGlyph size={22} />, label: mc(pageContract, "kpi.adults.label"), value: nf(totals.adult_deaths), hint: rateWithAnimals(totals.adult_rate_pct, totals.adult_animals), spark: sparkAdults },
+    { key: "first_week", tone: "info", icon: <HeartPulse size={22} />, label: mc(pageContract, "kpi.first_week.label"), value: nf(totals.first_week_deaths), hint: "" },
+    {
+      key: "cause",
+      tone: "success",
+      icon: <Stethoscope size={22} />,
+      label: mc(pageContract, "kpi.cause.label"),
+      value: totals.deaths === 0 ? "—" : `${nf(causeEstablished)} / ${nf(totals.deaths)}`,
+      hint: "",
+    },
+  ];
 
   return (
-    <div className="pagegrid mortality-page">
+    <div className="kit-enter pagegrid mortality-page">
       <MortalityTelemetry routeId={pageContract.route_id} parkId={parkId} months={data.months.length} deaths={totals.deaths} />
 
-      <p className="muted small" style={{ margin: "0 0 4px" }}>
-        {mc(pageContract, "banner.basis")}
-      </p>
+      <div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: copy(pageContract, "crumb", "Counts"), href: "/counts/herd" }, { label: pageContract.title }]}
+        />
+      </div>
 
       <div className="ha-filter">
         <HerdAnalyticsDateFilter
@@ -477,32 +523,40 @@ export async function MortalityPage({
           defaultFrom={fallback.from}
           defaultTo={fallback.to}
         />
-        <span className="muted small ha-filter-hint">{mc(pageContract, "filter.scope_readonly")}</span>
       </div>
 
-      <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={mc(pageContract, "section.kpi.aria")}>
-        <Kpi accent="var(--danger)" label={mc(pageContract, "kpi.deaths.label")} value={nf(totals.deaths)} sub={mc(pageContract, "kpi.deaths.sub")} />
-        <Kpi
-          accent="var(--brand)"
-          label={mc(pageContract, "kpi.rate.label")}
-          value={pct(totals.rate_pct) ?? "—"}
-          sub={totals.rate_pct == null ? noRate : `${nf(totals.animals)} ${animalsWord} · ${mc(pageContract, "kpi.rate.sub")}`}
-        />
-        <Kpi accent="var(--amber)" label={mc(pageContract, "kpi.kids.label")} value={nf(totals.kid_deaths)} sub={rateWithAnimals(totals.kid_rate_pct, totals.kid_animals)} />
-        <Kpi accent="var(--purple)" label={mc(pageContract, "kpi.adults.label")} value={nf(totals.adult_deaths)} sub={rateWithAnimals(totals.adult_rate_pct, totals.adult_animals)} />
-        <Kpi accent="var(--teal)" label={mc(pageContract, "kpi.first_week.label")} value={nf(totals.first_week_deaths)} sub={mc(pageContract, "kpi.first_week.sub")} />
-        <Kpi
-          accent="var(--info)"
-          label={mc(pageContract, "kpi.cause.label")}
-          value={totals.deaths === 0 ? "—" : `${nf(causeEstablished)} / ${nf(totals.deaths)}`}
-          sub={mc(pageContract, "kpi.cause.sub")}
-        />
-      </section>
+      <div>
+        <section aria-label={mc(pageContract, "section.kpi.aria")}>
+          <KpiGrid min={200} className="mortality-kpis">
+            {kpis.map((kpi) => (
+              <KpiCard
+                key={kpi.key}
+                tone={kpi.tone}
+                icon={kpi.icon}
+                label={kpi.label}
+                value={kpi.value}
+                hint={kpi.hint || undefined}
+                sparkline={hasSpark ? kpi.spark : undefined}
+              />
+            ))}
+          </KpiGrid>
+        </section>
+      </div>
 
-      <section className="card wchart" aria-label={mc(pageContract, "chart.months.title")}>
-        <h2 className="h">{mc(pageContract, "chart.months.title")}</h2>
-        <p className="muted small">{mc(pageContract, "chart.months.hint")}</p>
-        <ChartHover>
+      <div>
+        <Card className="wchart mortality-months" aria-label={mc(pageContract, "chart.months.title")} sx={{ p: { xs: 2, sm: 3 } }}>
+          <CardHeader
+            title={mc(pageContract, "chart.months.title")}
+            action={<SeriesLegend entries={monthSeries} />}
+            sx={{
+              p: 0,
+              mb: 2,
+              alignItems: "center",
+              flexWrap: "wrap",
+              rowGap: 1.5,
+              [`& .${cardHeaderClasses.action}`]: { m: 0, display: "flex", alignItems: "center", flex: { xs: "1 1 100%", sm: "0 0 auto" }, minWidth: 0, maxWidth: "100%" },
+            }}
+          />
           <StackedColumns
             days={monthDays}
             seriesLabels={monthSeries.map((s) => s.label)}
@@ -510,20 +564,19 @@ export async function MortalityPage({
             chartLabel={mc(pageContract, "chart.months.title")}
             emptyLabel={emptyChart}
           />
-        </ChartHover>
-        <SeriesLegend entries={monthSeries} />
-      </section>
+        </Card>
+      </div>
 
       {/* RATE series. Each card names what it divides by. */}
       <section aria-label={mc(pageContract, "section.rates.aria")}>
         <div className="mortality-grid">
-          <ChartCard title={mc(pageContract, "chart.stage.title")} hint={mc(pageContract, "chart.stage.hint")}>
-            <RateTable buckets={data.stage} unassignedLabel={mc(pageContract, "label.unassigned_stage")} ariaLabel={mc(pageContract, "chart.stage.title")} {...rateLabels} />
+          <ChartCard title={mc(pageContract, "chart.stage.title")}>
+            <RateTable buckets={stageBuckets} unassignedLabel={mc(pageContract, "label.unassigned_stage")} ariaLabel={mc(pageContract, "chart.stage.title")} {...rateLabels} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.breed.title")} hint={mc(pageContract, "chart.breed.hint")}>
+          <ChartCard title={mc(pageContract, "chart.breed.title")}>
             <RateTable buckets={data.breed} unassignedLabel={mc(pageContract, "label.unassigned_breed")} ariaLabel={mc(pageContract, "chart.breed.title")} {...rateLabels} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.load.title")} hint={mc(pageContract, "chart.load.hint")}>
+          <ChartCard title={mc(pageContract, "chart.load.title")}>
             <RateTable buckets={data.load} unassignedLabel={mc(pageContract, "label.no_load")} ariaLabel={mc(pageContract, "chart.load.title")} {...rateLabels} />
           </ChartCard>
           <ChartCard title={mc(pageContract, "chart.vendor.title")} hint={mc(pageContract, "chart.vendor.hint")}>
@@ -532,19 +585,19 @@ export async function MortalityPage({
           <ChartCard title={mc(pageContract, "chart.pen.title")} hint={mc(pageContract, "chart.pen.hint")}>
             <RateTable buckets={data.pen} unassignedLabel={mc(pageContract, "label.unassigned_pen")} ariaLabel={mc(pageContract, "chart.pen.title")} {...rateLabels} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.kid_adult.title")} hint={mc(pageContract, "chart.kid_adult.hint")}>
+          <ChartCard title={mc(pageContract, "chart.kid_adult.title")}>
             <RateTable buckets={data.kid_adult} unassignedLabel={mc(pageContract, "label.unassigned_stage")} ariaLabel={mc(pageContract, "chart.kid_adult.title")} {...rateLabels} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.sex.title")} hint={mc(pageContract, "chart.sex.hint")}>
+          <ChartCard title={mc(pageContract, "chart.sex.title")}>
             <RateTable buckets={data.sex} unassignedLabel={mc(pageContract, "label.unassigned_sex")} ariaLabel={mc(pageContract, "chart.sex.title")} {...rateLabels} />
           </ChartCard>
           {showSpecies ? (
-            <ChartCard title={mc(pageContract, "chart.species.title")} hint={mc(pageContract, "chart.species.hint")}>
+            <ChartCard title={mc(pageContract, "chart.species.title")}>
               <RateTable buckets={data.species} unassignedLabel={mc(pageContract, "label.unassigned_species")} ariaLabel={mc(pageContract, "chart.species.title")} {...rateLabels} />
             </ChartCard>
           ) : null}
           {showParks ? (
-            <ChartCard title={mc(pageContract, "chart.park.title")} hint={mc(pageContract, "chart.park.hint")}>
+            <ChartCard title={mc(pageContract, "chart.park.title")}>
               <RateTable buckets={data.park} unassignedLabel={mc(pageContract, "label.unassigned_park")} ariaLabel={mc(pageContract, "chart.park.title")} {...rateLabels} />
             </ChartCard>
           ) : null}
@@ -554,7 +607,7 @@ export async function MortalityPage({
       {/* COUNT series: facts about the death alone. */}
       <section aria-label={mc(pageContract, "section.counts.aria")}>
         <div className="mortality-grid">
-          <ChartCard title={mc(pageContract, "chart.cause.title")} hint={mc(pageContract, "chart.cause.hint")}>
+          <ChartCard title={mc(pageContract, "chart.cause.title")}>
             <ShareTable
               buckets={data.cause}
               totalDeaths={totals.deaths}
@@ -565,7 +618,7 @@ export async function MortalityPage({
               ariaLabel={mc(pageContract, "chart.cause.title")}
             />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.age.title")} hint={mc(pageContract, "chart.age.hint")}>
+          <ChartCard title={mc(pageContract, "chart.age.title")}>
             <ShareTable
               buckets={data.age_at_death}
               totalDeaths={totals.deaths}
@@ -575,7 +628,7 @@ export async function MortalityPage({
               ariaLabel={mc(pageContract, "chart.age.title")}
             />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.season.title")} hint={mc(pageContract, "chart.season.hint")}>
+          <ChartCard title={mc(pageContract, "chart.season.title")}>
             <ShareTable
               buckets={data.season}
               totalDeaths={totals.deaths}
@@ -585,7 +638,7 @@ export async function MortalityPage({
               ariaLabel={mc(pageContract, "chart.season.title")}
             />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.arrival.title")} hint={mc(pageContract, "chart.arrival.hint")}>
+          <ChartCard title={mc(pageContract, "chart.arrival.title")}>
             <ShareTable
               buckets={data.days_since_arrival}
               totalDeaths={totals.deaths}
@@ -595,7 +648,7 @@ export async function MortalityPage({
               ariaLabel={mc(pageContract, "chart.arrival.title")}
             />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "chart.vaccine.title")} hint={mc(pageContract, "chart.vaccine.hint")}>
+          <ChartCard title={mc(pageContract, "chart.vaccine.title")}>
             <ShareTable
               buckets={data.days_since_vaccination}
               totalDeaths={totals.deaths}
@@ -611,10 +664,10 @@ export async function MortalityPage({
       {/* Cross tabs. */}
       <section aria-label={mc(pageContract, "section.cross.aria")}>
         <div className="mortality-grid mortality-grid-wide">
-          <ChartCard title={mc(pageContract, "cross.season_stage.title")} hint={mc(pageContract, "cross.season_stage.hint")}>
-            <CrossTable cells={data.season_by_stage} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.season_stage.title")} />
+          <ChartCard title={mc(pageContract, "cross.season_stage.title")}>
+            <CrossTable cells={seasonByStage} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.season_stage.title")} />
           </ChartCard>
-          <ChartCard title={mc(pageContract, "cross.load_cause.title")} hint={mc(pageContract, "cross.load_cause.hint")}>
+          <ChartCard title={mc(pageContract, "cross.load_cause.title")}>
             <CrossTable cells={data.load_by_cause} totalLabel={mc(pageContract, "cross.total")} emptyLabel={emptyChart} ariaLabel={mc(pageContract, "cross.load_cause.title")} />
           </ChartCard>
           <ChartCard title={mc(pageContract, "cross.vendor_cause.title")} hint={mc(pageContract, "cross.vendor_cause.hint")}>
@@ -626,54 +679,61 @@ export async function MortalityPage({
         </div>
       </section>
 
-      <section className="card mortality-recent-card" aria-label={mc(pageContract, "table.recent.title")}>
-        <h2 className="h">{mc(pageContract, "table.recent.title")}</h2>
-        <p className="muted small">{mc(pageContract, "table.recent.hint")}</p>
-        <RecentDeathsTable
-          contract={table(pageContract, "recent-deaths")}
-          rows={data.deaths.map((d) => ({
-            goatId: d.goat_id,
-            diedOn: fmtDate(d.died_on),
-            sortDate: d.died_on,
-            tag: d.tag,
-            displayId: d.display_id,
-            breed: d.breed,
-            sex: d.sex,
-            stage: d.stage,
-            ageDays: d.age_days ?? null,
-            ageBandLabel: d.age_band_label,
-            park: d.park,
-            pen: d.pen,
-            loadRef: d.load_ref,
-            causeLabel: d.cause_label,
-            causeBasis: d.cause_basis,
-            basisLabel: basisLabels[d.cause_basis],
-          }))}
-          ariaLabel={mc(pageContract, "table.recent.title")}
-          empty={<span className="muted small">{emptyChart}</span>}
-          noDataLabel={mc(pageContract, "label.no_load")}
-          daysSuffix={mc(pageContract, "label.days_suffix")}
-        />
-        {/* The pager reads the page the SERVER actually served (`recent_offset` / `recent_limit`),
-            never the one the URL asked for, so a resolved parameter cannot leave the footer
-            describing a page the table is not showing. Its total is `totals.deaths`: the list and
-            that tile count the same window deaths, which is why paging moves no figure above. */}
-        <VaccinationTablePager
-          pageContract={pageContract}
-          pageSizeOptions={pageSizeOptions}
-          page={Math.floor(data.recent_offset / data.recent_limit) + 1}
-          pageSize={data.recent_limit}
-          total={totals.deaths}
-          start={data.deaths.length === 0 ? 0 : data.recent_offset + 1}
-          end={data.recent_offset + data.deaths.length}
-          noun={mc(pageContract, "table.recent.noun")}
-          hrefForPage={(nextPage) => hrefWithParam("md_page", nextPage === 1 ? "" : String(nextPage))}
-          /* A size change returns to the first page: page 4 of 10-row pages is a different set of
-             animals from page 4 of 50-row pages, and keeping the number would scroll the reader
-             somewhere they did not ask to go. */
-          hrefForPageSize={(nextSize) => hrefWithParam("md_limit", String(nextSize), { drop: ["md_page"] })}
-        />
-      </section>
+      <div>
+        <Card className="kit-tablecard mortality-card mortality-recent" aria-label={mc(pageContract, "table.recent.title")}>
+          <CardHeader
+            className="mortality-card-head"
+            slotProps={{ title: { variant: "subtitle1" } }}
+            title={mc(pageContract, "table.recent.title")}
+            subheader={mc(pageContract, "table.recent.hint")}
+            action={<Tag tone="mut">{nf(totals.deaths)}</Tag>}
+          />
+          <RecentDeathsTable
+            contract={table(pageContract, "recent-deaths")}
+            rows={data.deaths.map((d) => ({
+              goatId: d.goat_id,
+              diedOn: fmtDate(d.died_on),
+              sortDate: d.died_on,
+              tag: d.tag,
+              displayId: d.display_id,
+              breed: d.breed,
+              sex: d.sex,
+              stage: stageDisplayLabel(d.stage, stageNames),
+              ageDays: d.age_days ?? null,
+              ageBandLabel: d.age_band_label,
+              park: d.park,
+              pen: d.pen,
+              loadRef: d.load_ref,
+              causeLabel: d.cause_label,
+              causeBasis: d.cause_basis,
+              basisLabel: basisLabels[d.cause_basis],
+            }))}
+            ariaLabel={mc(pageContract, "table.recent.title")}
+            empty={emptyChart}
+            noDataLabel={mc(pageContract, "label.no_load")}
+            daysSuffix={mc(pageContract, "label.days_suffix")}
+          />
+          {/* The pager reads the page the SERVER actually served (`recent_offset` / `recent_limit`),
+              never the one the URL asked for, so a resolved parameter cannot leave the footer
+              describing a page the table is not showing. Its total is `totals.deaths`: the list and
+              that tile count the same window deaths, which is why paging moves no figure above. */}
+          <VaccinationTablePager
+            pageContract={pageContract}
+            pageSizeOptions={pageSizeOptions}
+            page={Math.floor(data.recent_offset / data.recent_limit) + 1}
+            pageSize={data.recent_limit}
+            total={totals.deaths}
+            start={data.deaths.length === 0 ? 0 : data.recent_offset + 1}
+            end={data.recent_offset + data.deaths.length}
+            noun={mc(pageContract, "table.recent.noun")}
+            hrefForPage={(nextPage) => hrefWithParam("md_page", nextPage === 1 ? "" : String(nextPage))}
+            /* A size change returns to the first page: page 4 of 10-row pages is a different set of
+               animals from page 4 of 50-row pages, and keeping the number would scroll the reader
+               somewhere they did not ask to go. */
+            hrefForPageSize={(nextSize) => hrefWithParam("md_limit", String(nextSize), { drop: ["md_page"] })}
+          />
+        </Card>
+      </div>
     </div>
   );
 }

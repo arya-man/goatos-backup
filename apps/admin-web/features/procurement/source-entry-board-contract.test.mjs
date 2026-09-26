@@ -38,9 +38,16 @@ assert.match(
   "drawer goat count must render unavailable when detail was not fetched, not 0",
 );
 
-assert.match(source, /<table className="source-loads-table">/, "source-entry loads table must keep its scoped class");
+assert.match(source, /<Table className="source-loads-table">/, "source-entry loads table must keep its scoped class");
 assert.match(css, /\.main table\.source-loads-table\{min-width:1180px\}/, "source-entry table must own enough width for mobile scroll");
 assert.match(css, /\.main table\.source-loads-table th,\s*\.main table\.source-loads-table td,\s*\.main table\.source-loads-table td \.celllink\{white-space:nowrap/, "source-entry table links must not clip/wrap status labels");
 assert.match(css, /\.main table\.source-loads-table th:nth-child\(9\),\.main table\.source-loads-table td:nth-child\(9\)\{min-width:172px\}/, "source-entry status column must fit Accepted intake");
-assert.match(loadDetail, /className="twrap"[\s\S]*?<table className="procurement-load-goats-table">/, "load detail animal table must use the standard mobile scroll owner");
+// Same two class names, handed to the kit PagedRows that now renders this table: `.twrap` owns
+// the horizontal scroll and `.procurement-load-goats-table` carries the per-column min-widths
+// asserted below. PagedRows supplies the tabIndex/role/aria-label itself.
+assert.match(
+  loadDetail,
+  /<PagedRows[\s\S]*?wrapClassName="twrap"[\s\S]*?tableClassName="procurement-load-goats-table"/,
+  "load detail animal table must use the standard mobile scroll owner",
+);
 assert.match(css, /\.main table\.procurement-load-goats-table\{min-width:1280px\}/, "load detail animal table must stay horizontally scrollable on mobile");

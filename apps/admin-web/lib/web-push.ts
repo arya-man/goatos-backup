@@ -180,7 +180,7 @@ async function mintToken(vapidKey: WebPushVapidKey): Promise<string | typeof MIN
     () => MINT_TIMED_OUT,
   );
   if (token === MINT_TIMED_OUT) return MINT_TIMED_OUT;
-  if (!token) throw new Error("This browser did not return a notification token.");
+  if (!token) throw new Error("This browser could not be registered for notifications. Try again or use another browser.");
   return token;
 }
 

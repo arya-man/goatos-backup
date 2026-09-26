@@ -1,3 +1,10 @@
+import Box from "@mui/material/Box";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
 import { Layers, MapPin, Warehouse } from "lucide-react";
 import { getVaccinationShedSummary, type ApiResult, type VaccinationShedSummaryResponse } from "@/lib/api/server";
@@ -19,7 +26,11 @@ import { parseScope, scopeHref } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
 import { VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
+import { InfoHint } from "@/components/app/info-hint";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import { IdentityCell } from "@/components/data-table";
 import { ShedFilterBar } from "./shed-filter-bar";
+import { ShedRowActions, ShedSelectAllHeader, ShedSelectCheckbox, ShedSelectionProvider } from "./shed-table-client";
 import { penDetailParams, vaccinationCurrentViewScope } from "./shed-scope";
 
 // Merged CEO status headline order (highest priority first) — matches the backend headline priority and
@@ -29,6 +40,29 @@ const SHED_STATUS_ORDER: VaccinationShedStatus[] = ["overdue", "needs_review", "
 const CAPACITY_ORDER: VaccinationCapacityStatus[] = ["within_cap", "over_cap", "capacity_breach"];
 
 const DEFAULT_PAGE_SIZE = 25;
+
+// Columns that carry a count, so they are right-aligned and tabular (`.num`) rather than reading as prose.
+const NUMERIC_COLUMNS = new Set(["animals", "due", "done", "sessions"]);
+
+// Per-column skeleton widths, so the placeholder reads as the real column and not as a stripe grid.
+const SKELETON_CELL_WIDTHS: Record<string, number> = {
+  animals: 44,
+  due: 36,
+  done: 36,
+  sessions: 32,
+  next_due: 78,
+  manager: 132,
+  backup: 96,
+  status: 92,
+};
+
+function shedDisplayName(row: VaccinationShedSummaryRow): string {
+  return row.operationalLocationDisplay || row.shedName;
+}
+
+function shedInitial(row: VaccinationShedSummaryRow): string {
+  return (shedDisplayName(row).trim()[0] ?? "?").toUpperCase();
+}
 
 function DriveOperatorsCell({ row, pageContract }: { row: VaccinationShedSummaryRow & { driveOperatorNames?: string[] }; pageContract: AdminUiPageContract }) {
   const names = row.driveOperatorNames?.filter(Boolean) ?? [];
@@ -83,7 +117,7 @@ export function VaccinationShedBoardSkeleton({
   pageContract: AdminUiPageContract;
 }) {
   const shedTable = table(pageContract, "shed-summary");
-  const cols = shedTable.columns.filter((column) => column.visible);
+  const skeletonCols = shedTable.columns.filter((column) => column.visible && column.key !== "park");
   return (
     <section id="sheds" className="card" style={{ scrollMarginTop: 80 }} aria-busy="true">
       <div className="hd">
@@ -106,26 +140,49 @@ export function VaccinationShedBoardSkeleton({
         ))}
       </div>
       <div className="bd twrap" style={{ padding: 0 }}>
-        <table className="shed-summary-table">
-          <thead>
-            <tr>
-              {cols.map((col) => (
-                <th key={col.key}>{col.label}</th>
+        {/* Shape-matched to the real table: checkbox column, ONE identity column (shed + park), the
+            remaining contract columns, and the trailing row-action circle. The real `thead` is
+            rendered above it so the header does not pop in when the data lands. */}
+        <Table className="shed-summary-table">
+          <TableHead>
+            <TableRow>
+              <TableCell component="th" className="kit-check" />
+              {skeletonCols.map((col) => (
+                <TableCell component="th" key={col.key} className={NUMERIC_COLUMNS.has(col.key) ? "num" : undefined}>{col.label}</TableCell>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+              <TableCell component="th" className="kit-rowactions-th" />
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {Array.from({ length: 5 }, (_, row) => (
-              <tr key={row}>
-                {cols.map((col, index) => (
-                  <td key={col.key} className={index > 1 ? "muted" : undefined}>
-                    <span className="skel" style={{ width: index < 2 ? 118 : 64, height: 16 }} />
-                  </td>
+              <TableRow key={row}>
+                <TableCell className="kit-check">
+                  <span className="skel" style={{ width: 18, height: 18, borderRadius: 5 }} />
+                </TableCell>
+                {skeletonCols.map((col, index) => (
+                  <TableCell key={col.key} className={NUMERIC_COLUMNS.has(col.key) ? "num muted" : index === 0 ? undefined : "muted"}>
+                    {index === 0 ? (
+                      <span className="kit-idcell">
+                        <span className="kit-idcell-lead">
+                          <span className="skel" style={{ width: 28, height: 28, borderRadius: 999 }} />
+                        </span>
+                        <span className="kit-idcell-copy">
+                          <span className="skel" style={{ width: 128, height: 13 }} />
+                          <span className="skel" style={{ width: 88, height: 11, marginTop: 4 }} />
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="skel" style={{ width: SKELETON_CELL_WIDTHS[col.key] ?? 64, height: 16 }} />
+                    )}
+                  </TableCell>
                 ))}
-              </tr>
+                <TableCell className="kit-rowactions">
+                  <span className="skel" style={{ width: 28, height: 28, borderRadius: 999 }} />
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </section>
   );
@@ -156,7 +213,14 @@ export async function VaccinationShedBoard({
     pageSizeOptions,
   } = getVaccinationShedSummaryParams(searchParams, pageContract);
   const result = summaryResult ?? (await loadVaccinationShedSummary(searchParams, pageContract));
-  const rows: VaccinationShedSummaryRow[] = result.ok ? result.data.rows : [];
+  const rows: VaccinationShedSummaryRow[] = result.ok ? listOrEmpty(result.data.rows) : [];
+  // Honest only unfiltered: `rows` is one server-filtered page.
+  const statusCounts = new Map<string, number>();
+  if (!statusFilter && !capacityFilter) {
+    for (const row of rows) {
+      statusCounts.set(row.status, (statusCounts.get(row.status) ?? 0) + 1);
+    }
+  }
   const total = result.ok ? result.data.page.total : 0;
   const hasFilter = Boolean(statusFilter || capacityFilter || search);
 
@@ -210,29 +274,41 @@ export async function VaccinationShedBoard({
       <ShedFilterBar total={total} pageContract={pageContract} />
 
       {/* Status filter (merged CEO headline). Server-side via ?sheds_status. */}
-      <div className="chipset" style={{ padding: "0 14px 8px" }}>
-        <Link href={allStatusHref} replace scroll={false} className={`chip${!statusFilter ? " on" : ""}`}>
-          {copy(pageContract, "label.all_status")}
-        </Link>
-        {SHED_STATUS_ORDER.map((s) => (
-          <Link key={s} href={hrefWith({ sheds_status: s, sheds_page: "1" })} replace scroll={false} className={`chip${statusFilter === s ? " on" : ""}`}>
-            {shedStatusLabel(pageContract, s)}
-          </Link>
-        ))}
+      <div style={{ padding: "0 14px 8px" }}>
+        <AnimatedTabs
+          variant="pill"
+          ariaLabel={copy(pageContract, "label.all_status")}
+          value={statusFilter || "all"}
+          items={[
+            { value: "all", label: copy(pageContract, "label.all_status"), href: allStatusHref },
+            ...SHED_STATUS_ORDER.map((s) => ({
+              value: s,
+              label: shedStatusLabel(pageContract, s),
+              count: statusCounts.get(s),
+              href: hrefWith({ sheds_status: s, sheds_page: "1" }),
+            })),
+          ]}
+        />
       </div>
 
       {/* Capacity filter (All / Within cap / Split / Capacity action). Server-side via ?sheds_capacity. */}
-      <div className="chipset" style={{ padding: "0 14px 10px" }}>
-        <Link href={allCapacityHref} replace scroll={false} className={`chip${!capacityFilter ? " on" : ""}`}>
-          {copy(pageContract, "label.all_capacity")}
-        </Link>
-        {CAPACITY_ORDER.map((c) => (
-          <Link key={c} href={hrefWith({ sheds_capacity: c, sheds_page: "1" })} replace scroll={false} className={`chip${capacityFilter === c ? " on" : ""}`}>
-            {optionLabel(pageContract, "capacity_chips", c)}
-          </Link>
-        ))}
+      <div style={{ padding: "0 14px 10px" }}>
+        <AnimatedTabs
+          variant="pill"
+          ariaLabel={copy(pageContract, "label.all_capacity")}
+          value={capacityFilter || "all"}
+          items={[
+            { value: "all", label: copy(pageContract, "label.all_capacity"), href: allCapacityHref },
+            ...CAPACITY_ORDER.map((c) => ({
+              value: c,
+              label: optionLabel(pageContract, "capacity_chips", c),
+              href: hrefWith({ sheds_capacity: c, sheds_page: "1" }),
+            })),
+          ]}
+        />
       </div>
 
+      <TabPanel tabKey={`${statusFilter ?? "all"}|${capacityFilter ?? "all"}`}>
       {!result.ok ? (
         <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
           <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--danger)", flexShrink: 0 }} />
@@ -266,12 +342,16 @@ export async function VaccinationShedBoard({
         </div>
       ) : (
         <>
+          <ShedSelectionProvider allIds={rows.map((row) => row.shedId)}>
           <div className="bd twrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.title")}>
-            <table className="shed-summary-table">
-              <thead>
-                <tr>
-                  {cols.map((col) => (
-                    <th key={col.key}>
+            <Table className="shed-summary-table">
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th" className="kit-check">
+                    <ShedSelectAllHeader label={copy(pageContract, "action.select_all", "Select all")} />
+                  </TableCell>
+                  {cols.filter((col) => col.key !== "park").map((col) => (
+                    <TableCell component="th" key={col.key} className={NUMERIC_COLUMNS.has(col.key) ? "num" : undefined}>
                       {col.key === "sessions" ? (
                         <span style={{ display: "inline-flex", alignItems: "center" }}>
                           {col.label}
@@ -286,15 +366,16 @@ export async function VaccinationShedBoard({
                       ) : (
                         col.label
                       )}
-                    </th>
+                    </TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                  <TableCell component="th" className="kit-rowactions-th" aria-label={copy(pageContract, "label.actions", "Actions")} />
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((row, rowIndex) => {
                   const href = detailHref(row);
                   const cell = (content: React.ReactNode, extra?: string, withRowLink = false) => (
-                    <td className={extra}>
+                    <TableCell className={extra}>
                       {withRowLink ? (
                         <Link
                           href={href}
@@ -307,7 +388,7 @@ export async function VaccinationShedBoard({
                       <span className="shed-summary-cell-content">
                         {content}
                       </span>
-                    </td>
+                    </TableCell>
                   );
                   const partitionAwareKey = [
                     row.parkId,
@@ -323,20 +404,31 @@ export async function VaccinationShedBoard({
                     rowIndex,
                   ].join("|");
                   return (
-                    <tr key={partitionAwareKey} className="shed-summary-row">
+                    <TableRow key={partitionAwareKey} className="shed-summary-row">
+                      <TableCell className="kit-check">
+                        <ShedSelectCheckbox
+                          id={row.shedId}
+                          label={`${copy(pageContract, "action.open_shed_board")} ${shedDisplayName(row)}`}
+                        />
+                      </TableCell>
                       {cell(
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                          <MapPin className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
-                          <ClipText title={row.parkName}>{row.parkName}</ClipText>
-                        </span>,
+                        <IdentityCell
+                          lead={<span className="kit-avatar" aria-hidden="true">{shedInitial(row)}</span>}
+                          primary={<ClipText title={shedDisplayName(row)}>{shedDisplayName(row)}</ClipText>}
+                          secondary={
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                              <MapPin className="ic" style={{ width: 12, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
+                              <ClipText title={row.parkName}>{row.parkName}</ClipText>
+                            </span>
+                          }
+                        />,
                         undefined,
                         true,
                       )}
-                      {cell(<ClipText title={row.operationalLocationDisplay || row.shedName}>{row.operationalLocationDisplay || row.shedName}</ClipText>)}
-                      {cell(row.animals, "muted")}
-                      {cell(row.due)}
-                      {cell(row.done, "muted")}
-                      {cell(row.sessions)}
+                      {cell(row.animals, "num muted")}
+                      {cell(row.due, "num")}
+                      {cell(row.done, "num muted")}
+                      {cell(row.sessions, "num")}
                       {cell(row.nextDue ? fmtDate(row.nextDue) : copy(pageContract, "label.placeholder"), "muted")}
                       {cell(<DriveOperatorsCell row={row} pageContract={pageContract} />)}
                       {cell(<Tag tone={row.sessions > 1 ? "warn" : "mut"}>{assignmentLabel(row, pageContract)}</Tag>)}
@@ -345,15 +437,29 @@ export async function VaccinationShedBoard({
                           {shedStatusLabel(pageContract, row.status)}
                         </Tag>,
                       )}
-                    </tr>
+                      <TableCell className="kit-rowactions">
+                        <ShedRowActions
+                          shedId={row.shedId}
+                          detailHref={href}
+                          parkHref={scopeHref("/vaccination", scope, { mode: "park", park: row.parkId }, {})}
+                          labels={{
+                            menu: copy(pageContract, "label.row_actions", "Row actions"),
+                            open: copy(pageContract, "action.open_shed_board"),
+                            park: copy(pageContract, "label.park", "Open park"),
+                            copy: copy(pageContract, "action.copy_id", "Copy pen ID"),
+                          }}
+                        />
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-          <div className="note" style={{ margin: "10px 14px 0" }}>
-            {copy(pageContract, "note.sheds_counts")}
-          </div>
+          </ShedSelectionProvider>
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1.25, mx: 1.75 }}>
+            <InfoHint text={copy(pageContract, "note.sheds_counts")} />
+          </Box>
           <VaccinationTablePager
             pageContract={pageContract}
             pageSizeOptions={pageSizeOptions}
@@ -368,6 +474,7 @@ export async function VaccinationShedBoard({
           />
         </>
       )}
+      </TabPanel>
     </section>
   );
 }

@@ -1,19 +1,21 @@
 // A readable horizontal bar list for the Weights page.
 //
-// SvgBars is not usable here. It renders a fixed-width viewBox and an SVG scales
-// its viewBox UNIFORMLY to its container, so inside a half-width card the whole
-// drawing — text included — shrinks to roughly a third and the labels become
-// unreadable. That is fine on a full-width card and wrong on this page.
+// Not the shared SvgBars chart: a Weights row carries a mode chip beside its label, a
+// shared scale across side-by-side columns and an optional dashed reference line, none
+// of which that chart draws. This is the kit BarList instead: the labels are real text
+// at a real font size, so they stay legible at any card width, and the row list scrolls
+// inside a FIXED height so a chart with 40 breeds occupies exactly as much page as one with 4.
 //
-// This is plain HTML instead: the labels are real text at a real font size, so they
-// stay legible at any card width, and the row list scrolls inside a FIXED height so
-// a chart with 40 breeds occupies exactly as much page as one with 4.
-//
-// Server component — no client JS. Colours are theme tokens only, so it stays
+// Each row is the MUI Minimal template's EcommerceSalesOverview item (via the kit BarList);
+// this wrapper holds no client state of its own. Colours are theme tokens only, so it stays
 // correct in both themes and passes the banned-hex scan by construction. It renders
 // no copy of its own: every string is passed in already resolved from the page
 // contract by the caller.
+import { BarList } from "@/components/bar-list";
+import { BarChart3 } from "lucide-react";
 import { Tag, type Tone } from "@/components/ui-primitives";
+import { stageLabel } from "@/lib/stage-labels";
+import { EmptyState } from "@/components/app/empty-state";
 
 export type WeightBar = {
   key: string;
@@ -90,66 +92,31 @@ export function WeightBars({
     // Same fixed box as the populated list, so toggling a chart between weight and
     // gain never makes the row jump.
     return (
-      <div className={`wbars-empty wbars-${size}`} role="note">
-        <span className="muted small">{emptyLabel}</span>
-      </div>
+      <EmptyState className={`wbars-empty wbars-${size}`} icon={<BarChart3 className="ic" />} title={emptyLabel} />
     );
   }
 
-  // Bars are drawn from a ZERO baseline, not from the smallest value: a loss has to
-  // read as crossing zero, not as a short positive bar. The axis spans min..max with
-  // zero always inside it, so the baseline sits where zero actually falls — hard left
-  // when everything is positive, mid-track when the series straddles zero.
-  const refValue = reference && Number.isFinite(reference.value) ? reference.value : null;
-  const lo = Math.min(0, domain?.lo ?? 0, refValue ?? 0, ...bars.map((bar) => bar.value));
-  const hi = Math.max(0, domain?.hi ?? 0, refValue ?? 0, ...bars.map((bar) => bar.value));
-  const span = hi - lo || 1;
-  const zeroPct = ((0 - lo) / span) * 100;
-  const geometry = (value: number) => {
-    const width = (Math.abs(value) / span) * 100;
-    return {
-      left: value >= 0 ? zeroPct : zeroPct - width,
-      width: Math.max(width, 0.6),
-      negative: value < 0,
-    };
-  };
-
+  // Bars are drawn from a ZERO baseline by the kit list, not from the smallest value: a loss has
+  // to read as crossing zero, not as a short positive bar. The caller's shared domain is unioned
+  // with this list's own values so two side-by-side columns draw the same value at the same length.
   return (
-    <ul
-      className={`wbars wbars-${size}${wide ? " wbars-wide" : ""}`}
-      aria-label={chartLabel}
-      tabIndex={0}
-    >
-      {bars.map((bar) => (
-        <li className="wbar" key={bar.key}>
-          <span className="wbl" title={bar.label}>
-            <span className="wbl-text">{bar.label}</span>
-            {bar.modeLabel ? (
-              <span className="wbar-mode">
-                <Tag tone={bar.modeTone ?? "mut"}>{bar.modeLabel}</Tag>
-              </span>
-            ) : null}
-          </span>
-          <span className="wbt">
-            {/* The zero rule only appears when the series actually straddles zero;
-                on an all-positive chart it would sit on the axis and read as noise. */}
-            {lo < 0 && hi > 0 ? <b className="wbzero" style={{ left: `${zeroPct}%` }} /> : null}
-            {refValue != null ? (
-              <b className="wbref" style={{ left: `${((refValue - lo) / span) * 100}%` }} title={reference?.label} aria-hidden />
-            ) : null}
-            <i
-              className={geometry(bar.value).negative ? "neg" : undefined}
-              style={{
-                marginLeft: `${geometry(bar.value).left}%`,
-                width: `${geometry(bar.value).width}%`,
-              }}
-            />
-          </span>
-          <span className={`wbv${bar.value < 0 ? " neg" : ""}`}>
-            {bar.valueLabel ?? `${bar.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${unit}`}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <BarList
+      ariaLabel={chartLabel}
+      valueNoun={unit}
+      domain={domain}
+      reference={reference}
+      size={size === "bands" ? "auto" : size}
+      wide={wide}
+      emptyLabel={emptyLabel}
+      className={`wbars-kit wbars-${size}${wide ? " wbars-wide" : ""}`}
+      rows={bars.map((bar) => ({
+        key: bar.key,
+        label: stageLabel(bar.label),
+        labelText: stageLabel(bar.label),
+        value: bar.value,
+        display: bar.valueLabel ?? `${bar.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${unit}`,
+        note: bar.modeLabel ? <Tag tone={bar.modeTone ?? "mut"}>{bar.modeLabel}</Tag> : undefined,
+      }))}
+    />
   );
 }

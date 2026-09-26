@@ -64,8 +64,8 @@ test("the loads ledger names the pens too, and the card is inset like the Weight
   // Maintainer request 2026-09-21: the same pens in the table under the two charts. The table is
   // the ONE place row.pens is rendered now -- the charts carry the shorter bracket -- and both are
   // composed from the same placements, so the surfaces cannot name one load's pens two ways.
-  assert.match(source, /<th className="pens">\{copy\(pageContract, "table\.loads\.pens"\)\}<\/th>/);
-  assert.match(source, /<td className="pens">\{row\.pens \|\| none\}<\/td>/);
+  assert.match(source, /<TableCell component="th" className="pens">\{copy\(pageContract, "table\.loads\.pens"\)\}<\/TableCell>/);
+  assert.match(source, /<TableCell className="pens">\{row\.pens \|\| none\}<\/TableCell>/);
   assert.ok(contract.includes('"table.loads.pens"'), "the column label is backend copy");
 
   // Vertical padding on the CARD, horizontal on its children — `.twrap` excluded beside

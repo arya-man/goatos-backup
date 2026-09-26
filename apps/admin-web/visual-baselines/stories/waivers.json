@@ -1,0 +1,29 @@
+{
+  "note": "Accepted render-integrity debt for Storybook stories (key = check|storyId|viewport|theme|target). Every entry is a KNOWN broken render; shrink it, never grow it to land a change.",
+  "updated_at": "2026-09-26T02:34:14.663Z",
+  "waived": [
+    "clipped-text|kit-chips-labels--mobile|desktop|dark|div.chipset > span.tag",
+    "clipped-text|kit-chips-labels--mobile|desktop|light|div.chipset > span.tag",
+    "clipped-text|kit-chips-labels--mobile|mobile|dark|div.chipset > span.tag",
+    "clipped-text|kit-chips-labels--mobile|mobile|light|div.chipset > span.tag",
+    "clipped-text|kit-chips-labels--overflow-and-many-items|desktop|dark|div.chipset > span.tag",
+    "clipped-text|kit-chips-labels--overflow-and-many-items|desktop|light|div.chipset > span.tag",
+    "clipped-text|kit-chips-labels--overflow-and-many-items|mobile|dark|div.chipset > span.tag",
+    "clipped-text|kit-chips-labels--overflow-and-many-items|mobile|light|div.chipset > span.tag",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|dark|div.kit-card > table.tbl",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|dark|table.tbl > tbody",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|dark|table.tbl > thead",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|dark|tbody > tr",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|dark|thead > tr",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|dark|tr > td",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|dark|tr > th",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|light|div.kit-card > table.tbl",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|light|table.tbl > tbody",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|light|table.tbl > thead",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|light|tbody > tr",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|light|thead > tr",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|light|tr > td",
+    "element-overflows-viewport|kit-motionframes--row-menu-last-row|mobile|light|tr > th"
+  ],
+  "reasons": {}
+}

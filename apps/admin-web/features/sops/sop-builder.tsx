@@ -1,9 +1,22 @@
 "use client";
 
+import { Tag } from "@/components/ui-primitives";
+
 import { useMemo, useState, useTransition } from "react";
-import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronLeft, Eye, NotebookPen, Play, Plus, Video, X } from "lucide-react";
+import { Check, Eye, NotebookPen, Play, Plus, Video } from "lucide-react";
+import Card from "@mui/material/Card";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import Box from "@mui/material/Box";
+import type { Theme } from "@mui/material/styles";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { EditorHeader, FieldRow, FieldSelect } from "./editor-chrome";
 import {
   buildFormDsl,
   fieldConfigKind,
@@ -24,6 +37,9 @@ import { QuestionCard, type PriorStep } from "./question-card";
 import { BuilderPreview } from "./builder-preview";
 import type { DryRunResponse } from "@/lib/api/server";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Alert from "@mui/material/Alert";
 
 function newId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -62,6 +78,18 @@ function sanitizeVisibility(rows: BuilderStep[]): BuilderStep[] {
     return refIdx === undefined || refIdx >= i ? { ...s, visibleWhen: null } : s;
   });
 }
+
+// Builder basics: the name / domain / kind row stacks on a phone and the read-only chips wrap
+// (template compact field group). `&&&` keeps it above the shared builder row rule.
+const BASICS_ROW_SX = (theme: Theme) => ({
+  [theme.breakpoints.down("sm")]: {
+    "&&&": { display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.25 },
+    "&& > *": { minWidth: 0, width: 1 },
+    "&& > div[aria-label]": { minHeight: "var(--tap-min)", justifyContent: "space-between", flexWrap: "wrap", alignContent: "center" },
+    "&& > div[aria-label] .tag": { flex: "0 0 auto" },
+    "&& > div[aria-label] .muted": { minWidth: 0, whiteSpace: "normal", textAlign: "right" },
+  },
+});
 
 export function SopBuilder({
   pageContract,
@@ -204,48 +232,44 @@ export function SopBuilder({
   }
 
   return (
-    <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pc, "crumb")} · {pc.title} · <b>{editing ? copy(pc, "builder.crumb_edit") : copy(pc, "builder.crumb_current")}</b>
-          </div>
-          <h1>{editing ? copy(pc, "builder.title_edit") : copy(pc, "modal.builder.title")}</h1>
-          <div className="sub">{editing ? copy(pc, "builder.subtitle_edit") : copy(pc, "builder.subtitle")}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn p" onClick={() => setPreviewOpen(true)}>
-          <Eye className="ic" /> {copy(pc, "builder.preview.open")}
-        </button>
-        <Link className="btn" href={basePath}>
-          <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
-        </Link>
-      </div>
+    <div className="kit-enter screen on sop-kit">
+      <EditorHeader
+        crumbs={[copy(pc, "crumb"), pc.title, editing ? copy(pc, "builder.crumb_edit") : copy(pc, "builder.crumb_current")]}
+        title={editing ? copy(pc, "builder.title_edit") : copy(pc, "modal.builder.title")}
+        subtitle={editing ? copy(pc, "builder.subtitle_edit") : copy(pc, "builder.subtitle")}
+        backHref={basePath}
+        actions={
+          <Button variant="contained" color="primary" startIcon={<Eye size={18} />} onClick={() => setPreviewOpen(true)}>
+            {copy(pc, "builder.preview.open")}
+          </Button>
+        }
+      />
 
       {notice ? (
-        notice.ok ? (
-          <div className="note" style={{ marginBottom: 12 }}>
-            <span className="tag t-ok">{copy(pc, "modal.builder.notice_ok")}</span> {notice.message}
-          </div>
-        ) : (
-          <div className="alert warn" style={{ marginBottom: 12 }}>
-            <AlertTriangle className="ic" />
-            <div>{notice.message}</div>
-          </div>
-        )
+        <div>
+          {notice.ok ? (
+            <div className="note" style={{ marginBottom: 12 }}>
+              <Tag tone="ok">{copy(pc, "modal.builder.notice_ok")}</Tag> {notice.message}
+            </div>
+          ) : (
+            <Alert severity="warning" style={{ marginBottom: 12 }}><div>{notice.message}</div>
+            </Alert>
+          )}
+        </div>
       ) : null}
 
       {editBlocked ? (
-        <div className="alert warn" style={{ marginBottom: 12 }}>
-          <AlertTriangle className="ic" />
-          <div>{copy(pc, "builder.edit_blocked")}</div>
+        <div>
+          <Alert severity="warning" style={{ marginBottom: 12 }}><div>{copy(pc, "builder.edit_blocked")}</div>
+          </Alert>
         </div>
       ) : null}
 
       <div className="builderwrap">
-        <div className="buildermain">
+        <div className="kit-enter buildermain">
           {/* Basics */}
-          <section className="card">
+          <div>
+          <Card className="card">
             <div className="hd">
               <span className="fic" style={{ width: 26, height: 26, background: "var(--brand-soft)", color: "var(--brand-d)" }}>
                 <NotebookPen className="ic" style={{ width: 14 }} />
@@ -255,7 +279,8 @@ export function SopBuilder({
             <div className="bd">
               <div className="fld">
                 <label>{copy(pc, "modal.builder.field.name")}</label>
-                <div className="rowf">
+                {/* Phone: the name, domain and kind stack instead of squeezing onto one row. */}
+                <Box className="rowf" sx={BASICS_ROW_SX}>
                   <input
                     aria-label={copy(pc, "modal.builder.field.name")}
                     value={name}
@@ -270,7 +295,7 @@ export function SopBuilder({
                     title={copy(pc, "modal.builder.domain_title")}
                     style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, border: "1px solid var(--line)", background: "var(--bg)", borderRadius: 8, padding: "8px 10px" }}
                   >
-                    <span className="tag t-pur">{copy(pc, "modal.builder.domain_label")}</span>
+                    <Tag tone="pur">{copy(pc, "modal.builder.domain_label")}</Tag>
                     <span className="muted small">{copy(pc, "modal.builder.domain_locked")}</span>
                   </div>
                   {/* The SOP KIND (2026-09-18) is decided by the page: a module page authors
@@ -284,7 +309,7 @@ export function SopBuilder({
                     <span className="muted small">{copy(pc, "studio.kind.label")}</span>
                     <span className="tag">{copy(pc, domain === "general" ? "studio.kind.general" : "studio.kind.module")}</span>
                   </div>
-                </div>
+                </Box>
                 <div className="muted small" style={{ marginTop: 5 }}>
                   {/* The SOP code (`counts.herd_operation`) is an internal key, never shown: the
                       page already names the module, and this line says what the SOP governs. */}
@@ -293,35 +318,31 @@ export function SopBuilder({
               </div>
               <div className="fld" style={{ marginBottom: 0 }}>
                 <label>{copy(pc, "modal.builder.field.trigger")}</label>
-                <div className="chipset">
-                  {triggerOptions.map((t) => (
-                    <button
-                      type="button"
-                      key={t.key}
-                      className={`chip${trigger === t.key ? " on" : ""}`}
-                      aria-pressed={trigger === t.key}
-                      onClick={() => {
-                        setTrigger(t.key as SopTrigger);
-                        resetResults();
-                      }}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
+                <AnimatedTabs
+                  variant="pill"
+                  ariaLabel={copy(pc, "modal.builder.field.trigger")}
+                  value={trigger}
+                  items={triggerOptions.map((t) => ({ value: t.key, label: t.label }))}
+                  onChange={(next) => {
+                    setTrigger(next as SopTrigger);
+                    resetResults();
+                  }}
+                />
               </div>
             </div>
-          </section>
+          </Card>
+          </div>
 
           {/* Questions */}
-          <section className="card">
+          <div>
+          <Card className="card">
             <div className="hd">
               <span className="fic" style={{ width: 26, height: 26, background: "var(--brand-soft)", color: "var(--brand-d)" }}>
                 <Check className="ic" style={{ width: 14 }} />
               </span>
               <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.section.questions")}</h3>
               <span className="sp" style={{ flex: 1 }} />
-              <span className="tag t-mut">{fieldCount}</span>
+              <Tag tone="mut">{fieldCount}</Tag>
             </div>
             <div className="bd">
               <div className="muted small" style={{ marginBottom: 10 }}>
@@ -358,16 +379,18 @@ export function SopBuilder({
                   );
                 })}
               </div>
-              <button type="button" className="btn sm" style={{ marginTop: 10 }} onClick={addStep}>
-                <Plus className="ic" /> {copy(pc, "builder.add_question")}
-              </button>
+              <Button color="primary" variant="outlined" size="small" startIcon={<Plus size={16} />} style={{ marginTop: 10 }} onClick={addStep}>
+                {copy(pc, "builder.add_question")}
+              </Button>
             </div>
-          </section>
+          </Card>
+          </div>
 
           {/* Gates & proof -- not for a general work instruction: its steps carry their own proofs
               and the document policy is the seeded run-scoped one (PR 308 review). */}
           {domain === "general" ? null : (
-          <section className="card">
+          <div>
+          <Card className="card">
             <div className="hd">
               <span className="fic" style={{ width: 26, height: 26, background: "var(--brand-soft)", color: "var(--brand-d)" }}>
                 <Video className="ic" style={{ width: 14 }} />
@@ -376,66 +399,69 @@ export function SopBuilder({
             </div>
             <div className="bd">
               <div className="cfgchk" style={{ flexWrap: "wrap", gap: 14 }}>
-                <label>
-                  <input type="checkbox" checked={proofRequired} onChange={(e) => { setProofRequired(e.target.checked); resetResults(); }} />{" "}
-                  {copy(pc, "modal.builder.label.proof_required")}
-                </label>
-                <label>
-                  <input type="checkbox" checked={verifyBeforeApply} onChange={(e) => { setVerifyBeforeApply(e.target.checked); resetResults(); }} />{" "}
-                  {copy(pc, "modal.builder.label.verify_before_apply")}
-                </label>
+                <FormControlLabel control={<Checkbox checked={proofRequired} onChange={(e) => { setProofRequired(e.target.checked); resetResults(); }} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
+                  {copy(pc, "modal.builder.label.proof_required")}</>} />
+                <FormControlLabel control={<Checkbox checked={verifyBeforeApply} onChange={(e) => { setVerifyBeforeApply(e.target.checked); resetResults(); }} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
+                  {copy(pc, "modal.builder.label.verify_before_apply")}</>} />
               </div>
-              <div className="rowf" style={{ marginTop: 8 }}>
-                <select aria-label={copy(pc, "modal.builder.field.proof_type")} value={proofType} onChange={(e) => { setProofType(e.target.value as ProofType); resetResults(); }}>
-                  {proofTypeOptions.map((p) => (
-                    <option key={p.key} value={p.key}>{p.label}</option>
-                  ))}
-                </select>
-                <input
-                  aria-label={copy(pc, "modal.builder.field.min_count")}
-                  type="number"
-                  min={1}
-                  value={minCount}
-                  onChange={(e) => { setMinCount(Number(e.target.value)); resetResults(); }}
+              <FieldRow>
+                <FieldSelect
+                  label={copy(pc, "modal.builder.field.proof_type")}
+                  value={proofType}
+                  options={proofTypeOptions.map((p) => ({ value: p.key, label: p.label }))}
+                  onChange={(next) => { setProofType(next as ProofType); resetResults(); }}
                 />
-                <select aria-label={copy(pc, "modal.builder.field.subject_scope")} value={subjectScope} onChange={(e) => { setSubjectScope(e.target.value as SubjectScope); resetResults(); }}>
-                  {subjectScopeOptions.map((sc) => (
-                    <option key={sc.key} value={sc.key}>{sc.label}</option>
-                  ))}
-                </select>
-              </div>
+                <label className="numfield" style={{ flex: "0 1 160px" }}>
+                  <span className="numlbl">{copy(pc, "modal.builder.field.min_count")}</span>
+                  <input
+                    aria-label={copy(pc, "modal.builder.field.min_count")}
+                    type="number"
+                    min={1}
+                    value={minCount}
+                    onChange={(e) => { setMinCount(Number(e.target.value)); resetResults(); }}
+                  />
+                </label>
+                <FieldSelect
+                  label={copy(pc, "modal.builder.field.subject_scope")}
+                  value={subjectScope}
+                  options={subjectScopeOptions.map((sc) => ({ value: sc.key, label: sc.label }))}
+                  onChange={(next) => { setSubjectScope(next as SubjectScope); resetResults(); }}
+                />
+              </FieldRow>
               <div className="muted small" style={{ marginTop: 6 }}>{copy(pc, "builder.gates.subject_hint")}</div>
               {!proofGapOk ? (
-                <div className="alert warn" style={{ marginTop: 8 }}>
-                  <AlertTriangle className="ic" />
-                  <div>{copy(pc, "modal.builder.proof_gap")}</div>
-                </div>
+                <Alert severity="warning" style={{ marginTop: 8 }}><div>{copy(pc, "modal.builder.proof_gap")}</div>
+                </Alert>
               ) : null}
             </div>
-          </section>
+          </Card>
+          </div>
           )}
         </div>
 
         {/* Aside: preview + review */}
-        <aside className="builderside">
-          <section className="card">
+        <div className="kit-enter builderside">
+          <div>
+          <Card className="card">
             <div className="hd">
               <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.preview.title")}</h3>
             </div>
             <div className="bd">
               <BuilderPreview pc={pc} steps={steps} />
             </div>
-          </section>
+          </Card>
+          </div>
 
-          <section className="card">
+          <div>
+          <Card className="card">
             <div className="hd">
               <h3 style={{ fontSize: 14 }}>{copy(pc, "builder.section.review")}</h3>
             </div>
             <div className="bd">
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                <span className="tag t-mut">{fieldCount} {copy(pc, "builder.summary.fields")}</span>
-                <span className="tag t-mut">{ruleCount} {copy(pc, "builder.summary.rules")}</span>
-                {proofRequired && domain !== "general" ? <span className="tag t-pur">{proofType} {copy(pc, "builder.summary.proof")}</span> : null}
+                <Tag tone="mut">{fieldCount} {copy(pc, "builder.summary.fields")}</Tag>
+                <Tag tone="mut">{ruleCount} {copy(pc, "builder.summary.rules")}</Tag>
+                {proofRequired && domain !== "general" ? <Tag tone="pur">{proofType} {copy(pc, "builder.summary.proof")}</Tag> : null}
               </div>
 
               {saved?.report ? (
@@ -475,65 +501,61 @@ export function SopBuilder({
               ) : null}
 
               <div className="builderactions">
-                <button
-                  type="button"
-                  className="btn"
+                <Button
+                  color="primary"
+                  variant="outlined"
                   onClick={save}
+                  loading={pending}
                   disabled={pending || !proofGapOk || editBlocked}
                   title={editBlocked ? copy(pc, "builder.edit_blocked") : undefined}
-                  style={editBlocked ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
                 >
                   {pending ? copy(pc, "modal.builder.action.saving") : saved?.ok ? copy(pc, "modal.builder.action.re_save") : copy(pc, "modal.builder.action.save")}
-                </button>
-                <button
-                  type="button"
-                  className="btn"
+                </Button>
+                <Button
+                  color="primary"
+                  variant="outlined"
+                  startIcon={<Play size={16} />}
                   onClick={dry}
                   disabled={pending || !saved?.versionId}
                   title={!saved?.versionId ? copy(pc, "modal.builder.title.save_first") : copy(pc, "modal.builder.title.preview")}
-                  style={!saved?.versionId ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
                 >
-                  <Play className="ic" /> {copy(pc, "modal.builder.action.dry_run")}
-                </button>
-                <button
-                  type="button"
-                  className="btn p"
+                  {copy(pc, "modal.builder.action.dry_run")}
+                </Button>
+                <span className="spacer" style={{ flex: 1 }} />
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<Check size={16} />}
                   onClick={publish}
                   disabled={pending || !canPublish}
                   title={!saved?.versionId ? copy(pc, "modal.builder.title.save_first") : canPublish ? copy(pc, "modal.builder.title.publish") : copy(pc, "modal.builder.title.resolve")}
-                  style={!canPublish ? { opacity: 0.45, cursor: "not-allowed" } : undefined}
                 >
-                  <Check className="ic" /> {copy(pc, "action.publish")}
-                </button>
+                  {copy(pc, "action.publish")}
+                </Button>
               </div>
             </div>
-          </section>
-        </aside>
+          </Card>
+          </div>
+        </div>
       </div>
 
-      {previewOpen ? (
-        <>
-          <div className="cfgback on" onClick={() => setPreviewOpen(false)} />
-          <div className="cfgmodal on" style={{ width: "min(620px,96vw)" }} role="dialog" aria-modal="true" aria-label={copy(pc, "builder.preview.title")}>
-            <div className="cmh">
-              <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
-                <Eye className="ic" />
-              </span>
-              <div>
-                <div className="mono muted" style={{ fontSize: 11 }}>{copy(pc, "modal.builder.eyebrow")}</div>
-                <div className="b700">{copy(pc, "builder.preview.title")}</div>
-              </div>
-              <div className="sp" style={{ flex: 1 }} />
-              <button type="button" className="x" onClick={() => setPreviewOpen(false)} aria-label={copy(pc, "builder.preview.close")}>
-                <X className="ic" />
-              </button>
-            </div>
-            <div className="cmb" style={{ display: "block" }}>
-              <BuilderPreview pc={pc} steps={steps} />
-            </div>
+      <Dialog fullWidth maxWidth="sm" open={previewOpen} onClose={() => setPreviewOpen(false)} slotProps={{ paper: { "aria-label": copy(pc, "builder.preview.title") } }}>
+        <DialogTitle component="div" sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand)", width: 32, height: 32, borderRadius: 9 }}>
+            <Eye className="ic" />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="overline" component="div" sx={{ color: "text.secondary" }}>{copy(pc, "modal.builder.eyebrow")}</Typography>
+            <Typography variant="h6" component="h2">{copy(pc, "builder.preview.title")}</Typography>
           </div>
-        </>
-      ) : null}
+          <IconButton onClick={() => setPreviewOpen(false)} aria-label={copy(pc, "builder.preview.close")}>
+            <Iconify icon="mingcute:close-line" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <BuilderPreview pc={pc} steps={steps} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

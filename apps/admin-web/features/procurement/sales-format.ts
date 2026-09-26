@@ -133,6 +133,31 @@ export function numCompactWhole(value: number): string {
   return `${sign}${Math.floor(abs + 0.5)}`;
 }
 
+/**
+ * Axis tick with ONE unit per axis, picked from the axis top: an axis reaching a lakh reads
+ * 0.25L / 0.5L / 0.75L / 1L, a smaller one 25k / 50k / 75k. Mixing "75k" beside "1L" on one axis
+ * makes the scale unreadable.
+ */
+export function numAxisTick(value: number, axisMax: number): string {
+  return axisTick(value, axisMax, "");
+}
+
+/** Rupee twin of {@link numAxisTick}. */
+export function inrAxisTick(value: number, axisMax: number): string {
+  return axisTick(value, axisMax, "₹");
+}
+
+function axisTick(value: number, axisMax: number, prefix: string): string {
+  const top = Math.abs(axisMax);
+  const sign = value < 0 ? "−" : "";
+  const abs = Math.abs(value);
+  if (abs === 0) return `${prefix}0`;
+  const unit = top >= 1_00_00_000 ? { d: 1_00_00_000, s: "Cr" } : top >= 1_00_000 ? { d: 1_00_000, s: "L" } : top >= 1_000 ? { d: 1_000, s: "k" } : null;
+  if (!unit) return `${sign}${prefix}${Math.round(abs)}`;
+  const scaled = Math.round((abs / unit.d) * 100) / 100;
+  return `${sign}${prefix}${String(scaled)}${unit.s}`;
+}
+
 function trimZero(value: number): string {
   const fixed = value.toFixed(1);
   return fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed;

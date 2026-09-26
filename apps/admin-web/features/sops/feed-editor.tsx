@@ -1,4 +1,5 @@
 "use client";
+import Box from "@mui/material/Box";
 
 // FEED SOP (maintainer decision 2026-09-16, docs/decisions/feed-sop.md).
 //
@@ -11,16 +12,23 @@
 // capture, slots are independent), the per-bag packing grain and the one-trip transport grain are
 // maintainer locks and are shown, not edited.
 import { useMemo, useState, useTransition } from "react";
-import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronUp, Lock, Plus, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
+import IconButton from "@mui/material/IconButton";
+import MuiTextField from "@mui/material/TextField";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import { EditorHeader, InlineSelect, StickyActions, StudioViewToggle, inspectionEditorSx } from "./editor-chrome";
 import { blankProofSlot, blankQuestion, keyForTitle, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
 import { FEED_STAGES_BY_CODE, emitFeed, feedProblems, type FeedRows, type FeedStage, type FeedStageRows } from "./feed-model";
 import { publishedHref } from "./published-href";
 import { FeedFlow, type FeedInsert, type FeedRef } from "./feed-flow";
 import { publishFeedVersion, saveFeedVersion, type FeedSaveResult } from "./sop-actions";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Alert from "@mui/material/Alert";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -192,38 +200,30 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
   }
 
   return (
-    <div className="screen on sop-inspection sop-weighing sop-feed">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pc, "crumb")} · {pc.title} · <b>{sopName}</b>
-          </div>
-          <h1>{copy(pc, "fsop.title")}</h1>
-          <div className="sub">{copy(pc, "fsop.subtitle")}</div>
-          <div className="muted small" style={{ marginTop: 4 }}>
-            {versionLabel} · {copy(pc, "fsop.notice.pinned")}
-          </div>
-        </div>
-        <div className="acts">
-          <div className="subtabs studio-view-toggle" role="tablist" aria-label={copy(pc, "studio.view.label")}>
-            <button type="button" role="tab" className={view === "list" ? "on" : ""} aria-selected={view === "list"} onClick={() => switchView("list")} data-testid="studio-view-list">
-              {copy(pc, "studio.view.list")}
-            </button>
-            <button type="button" role="tab" className={view === "flow" ? "on" : ""} aria-selected={view === "flow"} onClick={() => switchView("flow")} data-testid="studio-view-flow">
-              {copy(pc, "studio.view.flow")}
-            </button>
-          </div>
-          <Link className="btn" href={basePath}>
-            <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
-          </Link>
-        </div>
-      </div>
+    <Box className="kit-enter screen on sop-kit sop-inspection sop-weighing sop-feed" sx={inspectionEditorSx}>
+      <EditorHeader
+        crumbs={[copy(pc, "crumb"), pc.title, sopName]}
+        title={copy(pc, "fsop.title")}
+        subtitle={copy(pc, "fsop.subtitle")}
+        version={versionLabel}
+        notice={copy(pc, "fsop.notice.pinned")}
+        backHref={basePath}
+        actions={
+          <StudioViewToggle
+            label={copy(pc, "studio.view.label")}
+            listLabel={copy(pc, "studio.view.list")}
+            flowLabel={copy(pc, "studio.view.flow")}
+            value={view}
+            onChange={switchView}
+          />
+        }
+      />
 
       {result ? (
-        <div className={`alert ${result.ok ? "ok" : ""}`} role="status">
+        <Alert severity={result.ok ? "success" : "error"} role="status">
           {result.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />}
           <div>{result.message}</div>
-        </div>
+        </Alert>
       ) : null}
 
       {view === "flow" ? (
@@ -233,7 +233,8 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
         const block = rows.stages[stage];
         if (!block) return null;
         return (
-          <section className="card inspection-page" key={stage}>
+          <div key={stage}>
+          <Card className="card inspection-page">
             <div className="inspection-page-head" style={{ cursor: "default" }}>
               <span className="qnum">{si + 1}</span>
               <strong>{stageLabel(stage)}</strong>
@@ -254,9 +255,9 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
                 </div>
                 <div className="qlist">
                   {block.proofs.map((p, i) => slotCardFor(stage, p, i))}
-                  <button type="button" className="btn sm ghost" onClick={() => patchStage(stage, (s) => ({ ...s, proofs: [...s.proofs, blankProofSlot()] }))}>
-                    <Plus className="ic" /> {copy(pc, "fsop.proof.add")}
-                  </button>
+                  <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => patchStage(stage, (s) => ({ ...s, proofs: [...s.proofs, blankProofSlot()] }))}>
+                    {copy(pc, "fsop.proof.add")}
+                  </Button>
                 </div>
               </div>
 
@@ -268,17 +269,19 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
                 <div className="qlist">
                   {block.questions.length === 0 ? <p className="muted">{copy(pc, "fsop.questions.empty")}</p> : null}
                   {block.questions.map((q, qi) => questionCardFor(stage, q, qi))}
-                  <button type="button" className="btn sm ghost" onClick={() => patchStage(stage, (s) => ({ ...s, questions: [...s.questions, blankQuestion()] }))}>
-                    <Plus className="ic" /> {copy(pc, "inspection.question.add")}
-                  </button>
+                  <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => patchStage(stage, (s) => ({ ...s, questions: [...s.questions, blankQuestion()] }))}>
+                    {copy(pc, "inspection.question.add")}
+                  </Button>
                 </div>
               </div>
             </div>
-          </section>
+          </Card>
+          </div>
         );
       })}
 
-      <section className="card inspection-page">
+      <div>
+      <Card className="card inspection-page">
         <div className="bd">
           <p className="muted small" style={{ margin: 0 }}>
             <Lock className="ic" style={{ width: 12 }} /> {copy(pc, "fsop.locked")}
@@ -287,9 +290,10 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
             {copy(pc, "fsop.summary.legacy_key_note")}
           </p>
         </div>
-      </section>
+      </Card>
+      </div>
 
-      <div className="cfgmf inspection-footer">
+      <StickyActions>
         <div>
           {problems.length ? (
             <ul className="small muted" style={{ margin: "4px 0 0 16px" }}>
@@ -301,15 +305,15 @@ export function FeedEditor({ pageContract: pc, basePath, sopId, sopName, version
             <span className="muted small">{copy(pc, "fsop.footer.ready")}</span>
           )}
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
+        <span className="spacer" style={{ flex: 1 }} />
+        <Button color="primary" variant="outlined" loading={pending} disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
-        </button>
-        <button type="button" className="btn p" disabled={pending || problems.length > 0} onClick={() => submit(true)}>
-          <Check className="ic" /> {copy(pc, "inspection.action.publish")}
-        </button>
-      </div>
-    </div>
+        </Button>
+        <Button variant="contained" color="primary" startIcon={<Check size={16} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+          {copy(pc, "inspection.action.publish")}
+        </Button>
+      </StickyActions>
+    </Box>
   );
 }
 
@@ -333,30 +337,32 @@ export function SlotCard({
       <div className="qhead">
         <span className="qnum">{index + 1}</span>
         <span className="qtype">
-          <select value={slot.kind} onChange={(e) => onChange({ kind: e.target.value as RemovalProofKind })}>
-            {proofKinds.map((k) => (
-              <option key={k.key} value={k.key} title={k.title}>
-                {k.label}
-              </option>
-            ))}
-          </select>
+          <InlineSelect
+            label={copy(pc, "fsop.proofs")}
+            value={slot.kind}
+            minWidth={168}
+            options={proofKinds.map((k) => ({ value: k.key, label: k.label }))}
+            onChange={(next) => onChange({ kind: next as RemovalProofKind })}
+          />
         </span>
         {slot.key ? <code className="muted small">{slot.key}</code> : null}
         <span className="sp" style={{ flex: 1 }} />
-        <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
+        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
           <ChevronUp className="ic" />
-        </button>
-        <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
+        </IconButton>
+        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
           <ChevronDown className="ic" />
-        </button>
-        <button type="button" className="ia del" aria-label={copy(pc, "fsop.proof.remove")} onClick={onRemove}>
+        </IconButton>
+        <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "fsop.proof.remove")} onClick={onRemove}>
           <X className="ic" />
-        </button>
+        </IconButton>
       </div>
       <div className="qbody">
         <label className="numfield">
           <span className="numlbl">{copy(pc, "fsop.proof.title")}</span>
-          <input
+          <MuiTextField
+            fullWidth
+            size="small"
             className="qtext"
             value={slot.title}
             onChange={(e) => {
@@ -369,18 +375,16 @@ export function SlotCard({
         </label>
         <label className="numfield">
           <span className="numlbl">{copy(pc, "fsop.proof.hint")}</span>
-          <input value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
+          <MuiTextField fullWidth size="small" value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
         </label>
         {!slot.key ? (
           <label className="numfield">
             <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-            <input value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
+            <MuiTextField fullWidth size="small" value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
           </label>
         ) : null}
         <div className="qfoot">
-          <label className="chkline">
-            <input type="checkbox" checked={slot.required} onChange={(e) => onChange({ required: e.target.checked })} /> {copy(pc, "inspection.question.required")}
-          </label>
+          <FormControlLabel className="chkline" control={<Checkbox checked={slot.required} onChange={(e) => onChange({ required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />
         </div>
       </div>
     </div>

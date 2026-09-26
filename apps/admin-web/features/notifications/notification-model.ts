@@ -29,6 +29,11 @@ export type NotificationContext = {
   message_key?: string;
   target?: string;
   status?: string;
+  /** Procurement load alerts (`procurement_load_overdue`): the load and its human ref. */
+  load_id?: string;
+  load_ref?: string;
+  farm?: string;
+  vendor_name?: string;
 };
 
 export type InAppNotification = {
@@ -54,8 +59,16 @@ export type NotificationFeed = {
   items: InAppNotification[];
   /** The caller's unread total, which can exceed the page of rows served. */
   unread_count: number;
+  /** The caller's TOTAL row count, only when the endpoint serves one; the page size is never a total. */
+  total_count?: number;
   /** Keyset cursor for an older page, when the endpoint serves one. */
   next_cursor?: string;
+  /**
+   * Whether browser push can work on THIS stack, decided server-side (push key served, web
+   * sign-in configured, not local bearer mode). False or absent = the ⚙ section is not rendered
+   * at all; nothing explains why, because the reason is never a person's business.
+   */
+  push_available?: boolean;
   /**
    * False while the read endpoint is not deployed (the UI treats a 404/501 as "not wired yet"),
    * so the panel shows its empty state instead of an error card on every page load.
@@ -107,6 +120,60 @@ export function notificationHref(item: InAppNotification): string | undefined {
   const taskId = item.context?.task_id;
   if (isNotificationTaskId(taskId)) return leadershipTaskNotificationHref(taskId!.trim());
   return undefined;
+}
+
+export type NotificationAction = { kind: "task" | "load" | "screen"; href: string };
+
+/**
+ * Backend `context.screen` keys that have an admin-web desk. A FIXED map, never the raw
+ * `context.href` (that is the Android route, and a row carries attacker-influenced content).
+ */
+const SCREEN_ROUTES: Readonly<Record<string, { kind: "load" | "screen"; href: string }>> = {
+  sales_loads: { kind: "load", href: "/sales/loads" },
+  feed_stock: { kind: "screen", href: "/feed/analytics?tab=items" },
+  feed_direction: { kind: "screen", href: "/feed/direction" },
+  verification: { kind: "screen", href: "/verify" },
+};
+
+/**
+ * The ONE inline action a row can carry, or undefined. Only where the backend gives something
+ * openable in admin-web: a leadership task (by `task_id`, see `notificationHref`) or a
+ * procurement load (`load_id` -> the loads desk, which reads `load`). No other type gets a
+ * button; a guessed link on a CEO's bell is a phishing surface.
+ */
+export function notificationAction(item: InAppNotification): NotificationAction | undefined {
+  const task = notificationHref(item);
+  if (task) return { kind: "task", href: task };
+  const loadId = (item.context?.load_id ?? "").trim();
+  if (loadId && UUID.test(loadId)) return { kind: "load", href: `/sales/loads?load=${encodeURIComponent(loadId)}` };
+  const screen = SCREEN_ROUTES[(item.context?.screen ?? "").trim()];
+  return screen ? { ...screen } : undefined;
+}
+
+const CHIP_KEYS: ReadonlyArray<keyof NotificationContext> = ["task_no", "load_ref", "priority", "status", "farm"];
+const CHIP_MAX = 3;
+
+/** Short backend-owned context values worth a chip (task no, load ref, priority...), at most three. */
+export function notificationChips(item: InAppNotification): string[] {
+  const out: string[] = [];
+  for (const key of CHIP_KEYS) {
+    const value = String(item.context?.[key] ?? "").trim();
+    if (!value || value.length > 24 || out.includes(value)) continue;
+    // "normal" priority is the default on every row; a chip that says nothing is noise.
+    if (key === "priority" && value.toLowerCase() === "normal") continue;
+    out.push(value);
+    if (out.length >= CHIP_MAX) break;
+  }
+  return out;
+}
+
+/** Two-letter initials for the actor avatar, or "" when the row is system-raised. */
+export function notificationInitials(actorName: string | undefined): string {
+  const parts = (actorName ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  const first = parts[0][0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] ?? "" : "";
+  return (first + last).toUpperCase();
 }
 
 /** Newest first, with a stable id tiebreak so equal timestamps never reshuffle between renders. */

@@ -1,9 +1,19 @@
 import { redirect } from "next/navigation";
 
-import { ChartHover } from "@/components/chart-hover";
+import { ArrowUpDown, Baby, HeartOff, HeartPulse } from "lucide-react";
+
+import { TrendChart } from "@/components/app/trend-chart";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import CardContent from "@mui/material/CardContent";
+import { BarList, type BarListRow } from "@/components/bar-list";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { splitParts } from "@/components/minimal/widgets";
+import { GoatGlyph } from "@/components/goat-glyph";
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
-import { SvgBars, type SvgBarDatum } from "@/components/svg-bars";
-import { SeriesLegend, SeriesLines, type LineSeries } from "@/components/svg-series";
+import type { SvgBarDatum } from "@/components/svg-bars";
+import { type LineSeries } from "@/components/svg-series";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -17,6 +27,8 @@ import { istDayPlus, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { HerdAnalyticsDateFilter } from "./herd-analytics-date-filter";
 import { HerdAnalyticsTelemetry } from "./herd-analytics-telemetry";
+import { FeedAnalyticsExport as HerdAnalyticsExport } from "@/components/analytics-export";
+import { stageLabel } from "@/lib/stage-labels";
 
 // Counts -> Herd Analytics. Two questions on one screen, deliberately kept apart
 // because they have different time grains:
@@ -61,7 +73,6 @@ const HERD_ANALYTICS_FLOOR_DATE = "2026-08-01";
  * three to a row, too small on one that fills the page. Named rather than repeated at each
  * call site so all five charts cannot drift to different sizes.
  */
-const COMPOSITION_TEXT_SCALE = 1.7;
 /** Wire format of a window bound; the shared calendar speaks exactly this. */
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -99,6 +110,17 @@ const SERIES_COLOR = {
 } as const;
 
 const nf = (value: number) => value.toLocaleString("en-IN");
+
+/** Composition rows: value plus its share of the whole, in the value column ("312 · 41%"). */
+function shareRows(bars: SvgBarDatum[]): BarListRow[] {
+  const total = bars.reduce((sum, bar) => sum + Math.max(bar.value, 0), 0);
+  return bars.map((bar) => ({
+    key: bar.key,
+    label: bar.label,
+    value: bar.value,
+    display: total > 0 ? `${nf(bar.value)} \u00b7 ${Math.round((bar.value / total) * 100)}%` : nf(bar.value),
+  }));
+}
 /** Net change is the one figure that can be negative, and the sign is the point. */
 const signed = (value: number) => (value > 0 ? `+${nf(value)}` : nf(value));
 
@@ -134,26 +156,23 @@ function readWindow(sp: RouteSearchParams): { from?: string; to?: string } {
 function toBars(points: HerdAnalyticsSeriesPoint[], unassignedLabel: string): SvgBarDatum[] {
   return points.map((point) => ({
     key: point.key || unassignedLabel,
-    label: point.label || unassignedLabel,
+    label: stageLabel(point.label) || unassignedLabel,
     value: point.count,
   }));
 }
 
 function ChartCard({
   title,
-  hint,
   children,
 }: {
   title: string;
-  hint: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="chartcard">
-      <h4>{title}</h4>
-      <div className="cap">{hint}</div>
-      {children}
-    </div>
+    <Card className="herd-mix-card">
+      <CardHeader title={title} />
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }
 
@@ -195,13 +214,23 @@ export async function HerdAnalyticsPage({
   const emptyChart = ha(pageContract, "chart.empty");
 
   if (!data) {
+    // A failed read still gets the page's own chrome. Without it the reader lands on a headerless
+    // card and cannot tell which screen failed, or navigate from it.
     return (
-      <div className="pagegrid">
+      <div className="kit-enter pagegrid ha-kit-stack">
         <HerdAnalyticsTelemetry routeId={pageContract.route_id} parkId={parkId} months={0} />
-        <section className="card">
-          <h2 className="h">{ha(pageContract, "error.title")}</h2>
-          <p className="muted small">{ha(pageContract, "error.body")}</p>
-        </section>
+      <div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: ha(pageContract, "crumb") }, { label: ha(pageContract, "section.analytics.title") }]}
+          actions={<HerdAnalyticsExport rows={[]} filename={pageContract.route_id} label={ha(pageContract, "action.export")} />}
+        />
+      </div>
+        <div>
+          <Card>
+            <CardHeader title={ha(pageContract, "error.title")} subheader={ha(pageContract, "error.body")} sx={{ pb: 3 }} />
+          </Card>
+        </div>
       </div>
     );
   }
@@ -218,6 +247,14 @@ export async function HerdAnalyticsPage({
       points: data.months.map((m) => m.other_exits),
     },
   ];
+  // Same backend month rows, re-shaped for the shared chart wrapper (no arithmetic).
+  const flowKeys = ["births", "deaths", "sold", "other_exits"] as const;
+  const flowRows = data.months.map((m) => ({ month: m.label, births: m.births, deaths: m.deaths, sold: m.sold, other_exits: m.other_exits }));
+  // KPI sparklines are the SAME monthly series the flow chart draws (one bar per served month), so
+  // the card and the chart can never disagree. Fewer than four months is not a shape, it is two
+  // stubs, so a short window shows the icon instead and no trend chip is invented from it.
+  const spark = (key: "births" | "deaths" | "sold") => (flowRows.length >= 4 ? flowRows.map((r) => r[key]) : undefined);
+  const flowChartSeries = flowKeys.map((key, i) => ({ key, label: flowSeries[i].label, color: SERIES_COLOR[key] }));
   // The window the BACKEND served, not the one the URL asked for. When the request
   // carried no bounds the backend chose the default, and the filter must show that
   // choice rather than two empty boxes — otherwise the reader cannot tell what they
@@ -227,15 +264,29 @@ export async function HerdAnalyticsPage({
 
   const ageBars = toBars(data.age_band, ha(pageContract, "label.unassigned_stage"));
   const showParks = data.park.length > 1;
+  // The month rows exactly as the backend served them — the same figures the flow chart draws.
+  const exportRows: (string | number)[][] = [
+    [
+      ha(pageContract, "label.animals_noun"),
+      ha(pageContract, "series.births"),
+      ha(pageContract, "series.deaths"),
+      ha(pageContract, "series.sold"),
+      ha(pageContract, "series.other_exits"),
+    ],
+    ...data.months.map((m) => [m.label, m.births, m.deaths, m.sold, m.other_exits]),
+  ];
   const nothingRecorded = totals.live_animals === 0 && data.months.every((month) => month.births + month.deaths + month.sold + month.other_exits + month.movements === 0);
 
   return (
-    <div className="pagegrid">
+    <div className="kit-enter pagegrid ha-kit-stack">
       <HerdAnalyticsTelemetry routeId={pageContract.route_id} parkId={parkId} months={data.months.length} />
-
-      <p className="muted small" style={{ margin: "0 0 4px" }}>
-        {ha(pageContract, "banner.basis")}
-      </p>
+      <div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: ha(pageContract, "crumb") }, { label: ha(pageContract, "section.analytics.title") }]}
+          actions={<HerdAnalyticsExport rows={exportRows} filename={pageContract.route_id} label={ha(pageContract, "action.export")} />}
+        />
+      </div>
 
       <div className="ha-filter">
         <HerdAnalyticsDateFilter
@@ -247,164 +298,102 @@ export async function HerdAnalyticsPage({
           defaultFrom={fallback.from}
           defaultTo={fallback.to}
         />
-        <span className="muted small ha-filter-hint">{ha(pageContract, "filter.scope_readonly")}</span>
       </div>
 
       {nothingRecorded ? (
-        <section className="card">
-          <h2 className="h">{ha(pageContract, "empty.title")}</h2>
-          <p className="muted small">{ha(pageContract, "empty.body")}</p>
-        </section>
+        <Card className="counts-empty-state" sx={{ p: { xs: 2, sm: 3 } }}>
+          <CardHeader title={ha(pageContract, "empty.title")} sx={{ p: 0 }} />
+          <div className="counts-empty-copy muted small">{ha(pageContract, "empty.body")}</div>
+        </Card>
       ) : null}
 
-      <section
-        className="grid g3 kpi-row"
-        style={{ gap: 14 }}
-        aria-label={ha(pageContract, "section.kpi.aria")}
-      >
-        <div className="kpi">
-          <span className="acc" style={{ background: "var(--brand)" }} />
-          <div className="lab">{ha(pageContract, "kpi.live.label")}</div>
-          <div className="val">{nf(totals.live_animals)}</div>
-          <div className="dl">
-            <span className="muted">{ha(pageContract, "kpi.live.sub")}</span>
-          </div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: "var(--teal)" }} />
-          <div className="lab">{ha(pageContract, "kpi.age.label")}</div>
-          <div className="val">{`${nf(totals.kids)} · ${nf(totals.adults)}`}</div>
-          <div className="dl">
-            <span className="muted">{ha(pageContract, "kpi.age.sub")}</span>
-          </div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: "var(--ok)" }} />
-          <div className="lab">{ha(pageContract, "kpi.births.label")}</div>
-          <div className="val">{nf(totals.births)}</div>
-          <div className="dl">
-            <span className="muted">{ha(pageContract, "kpi.births.sub")}</span>
-          </div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: "var(--danger)" }} />
-          <div className="lab">{ha(pageContract, "kpi.deaths.label")}</div>
-          <div className="val">{nf(totals.deaths)}</div>
-          <div className="dl">
-            <span className="muted">{ha(pageContract, "kpi.deaths.sub")}</span>
-          </div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: "var(--info)" }} />
-          <div className="lab">{ha(pageContract, "kpi.sold.label")}</div>
-          <div className="val">{nf(totals.sold)}</div>
-          <div className="dl">
-            <span className="muted">{ha(pageContract, "kpi.sold.sub")}</span>
-          </div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: "var(--amber)" }} />
-          <div className="lab">{ha(pageContract, "kpi.net.label")}</div>
-          <div className="val">{signed(totals.net_change)}</div>
-          <div className="dl">
-            <span className="muted">{ha(pageContract, "kpi.net.sub")}</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="card wchart" aria-label={ha(pageContract, "chart.flow.title")}>
-        <h2 className="h">{ha(pageContract, "chart.flow.title")}</h2>
-        <p className="muted small">{ha(pageContract, "chart.flow.hint")}</p>
-        <ChartHover>
-          <SeriesLines
-            series={flowSeries}
-            dayLabels={monthLabels}
-            valueNoun={animalsNoun}
-            chartLabel={ha(pageContract, "chart.flow.title")}
-            emptyLabel={emptyChart}
+      <div>
+        <section aria-label={ha(pageContract, "section.kpi.aria")}>
+        <KpiGrid min={200}>
+          <KpiCard tone="primary" icon={<GoatGlyph size={22} />} label={ha(pageContract, "kpi.live.label")} value={totals.live_animals} />
+          <KpiCard tone="info" icon={<Baby size={22} />} label={ha(pageContract, "kpi.age.label")} value={totals.kids + totals.adults} parts={splitParts(ha(pageContract, "kpi.age.label"), [totals.kids, totals.adults])} />
+          <KpiCard tone="success" icon={<HeartPulse size={22} />} sparkline={spark("births")} label={ha(pageContract, "kpi.births.label")} value={totals.births} />
+          <KpiCard tone="error" icon={<HeartOff size={22} />} sparkline={spark("deaths")} label={ha(pageContract, "kpi.deaths.label")} value={totals.deaths} />
+          <KpiCard tone="violet" icon={<GoatGlyph size={22} />} sparkline={spark("sold")} label={ha(pageContract, "kpi.sold.label")} value={totals.sold} />
+          <KpiCard
+            tone={totals.net_change < 0 ? "warning" : "success"}
+            icon={<ArrowUpDown size={22} />}
+            label={ha(pageContract, "kpi.net.label")}
+            value={signed(totals.net_change)}
+           
           />
-        </ChartHover>
-        <SeriesLegend entries={flowSeries.map((series) => ({ label: series.label, colorVar: series.colorVar }))} />
-      </section>
+        </KpiGrid>
+        </section>
+      </div>
+
+      <div>
+      <Card aria-label={ha(pageContract, "chart.flow.title")}>
+        <CardHeader title={ha(pageContract, "chart.flow.title")} />
+        <CardContent>
+          {flowRows.length === 0 ? (
+            <p className="muted small">{emptyChart}</p>
+          ) : (
+            <TrendChart data={flowRows} xKey="month" kind="bar" integerY series={flowChartSeries} height={300} />
+          )}
+        </CardContent>
+      </Card>
+      </div>
 
       {/* No section heading: each chart card already names what it shows, and a band title
           above five self-describing cards was one heading the reader had to skip. The section
           keeps its accessible name so the grouping is still announced. */}
-      <section aria-label={ha(pageContract, "section.mix.aria")}>
+      <div>
+        <section aria-label={ha(pageContract, "section.mix.aria")}>
         <div className="herd-analytics-charts">
-          <ChartCard title={ha(pageContract, "chart.breed.title")} hint={ha(pageContract, "chart.breed.hint")}>
-            <ChartHover>
-              <SvgBars
-                data={toBars(data.breed, ha(pageContract, "label.unassigned_breed"))}
-                maxBars={data.breed.length}
-                showShare
-                textScale={COMPOSITION_TEXT_SCALE}
-                valueNoun={animalsNoun}
-                chartLabel={ha(pageContract, "chart.breed.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
+          <ChartCard title={ha(pageContract, "chart.breed.title")}>
+            <BarList
+              rows={shareRows(toBars(data.breed, ha(pageContract, "label.unassigned_breed")))}
+              ariaLabel={ha(pageContract, "chart.breed.title")}
+              valueNoun={animalsNoun}
+              emptyLabel={emptyChart}
+            />
           </ChartCard>
 
-          <ChartCard title={ha(pageContract, "chart.stage.title")} hint={ha(pageContract, "chart.stage.hint")}>
-            <ChartHover>
-              <SvgBars
-                data={toBars(data.stage, ha(pageContract, "label.unassigned_stage"))}
-                maxBars={data.stage.length}
-                showShare
-                textScale={COMPOSITION_TEXT_SCALE}
-                valueNoun={animalsNoun}
-                chartLabel={ha(pageContract, "chart.stage.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
+          <ChartCard title={ha(pageContract, "chart.stage.title")}>
+            <BarList
+              rows={shareRows(toBars(data.stage, ha(pageContract, "label.unassigned_stage")))}
+              ariaLabel={ha(pageContract, "chart.stage.title")}
+              valueNoun={animalsNoun}
+              emptyLabel={emptyChart}
+            />
           </ChartCard>
 
-          <ChartCard title={ha(pageContract, "chart.age.title")} hint={ha(pageContract, "chart.age.hint")}>
-            <ChartHover>
-              <SvgBars
-                data={ageBars}
-                maxBars={ageBars.length}
-                showShare
-                textScale={COMPOSITION_TEXT_SCALE}
-                valueNoun={animalsNoun}
-                chartLabel={ha(pageContract, "chart.age.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
+          <ChartCard title={ha(pageContract, "chart.age.title")}>
+            <BarList
+              rows={shareRows(ageBars)}
+              ariaLabel={ha(pageContract, "chart.age.title")}
+              valueNoun={animalsNoun}
+              emptyLabel={emptyChart}
+            />
           </ChartCard>
 
-          <ChartCard title={ha(pageContract, "chart.sex.title")} hint={ha(pageContract, "chart.sex.hint")}>
-            <ChartHover>
-              <SvgBars
-                data={toBars(data.sex, ha(pageContract, "label.unassigned_sex"))}
-                maxBars={data.sex.length}
-                showShare
-                textScale={COMPOSITION_TEXT_SCALE}
-                valueNoun={animalsNoun}
-                chartLabel={ha(pageContract, "chart.sex.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
+          <ChartCard title={ha(pageContract, "chart.sex.title")}>
+            <BarList
+              rows={shareRows(toBars(data.sex, ha(pageContract, "label.unassigned_sex")))}
+              ariaLabel={ha(pageContract, "chart.sex.title")}
+              valueNoun={animalsNoun}
+              emptyLabel={emptyChart}
+            />
           </ChartCard>
 
           {showParks ? (
-            <ChartCard title={ha(pageContract, "chart.park.title")} hint={ha(pageContract, "chart.park.hint")}>
-              <ChartHover>
-                <SvgBars
-                  data={toBars(data.park, ha(pageContract, "label.unassigned_park"))}
-                  maxBars={data.park.length}
-                  showShare
-                  textScale={COMPOSITION_TEXT_SCALE}
-                  valueNoun={animalsNoun}
-                  chartLabel={ha(pageContract, "chart.park.title")}
-                  emptyLabel={emptyChart}
-                />
-              </ChartHover>
+            <ChartCard title={ha(pageContract, "chart.park.title")}>
+              <BarList
+                rows={shareRows(toBars(data.park, ha(pageContract, "label.unassigned_park")))}
+                ariaLabel={ha(pageContract, "chart.park.title")}
+                valueNoun={animalsNoun}
+                emptyLabel={emptyChart}
+              />
             </ChartCard>
           ) : null}
         </div>
-      </section>
+        </section>
+      </div>
     </div>
   );
 }

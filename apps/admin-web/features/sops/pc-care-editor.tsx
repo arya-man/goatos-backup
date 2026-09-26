@@ -1,4 +1,5 @@
 "use client";
+import Box from "@mui/material/Box";
 
 // PC CARE SOP (maintainer decision 2026-09-22, docs/decisions/pc-care-sop.md).
 //
@@ -11,10 +12,11 @@
 // and refuses one the phone could not render, naming the field. The module's locks -- how the
 // operator reaches an animal (scan or pen roster), the free-flow scan, the whole-task submit, one
 // verifier item per task, and who may plan -- are shown, not edited.
-import { useMemo, useState, useTransition } from "react";
-import Link from "@/components/no-prefetch-link";
+import { useMemo, useState, useTransition, type InputHTMLAttributes } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronLeft, Lock, Plus } from "lucide-react";
+import { AlertTriangle, Check, Lock, Plus } from "lucide-react";
+import MuiButton from "@mui/material/Button";
+import MuiTextField from "@mui/material/TextField";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { blankProofSlot, blankQuestion, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
@@ -30,9 +32,14 @@ import {
   type PcCareRemovalMode,
   type PcCareRows,
 } from "./pc-care-model";
+import { FieldSelect, EditorHeader, inspectionEditorSx } from "./editor-chrome";
 import { publishedHref } from "./published-href";
 import { PcCareFlow, type PcCareInsert, type PcCareRef, type PcCareSection } from "./pc-care-flow";
 import { publishPcCareVersion, savePcCareVersion, type PcCareSaveResult } from "./sop-actions";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Alert from "@mui/material/Alert";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -151,10 +158,11 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
           <div className="qcfg pcsop-capture-seconds">
             <label className="numfield">
               <span className="numlbl">{copy(pc, "pcsop.capture.min_seconds")}</span>
-              <input
+              <MuiTextField
+                fullWidth
+                size="small"
                 type="number"
-                min={0}
-                max={600}
+                slotProps={{ htmlInput: { min: 0, max: 600 } }}
                 value={capture.minSeconds}
                 disabled={capture.kind === "photo"}
                 onChange={(e) => patchSection(section, (s) => ({ proofs: s.proofs.map((x) => (x.id === p.id ? ({ ...x, minSeconds: e.target.value } as RemovalProofRow) : x)) }))}
@@ -240,38 +248,32 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
   const removalOff = rows.removal.mode === "off";
 
   return (
-    <div className="screen on sop-inspection sop-weighing sop-pc-care">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pc, "crumb")} · {pc.title} · <b>{sopName}</b>
-          </div>
-          <h1>{copy(pc, "pcsop.title")}</h1>
-          <div className="sub">{copy(pc, "pcsop.subtitle")}</div>
-          <div className="muted small" style={{ marginTop: 4 }}>
-            {versionLabel} · {copy(pc, "pcsop.notice.pinned")}
-          </div>
-        </div>
-        <div className="acts">
-          <div className="subtabs studio-view-toggle" role="tablist" aria-label={copy(pc, "studio.view.label")}>
-            <button type="button" role="tab" className={view === "list" ? "on" : ""} aria-selected={view === "list"} onClick={() => switchView("list")} data-testid="studio-view-list">
-              {copy(pc, "studio.view.list")}
-            </button>
-            <button type="button" role="tab" className={view === "flow" ? "on" : ""} aria-selected={view === "flow"} onClick={() => switchView("flow")} data-testid="studio-view-flow">
-              {copy(pc, "studio.view.flow")}
-            </button>
-          </div>
-          <Link className="btn" href={basePath}>
-            <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
-          </Link>
-        </div>
-      </div>
+    <Box className="screen on sop-inspection sop-weighing sop-pc-care" sx={inspectionEditorSx}>
+      <EditorHeader
+        crumbs={[copy(pc, "crumb"), pc.title, sopName]}
+        title={copy(pc, "pcsop.title")}
+        subtitle={copy(pc, "pcsop.subtitle")}
+        version={versionLabel}
+        notice={copy(pc, "pcsop.notice.pinned")}
+        backHref={basePath}
+        actions={
+          <SegmentTabs
+            className="studio-view-toggle"
+            ariaLabel={copy(pc, "studio.view.label")}
+            value={view}
+            tabs={[
+              { value: "list", label: copy(pc, "studio.view.list"), onClick: () => switchView("list"), testId: "studio-view-list" },
+              { value: "flow", label: copy(pc, "studio.view.flow"), onClick: () => switchView("flow"), testId: "studio-view-flow" },
+            ]}
+          />
+        }
+      />
 
       {result ? (
-        <div className={`alert ${result.ok ? "ok" : ""}`} role="status">
+        <Alert severity={result.ok ? "success" : "error"} role="status">
           {result.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />}
           <div>{result.message}</div>
-        </div>
+        </Alert>
       ) : null}
 
       {view === "flow" ? (
@@ -288,16 +290,15 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
             </div>
             <div className="bd">
               <div className="qcfg">
-                <label className="numfield">
-                  <span className="numlbl">{copy(pc, "pcsop.removal.mode")}</span>
-                  <select value={rows.removal.mode} onChange={(e) => patchRemoval((r) => ({ ...r, mode: e.target.value as PcCareRemovalMode }))} data-testid="pcsop-removal-mode">
-                    {removalModes.map((m) => (
-                      <option key={m.key} value={m.key} title={m.title}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {/* The kit select, like every other field in the studio: the frame admits no
+                    native <select>. It reports the chosen value exactly as event.target.value
+                    did, so the apply logic below is unchanged. */}
+                <FieldSelect
+                  label={copy(pc, "pcsop.removal.mode")}
+                  value={rows.removal.mode}
+                  options={removalModes.map((m) => ({ value: m.key, label: m.label }))}
+                  onChange={(value) => patchRemoval((r) => ({ ...r, mode: value as PcCareRemovalMode }))}
+                />
               </div>
 
               {removalOff ? (
@@ -313,20 +314,13 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                     </div>
                     <div className="qlist">
                       {PC_CARE_CATEGORIES.map((category) => (
-                        <label className="chkline" key={category}>
-                          <input
-                            type="checkbox"
-                            checked={rows.removal.appliesTo.includes(category)}
-                            onChange={(e) =>
+                        <FormControlLabel key={category} className="chkline" control={<Checkbox checked={rows.removal.appliesTo.includes(category)} onChange={(e) =>
                               patchRemoval((r) => ({
                                 ...r,
                                 appliesTo: e.target.checked ? [...r.appliesTo, category].filter((c, i, a) => a.indexOf(c) === i) : r.appliesTo.filter((c) => c !== category),
                               }))
-                            }
-                            data-testid={`pcsop-applies-${category}`}
-                          />{" "}
-                          {categoryLabel(category)}
-                        </label>
+                            } sx={{ p: { xs: 1.5, sm: 1 } }} slotProps={{ input: { "data-testid": `pcsop-applies-${category}` } as InputHTMLAttributes<HTMLInputElement> }} />} label={<>{" "}
+                          {categoryLabel(category)}</>} />
                       ))}
                       {rows.removal.appliesTo.length === 0 ? <p className="muted small">{copy(pc, "pcsop.removal.applies_to.empty")}</p> : null}
                     </div>
@@ -335,7 +329,7 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                   <div className="qcfg" style={{ marginTop: 10 }}>
                     <label className="numfield">
                       <span className="numlbl">{copy(pc, "pcsop.removal.cutoff")}</span>
-                      <input value={rows.removal.cutoffTime} placeholder={copy(pc, "pcsop.removal.cutoff.farm")} onChange={(e) => patchRemoval((r) => ({ ...r, cutoffTime: e.target.value }))} />
+                      <MuiTextField fullWidth size="small" value={rows.removal.cutoffTime} placeholder={copy(pc, "pcsop.removal.cutoff.farm")} onChange={(e) => patchRemoval((r) => ({ ...r, cutoffTime: e.target.value }))} />
                     </label>
                     <span className="muted small">{copy(pc, "pcsop.removal.cutoff.hint")}</span>
                   </div>
@@ -354,9 +348,9 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                     </div>
                     <div className="qlist">
                       {rows.removal.proofs.map((p, i) => slotCardFor("removal", p, i))}
-                      <button type="button" className="btn sm ghost" onClick={() => patchRemoval((r) => ({ ...r, proofs: [...r.proofs, blankProofSlot()] }))}>
-                        <Plus className="ic" /> {copy(pc, "pcsop.category.add_capture")}
-                      </button>
+                      <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => patchRemoval((r) => ({ ...r, proofs: [...r.proofs, blankProofSlot()] }))}>
+                        {copy(pc, "pcsop.category.add_capture")}
+                      </MuiButton>
                     </div>
                   </div>
 
@@ -368,9 +362,9 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                     <div className="qlist">
                       {rows.removal.questions.length === 0 ? <p className="muted">{copy(pc, "pcsop.removal.questions.empty")}</p> : null}
                       {rows.removal.questions.map((q, qi) => questionCardFor("removal", q, qi))}
-                      <button type="button" className="btn sm ghost" onClick={() => patchRemoval((r) => ({ ...r, questions: [...r.questions, blankQuestion()] }))}>
-                        <Plus className="ic" /> {copy(pc, "inspection.question.add")}
-                      </button>
+                      <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => patchRemoval((r) => ({ ...r, questions: [...r.questions, blankQuestion()] }))}>
+                        {copy(pc, "inspection.question.add")}
+                      </MuiButton>
                     </div>
                   </div>
                 </>
@@ -410,9 +404,9 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                     </div>
                     <div className="qlist">
                       {block.proofs.map((p, i) => slotCardFor(category, p, i))}
-                      <button type="button" className="btn sm ghost" onClick={() => patchCategory(category, (c) => ({ ...c, proofs: [...c.proofs, blankCapture()] }))} data-testid={`pcsop-add-capture-${category}`}>
-                        <Plus className="ic" /> {copy(pc, "pcsop.category.add_capture")}
-                      </button>
+                      <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => patchCategory(category, (c) => ({ ...c, proofs: [...c.proofs, blankCapture()] }))} data-testid={`pcsop-add-capture-${category}`}>
+                        {copy(pc, "pcsop.category.add_capture")}
+                      </MuiButton>
                     </div>
                   </div>
 
@@ -424,9 +418,9 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
                     <div className="qlist">
                       {block.questions.length === 0 ? <p className="muted">{copy(pc, "pcsop.category.questions.empty")}</p> : null}
                       {block.questions.map((q, qi) => questionCardFor(category, q, qi))}
-                      <button type="button" className="btn sm ghost" onClick={() => patchCategory(category, (c) => ({ ...c, questions: [...c.questions, blankQuestion()] }))}>
-                        <Plus className="ic" /> {copy(pc, "inspection.question.add")}
-                      </button>
+                      <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => patchCategory(category, (c) => ({ ...c, questions: [...c.questions, blankQuestion()] }))}>
+                        {copy(pc, "inspection.question.add")}
+                      </MuiButton>
                     </div>
                   </div>
                 </div>
@@ -449,13 +443,13 @@ export function PcCareEditor({ pageContract: pc, basePath, sopId, sopName, versi
           )}
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
+        <MuiButton type="button" variant="outlined" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
-        </button>
-        <button type="button" className="btn p" disabled={pending || problems.length > 0} onClick={() => submit(true)}>
-          <Check className="ic" /> {copy(pc, "inspection.action.publish")}
-        </button>
+        </MuiButton>
+        <MuiButton type="button" variant="contained" startIcon={<Check className="ic" />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+          {copy(pc, "inspection.action.publish")}
+        </MuiButton>
       </div>
-    </div>
+    </Box>
   );
 }

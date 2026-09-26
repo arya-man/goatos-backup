@@ -107,7 +107,7 @@ test("Realtime movement KPI cards use backend live-state filters", () => {
   assert.match(kpis, /hs_move: serverMovementKpis\.has\(filterKey\) \? undefined : params\.movementState/, "KPI clicks must not combine server-side movement filters with an old hs_move filter");
 
   const filters = read("./herd-signals-filters.tsx");
-  assert.match(filters, /hs_move: event\.target\.value \|\| undefined, hs_kpi: undefined/, "Changing the visible Movement select must clear KPI filters that would override it");
+  assert.match(filters, /hs_move: (?:event\.target\.)?value \|\| undefined, hs_kpi: undefined/, "Changing the visible Movement select must clear KPI filters that would override it");
 
   const streamBridge = read("./herd-signals-stream-bridge.tsx");
   assert.match(streamBridge, /useSearchParams/, "Stream and export URLs must update after in-app search-param navigation");
@@ -192,7 +192,9 @@ test("live table exposes own-baseline and group-comparison risk signals", () => 
   assert.match(params, /hs_risk/, "Watchlist filter must round-trip through the live monitor URL");
 
   const filters = read("./herd-signals-filters.tsx");
-  assert.match(filters, /aria-label="Watchlist"/, "Watchlist filter must be available in the filter bar");
+  // MUI TextField select labelled by its `label` prop (no native <select>); the control is still
+  // the Watchlist filter writing hs_risk.
+  assert.match(filters, /<TextField\s+select\s+label="Watchlist"[\s\S]{0,200}hs_risk: value/, "Watchlist filter must be available in the filter bar and write hs_risk");
 
   const table = read("./herd-signals-table.tsx");
   assert.match(table, /Watchlist rules/, "Watchlist column needs explanatory copy");

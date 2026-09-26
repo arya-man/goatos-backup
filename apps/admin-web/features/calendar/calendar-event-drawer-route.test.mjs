@@ -3,13 +3,18 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const pageSource = readFileSync(new URL("./calendar.tsx", import.meta.url), "utf8");
+const viewSource = readFileSync(new URL("./calendar-full-view.tsx", import.meta.url), "utf8");
 const drawerSource = readFileSync(new URL("./calendar-event-drawer.tsx", import.meta.url), "utf8");
 const driveDetailSource = readFileSync(new URL("./calendar-drive-detail.tsx", import.meta.url), "utf8");
 const contractSource = readFileSync(new URL("./calendar-contract.ts", import.meta.url), "utf8");
 
+// After the FullCalendar rewrite the row-anchor `LocalOverlayLink` is gone — FullCalendar owns
+// event rendering and its eventClick handler pushes the same `#calendar_event=<id>` hash the
+// drawer listens for via `pushLocalOverlayUrl`. The invariant is that a non-drive event still
+// opens a hash-backed local drawer without a global route refresh.
 test("calendar summary events open a hash-backed local drawer", () => {
-  assert.match(pageSource, /LocalOverlayLink/);
   assert.match(pageSource, /#calendar_event=/);
+  assert.match(viewSource, /pushLocalOverlayUrl/);
   assert.match(drawerSource, /LOCAL_OVERLAY_URL_CHANGE_EVENT/);
   assert.match(drawerSource, /popstate/);
 });

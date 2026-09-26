@@ -1,11 +1,19 @@
+import Card from "@mui/material/Card";
+import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
+import CardContent from "@mui/material/CardContent";
+import { RadialStat } from "@/components/app/radial-stat";
+import { EmptyState } from "@/components/app/empty-state";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { Tag } from "@/components/ui-primitives";
+import { KpiValue } from "./kpi-value";
 import { redirect } from "next/navigation";
 
-import Link from "@/components/no-prefetch-link";
-import { LinkPending } from "@/components/link-pending";
+import { IndianRupee, Repeat, Users } from "lucide-react";
 import {
   controlEnabled,
   copy,
   optionalCopy,
+  optionGroup,
   table,
   tablePageSizes,
   type AdminUiPageContract,
@@ -15,7 +23,7 @@ import { firstAuthRequiredError } from "@/lib/api/server";
 import { getBuyerAnalytics } from "@/lib/api/procurement-server";
 import type { BuyerAnalytics, BuyerAnalyticsRow } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { countKey, inr, num } from "./sales-format";
+import { countKey, num } from "./sales-format";
 import {
   SALES_DEFAULT_FARM,
   SalesFarmToggle,
@@ -24,8 +32,48 @@ import {
   readSalesParkScope,
 } from "./sales-chrome";
 import { BuyerTable } from "./buyer-table";
+import { ProcurementTableFooter } from "./table-footer-links";
+import Alert from "@mui/material/Alert";
 import { tableOrderFromParams, type TableOrder } from "./table-order";
 import { salesErrorText } from "./sales-error";
+import Box from "@mui/material/Box";
+import type { SxProps, Theme } from "@mui/material/styles";
+import { PHONE, cardTableScrollSx } from "./procurement-sx";
+
+// Phone deck: two widgets per row with no icon badge, so the figure is sized to stay on one line
+// instead of a rupee amount breaking mid-number.
+const BUYER_KPI_SX: SxProps<Theme> = {
+  [PHONE]: {
+    "& .kit-kpi-value": { fontSize: "var(--fs-h4) !important", whiteSpace: "nowrap", overflowWrap: "normal" },
+    "& .kit-kpi-value .proc-kpi-value": { flexWrap: "nowrap" },
+  },
+};
+
+// The buyer ledger is a fixed-layout table (template invoice list density) with set column shares;
+// it scrolls inside its card from a 70rem floor (65rem on a phone).
+const pct = (w: string) => ({ width: w });
+const BUYER_TABLE_SX: SxProps<Theme> = {
+  ...(cardTableScrollSx as object),
+  "& table.sales-buyer-analytics-table": { minWidth: { xs: "65rem", sm: "70rem" }, tableLayout: "fixed" },
+  "& table.sales-buyer-analytics-table :is(th, td)": {
+    px: { xs: 1.25, sm: 1.375 },
+    fontSize: "var(--fs-caption)",
+    overflow: "visible",
+    textOverflow: "clip",
+  },
+  "& table.sales-buyer-analytics-table :is(th, td):nth-of-type(1)": { ...pct("17%"), pl: 2.25 },
+  "& table.sales-buyer-analytics-table :is(th, td):nth-of-type(2)": pct("12%"),
+  "& table.sales-buyer-analytics-table :is(th, td):nth-of-type(3)": pct("10%"),
+  "& table.sales-buyer-analytics-table :is(th, td):nth-of-type(4)": pct("7%"),
+  "& table.sales-buyer-analytics-table :is(th, td):nth-of-type(5)": pct("12%"),
+  "& table.sales-buyer-analytics-table :is(th, td):nth-of-type(6)": pct("15%"),
+  "& table.sales-buyer-analytics-table :is(th, td):is(:nth-of-type(7), :nth-of-type(8))": pct("9%"),
+  "& table.sales-buyer-analytics-table :is(th, td):nth-of-type(9)": { ...pct("9%"), pr: 2.25 },
+  "& table.sales-buyer-analytics-table td .muted.small": { whiteSpace: "normal !important", overflow: "visible", textOverflow: "clip" },
+  "& table.sales-buyer-analytics-table td:is(:nth-of-type(2), :nth-of-type(4), :nth-of-type(5), :nth-of-type(7), :nth-of-type(8), :nth-of-type(9))": {
+    whiteSpace: "nowrap",
+  },
+};
 
 const PAGE_PATH = "/sales/buyer-analytics";
 /** Only used when an older backend contract carries no buyers table; the contract page size wins. */
@@ -57,6 +105,8 @@ function BuyerSections({
   offset,
   limit,
   pageHref,
+  limitHref,
+  pageSizes,
   order,
 }: {
   analytics: BuyerAnalytics;
@@ -64,6 +114,8 @@ function BuyerSections({
   offset: number;
   limit: number;
   pageHref: (offset: number) => string;
+  limitHref: (limit: number) => string;
+  pageSizes: readonly number[];
   order: TableOrder;
 }) {
   const summary = analytics.summary;
@@ -109,67 +161,102 @@ function BuyerSections({
 
   return (
     <>
-      <section
-        className="grid g4 kpi-row sales-kpi-row"
-        aria-label={copy(pageContract, "section.headline.aria")}
-      >
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.buyers")}</div>
-          <div className="val">{num(summary.buyers)}</div>
-          {/* Older contracts lack this optional standalone detail; never reuse the
-              legacy key, whose sentence follows an unregistered-buyer count. */}
-          {optionalCopy(pageContract, "kpi.buyers.closed_sale_detail") ? (
-            <div className="dl">{copy(pageContract, "kpi.buyers.closed_sale_detail")}</div>
-          ) : null}
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.repeat_buyers")}</div>
-          <div className="val">{num(summary.repeat_buyers)}</div>
-          <div className="dl">
-            {num(repeatPct, 0)}% ·{" "}
-            {copy(pageContract, "kpi.repeat_buyers.detail")}
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.repeat_revenue")}</div>
-          <div className="val">{inr(summary.repeat_revenue)}</div>
-          <div className="dl">
-            {num(summary.repeat_revenue_pct, 0)}%{" "}
-            {copy(pageContract, "kpi.repeat_revenue.detail")} ·{" "}
-            {num(summary.purchases)}{" "}
-            {copy(pageContract, "kpi.purchases.detail")}
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.outstanding")}</div>
-          <div className="val">{inr(summary.outstanding)}</div>
-          <div className="dl">
-            {copy(pageContract, "kpi.outstanding.detail")}
-          </div>
-        </div>
-      </section>
+      {/* The headline deck, on the kit KPI card: tinted surface, watermark icon behind the
+          number and the same figure the page printed before, through the same formatters. */}
+      <Box sx={BUYER_KPI_SX}>
+      <KpiGrid className="sales-kpi-row">
+        <KpiCard
+          variant="gradient"
+          tone="primary"
+          label={copy(pageContract, "kpi.buyers")}
+          value={<KpiValue value={summary.buyers} />}
+          watermark={<Users aria-hidden="true" />}
+          // Older contracts lack this optional standalone detail; never reuse the
+          // legacy key, whose sentence follows an unregistered-buyer count (0dd2097e3).
+          hint={optionalCopy(pageContract, "kpi.buyers.closed_sale_detail") ? copy(pageContract, "kpi.buyers.closed_sale_detail") : undefined}
+        />
+        <KpiCard
+          variant="tint"
+          tone="info"
+          label={copy(pageContract, "kpi.repeat_buyers")}
+          value={<KpiValue value={summary.repeat_buyers} />}
+          watermark={<Repeat aria-hidden="true" />}
+          hint={`${num(repeatPct, 0)}% · ${copy(pageContract, "kpi.repeat_buyers.detail")}`}
+        />
+        <KpiCard
+          variant="tint"
+          tone="success"
+          label={copy(pageContract, "kpi.repeat_revenue")}
+          value={<KpiValue value={summary.repeat_revenue} kind="inr" />}
+          watermark={<IndianRupee aria-hidden="true" />}
+          hint={`${num(summary.repeat_revenue_pct, 0)}% ${copy(pageContract, "kpi.repeat_revenue.detail")} · ${num(summary.purchases)} ${copy(pageContract, "kpi.purchases.detail")}`}
+        />
+        <KpiCard
+          variant="tint"
+          tone="warning"
+          label={copy(pageContract, "kpi.outstanding")}
+          value={<KpiValue value={summary.outstanding} kind="inr" />}
+          watermark={<IndianRupee aria-hidden="true" />}
+          hint={copy(pageContract, "kpi.outstanding.detail")}
+        />
+      </KpiGrid>
+      </Box>
+
+      {/* The two shares the summary already carries, as gauges. Both numbers are the backend's
+          own percentages — nothing is derived here that the deck above did not already print. */}
+      <Box sx={{ mt: { xs: 1.5, sm: 1.75 } }}>
+      <Card>
+        <CardHeader
+          title={copy(pageContract, "kpi.repeat_buyers")}
+          action={<Tag tone="info">{num(summary.repeat_buyers)} / {num(summary.buyers)}</Tag>}
+          sx={{ alignItems: "center", px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 3 }, [`& .${cardHeaderClasses.action}`]: { alignSelf: "center", m: 0 } }}
+        />
+        <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+        {/* Template analytics radial pair (AnalyticsCurrentVisits-style gauges) centred in the card. */}
+        <Box
+          sx={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "flex-start",
+            justifyContent: { xs: "space-between", sm: "center" },
+            columnGap: { xs: 1.5, sm: 5.5 },
+            rowGap: { xs: 1.5, sm: 2.25 },
+          }}
+        >
+          <RadialStat
+            value={repeatPct}
+            tone="info"
+            caption={copy(pageContract, "kpi.repeat_buyers")}
+          />
+          <RadialStat
+            value={summary.repeat_revenue_pct}
+            tone="success"
+            caption={copy(pageContract, "kpi.repeat_revenue")}
+          />
+        </Box>
+        </CardContent>
+      </Card>
+      </Box>
 
       <section
         className="card"
         aria-label={copy(pageContract, "section.buyers.title")}
       >
-        <div className="hd">
-          <h3>{copy(pageContract, "section.buyers.title")}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="muted small">
-            {copy(pageContract, "section.buyers.subtitle")}
-          </span>
-        </div>
+        <CardHeader
+          title={copy(pageContract, "section.buyers.title")}
+          sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", alignItems: "center" }}
+        />
         {!showPhones ? (
           <p className="muted small" style={{ marginTop: 0 }}>
             {phoneHiddenReason}
           </p>
         ) : null}
-        <div
-          className="twrap"
+        <Box
           tabIndex={0}
           role="region"
           aria-label={copy(pageContract, "section.buyers.title")}
+          id="sales-buyers-analytics"
+          sx={BUYER_TABLE_SX}
         >
           <BuyerTable
             contract={table(pageContract, "sales-buyer-analytics")}
@@ -188,50 +275,26 @@ function BuyerSections({
               oneTime: copy(pageContract, "chip.one_time"),
               settled: copy(pageContract, "value.settled"),
               empty: (
-                <div className="empty">
-                  {copy(pageContract, "empty.buyers")}
-                </div>
+                <EmptyState title={copy(pageContract, "empty.buyers")} />
               ),
             }}
           />
-        </div>
+        </Box>
         {pageCount > 1 ? (
-          <div className="pager2">
-            <span className="muted">
-              {copy(pageContract, "pager.page")} {pageNumber}{" "}
-              {copy(pageContract, "pager.of")} {pageCount} ·{" "}
-              {num(analytics.total_buyers)}{" "}
-              {copy(pageContract, "summary.buyers")}
-            </span>
-            {offset > 0 ? (
-              <Link
-                href={pageHref(Math.max(0, offset - limit))}
-                scroll={false}
-                className="btn"
-              >
-                {copy(pageContract, "action.prev_page")}
-                <LinkPending />
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.prev_page")}
-              </span>
-            )}
-            {offset + limit < analytics.total_buyers ? (
-              <Link
-                href={pageHref(offset + limit)}
-                scroll={false}
-                className="btn"
-              >
-                {copy(pageContract, "action.next_page")}
-                <LinkPending />
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.next_page")}
-              </span>
-            )}
-          </div>
+          <ProcurementTableFooter
+            denseLabel={copy(pageContract, "action.dense", "Dense")}
+            rowsLabel={copy(pageContract, "pager.rows", "Rows")}
+            page={pageNumber}
+            pageCount={pageCount}
+            rangeLabel={`${offset + 1}\u2013${Math.min(offset + limit, analytics.total_buyers)} ${copy(pageContract, "pager.of")} ${num(analytics.total_buyers)} ${copy(pageContract, "summary.buyers")}`}
+            rowsValue={limit}
+            rowsOptions={pageSizes.map((size) => ({ size, href: limitHref(size) }))}
+            prevHref={pageHref(Math.max(0, (pageNumber - 2) * limit))}
+            nextHref={pageHref(pageNumber * limit)}
+            prevLabel={copy(pageContract, "action.prev_page")}
+            nextLabel={copy(pageContract, "action.next_page")}
+            denseTargetId="sales-buyers-analytics"
+          />
         ) : null}
       </section>
     </>
@@ -271,15 +334,19 @@ export async function SalesBuyerAnalyticsPage({
   // The pager keeps the page's park and every other parameter; only the offset moves.
   const pageHref = (nextOffset: number) =>
     hrefWithQuery(PAGE_PATH, sp, { offset: nextOffset > 0 ? String(nextOffset) : null });
+  // Changing the page size always returns to the first page: keeping the offset would drop the
+  // reader into the middle of a differently-sized list. The park and every other parameter stay.
+  const limitHref = (nextLimit: number) =>
+    hrefWithQuery(PAGE_PATH, sp, { limit: nextLimit === defaultLimit ? null : String(nextLimit), offset: null });
 
   return (
-    <div className="screen on">
+    <div className="screen on sales-buyer-analytics-page">
       <SalesPageHeader pageContract={pageContract} />
 
       {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           {salesErrorText(result.error, copy(pageContract, "error.load"))}
-        </div>
+        </Alert>
       ) : null}
 
       <SalesFarmToggle
@@ -298,6 +365,8 @@ export async function SalesBuyerAnalyticsPage({
           offset={result.data.offset}
           limit={result.data.limit}
           pageHref={pageHref}
+          limitHref={limitHref}
+          pageSizes={pageSizes}
           order={order}
         />
       ) : null}

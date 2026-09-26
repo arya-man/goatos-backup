@@ -1,6 +1,9 @@
+import { AlertTriangle } from "lucide-react";
 import { FirebaseSessionBridge } from "@/components/auth/firebase-session-bridge";
 import { contractUnavailableCopy } from "@/components/admin-shell-unavailable";
 import { MeshaShell, type ShellContract } from "@/components/mesha-shell";
+import Button from "@mui/material/Button";
+import { RetryButton } from "@/components/app/retry-button";
 import { ContractUnavailableTelemetry } from "@/components/observability/contract-unavailable-telemetry";
 import { getAdminWebBootstrap, type AdminWebBootstrapResponse } from "@/lib/api/server";
 import type { Park } from "@/lib/scope";
@@ -31,18 +34,24 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
     console.error(JSON.stringify({ event: "admin_shell_contract_unavailable", kind, code, status, trace_id: traceId }));
     return (
       <>
-        <FirebaseSessionBridge />
+        <FirebaseSessionBridge enabled={process.env.GOATOS_AUTH_MODE !== "bearer"} />
         <ContractUnavailableTelemetry kind={kind} code={code} status={status} traceId={traceId} />
-        <main className="wrap" style={{ padding: 24 }}>
-          <section className="card" style={{ padding: 20 }}>
-            <h1>{copy.title}</h1>
-            <p className="muted">{copy.body}</p>
-            <div style={{ marginTop: 14 }}>
-              {/* A plain reload of the page that failed: href="" is the current URL. */}
-              <a className="btn primary" href={kind === "unauthorized" ? "/login" : ""}>
+        <main className="kit-state-page">
+          <section className="kit-state" role="alert">
+            <span className="kit-state-icon" aria-hidden="true">
+              <AlertTriangle />
+            </span>
+            <h1 className="kit-state-title">{copy.title}</h1>
+            <p className="kit-state-body">{copy.body}</p>
+            {/* No error code or transport sentence on screen (main 7956ca373): the code goes to the
+                server log and Faro above. Unauthorized goes to sign-in; anything else reloads. */}
+            {kind === "unauthorized" ? (
+              <Button variant="outlined" color="inherit" href="/login">
                 {copy.retry}
-              </a>
-            </div>
+              </Button>
+            ) : (
+              <RetryButton label={copy.retry} />
+            )}
           </section>
         </main>
       </>
@@ -50,7 +59,7 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
   }
   return (
     <>
-      <FirebaseSessionBridge />
+      <FirebaseSessionBridge enabled={process.env.GOATOS_AUTH_MODE !== "bearer"} />
       <MeshaShell parks={parksFromContract(contract.data)} contract={toShellContract(contract.data)}>{children}</MeshaShell>
     </>
   );

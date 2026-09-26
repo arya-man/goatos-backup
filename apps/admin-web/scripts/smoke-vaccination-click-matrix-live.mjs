@@ -111,13 +111,14 @@ async function verifyShell(page) {
     await themeButton.click();
   }
 
-  const roleButton = page.locator("button.me").first();
+  const roleButton = page.locator("button.msh-account").first();
   await expectCount("account menu button", roleButton, 1);
   await roleButton.click();
-  await page.locator("#userMenu.parkmenu.on").waitFor({ state: "visible", timeout: 5_000 });
-  const roleChoices = page.locator("#userMenu button.pm-item");
+  const accountMenu = page.locator(".MuiPopover-paper").last();
+  await accountMenu.waitFor({ state: "visible", timeout: 5_000 });
+  const roleChoices = accountMenu.locator('[role="menuitem"]:has-text("Preview")');
   if ((await roleChoices.count()) !== 0) throw new Error("account menu should not expose role-preview choices");
-  await expectCount("account menu sign out", page.locator("#userMenu button.signout"), 1);
+  await expectCount("account menu sign out", accountMenu.locator('button[aria-label="Sign out"]'), 1);
   await page.keyboard.press("Escape").catch(() => undefined);
 
   const notification = page.locator('button[disabled][aria-label*="Notification"], button[disabled][aria-label*="notification"]').first();
@@ -346,9 +347,9 @@ async function clickAndExpectPath(page, locator, expectedPath, label) {
 async function openMenuAndDismiss(page, trigger, label) {
   await expectCount(label, trigger, 1);
   await trigger.click();
-  await page.locator(".parkmenu.on").first().waitFor({ state: "visible", timeout: 5_000 });
+  await page.locator(".MuiPopover-paper").first().waitFor({ state: "visible", timeout: 5_000 });
   await page.keyboard.press("Escape");
-  await page.locator(".parkmenu.on").first().waitFor({ state: "hidden", timeout: 5_000 }).catch(() => undefined);
+  await page.locator(".MuiPopover-paper").first().waitFor({ state: "hidden", timeout: 5_000 }).catch(() => undefined);
 }
 
 async function openAndCloseDialog(page, trigger, expectedText, closeName, label) {

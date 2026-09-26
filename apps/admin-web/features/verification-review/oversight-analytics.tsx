@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { SvgColumnBars } from "@/components/svg-column-bars";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -185,10 +190,11 @@ export async function OversightAnalytics({
               <div className="vr-agebar" role="img" aria-label={copy(pageContract, "oversight_analytics.age_shape")}>
                 {ageSegments
                   .filter((segment) => segment.count > 0)
-                  .map((segment) => (
+                  .map((segment, segIndex) => (
                     <span
                       key={segment.key}
-                      style={{ width: `${(segment.count / ageTotal) * 100}%`, background: segment.tone }}
+                      className="hbfill"
+                      style={{ width: `${(segment.count / ageTotal) * 100}%`, background: segment.tone, "--i": segIndex } as React.CSSProperties}
                       title={`${copy(pageContract, `oversight_analytics.age.${segment.key}`)}: ${formatCount(segment.count)}`}
                     />
                   ))}
@@ -210,8 +216,9 @@ export async function OversightAnalytics({
 
         <div className="vr-osec">
           <div className="vr-osec-hd">{copy(pageContract, "oversight_analytics.trend")}</div>
-          {/* Verdicts as columns, arrivals as the marker across each column: keeping up looks like
-              columns meeting their markers, and falling behind is visible without reading a number. */}
+          {/* Verdicts beside arrivals, one pair of columns per day on one shared scale: keeping up
+              looks like pairs of equal height, and falling behind is visible without reading a
+              number. The foot below names both series in the chart's own colours. */}
           <SvgColumnBars
             data={dailyVolume.map((day) => ({
               key: day.business_date,
@@ -224,15 +231,6 @@ export async function OversightAnalytics({
             compareNoun={copy(pageContract, "oversight_analytics.trend.arrived_noun")}
             emptyLabel={copy(pageContract, "oversight_analytics.trend.empty")}
           />
-          {/* The chart draws 14 columns with no axis; naming the first and last day is what makes it
-              a period rather than an abstract shape. Dates are data, so they are formatted here, not
-              copy. */}
-          {dailyVolume.length ? (
-            <div className="vr-trendaxis">
-              <span>{fmtDate(dailyVolume[0].business_date)}</span>
-              <span>{fmtDate(dailyVolume[dailyVolume.length - 1].business_date)}</span>
-            </div>
-          ) : null}
           <div className="vr-trendfoot">
             <span className="k">
               <i style={{ background: "var(--brand)" }} />
@@ -256,27 +254,27 @@ export async function OversightAnalytics({
         {verifierActivity.length ? (
           <div className="vr-osec">
             <div className="vr-osec-hd">{copy(pageContract, "oversight_analytics.verifier_activity")}</div>
-            <div style={{ overflowX: "auto" }}>
-              <table data-enh="1" className="vr-table vr-otable">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "oversight_analytics.col.verifier")}</th>
-                    <th>{copy(pageContract, "oversight_analytics.col.verdicts")}</th>
-                    <th>{copy(pageContract, "oversight_analytics.col.approved")}</th>
-                    <th>{copy(pageContract, "oversight_analytics.col.rejected")}</th>
-                    <th>{copy(pageContract, "oversight_analytics.col.busiest_day")}</th>
-                    <th>{copy(pageContract, "oversight_analytics.col.watch_integrity")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {verifierActivity.map((row) => (
-                    <tr key={row.verifier_id}>
-                      <td>{verifierLabel(row)}</td>
-                      <td className="num">{formatCount(row.verdicts)}</td>
-                      <td className="num">{formatCount(row.approved)}</td>
-                      <td className="num">{formatCount(row.rejected)}</td>
-                      <td className="muted">{row.busiest_day || "—"}</td>
-                      <td>
+            <div className="tablewrap" style={{ overflowX: "auto" }}>
+              <Table data-enh="1" className="vr-table vr-otable">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.verifier")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.verdicts")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.approved")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.rejected")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.busiest_day")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "oversight_analytics.col.watch_integrity")}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {verifierActivity.map((row, rowIndex) => (
+                    <TableRow key={row.verifier_id} className="cx-row" style={{ "--i": rowIndex } as React.CSSProperties}>
+                      <TableCell>{verifierLabel(row)}</TableCell>
+                      <TableCell className="num">{formatCount(row.verdicts)}</TableCell>
+                      <TableCell className="num">{formatCount(row.approved)}</TableCell>
+                      <TableCell className="num">{formatCount(row.rejected)}</TableCell>
+                      <TableCell className="muted">{row.busiest_day || "—"}</TableCell>
+                      <TableCell>
                         {/* Was one run-on sentence of three numbers; each is a separate fact about
                             how the videos were actually watched, so each gets its own pill. */}
                         <div className="vr-owatch">
@@ -292,11 +290,11 @@ export async function OversightAnalytics({
                             {copy(pageContract, "oversight_analytics.no_play")}
                           </span>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </div>
         ) : null}

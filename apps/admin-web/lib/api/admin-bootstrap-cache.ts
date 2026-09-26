@@ -43,7 +43,7 @@ export class AdminBootstrapCache<T extends { cache_policy: BootstrapCachePolicy 
   }
 
   async get(
-    authority: { baseUrl: string; tenantId: string; bearerToken: string },
+    authority: { baseUrl: string; tenantId: string; bearerToken: string; view?: string },
     fetcher: (etag?: string) => Promise<BootstrapFetchResult<T>>,
     options: { forceRevalidate?: boolean } = {},
   ): Promise<T> {
@@ -114,13 +114,17 @@ export class AdminBootstrapCache<T extends { cache_policy: BootstrapCachePolicy 
   }
 }
 
-function authorityKey(authority: { baseUrl: string; tenantId: string; bearerToken: string }) {
+// `view` is the page projection the entry holds (summary / page:<route_id> / full): the API answers
+// each view with its own ETag, so entries for different views of one authority never share a slot.
+function authorityKey(authority: { baseUrl: string; tenantId: string; bearerToken: string; view?: string }) {
   return createHash("sha256")
     .update(authority.baseUrl)
     .update("\0")
     .update(authority.tenantId)
     .update("\0")
     .update(authority.bearerToken)
+    .update("\0")
+    .update(authority.view ?? "")
     .digest("base64url");
 }
 

@@ -2,6 +2,7 @@
 
 import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { BodyPortal } from "@/components/app/body-portal";
 import { Shuffle, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { RANDOMIZATION_PANEL_ID, RANDOMIZATION_PANEL_SELECTION_KEY } from "./randomization-panel-params";
@@ -54,7 +55,8 @@ export function RandomizationPanel({
       </LocalOverlayLink>
 
       {displayedItem ? (
-        <>
+        // BodyPortal anchors the drawer + scrim to the viewport rather than a transformed ancestor.
+        <BodyPortal>
           <button
             type="button"
             className={`scrim${drawerOpen ? " on" : ""}`}
@@ -81,7 +83,7 @@ export function RandomizationPanel({
             </div>
             <div className="dc">{children}</div>
           </aside>
-        </>
+        </BodyPortal>
       ) : null}
     </>
   );

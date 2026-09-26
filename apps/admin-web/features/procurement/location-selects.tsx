@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { operationalLocationLabel } from "@/lib/operational-location";
+import { FormSelect } from "./form-select";
+import { listOptions } from "./option-utils";
 
 export type ProcurementLocationOption = {
   id: string;
@@ -43,59 +45,64 @@ function optionKey(location: ProcurementLocationOption): string {
 
 export function ParkLocationSelect({
   name,
+  label,
   parks,
   pageContract,
   required = true,
 }: {
   name: string;
+  label: string;
   parks: ProcurementLocationOption[];
   pageContract: AdminUiPageContract;
   required?: boolean;
 }) {
   const disabled = parks.length === 0;
   return (
-    <select
+    <FormSelect
+      label={label}
       name={name}
       required={required}
       defaultValue=""
       disabled={disabled}
       title={disabled ? copy(pageContract, "location.no_parks") : undefined}
-    >
-      <option value="">
-        {disabled ? copy(pageContract, "location.no_parks") : copy(pageContract, "location.select_park")}
-      </option>
-      {parks.map((park) => (
-        <option key={park.id} value={park.id}>
-          {locationLabel(park)}
-        </option>
-      ))}
-    </select>
+      options={listOptions(
+        parks,
+        (park) => park.id,
+        (park) => locationLabel(park),
+        disabled ? copy(pageContract, "location.no_parks") : copy(pageContract, "location.select_park"),
+      )}
+    />
   );
 }
 
 export function OptionalLocationSelect({
   name,
+  label,
   locations,
   pageContract,
   defaultValue = "",
 }: {
   name: string;
+  label: string;
   locations: ProcurementLocationOption[];
   pageContract: AdminUiPageContract;
   defaultValue?: string;
 }) {
   const disabled = locations.length === 0;
   return (
-    <select name={name} defaultValue={defaultValue} disabled={disabled} title={disabled ? copy(pageContract, "location.no_origins") : undefined}>
-      <option value="">
-        {disabled ? copy(pageContract, "location.no_origins") : copy(pageContract, "location.select_optional_location")}
-      </option>
-      {locations.map((location) => (
-        <option key={location.id} value={location.id}>
-          {locationLabel(location)}
-        </option>
-      ))}
-    </select>
+    <FormSelect
+      label={label}
+      name={name}
+      defaultValue={defaultValue}
+      disabled={disabled}
+      title={disabled ? copy(pageContract, "location.no_origins") : undefined}
+      options={listOptions(
+        locations,
+        (location) => location.id,
+        (location) => locationLabel(location),
+        disabled ? copy(pageContract, "location.no_origins") : copy(pageContract, "location.select_optional_location"),
+      )}
+    />
   );
 }
 
@@ -123,46 +130,46 @@ export function ParkShedLocationSelects({
   return (
     <>
       <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-        <label>{copy(pageContract, "field.park_location_id")}</label>
-        <select
+        <FormSelect
+          label={copy(pageContract, "field.park_location_id")}
           name="park_location_id"
           required
           value={parkId}
-          onChange={(event) => {
-            setParkId(event.target.value);
+          onValueChange={(next) => {
+            setParkId(next);
             setShedKey("");
           }}
           disabled={parkDisabled}
           title={parkDisabled ? copy(pageContract, "location.no_parks") : undefined}
-        >
-          <option value="">
-            {parkDisabled ? copy(pageContract, "location.no_parks") : copy(pageContract, "location.select_park")}
-          </option>
-          {parks.map((park) => (
-            <option key={park.id} value={park.id}>
-              {locationLabel(park)}
-            </option>
-          ))}
-        </select>
+          options={listOptions(
+            parks,
+            (park) => park.id,
+            (park) => locationLabel(park),
+            parkDisabled ? copy(pageContract, "location.no_parks") : copy(pageContract, "location.select_park"),
+          )}
+        />
       </div>
       <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-        <label>{copy(pageContract, "field.shed_location_id")}</label>
         <input type="hidden" name="shed_location_id" value={selectedShed?.id ?? ""} />
         <input type="hidden" name="partition_label" value={selectedShed?.partitionLabel ?? ""} />
-        <select required value={shedKey} disabled={shedDisabled} onChange={(event) => setShedKey(event.target.value)} title={shedTitle}>
-          <option value="">
-            {!parkId
+        <FormSelect
+          label={copy(pageContract, "field.shed_location_id")}
+          required
+          value={shedKey}
+          disabled={shedDisabled}
+          onValueChange={setShedKey}
+          title={shedTitle}
+          options={listOptions(
+            parkSheds,
+            (shed) => optionKey(shed),
+            (shed) => locationLabel(shed),
+            !parkId
               ? copy(pageContract, "location.select_park_first")
               : parkSheds.length === 0
                 ? copy(pageContract, "location.no_sheds_for_park")
-                : copy(pageContract, "location.select_shed")}
-          </option>
-          {parkSheds.map((shed) => (
-            <option key={optionKey(shed)} value={optionKey(shed)}>
-              {locationLabel(shed)}
-            </option>
-          ))}
-        </select>
+                : copy(pageContract, "location.select_shed"),
+          )}
+        />
       </div>
     </>
   );

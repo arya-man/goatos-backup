@@ -20,9 +20,10 @@ export const NOTIFICATION_COPY_FALLBACKS: Record<string, string> = {
   "notifications.open": "Notifications",
   "notifications.title": "Notifications",
   "notifications.subtitle": "Newest first",
-  "notifications.empty": "Nothing new. Task mentions and status changes addressed to you land here.",
-  "notifications.unavailable": "Notifications are not switched on for this account yet.",
-  "notifications.error": "Notifications could not be loaded. Try again in a moment.",
+  "notifications.empty": "Nothing new",
+  "notifications.empty_unread": "You are all caught up",
+  "notifications.unavailable": "Notifications are not switched on for this account yet",
+  "notifications.error": "Could not load notifications",
   "notifications.mark_all_read": "Mark all as read",
   "notifications.mark_read": "Mark as read",
   "notifications.refresh": "Refresh",
@@ -33,6 +34,23 @@ export const NOTIFICATION_COPY_FALLBACKS: Record<string, string> = {
   "notifications.actor_prefix": "by",
   "notifications.open_target": "Open",
   "notifications.busy": "Working…",
+  "notifications.tab_all": "All",
+  "notifications.tab_unread": "Unread",
+  "notifications.tab_archived": "Archived",
+  "notifications.settings": "Notification settings",
+  "notifications.open_task": "Open task",
+  "notifications.open_load": "Open load",
+  "notifications.expand": "Show more",
+  "notifications.load_more": "Load more",
+  "notifications.push_title": "Push notifications",
+  "notifications.push_this_browser": "Push on this browser",
+  "notifications.push_browsers": "Registered browsers",
+  "notifications.push_no_browsers": "No browser registered",
+  "notifications.push_this_one": "This browser",
+  "notifications.push_stale": "Expired",
+  "notifications.push_remove": "Remove",
+  "notifications.push_failed": "Could not update push for this browser",
+  "notifications.collapse": "Show less",
   "mention.hint": "Type @ to mention someone",
   "mention.people_label": "People you can mention",
   "mention.no_matches": "Nobody on the leadership roster matches that.",
@@ -45,6 +63,24 @@ export type NotificationCentreCopy = {
   title: string;
   subtitle: string;
   empty: string;
+  emptyUnread: string;
+  tabAll: string;
+  tabUnread: string;
+  tabArchived: string;
+  settings: string;
+  openTask: string;
+  openLoad: string;
+  expand: string;
+  loadMore: string;
+  pushTitle: string;
+  pushThisBrowser: string;
+  pushBrowsers: string;
+  pushNoBrowsers: string;
+  pushThisOne: string;
+  pushStale: string;
+  pushRemove: string;
+  pushFailed: string;
+  collapse: string;
   unavailable: string;
   error: string;
   markAllRead: string;
@@ -86,6 +122,24 @@ export function resolveNotificationCentreCopy(
     title: notificationCopy(contractCopy, "notifications.title"),
     subtitle: notificationCopy(contractCopy, "notifications.subtitle"),
     empty: notificationCopy(contractCopy, "notifications.empty"),
+    emptyUnread: notificationCopy(contractCopy, "notifications.empty_unread"),
+    tabAll: notificationCopy(contractCopy, "notifications.tab_all"),
+    tabUnread: notificationCopy(contractCopy, "notifications.tab_unread"),
+    tabArchived: notificationCopy(contractCopy, "notifications.tab_archived"),
+    settings: notificationCopy(contractCopy, "notifications.settings"),
+    openTask: notificationCopy(contractCopy, "notifications.open_task"),
+    openLoad: notificationCopy(contractCopy, "notifications.open_load"),
+    expand: notificationCopy(contractCopy, "notifications.expand"),
+    loadMore: notificationCopy(contractCopy, "notifications.load_more"),
+    pushTitle: notificationCopy(contractCopy, "notifications.push_title"),
+    pushThisBrowser: notificationCopy(contractCopy, "notifications.push_this_browser"),
+    pushBrowsers: notificationCopy(contractCopy, "notifications.push_browsers"),
+    pushNoBrowsers: notificationCopy(contractCopy, "notifications.push_no_browsers"),
+    pushThisOne: notificationCopy(contractCopy, "notifications.push_this_one"),
+    pushStale: notificationCopy(contractCopy, "notifications.push_stale"),
+    pushRemove: notificationCopy(contractCopy, "notifications.push_remove"),
+    pushFailed: notificationCopy(contractCopy, "notifications.push_failed"),
+    collapse: notificationCopy(contractCopy, "notifications.collapse"),
     unavailable: notificationCopy(contractCopy, "notifications.unavailable"),
     error: notificationCopy(contractCopy, "notifications.error"),
     markAllRead: notificationCopy(contractCopy, "notifications.mark_all_read"),

@@ -33,8 +33,8 @@ test("the plain Concentrate card is hidden by catalog key, days left or not", ()
 // stock -- a full untouched load is the opposite of nearly out.
 test("a not-started card shows kg in store, never a days-left or a low-stock tag", () => {
   assert.match(stockCards, /item\.not_started\s*\?\s*`\$\{nf\(num\(item\.balance_kg\)\)\} \$\{fa\(pageContract, "unit\.kg"\)\}`/);
-  assert.match(stockCards, /item\.not_started \? <span className="tag t-ok">\{fa\(pageContract, "stock\.not_started"\)\}<\/span> : null/);
-  assert.match(stockCards, /item\.low_stock \? <span className="tag t-dng">\{fa\(pageContract, "stock\.low"\)\}<\/span> : null/);
+  assert.match(stockCards, /item\.not_started \? <Tag tone="ok">\{fa\(pageContract, "stock\.not_started"\)\}<\/Tag> : null/);
+  assert.match(stockCards, /item\.low_stock \? <Tag tone="dng">\{fa\(pageContract, "stock\.low"\)\}<\/Tag> : null/);
 });
 
 // Backend owns the words (copy firewall): the card's copy comes from the page

@@ -31,6 +31,10 @@ import {
   type StepTypeValue,
 } from "./sop-derive";
 import { copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import Button from "@mui/material/Button";
+import { InlineSelect } from "./editor-chrome";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 const TYPE_ICON: Record<StepTypeValue, React.ElementType> = {
   text: TypeIcon,
@@ -93,17 +97,13 @@ export function QuestionCard(props: QuestionCardProps) {
         <span className="qnum">{index + 1}</span>
         <span className="qtype">
           <TypeIco className="ic" style={{ width: 14 }} aria-hidden="true" />
-          <select
-            aria-label={`${number} · ${copy(pc, "builder.field.answer_type")}`}
+          <InlineSelect
+            label={`${number} · ${copy(pc, "builder.field.answer_type")}`}
             value={step.type}
-            onChange={(e) => onChangeType(e.target.value as StepTypeValue)}
-          >
-            {stepTypes.map((t) => (
-              <option key={t.key} value={t.key}>
-                {optionLabel(pc, "sop_step_types", t.key)}
-              </option>
-            ))}
-          </select>
+            options={stepTypes.map((t) => ({ value: t.key, label: optionLabel(pc, "sop_step_types", t.key) }))}
+            onChange={(next) => onChangeType(next as StepTypeValue)}
+            minWidth={168}
+          />
         </span>
         <span className="sp" style={{ flex: 1 }} />
         <button
@@ -193,13 +193,15 @@ export function QuestionCard(props: QuestionCardProps) {
                 </button>
               </div>
             ))}
-            <button
-              type="button"
-              className="btn sm ghost"
+            <Button
+              color="primary"
+              variant="text"
+              size="small"
+              startIcon={<Plus size={14} />}
               onClick={() => patchOptions([...step.options, { id: `opt-${crypto.randomUUID()}`, label: "" }])}
             >
-              <Plus className="ic" /> {copy(pc, "builder.options.add")}
-            </button>
+              {copy(pc, "builder.options.add")}
+            </Button>
           </div>
         ) : null}
 
@@ -249,10 +251,8 @@ export function QuestionCard(props: QuestionCardProps) {
                 onChange={(e) => onPatch({ placeholder: e.target.value })}
               />
             </label>
-            <label className="chkline">
-              <input type="checkbox" checked={step.longText} onChange={(e) => onPatch({ longText: e.target.checked })} />{" "}
-              {copy(pc, "builder.text.long")}
-            </label>
+            <FormControlLabel className="chkline" control={<Checkbox checked={step.longText} onChange={(e) => onPatch({ longText: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
+              {copy(pc, "builder.text.long")}</>} />
           </div>
         ) : null}
 
@@ -264,17 +264,13 @@ export function QuestionCard(props: QuestionCardProps) {
               <span className="qcfg-title">{copy(pc, "builder.scan.mode_label")}</span>
               <span className="muted small">{step.multiScan ? copy(pc, "builder.scan.multi_hint") : copy(pc, "builder.scan.single_hint")}</span>
             </div>
-            <select
-              aria-label={`${number} · ${copy(pc, "builder.scan.mode_label")}`}
+            <InlineSelect
+              label={`${number} · ${copy(pc, "builder.scan.mode_label")}`}
               value={step.multiScan ? "multi" : "single"}
-              onChange={(e) => onPatch({ multiScan: e.target.value === "multi" })}
-            >
-              {optionGroup(pc, "sop_scan_modes").map((m) => (
-                <option key={m.key} value={m.key}>
-                  {optionLabel(pc, "sop_scan_modes", m.key)}
-                </option>
-              ))}
-            </select>
+              options={optionGroup(pc, "sop_scan_modes").map((m) => ({ value: m.key, label: optionLabel(pc, "sop_scan_modes", m.key) }))}
+              onChange={(next) => onPatch({ multiScan: next === "multi" })}
+              minWidth={200}
+            />
             <div className="note">{copy(pc, "builder.scan.note")}</div>
           </div>
         ) : null}
@@ -282,10 +278,8 @@ export function QuestionCard(props: QuestionCardProps) {
       </div>
 
       <div className="qfoot">
-        <label className="chkline">
-          <input type="checkbox" checked={step.required} onChange={(e) => onPatch({ required: e.target.checked })} />{" "}
-          {copy(pc, "builder.required")}
-        </label>
+        <FormControlLabel className="chkline" control={<Checkbox checked={step.required} onChange={(e) => onPatch({ required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
+          {copy(pc, "builder.required")}</>} />
         <span className="sp" style={{ flex: 1 }} />
         <ConditionEditor pc={pc} step={step} index={index} priorSteps={priorSteps} onPatch={onPatch} />
       </div>
@@ -316,13 +310,14 @@ function ConditionEditor({
   const cond = step.visibleWhen;
   if (!cond) {
     return (
-      <button
-        type="button"
-        className="btn sm ghost"
+      <Button
+        color="primary"
+        variant="text"
+        size="small"
         onClick={() => onPatch({ visibleWhen: { refId: priorSteps[priorSteps.length - 1].id, operator: "answered", value: "" } })}
       >
         {copy(pc, "builder.logic.add")}
-      </button>
+      </Button>
     );
   }
 
@@ -335,28 +330,20 @@ function ConditionEditor({
   return (
     <div className="condrow">
       <span className="muted small">{copy(pc, "builder.logic.show_when")}</span>
-      <select
-        aria-label={`${copy(pc, "builder.logic.show_when")} · ${copy(pc, "builder.logic.answer_to")}`}
+      <InlineSelect
+        label={`${copy(pc, "builder.logic.show_when")} · ${copy(pc, "builder.logic.answer_to")}`}
         value={refId}
-        onChange={(e) => setCond({ refId: e.target.value })}
-      >
-        {priorSteps.map((p) => (
-          <option key={p.id} value={p.id}>
-            {copy(pc, "builder.question_label")} {p.position}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label={copy(pc, "builder.logic.title")}
+        options={priorSteps.map((p) => ({ value: p.id, label: `${copy(pc, "builder.question_label")} ${p.position}` }))}
+        onChange={(next) => setCond({ refId: next })}
+        minWidth={120}
+      />
+      <InlineSelect
+        label={copy(pc, "builder.logic.title")}
         value={cond.operator}
-        onChange={(e) => setCond({ operator: e.target.value as ConditionOperator })}
-      >
-        {operators.map((op) => (
-          <option key={op.key} value={op.key}>
-            {optionLabel(pc, "sop_condition_operators", op.key)}
-          </option>
-        ))}
-      </select>
+        options={operators.map((op) => ({ value: op.key, label: optionLabel(pc, "sop_condition_operators", op.key) }))}
+        onChange={(next) => setCond({ operator: next as ConditionOperator })}
+        minWidth={140}
+      />
       {conditionNeedsValue(cond.operator) ? (
         <input
           className="condval"

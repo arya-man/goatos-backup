@@ -629,6 +629,24 @@ paths:
         Read-only shell/page contract for admin-web IA, nav, route labels, top-bar controls,
         role lenses, page/table/drawer metadata, disabled reasons, and summary-vs-detail
         display rules. Frontend renders this contract and owns only layout/local UI state.
+        The page list can be projected: `page=<route_id>` carries that page in full and every
+        other page as a summary (identity fields kept; sections, tables, drawers, controls,
+        copy, option_groups and validation_notes empty), `pages=summary` carries every page as
+        a summary. The page field set is identical in every view; the ETag names the view.
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: Route id of the one page to carry in full; every other page is summarised.
+          schema:
+            type: string
+        - name: pages
+          in: query
+          required: false
+          description: "`summary` carries every page summarised. Ignored when `page` is sent."
+          schema:
+            type: string
+            enum: [summary]
       responses:
         "200":
           description: Admin-web UI contract.
@@ -23902,6 +23920,10 @@ components:
         status:
           type: string
           description: The BUSINESS status of the thing the notification is about (e.g. a task being open), NOT the notification's own delivery status.
+        load_id:
+          type: string
+          format: uuid
+          description: The procurement load the notification is about, when it is about one (loadwise producers stamp it), so a client can deep-link "Open load". ABSENT otherwise.
     AppNotification:
       type: object
       required: [notification_request_id, notification_type, title, body, status, requested_at, context]
@@ -23931,12 +23953,18 @@ components:
           $ref: "#/components/schemas/AppNotificationContext"
     AppNotificationPage:
       type: object
-      required: [items, unread_count, trace_id]
+      required: [items, unread_count, total_count, trace_id]
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/AppNotification"
+        total_count:
+          type: integer
+          description: >-
+            The caller's notification total across their WHOLE feed (read and unread), at the same
+            notification grain as `items` and `unread_count`, so the All/Archived chips can show real
+            numbers. Computed in the same scan as `unread_count`; never page-local.
         unread_count:
           type: integer
           description: >-
@@ -24808,7 +24836,7 @@ components:
     SalesOverviewMonthly:
       type: object
       description: One month with at least one closed deal. Months derive from sale_date.
-      required: [month, sheep_revenue, goat_revenue, manure_revenue, sheep_count, goat_count, manure_kg, revenue, live_revenue, animals, feed_revenue, feed_kg, other_revenue, other_kg]
+      required: [month, sheep_revenue, goat_revenue, manure_revenue, sheep_count, goat_count, manure_kg, revenue, live_revenue, animals, feed_revenue, feed_kg, other_revenue, other_kg, realized_price_per_kg]
       properties:
         revenue: { type: number, description: "Revenue from every closed sale in the month." }
         live_revenue: { type: number, description: "Revenue from all animal products, including custom items." }
@@ -24824,6 +24852,9 @@ components:
         sheep_count: { type: number }
         goat_count: { type: number }
         manure_kg: { type: number }
+        realized_price_per_kg:
+          type: number
+          description: Live revenue over live weight for the month's priced lines (weight and value both recorded); 0 when none were priced.
     SalesPriceBand:
       type: object
       description: >-

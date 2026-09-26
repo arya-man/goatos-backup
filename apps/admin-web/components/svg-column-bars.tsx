@@ -1,33 +1,32 @@
-// Compact day-by-day column chart ("did we keep up?"), ported from the mock's `svgBars` column
-// anatomy: rounded rects on a baseline rule, a `<title>` per column, and CSS-custom-property fills.
+// (The svg- file name is historical: nothing here draws SVG by hand any more; the importers keep
+// the path so no page changes.)
 //
-// Same rules as its sibling `svg-bars.tsx`: a pure SERVER component, no "use client", no charting
-// library (recharts is in package.json with zero importers -- do not make this its first use), no
-// hex literals, and NO copy of its own. Every visible string -- the accessible chart name, the
-// tooltip nouns, the first/last axis labels, the empty state -- is passed in already resolved from
-// the backend page contract by the caller.
+// Compact day-by-day column chart ("did we keep up?") on the licensed MUI Minimal template's
+// ApexCharts `Chart`: AnalyticsWebsiteVisits (grouped columns). The drawing lives in the client
+// component components/minimal/bar-charts/bar-charts.tsx.
+//
+// This export stays a SERVER-SAFE wrapper (no "use client") so its server caller does not change:
+// every visible string -- the figure above each column, the tooltip values, the day labels -- is
+// composed HERE and handed to the client chart as plain data. No hex literals, and NO copy of its
+// own: the accessible chart name, the series nouns and the empty state are passed in already
+// resolved from the backend page contract by the caller.
 //
 // Two series per day on purpose: one bar alone answers "how fast are we going" and cannot answer
-// "are we keeping up". The comparison series is the WIDE, faint column behind and the primary series
-// the solid column in front, so the reading is "how much of what arrived did we get through". A thin
-// top-marker was tried first and failed the real data: with 1,672 arrivals against 65 verdicts the
-// marker sat at the top of an empty column and the verdict bars were invisible.
+// "are we keeping up". Both share ONE value axis, so a day with 3 verdicts against 40 arrivals can
+// never draw as two equal-height marks -- the exact comparison this chart exists to make.
+
+import "./charts-premium.css";
+
+import { ColumnBars, type ColumnBarSeries } from "./minimal/bar-charts/bar-charts";
 
 export type SvgColumnDatum = {
   key: string;
-  /** Human label for this column's tooltip, resolved by the caller. */
+  /** Human label for this column (axis + tooltip), resolved by the caller. */
   label: string;
   value: number;
-  /** Optional comparison value drawn as an overlay marker on the same column. */
+  /** Optional comparison value drawn as a second column on the same day. */
   compareValue?: number;
 };
-
-// Geometry mirrors the mock's svgBars: a fixed viewBox scaled to the container width.
-const VIEW_W = 560;
-const VIEW_H = 96;
-const PAD_X = 6;
-const PAD_TOP = 10;
-const BASELINE = VIEW_H - 16;
 
 export function SvgColumnBars({
   data,
@@ -39,9 +38,9 @@ export function SvgColumnBars({
   data: SvgColumnDatum[];
   /** Resolved from the page contract by the caller; the chart's accessible name. */
   chartLabel: string;
-  /** Resolved from the page contract by the caller; used in per-column tooltips. */
+  /** Resolved from the page contract by the caller; names the primary series. */
   valueNoun: string;
-  /** Resolved from the page contract by the caller; names the comparison series in tooltips. */
+  /** Resolved from the page contract by the caller; names the comparison series. */
   compareNoun?: string;
   /** Resolved from the page contract by the caller. */
   emptyLabel: string;
@@ -49,62 +48,33 @@ export function SvgColumnBars({
   const hasAnyValue = data.some((d) => d.value > 0 || (d.compareValue ?? 0) > 0);
   if (data.length === 0 || !hasAnyValue) {
     return (
-      <div className="muted small" style={{ padding: "12px 2px", textAlign: "center" }}>
+      <div className="cx-empty muted small">
         {emptyLabel}
       </div>
     );
   }
-  // The two series share ONE scale. Scaling each to its own max would draw a day with 3 verdicts
-  // against 40 arrivals as two equal-height marks -- the exact comparison this chart exists to make,
-  // silently inverted.
-  const max = Math.max(1, ...data.map((d) => Math.max(d.value, d.compareValue ?? 0)));
-  const slot = (VIEW_W - 2 * PAD_X) / data.length;
-  const barWidth = Math.min(slot * 0.62, 26);
-  const plotHeight = BASELINE - PAD_TOP;
 
-  return (
-    <svg
-      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-      width="100%"
-      height={VIEW_H}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={chartLabel}
-      style={{ display: "block" }}
-    >
-      <line x1={PAD_X} y1={BASELINE} x2={VIEW_W - PAD_X} y2={BASELINE} stroke="var(--line)" strokeWidth={1} />
-      {data.map((datum, index) => {
-        const compare = datum.compareValue ?? 0;
-        const backWidth = Math.min(slot * 0.86, 38);
-        const backX = PAD_X + index * slot + (slot - backWidth) / 2;
-        const backHeight = Math.max((compare / max) * plotHeight, compare > 0 ? 2 : 0);
-        const x = PAD_X + index * slot + (slot - barWidth) / 2;
-        const height = Math.max((datum.value / max) * plotHeight, datum.value > 0 ? 2 : 0);
-        return (
-          <g key={datum.key}>
-            {datum.compareValue == null ? null : (
-              <rect
-                x={backX}
-                y={BASELINE - backHeight}
-                width={backWidth}
-                height={backHeight}
-                rx={3}
-                fill="var(--amber)"
-                opacity={0.32}
-              />
-            )}
-            <rect x={x} y={BASELINE - height} width={barWidth} height={height} rx={3} fill="var(--brand)" />
-            {/* One hit area per active chart day spans the full slot, so a zero primary value can
-                still be interrogated when the comparison series gives the day visible context. */}
-            <rect x={PAD_X + index * slot} y={PAD_TOP} width={slot} height={BASELINE - PAD_TOP} fill="transparent">
-              <title>
-                {datum.label}: {datum.value} {valueNoun}
-                {compareNoun ? ` · ${compare} ${compareNoun}` : ""}
-              </title>
-            </rect>
-          </g>
-        );
-      })}
-    </svg>
-  );
+  const figure = (value: number) => value.toLocaleString("en-IN");
+  // A zero is passed through as 0: it draws no column (no minimum visible height) but still
+  // prints its "0" at the baseline, because a zero day is exactly the one a reader interrogates.
+  const series: ColumnBarSeries[] = [
+    {
+      key: "value",
+      name: valueNoun,
+      color: "var(--brand)",
+      values: data.map((d) => d.value),
+      labels: data.map((d) => figure(d.value)),
+    },
+  ];
+  if (data.some((d) => d.compareValue != null)) {
+    series.push({
+      key: "compare",
+      name: compareNoun ?? "",
+      color: "var(--amber)",
+      values: data.map((d) => (d.compareValue == null ? null : d.compareValue)),
+      labels: data.map((d) => (d.compareValue == null ? "" : figure(d.compareValue))),
+    });
+  }
+
+  return <ColumnBars categories={data.map((d) => d.label)} series={series} chartLabel={chartLabel} />;
 }

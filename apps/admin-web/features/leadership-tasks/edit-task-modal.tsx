@@ -9,6 +9,8 @@ import { TaskDeadlineFields } from "./task-write-forms";
 import { useDialogShell } from "./use-dialog-shell";
 import { attachmentKindLabel, type TaskRow } from "./task-row";
 import { useTaskRowVersion, useTaskWriteInFlight } from "./task-row-store";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 /**
  * The EDIT modal — the piece the web desk never had.
@@ -184,18 +186,12 @@ export function EditTaskModal({
                 {task.attachmentRows.length ? (
                   <div className="lt-keeplist">
                     {task.attachmentRows.map((attachment) => (
-                      <label key={attachment.proof_id} className="lt-keep">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(kept[attachment.proof_id])}
-                          onChange={(event) =>
+                      <FormControlLabel key={attachment.proof_id} className="lt-keep" control={<Checkbox checked={Boolean(kept[attachment.proof_id])} onChange={(event) =>
                             setKept((prev) => ({
                               ...prev,
                               [attachment.proof_id]: event.target.checked,
                             }))
-                          }
-                        />
-                        <Paperclip className="ic" aria-hidden="true" />
+                          } sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<><Paperclip className="ic" aria-hidden="true" />
                         <span>{attachment.file_name || attachmentKindLabel(attachment.kind)}</span>
                         {/* Re-posted as a ref only while it is ticked: the list the server receives
                             IS the new list, so an unticked file is removed by being absent. */}
@@ -209,8 +205,7 @@ export function EditTaskModal({
                               value={attachment.file_name ?? ""}
                             />
                           </>
-                        ) : null}
-                      </label>
+                        ) : null}</>} />
                     ))}
                   </div>
                 ) : null}

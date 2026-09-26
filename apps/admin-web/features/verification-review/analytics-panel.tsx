@@ -2,6 +2,7 @@
 
 import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { BodyPortal } from "@/components/app/body-portal";
 import { BarChart3, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY } from "./analytics-panel-params";
@@ -55,7 +56,8 @@ export function AnalyticsPanel({
       </LocalOverlayLink>
 
       {displayedItem ? (
-        <>
+        // BodyPortal anchors the drawer + scrim to the viewport rather than a transformed ancestor.
+        <BodyPortal>
           <button
             type="button"
             className={`scrim${drawerOpen ? " on" : ""}`}
@@ -82,7 +84,7 @@ export function AnalyticsPanel({
             </div>
             <div className="dc">{children}</div>
           </aside>
-        </>
+        </BodyPortal>
       ) : null}
     </>
   );

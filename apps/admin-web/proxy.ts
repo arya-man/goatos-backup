@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { ROUTE_ALIASES, ROUTE_ALIASES_WITHOUT_PARAMS } from "@/lib/route-aliases";
 import {
   FIREBASE_ID_TOKEN_COOKIE,
   FIREBASE_REFRESH_TOKEN_COOKIE,
@@ -42,6 +43,25 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
   if (sessionIsValid) {
+    const alias =
+      ROUTE_ALIASES[pathname] ??
+      ROUTE_ALIASES_WITHOUT_PARAMS.find((rule) => rule.from === pathname && !rule.unlessParams.some((p) => request.nextUrl.searchParams.has(p)))?.to;
+    if (alias) {
+      const target = request.nextUrl.clone();
+      target.pathname = alias;
+      return NextResponse.redirect(target, 307);
+    }
+    // "/" IS the ADG Analytics landing (maintainer request 2026-09-09). Redirecting here, before any
+    // page renders, means one document and one skeleton; the root page's own redirect() streamed
+    // under app/loading.tsx and showed the shell skeleton, then the route's. `lens=` deep links
+    // (Control Tower) and an explicit `fallback=1` (a principal without the ADG page) still reach
+    // the root page. Scope/filter params ride along unchanged.
+    if (pathname === "/" && !request.nextUrl.searchParams.has("lens") && !request.nextUrl.searchParams.has("fallback")) {
+      const landing = request.nextUrl.clone();
+      landing.pathname = "/weighing/analytics";
+      landing.searchParams.set("from_root", "1");
+      return NextResponse.redirect(landing, 307);
+    }
     return NextResponse.next();
   }
   const loginUrl = request.nextUrl.clone();

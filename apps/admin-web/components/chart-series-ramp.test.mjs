@@ -20,18 +20,26 @@ test("every grouped bar tone resolves to a slot of the chart ramp", () => {
       assert.match(block[1], new RegExp(`${slot}:#[0-9A-Fa-f]{6}`), `${slot} must be stepped for this mode`);
     }
   }
-  // A tone that still points at a status token would drift away from the validated set.
-  const bars = css.match(/\n\.gcbar[^\n]*\{background:var\(([^)]+)\)\}/g) ?? [];
-  assert.ok(bars.length >= 5, "the tone rules must be present");
-  for (const rule of bars) {
-    if (rule.includes("transparent")) continue;
-    assert.match(rule, /var\(--chart-[1-4]\)/, `a bar tone must take a ramp slot: ${rule.trim()}`);
+  // A tone that still points at a status token would drift away from the validated set. The
+  // grouped columns (ApexCharts) map each tone to its colour in TONE_VAR.
+  const grouped = readFileSync(new URL("./grouped-columns.tsx", import.meta.url), "utf8");
+  const map = grouped.match(/const TONE_VAR[^=]*=\s*\{([\s\S]*?)\};/);
+  assert.ok(map, "the tone map must be present");
+  // okHatch is the ok slot drawn striped (a pattern fill), not a colour of its own.
+  const all = [...map[1].matchAll(/(\w+):\s*"([^"]+)"/g)];
+  assert.deepEqual(all.find((t) => t[1] === "okHatch")?.slice(2), ["var(--chart-2)"], "okHatch is the striped ok slot");
+  const tones = all.filter((t) => t[1] !== "okHatch");
+  assert.equal(tones.length, 4, "one tone per ramp slot");
+  assert.equal(new Set(tones.map((t) => t[2])).size, tones.length, "no two tone names share a colour");
+  for (const [, tone, colour] of tones) {
+    assert.match(colour, /^var\(--chart-[1-4]\)$/, `tone ${tone} must take a ramp slot, not ${colour}`);
   }
 });
 
 test("no chart gives two of its own series the same slot", () => {
-  // `teal` and `warn` are the SAME slot, which is how the Counts chart drew two bars in one colour.
-  const slotOf = { info: 1, ok: 2, brand: 2, danger: 3, warn: 4, teal: 4 };
+  // One name per slot now (the old `teal` drew the `warn` amber, which is how the Counts chart drew
+  // two bars in one colour); the map still resolves names to slots in case one comes back.
+  const slotOf = { info: 1, ok: 2, danger: 3, warn: 4 };
   for (const [file] of callers) {
     const source = readFileSync(new URL(file, import.meta.url), "utf8");
     for (const group of source.matchAll(/=\s*\[\s*\n((?:\s*(?:\/\/[^\n]*\n|\.\.\.[^\n]*\n|\{ key:[^\n]*\n))+)\s*\]/g)) {

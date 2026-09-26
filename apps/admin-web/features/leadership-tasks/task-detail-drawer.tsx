@@ -32,7 +32,7 @@ const FOCUSABLE = [
 
 /** An overlay stacked ON TOP of the drawer (the Edit modal, the @-mention picker) owns the keys. */
 function anotherOverlayIsOpen(): boolean {
-  return Boolean(document.querySelector(".lt-modal[role=dialog], [data-mention-popup]"));
+  return Boolean(document.querySelector(".lt-modal[role=dialog], [data-mention-popup], .MuiPopover-root"));
 }
 
 export function TaskDetailDrawer({
@@ -62,7 +62,7 @@ export function TaskDetailDrawer({
     // it is remembered so Close hands focus back to it instead of dropping it on <body>.
     const active = document.activeElement;
     openerRef.current =
-      active instanceof HTMLElement && active.closest(".lt-grid") ? active : null;
+      active instanceof HTMLElement && active.closest(".lt-grid, .ltb-card") ? active : null;
     // Focus lands on the drawer itself (tabIndex -1) so a screen reader announces the dialog and
     // the next Tab is its first control. Re-asserted a frame later and once more after the router
     // has settled: the App Router's own post-navigation focus handling can run AFTER this effect
@@ -119,7 +119,7 @@ export function TaskDetailDrawer({
       const target =
         opener && opener.isConnected
           ? opener
-          : document.querySelector<HTMLElement>(`.lt-grid a[href*="task=${CSS.escape(taskId)}"]`);
+          : document.querySelector<HTMLElement>(`.lt-grid a[href*="task=${CSS.escape(taskId)}"], a.ltb-card[href*="task=${CSS.escape(taskId)}"]`);
       target?.focus({ preventScroll: true });
     };
   }, [close, taskId]);

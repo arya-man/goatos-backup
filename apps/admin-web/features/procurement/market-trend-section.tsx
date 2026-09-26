@@ -3,14 +3,15 @@
 // telemetry:exempt view-only chart filter over data the page already holds; no write, no data read
 
 import { useState } from "react";
+import Box from "@mui/material/Box";
 
-import { ChartHover } from "@/components/chart-hover";
+import { Caption } from "@/components/app/caption";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { SeriesLegend, SeriesLines, seriesColorVar, type LineSeries } from "@/components/svg-series";
 import { Tag } from "@/components/ui-primitives";
 import type { MarketSeries } from "@/lib/api/market-server";
 import { istDayPlus } from "@/lib/format";
-import { humanDate } from "./sales-format";
 
 /** Backend copy the server page resolves and hands down; this file names no label of its own. */
 export type MarketTrendLabels = {
@@ -84,9 +85,6 @@ export function MarketTrendSection({
     }
     return { label: `${s.city_name} · ${s.unit_label}`, colorVar: seriesColorVar(i), points };
   });
-  const span = dayKeys.length;
-  const step = span <= 14 ? 1 : span <= 90 ? 7 : span <= 180 ? 14 : 30;
-  const dayLabels = dayKeys.map((d, i) => (i % step === 0 ? humanDate(d) : ""));
   const questionLabel = questions.find((q) => q.id === question)?.label ?? "";
   const unit = trendSeries[0]?.unit_label ?? "";
 
@@ -97,53 +95,36 @@ export function MarketTrendSection({
         <div className="sp" style={{ flex: 1 }} />
         {unit ? <Tag tone="mut">{unit}</Tag> : null}
       </div>
-      <p className="muted small">{labels.sub}</p>
-      <div className="chips" role="group" aria-label={labels.questionGroup}>
-        {questions.map((q) => (
-          <button
-            key={q.id}
-            type="button"
-            className={q.id === question ? "btn sm p" : "btn sm"}
-            aria-pressed={q.id === question}
-            onClick={() => pick(q.id, city)}
-          >
-            {q.label}
-          </button>
-        ))}
-      </div>
-      <div className="chips" role="group" aria-label={labels.cityGroup} style={{ marginTop: 6 }}>
-        <button type="button" className={city === "" ? "btn sm p" : "btn sm"} aria-pressed={city === ""} onClick={() => pick(question, "")}>
-          {labels.cityAll}
-        </button>
-        {cities.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            className={c.id === city ? "btn sm p" : "btn sm"}
-            aria-pressed={c.id === city}
-            onClick={() => pick(question, c.id)}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
-      {/* The chart's axis text is drawn at 7-9 units in a 560-wide viewBox, so squeezed into a
-          phone card it rendered at ~5px. It keeps a 640px floor inside its own pan wrapper
-          instead: the page never scrolls sideways, the chart does. */}
-      <div className="sales-market-trend-scroll" tabIndex={0} role="region" aria-label={labels.aria}>
-        <div className="sales-market-trend-inner">
-          <ChartHover>
-            <SeriesLines
-              series={lines}
-              dayLabels={dayLabels}
-              valueNoun={unit || questionLabel}
-              chartLabel={`${labels.title} · ${questionLabel}`}
-              emptyLabel={labels.empty}
-            />
-          </ChartHover>
-        </div>
-      </div>
+      <Caption>{labels.sub}</Caption>
+      {/* Template tabs driven by client state (no href): a pick redraws from the series the page
+          already holds, and the URL follows without a navigation. */}
+      <Box sx={{ mb: 1.75 }}>
+        <AnimatedTabs
+          ariaLabel={labels.questionGroup}
+          value={question}
+          onChange={(next) => pick(next, city)}
+          items={questions.map((q) => ({ value: q.id, label: q.label }))}
+        />
+      </Box>
+      <Box sx={{ mt: 0.75, mb: 1.75 }}>
+        <AnimatedTabs
+          variant="pill"
+          ariaLabel={labels.cityGroup}
+          value={city}
+          onChange={(next) => pick(question, next)}
+          items={[{ value: "", label: labels.cityAll }, ...cities.map((c) => ({ value: c.id, label: c.label }))]}
+        />
+      </Box>
       <SeriesLegend entries={lines.map((l) => ({ label: l.label, colorVar: l.colorVar }))} />
+      {/* Every survey morning is a category; the chart labels them DD/MM/YYYY at a regular step
+          sized to the card, the last morning always labelled. */}
+      <SeriesLines
+        series={lines}
+        dayLabels={dayKeys}
+        valueNoun={unit || questionLabel}
+        chartLabel={`${labels.title} · ${questionLabel}`}
+        emptyLabel={labels.empty}
+      />
     </section>
   );
 }

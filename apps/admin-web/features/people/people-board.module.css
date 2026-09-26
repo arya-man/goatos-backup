@@ -1,0 +1,25 @@
+/* People table on a laptop: long emails truncate so the row fits the card more often, and when it
+   is still wider than the card the right edge fades as a "scroll" cue. The fade is driven by the
+   scroller's own scroll timeline: it is 40px while there is more to the right and 0 at the end.
+   When the table fits (no scroll), the timeline is inactive and the fade stays at its initial 0. */
+@property --people-cue { syntax: "<length>"; inherits: false; initial-value: 0px; }
+
+@media (min-width: 641px) {
+  /* Fit the card at 1440: no table floor, tighter cell insets, and the long free-text columns
+     (department, designation, email) truncate with an ellipsis; the full value stays in the
+     row drawer. */
+  .scrollCue :global(table.people-table) { min-width: 0 !important; width: 100% }
+  .scrollCue :global(table.people-table) :is(th, td) { min-width: 0 !important; padding-inline: 12px }
+  .scrollCue :global(table.people-table) :is(th, td):first-child { padding-left: 24px }
+  .scrollCue :global(table.people-table) :is(td:nth-child(3), td:nth-child(4), td:nth-child(5)) { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .scrollCue :global(table.people-table) :is(td:nth-child(3), td:nth-child(4), td:nth-child(5)) :global(.celllink) { min-width: 0 !important; overflow: hidden; text-overflow: ellipsis; display: block }
+  @supports (animation-timeline: scroll()) {
+    .scrollCue {
+      -webkit-mask-image: linear-gradient(to left, transparent 0, #000 var(--people-cue));
+      mask-image: linear-gradient(to left, transparent 0, #000 var(--people-cue));
+      animation: people-cue linear both;
+      animation-timeline: scroll(self inline);
+    }
+  }
+}
+@keyframes people-cue { 0%, 97% { --people-cue: 48px } 100% { --people-cue: 0px } }

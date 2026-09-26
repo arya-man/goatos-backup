@@ -1,0 +1,5 @@
+{
+  "note": "Accepted mobile/WebView debt. Every entry is a KNOWN defect that a future change must not multiply. Shrink this list; never grow it casually.",
+  "updated_at": "2026-09-18T00:00:00.000Z",
+  "waived": []
+}

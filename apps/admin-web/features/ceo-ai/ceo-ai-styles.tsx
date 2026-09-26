@@ -174,7 +174,6 @@ export function CeoAiStyles(): ReactElement {
 .mzai-msg.assistant .mzai-bub{width:100%;box-sizing:border-box}
 .mzai-md,.mzai-table,.mzai-code{max-width:100%;min-width:0}
 .mzai-md img,.mzai-md svg{max-width:100%;height:auto}
-.mzai-msg .recharts-responsive-container,.mzai-msg svg.recharts-surface{max-width:100%}
 /* ---- window states ---- */
 .mzai-view-min .mzai-body{display:none}
 .mzai-view-min .mzai-panel{height:auto}
@@ -236,11 +235,14 @@ export function CeoAiStyles(): ReactElement {
 .mzai-drop{position:absolute;inset:8px;z-index:5;display:flex;align-items:center;justify-content:center;border:2px dashed var(--brand);
   border-radius:16px;background:rgba(20,28,22,.82);color:#fff;font-size:15px;font-weight:600;pointer-events:none}
 .mzai-bubble{width:56px;height:56px;border-radius:50%;border:2px solid var(--brand);
-  background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;
+  background:var(--brand);color:var(--on-brand);display:flex;align-items:center;justify-content:center;
   cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s cubic-bezier(.34,.1,.64,.9),box-shadow .2s ease}
 .mzai-bubble:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,.2)}
 .mzai-bubble:active{transform:translateY(-2px)}
 .mzai-goat-icon{width:28px;height:28px}
+.mzai-bubble.mzai-bubble-dock{width:40px;height:40px;border-width:1.5px;box-shadow:none}
+.mzai-bubble.mzai-bubble-dock:hover{transform:none;box-shadow:0 0 0 3px var(--brand-soft)}
+.mzai-bubble.mzai-bubble-dock .mzai-goat-icon{width:22px;height:22px}
 @media (prefers-reduced-motion: reduce) {
   .mzai-bubble{transition:none}
   .goat-bubble{animation:none !important}
@@ -274,8 +276,8 @@ export function CeoAiStyles(): ReactElement {
 .mzai-side.mzai-hide{display:none}
 .mzai-side-head{display:flex;align-items:center;justify-content:space-between;padding:12px 12px 10px}
 .mzai-side-head span{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.mzai-newbtn{display:flex;align-items:center;gap:5px;border:1px solid var(--brand-l);background:linear-gradient(135deg,#7CCB45 0%,#69BA37 100%);
-  color:#fff;border-radius:8px;padding:6px 9px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;
+.mzai-newbtn{display:flex;align-items:center;gap:5px;border:1px solid var(--brand);background:var(--brand);
+  color:var(--on-brand);border-radius:8px;padding:6px 9px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;
   transition:all .15s ease;box-shadow:0 2px 6px rgba(0,0,0,.08)}
 .mzai-newbtn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.12)}
 .mzai-newbtn .ic{width:13px;height:13px}
@@ -283,7 +285,7 @@ export function CeoAiStyles(): ReactElement {
 .mzai-thread{display:flex;align-items:center;gap:6px;border-radius:10px;padding:8px 8px;cursor:pointer;
   transition:all .12s ease}
 .mzai-thread:hover{background:var(--sidebar-2)}
-.mzai-thread.mzai-on{background:linear-gradient(135deg,rgba(124,203,69,.12),rgba(105,186,55,.08));
+.mzai-thread.mzai-on{background:linear-gradient(135deg,var(--brand-soft),var(--brand-soft));
   border-left:3px solid var(--brand)}
 .mzai-thread .mzai-tt{flex:1;min-width:0;font-size:12px;color:var(--ink);overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
@@ -296,7 +298,7 @@ export function CeoAiStyles(): ReactElement {
 /* Hidden row actions must not reserve width and truncate the title early.
    Touch (no hover) keeps them visible; focus still reveals them for keyboards. */
 @media (hover:hover){.mzai-thread:not(:hover):not(:focus-within) .mzai-thread-act{width:0;margin-left:-6px;overflow:hidden}}
-.mzai-thread-act:hover{background:var(--danger);color:#fff}
+.mzai-thread-act:hover{background:var(--danger);color:var(--danger-badge-ink)}
 .mzai-thread-act .ic{width:13px;height:13px}
 .mzai-side-empty{padding:12px;font-size:12px;color:var(--muted);line-height:1.6}
 .mzai-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
@@ -311,7 +313,7 @@ export function CeoAiStyles(): ReactElement {
    so the assistant avatar container stays a neutral, disc-free wrapper. */
 .mzai-msg.assistant .mzai-avatar{background:transparent;border:0}
 .mzai-bub{padding:12px 14px;border-radius:16px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
-.mzai-msg.user .mzai-bub{background:var(--brand);color:#fff;border-bottom-right-radius:4px;
+.mzai-msg.user .mzai-bub{background:var(--brand);color:var(--on-brand);border-bottom-right-radius:4px;
   box-shadow:0 2px 8px rgba(0,0,0,.1)}
 .mzai-msg.assistant .mzai-bub{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);
   border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
@@ -325,37 +327,13 @@ export function CeoAiStyles(): ReactElement {
   border-radius:14px;max-width:100%;overflow:hidden;box-sizing:border-box;width:100%}
 .mzai-chart-title{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 8px;
   letter-spacing:.01em;white-space:normal}
-.mzai-chart-svg{display:block;width:100%;height:120px;overflow:visible}
-.mzai-chart-bars{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px;white-space:normal}
-.mzai-chart-row{display:flex;flex-direction:column;gap:3px;min-width:0}
-.mzai-chart-label{font-size:12.5px;line-height:1.3;color:var(--ink);overflow-wrap:anywhere;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.mzai-chart-track{display:flex;align-items:center;gap:8px;min-width:0}
-.mzai-chart-area{flex:1 1 auto;min-width:0}
-.mzai-chart-bar{display:block;height:12px;border-radius:4px;min-width:2px}
-.mzai-chart-value{flex:0 0 auto;min-width:3ch;text-align:right;font-size:12.5px;font-weight:700;color:var(--ink);
-  font-variant-numeric:tabular-nums;white-space:nowrap}
-.mzai-chart-line{position:relative;padding-bottom:22px;white-space:normal}
-/* Dots are % of the plot box, so the plot box must be exactly the SVG's height. */
-.mzai-chart-plot{position:relative;height:120px;margin-left:40px}
-.mzai-chart-yaxis{position:absolute;left:-40px;top:0;bottom:0;width:34px}
-.mzai-chart-ytick{position:absolute;right:0;transform:translateY(-50%);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
-.mzai-chart-legend{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--ink)}
-.mzai-chart-legend li{display:flex;align-items:center;gap:6px}
-.mzai-chart-swatch{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
-.mzai-chart-dot{position:absolute;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%}
-.mzai-chart-ticks{position:absolute;left:40px;right:0;bottom:0;height:18px}
-.mzai-chart-tick{position:absolute;bottom:0;transform:translateX(-50%);font-size:11.5px;color:var(--muted);
-  white-space:nowrap;max-width:var(--tick-max,30%);overflow:hidden;text-overflow:ellipsis}
-.mzai-chart-tick.start{transform:none}
-.mzai-chart-tick.end{transform:translateX(-100%)}
 .mzai-cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
 .mzai-cite{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;
   border:1px solid var(--line);border-radius:20px;padding:4px 11px;color:var(--muted);background:var(--panel);
   transition:all .15s ease}
 .mzai-cite b{color:var(--ink);font-weight:600}
-.mzai-cite.tier-cube{border-color:var(--brand-l);background:linear-gradient(135deg,rgba(124,203,69,.08),rgba(105,186,55,.04));
-  color:var(--brand-d);box-shadow:0 0 12px rgba(124,203,69,.12)}
+.mzai-cite.tier-cube{border-color:var(--brand-l);background:linear-gradient(135deg,var(--brand-soft),var(--brand-soft));
+  color:var(--brand-d);box-shadow:0 0 12px var(--brand-soft)}
 .mzai-cite.tier-cube b{color:var(--brand-d)}
 .mzai-foot{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:4px}
 .mzai-mode{display:inline-flex;align-items:center;gap:4px}
@@ -366,16 +344,16 @@ export function CeoAiStyles(): ReactElement {
   color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;
   transition:all .12s ease}
 .mzai-fb button:hover{background:var(--sidebar-2);color:var(--ink);border-color:var(--line2)}
-.mzai-fb button.on-up{background:linear-gradient(135deg,rgba(124,203,69,.12),rgba(105,186,55,.08));
+.mzai-fb button.on-up{background:linear-gradient(135deg,var(--brand-soft),var(--brand-soft));
   border-color:var(--brand-l);color:var(--brand-d)}
-.mzai-fb button.on-down{background:linear-gradient(135deg,rgba(239,68,68,.12),rgba(220,38,38,.08));
-  border-color:var(--danger);color:var(--danger)}
+.mzai-fb button.on-down{background:var(--error-soft);
+  border-color:var(--danger);color:var(--error-ink)}
 .mzai-fb button .ic{width:13px;height:13px}
 .mzai-reason{display:flex;gap:6px;margin-top:6px}
 .mzai-reason input{flex:1;font:inherit;font-size:11.5px;border:1px solid var(--line);border-radius:8px;padding:6px 9px;
   background:var(--panel);color:var(--ink);outline:0;transition:border-color .15s ease}
 .mzai-reason input:focus{border-color:var(--brand)}
-.mzai-reason button{border:none;background:var(--brand);color:#fff;border-radius:8px;padding:6px 14px;
+.mzai-reason button{border:none;background:var(--brand);color:var(--on-brand);border-radius:8px;padding:6px 14px;
   font:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s ease}
 .mzai-reason button:hover{background:var(--brand-d)}
 .mzai-suggestbar{display:flex;justify-content:flex-start;padding:0 16px 8px}
@@ -383,7 +361,7 @@ export function CeoAiStyles(): ReactElement {
   background:var(--panel-2);color:var(--ink);border-radius:10px;padding:7px 10px;font:inherit;
   font-size:12px;font-weight:600;cursor:pointer;transition:all .15s ease}
 .mzai-suggestbar button:hover,.mzai-suggestbar button[aria-expanded="true"]{border-color:var(--brand-l);
-  background:linear-gradient(135deg,rgba(124,203,69,.08),rgba(105,186,55,.04));color:var(--brand-d)}
+  background:linear-gradient(135deg,var(--brand-soft),var(--brand-soft));color:var(--brand-d)}
 .mzai-suggestbar .ic{width:14px;height:14px}
 .mzai-starters{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px;max-height:164px;
   overflow-y:auto;overscroll-behavior:contain}
@@ -391,17 +369,17 @@ export function CeoAiStyles(): ReactElement {
   background:var(--panel-2);color:var(--ink);border-radius:20px;padding:8px 14px;font:inherit;
   font-size:12px;cursor:pointer;text-align:left;transition:all .15s ease}
 .mzai-starters button:before{content:"✨";font-size:13px}
-.mzai-starters button:hover{border-color:var(--brand-l);background:linear-gradient(135deg,rgba(124,203,69,.08),rgba(105,186,55,.04))}
+.mzai-starters button:hover{border-color:var(--brand-l);background:linear-gradient(135deg,var(--brand-soft),var(--brand-soft))}
 .mzai-starters button:disabled{opacity:.5;cursor:not-allowed}
 .mzai-form{display:flex;gap:10px;align-items:flex-end;padding:12px 14px;border-top:1px solid var(--line);
   background:var(--panel-2)}
 .mzai-form textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:12px;padding:10px 13px;
   font:inherit;font-size:13px;background:var(--panel);color:var(--ink);outline:0;max-height:120px;
   transition:border-color .15s ease}
-.mzai-form textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(124,203,69,.1)}
+.mzai-form textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--ring)}
 .mzai-form textarea::placeholder{color:var(--muted)}
 .mzai-send{width:40px;height:40px;flex:none;border-radius:12px;border:none;background:var(--brand);
-  color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  color:var(--on-brand);display:flex;align-items:center;justify-content:center;cursor:pointer;
   transition:all .15s cubic-bezier(.34,.1,.64,.9);box-shadow:0 2px 6px rgba(0,0,0,.1)}
 .mzai-send:hover:not(:disabled){background:var(--brand-d);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.15)}
 .mzai-send:active:not(:disabled){transform:translateY(0)}
@@ -412,10 +390,10 @@ export function CeoAiStyles(): ReactElement {
 .mzai-send .mzai-goat-walking{width:18px;height:18px}
 .mzai-banner{margin:0 16px 12px;padding:10px 12px;border-radius:12px;font-size:12px;line-height:1.5;
   display:flex;align-items:center;gap:8px;animation:mzai-slide-up .3s ease}
-.mzai-banner.err{background:linear-gradient(135deg,rgba(239,68,68,.1),rgba(220,38,38,.06));
-  border:1px solid rgba(239,68,68,.3);color:var(--danger)}
-.mzai-banner.warn{background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(217,119,6,.06));
-  border:1px solid rgba(245,158,11,.3);color:var(--ink)}
+.mzai-banner.err{background:var(--error-soft);
+  border:1px solid color-mix(in srgb,var(--error) 36%,transparent);color:var(--error-ink)}
+.mzai-banner.warn{background:var(--warning-soft);
+  border:1px solid color-mix(in srgb,var(--warning) 36%,transparent);color:var(--warning-ink)}
 @keyframes mzai-slide-up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 .mzai-skel{display:flex;gap:5px;padding:12px 14px}
 .mzai-skel span{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:mzai-bounce .8s infinite}
@@ -471,6 +449,8 @@ export function CeoAiStyles(): ReactElement {
   .mzai-root.mzai-closed{display:block;right:14px !important;bottom:calc(88px + env(safe-area-inset-bottom)) !important}
   .mzai-closed .mzai-bubble{width:44px;height:44px}
   .mzai-closed .mzai-goat-icon{width:22px;height:22px}
+  /* Phone taps: header (threads / minimise / close) and composer controls meet 44px. */
+  .mzai-icon,.mzai-tool,.mzai-send{width:44px;height:44px}
 }
 /* draggable launcher: inline left/top win over the corner defaults */
 .mzai-root.mzai-closed.mzai-free{right:auto !important;bottom:auto !important;transition:none}

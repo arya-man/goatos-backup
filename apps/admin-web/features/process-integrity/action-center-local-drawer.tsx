@@ -7,11 +7,12 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
+import { InfoHint } from "@/components/app/info-hint";
 import { VACCINATION_DRIVE_SOP_STEPS } from "@/lib/vaccination-sop-steps";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ActionCenterObligation, ProcessIntegritySeverity } from "@/lib/api/server";
 import { fmtDate } from "@/lib/format";
-import { Ban, GitBranch, ShieldCheck, Syringe, X } from "lucide-react";
+import { GitBranch, ShieldCheck, Syringe, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { type Tone } from "./process-integrity";
@@ -19,6 +20,8 @@ import { SopChecklist } from "./sop-checklist";
 import { actionWorkTitle } from "./action-center-presenters";
 import { EvidenceMedia } from "./evidence-media";
 import { operationalLocationLabel } from "@/lib/operational-location";
+import { stageLabel } from "@/lib/stage-labels";
+import Alert from "@mui/material/Alert";
 
 const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "low"> = {
   broken: "high",
@@ -276,7 +279,7 @@ function ActionCenterRowDrawer({
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <Tag tone={optionTone(workStateOptions, row.work_state)}>{optionLabel(workStateOptions, row.work_state)}</Tag>
             <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
-            <span className="muted small">{copy(pageContract, "drawer.adherence_status_help")}</span>
+            <InfoHint text={copy(pageContract, "drawer.adherence_status_help")} />
           </div>
         </div>
 
@@ -291,11 +294,11 @@ function ActionCenterRowDrawer({
           <div><div className="k">{copy(pageContract, "drawer.protocol_label")}</div><div className="v">{row.protocol_name}</div></div>
           <div><div className="k">{copy(pageContract, "drawer.dose_label")}</div><div className="v">{row.dose_code}</div></div>
           <div><div className="k">{copy(pageContract, "drawer.park_shed_label")}</div><div className="v">{row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })}</div></div>
-          <div><div className="k">{copy(pageContract, "drawer.cohort_progress_label")}</div><div className="v">{row.animal_stage} · {row.completed_count}/{row.expected_count} {copy(pageContract, "label.done_suffix")}</div></div>
+          <div><div className="k">{copy(pageContract, "drawer.cohort_progress_label")}</div><div className="v">{stageLabel(row.animal_stage)} · {row.completed_count}/{row.expected_count} {copy(pageContract, "label.done_suffix")}</div></div>
           <div><div className="k">{copy(pageContract, "label.evidence")}</div><div className="v"><EvidenceMedia evidence={row.evidence} pageContract={pageContract} /></div></div>
         </div>
 
-        {blocker ? <div className="alert" style={{ marginTop: 14, marginBottom: 0 }}><Ban className="ic" aria-hidden="true" /><span>{blocker}</span></div> : null}
+        {blocker ? <Alert severity="error" style={{ marginTop: 14, marginBottom: 0 }}><span>{blocker}</span></Alert> : null}
 
         <div style={{ marginTop: 16 }}>
           <div className="b700" style={{ margin: "4px 0 10px" }}>{copy(pageContract, "drawer.sop_checklist.title")}</div>

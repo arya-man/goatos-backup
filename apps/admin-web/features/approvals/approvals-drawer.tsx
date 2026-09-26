@@ -9,13 +9,14 @@ import {
 import { Gavel, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Tag, type Tone } from "@/components/ui-primitives";
 import type { AdminWebApprovalItem } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
+import { StatusChip } from "@/components/review-queue/review-queue-ui";
 import { approveApprovalAction, rejectApprovalAction, resolveApprovalCaptureMediaUrl } from "./actions";
 import { ApprovalsActionTelemetry } from "./approvals-telemetry";
+import Alert from "@mui/material/Alert";
 import {
   APPROVAL_REASON_MAX_BYTES,
   approvalDetailRows,
@@ -27,13 +28,6 @@ const PATHNAME = "/approvals";
 
 function titleCase(v: string): string {
   return v ? v.charAt(0).toUpperCase() + v.slice(1).replace(/_/g, " ") : v;
-}
-
-function statusTone(status: AdminWebApprovalItem["status"]): Tone {
-  if (status === "rejected") return "dng";
-  if (status === "approved") return "ok";
-  if (status === "cancelled") return "info";
-  return "warn";
 }
 
 export function ApprovalsDrawer({
@@ -191,12 +185,10 @@ function ApprovalsDrawerPanel({
             list. A successful decision moves the row off this list and its confirmation is rendered
             at page level. The error code is a machine key and is mapped to a sentence, never shown. */}
         {feedback.status === "error" ? (
-          <div className="alert warn" role="alert" style={{ marginBottom: 12 }}>
+          <Alert severity="warning" role="alert" style={{ marginBottom: 12 }}>
             <b>{COPY.feedback.failed}</b>
-            <div className="small" style={{ marginTop: 4 }}>
-              {approvalErrorSentence(feedback.code)}
-            </div>
-          </div>
+            <div className="small">{approvalErrorSentence(feedback.code)}</div>
+          </Alert>
         ) : null}
 
         <div className="note" style={{ marginBottom: 12 }}>
@@ -209,7 +201,7 @@ function ApprovalsDrawerPanel({
         <div className="metagrid">
           <Meta label={COPY.drawer.metaType}>{titleCase(item.request_type)}</Meta>
           <Meta label={COPY.drawer.metaStatus}>
-            <Tag tone={statusTone(item.status)}>{approvalStatusLabel(item.status)}</Tag>
+            <StatusChip status={item.status}>{approvalStatusLabel(item.status)}</StatusChip>
           </Meta>
           <Meta label={COPY.drawer.metaRaisedAt}>{fmtDateTime(item.raised_at)}</Meta>
           {item.raised_by_name ? <Meta label={COPY.drawer.metaRaisedBy}>{item.raised_by_name}</Meta> : null}

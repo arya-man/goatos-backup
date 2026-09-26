@@ -121,11 +121,12 @@ export function BuyerTable({
           <Tag tone={row.repeat ? "ok" : "mut"}>
             {row.repeat ? labels.repeat : labels.oneTime}
           </Tag>
-          {row.cadence_lines.map((line) => (
-            <div className="muted small" key={line}>
-              {line}
+          {/* One meta line, not a stacked sentence: "2 more · every 17 days". */}
+          {row.cadence_lines.length ? (
+            <div className="muted small" style={{ whiteSpace: "nowrap" }} title={row.cadence_lines.join(" · ")}>
+              {row.cadence_lines.join(" · ")}
             </div>
-          ))}
+          ) : null}
         </>
       ),
       // Ordered by how many times they came back, so "Repeat" buyers group above "One-time".
@@ -164,6 +165,7 @@ export function BuyerTable({
       columns={columns}
       data={rows}
       getRowId={(row) => row.buyer_key}
+      className="sales-buyer-analytics-table"
       ariaLabel={labels.ariaLabel}
       empty={labels.empty}
       serverSort={{ ...serverSort, sortLabel: labels.sortAll }}

@@ -340,7 +340,9 @@ test("the video log filter row is backend-labelled and URL-driven", () => {
   // merge one level up — park names are as repeatable as shed names.
   assert.match(videoLog, /const id = shed\.park_id \?\? ""/, "park options must be keyed by park id, never by label");
   // Sheds are grouped by park for the same reason the queue's picker groups them: shed names repeat.
-  assert.match(videoLog, /<optgroup key=\{park\} label=\{park\}>/, "the shed picker must group by park");
+  // MUI TextField select (VrFormSelect), not a native <select>: the park rides as each option's `group` (the <optgroup>
+  // equivalent, rendered as a non-interactive heading).
+  assert.match(videoLog, /\.flatMap\(\(\[park, group\]\) => group\.map\(\(shed\) => \(\{ value: shed\.shed_key, label: shed\.operational_location_display, group: park/, "the shed picker must group by park");
   // Filtering happens over the ALREADY-FETCHED day, so the option lists keep every park and shed the
   // day holds. Filtering server-side would collapse the options to whatever is already selected.
   assert.match(videoLog, /parkFilter \? sheds\.filter\(/, "park must narrow the fetched day, not re-query it");

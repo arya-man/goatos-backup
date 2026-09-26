@@ -91,3 +91,9 @@ test("every heading on the tab has a week wording and a 30-day wording, both bac
   }
   assert.match(pageSource, /optionGroup\(pageContract, "gain_bucket"\)/, "Weekly/Monthly are a backend option group, never literals");
 });
+
+test("Time-wise bar labels print DD/MM/YYYY, never the ISO week start", () => {
+  // Lost in a rebase once (judge 4 P1-9): the bars read 2026-09-07 instead of 07/09/2026.
+  assert.doesNotMatch(pageSource, /label: point\.week_start\b/);
+  assert.ok((pageSource.match(/label: fmtDate\(point\.week_start\)/g) ?? []).length >= 4);
+});

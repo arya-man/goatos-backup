@@ -1,3 +1,4 @@
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { Users } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
@@ -8,6 +9,8 @@ import type { ApiResult } from "@/lib/api/server";
 import type { MarketReporter } from "@/lib/api/market-server";
 import { setMarketReporterAction } from "./market-actions";
 import { MarketConfigForm, type MarketActionOutcomes } from "./market-config-form";
+import Alert from "@mui/material/Alert";
+import { EmptyState } from "@/components/app/empty-state";
 
 /**
  * WHO makes the morning market calls (Sales SOP page, maintainer instruction 2026-09-19): the
@@ -28,7 +31,7 @@ export function MarketReportersSection({
     market_reporter_saved: copy(pageContract, "action.market_reporter_saved"),
     market_save_failed: copy(pageContract, "action.market_save_failed"),
   };
-  const people = result.ok ? result.data.people : [];
+  const people = result.ok ? listOrEmpty(result.data.people) : [];
   const reporters = people.filter((p) => p.reporter);
   const others = people.filter((p) => !p.reporter);
   return (
@@ -43,13 +46,13 @@ export function MarketReportersSection({
       </div>
       <p className="muted small sales-config-card-copy">{copy(pageContract, "market.reporters.sub")}</p>
       <div className="bd market-config-body">
-        {!result.ok ? <div className="alert">{salesErrorText(result.error, copy(pageContract, "error.load"))}</div> : null}
+        {!result.ok ? <Alert severity="error">{salesErrorText(result.error, copy(pageContract, "error.load"))}</Alert> : null}
         {!canConfigure ? <div className="note">{copy(pageContract, "disabled.market_config")}</div> : null}
         <h4 className="market-config-h4">
           {copy(pageContract, "market.reporters.current")}
           <span className="market-config-count">{reporters.length}</span>
         </h4>
-        {reporters.length === 0 ? <div className="empty">{copy(pageContract, "market.reporters.none")}</div> : null}
+        {reporters.length === 0 ? <EmptyState title={copy(pageContract, "market.reporters.none")} /> : null}
         <ul className="market-config-list">
           {reporters.map((p) => (
             <li key={p.person_id}>

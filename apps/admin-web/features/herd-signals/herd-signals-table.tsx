@@ -1,5 +1,11 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
+import TableSortLabel from "@mui/material/TableSortLabel";
 import { useSyncExternalStore, type MouseEvent } from "react";
 import { LocalOverlayLink, pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import Link from "@/components/no-prefetch-link";
@@ -30,6 +36,7 @@ import {
   herdSignalStatus,
 } from "./format";
 import { one } from "@/lib/search-params";
+import { DenseToggleAuto } from "@/components/app/dense-toggle-auto";
 import { herdSignalsHref, type HerdSignalsParams, type HerdSignalsSortKey } from "./params";
 import { matchesClientSideFilters } from "./herd-signals-row-filter";
 import { HerdSignalsDrawer } from "./herd-signals-drawer";
@@ -37,6 +44,9 @@ import { HerdSignalsHistoryFullscreen } from "./herd-signals-history-fullscreen"
 import { HerdSignalsAnimalsHead, HerdSignalsAnimalsRow } from "./herd-signals-animals-table";
 import { useNowMs } from "./herd-signals-stream-bridge";
 import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
+import Tooltip from "@mui/material/Tooltip";
+import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { EmptyState } from "@/components/app/empty-state";
 
 function rowTagId(item: HerdSignalItem): string {
   return item.tag_id;
@@ -179,7 +189,7 @@ export function HerdSignalsTable({
   liveKey: string;
   // Which column set to render. "live" is the fourteen-column radio/telemetry table; "animals"
   // is the mock's own nine-column animal-first set (herd-signals-animals-table.tsx). Only the
-  // <thead>/<tbody> differ -- the keyset pager walk, the rows-per-page control, the drawer and
+  // <TableHead>/<TableBody> differ -- the keyset pager walk, the rows-per-page control, the drawer and
   // the history full-screen are shared, which is why this is a variant here rather than a second
   // component that would need its own copy of the pager store.
   variant?: "live" | "animals";
@@ -209,15 +219,13 @@ export function HerdSignalsTable({
     // does not carry a match for it. Distinct from "no rows at all" (handled above) and from a read
     // failure (handled by the caller before this component ever renders).
     return (
-      <div className="empty">
-        <div className="eicon">
-          <svg className="ic" viewBox="0 0 24 24">
-            <path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z" />
-          </svg>
-        </div>
-        <h4>No rows on this page match that filter</h4>
-        <p>The gateway is still receiving. Try clearing filters or paging through more rows.</p>
-      </div>
+      <EmptyState
+        icon={<svg className="ic" viewBox="0 0 24 24">
+          <path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z" />
+        </svg>}
+        title="No rows on this page match that filter"
+        description="The gateway is still receiving. Try clearing filters or paging through more rows."
+      />
     );
   }
 
@@ -264,69 +272,33 @@ export function HerdSignalsTable({
     navigate(nextHref);
   }
 
-  const pager = (variant: "top" | "bottom") => (
-    <div className={`pager herd-signals-pager${variant === "top" ? " pager-top" : ""}`} aria-busy={isPending}>
-      {isPending ? <span className="wfspin" aria-hidden="true" title="Loading" /> : null}
-      {prevHref ? (
-        <Link href={prevHref} className="pgbtn" onClick={goPrev}>
-          &larr; Previous
-        </Link>
-      ) : (
-        <button type="button" className="pgbtn" disabled>
-          &larr; Previous
-        </button>
-      )}
-      {nextHref ? (
-        <Link href={nextHref} className="pgbtn" onClick={goNext}>
-          Next &rarr;
-        </Link>
-      ) : (
-        <button type="button" className="pgbtn" disabled>
-          Next &rarr;
-        </button>
-      )}
-      {/* Every clause here is omitted rather than guessed when its source is unknown: no range
-          without a known walk position, no total without a source that is actually the row total,
-          no "of N pages" without that total. */}
-      <span>
-        Showing <b>{positionKnown ? `${nf(rangeFrom)}\u2013${nf(rangeTo)}` : nf(visible.length)}</b>
-        {positionKnown ? null : " rows"}
-        {total ? (
-          <>
-            {" of "}
-            <b>{nf(total)}</b>
-          </>
-        ) : null}
-        {positionKnown ? (
-          <>
-            {" \u00b7 page "}
-            <b>{nf(pageIndex + 1)}</b>
-            {pageCount ? (
-              <>
-                {" of "}
-                <b>{nf(pageCount)}</b>
-              </>
-            ) : null}
-          </>
-        ) : null}
-      </span>
-      <span className="sp" style={{ flex: 1 }} />
-      <label className="fsel">
-        <span>Rows</span>
-        <select
-          aria-label="Rows per page"
-          value={params.limit}
-          onChange={(event) => navigate(herdSignalsHref(params, { hs_limit: event.target.value }))}
-        >
-          {PAGE_SIZE_OPTIONS.map((size) => (
-            <option key={size} value={size}>
-              {size}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
+  const pager = (
+    <TablePaginationLinks
+      className="herd-signals-pager"
+      page={positionKnown ? pageIndex : 0}
+      rowsPerPage={params.limit}
+      count={-1}
+      rowsPerPageHrefs={PAGE_SIZE_OPTIONS.map((size) => ({ value: size, href: herdSignalsHref(params, { hs_limit: String(size) }) }))}
+      prevHref={prevHref}
+      nextHref={nextHref}
+      onPrevClick={goPrev}
+      onNextClick={goNext}
+      labelRowsPerPage="Rows:"
+      // Every clause is omitted rather than guessed when its source is unknown: no range without a
+      // known walk position, no total without a source that is actually the row total, no
+      // "of N pages" without that total.
+      rangeLabel={`${positionKnown ? `${nf(rangeFrom)}\u2013${nf(rangeTo)}` : `${nf(visible.length)} rows`}${total ? ` of ${nf(total)}` : ""}${positionKnown ? ` \u00b7 page ${nf(pageIndex + 1)}${pageCount ? ` of ${nf(pageCount)}` : ""}` : ""}`}
+      prevLabel="Previous page"
+      nextLabel="Next page"
+      left={
+        <>
+          {isPending ? <span className="wfspin" aria-hidden="true" title="Loading" /> : null}
+          {visible.length > 10 ? <DenseToggleAuto /> : null}
+        </>
+      }
+    />
   );
+
 
   function sortHref(sort: HerdSignalsSortKey): string {
     const nextDir = params.sort === sort && params.sortDir === "asc" ? "desc" : "asc";
@@ -338,68 +310,68 @@ export function HerdSignalsTable({
 
   const sortableHead = (label: string, sort: HerdSignalsSortKey, className?: string, help?: string) => {
     const active = params.sort === sort;
-    const arrow = active ? (params.sortDir === "asc" ? "↑" : "↓") : "↕";
     return (
-      <th className={className}>
-        <Link href={sortHref(sort)} className={`hs-sort${active ? " on" : ""}`} title={`Sort by ${label}`}>
-          <span>{label}</span>
-          <span aria-hidden="true">{arrow}</span>
-        </Link>
+      // aria-sort belongs on the <TableCell component="th">, not on the link inside it: a screen reader announces the
+      // column's sort state from the cell, and without it the table read as unsorted everywhere.
+      <TableCell component="th" className={className} aria-sort={active ? (params.sortDir === "asc" ? "ascending" : "descending") : "none"}>
+        {/* Template TableHeadCustom sort anatomy (TableSortLabel), as a link: sorting is URL state. */}
+        <TableSortLabel component={Link} href={sortHref(sort)} hideSortIcon active={active} direction={active ? params.sortDir : "asc"} title={`Sort by ${label}`}>
+          {label}
+        </TableSortLabel>
         {help ? <InfoTip label={`${label} rules`} text={help} /> : null}
-      </th>
+      </TableCell>
     );
   };
 
   return (
     <>
-      {pager("top")}
       <div className={`tblwrap${isPending ? " wfbusy" : ""}`}>
-        <table className={`resp herd-signals-table${variant === "animals" ? " herd-signals-animals-table" : ""}`}>
-          <thead>
+        <Table className={`resp herd-signals-table${variant === "animals" ? " herd-signals-animals-table" : ""}`}>
+          <TableHead>
             {variant === "animals" ? (
               <HerdSignalsAnimalsHead />
             ) : (
-            <tr>
-              <th>Animal</th>
+            <TableRow>
+              <TableCell component="th">Animal</TableCell>
               {sortableHead("Smart tag", "smart_tag", undefined, TABLE_SORT_NOTE)}
-              <th>Pen</th>
-              <th>Gateway</th>
-              <th>Signal</th>
-              <th>Now</th>
-              <th>Last moved</th>
+              <TableCell component="th">Pen</TableCell>
+              <TableCell component="th">Gateway</TableCell>
+              <TableCell component="th">Signal</TableCell>
+              <TableCell component="th">Now</TableCell>
+              <TableCell component="th">Last moved</TableCell>
               {sortableHead("Motion count", "motion_count", "num", "Cumulative counter maintained by the tag firmware. It can stay flat while packets are received.")}
-              <th className="num">
+              <TableCell component="th" className="num">
                 {liveWindowLabel(params.liveWindow)} delta
                 <InfoTip label="Selected movement window" text="Movement counter delta for the selected window. Use 30s or 1m for live checks; 15m remains the sustained activity window." />
-              </th>
+              </TableCell>
               {sortableHead("Tag temp", "tag_temp", "num", "Tag housing temperature, not the animal's body temperature.")}
               {sortableHead("15m delta", "delta_15m", "num", "Current 15-minute motion-count delta: latest counter minus the baseline reading for the window.")}
               {sortableHead("1h delta", "delta_1h", "num", "Current 1-hour motion-count delta when enough readings exist; blank means the window is not established yet.")}
-              <th className="num">
+              <TableCell component="th" className="num">
                 24h delta
                 <InfoTip label="24h delta rules" text="Rolling 24-hour motion-counter delta. This is movement units from the tag firmware, not a step count." />
-              </th>
-              <th>
+              </TableCell>
+              <TableCell component="th">
                 15m activity
                 <InfoTip label="Activity rules" text={ACTIVITY_RULES} />
-              </th>
-              <th>Own baseline</th>
-              <th>Pen peers</th>
-              <th>
+              </TableCell>
+              <TableCell component="th">Own baseline</TableCell>
+              <TableCell component="th">Pen peers</TableCell>
+              <TableCell component="th">
                 Pattern
                 <InfoTip label="Pattern rules" text={PATTERN_RULES} />
-              </th>
-              <th>
+              </TableCell>
+              <TableCell component="th">
                 Watchlist
                 <InfoTip label="Watchlist rules" text={RISK_RULES} />
-              </th>
-              <th>Battery</th>
+              </TableCell>
+              <TableCell component="th">Battery</TableCell>
               {sortableHead("Last seen", "last_seen", undefined, "When the backend last received a packet from this tag. Sorting by this can move rows during live refresh.")}
-              <th>Status</th>
-            </tr>
+              <TableCell component="th">Status</TableCell>
+            </TableRow>
             )}
-          </thead>
-          <tbody>
+          </TableHead>
+          <TableBody>
             {visible.map((item) => {
               if (variant === "animals") {
                 return <HerdSignalsAnimalsRow key={item.tag_id} item={item} nowMs={displayedNowMs} href={rowHref(item)} />;
@@ -416,7 +388,7 @@ export function HerdSignalsTable({
               const nowState = movingNowLabel(item, displayedNowMs);
               const href = rowHref(item);
               return (
-                <tr
+                <TableRow
                   key={item.tag_id}
                   className="hs-selectable"
                   onClick={(event) => {
@@ -424,33 +396,27 @@ export function HerdSignalsTable({
                     pushLocalOverlayUrl(href);
                   }}
                 >
-                  <td data-l="Animal" className="animcell wide">
+                  {/* Two lines per row (56px): the animal and ONE secondary line. The RFID pair and
+                      the profile live in the cell's tooltip and in the drawer; four stacked lines
+                      made a 94px row (judge M2 round 4 #4). */}
+                  <TableCell data-l="Animal" className="animcell wide" title={[animalRfidLine(item), animalProfileLine(item)].filter(Boolean).join(" · ") || undefined}>
                     <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
                       {animalPrimaryLabel(item)}
                     </LocalOverlayLink>
                     <small>
                       {item.display_id && (item.animal_identifier_1 || item.animal_identifier_2) ? `${item.display_id} · ` : ""}
                       {item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state].toLowerCase()}
+                      {animalProfileLine(item) ? ` · ${animalProfileLine(item)}` : ""}
                     </small>
-                    {animalRfidLine(item) ? <small className="mono faint">{animalRfidLine(item)}</small> : null}
-                    {animalProfileLine(item) ? <small className="faint">{animalProfileLine(item)}</small> : null}
-                  </td>
-                  <td data-l="Smart tag">
+                  </TableCell>
+                  <TableCell data-l="Smart tag" title={fmtBleMac(item.tag_mac)}>
                     <span className="mono">{item.tag_id}</span>
-                    <br />
-                    <span className="mono faint">{fmtBleMac(item.tag_mac)}</span>
-                  </td>
-                  <td data-l="Pen">
+                  </TableCell>
+                  <TableCell data-l="Pen" title={parkName || undefined}>
                     {location || "—"}
-                    {parkName ? (
-                      <>
-                        <br />
-                        <span className="faint small">{parkName}</span>
-                      </>
-                    ) : null}
-                  </td>
-                  <td data-l="Gateway" className="mono">{item.gateway_id || "—"}</td>
-                  <td data-l="Signal">
+                  </TableCell>
+                  <TableCell data-l="Gateway" className="mono">{item.gateway_id || "—"}</TableCell>
+                  <TableCell data-l="Signal">
                     {item.signal_state ? (
                       <Tag tone={SIGNAL_TONE[item.signal_state]} title={SIGNAL_LABEL[item.signal_state]}>
                         {fmtRssi(item.rssi_dbm)}
@@ -458,76 +424,79 @@ export function HerdSignalsTable({
                     ) : (
                       "—"
                     )}
-                  </td>
-                  <td data-l="Now">
+                  </TableCell>
+                  <TableCell data-l="Now">
                     <Tag tone={nowState.tone}>{nowState.label}</Tag>
                     {item.last_packet_motion_delta != null ? <small className="faint">last pkt {fmtSignedDelta(item.last_packet_motion_delta).text}</small> : null}
-                  </td>
-                  <td data-l="Last moved">{item.last_moved_at ? fmtAgo(item.last_moved_at, displayedNowMs) : "—"}</td>
-                  <td data-l="Motion count" className="num mono">{fmtDelta(item.motion_count)}</td>
-                  <td data-l={`${liveWindowLabel(params.liveWindow)} delta`} className="num">
+                  </TableCell>
+                  <TableCell data-l="Last moved">{item.last_moved_at ? fmtAgo(item.last_moved_at, displayedNowMs) : "—"}</TableCell>
+                  <TableCell data-l="Motion count" className="num mono">{fmtDelta(item.motion_count)}</TableCell>
+                  <TableCell data-l={`${liveWindowLabel(params.liveWindow)} delta`} className="num">
                     <span className={`delta ${liveDelta.tone}`}>{liveDelta.text}</span>
-                  </td>
-                  <td data-l="Tag temp" className="num" title="Tag housing temperature, not the animal's body temperature">
+                  </TableCell>
+                  <TableCell data-l="Tag temp" className="num" title="Tag housing temperature, not the animal's body temperature">
                     {fmtTagTemp(item.tag_temperature_c)}
-                  </td>
-                  <td
+                  </TableCell>
+                  <TableCell
                     data-l="15m delta"
                     className="num"
                     title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}
                   >
                     <span className={`delta ${delta15.tone}`}>{delta15.text}</span>
                     {item.gap_delta ? <sup title="Gap total">*</sup> : null}
-                  </td>
-                  <td data-l="1h delta" className="num">
+                  </TableCell>
+                  <TableCell data-l="1h delta" className="num">
                     <span className={`delta ${delta1h.tone}`}>{delta1h.text}</span>
-                  </td>
-                  <td data-l="24h delta" className="num">
+                  </TableCell>
+                  <TableCell data-l="24h delta" className="num">
                     <span className={`delta ${delta24h.tone}`}>{delta24h.text}</span>
-                  </td>
-                  <td data-l="15m activity">
+                  </TableCell>
+                  <TableCell data-l="15m activity">
                     {item.movement_state ? (
                       <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag>
                     ) : (
                       "—"
                     )}
-                  </td>
-                  <td data-l="Own baseline">{baselineLabel(item.own_motion_delta_pct, params.ownBaseline === "off")}</td>
-                  <td data-l="Pen peers">{baselineLabel(item.group_motion_delta_pct)}</td>
-                  <td data-l="Pattern">
+                  </TableCell>
+                  <TableCell data-l="Own baseline">{baselineLabel(item.own_motion_delta_pct, params.ownBaseline === "off")}</TableCell>
+                  <TableCell data-l="Pen peers">{baselineLabel(item.group_motion_delta_pct)}</TableCell>
+                  <TableCell data-l="Pattern">
                     {item.pattern_state ? (
                       <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag>
                     ) : (
                       "—"
                     )}
-                  </td>
-                  <td data-l="Watchlist">
-                    <div className="hs-watch">
+                  </TableCell>
+                  <TableCell data-l="Watchlist">
+                    {/* One chip; the reasons and the detail line are its tooltip (two-line rows). */}
+                    <div
+                      className="hs-watch"
+                      title={[item.risk_reasons?.length ? item.risk_reasons.slice(0, 2).map(watchlistReasonLabel).filter(Boolean).join("; ") : "", watchlistDetailLine(item)].filter(Boolean).join(" · ") || undefined}
+                    >
                       {item.risk_state ? <Tag tone={RISK_TONE[item.risk_state]}>{RISK_LABEL[item.risk_state]}</Tag> : "—"}
                       {item.risk_reasons?.length ? (
-                        <small>{item.risk_reasons.slice(0, 2).map(watchlistReasonLabel).filter(Boolean).join("; ")}</small>
+                        <small>{item.risk_reasons.slice(0, 1).map(watchlistReasonLabel).filter(Boolean).join("; ")}</small>
                       ) : null}
-                      {watchlistDetailLine(item) ? <small className="faint">{watchlistDetailLine(item)}</small> : null}
                     </div>
-                  </td>
-                  <td data-l="Battery">
+                  </TableCell>
+                  <TableCell data-l="Battery">
                     {fmtBatteryMv(item.battery_mv)}
                     {item.battery_state && item.battery_state !== "healthy" ? (
                       <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag>
                     ) : null}
-                  </td>
-                  <td data-l="Last seen">{fmtAgo(item.last_seen_at, displayedNowMs)}</td>
-                  <td data-l="Status">
+                  </TableCell>
+                  <TableCell data-l="Last seen">{fmtAgo(item.last_seen_at, displayedNowMs)}</TableCell>
+                  <TableCell data-l="Status">
                     <Tag tone={herdSignalStatus(item).tone}>{herdSignalStatus(item).label}</Tag>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
-      {pager("bottom")}
+      {pager}
 
       <HerdSignalsDrawer
         rows={visible}
@@ -542,55 +511,46 @@ export function HerdSignalsTable({
 
 function InfoTip({ label, text }: { label: string; text: string }) {
   return (
-    <span className="tipwrap">
-      <button type="button" className="ihelp" aria-label={label}>
-        i
-      </button>
-      <span className="tip" role="tooltip">
-        {text}
+    <Tooltip title={text} placement="top" slotProps={{ tooltip: { sx: { maxWidth: 300 } } }}>
+      <span className="tipwrap">
+        <button type="button" className="ihelp" aria-label={label}>
+          i
+        </button>
       </span>
-    </span>
+    </Tooltip>
   );
 }
 
 function HerdSignalsTableEmpty({ params, tagsSeen }: { params: HerdSignalsParams; tagsSeen: number }) {
   if (params.hasFilter) {
     return (
-      <div className="empty">
-        <div className="eicon">
-          <svg className="ic" viewBox="0 0 24 24">
-            <path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z" />
-          </svg>
-        </div>
-        <h4>No tags match these filters</h4>
-        {/* Conditioned on the tenant-wide summary, the one thing this page has actually measured —
-            never asserted as a fact this branch (items.length === 0) has no evidence for. */}
-        <p>
-          {tagsSeen > 0
-            ? "The gateway is still receiving packets for this park. Clear filters to see the rest of the fleet."
-            : "Filters exclude every row in scope."}
-        </p>
-        <div className="eact">
+      <EmptyState
+        icon={<svg className="ic" viewBox="0 0 24 24">
+          <path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z" />
+        </svg>}
+        title="No tags match these filters"
+        description={tagsSeen > 0
+          ? "The gateway is still receiving packets for this park. Clear filters to see the rest of the fleet."
+          : "Filters exclude every row in scope."}
+        action={
           <Link href={herdSignalsHref(params, { hs_shed: undefined, hs_q: undefined, hs_move: undefined, hs_map: undefined, hs_pattern: undefined, hs_risk: undefined, hs_kpi: undefined })} className="btn sm">
             Clear filters
           </Link>
-        </div>
-      </div>
+        }
+      />
     );
   }
   return (
-    <div className="empty">
-      <div className="eicon">
-        <svg className="ic" viewBox="0 0 24 24">
-          <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
-          <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
-          <circle cx="12" cy="12" r="2" />
-          <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
-          <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
-        </svg>
-      </div>
-      <h4>No gateway packets yet</h4>
-      <p>No BLE gateway has posted for this tenant. Confirm the gateway is powered, has a network route, and is in range of at least one smart tag.</p>
-    </div>
+    <EmptyState
+      icon={<svg className="ic" viewBox="0 0 24 24">
+        <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
+        <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
+        <circle cx="12" cy="12" r="2" />
+        <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
+        <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
+      </svg>}
+      title="No gateway packets yet"
+      description="No BLE gateway has posted for this tenant. Confirm the gateway is powered, has a network route, and is in range of at least one smart tag."
+    />
   );
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 import { createHash, randomUUID } from "crypto";
 import {
@@ -938,19 +939,46 @@ export function forgetAdminWebBootstrap(): void {
   adminBootstrapCache.expireAll();
 }
 
-export const getAdminWebBootstrap = cache(
-  async (): Promise<ApiResult<AdminWebBootstrapResponse>> => {
+/**
+ * Which pages the bootstrap read carries in full. The full contract is ~1 MB, 98% of it the 52
+ * pages' copy/option groups/tables; the shell needs none of that (navigation, route labels, chrome
+ * copy and each page's href) and a route needs exactly ONE page's worth. So the shell reads the
+ * summary view and a route reads its own page (2026-09-19). The API returns the same shape for
+ * every view -- summarised pages keep their identity fields and carry empty heavy fields -- and
+ * ETags name the view, so the in-process cache keys on the view too.
+ */
+export type AdminWebBootstrapView = { kind: "summary" } | { kind: "page"; routeId: string } | { kind: "full" };
+
+function bootstrapViewQuery(view: AdminWebBootstrapView): Record<string, string> | undefined {
+  switch (view.kind) {
+    case "page":
+      return { page: view.routeId };
+    case "summary":
+      return { pages: "summary" };
+    default:
+      return undefined;
+  }
+}
+
+function bootstrapViewKey(view: AdminWebBootstrapView): string {
+  return view.kind === "page" ? `page:${view.routeId}` : view.kind;
+}
+
+const fetchAdminWebBootstrapView = cache(
+  async (viewKey: string, view: AdminWebBootstrapView): Promise<ApiResult<AdminWebBootstrapResponse>> => {
     const config = await getServerConfig(true);
     if (!config.ok) return config;
     const client = createAppApiClient(apiClientOptions(config.data));
+    const query = bootstrapViewQuery(view);
     const forceRevalidate = await callerWroteRecently();
     return request(() =>
-      adminBootstrapCache.get(config.data, async (etag) => {
+      adminBootstrapCache.get({ ...config.data, view: viewKey }, async (etag) => {
         const result =
           await client.requestWithResponse<AdminWebBootstrapResponse>(
             "/admin-web/bootstrap",
             {
               cache: "no-store",
+              query,
               headers: etag ? { "If-None-Match": etag } : undefined,
             },
           );
@@ -964,10 +992,20 @@ export const getAdminWebBootstrap = cache(
   },
 );
 
+/**
+ * The shell's view of the contract: everything except the pages' heavy fields. Callers that need a
+ * page's copy/tables/option groups use getAdminWebPageContract / requireAdminWebPageContract, which
+ * read that page in full. Pass `{ kind: "full" }` only for a reader that genuinely walks every
+ * page's contents (none does today).
+ */
+export const getAdminWebBootstrap = (
+  view: AdminWebBootstrapView = { kind: "summary" },
+): Promise<ApiResult<AdminWebBootstrapResponse>> => fetchAdminWebBootstrapView(bootstrapViewKey(view), view);
+
 export async function getAdminWebPageContract(
   routeId: string,
 ): Promise<AdminWebPageContract | null> {
-  const contract = await getAdminWebBootstrap();
+  const contract = await getAdminWebBootstrap({ kind: "page", routeId });
   if (!contract.ok) return null;
   return contract.data.pages.find((page) => page.route_id === routeId) ?? null;
 }
@@ -975,7 +1013,7 @@ export async function getAdminWebPageContract(
 export async function requireAdminWebPageContract(
   routeId: string,
 ): Promise<AdminWebPageContract> {
-  const contract = await getAdminWebBootstrap();
+  const contract = await getAdminWebBootstrap({ kind: "page", routeId });
   if (!contract.ok) {
     throw new Error(
       `Admin-web contract unavailable for ${routeId}: ${contract.error.code ?? contract.error.kind}`,
@@ -5576,7 +5614,7 @@ export async function uploadProofLocal(
       body: file,
     });
     if (!res.ok) {
-      throw new Error(`Proof upload failed with HTTP ${res.status}`);
+      throw new Error("The proof file could not be uploaded. Check your connection and try again.");
     }
   });
 }
@@ -6587,12 +6625,12 @@ function normalizeApiError(error: unknown): ApiUiError {
   if (error instanceof TypeError) {
     return {
       kind: "backend_down",
-      message: "Backend service is not reachable from the Mesha admin server.",
+      message: `${PRODUCT_NAME} is not reachable right now. Check your connection and try again in a moment.`,
     };
   }
   return {
     kind: "api_error",
-    message: error instanceof Error ? error.message : "Unexpected API error.",
+    message: error instanceof Error ? error.message : "Something did not go through. Try again, and contact the Mesha admin if it keeps happening.",
   };
 }
 

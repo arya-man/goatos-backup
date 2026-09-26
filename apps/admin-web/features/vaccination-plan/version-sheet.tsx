@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 /**
  * Read-only view of one earlier version's settings.
@@ -46,14 +51,12 @@ export function VersionSheet({ data, loading, error, onClose }: Props) {
   return (
     <div
       className="vp-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Version settings"
+      role="presentation"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="vp-sheet">
+      <div className="vp-sheet" role="dialog" aria-modal="true" aria-label="Version settings">
         <div className="vp-head">
           <div>
             <div className="eyebrow" style={{ marginBottom: 4 }}>
@@ -78,26 +81,26 @@ export function VersionSheet({ data, loading, error, onClose }: Props) {
                 retired and cannot be changed. To bring any of it back, start a new version.
               </p>
               <div className="scroll" style={{ marginTop: 0 }}>
-                <table className="tabl">
-                  <thead>
-                    <tr>
-                      <th>Vaccine</th>
-                      <th>First doses</th>
-                      <th>Repeats</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="tabl">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">Vaccine</TableCell>
+                      <TableCell component="th">First doses</TableCell>
+                      <TableCell component="th">Repeats</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {data.vaccines.map((v) => (
-                      <tr className={v.inPlan ? undefined : "voff"} key={v.code}>
-                        <td>
+                      <TableRow className={v.inPlan ? undefined : "voff"} key={v.code}>
+                        <TableCell>
                           <b>{v.name}</b>
-                        </td>
-                        <td>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</td>
-                        <td>{v.inPlan ? describeRepeats(v.repeats) : "—"}</td>
-                      </tr>
+                        </TableCell>
+                        <TableCell>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</TableCell>
+                        <TableCell>{v.inPlan ? describeRepeats(v.repeats) : "—"}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             </>
           ) : null}

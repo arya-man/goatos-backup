@@ -48,7 +48,7 @@ export function loadPenNames(pens: readonly LoadPen[] | null | undefined): strin
   const seen = new Set<string>();
   const out: string[] = [];
   for (const { pen } of ordered) {
-    const name = pen.pen.trim();
+    const name = dedupeRepeatedWords(pen.pen.trim());
     if (name === "") continue;
     const park = pen.park.trim();
     const label = park === "" ? name : `${park} ${name}`;
@@ -57,6 +57,16 @@ export function loadPenNames(pens: readonly LoadPen[] | null | undefined): strin
     out.push(label);
   }
   return out;
+}
+
+/**
+ * A served pen display that repeats itself ("Fattening Fattening", "Castro 1 Castro 1") names the
+ * pen once: the same doubled-partition defect class as 475312f5d, caught where the bracket is
+ * composed so no load chart can print it whichever read supplied the name.
+ */
+function dedupeRepeatedWords(name: string): string {
+  const m = /^(.+?)(?:\s+-)?\s+\1$/i.exec(name);
+  return m ? m[1] : name;
 }
 
 /**

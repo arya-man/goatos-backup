@@ -2,6 +2,7 @@
 
 import { Clock, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import IconButton from "@mui/material/IconButton";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -13,6 +14,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ClockEntryDetail, ClockEventDetail } from "@/lib/api/server";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { loadClockEntryDetailAction } from "./clock-actions";
+import Alert from "@mui/material/Alert";
 
 /** Reads the selected clocking from the address bar. "" means closed. */
 function readClockingParam(): string {
@@ -187,16 +189,16 @@ export function ClockEntryDrawer({
             ) : null}
           </div>
           <div className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="btn icon" onClick={close} aria-label={copy(pageContract, "action.close")}>
+          <IconButton ref={closeButtonRef} type="button" onClick={close} aria-label={copy(pageContract, "action.close")}>
             <X className="ic" aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
 
         <div className="dc">
           {error ? (
-            <div className="alert" role="alert">
+            <Alert severity="error" role="alert">
               {error}
-            </div>
+            </Alert>
           ) : null}
 
           {entry ? (

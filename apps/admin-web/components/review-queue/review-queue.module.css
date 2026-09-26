@@ -1,0 +1,60 @@
+/* Review-queue presentation (Approvals + Verify). Tokens only; no hex. */
+.root :global(.card){border-radius:var(--r-xl, 16px)}
+.root :global(tbody tr){position:relative}
+.root :global(tbody tr>td:first-child){box-shadow:inset 0 0 0 0 var(--primary, var(--brand));transition:box-shadow 200ms var(--ease, ease)}
+.root :global(tbody tr:hover>td:first-child){box-shadow:inset 3px 0 0 0 var(--primary, var(--brand))}
+.root :global(tbody tr:hover .btn){background:var(--primary-soft, var(--brand-soft));color:var(--primary-ink, var(--brand-d))}
+.root :global(tbody tr){animation:rqRowIn 320ms var(--ease-out, ease-out) both}
+.root :global(tbody tr:nth-child(2)){animation-delay:30ms}
+.root :global(tbody tr:nth-child(3)){animation-delay:60ms}
+.root :global(tbody tr:nth-child(4)){animation-delay:90ms}
+.root :global(tbody tr:nth-child(5)){animation-delay:120ms}
+.root :global(tbody tr:nth-child(n+6)){animation-delay:150ms}
+@keyframes rqRowIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* Review drawer: springy settle + staggered content. */
+.root :global(aside.drawer.on){transition:transform 520ms cubic-bezier(.22,1.12,.36,1),visibility 0s}
+.root :global(aside.drawer.on .dh>*),.root :global(aside.drawer.on .dc>*){animation:rqDrawerItem 360ms var(--ease-out, ease-out) both}
+.root :global(aside.drawer.on .dc>*:nth-child(1)){animation-delay:80ms}
+.root :global(aside.drawer.on .dc>*:nth-child(2)){animation-delay:120ms}
+.root :global(aside.drawer.on .dc>*:nth-child(3)){animation-delay:160ms}
+.root :global(aside.drawer.on .dc>*:nth-child(n+4)){animation-delay:200ms}
+@keyframes rqDrawerItem{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
+
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:700;text-transform:capitalize;white-space:nowrap;transition:transform 180ms var(--ease-spring, ease)}
+.chip:hover{transform:scale(1.04)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.pulse{animation:rqPulse 1.8s ease-in-out infinite}
+@keyframes rqPulse{0%,100%{box-shadow:0 0 0 0 currentColor}60%{box-shadow:0 0 0 4px transparent}}
+
+.empty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px 16px;text-align:center;animation:rqRowIn 400ms var(--ease-out, ease-out) both}
+.emptyIcon{animation:rqFloat 3.2s ease-in-out infinite}
+@keyframes rqFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.emptyTitle{margin:0;font-size:16px;font-weight:700;color:var(--fg)}
+.emptyText{margin:0;max-width:420px;font-size:14px;line-height:22px;color:var(--fg-muted)}
+
+.tabs{display:flex;flex-direction:column;gap:12px;margin-bottom:20px}
+.kpis{margin-bottom:24px}
+
+@media (max-width:640px){
+  .root :global(.twrap){overflow:visible}
+  .root :global(table[data-enh="1"]){min-width:0;border-collapse:separate;border-spacing:0 10px}
+  .root :global(table[data-enh="1"] thead){display:none}
+  .root :global(table[data-enh="1"] th){position:static!important;display:none!important}
+  .root :global(table[data-enh="1"] tbody),
+  .root :global(table[data-enh="1"] tr),
+  .root :global(table[data-enh="1"] td){display:block;width:100%}
+  .root :global(table[data-enh="1"] tr){border:1px solid var(--line);border-radius:16px;background:var(--paper);box-shadow:var(--shadow-card);overflow:hidden}
+  .root :global(table[data-enh="1"] td){display:grid;grid-template-columns:minmax(88px,34%) minmax(0,1fr);gap:10px;align-items:center;min-width:0;height:auto;padding:10px 14px;border-bottom:1px solid var(--line2);font-size:13px;white-space:normal!important;overflow-wrap:anywhere}
+  .root :global(table[data-enh="1"] td:last-child){border-bottom:0}
+  .root :global(table[data-enh="1"] td::before){content:attr(data-label);color:var(--fg-muted);font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+  .root :global(table[data-enh="1"] td>*){min-width:0}
+  .root :global(table[data-enh="1"] td .btn){justify-self:start}
+  .root :global(table[data-enh="1"] tr:hover>td:first-child){box-shadow:none}
+}
+
+@media (prefers-reduced-motion: reduce){
+  .root :global(tbody tr),.root :global(aside.drawer.on .dh>*),.root :global(aside.drawer.on .dc>*),.empty,.emptyIcon,.pulse{animation:none}
+  .root :global(aside.drawer.on){transition:none}
+  .chip,.chip:hover{transition:none;transform:none}
+}

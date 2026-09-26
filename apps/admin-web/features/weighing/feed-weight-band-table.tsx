@@ -3,6 +3,7 @@
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
+import { stageLabel } from "@/lib/stage-labels";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 
 const BAND_STEPS = ["under_15", "15_20", "20_25", "25_30", "30_35", "35_plus"] as const;
@@ -153,7 +154,7 @@ export function FeedWeightBandTable({
     // Label only on the desktop table; the six-step bar rides under the label on the phone cards.
     band: { cell: (row) => <b className="wt-feedband-bandlabel">{row.bandLabel}</b> },
     pen: { cell: (row) => <b>{row.pen}</b>, meta: { cellClassName: "wt-feedband-pen" } },
-    group: { cell: (row) => row.group, meta: { cellClassName: "wt-feedband-narrow" } },
+    group: { cell: (row) => stageLabel(row.group), meta: { cellClassName: "wt-feedband-narrow" } },
     gender: { cell: (row) => (row.gender ? row.gender : <span className="muted">{labels.noGender}</span>), meta: { cellClassName: "wt-feedband-narrow" } },
     breed: { cell: (row) => row.breed, meta: { cellClassName: "wt-feedband-breed" } },
     feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeShort} title={row.feedTypeLabel} /> },
@@ -258,8 +259,8 @@ export function FeedWeightBandUnmatchedTable({
   const columns = columnsFromContract<FeedWeightBandUnmatchedRow>(contract, {
     park: { cell: (row) => row.park },
     pen: { cell: (row) => <b>{row.pen}</b> },
-    shed_tag: { cell: (row) => row.shedTag },
-    ration: { cell: (row) => row.ration },
+    shed_tag: { cell: (row) => stageLabel(row.shedTag) },
+    ration: { cell: (row) => stageLabel(row.ration) },
     breed: { cell: (row) => <span title={row.breed}>{row.breed}</span>, meta: { cellClassName: "wt-feedband-wrap" } },
     feed_type: { cell: (row) => <FeedTypeTag feedType={row.feedType} label={row.feedTypeLabel} /> },
     feed_given: { cell: (row) => <span className="wt-feedband-feed" title={row.feedGiven}>{row.feedGiven}</span> },

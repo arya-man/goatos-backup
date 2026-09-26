@@ -1,5 +1,9 @@
 "use client";
 
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import { Iconify } from "@/components/minimal/iconify";
+
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -61,7 +65,7 @@ export function ApprovalsDateFilter({
   const shownFrom = live ? live.from : from;
   const shownTo = live ? live.to : to;
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+    <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
       <DateRangePicker
         labels={labels}
         from={shownFrom}
@@ -71,11 +75,12 @@ export function ApprovalsDateFilter({
         emptyLabel={anyLabel}
         onChange={(nextFrom, nextTo) => go(nextFrom, nextTo)}
       />
+      {/* The template FiltersResult clear action. */}
       {shownFrom ? (
-        <button type="button" className="btn sm" onClick={() => go("", "")} disabled={pending}>
+        <Button color="error" onClick={() => go("", "")} disabled={pending} startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
           {clearLabel}
-        </button>
+        </Button>
       ) : null}
-    </div>
+    </Box>
   );
 }

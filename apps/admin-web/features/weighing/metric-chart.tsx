@@ -1,6 +1,13 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { useState } from "react";
+import { Caption } from "@/components/app/caption";
+import { EmptyState } from "@/components/app/empty-state";
 import { Scale } from "lucide-react";
 
 import { Tag } from "@/components/ui-primitives";
@@ -72,7 +79,7 @@ export function MetricChart({
         {title[metric]}
         <MetricToggle current={metric} labels={labels} onChange={setMetric} />
       </h2>
-      {caption ? <p className="muted small">{caption}</p> : null}
+      {caption ? <Caption>{caption}</Caption> : null}
       <WeightBars
         data={active.data}
         emptyLabel={active.emptyLabel}
@@ -177,9 +184,7 @@ function ShedMetricTable({
   const visible = rows.slice(start, start + SHED_TABLE_PAGE_SIZE);
   if (rows.length === 0) {
     return (
-      <div className="empty">
-        <span className="muted small">{active.emptyLabel}</span>
-      </div>
+      <EmptyState title={active.emptyLabel} />
     );
   }
   return (
@@ -188,37 +193,37 @@ function ShedMetricTable({
           whole breed/sex composition, which runs past a hundred characters on a mixed pen, so an
           auto-layout table sized itself to that one cell and pushed the basis and the VALUE — the
           column the card exists for — off the card's right edge behind a scrollbar. */}
-      <table className="tbl wsgtable" aria-label={active.chartLabel}>
-        <thead>
-          <tr>
-            <th className="wsg-park">{columns.park}</th>
-            <th>{columns.shed}</th>
-            <th className="wsg-breed">{columns.breed}</th>
-            <th className="wsg-sex">{columns.sex}</th>
-            <th className="num wsg-count">{columns.count}</th>
-            <th className="wsg-basis">{columns.basis}</th>
-            <th className="num wsg-val">{columns.value[metric]}</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table className="tbl wsgtable" aria-label={active.chartLabel}>
+        <TableHead>
+          <TableRow>
+            <TableCell component="th" className="wsg-park">{columns.park}</TableCell>
+            <TableCell component="th">{columns.shed}</TableCell>
+            <TableCell component="th" className="wsg-breed">{columns.breed}</TableCell>
+            <TableCell component="th" className="wsg-sex">{columns.sex}</TableCell>
+            <TableCell component="th" className="num wsg-count">{columns.count}</TableCell>
+            <TableCell component="th" className="wsg-basis">{columns.basis}</TableCell>
+            <TableCell component="th" className="num wsg-val">{columns.value[metric]}</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {visible.map(({ park, row }) => (
-            <tr key={row.key}>
-              <td className="wsg-park">{park}</td>
-              <td className="wsg-shed">
+            <TableRow key={row.key}>
+              <TableCell className="wsg-park">{park}</TableCell>
+              <TableCell className="wsg-shed">
                 <b>{row.shedName ?? row.label}</b>
-              </td>
+              </TableCell>
               {/* A pen holding more than one cohort lists each on its own line, aligned across
                   the three cells, so a reader can pair a breed with its sex and head count.
                   The GAIN stays on the row and is never repeated per cohort: a whole-shed
                   average cannot be split across breed or sex, and a per-animal shed's figure
                   is the pen's, not any one breed's. */}
-              <td className="wsg-breed">
+              <TableCell className="wsg-breed">
                 {(row.cohorts ?? []).map((cohort, index) => (
                   <span className="wsg-line" key={`${row.key}|breed|${index}`}>
                     {cohort.breed}
                   </span>
                 ))}
-              </td>
+              </TableCell>
               {/* One line when the whole pen is one sex, every line the moment ONE cohort
                   differs (maintainer request 2026-09-01). Repeating "male" five times down a
                   pen that is entirely male is noise, and it buried the mixed pens -- which are
@@ -227,31 +232,31 @@ function ShedMetricTable({
                   so the collapsed cell can only ever mean "this pen is all of this sex".
                   Breed and count never collapse: two cohorts really can share a breed (Godel
                   1 - Part 7 carries Osmanabadi three times), and each carries its own count. */}
-              <td className="wsg-sex">
+              <TableCell className="wsg-sex">
                 {sexLines(row.cohorts).map((sex, index) => (
                   <span className="wsg-line" key={`${row.key}|sex|${index}`}>
                     {sex}
                   </span>
                 ))}
-              </td>
-              <td className="num wsg-count">
+              </TableCell>
+              <TableCell className="num wsg-count">
                 {(row.cohorts ?? []).map((cohort, index) => (
                   <span className="wsg-line" key={`${row.key}|count|${index}`}>
                     {cohort.animals.toLocaleString("en-IN")}
                   </span>
                 ))}
-              </td>
-              <td className="wsg-basis">
+              </TableCell>
+              <TableCell className="wsg-basis">
                 {row.modeLabel ? <Tag tone={row.modeTone ?? "mut"}>{row.modeLabel}</Tag> : null}
-              </td>
-              <td className={`num wsg-val${row.value < 0 ? " neg" : ""}`}>
+              </TableCell>
+              <TableCell className={`num wsg-val${row.value < 0 ? " neg" : ""}`}>
                 {row.valueLabel ??
                   `${row.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${active.unit}`}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
       {/* The mock's pager footer: range and page on the left, the two steps on the right. Buttons
           rather than links, because nothing navigates -- and the ends are disabled rather than
           hidden, so the control does not change shape as the reader walks the pages. */}
@@ -312,7 +317,7 @@ export function ShedMetricChart({
         <Scale className="ic" size={15} aria-hidden /> {title[metric]}
         <MetricToggle current={metric} labels={labels} onChange={setMetric} />
       </h2>
-      <p className="muted small">{active.caption}</p>
+      <Caption>{active.caption}</Caption>
       {view === "table" ? (
         <ShedMetricTable key={metric} active={active} columns={tableColumns} metric={metric} pager={tablePager} />
       ) : active.columns.length === 0 ? (

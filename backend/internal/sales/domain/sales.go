@@ -611,6 +611,11 @@ type MonthlyRow struct {
 	FeedKg        float64
 	OtherRevenue  float64
 	OtherKg       float64
+	// RealizedPricePerKg is the month's live revenue over its live weight, over the same priced
+	// lines (weight > 0 and value > 0) the whole-window summary uses. 0 when none were priced.
+	RealizedPricePerKg float64
+	pricedWeightKg     float64
+	pricedRevenue      float64
 }
 
 // PriceBand is realized price per kg for one (live product type, breed).

@@ -1,10 +1,13 @@
 "use client";
 
+import { Tag } from "@/components/ui-primitives";
+
 import { useEffect, useState } from "react";
 import Link from "@/components/no-prefetch-link";
-import { AlertTriangle, BookOpen, Check, Clock, Video, X } from "lucide-react";
+import { BookOpen, Check, Clock, Video, X } from "lucide-react";
 import type { SopCardView } from "@/features/sops";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import Alert from "@mui/material/Alert";
 
 export interface VaccinationSopQuickViewProps {
   // The linked vaccination SOP, derived on the server from the real /admin/sops data. error/authRequired
@@ -130,17 +133,13 @@ function VaccinationSopModal({
 
         <div style={{ padding: "16px 18px" }}>
           {authRequired ? (
-            <div className="alert" style={{ margin: 0 }}>
-              <AlertTriangle className="ic" aria-hidden="true" />
-              <div>{copy(pageContract, "drawer.sop.auth_error")}</div>
-            </div>
+            <Alert severity="error" style={{ margin: 0 }}><div>{copy(pageContract, "drawer.sop.auth_error")}</div>
+            </Alert>
           ) : error ? (
-            <div className="alert" style={{ margin: 0 }}>
-              <AlertTriangle className="ic" aria-hidden="true" />
-              <div>
+            <Alert severity="error" style={{ margin: 0 }}><div>
                 {copy(pageContract, "drawer.sop.error_prefix")}{error.code ? <> <b>{error.code}</b></> : null} {error.message}
               </div>
-            </div>
+            </Alert>
           ) : (
             <>
               {view === null ? (
@@ -164,9 +163,9 @@ function VaccinationSopModal({
                       <div className="d">{s.title}</div>
                       {s.tone === "pur" ? (
                         <div className="vp">
-                          <span className="tag t-pur">
+                          <Tag tone="pur">
                             <Video className="ic" style={{ width: 12 }} aria-hidden="true" /> {copy(pageContract, "drawer.sop.video_proof_required")}
-                          </span>
+                          </Tag>
                         </div>
                       ) : null}
                     </div>

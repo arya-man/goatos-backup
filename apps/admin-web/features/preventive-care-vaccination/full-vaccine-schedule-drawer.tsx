@@ -11,6 +11,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { Search, Warehouse, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EmptyState } from "@/components/app/empty-state";
 
 const PAGE_SIZE = 12;
 
@@ -219,7 +220,7 @@ export function ScheduleLocalDrawer({
               <div key={shed.label} className="schedule-drawer-shed-row" role="listitem">{contents}</div>
             );
           }) : (
-            <div className="empty">{copy(pageContract, "schedule.drawer.empty")}</div>
+            <EmptyState title={copy(pageContract, "schedule.drawer.empty")} />
           )}
         </div>
 

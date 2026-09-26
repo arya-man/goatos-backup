@@ -1,4 +1,8 @@
 import { WeightBars } from "./weight-bars";
+import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import { Caption } from "@/components/app/caption";
+import { EmptyState } from "@/components/app/empty-state";
+import { ProgressBar } from "@/components/app/progress-bar";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ApiResult, GrowthDirectorWeightsResponse } from "@/lib/api/server";
 
@@ -66,48 +70,20 @@ export function GrowthDirectorSection({
       {/* ---------------- Road to sale weight ---------------- */}
       <section className="card wchart" aria-label={gd(pageContract, "road.title")}>
         <h2 className="h">{gd(pageContract, "road.title")}</h2>
-        <p className="muted small">{gd(pageContract, "road.caption")}</p>
-        <section className="grid g3 kpi-row" aria-label={gd(pageContract, "road.title")}>
-          {/* TOTAL ANIMALS, not total identities. Whole-shed pens joined this board on
-              2026-09-01 and most of this farm's kids are weighed that way, so a headline built
-              from scanned tags alone answered "where is every kid" from a minority of them. */}
-          <div className="kpi">
-            <div className="val">{nf(road.total_animals)}</div>
-            <div className="dl">{gd(pageContract, "road.identities.sub")}</div>
-          </div>
-          {/* How much of that total is the coarser measure. This tile replaced "matched to the
-              herd register", which had become the least informative number here -- every scanned
-              tag matches on this farm's data, so it restated the tile beside it. The unmatched
-              fact is not lost: it is the note under the bars, where it belongs once it is the
-              exception rather than a headline. */}
-          <div className="kpi">
-            <div className="val">{nf(road.lump_sum_animals)}</div>
-            <div className="dl">{gd(pageContract, "road.lump.sub")}</div>
-          </div>
-          {/* The DENOMINATOR the three tiles after it are counted from. Band movement needs a
-              previous weigh to compare against, so it speaks about a strictly smaller population
-              than "kids weighed in this period" — and without this tile on screen, moved up + held
-              + slipped back added up to a number the card never showed, which reads as an error.
-              With it, the three figures visibly sum to this one. */}
-          <div className="kpi">
-            <div className="val">{nf(road.movement.pair_animals)}</div>
-            <div className="dl">{gd(pageContract, "road.pairs.sub")}</div>
-          </div>
-          <div className="kpi">
-            <div className="val">{nf(road.movement.moved_up)}</div>
-            <div className="dl">{gd(pageContract, "road.moved_up")}</div>
-          </div>
-          <div className="kpi">
-            <div className="val">{nf(road.movement.held)}</div>
-            <div className="dl">{gd(pageContract, "road.held")}</div>
-          </div>
-          <div className="kpi">
-            <div className={road.movement.moved_down > 0 ? "val dn" : "val"}>
-              {nf(road.movement.moved_down)}
-            </div>
-            <div className="dl">{gd(pageContract, "road.moved_down")}</div>
-          </div>
-        </section>
+        <Caption>{gd(pageContract, "road.caption")}</Caption>
+        {/* Total animals · lump-sum · pair denominator · moved up · held · slipped: one strip, so the
+            three movement figures visibly sum to the pairs cell beside them. */}
+        <StatStrip
+          ariaLabel={gd(pageContract, "road.title")}
+          cells={[
+            { key: "total", label: <span title={gd(pageContract, "road.identities.sub")}>{gd(pageContract, "road.identities.sub")}</span>, value: nf(road.total_animals), tone: "primary" as const },
+            { key: "lump", label: <span title={gd(pageContract, "road.lump.sub")}>{gd(pageContract, "road.lump.sub")}</span>, value: nf(road.lump_sum_animals), tone: "info" as const, share: road.total_animals > 0 ? (road.lump_sum_animals / road.total_animals) * 100 : undefined },
+            { key: "pairs", label: <span title={gd(pageContract, "road.pairs.sub")}>{gd(pageContract, "road.pairs.sub")}</span>, value: nf(road.movement.pair_animals), tone: "neutral" as const },
+            { key: "up", label: <span title={gd(pageContract, "road.moved_up")}>{gd(pageContract, "road.moved_up")}</span>, value: nf(road.movement.moved_up), tone: "success" as const, share: road.movement.pair_animals > 0 ? (road.movement.moved_up / road.movement.pair_animals) * 100 : undefined },
+            { key: "held", label: <span title={gd(pageContract, "road.held")}>{gd(pageContract, "road.held")}</span>, value: nf(road.movement.held), tone: "warning" as const, share: road.movement.pair_animals > 0 ? (road.movement.held / road.movement.pair_animals) * 100 : undefined },
+            { key: "down", label: <span title={gd(pageContract, "road.moved_down")}>{gd(pageContract, "road.moved_down")}</span>, value: nf(road.movement.moved_down), tone: road.movement.moved_down > 0 ? ("error" as const) : ("neutral" as const), share: road.movement.pair_animals > 0 ? (road.movement.moved_down / road.movement.pair_animals) * 100 : undefined },
+          ]}
+        />
         <WeightBars
           data={road.bands.map((band) => ({
             key: band.band,
@@ -130,7 +106,7 @@ export function GrowthDirectorSection({
           {gd(pageContract, "road.note.pairs")} {gd(pageContract, "road.note.lump")}{" "}
           {gd(pageContract, "road.note.unmatched")}
         </p>
-        <p className="muted small">{gd(pageContract, "period.note")}</p>
+        <Caption>{gd(pageContract, "period.note")}</Caption>
       </section>
 
       {/* ---------------- Fair fight ---------------- */}
@@ -145,12 +121,9 @@ export function GrowthDirectorSection({
           not a shed problem, however low the whole cohort sits. */}
       <section className="card wchart ffcard" aria-label={gd(pageContract, "fair_fight.title")}>
         <h2 className="h">{gd(pageContract, "fair_fight.title")}</h2>
-        <p className="muted small">{gd(pageContract, "fair_fight.caption")}</p>
+        <Caption>{gd(pageContract, "fair_fight.caption")}</Caption>
         {fairFight.cohorts.length === 0 ? (
-          <div className="empty">
-            <b>{noData}</b>
-            <span className="muted small">{gd(pageContract, "fair_fight.empty")}</span>
-          </div>
+          <EmptyState title={noData} description={gd(pageContract, "fair_fight.empty")} />
         ) : (
           <div className="ffboard" tabIndex={0} aria-label={gd(pageContract, "fair_fight.title")}>
             {fairFight.cohorts.map((cohort) => {
@@ -214,12 +187,13 @@ export function GrowthDirectorSection({
                           <span className={`ffval${shed.median_adg_g_per_day < 0 ? " neg" : ""}`}>
                             {nf(shed.median_adg_g_per_day)} g
                           </span>
-                          <span className="fftrack">
-                            <i
-                              className={shed.median_adg_g_per_day < 0 ? "neg" : undefined}
-                              style={{ width: `${Math.max(share, 0.6)}%` }}
-                            />
-                          </span>
+                          {/* Template LinearProgress (kit ProgressBar); a losing shed keeps the
+                              danger tone (339302965). */}
+                          <ProgressBar
+                            value={Math.max(share, 0.6)}
+                            color={shed.median_adg_g_per_day < 0 ? "var(--danger)" : "var(--brand)"}
+                            className="fftrack"
+                          />
                           {/* n and the standing chip share one cell so the chip never takes a
                               column off every name — including the middle rows that carry no
                               chip — and the kid count stays visible on the leader and last rows,
@@ -248,7 +222,7 @@ export function GrowthDirectorSection({
             })}
           </div>
         )}
-        <p className="muted small">{gd(pageContract, "fair_fight.note")}</p>
+        <Caption>{gd(pageContract, "fair_fight.note")}</Caption>
       </section>
 
     </>

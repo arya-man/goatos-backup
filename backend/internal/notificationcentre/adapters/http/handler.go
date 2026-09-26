@@ -96,6 +96,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, notificationPagePayload{
 		Items:       items,
 		UnreadCount: page.UnreadCount,
+		TotalCount:  page.TotalCount,
 		NextCursor:  optional(page.NextCursor),
 		TraceID:     traceID(r),
 	})

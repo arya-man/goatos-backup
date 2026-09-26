@@ -1,3 +1,4 @@
+import { Tag } from "@/components/ui-primitives";
 import type { ComponentType, SVGProps } from "react";
 import { AlertTriangle, CalendarOff, CheckCircle2, Clock, Eye, FlaskConical, Lock, PencilLine } from "lucide-react";
 
@@ -6,6 +7,7 @@ import type { FeedDirectionLifecycle, FeedDirectionWorkflowLifecycle } from "@/l
 import { fmtDate, fmtDateTime } from "@/lib/format";
 
 import { isLifecycleEmpty } from "./feed-lifecycle-state";
+import Alert, { type AlertColor as AlertSeverity } from "@mui/material/Alert";
 
 // Re-exported so existing importers (feed-direction.tsx, feed-packing.tsx) keep a single import site;
 // the pure predicate lives in feed-lifecycle-state.ts so it is unit-testable without JSX.
@@ -44,13 +46,13 @@ const STATE_ICON: Record<LifecycleState, IconType> = {
   draft: FlaskConical,
 };
 
-// `.alert` tone. ok = a clean issued sheet; warn = amended (corrections folded in) or the not_issued
+// kit Alert severity. success = a clean issued sheet; warn = amended (corrections folded in) or the not_issued
 // gap; info = the neutral locked / pending / draft states (nothing wrong, just not a frozen-and-ready
 // sheet). Danger is reserved for the API-failure band the page renders separately.
-function alertClass(state: LifecycleState): string {
-  if (state === "issued") return "alert ok";
-  if (state === "amended" || state === "not_issued") return "alert warn";
-  return "alert info";
+function alertSeverity(state: LifecycleState): AlertSeverity {
+  if (state === "issued") return "success";
+  if (state === "amended" || state === "not_issued") return "warning";
+  return "info";
 }
 function workflowChipTone(state: WorkflowState): string {
   switch (state) {
@@ -122,13 +124,13 @@ export function FeedLifecycleBanner({
   const showBreakdown = lifecycle.workflows.length > 1 && (statesDiffer || notFrozen);
 
   return (
-    <div
-      className={alertClass(state)}
+    <Alert
+      severity={alertSeverity(state)}
+      icon={<Icon aria-hidden="true" />}
       role="status"
       aria-label={copy(pageContract, "lifecycle.aria")}
-      style={{ marginBottom: 16, alignItems: "flex-start" }}
+      style={{ marginBottom: 16 }}
     >
-      <Icon className="ic" aria-hidden="true" />
       <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 8 }}>
           <b>{copy(pageContract, `lifecycle.${state}.title`)}</b>
@@ -140,9 +142,9 @@ export function FeedLifecycleBanner({
             <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtDate(feedDay)}</span>
           ) : null}
           {state === "amended" ? (
-            <span className="tag t-warn">
+            <Tag tone="warn">
               {lifecycle.amendment_count} {copy(pageContract, "lifecycle.corrections_noun")}
-            </span>
+            </Tag>
           ) : null}
         </div>
 
@@ -163,6 +165,6 @@ export function FeedLifecycleBanner({
           </div>
         ) : null}
       </div>
-    </div>
+    </Alert>
   );
 }

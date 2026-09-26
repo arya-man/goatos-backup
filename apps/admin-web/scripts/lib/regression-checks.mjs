@@ -124,8 +124,8 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   const root = document.querySelector("main") ?? document.body;
 
   // ---------- A: HTML chart labels ----------
-  const CHART = ".gcols, .mcols, .hbarlist, .wbars, .wgrouped, .wchart";
-  const LABELS = ".gcval, .gclab, .gcsub, .mclab, .mcv, .mcsub, .wbl, .wbl-text, .wbv, .hblab, .hbval";
+  const CHART = ".gcols-scroll, .kit-barlist, .hbarlist, .wbars, .wgrouped, .wchart";
+  const LABELS = ".wbl, .wbl-text, .wbv, .hblab, .hbval, .kit-bar-label-text, .kit-bar-value";
   const byChart = new Map();
   for (const el of root.querySelectorAll(LABELS)) {
     if (!txt(el) || hidden(el)) continue;
@@ -164,15 +164,16 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
       }
     }
   }
-  for (const gcb of root.querySelectorAll(".gcb:not(.gcempty)")) {
-    const bar = gcb.querySelector(".gcbar");
-    if (!bar || !painted(gcb)) continue;
-    const val = gcb.querySelector(".gcval");
-    if (!val || !txt(val)) add("A-chart-value-missing", gcb, "bar has no value label");
+  // Grouped columns (ApexCharts): every drawn bar carries its printed figure.
+  for (const chart of root.querySelectorAll(".gcols-scroll")) {
+    if (!painted(chart)) continue;
+    const bars = Array.from(chart.querySelectorAll(".apexcharts-bar-area")).filter((b) => b.getBoundingClientRect().height > 0.5);
+    const values = Array.from(chart.querySelectorAll(".apexcharts-datalabels text")).filter((t) => txt(t));
+    if (bars.length > values.length) add("A-chart-value-missing", chart, `${bars.length - values.length} bar(s) without a value label`);
   }
   for (const chart of root.querySelectorAll(CHART)) {
     if (!painted(chart)) continue;
-    const bars = Array.from(chart.querySelectorAll(".gcbar, .mcbar, .hbfill, .wbar, rect, path, circle, polyline, line")).filter((b) => !hidden(b) && b.getBoundingClientRect().height > 0.5 && b.getBoundingClientRect().width > 0.5);
+    const bars = Array.from(chart.querySelectorAll(".hbfill, .wbar, .kit-bar-fill, rect, path, circle, polyline, line")).filter((b) => !hidden(b) && b.getBoundingClientRect().height > 0.5 && b.getBoundingClientRect().width > 0.5);
     // A chart card may draw its figures as a GRID rather than bars (the Time-wise pen and load
     // week tables are .wchart cards): visible table rows are painted data, not an empty frame.
     // Without this the rule passed those grids only when some cell happened to contain "0 ", and

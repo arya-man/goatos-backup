@@ -1,0 +1,128 @@
+{
+  "_note": [
+    "Every file under apps/admin-web/components/minimal/ must have an entry here mapping it",
+    "to its source path inside the licensed MUI Minimal template.",
+    "Template root: ~/mesha/mui/Minimal_TypeScript_v7.7.0/next-ts (Ravi laptop; NOT committed).",
+    "Values are the source path RELATIVE to that template root.",
+    "",
+    "check-design-system.mjs asserts every file under components/minimal/ has a `sources` entry;",
+    "a file without an entry fails the guard. This blocks hand-made wrappers from being placed",
+    "under components/minimal/ (which is reserved for template-derived code).",
+    "",
+    "Adaptations from the template are noted in each file's header comment; the shape is either",
+    "verbatim, near-verbatim (rename/config-path only) or adapted (structural composition).",
+    "Files whose source path lists a section (src/sections/...) are template-derived even when",
+    "the export is renamed."
+  ],
+  "template_root": "~/mesha/mui/Minimal_TypeScript_v7.7.0/next-ts",
+  "sources": {
+    "components/minimal/index.ts": "src/components/index.ts",
+
+    "components/minimal/_shared/config.ts": "src/global-config.ts",
+    "components/minimal/_shared/format-number.ts": "src/utils/format-number.ts",
+    "components/minimal/_shared/format-time.ts": "src/utils/format-time.ts",
+    "components/minimal/_shared/tap.ts": "src/theme/core/components/button.tsx",
+    "components/minimal/_shared/phone-tap-styles.tsx": "src/theme/core/components/button.tsx",
+
+    "components/minimal/bar-charts/bar-charts.tsx": "src/components/chart/chart.tsx",
+    "components/minimal/bar-charts/geometry.ts": "src/components/chart/use-chart.ts",
+
+    "components/minimal/calendar/calendar-toolbar.tsx": "src/sections/calendar/calendar-toolbar.tsx",
+    "components/minimal/calendar/styles.tsx": "src/sections/calendar/styles.tsx",
+    "components/minimal/calendar/index.ts": "src/sections/calendar/index.ts",
+
+    "components/minimal/chart/chart.tsx": "src/components/chart/chart.tsx",
+    "components/minimal/chart/classes.ts": "src/components/chart/classes.ts",
+    "components/minimal/chart/index.ts": "src/components/chart/index.ts",
+    "components/minimal/chart/styles.css": "src/components/chart/styles.css",
+    "components/minimal/chart/types.ts": "src/components/chart/types.ts",
+    "components/minimal/chart/use-chart.ts": "src/components/chart/use-chart.ts",
+    "components/minimal/chart/components/chart-legends.tsx": "src/components/chart/components/chart-legends.tsx",
+    "components/minimal/chart/components/chart-loading.tsx": "src/components/chart/components/chart-loading.tsx",
+    "components/minimal/chart/components/chart-select.tsx": "src/components/chart/components/chart-select.tsx",
+    "components/minimal/chart/components/index.ts": "src/components/chart/components/index.ts",
+
+    "components/minimal/custom-breadcrumbs/back-link.tsx": "src/components/custom-breadcrumbs/back-link.tsx",
+    "components/minimal/custom-breadcrumbs/breadcrumb-link.tsx": "src/components/custom-breadcrumbs/breadcrumb-link.tsx",
+    "components/minimal/custom-breadcrumbs/custom-breadcrumbs.tsx": "src/components/custom-breadcrumbs/custom-breadcrumbs.tsx",
+    "components/minimal/custom-breadcrumbs/index.ts": "src/components/custom-breadcrumbs/index.ts",
+    "components/minimal/custom-breadcrumbs/more-links.tsx": "src/components/custom-breadcrumbs/more-links.tsx",
+    "components/minimal/custom-breadcrumbs/styles.tsx": "src/components/custom-breadcrumbs/styles.tsx",
+
+    "components/minimal/custom-date-range-picker/custom-date-range-picker.tsx": "src/components/custom-date-range-picker/custom-date-range-picker.tsx",
+    "components/minimal/custom-date-range-picker/index.ts": "src/components/custom-date-range-picker/index.ts",
+    "components/minimal/custom-date-range-picker/use-date-range-picker.ts": "src/components/custom-date-range-picker/use-date-range-picker.ts",
+
+    "components/minimal/custom-dialog/confirm-dialog.tsx": "src/components/custom-dialog/confirm-dialog.tsx",
+    "components/minimal/custom-dialog/index.ts": "src/components/custom-dialog/index.ts",
+    "components/minimal/custom-dialog/types.ts": "src/components/custom-dialog/types.ts",
+
+    "components/minimal/custom-popover/index.ts": "src/components/custom-popover/index.ts",
+
+    "components/minimal/drawer/minimal-drawer.tsx": "src/sections/calendar/calendar-filters.tsx",
+    "components/minimal/drawer/index.ts": "src/sections/calendar/index.ts",
+
+    "components/minimal/empty-content/empty-content.tsx": "src/components/empty-content/empty-content.tsx",
+    "components/minimal/empty-content/index.ts": "src/components/empty-content/index.ts",
+
+    "components/minimal/filters-result/filters-block.tsx": "src/components/filters-result/filters-block.tsx",
+    "components/minimal/filters-result/filters-result.tsx": "src/components/filters-result/filters-result.tsx",
+    "components/minimal/filters-result/index.ts": "src/components/filters-result/index.ts",
+
+    "components/minimal/iconify/index.ts": "src/components/iconify/index.ts",
+
+    "components/minimal/kanban/kanban.tsx": "src/sections/kanban/column/styles.tsx",
+    "components/minimal/kanban/index.ts": "src/sections/kanban/index.ts",
+
+    "components/minimal/label/index.ts": "src/components/label/index.ts",
+
+    "components/minimal/link-button.tsx": "src/routes/components/router-link.tsx",
+
+    "components/minimal/list/animated-tabs.tsx": "src/sections/user/view/user-list-view.tsx",
+    "components/minimal/list/filter-chip.tsx": "src/sections/user/user-table-toolbar.tsx",
+    "components/minimal/list/index.ts": "src/sections/user/index.ts",
+    "components/minimal/list/label-tabs.tsx": "src/sections/user/view/user-list-view.tsx",
+    "components/minimal/list/list-toolbar.tsx": "src/sections/user/user-table-toolbar.tsx",
+    "components/minimal/list/search-text-field.tsx": "src/sections/user/user-table-toolbar.tsx",
+    "components/minimal/list/segment-tabs.tsx": "src/theme/core/components/tabs.tsx",
+
+    "components/minimal/loading-screen/loading-screen.tsx": "src/components/loading-screen/loading-screen.tsx",
+    "components/minimal/loading-screen/index.ts": "src/components/loading-screen/index.ts",
+
+    "components/minimal/progress-list/progress-item.tsx": "src/sections/overview/e-commerce/ecommerce-sales-overview.tsx",
+
+    "components/minimal/scrollbar/index.ts": "src/components/scrollbar/index.ts",
+
+    "components/minimal/search-not-found/search-not-found.tsx": "src/components/search-not-found/search-not-found.tsx",
+    "components/minimal/search-not-found/index.ts": "src/components/search-not-found/index.ts",
+
+    "components/minimal/skeletons/card-skeleton.tsx": "src/sections/product/product-skeleton.tsx",
+    "components/minimal/skeletons/list-skeleton.tsx": "src/sections/mail/mail-skeleton.tsx",
+    "components/minimal/skeletons/index.ts": "src/sections/product/product-skeleton.tsx",
+
+    "components/minimal/svg-color/index.ts": "src/components/svg-color/index.ts",
+
+    "components/minimal/table/index.ts": "src/components/table/index.ts",
+    "components/minimal/table/table-empty-rows.tsx": "src/components/table/table-empty-rows.tsx",
+    "components/minimal/table/table-head-custom.tsx": "src/components/table/table-head-custom.tsx",
+    "components/minimal/table/table-no-data.tsx": "src/components/table/table-no-data.tsx",
+    "components/minimal/table/table-pagination-custom.tsx": "src/components/table/table-pagination-custom.tsx",
+    "components/minimal/table/table-pagination-links.tsx": "src/components/table/table-pagination-custom.tsx",
+    "components/minimal/table/table-selected-action.tsx": "src/components/table/table-selected-action.tsx",
+    "components/minimal/table/table-skeleton.tsx": "src/components/table/table-skeleton.tsx",
+    "components/minimal/table/use-table.ts": "src/components/table/use-table.ts",
+    "components/minimal/table/utils.ts": "src/components/table/utils.ts",
+
+    "components/minimal/widgets/analytics-widget-summary.tsx": "src/sections/overview/analytics/analytics-widget-summary.tsx",
+    "components/minimal/widgets/app-widget-summary.tsx": "src/sections/overview/app/app-widget-summary.tsx",
+    "components/minimal/widgets/banking-widget-summary.tsx": "src/sections/overview/banking/banking-overview.tsx",
+    "components/minimal/widgets/ecommerce-widget-summary.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
+    "components/minimal/widgets/index.ts": "src/sections/overview/index.ts",
+    "components/minimal/widgets/kpi-card.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
+    "components/minimal/widgets/kpi-grid.tsx": "src/sections/overview/e-commerce/view/overview-ecommerce-view.tsx",
+    "components/minimal/widgets/kpi-parts.ts": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx",
+    "components/minimal/widgets/stat-strip.tsx": "src/sections/invoice/invoice-analytic.tsx",
+    "components/minimal/widgets/types.ts": "src/components/chart/types.ts",
+    "components/minimal/widgets/widget-spark-chart.tsx": "src/sections/overview/e-commerce/ecommerce-widget-summary.tsx"
+  }
+}

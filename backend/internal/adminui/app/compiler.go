@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -234,9 +235,25 @@ func (s *Service) bootstrapContract(ctx context.Context, input BootstrapInput) *
 		return cached
 	}
 	contract := s.compileContract(ctx, input, families, familyErr, personAccess, accessErr)
+	if familyErr != nil {
+		// LOG THE CAUSE AND DO NOT CACHE. This is the one place the failure is visible to an
+		// operator: before 2026-09-19 the error was folded into the display rule and the cache key
+		// only, so a 3 s query timeout under load (the case seen on the staging clone during a
+		// concurrent gate run) produced a yellow banner with no log line to explain it -- and the
+		// degraded contract was then SERVED FOR THE WHOLE TTL to that authority, a minute after
+		// the blip had passed. A failed family load is answered once and recompiled on the next
+		// request instead.
+		slog.Default().WarnContext(ctx, "admin_ui_contract_family_load_error",
+			slog.String("tenant_id", input.TenantID),
+			slog.String("actor_id", input.ActorID),
+			slog.String("trace_id", input.TraceID),
+			slog.String("error", familyErr.Error()),
+		)
+		return contract
+	}
 	expiresAt := now.Add(s.cacheTTL)
 	s.storeCache(key, contract, now, expiresAt)
-	if revisionKey != "" && familyErr == nil {
+	if revisionKey != "" {
 		s.storeCache(revisionKey, contract, now, expiresAt)
 	}
 	return contract
@@ -425,7 +442,7 @@ func (s *Service) compileContract(
 		resp.DisplayRules = append(resp.DisplayRules, domain.DisplayRule{
 			ID:        "admin_ui_contract_family_load_error",
 			AppliesTo: []string{"admin-web"},
-			Summary:   "DB-backed admin-web contract families could not be loaded; stable product shell compiled without live entity options.",
+			Summary:   "Some dropdown options are unavailable right now. Reload in a minute.",
 			FrontendOwns: []string{
 				"layout",
 				"responsive density",

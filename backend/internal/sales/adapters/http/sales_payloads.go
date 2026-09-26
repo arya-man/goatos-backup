@@ -459,6 +459,8 @@ type monthlyPayload struct {
 	SheepCount    float64 `json:"sheep_count"`
 	GoatCount     float64 `json:"goat_count"`
 	ManureKg      float64 `json:"manure_kg"`
+	// Live revenue over live weight for the month's priced lines; 0 when none were priced.
+	RealizedPricePerKg float64 `json:"realized_price_per_kg"`
 }
 
 type priceBandPayload struct {
@@ -542,7 +544,7 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			Revenue: m.Revenue, LiveRevenue: m.LiveRevenue, Animals: m.Animals, FeedRevenue: m.FeedRevenue, FeedKg: m.FeedKg, OtherRevenue: m.OtherRevenue, OtherKg: m.OtherKg,
 			Month: m.Month, SheepRevenue: m.SheepRevenue, GoatRevenue: m.GoatRevenue,
 			ManureRevenue: m.ManureRevenue, SheepCount: m.SheepCount, GoatCount: m.GoatCount,
-			ManureKg: m.ManureKg,
+			ManureKg: m.ManureKg, RealizedPricePerKg: m.RealizedPricePerKg,
 		})
 	}
 	bands := make([]priceBandPayload, 0, len(o.PriceBands))

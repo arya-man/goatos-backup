@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 // The CEO/CXO Toxin review list + drawer (maintainer decision 2026-08-25).
 //
@@ -18,6 +23,7 @@ import type { ToxinTask } from "@/lib/api/server";
 import { fmtDateTime } from "@/lib/format";
 import { loadToxinTaskDetailAction, recordToxinVerdictAction, type ToxinDetailLoad } from "./toxin-actions";
 import { toxinReviewRows, type ToxinReviewRow } from "./toxin-rows";
+import Alert from "@mui/material/Alert";
 
 export function ToxinReviewList({
   tasks,
@@ -100,34 +106,34 @@ export function ToxinReviewList({
   return (
     <>
       {feedback.status ? (
-        <div className={feedback.status === "success" ? "small" : "alert"} style={{ marginBottom: 12 }}>
+        <Alert severity={feedback.status === "success" ? "info" : "error"} style={{ marginBottom: 12 }}>
           {/* Unmapped error codes render nothing rather than leaking the raw token. */}
           {feedbackText || (feedback.status === "error" ? copy(pageContract, "feedback.failed", "") : "")}
-        </div>
+        </Alert>
       ) : null}
 
-      <div className="twrap" tabIndex={0} role="group">
-        <table data-enh="1" className="vr-table">
-          <thead>
-            <tr>
-              <th>{text("toxin.drawer.title")}</th>
-              <th>{text("toxin.drawer.reading")}</th>
-              <th>{copy(pageContract, "drawer.meta.status")}</th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className="twrap tablewrap" tabIndex={0} role="group">
+        <Table data-enh="1" className="vr-table toxin-review-table">
+          <TableHead>
+            <TableRow>
+              <TableCell component="th">{text("toxin.drawer.title")}</TableCell>
+              <TableCell component="th">{text("toxin.drawer.reading")}</TableCell>
+              <TableCell component="th">{copy(pageContract, "drawer.meta.status")}</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {rows.length === 0 ? (
-              <tr>
-                <td colSpan={3}>
+              <TableRow>
+                <TableCell colSpan={3}>
                   <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                     {text("toxin.state.empty")}
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ) : (
-              rows.map((row) => (
-                <tr key={row.taskId} className="vr-row">
-                  <td>
+              rows.map((row, rowIndex) => (
+                <TableRow key={row.taskId} className="vr-row cx-row" style={{ "--i": rowIndex } as React.CSSProperties}>
+                  <TableCell>
                     <button type="button" className="vr-rowlink toxin-row-button" onClick={() => openRow(row.taskId)}>
                       <div className="vr-subj">
                         <span className="t">{row.contextLine}</span>
@@ -142,22 +148,22 @@ export function ToxinReviewList({
                         ) : null}
                       </div>
                     </button>
-                  </td>
-                  <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                  </TableCell>
+                  <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
                     <button type="button" className="toxin-row-button" onClick={() => openRow(row.taskId)}>
                       {row.outcomeLabel || "—"}
                     </button>
-                  </td>
-                  <td style={{ whiteSpace: "nowrap" }}>
+                  </TableCell>
+                  <TableCell style={{ whiteSpace: "nowrap" }}>
                     <button type="button" className="toxin-row-button" onClick={() => openRow(row.taskId)}>
                       <Tag tone="warn">{row.statusChip}</Tag>
                     </button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       <ToxinDrawer
@@ -222,9 +228,9 @@ function ToxinDrawer({
           {loading || !detail ? (
             <div className="muted small">…</div>
           ) : !detail.ok ? (
-            <div className="alert">
+            <Alert severity="error">
               <b>{copy(pageContract, "feedback.failed")}</b>
-            </div>
+            </Alert>
           ) : task ? (
             <>
               <div>

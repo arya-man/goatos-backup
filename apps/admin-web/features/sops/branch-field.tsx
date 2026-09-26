@@ -1,7 +1,10 @@
 "use client";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { FieldSelect } from "./editor-chrome";
 import { ANSWER_OPS, NUMERIC_ANSWER_OPS, stepAnswerKind, type AnswerOp, type FollowUpStepRow } from "./followup-model";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 /**
  * The answer-driven branch control of one step (SOP studio phase 2, 2026-09-18): which earlier
@@ -32,60 +35,49 @@ export function BranchField({
   if (questions.length === 0) return null;
   return (
     <div className="studio-branch" data-testid="branch-field">
-      <label>
-        {copy(pc, "studio.branch.title")}
-        <select
-          value={step.whenStep}
-          onChange={(e) => {
-            const next = e.target.value;
-            const q = questions.find((x) => x.key === next);
-            const nextKind = q ? stepAnswerKind(q, answerKinds) : "";
-            onChange({
-              whenStep: next,
-              whenOp: NUMERIC_ANSWER_OPS.includes(step.whenOp) && nextKind !== "number" ? "eq" : step.whenOp,
-              whenValues: next ? (nextKind === "yes_no" ? ["yes"] : []) : [],
-            });
-          }}
-          data-testid="branch-question"
-        >
-          <option value="">{copy(pc, "studio.branch.always")}</option>
-          {questions.map((q) => (
-            <option key={q.key} value={q.key}>
-              {q.title || q.key}
-            </option>
-          ))}
-        </select>
-      </label>
+      <FieldSelect
+        label={copy(pc, "studio.branch.title")}
+        value={step.whenStep}
+        minWidth={200}
+        options={[{ value: "", label: copy(pc, "studio.branch.always") }, ...questions.map((q) => ({ value: q.key, label: q.title || q.key }))]}
+        onChange={(next) => {
+          const q = questions.find((x) => x.key === next);
+          const nextKind = q ? stepAnswerKind(q, answerKinds) : "";
+          onChange({
+            whenStep: next,
+            whenOp: NUMERIC_ANSWER_OPS.includes(step.whenOp) && nextKind !== "number" ? "eq" : step.whenOp,
+            whenValues: next ? (nextKind === "yes_no" ? ["yes"] : []) : [],
+          });
+        }}
+      />
       {question ? (
         <>
-          <label>
-            {copy(pc, "studio.branch.op")}
-            <select value={step.whenOp} onChange={(e) => onChange({ whenOp: e.target.value as AnswerOp })} data-testid="branch-op">
-              {ops.map((op) => (
-                <option key={op} value={op}>
-                  {copy(pc, `studio.branch.op.${op}`)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <FieldSelect
+            label={copy(pc, "studio.branch.op")}
+            value={step.whenOp}
+            minWidth={150}
+            options={ops.map((op) => ({ value: op, label: copy(pc, `studio.branch.op.${op}`) }))}
+            onChange={(next) => onChange({ whenOp: next as AnswerOp })}
+          />
+          {kind === "yes_no" ? (
+            <FieldSelect
+              label={copy(pc, "studio.branch.value")}
+              value={step.whenValues[0] ?? "yes"}
+              minWidth={120}
+              options={[
+                { value: "yes", label: copy(pc, "studio.branch.yes") },
+                { value: "no", label: copy(pc, "studio.branch.no") },
+              ]}
+              onChange={(next) => onChange({ whenValues: [next] })}
+            />
+          ) : (
           <label>
             {copy(pc, "studio.branch.value")}
-            {kind === "yes_no" ? (
-              <select value={step.whenValues[0] ?? "yes"} onChange={(e) => onChange({ whenValues: [e.target.value] })} data-testid="branch-value">
-                <option value="yes">{copy(pc, "studio.branch.yes")}</option>
-                <option value="no">{copy(pc, "studio.branch.no")}</option>
-              </select>
-            ) : kind === "select" || kind === "multiselect" ? (
+            {kind === "select" || kind === "multiselect" ? (
               <span className="studio-branch-options">
                 {question.options.map((o) => (
-                  <label key={o} className="chkline">
-                    <input
-                      type="checkbox"
-                      checked={step.whenValues.includes(o)}
-                      onChange={(e) => onChange({ whenValues: e.target.checked ? [...step.whenValues, o] : step.whenValues.filter((v) => v !== o) })}
-                    />{" "}
-                    {o}
-                  </label>
+                  <FormControlLabel key={o} className="chkline" control={<Checkbox checked={step.whenValues.includes(o)} onChange={(e) => onChange({ whenValues: e.target.checked ? [...step.whenValues, o] : step.whenValues.filter((v) => v !== o) })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
+                    {o}</>} />
                 ))}
               </span>
             ) : (
@@ -98,6 +90,7 @@ export function BranchField({
               />
             )}
           </label>
+          )}
         </>
       ) : null}
     </div>

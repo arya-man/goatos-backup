@@ -1,6 +1,14 @@
 'use client';
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+
+import { Tag } from "@/components/ui-primitives";
 
 import { getAdminApi } from '@/lib/api/client';
+import MenuItem from "@mui/material/MenuItem";
 import { type ParkScopeOption } from '@/lib/api/park-scope';
 import { loadVaccinationOperatorsScreen } from './vaccination-operators-scope';
 import {
@@ -14,6 +22,19 @@ import {
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Syringe, Gauge, Users, Zap, AlertTriangle, Check } from 'lucide-react';
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import Typography from "@mui/material/Typography";
+import MuiTextField from "@mui/material/TextField";
+import { Caption } from "@/components/app/caption";
+import { SkeletonList } from "@/components/app/page-skeletons";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { Avatar } from "@/components/app/avatar";
+import Alert from "@mui/material/Alert";
 
 type Position = AdminApiComponents['schemas']['Position'];
 type StaffLeave = AdminApiComponents['schemas']['StaffLeaveListResponse']['items'][number];
@@ -685,7 +706,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
       setCapEditing(false);
       showToast(`<b style="color:var(--brand)">Saved</b> · animal shot cap updated — future vaccination schedules are being re-planned`);
     } catch (err) {
-      setCapError(err instanceof Error ? err.message : 'Failed to save capacity config');
+      setCapError(err instanceof Error ? err.message : 'Could not save the capacity setting. Check the value and try again.');
     } finally {
       setSavingCapCfg(false);
     }
@@ -768,8 +789,14 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
     );
   }
 
-  if (loading) return <div className="p-6">Loading...</div>;
-  if (error) return <div className="p-6 text-red-600">{error}</div>;
+  if (loading) return <div style={{ padding: 24 }}><SkeletonList rows={5} /></div>;
+  if (error)
+    return (
+      <div style={{ padding: 24 }}>
+        <Alert severity="error" role="alert"><span>{error}</span>
+        </Alert>
+      </div>
+    );
 
   // BUG-019: a caller whose authorized scope covers several parks must CHOOSE one before any roster,
   // capacity KPI, weekly preview, or default-operator dropdown is rendered — those are all park-scoped
@@ -779,34 +806,30 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
   if (parkChoices) {
     return (
       <section className="screen on" data-screen="vaccination-operators">
-        <div className="phead">
-          <div>
-            <div className="crumb">Team / <b>Vaccination operators</b></div>
-            <h1>Vaccination operators</h1>
-            <div className="sub">{parkChoiceMessage}</div>
-          </div>
-        </div>
         <div className="card">
           <div className="hd">
             <h3>Choose a park</h3>
             <div className="sp"></div>
           </div>
           <div className="bd">
+            {parkChoiceMessage ? <div className="small muted" style={{ marginBottom: 12 }}>{parkChoiceMessage}</div> : null}
             <div className="ctl">
               <div className="fld">
-                <label>Park</label>
-                <select
+                <MuiTextField
+                  select
+                  label="Park"
                   value={parkDraft}
-                  onChange={(e) => setParkDraft(e.target.value)}
-                  aria-label="Park scope"
+                  onChange={(event) => setParkDraft(event.target.value)}
+                  sx={{ minWidth: { xs: 0, sm: 220 }, flexShrink: 0, maxWidth: 1 }}
+                  slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
                 >
-                  <option value="">— select a park —</option>
+                  <MenuItem value="">— select a park —</MenuItem>
                   {parkChoices.map((park) => (
-                    <option key={park.parkId} value={park.parkId}>
+                    <MenuItem key={park.parkId} value={park.parkId}>
                       {park.code ? `${park.code} · ${park.name}` : park.name}
-                    </option>
+                    </MenuItem>
                   ))}
-                </select>
+                </MuiTextField>
               </div>
               <button
                 className="btn b sm"
@@ -818,10 +841,6 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
               >
                 Continue
               </button>
-            </div>
-            <div className="note" style={{ marginTop: '10px' }}>
-              Roster, operator caps, the weekly assignment preview, and the default operator are all
-              per-park. One park is loaded at a time so no two parks are ever mixed on this screen.
             </div>
             {parkChoices.length === 0 && (
               <div className="lvempty" style={{ marginTop: '12px' }}>
@@ -847,41 +866,22 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
 
   return (
     <section className="screen on" data-screen="vaccination-operators">
-      <div className="phead">
-        <div>
-          <div className="crumb">Team / <b>Vaccination operators</b></div>
-          <h1>Vaccination operators</h1>
-          <div className="sub">{scopedParkLabel ? `${scopedParkLabel}. ` : ''}Roster, weekly availability, and drive-operator assignment on one screen. Operator caps drive vaccination scheduling; week-off and leave remove an operator from that day.</div>
-        </div>
-      </div>
+      {/* The People page carries the title; this line names the park the screen is scoped to. */}
+      {scopedParkLabel ? <Caption>{scopedParkLabel}</Caption> : null}
 
       {/* KPI Row */}
-      <div className="grid g4" style={{ marginTop: '14px' }}>
-        <div className="kpi">
-          <span className="acc" style={{ background: 'var(--brand)' }}></span>
-          <div className="lab">Operators</div>
-          <div className="val">{kpiOperators}</div>
-          <div className="dl">active vaccination seats</div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: 'var(--amber)' }}></span>
-          <div className="lab">Cap / operator</div>
-          <div className="val">{commonCap}</div>
-          <div className="dl">applies to all operators</div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: 'var(--teal)' }}></span>
-          <div className="lab">Operators / day</div>
-          <div className="val">{operatorCount}</div>
-          <div className="dl">{operatorCount === 1 ? 'single + fallback' : operatorCount === 3 ? 'all parallel' : 'pair'}</div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: 'var(--info)' }}></span>
-          <div className="lab">Daily capacity</div>
-          <div className="val">{kpiDaily}</div>
-          <div className="dl">at full availability</div>
-        </div>
-      </div>
+      <KpiGrid min={210}>
+        <KpiCard label="Operators" value={kpiOperators} tone="primary" icon={<Users />} hint="active vaccination seats" />
+        <KpiCard label="Cap / operator" value={commonCap} tone="warning" icon={<Gauge />} hint="applies to all operators" />
+        <KpiCard
+          label="Operators / day"
+          value={operatorCount}
+          tone="info"
+          icon={<Syringe />}
+          hint={operatorCount === 1 ? 'single + fallback' : operatorCount === 3 ? 'all parallel' : 'pair'}
+        />
+        <KpiCard label="Daily capacity" value={kpiDaily} tone="success" icon={<Zap />} hint="at full availability" />
+      </KpiGrid>
 
       {/* Roster & Availability Card */}
       <div className="card">
@@ -933,25 +933,25 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         </div>
         {capConfigError ? (
           <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>
-            Couldn’t load the vaccination capacity config, so operator and animal caps can’t be edited right now. Reload to try again. ({capConfigError})
+            Couldn’t load the vaccination capacity setting, so operator and animal caps can’t be edited right now. Reload to try again. ({capConfigError})
           </div>
         ) : null}
         {capError ? <div className="note" style={{ color: 'var(--danger)', margin: '10px 22px 0' }}>{capError}</div> : null}
-        <div className="bd" style={{ overflowX: 'auto' }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Person</th>
-                <th>Park</th>
-                <th>Shift</th>
-                <th>Cap</th>
-                <th>Week off</th>
-                <th>Planned leave</th>
-                <th>Weekly schedule</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="bd tablewrap" style={{ overflowX: 'auto' }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">Person</TableCell>
+                <TableCell component="th">Park</TableCell>
+                <TableCell component="th">Shift</TableCell>
+                <TableCell component="th">Cap</TableCell>
+                <TableCell component="th">Week off</TableCell>
+                <TableCell component="th">Planned leave</TableCell>
+                <TableCell component="th">Weekly schedule</TableCell>
+                <TableCell component="th">Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {operatorsList.map((op) => {
                 const opLeaves = leaves[op.position_id ?? ''] ?? [];
                 const opUpcoming = opLeaves.filter((r) => r.to >= today).sort((a, b) => (a.from < b.from ? -1 : 1));
@@ -970,37 +970,38 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                 const capChanged = draftCap.trim() !== String(effectiveCap);
 
                 return (
-                  <tr key={op.position_id}>
-                    <td>
+                  <TableRow key={op.position_id}>
+                    <TableCell>
                       <div className="person">
-                        <div className="av">{init}</div>
+                        <Avatar name={op.person_display_name ?? "OP"} initials={init} size={34} decorative />
                         <div>
                           <b>{shortName}</b>
                           <span>Vaccination operator</span>
                         </div>
                       </div>
-                    </td>
-                    <td>{scopedParkName || '—'}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{scopedParkName || '—'}</TableCell>
+                    <TableCell>
                       {(() => {
                         const shift = getShiftForOperator(op.workforce_member_id ?? '');
                         return (
                           <div className="leavecell">
                             {shift ? <span>{shiftSummary(shift)}</span> : <span className="muted small">Not set</span>}
-                            <button
-                              className="laddbtn"
-                              type="button"
+                            <Button
+                              color="primary"
+                              size="small"
+                              variant="soft"
                               onClick={() => openShiftForm(op)}
                               disabled={!op.workforce_member_id}
                               title={op.workforce_member_id ? undefined : 'This seat has no person yet'}
                             >
                               {shift ? 'Edit shift' : 'Set shift'}
-                            </button>
+                            </Button>
                           </div>
                         );
                       })()}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <input
                           aria-label={`${shortName} animals/day cap`}
@@ -1014,19 +1015,22 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                         />
                         <span className="muted small">/day</span>
                         <button
-                          className="btn sm"
+                          className={`iconbtn kit-row-edit${capChanged ? ' kit-row-save-armed' : ''}`}
                           disabled={!capChanged || savingCap === positionId}
+                          aria-busy={savingCap === positionId || undefined}
                           onClick={() => void saveOperatorCap(op)}
                           type="button"
+                          title={savingCap === positionId ? 'Saving' : capChanged ? 'Save cap' : 'Cap unchanged'}
+                          aria-label={savingCap === positionId ? 'Saving' : `Save ${shortName} cap`}
                         >
-                          {savingCap === positionId ? 'Saving' : 'Save'}
+                          <Check className="ic" aria-hidden="true" />
                         </button>
                       </div>
-                    </td>
-                    <td>
-                      <span className="tag t-info">{weekOffLabel}</span>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
+                      <Tag tone="info">{weekOffLabel}</Tag>
+                    </TableCell>
+                    <TableCell>
                       {!opLeaves.length ? (
                         <div className="leavecell">
                           <button
@@ -1064,8 +1068,8 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                           </button>
                         </div>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <div className="wk">
                         {WEEKDAYS.map((dow) => {
                           const isOff = weekOff.toLowerCase() === dow;
@@ -1077,21 +1081,21 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                           );
                         })}
                       </div>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {onLeaveToday ? (
-                        <span className="tag t-warn">On leave today</span>
+                        <Tag tone="warn">On leave today</Tag>
                       ) : weekOffToday ? (
-                        <span className="tag t-info">Week-off today</span>
+                        <Tag tone="info">Week-off today</Tag>
                       ) : (
-                        <span className="tag t-ok">Available</span>
+                        <Tag tone="ok">Available</Tag>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </div>
 
@@ -1104,36 +1108,41 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
         <div className="bd">
           <div className="ctl">
             <div className="fld">
-              <label>Active operators / day</label>
-              <select
-                value={operatorCount}
-                onChange={(e) => changeOperatorCount(parseInt(e.target.value, 10))}
+              <MuiTextField
+                select
+                label="Active operators / day"
+                value={String(operatorCount)}
                 disabled={configSaving}
                 title="Drives the live preview below."
+                onChange={({ target: { value } }) => changeOperatorCount(parseInt(value, 10))}
+                sx={{ minWidth: { xs: 0, sm: 190 }, flexShrink: 0, maxWidth: 1 }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
               >
-                <option value="1">1 operator</option>
-                <option value="2">2 operators</option>
-                <option value="3">3 operators</option>
-              </select>
+                <MenuItem value="1">1 operator</MenuItem>
+                <MenuItem value="2">2 operators</MenuItem>
+                <MenuItem value="3">3 operators</MenuItem>
+              </MuiTextField>
             </div>
             <div className="fld">
-              <label>Default operator</label>
-              <select
+              <MuiTextField
+                select
+                label="Default operator"
                 value={defaultOperator}
-                onChange={(e) => {
-                  setDefaultOperator(e.target.value);
-                  if (operatorCount === 1) setSelectedOperatorIds([e.target.value]);
-                }}
                 disabled={operatorCount !== 1 || configSaving}
-                aria-disabled={operatorCount !== 1 || configSaving}
                 title={operatorCount !== 1 ? 'Parallel mode uses the selected operator cards below.' : 'CEO default. Drives the live preview.'}
+                onChange={({ target: { value } }) => {
+                  setDefaultOperator(value);
+                  if (operatorCount === 1) setSelectedOperatorIds([value]);
+                }}
+                sx={{ minWidth: { xs: 0, sm: 190 }, flexShrink: 0, maxWidth: 1 }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
               >
                 {operatorsList.map((op) => (
-                  <option key={op.position_id} value={op.workforce_member_id ?? op.position_id}>
+                  <MenuItem key={op.workforce_member_id ?? op.position_id} value={op.workforce_member_id ?? op.position_id}>
                     {op.person_display_name || 'Operator'}
-                  </option>
+                  </MenuItem>
                 ))}
-              </select>
+              </MuiTextField>
             </div>
             {/* Wrap in a .fld peer with a spacer label so the button sits on the same
                 baseline as the selects. The .fld margin-bottom shifts .ctl's flex-end
@@ -1169,7 +1178,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                     onClick={() => operatorId && toggleSelectedOperator(operatorId)}
                     title={disabled && !checked ? `Already selected ${operatorCount} operators` : `Toggle ${op.person_display_name ?? 'operator'}`}
                   >
-                    <span className="av">{(op.person_display_name ?? 'OP')[0]}</span>
+                    <Avatar name={op.person_display_name ?? 'OP'} initials={(op.person_display_name ?? 'OP')[0]} size={28} decorative />
                     <span>
                       <b>{firstName(op)}</b>
                       <small>off: {WEEK_LABELS[weekOffOf(op)] ?? '—'}</small>
@@ -1187,7 +1196,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
               <Fragment key={op.position_id}>
                 {i > 0 && <span className="carrow">{operatorCount === 1 ? '→' : '+'}</span>}
                 <div className={`cnode${operatorCount === 1 && i === 0 ? ' default' : ''}${i >= operatorCount ? ' down' : ''}`}>
-                  <div className="av">{(op.person_display_name ?? 'OP')[0]}</div>
+                  <Avatar name={op.person_display_name ?? 'OP'} initials={(op.person_display_name ?? 'OP')[0]} size={28} decorative />
                   <div>
                     <b>
                       {firstName(op)} {operatorCount === 1 && i === 0 && <span className="badge-def">DEFAULT</span>}
@@ -1204,20 +1213,20 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
           <div className="uline" style={{ marginTop: '20px' }}>
             Weekly assignment preview — who runs the drive each day
           </div>
-          <div style={{ overflowX: 'auto', marginTop: '12px' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: '80px' }}>Day</th>
-                  <th>Assigned operator</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="tablewrap" style={{ overflowX: 'auto', marginTop: '12px' }}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th" style={{ width: '80px' }}>Day</TableCell>
+                  <TableCell component="th">Assigned operator</TableCell>
+                  <TableCell component="th">Reason</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {weeklyPlan.map((p) => (
-                  <tr key={p.dow}>
-                    <td><b>{WEEK_LABELS[p.dow]}</b></td>
-                    <td>
+                  <TableRow key={p.dow}>
+                    <TableCell><b>{WEEK_LABELS[p.dow]}</b></TableCell>
+                    <TableCell>
                       {p.ops.length ? (
                         p.ops.map((o) => (
                           <span key={o.position_id} className="op" style={{ marginRight: '14px' }}>
@@ -1228,12 +1237,12 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
                       ) : (
                         <span className="tag t-danger">— none —</span>
                       )}
-                    </td>
-                    <td className="why">{p.reason}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="why">{p.reason}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </div>
       </div>
@@ -1247,7 +1256,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
           ></div>
           <aside className="drawer on" role="dialog" aria-modal="true">
             <div className="dh">
-              <div className="av">{(drawerOp.person_display_name ?? 'OP')[0]}</div>
+              <Avatar name={drawerOp.person_display_name ?? 'OP'} initials={(drawerOp.person_display_name ?? 'OP')[0]} size={34} decorative />
               <div style={{ flex: 1 }}>
                 <h3>{drawerOp.person_display_name || 'Operator'}</h3>
                 <span>Planned leave</span>
@@ -1300,123 +1309,110 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
       )}
 
       {/* Modal - Set / Edit shift */}
-      {shiftTarget && (() => {
-        const shiftOp = operatorsList.find((p) => p.position_id === shiftTarget);
-        const existing = getShiftForOperator(shiftOp?.workforce_member_id ?? '');
+      {(() => {
+        const shiftOp = shiftTarget ? operatorsList.find((p) => p.position_id === shiftTarget) : undefined;
+        const existing = shiftTarget ? getShiftForOperator(shiftOp?.workforce_member_id ?? '') : undefined;
         return (
-          <>
-            <div className="scrim on" onClick={closeShiftForm}></div>
-            <div className="modal on" role="dialog" aria-modal="true" aria-labelledby="shift-form-title">
-              <div className="mh">
-                <div className="av">{(shiftOp?.person_display_name ?? 'OP')[0]}</div>
-                <div>
-                  <h3 id="shift-form-title">{existing ? 'Edit shift' : 'Set shift'}</h3>
-                  <span>{shiftOp?.person_display_name || 'Operator'} · {scopedParkName || 'Vaccination operator'}</span>
-                </div>
-                <div style={{ flex: 1 }}></div>
-                <button className="cal-nav" onClick={closeShiftForm} title="Close" type="button">
-                  ✕
-                </button>
+          <Dialog fullWidth maxWidth="sm" open={Boolean(shiftTarget)} onClose={closeShiftForm} slotProps={{ paper: { "aria-label": existing ? 'Edit shift' : 'Set shift' } }}>
+            <DialogTitle component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Avatar name={shiftOp?.person_display_name || 'Operator'} size={36} decorative />
+              <div style={{ minWidth: 0 }}>
+                <Typography variant="h6" component="h3" id="shift-form-title">{existing ? 'Edit shift' : 'Set shift'}</Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>{shiftOp?.person_display_name || 'Operator'} · {scopedParkName || 'Vaccination operator'}</Typography>
               </div>
-              <div className="mb">
-                <div className="ctl" style={{ flexWrap: 'wrap' }}>
-                  <div className="fld">
-                    <label htmlFor="shift-label">Shift</label>
-                    <select
-                      id="shift-label"
-                      value={shiftDraft.shiftLabel}
-                      onChange={(e) => setShiftDraft((d) => ({ ...d, shiftLabel: e.target.value }))}
-                      disabled={shiftSaving}
-                    >
-                      <option value="">— choose a shift —</option>
-                      {SHIFT_LABEL_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="fld">
-                    <label htmlFor="shift-start">Starts</label>
-                    <input
-                      id="shift-start"
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="08:00"
-                      maxLength={5}
-                      style={{ width: 92 }}
-                      value={shiftDraft.shiftStart}
-                      onChange={(e) => setShiftDraft((d) => ({ ...d, shiftStart: e.target.value }))}
-                      disabled={shiftSaving}
-                    />
-                  </div>
-                  <div className="fld">
-                    <label htmlFor="shift-end">Ends</label>
-                    <input
-                      id="shift-end"
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="17:00"
-                      maxLength={5}
-                      style={{ width: 92 }}
-                      value={shiftDraft.shiftEnd}
-                      onChange={(e) => setShiftDraft((d) => ({ ...d, shiftEnd: e.target.value }))}
-                      disabled={shiftSaving}
-                    />
-                  </div>
-                  <div className="fld">
-                    <label htmlFor="shift-week-off">Week off</label>
-                    <select
-                      id="shift-week-off"
-                      value={shiftDraft.weekOffWeekday}
-                      onChange={(e) => setShiftDraft((d) => ({ ...d, weekOffWeekday: e.target.value }))}
-                      disabled={shiftSaving}
-                    >
-                      {WEEK_OFF_OPTIONS.map((o) => (
-                        <option key={o.value || 'none'} value={o.value}>{o.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="note" style={{ marginTop: '10px' }}>
-                  Times are 24-hour, like 08:00 or 17:30. The drive planner uses this shift and week off to
-                  decide who runs each day, so saving re-plans future vaccination drives for this park.
-                </div>
-                {shiftError && (
-                  <div className="err on" role="alert" style={{ marginTop: '12px' }}>
-                    {shiftError}
-                  </div>
-                )}
+            </DialogTitle>
+            <DialogContent sx={{ display: 'grid', gap: 2 }}>
+              <div className="ctl" style={{ flexWrap: 'wrap', paddingTop: 'var(--sp-1)' }}>
+                <MuiTextField
+                  select
+                  label="Shift"
+                  value={shiftDraft.shiftLabel}
+                  disabled={shiftSaving}
+                  onChange={({ target: { value } }) => setShiftDraft((d) => ({ ...d, shiftLabel: value }))}
+                  sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+                  slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+                >
+                  <MenuItem value=''>— choose a shift —</MenuItem>
+                  {SHIFT_LABEL_OPTIONS.map((o) => (
+                    <MenuItem key={o.value} value={o.value}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </MuiTextField>
+                <MuiTextField
+                  label="Starts"
+                  size="small"
+                  placeholder="08:00"
+                  value={shiftDraft.shiftStart}
+                  onChange={(e) => setShiftDraft((d) => ({ ...d, shiftStart: e.target.value }))}
+                  disabled={shiftSaving}
+                  slotProps={{ htmlInput: { inputMode: "numeric", maxLength: 5 } }}
+                />
+                <MuiTextField
+                  label="Ends"
+                  size="small"
+                  placeholder="17:00"
+                  value={shiftDraft.shiftEnd}
+                  onChange={(e) => setShiftDraft((d) => ({ ...d, shiftEnd: e.target.value }))}
+                  disabled={shiftSaving}
+                  slotProps={{ htmlInput: { inputMode: "numeric", maxLength: 5 } }}
+                />
+                <MuiTextField
+                  select
+                  label="Week off"
+                  value={shiftDraft.weekOffWeekday}
+                  disabled={shiftSaving}
+                  onChange={({ target: { value } }) => setShiftDraft((d) => ({ ...d, weekOffWeekday: value }))}
+                  sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+                  slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+                >
+                  {WEEK_OFF_OPTIONS.map((o) => (
+                    <MenuItem key={o.value} value={o.value}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </MuiTextField>
               </div>
-              <div className="mf">
-                {existing ? (
-                  clearArmed ? (
-                    <>
-                      <span className="muted small" style={{ marginRight: 'auto' }}>Clear this shift?</span>
-                      <button className="btn sm ghost" type="button" onClick={() => setClearArmed(false)} disabled={shiftSaving}>
-                        Keep
-                      </button>
-                      <button className="btn sm" type="button" onClick={() => void clearShift()} disabled={shiftSaving} style={{ color: 'var(--danger)' }}>
-                        {shiftSaving ? 'Clearing' : 'Clear shift'}
-                      </button>
-                    </>
-                  ) : (
-                    <button className="btn sm ghost" type="button" onClick={() => setClearArmed(true)} disabled={shiftSaving} style={{ marginRight: 'auto' }}>
-                      Clear shift
-                    </button>
-                  )
-                ) : null}
-                {!clearArmed && (
+              <Caption>
+                Times are 24-hour, like 08:00 or 17:30. The drive planner uses this shift and week off to
+                decide who runs each day, so saving re-plans future vaccination drives for this park.
+              </Caption>
+              {shiftError && (
+                <Alert severity="error" role="alert">
+                  {shiftError}
+                </Alert>
+              )}
+            </DialogContent>
+            <DialogActions>
+              {existing ? (
+                clearArmed ? (
                   <>
-                    <button className="btn sm ghost" type="button" onClick={closeShiftForm} disabled={shiftSaving}>
-                      Cancel
-                    </button>
-                    <button className="btn b sm" type="button" onClick={() => void saveShift()} disabled={shiftSaving}>
-                      {shiftSaving ? 'Saving' : 'Save shift'}
-                    </button>
+                    <span className="muted small" style={{ marginRight: 'auto' }}>Clear this shift?</span>
+                    <Button size="small" variant="outlined" color="inherit" onClick={() => setClearArmed(false)} disabled={shiftSaving}>
+                      Keep
+                    </Button>
+                    <Button size="small" variant="soft" color="error" onClick={() => void clearShift()} disabled={shiftSaving}>
+                      {shiftSaving ? 'Clearing' : 'Clear shift'}
+                    </Button>
                   </>
-                )}
-              </div>
-            </div>
-          </>
+                ) : (
+                  <Button size="small" variant="text" color="error" onClick={() => setClearArmed(true)} disabled={shiftSaving} style={{ marginRight: 'auto' }}>
+                    Clear shift
+                  </Button>
+                )
+              ) : null}
+              {!clearArmed && (
+                <>
+                  <Button size="small" variant="outlined" color="inherit" onClick={closeShiftForm} disabled={shiftSaving}>
+                    Cancel
+                  </Button>
+                  <Button variant="contained" color="primary" size="small" onClick={() => void saveShift()} disabled={shiftSaving}>
+                    {shiftSaving ? 'Saving' : 'Save shift'}
+                  </Button>
+                </>
+              )}
+            </DialogActions>
+          </Dialog>
         );
       })()}
 
@@ -1426,7 +1422,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
           <div className="scrim on" onClick={closeModal}></div>
           <div className="modal on" role="dialog" aria-modal="true">
             <div className="mh">
-              <div className="av">{(operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name ?? 'OP')[0]}</div>
+              <Avatar name={operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name ?? 'OP'} initials={(operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name ?? 'OP')[0]} size={32} decorative />
               <div>
                 <h3>Add planned leave</h3>
                 <span>{operatorsList.find((p) => p.position_id === modalTarget)?.person_display_name || 'Operator'} · Vaccination operator</span>

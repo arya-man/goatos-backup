@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent, useCallback } from "react";
 import { useBackCloses } from "@/components/use-back-closes";
 
@@ -13,7 +18,11 @@ import {
   useShedVaccineAnimals,
   type CohortCellRef,
 } from "./command-board-drilldowns";
-import { X } from "lucide-react";
+import { AlertTriangle, CalendarClock, CalendarX, CircleSlash, Clock, RotateCcw, ShieldCheck, Users, X } from "lucide-react";
+import { InfoHint } from "@/components/app/info-hint";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -701,19 +710,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     document.getElementById("cbm-shed-dose-matrix")?.scrollIntoView({ block: "start", behavior: "smooth" });
   };
 
-  const statusKpiProps = (key: StatusKey, count: number) => ({
-    role: count > 0 ? "button" : undefined,
-    tabIndex: count > 0 ? 0 : undefined,
-    "aria-disabled": count === 0 ? true : undefined,
-    className: `kpi ${key === "verified" ? "ok" : key === "awaiting" ? "warn" : key === "rework" ? "rework" : key === "scheduled" ? "info" : "danger"}${count > 0 ? " kpi-clickable" : ""}`,
-    onClick: () => count > 0 && activateStatusKpi(key),
-    onKeyDown: (e: ReactKeyboardEvent<HTMLDivElement>) => {
-      if ((e.key === "Enter" || e.key === " ") && count > 0) {
-        e.preventDefault();
-        activateStatusKpi(key);
-      }
-    },
-  });
+  const statusKpiProps = (key: StatusKey, count: number) =>
+    count > 0 ? { onClick: () => activateStatusKpi(key) } : {};
 
   const openCohortDrawer = (cell: SelectedCohortCell) => {
     setClosedDrawerOpen(false);
@@ -749,47 +747,62 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     return () => document.removeEventListener("keydown", onKey);
   }, [selectedCell, closedDrawerOpen, selectedShedVaccine]);
 
+  // One option per (batch, park) identity. Two operator days of one batch in one park share a
+  // selection value -- and selecting either narrows the board the same way -- so the second would
+  // only duplicate the first (and its React key). The first wins; the dates in its label still
+  // name a day the reader can recognise.
+  const seenDriveValues = new Set<string>();
+  const driveSelectOptions = [
+    { value: "", label: copy(pageContract, "command_board.filter.all_common_drives") },
+    ...driveChoices.flatMap(({ campaign, drive, index }) => {
+      const value = driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId);
+      if (seenDriveValues.has(value)) return [];
+      seenDriveValues.add(value);
+      return [{
+        value,
+        label: `${campaign.name} · Operator day ${index + 1} · ${formatScheduledDriveDates(drive.dateKeys)} · ${drive.targetCount} animals`,
+      }];
+    }),
+  ];
+
   const filterBar = (
     <div className="cbm-filters">
       <div className="cbm-filter-row">
-        <label className="cbm-filter-label" htmlFor="cbm-vaccine">
-          {copy(pageContract, "command_board.filter.vaccine")}
-        </label>
-        <select id="cbm-vaccine" className="cbm-select" value={vaccine} onChange={(e) => setVaccine(e.target.value)}>
-          <option value="">{copy(pageContract, "command_board.filter.all_vaccines")}</option>
+        <TextField
+          select
+          label={copy(pageContract, "command_board.filter.vaccine")}
+          value={vaccine}
+          onChange={(event) => setVaccine(event.target.value)}
+          sx={{ minWidth: { xs: 0, sm: 190 }, flexShrink: 0, maxWidth: 1 }}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+        >
+          <MenuItem value="">{copy(pageContract, "command_board.filter.all_vaccines")}</MenuItem>
           {vaccineOptions.map((v) => (
-            <option key={v} value={v}>{v}</option>
+            <MenuItem key={v} value={v}>
+              {v}
+            </MenuItem>
           ))}
-        </select>
-        <label className="cbm-filter-label" htmlFor="cbm-drive">
-          {copy(pageContract, "command_board.filter.operator_day")}
-        </label>
-        <select
-          id="cbm-drive"
-          className="cbm-select cbm-select-wide"
+        </TextField>
+        <TextField
+          select
+          label={copy(pageContract, "command_board.filter.operator_day")}
           value={selectedDrive}
-          onChange={(e) => selectDrive(e.target.value)}
           disabled={driveOptions.length === 0}
-          aria-disabled={driveOptions.length === 0}
-          aria-busy={isPending}
-          title={
-            driveOptions.length === 0
+          title={driveOptions.length === 0
               ? copy(pageContract, "command_board.filter.no_drives")
               : isPending
                 ? copy(pageContract, "state.loading")
-                : undefined
-          }
+                : undefined}
+          onChange={(event) => selectDrive(event.target.value)}
+          sx={{ minWidth: { xs: 0, sm: 320 }, flexShrink: 0, maxWidth: 1 }}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
         >
-          <option value="">{copy(pageContract, "command_board.filter.all_common_drives")}</option>
-          {driveChoices.map(({ campaign, drive, index }) => (
-            <option
-              key={`${driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}|${drive.dateKeys.join(",")}`}
-              value={driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}
-            >
-              {`${campaign.name} · Operator day ${index + 1} · ${formatScheduledDriveDates(drive.dateKeys)} · ${drive.targetCount} animals`}
-            </option>
+          {driveSelectOptions.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
           ))}
-        </select>
+        </TextField>
         {/* The catalogue is bounded, so a drive past the bound is otherwise indistinguishable from a
             drive that was never planned. Say the picker is partial rather than let it read as the
             whole programme. */}
@@ -817,94 +830,87 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   );
 
   return (
-    <section className="card cbm">
+    <section className="card cbm" style={{ maxWidth: "100%", minWidth: 0 }}>
       <div className="hd">
         <h2>{copy(pageContract, "section.command_board.title")}</h2>
       </div>
       <div className="bd" tabIndex={0} role="region" aria-label={copy(pageContract, "section.command_board.title")}>
         {filterBar}
-        {/* KPI Row - 5 cards with colored stripes */}
-        <div className="cbm-kpi-row">
-          <div className={`kpi mut ${view.kpis.targets > 0 ? "mut" : "mut"}`}>
-            <div className="stripe"></div>
-            <div className="lbl">{copy(pageContract, "command_board.kpi.targets")}</div>
-            <div className="val">{view.kpis.targets}</div>
-            <div className="dl">{copy(pageContract, "command_board.kpi.targets_dl")}</div>
-          </div>
+        {/* KPI deck — kit cards: count-up value, tone icon badge, click drills into the matrix. */}
+        <KpiGrid min={200}>
+          <KpiCard
+            label={copy(pageContract, "command_board.kpi.targets")}
+            value={view.kpis.targets}
+            tone="neutral"
+            icon={<Users size={20} aria-hidden="true" />}
+            hint={copy(pageContract, "command_board.kpi.targets_dl")}
+          />
           {/* Missed sits FIRST, immediately after the roster total and ahead of Verified, because
               it is the one tile that reports a failure rather than progress. It is also the tile
               whose absence made the board wrong: 137 animals holding a missed dose were being
               counted as Verified while Overdue read 0. */}
-          <div {...statusKpiProps("overdue", view.kpis.missedNotGiven)}>
-            <div className="stripe"></div>
-            <div className="lbl">{copy(pageContract, "command_board.kpi.missed")}</div>
-            <div className="val">{view.kpis.missedNotGiven}</div>
-            <div className="dl">{copy(pageContract, "command_board.kpi.missed_dl")}</div>
-          </div>
-          <div {...statusKpiProps("verified", view.kpis.dosesVerified)}>
-            <div className="stripe"></div>
-            <div className="lbl">{copy(pageContract, "command_board.kpi.verified")}</div>
-            <div className="val">{view.kpis.dosesVerified}</div>
-            <div className="dl">{copy(pageContract, "command_board.kpi.verified_dl")}</div>
-          </div>
-          <div {...statusKpiProps("awaiting", view.kpis.awaitingVerification)}>
-            <div className="stripe"></div>
-            <div className="lbl">{copy(pageContract, "command_board.kpi.awaiting_verification")}</div>
-            <div className="val">{view.kpis.awaitingVerification}</div>
-            <div className="dl">{copy(pageContract, "command_board.kpi.awaiting_dl")}</div>
-          </div>
-          <div {...statusKpiProps("rework", view.kpis.reworkNeeded ?? 0)}>
-            <div className="stripe"></div>
-            <div className="lbl">{copy(pageContract, "command_board.kpi.rework_needed")}</div>
-            <div className="val">{view.kpis.reworkNeeded ?? 0}</div>
-            <div className="dl">{copy(pageContract, "command_board.kpi.rework_dl")}</div>
-          </div>
-          <div {...statusKpiProps("overdue", view.kpis.overdueNotGiven)}>
-            <div className="stripe"></div>
-            <div className="lbl">{copy(pageContract, "command_board.kpi.overdue")}</div>
-            <div className="val">{view.kpis.overdueNotGiven}</div>
-            <div className="dl">{copy(pageContract, "command_board.kpi.overdue_dl")}</div>
-          </div>
-          <div {...statusKpiProps("scheduled", view.kpis.scheduledAhead)}>
-            <div className="stripe"></div>
-            <div className="lbl">{copy(pageContract, "command_board.kpi.scheduled_ahead")}</div>
-            <div className="val">{view.kpis.scheduledAhead}</div>
-            <div className="dl">{copy(pageContract, "command_board.kpi.scheduled_dl")}</div>
-          </div>
+          <KpiCard
+            label={copy(pageContract, "command_board.kpi.missed")}
+            value={view.kpis.missedNotGiven}
+            tone="error"
+            icon={<CalendarX size={20} aria-hidden="true" />}
+            hint={copy(pageContract, "command_board.kpi.missed_dl")}
+            {...statusKpiProps("overdue", view.kpis.missedNotGiven)}
+          />
+          <KpiCard
+            label={copy(pageContract, "command_board.kpi.verified")}
+            value={view.kpis.dosesVerified}
+            tone="success"
+            icon={<ShieldCheck size={20} aria-hidden="true" />}
+            hint={copy(pageContract, "command_board.kpi.verified_dl")}
+            {...statusKpiProps("verified", view.kpis.dosesVerified)}
+          />
+          <KpiCard
+            label={copy(pageContract, "command_board.kpi.awaiting_verification")}
+            value={view.kpis.awaitingVerification}
+            tone="warning"
+            icon={<Clock size={20} aria-hidden="true" />}
+            hint={copy(pageContract, "command_board.kpi.awaiting_dl")}
+            {...statusKpiProps("awaiting", view.kpis.awaitingVerification)}
+          />
+          <KpiCard
+            label={copy(pageContract, "command_board.kpi.rework_needed")}
+            value={view.kpis.reworkNeeded ?? 0}
+            tone="violet"
+            icon={<RotateCcw size={20} aria-hidden="true" />}
+            hint={copy(pageContract, "command_board.kpi.rework_dl")}
+            {...statusKpiProps("rework", view.kpis.reworkNeeded ?? 0)}
+          />
+          <KpiCard
+            label={copy(pageContract, "command_board.kpi.overdue")}
+            value={view.kpis.overdueNotGiven}
+            tone="error"
+            icon={<AlertTriangle size={20} aria-hidden="true" />}
+            hint={copy(pageContract, "command_board.kpi.overdue_dl")}
+            {...statusKpiProps("overdue", view.kpis.overdueNotGiven)}
+          />
+          <KpiCard
+            label={copy(pageContract, "command_board.kpi.scheduled_ahead")}
+            value={view.kpis.scheduledAhead}
+            tone="info"
+            icon={<CalendarClock size={20} aria-hidden="true" />}
+            hint={copy(pageContract, "command_board.kpi.scheduled_dl")}
+            {...statusKpiProps("scheduled", view.kpis.scheduledAhead)}
+          />
           {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets. Rendering only four
               left the tiles summing to less than the total, so a reader could not tell a projection
-              bug from animals whose obligations genuinely closed with no dose. */}
-          {/* The tile is the START of the CEO's question, not the end: "3 closed with no dose" is
-              followed every time by "which animals, and why". It opens the record drawer with that
-              list rather than dead-ending on a number. Disabled-with-reason at zero, so the
-              affordance never promises a list that does not exist. */}
-          <div
-            // Gated on the COUNT, not on the list. The animals are fetched when the drawer opens,
-            // so gating on closedAnimals.length would make the tile permanently unclickable — the
-            // list is empty until the click that is being prevented.
-            className={`kpi mut${closedWithoutDoseCount > 0 ? " kpi-clickable" : ""}`}
-            role={closedWithoutDoseCount > 0 ? "button" : undefined}
-            tabIndex={closedWithoutDoseCount > 0 ? 0 : undefined}
-            aria-disabled={closedWithoutDoseCount === 0 ? true : undefined}
-            title={
-              closedWithoutDoseCount > 0
-                ? copy(pageContract, "command_board.kpi.closed_without_dose_open")
-                : copy(pageContract, "command_board.kpi.closed_without_dose_empty")
-            }
-            onClick={() => closedWithoutDoseCount > 0 && openClosedDrawer()}
-            onKeyDown={(e) => {
-              if ((e.key === "Enter" || e.key === " ") && closedWithoutDoseCount > 0) {
-                e.preventDefault();
-                setClosedDrawerOpen(true);
-              }
-            }}
-          >
-            <div className="stripe"></div>
-            <div className="lbl">{copy(pageContract, "command_board.kpi.closed_without_dose")}</div>
-            <div className="val">{view.kpis.closedWithoutDose}</div>
-            <div className="dl">{copy(pageContract, "command_board.kpi.closed_without_dose_dl")}</div>
-          </div>
-        </div>
+              bug from animals whose obligations genuinely closed with no dose. The tile is the START
+              of the CEO's question: "3 closed with no dose" is followed every time by "which animals".
+              Gated on the COUNT, not on the list — the animals are fetched when the drawer opens. */}
+          <KpiCard
+            label={copy(pageContract, "command_board.kpi.closed_without_dose")}
+            value={view.kpis.closedWithoutDose}
+            tone="neutral"
+            icon={<CircleSlash size={20} aria-hidden="true" />}
+            hint={copy(pageContract, "command_board.kpi.closed_without_dose_dl")}
+            onClick={closedWithoutDoseCount > 0 ? openClosedDrawer : undefined}
+          />
+        </KpiGrid>
 
         {/* Shed × Vaccine, dose collapsed, red/green only.
             This sits ABOVE the dose-qualified matrix on purpose. The dose matrix answers "how much
@@ -953,33 +959,33 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="cbm-shed-section cbm-sv">
               <div className="cbm-section-head">
                 <h3>{copy(pageContract, "command_board.shed_vaccine.title")}</h3>
-                <span className="cbm-meta">{copy(pageContract, "command_board.shed_vaccine.meta")}</span>
+                <InfoHint className="cbm-meta" text={copy(pageContract, "command_board.shed_vaccine.meta")} />
               </div>
-              <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.shed_vaccine.title")}>
-                <table className="cbm-heat cbm-sv-heat">
-                  <thead>
-                    <tr>
-                      <th>{copy(pageContract, "command_board.shed_vaccine.column.shed")}</th>
+              <div className="cbm-hm twrap" style={{ maxWidth: "100%", overflowX: "auto" }} tabIndex={0} aria-label={copy(pageContract, "command_board.shed_vaccine.title")}>
+                <Table className="cbm-heat cbm-sv-heat">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">{copy(pageContract, "command_board.shed_vaccine.column.shed")}</TableCell>
                       {/* Header text is SERVER copy: the label travels with the column so the
                           client holds no vaccine-name table of its own. Falling back to the code
                           keeps an unlabelled catalogue vaccine visible instead of blank. */}
                       {view.shedVaccineColumns.map((column) => (
-                        <th key={column.code}>{column.label || column.code}</th>
+                        <TableCell component="th" key={column.code}>{column.label || column.code}</TableCell>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {shedOrder.map((shedPartitionKey) => {
                       const label = shedLabel.get(shedPartitionKey);
                       // Park is shown ONLY when the shed name is ambiguous in this payload, so the
                       // row stays as short as the ask demanded until ambiguity forces otherwise.
                       const ambiguous = (nameCount.get(label?.name ?? "")?.size ?? 0) > 1;
                       return (
-                        <tr key={shedPartitionKey}>
-                          <td className="cbm-sv-shed">
+                        <TableRow key={shedPartitionKey}>
+                          <TableCell className="cbm-sv-shed">
                             {label?.name}
                             {ambiguous && label?.park ? <span className="cbm-sv-shed-park">{label.park}</span> : null}
-                          </td>
+                          </TableCell>
                           {view.shedVaccineColumns.map((column) => {
                             const code = column.code;
                             const cell = cellsByShed.get(shedPartitionKey)?.get(code);
@@ -987,7 +993,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                             const behind = cell?.behindAnimals ?? 0;
                             const openable = isOpenableShedVaccineCell(cell);
                             return (
-                              <td
+                              <TableCell
                                 key={code}
                                 className={`cbm-sv-cell cbm-sv-${state}`}
                                 role={openable ? "button" : undefined}
@@ -1043,14 +1049,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                 <span className="sr-only">
                                   {copy(pageContract, `command_board.shed_vaccine.state.${state}`)}
                                 </span>
-                              </td>
+                              </TableCell>
                             );
                           })}
-                        </tr>
+                        </TableRow>
                       );
                     })}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
               <div className="cbm-legend cbm-sv-legend">
                 <span className="cbm-sv-behind"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.behind")}</span>
@@ -1071,26 +1077,26 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         <div className="cbm-shed-section cbm-pending-sheds">
           <div className="cbm-section-head">
             <h3>{copy(pageContract, "command_board.pending_sheds.title")}</h3>
-            <span className="cbm-meta">{copy(pageContract, "command_board.pending_sheds.meta")}</span>
+            <InfoHint className="cbm-meta" text={copy(pageContract, "command_board.pending_sheds.meta")} />
           </div>
           {pendingVaccinesByShed.length === 0 ? (
             <p className="cbm-empty">{copy(pageContract, "command_board.pending_sheds.empty")}</p>
           ) : (
-            <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.pending_sheds.title")}>
-              <table className="cbm-heat cbm-pending-table">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "command_board.pending_sheds.column.shed")}</th>
-                    <th>{copy(pageContract, "command_board.pending_sheds.column.park")}</th>
-                    <th>{copy(pageContract, "command_board.pending_sheds.column.vaccines")}</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div className="cbm-hm twrap" style={{ maxWidth: "100%", overflowX: "auto" }} tabIndex={0} aria-label={copy(pageContract, "command_board.pending_sheds.title")}>
+              <Table className="cbm-heat cbm-pending-table">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{copy(pageContract, "command_board.pending_sheds.column.shed")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.pending_sheds.column.park")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.pending_sheds.column.vaccines")}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {pendingVaccinesByShed.map((row) => (
-                    <tr key={row.key}>
-                      <td className="cbm-sv-shed">{row.name}</td>
-                      <td>{row.park ?? "—"}</td>
-                      <td className="cbm-pending-vaccines">
+                    <TableRow key={row.key}>
+                      <TableCell className="cbm-sv-shed">{row.name}</TableCell>
+                      <TableCell>{row.park ?? "—"}</TableCell>
+                      <TableCell className="cbm-pending-vaccines">
                         {row.cells
                           .sort((a, b) => a.label.localeCompare(b.label))
                           .map((cell) => {
@@ -1108,11 +1114,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                               </button>
                             );
                           })}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </div>
@@ -1153,19 +1159,19 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="cbm-shed-section">
               <div className="cbm-section-head">
                 <h3>{copy(pageContract, "command_board.shed_matrix.title")}</h3>
-                <span className="cbm-meta">{copy(pageContract, "command_board.shed_matrix.meta")}</span>
+                <InfoHint className="cbm-meta" text={copy(pageContract, "command_board.shed_matrix.meta")} />
               </div>
-              <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.shed_matrix.title")}>
-                <table className="cbm-heat">
-                  <thead>
-                    <tr>
-                      <th className="cbm-rowh">{copy(pageContract, "command_board.shed_matrix.column.shed")}</th>
+              <div className="cbm-hm twrap" style={{ maxWidth: "100%", overflowX: "auto" }} tabIndex={0} aria-label={copy(pageContract, "command_board.shed_matrix.title")}>
+                <Table className="cbm-heat">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th" className="cbm-rowh">{copy(pageContract, "command_board.shed_matrix.column.shed")}</TableCell>
                       {grid.byDose.map((dose) => (
-                        <th key={dose.key}>{dose.label}</th>
+                        <TableCell component="th" key={dose.key}>{dose.label}</TableCell>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {grid.byShed.map((row) => {
                       // Use shedId + partition for unique keying; render via operational_location_display or helper.
                       const shedKey = `${row.shedId}|${row.partitionLabel ?? ""}`;
@@ -1174,15 +1180,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         partitionLabel: row.partitionLabel,
                       });
                       return (
-                        <tr key={shedKey}>
-                          <th className="cbm-rowh">
+                        <TableRow key={shedKey}>
+                          <TableCell component="th" className="cbm-rowh">
                             {shedLabel}
                             {row.parkName ? <span className="cbm-rowh-note">{row.parkName}</span> : null}
-                          </th>
+                          </TableCell>
                           {grid.byDose.map((dose) => {
                             const cell = row.cells[dose.key];
                             if (!cell) {
-                              return <td key={dose.key} className="cbm-cell cbm-na">—</td>;
+                              return <TableCell key={dose.key} className="cbm-cell cbm-na">—</TableCell>;
                             }
                             const locationTitle = row.parkName ? `${shedLabel} · ${row.parkName}` : shedLabel;
                             // Completed cells show the operator's actual administration date. Verification
@@ -1195,7 +1201,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                             // verifier — the one fact the removed queue table added.
                             const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${shedKey}|${dose.label}`) : undefined;
                             return (
-                              <td
+                              <TableCell
                                 key={dose.key}
                                 className={`cbm-cell cbm-${cell.state}`}
                                 title={`${locationTitle} · ${cell.animalCount} animals${
@@ -1207,14 +1213,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                 {dateStr}
                                 {waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""}
                               </small>
-                            </td>
+                            </TableCell>
                             );
                           })}
-                        </tr>
+                        </TableRow>
                       );
                     })}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
               <div className="cbm-legend">
                 <span><i></i>{copy(pageContract, "command_board.shed_matrix.legend.verified")}</span>
@@ -1283,18 +1289,18 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 farms.map(({ farm, vaccines, rows }, farmIndex) => (
                   <div key={`${farm || "no-farm"}|${farmIndex}`} className="cbm-farm-block">
                     <h4 className="cbm-farm-name">{farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}</h4>
-                    <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.cohort_matrix.title")}>
-                      <table className="cbm-heat cbm-cohort-heat">
-                        <thead>
-                          <tr>
-                            <th className="cbm-rowh">{copy(pageContract, "command_board.cohort_matrix.column.stage")}</th>
+                    <div className="cbm-hm twrap" style={{ maxWidth: "100%", overflowX: "auto" }} tabIndex={0} aria-label={copy(pageContract, "command_board.cohort_matrix.title")}>
+                      <Table className="cbm-heat cbm-cohort-heat">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell component="th" className="cbm-rowh">{copy(pageContract, "command_board.cohort_matrix.column.stage")}</TableCell>
                             {vaccines.map((v) => (
-                              <th key={v}>{v}</th>
+                              <TableCell component="th" key={v}>{v}</TableCell>
                             ))}
-                            <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
+                            <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.column.animals")}</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
                           {rows.map((row, rowIndex) => {
                             // Three DISJOINT buckets, rendered together: the big number is what
                             // the OPERATOR still owes, and the sub-line carries what the VERIFIER
@@ -1314,7 +1320,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                               vaccines.map((v) => {
                                 const pending = pendingOf[v];
                                 if (!present || pending === undefined) {
-                                  return <td key={v} className="cbm-cell cbm-na">—</td>;
+                                  return <TableCell key={v} className="cbm-cell cbm-na">—</TableCell>;
                                 }
                                 const awaiting = submittedOf[v] ?? 0;
                                 const rework = rejectedReworkOf[v] ?? 0;
@@ -1323,7 +1329,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                 // pretend work was completed. `awaiting` is part of the guard —
                                 // a submitted-but-unverified cell is real work and must render.
                                 if (pending === 0 && awaiting === 0 && rework === 0 && done === 0) {
-                                  return <td key={v} className="cbm-cell cbm-na">—</td>;
+                                  return <TableCell key={v} className="cbm-cell cbm-na">—</TableCell>;
                                 }
                                 const pendingWord = copy(pageContract, "command_board.cohort_matrix.pending_word");
                                 const reworkWord = copy(pageContract, "command_board.cohort_matrix.rework_word");
@@ -1375,7 +1381,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                 };
                                 // Colour follows who owes the next move.
                                 return (
-                                  <td
+                                  <TableCell
                                     key={v}
                                     className={`cbm-cell cbm-cohort-cell ${pending > 0 ? "cbm-pending" : rework > 0 ? "cbm-rework" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}${selectedCell?.key === cellKey ? " cbm-cell-on" : ""}`}
                                     title={`${label} · ${v} · ${pending} ${pendingWord}, ${rework} ${reworkWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}`}
@@ -1407,25 +1413,28 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                     ) : done > 0 ? (
                                       <small className="cbm-cell-date">{copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</small>
                                     ) : null}
-                                  </td>
+                                  </TableCell>
                                 );
                               });
 
+                            // Two rows of one farm can share a cohort label (a stage split by
+                            // partition, or a stage-only row beside its shed rows), so the label
+                            // alone collided as a key. The row's position disambiguates.
                             return (
-                              <tr key={`${farm || "no-farm"}|${row.cohort}|${rowIndex}`}>
-                                <th className="cbm-rowh">
+                              <TableRow key={`${farm || "no-farm"}|${row.cohort}|${rowIndex}`}>
+                                <TableCell component="th" className="cbm-rowh">
                                   {row.cohort}
                                   {rowQualifier(pageContract, row.cohort) ? (
                                     <span className="cbm-rowh-note">{rowQualifier(pageContract, row.cohort)}</span>
                                   ) : null}
-                                </th>
+                                </TableCell>
                                 {cells}
-                                <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
-                              </tr>
+                                <TableCell className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</TableCell>
+                              </TableRow>
                             );
                           })}
-                        </tbody>
-                      </table>
+                        </TableBody>
+                      </Table>
                     </div>
                   </div>
                 ))
@@ -1442,37 +1451,37 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               </span>
             </div>
             <div className="cbm-future-table-wrap" tabIndex={0} aria-label={copy(pageContract, "command_board.future_drives.title")}>
-              <table className="cbm-future-table">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "command_board.future_drives.column.campaign")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.drive")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.dates")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.sheds")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.animals")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.doses")}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="cbm-future-table">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.campaign")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.drive")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.dates")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.sheds")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.animals")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.future_drives.column.doses")}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {futureCampaigns.flatMap((campaign) => campaign.treatments.map((drive, index) => (
-                    <tr key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
+                    <TableRow key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
                       {index === 0 && (
-                        <td rowSpan={campaign.treatments.length} className="cbm-campaign-cell">
+                        <TableCell rowSpan={campaign.treatments.length} className="cbm-campaign-cell">
                           <strong>{campaign.name}</strong>
                           <small>
                             {campaign.targetCount} {copy(pageContract, "command_board.future_drives.campaign_animals")} · {campaign.doseCount} {copy(pageContract, "command_board.future_drives.campaign_doses")}
                           </small>
-                        </td>
+                        </TableCell>
                       )}
-                      <td><strong>{drive.driveName}</strong></td>
-                      <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
-                      <td>{drive.shedNames.join(", ") || "—"}</td>
-                      <td><strong>{drive.targetCount}</strong></td>
-                      <td><strong>{drive.doseCount}</strong></td>
-                    </tr>
+                      <TableCell><strong>{drive.driveName}</strong></TableCell>
+                      <TableCell>{formatScheduledDriveDates(drive.dateKeys)}</TableCell>
+                      <TableCell>{drive.shedNames.join(", ") || "—"}</TableCell>
+                      <TableCell><strong>{drive.targetCount}</strong></TableCell>
+                      <TableCell><strong>{drive.doseCount}</strong></TableCell>
+                    </TableRow>
                   )))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </div>
         )}
@@ -1571,11 +1580,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 </p>
               ) : (
                 <>
-                  <table className="cbm-verify-table">
-                    <tbody>
+                  <Table className="cbm-verify-table">
+                    <TableBody>
                       {shedVaccineDrilldown.data.animals.map((animal) => (
-                        <tr key={animal.goatId}>
-                          <td>
+                        <TableRow key={animal.goatId}>
+                          <TableCell>
                             {/* EAR TAGS lead, both of them. Most of the herd carries two and an operator
                                 may be reading either ear, so printing one tag makes the row unmatchable
                                 at the animal. The internal id is not an identity on the farm and appears
@@ -1611,11 +1620,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                 {fmtDate(animal.dueAt ?? undefined)}
                               </span>
                             </div>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                   {/* The COUNT is whole-scope truth and the list is capped, so a shorter list must say
                       so rather than read as the complete set. */}
                   {shedVaccineDrilldown.data.animals.length < selectedShedVaccineCount && (
@@ -1654,22 +1663,22 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               </button>
             </div>
             <div className="db">
-              <table className="cbm-closed-table">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "command_board.closed_drawer.column.animal")}</th>
-                    <th>{copy(pageContract, "command_board.closed_drawer.column.location")}</th>
-                    <th>{copy(pageContract, "command_board.closed_drawer.column.vaccine")}</th>
-                    <th>{copy(pageContract, "command_board.closed_drawer.column.reason")}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="cbm-closed-table">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{copy(pageContract, "command_board.closed_drawer.column.animal")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.closed_drawer.column.location")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.closed_drawer.column.vaccine")}</TableCell>
+                    <TableCell component="th">{copy(pageContract, "command_board.closed_drawer.column.reason")}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {closedAnimals.map((animal) => (
-                    <tr key={animal.goatId}>
+                    <TableRow key={animal.goatId}>
                       {/* The tag on the animal's ear is what identifies it on the farm, so the
                           tags lead and the internal id sits under them. An animal may carry two;
                           both are shown so either ear matches. */}
-                      <td>
+                      <TableCell>
                         {animal.tag1 || animal.tag2 ? (
                           <>
                             {animal.tag1 ? <b>{animal.tag1}</b> : null}
@@ -1679,10 +1688,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         ) : (
                           <b>{animal.displayId}</b>
                         )}
-                      </td>
+                      </TableCell>
                       {/* Ground location, partition included -- the parent shed name alone would
                           send a park head to the wrong side of a partitioned shed. */}
-                      <td>
+                      <TableCell>
                         {/* locationDisplay, not operational_location_display. This drawer asked for
                             a field the server has never emitted -- the wire name is locationDisplay
                             (VaccinationCommandBoardClosedWithoutDoseAnimal) -- so the ground
@@ -1691,13 +1700,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                             the drawer moved onto the contract-typed drilldown payload. */}
                         {animal.locationDisplay}
                         <span className="cbm-closed-park">{animal.parkName}</span>
-                      </td>
-                      <td>{animal.vaccineLabel}</td>
-                      <td>{animal.reason}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell>{animal.vaccineLabel}</TableCell>
+                      <TableCell>{animal.reason}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               {(view.kpis.closedWithoutDose ?? 0) > closedAnimals.length ? (
                 <div className="cbm-cohort-detail-muted" style={{ marginTop: 10 }}>
                   {copy(pageContract, "command_board.closed_drawer.capped")} {view.kpis.closedWithoutDose}
@@ -1784,32 +1793,32 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
 
               {/* Sub-cohorts breakdown table */}
               {selectedCell.members.length > 0 ? (
-                <table className="cbm-cohort-detail-table">
-                  <thead>
-                    <tr>
-                      <th>{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</th>
-                      <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
-                      <th>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</th>
-                      <th>{copy(pageContract, "command_board.cohort_matrix.rework_word")}</th>
-                      <th>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</th>
-                      <th>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</th>
-                      <th>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="cbm-cohort-detail-table">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.column.animals")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.pending_word")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.rework_word")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.verified_word")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {selectedCell.members.map((member, index) => (
-                      <tr key={`${member.label}|${index}`}>
-                        <td>{member.label}</td>
-                        <td>{member.animals}</td>
-                        <td>{member.pending}</td>
-                        <td>{member.rejectedRework}</td>
-                        <td>{member.submitted}</td>
-                        <td>{member.verified}</td>
-                        <td>{member.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</td>
-                      </tr>
+                      <TableRow key={`${member.label}|${index}`}>
+                        <TableCell>{member.label}</TableCell>
+                        <TableCell>{member.animals}</TableCell>
+                        <TableCell>{member.pending}</TableCell>
+                        <TableCell>{member.rejectedRework}</TableCell>
+                        <TableCell>{member.submitted}</TableCell>
+                        <TableCell>{member.verified}</TableCell>
+                        <TableCell>{member.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               ) : null}
             </div>
           </aside>

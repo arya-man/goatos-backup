@@ -1,6 +1,12 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import Link from "@/components/no-prefetch-link";
+import { Caption } from "@/components/app/caption";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Syringe, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -185,54 +191,54 @@ function HerdDrawerVaccinationBlock({
 
           <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>{copy(pageContract, "vaccination.open_due_rows")}</div>
           {open.length === 0 ? (
-            <p className="muted small" style={{ margin: "0 0 12px" }}>{copy(pageContract, "vaccination.empty_open")}</p>
+            <Caption>{copy(pageContract, "vaccination.empty_open")}</Caption>
           ) : (
             <div style={{ overflowX: "auto", marginBottom: 12 }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
-              <table>
-                <thead>
-                  <tr>{openCols.slice(0, 4).map((label) => <th key={label}>{label}</th>)}</tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHead>
+                  <TableRow>{openCols.slice(0, 4).map((label) => <TableCell component="th" key={label}>{label}</TableCell>)}</TableRow>
+                </TableHead>
+                <TableBody>
                   {open.slice(0, DRAWER_ROW_LIMIT).map((due) => (
-                    <tr key={due.obligation_id}>
-                      <td>
+                    <TableRow key={due.obligation_id}>
+                      <TableCell>
                         <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
                         {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
                           <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
                         ) : null}
-                      </td>
-                      <td>{vaccineRowLabel(due)}</td>
-                      <td><Tag tone={obligationTone(due.status)}>{due.status}</Tag></td>
-                      <td><span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span></td>
-                    </tr>
+                      </TableCell>
+                      <TableCell>{vaccineRowLabel(due)}</TableCell>
+                      <TableCell><Tag tone={obligationTone(due.status)}>{due.status}</Tag></TableCell>
+                      <TableCell><span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span></TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               {open.length > DRAWER_ROW_LIMIT ? <p className="muted small" style={{ margin: "6px 0 0" }}>+{open.length - DRAWER_ROW_LIMIT} more</p> : null}
             </div>
           )}
 
           <div className="muted small" style={{ fontWeight: 700, marginBottom: 6 }}>{copy(pageContract, "vaccination.history")}</div>
           {history.length === 0 ? (
-            <p className="muted small" style={{ margin: 0 }}>{copy(pageContract, "vaccination.empty_history")}</p>
+            <Caption>{copy(pageContract, "vaccination.empty_history")}</Caption>
           ) : (
             <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
-              <table>
-                <thead>
-                  <tr>{historyCols.slice(0, 5).map((label) => <th key={label}>{label}</th>)}</tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHead>
+                  <TableRow>{historyCols.slice(0, 5).map((label) => <TableCell component="th" key={label}>{label}</TableCell>)}</TableRow>
+                </TableHead>
+                <TableBody>
                   {history.slice(0, DRAWER_ROW_LIMIT).map((h) => (
-                    <tr key={h.completion_id}>
-                      <td>{fmtDate(h.administered_at)}</td>
-                      <td>{vaccineRowLabel(h)}</td>
-                      <td><Tag tone={historyTone(h.status)}>{h.status}</Tag></td>
-                      <td>{proofLabel(h, pageContract)}</td>
-                      <td><span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span></td>
-                    </tr>
+                    <TableRow key={h.completion_id}>
+                      <TableCell>{fmtDate(h.administered_at)}</TableCell>
+                      <TableCell>{vaccineRowLabel(h)}</TableCell>
+                      <TableCell><Tag tone={historyTone(h.status)}>{h.status}</Tag></TableCell>
+                      <TableCell>{proofLabel(h, pageContract)}</TableCell>
+                      <TableCell><span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span></TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               {history.length > DRAWER_ROW_LIMIT ? <p className="muted small" style={{ margin: "6px 0 0" }}>+{history.length - DRAWER_ROW_LIMIT} more</p> : null}
             </div>
           )}

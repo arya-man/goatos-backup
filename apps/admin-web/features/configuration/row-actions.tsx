@@ -1,9 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { startTransition, useActionState, useEffect, useRef, useState } from "react";
+import { usePopover } from "minimal-shared/hooks";
+import IconButton from "@mui/material/IconButton";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import Typography from "@mui/material/Typography";
 
+import { CustomPopover } from "@/components/minimal/custom-popover";
+import { Iconify } from "@/components/minimal/iconify";
+import { TAP_MIN, phoneTapSx } from "@/components/minimal/_shared/tap";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { deleteRowAction, setRowStatusAction, type ConfigurationActionState } from "./configuration-actions";
 
@@ -26,6 +33,11 @@ import { deleteRowAction, setRowStatusAction, type ConfigurationActionState } fr
  * own sentence (`In use by 12 animals, 3 partitions`) shown verbatim. A built-in row offers only
  * Edit, because the backend refuses the other two for it and offering a button that always fails
  * is a worse answer than not offering it.
+ *
+ * The overflow is the template's table-row action pattern (sections/user/user-table-row.tsx):
+ * IconButton + usePopover + CustomPopover + MenuList. MUI Popover portals it to <body> (so no later
+ * row's cell can paint over it), places it against the trigger inside the viewport, and closes it
+ * on outside click and Escape.
  */
 
 const INITIAL_ACTION_STATE: ConfigurationActionState = { status: "idle", code: "", detail: "", fields: {}, ticket: 0 };
@@ -64,37 +76,16 @@ export function RowActions({
   };
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-  // The menu is positioned in VIEWPORT coordinates, not inside the row. The table scrolls in a
-  // `.tablewrap` with `overflow: auto`, so an absolutely positioned panel is CLIPPED by it: on the
-  // last rows of a page the menu rendered as a sliver below the row and its items could not be
-  // reached at all -- the same unusable state this whole change exists to remove. Measuring the
-  // button and drawing the panel `position: fixed` escapes the scroll container entirely, and it
-  // flips ABOVE the button when there is not enough room below.
-  const [anchor, setAnchor] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+  const menu = usePopover();
   const [confirming, setConfirming] = useState(false);
   const [statusState, statusFormAction, statusPending] = useActionState(setRowStatusAction, INITIAL_ACTION_STATE);
   const [deleteState, deleteFormAction, deletePending] = useActionState(deleteRowAction, INITIAL_ACTION_STATE);
-  const holder = useRef<HTMLDivElement | null>(null);
-  const trigger = useRef<HTMLButtonElement | null>(null);
-  const menu = useRef<HTMLDivElement | null>(null);
   const seen = useRef(0);
 
-  const place = useCallback(() => {
-    const button = trigger.current;
-    if (!button) return;
-    const rect = button.getBoundingClientRect();
-    const height = menu.current?.offsetHeight ?? 0;
-    const below = window.innerHeight - rect.bottom;
-    const right = Math.max(8, window.innerWidth - rect.right);
-    // Flip up only when the panel genuinely does not fit below AND there is more room above, so a
-    // menu near the top of a short window does not fly off the other edge instead.
-    if (height > 0 && below < height + 12 && rect.top > below) {
-      setAnchor({ bottom: Math.max(8, window.innerHeight - rect.top + 4), right });
-      return;
-    }
-    setAnchor({ top: rect.bottom + 4, right });
-  }, []);
+  const close = () => {
+    menu.onClose();
+    setConfirming(false);
+  };
 
   // A success closes the menu and re-reads the table in place; the row it acted on either changes
   // chip or disappears. Closing is state derived from the new ticket, so it happens during render
@@ -105,10 +96,7 @@ export function RowActions({
   const [closedFor, setClosedFor] = useState(0);
   if (ticket !== closedFor) {
     setClosedFor(ticket);
-    if (succeeded) {
-      setOpen(false);
-      setConfirming(false);
-    }
+    if (succeeded) close();
   }
   useEffect(() => {
     if (ticket === seen.current) return;
@@ -116,60 +104,24 @@ export function RowActions({
     if (succeeded) router.refresh();
   }, [ticket, succeeded, router]);
 
-  // Measure before paint so the panel never appears in the wrong place for a frame.
-  useLayoutEffect(() => {
-    if (open) place();
-  }, [open, confirming, place]);
+  // Both writes post the same server actions the drawer posts; the row identity travels as form data.
+  const rowForm = () => {
+    const form = new FormData();
+    form.set("register", register);
+    form.set("row_id", rowId);
+    form.set("row_version", String(rowVersion));
+    return form;
+  };
+  const submitStatus = () => {
+    const form = rowForm();
+    form.set("status", status === "archived" ? "active" : "archived");
+    startTransition(() => statusFormAction(form));
+  };
+  const submitDelete = () => {
+    const form = rowForm();
+    startTransition(() => deleteFormAction(form));
+  };
 
-  // Outside click and Escape close the menu, the same way every other overlay on this product does.
-  // A scroll or resize RE-PLACES it rather than closing it: the browser scrolls a button near the
-  // edge into view as part of clicking it, so dismissing on scroll shut the menu in the very case
-  // the fixed positioning exists for. It closes only once its own row has left the viewport, where
-  // a floating panel would be pointing at nothing.
-  useEffect(() => {
-    if (!open) return;
-    const dismiss = () => {
-      setOpen(false);
-      setConfirming(false);
-    };
-    const follow = () => {
-      const rect = trigger.current?.getBoundingClientRect();
-      if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) {
-        dismiss();
-        return;
-      }
-      place();
-    };
-    window.addEventListener("resize", follow);
-    window.addEventListener("scroll", follow, true);
-    const onDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (menu.current?.contains(target)) return;
-      if (holder.current && !holder.current.contains(target)) {
-        setOpen(false);
-        setConfirming(false);
-      }
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        setConfirming(false);
-      }
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("resize", follow);
-      window.removeEventListener("scroll", follow, true);
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open, place]);
-
-  // The panel is PORTALLED to the body, not left in the row. Fixed positioning alone was not
-  // enough: each row's action cell is its own positioned box, so a later row's cell painted over
-  // the open panel and swallowed the click -- the menu looked right and did nothing, which is
-  // worse than the clipping it replaced. Out at the body there is no ancestor to compete with.
   const offerStatus = canSetStatus && !isBuiltin;
   const offerDelete = canDelete && !isBuiltin;
   const refusal =
@@ -177,77 +129,70 @@ export function RowActions({
     (deleteState.status === "error" ? deleteState.detail || labels.failed : "");
 
   return (
-    <div className="cfg-rowacts" ref={holder}>
+    <div className="cfg-rowacts">
       {canEdit ? (
         <LocalOverlayLink href={editHref} scroll={false} className="btn sm ghost">
           {labels.edit}
         </LocalOverlayLink>
       ) : null}
       {offerStatus || offerDelete ? (
-        <button
-          type="button"
-          ref={trigger}
-          className="btn sm ghost cfg-rowacts-more"
+        <IconButton
           aria-haspopup="menu"
-          aria-expanded={open}
+          aria-expanded={menu.open}
           aria-label={labels.more}
-          onClick={() => {
+          color={menu.open ? "inherit" : "default"}
+          onClick={(event) => {
             setConfirming(false);
-            setOpen((current) => !current);
+            menu.onOpen(event);
           }}
+          sx={phoneTapSx}
         >
-          &#8943;
-        </button>
+          <Iconify icon="eva:more-vertical-fill" />
+        </IconButton>
       ) : null}
-      {open && typeof document !== "undefined"
-        ? createPortal(
-        <div
-          className="cfg-rowacts-menu"
-          role="menu"
-          ref={menu}
-          data-row-actions={rowId}
-          style={{ top: anchor?.top, bottom: anchor?.bottom, right: anchor?.right ?? 0, visibility: anchor ? "visible" : "hidden" }}
-        >
+      <CustomPopover
+        open={menu.open}
+        anchorEl={menu.anchorEl}
+        onClose={close}
+        slotProps={{ arrow: { placement: "right-top" }, paper: { sx: { maxWidth: 280 } } }}
+      >
+        <MenuList aria-label={labels.more}>
           {offerStatus ? (
-            <form action={statusFormAction} aria-busy={statusPending}>
-              <input type="hidden" name="register" value={register} />
-              <input type="hidden" name="row_id" value={rowId} />
-              <input type="hidden" name="row_version" value={rowVersion} />
-              <input type="hidden" name="status" value={status === "archived" ? "active" : "archived"} />
-              <button type="submit" role="menuitem" disabled={statusPending}>
-                {status === "archived" ? labels.activate : labels.deactivate}
-              </button>
-            </form>
+            <MenuItem disabled={statusPending} aria-busy={statusPending} onClick={submitStatus} sx={phoneTapSx}>
+              {status === "archived" ? labels.activate : labels.deactivate}
+            </MenuItem>
+          ) : null}
+          {offerDelete && confirming ? (
+            <li>
+              <Typography variant="caption" component="p" sx={{ px: 1, py: 0.5, color: "text.secondary" }}>
+                {labels.confirmRemove}
+              </Typography>
+            </li>
           ) : null}
           {offerDelete ? (
-            confirming ? (
-              <form action={deleteFormAction} aria-busy={deletePending} className="cfg-rowacts-confirm">
-                <input type="hidden" name="register" value={register} />
-                <input type="hidden" name="row_id" value={rowId} />
-                <input type="hidden" name="row_version" value={rowVersion} />
-                <p>{labels.confirmRemove}</p>
-                <button type="submit" role="menuitem" className="cfg-rowacts-danger" disabled={deletePending}>
-                  {labels.remove}
-                </button>
-                <button type="button" role="menuitem" onClick={() => setConfirming(false)}>
-                  {labels.cancel}
-                </button>
-              </form>
-            ) : (
-              <button type="button" role="menuitem" className="cfg-rowacts-danger" onClick={() => setConfirming(true)}>
-                {labels.remove}
-              </button>
-            )
+            <MenuItem
+              disabled={deletePending}
+              aria-busy={deletePending}
+              onClick={confirming ? submitDelete : () => setConfirming(true)}
+              sx={(theme) => ({ color: theme.palette.error.main, [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } })}
+            >
+              {labels.remove}
+            </MenuItem>
+          ) : null}
+          {offerDelete && confirming ? (
+            <MenuItem onClick={() => setConfirming(false)} sx={phoneTapSx}>
+              {labels.cancel}
+            </MenuItem>
           ) : null}
           {refusal ? (
-            <p className="cfg-rowacts-error" role="status" aria-live="polite">
-              {refusal}
-            </p>
+            <li role="status" aria-live="polite">
+              <Typography variant="caption" component="p" sx={{ px: 1, py: 0.5, color: "error.main" }}>
+                {refusal}
+              </Typography>
+            </li>
           ) : null}
-        </div>,
-            document.body,
-          )
-        : null}
+        </MenuList>
+      </CustomPopover>
     </div>
   );
 }

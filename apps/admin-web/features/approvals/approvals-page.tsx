@@ -1,9 +1,14 @@
 import Link from "@/components/no-prefetch-link";
-import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { Gavel } from "lucide-react";
+import { ArrowLeftRight, Clock3, HeartPulse, ListChecks } from "lucide-react";
 
-import { Tag, type Tone } from "@/components/ui-primitives";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { reviewQueueStyles as rq } from "@/components/review-queue/review-queue-ui";
+
+import { LinkSelect } from "@/components/app/link-select";
 import {
   firstAuthRequiredError,
   getAdminWebApproval,
@@ -14,12 +19,15 @@ import {
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDateTime, todayIso } from "@/lib/format";
+import { todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
 import { ApprovalsDrawer } from "./approvals-drawer";
 import { ApprovalsDateFilter } from "./approvals-date-filter";
-import { approvalDateRange, approvalStatusLabel, approvalSubject, approvalSuccessSentence } from "./approval-display";
+import { ApprovalsQueueTable, approvalsHref } from "./approvals-queue-table";
+import { approvalDateRange, approvalSubject, approvalSuccessSentence } from "./approval-display";
+import ap from "./approvals.module.css";
+import Alert from "@mui/material/Alert";
 
 const PATHNAME = "/approvals";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -64,8 +72,9 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
 
   // Type and farm are applied by the server (and bound into its cursor), so every page is already
   // narrowed; the page never filters a fetched page client-side, which used to hide older rows.
-  const items = queue.ok ? queue.data.items : [];
+  const items = queue.ok ? listOrEmpty(queue.data.items) : [];
   const nextCursor = queue.ok ? queue.data.next_cursor ?? "" : "";
+  const subjects = Object.fromEntries(items.map((item) => [item.approval_request_id, approvalSubject(item, locationNames)]));
 
   const selectedId = one(sp, "ap_row");
   // A link to a request that is not on this page (older than the first 20, or under another tab
@@ -84,237 +93,129 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const successSentence = approvalSuccessSentence(feedback.status, feedback.code);
 
   return (
-    <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            <b>{COPY.title}</b>
-          </div>
-          <h1>{COPY.title}</h1>
-          <div className="sub">{COPY.subtitle}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-      </div>
+    <div className={`screen on ${rq.root}`}>
+      <PageHeader title={COPY.title} crumbs={[{ label: COPY.title }]} />
 
       {successSentence ? (
-        <div className="alert ok" role="status" style={{ marginBottom: 14 }}>
+        <Alert severity="success" role="status" style={{ marginBottom: "var(--sp-1h)" }}>
           <b>{successSentence}</b>
-        </div>
+        </Alert>
       ) : null}
 
       {queue.ok ? null : (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           <b>{COPY.error.queueUnavailable}</b>
           <div className="small" style={{ marginTop: 4 }}>
             {COPY.error.queueUnavailableBody}
           </div>
-        </div>
+        </Alert>
       )}
 
-      <div className="grid g4" style={{ marginBottom: 16 }}>
-        <KPI label={COPY.kpi.pendingInView} value={String(countStatus(items, "pending"))} tone="warn" />
-        <KPI
-          label={COPY.kpi.birthDeathInView}
-          value={String(items.filter((i) => i.request_type === "birth" || i.request_type === "death").length)}
-          tone="info"
+      {/* A deck of zeros is a wall, not a reading: the tiles render only once the view has rows. */}
+      {items.length > 0 ? (
+      <div className={rq.kpis}>
+        <KpiGrid min={200}>
+          <KpiCard label={COPY.kpi.pendingInView} value={countStatus(items, "pending")} tone="warning" icon={<Clock3 />} />
+          <KpiCard
+            label={COPY.kpi.birthDeathInView}
+            value={items.filter((i) => i.request_type === "birth" || i.request_type === "death").length}
+            tone="info"
+            icon={<HeartPulse />}
+          />
+          <KpiCard label={COPY.kpi.shiftingInView} value={items.filter((i) => i.request_type === "shifting").length} tone="violet" icon={<ArrowLeftRight />} />
+          <KpiCard label={COPY.kpi.rowsInView} value={items.length} tone="success" icon={<ListChecks />} />
+        </KpiGrid>
+      </div>
+      ) : null}
+
+      {/* One toolbar row, MUI list style: the request-type tabs, then the status, farm and date
+          filters on the same line (they wrap under the tabs on a phone). The type tabs carry no
+          counts: the server applies the type filter, so the fetched page cannot count other types. */}
+      <div className={`${rq.tabs} ${ap.toolbar}`}>
+        <AnimatedTabs
+          className={`kit-count-tabs ${ap.typeTabs}`}
+          ariaLabel="Request type"
+          value={typeFilter}
+          items={TYPE_TABS.map((key) => ({
+            value: key,
+            label: COPY.typeTab[key],
+            href: hrefWith(sp, { type: key === "all" ? null : key, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null }),
+          }))}
         />
-        <KPI label={COPY.kpi.shiftingInView} value={String(items.filter((i) => i.request_type === "shifting").length)} tone="info" />
-        <KPI label={COPY.kpi.rowsInView} value={String(items.length)} tone="ok" />
-      </div>
-
-      <div className="subtabs" style={{ marginBottom: 12 }}>
-        {STATUS_TABS.map((key) => (
-          <Link
-            key={key}
-            href={hrefWith(sp, { status: key, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null })}
-            replace
-            scroll={false}
-            className={status === key ? "on" : ""}
-          >
-            {COPY.statusTab[key]}
-          </Link>
-        ))}
-      </div>
-
-      <div className="subtabs" style={{ marginBottom: 12 }}>
-        {TYPE_TABS.map((key) => (
-          <Link
-            key={key}
-            href={hrefWith(sp, { type: key === "all" ? null : key, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null })}
-            replace
-            scroll={false}
-            className={typeFilter === key ? "on" : ""}
-          >
-            {COPY.typeTab[key]}
-          </Link>
-        ))}
-      </div>
-
-      {/* Farm filter — the top-level park each request belongs to (Coimbatore / Channapatna). */}
-      <div className="subtabs" style={{ marginBottom: 14 }}>
-        <Link
-          href={hrefWith(sp, { farm: null, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null })}
-          replace
-          scroll={false}
-          className={farmFilter === "" ? "on" : ""}
-        >
-          {COPY.farmTab.all}
-        </Link>
-        {farms.map((farm) => (
-          <Link
-            key={farm.id}
-            href={hrefWith(sp, { farm: farm.id, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null })}
-            replace
-            scroll={false}
-            className={farmFilter === farm.id ? "on" : ""}
-          >
-            {farm.name}
-          </Link>
-        ))}
-      </div>
-
-      <div style={{ marginBottom: 14 }}>
-        <ApprovalsDateFilter
-          labels={{
-            field: COPY.dateFilter.field,
-            today: COPY.dateFilter.today,
-            single: COPY.dateFilter.single,
-            range: COPY.dateFilter.range,
-            aria: COPY.dateFilter.aria,
-            previousMonth: COPY.dateFilter.previousMonth,
-            nextMonth: COPY.dateFilter.nextMonth,
-            rangeStartHint: COPY.dateFilter.rangeStartHint,
-            rangeEndHint: COPY.dateFilter.rangeEndHint,
-            rangeSeparator: COPY.dateFilter.rangeSeparator,
-          }}
-          from={dateRange.from}
-          to={dateRange.to}
-          today={todayIso()}
-          anyLabel={COPY.dateFilter.any}
-          clearLabel={COPY.dateFilter.clear}
-          basePath={PATHNAME}
-        />
-      </div>
-
-      <section className="card" style={{ minWidth: 0 }}>
-        <div className="hd">
-          <Gavel className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          <h3>{COPY.title}</h3>
+        <div className={ap.filters}>
+          <LinkSelect
+            label={COPY.filter.status}
+            value={status}
+            minWidth={140}
+            options={STATUS_TABS.map((key) => ({
+              value: key,
+              label: COPY.statusTab[key],
+              href: hrefWith(sp, { status: key, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null }),
+            }))}
+          />
+          {/* Farm filter: the top-level park each request belongs to (Coimbatore / Channapatna). */}
+          <LinkSelect
+            label={COPY.filter.farm}
+            value={farmFilter === "" ? "__all" : farmFilter}
+            minWidth={160}
+            options={[
+              { value: "__all", label: COPY.farmTab.all, href: hrefWith(sp, { farm: null, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null }) },
+              ...farms.map((farm) => ({
+                value: farm.id,
+                label: farm.name,
+                href: hrefWith(sp, { farm: farm.id, ap_row: null, ap_cursor: null, ap_status: null, ap_code: null }),
+              })),
+            ]}
+          />
+          <ApprovalsDateFilter
+            labels={{
+              field: COPY.dateFilter.field,
+              today: COPY.dateFilter.today,
+              single: COPY.dateFilter.single,
+              range: COPY.dateFilter.range,
+              aria: COPY.dateFilter.aria,
+              previousMonth: COPY.dateFilter.previousMonth,
+              nextMonth: COPY.dateFilter.nextMonth,
+              rangeStartHint: COPY.dateFilter.rangeStartHint,
+              rangeEndHint: COPY.dateFilter.rangeEndHint,
+              rangeSeparator: COPY.dateFilter.rangeSeparator,
+            }}
+            from={dateRange.from}
+            to={dateRange.to}
+            today={todayIso()}
+            anyLabel={COPY.dateFilter.any}
+            clearLabel={COPY.dateFilter.clear}
+            basePath={PATHNAME}
+          />
         </div>
-        <div className="bd twrap" style={{ padding: 0 }} tabIndex={0} role="group">
-          <table data-enh="1">
-            <thead>
-              <tr>
-                {COPY.table.columns.map((label) => (
-                  <th key={label}>{label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 ? (
-                <tr>
-                  <td colSpan={COPY.table.columns.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {queue.ok ? COPY.error.empty : COPY.error.queueUnavailable}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => (
-                  <ApprovalRow key={item.approval_request_id} item={item} searchParams={sp} locationNames={locationNames} />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        {cursor || nextCursor ? (
-          <div className="pager" style={{ padding: "10px 12px", justifyContent: "flex-end", flexWrap: "wrap" }}>
-            {cursor ? (
-              <Link href={hrefWith(sp, { ap_cursor: null, ap_row: null, ap_status: null, ap_code: null })} replace scroll={false} className="btn sm">
-                {COPY.pager.first}
-              </Link>
-            ) : null}
-            {nextCursor ? (
-              <Link href={hrefWith(sp, { ap_cursor: nextCursor, ap_row: null, ap_status: null, ap_code: null })} replace scroll={false} className="btn sm">
-                {COPY.pager.next}
-              </Link>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
+      </div>
+
+      <ApprovalsQueueTable
+        items={items}
+        ok={queue.ok}
+        searchParams={sp}
+        subjects={subjects}
+        footer={
+          cursor || nextCursor ? (
+            <div className="pager" style={{ padding: "var(--sp-1) var(--sp-1h)", justifyContent: "flex-end", flexWrap: "wrap" }}>
+              {cursor ? (
+                <Link href={hrefWith(sp, { ap_cursor: null, ap_row: null, ap_status: null, ap_code: null })} replace scroll={false} className="btn sm">
+                  {COPY.pager.first}
+                </Link>
+              ) : null}
+              {nextCursor ? (
+                <Link href={hrefWith(sp, { ap_cursor: nextCursor, ap_row: null, ap_status: null, ap_code: null })} replace scroll={false} className="btn sm">
+                  {COPY.pager.next}
+                </Link>
+              ) : null}
+            </div>
+          ) : null
+        }
+      />
 
       <ApprovalsDrawer items={drawerItems} initialSelectedId={selectedId} searchParams={sp} feedback={feedback} locationNames={locationNames} />
     </div>
   );
-}
-
-function ApprovalRow({
-  item,
-  searchParams,
-  locationNames,
-}: {
-  item: AdminWebApprovalItem;
-  searchParams: RouteSearchParams;
-  locationNames: Record<string, string>;
-}) {
-  const href = hrefWith(searchParams, { ap_row: item.approval_request_id, ap_status: null, ap_code: null });
-  const subject = approvalSubject(item, locationNames);
-  return (
-    <tr>
-      <td>
-        <Tag tone={item.request_type === "shifting" ? "info" : "warn"}>{titleCaseType(item.request_type)}</Tag>
-      </td>
-      <td>{subject}</td>
-      <td className="muted">{item.raised_by_name ?? ""}</td>
-      <td className="muted" style={{ whiteSpace: "nowrap" }}>
-        {fmtDateTime(item.raised_at)}
-      </td>
-      <td>
-        <Tag tone={statusTone(item.status)}>{approvalStatusLabel(item.status)}</Tag>
-      </td>
-      <td>
-        <LocalOverlayLink href={href} className="btn sm" scroll={false}>
-          Review
-        </LocalOverlayLink>
-      </td>
-    </tr>
-  );
-}
-
-function KPI({ label, value, tone }: { label: string; value: string; tone: Tone }) {
-  return (
-    <div className="kpi">
-      <span className="acc" style={{ background: accentForTone(tone) }} aria-hidden="true" />
-      <div className="lab">{label}</div>
-      <div className="val">{value}</div>
-    </div>
-  );
-}
-
-function titleCaseType(v: string): string {
-  return v ? v.charAt(0).toUpperCase() + v.slice(1) : v;
-}
-
-function statusTone(status: AdminWebApprovalStatus): Tone {
-  if (status === "rejected") return "dng";
-  if (status === "approved") return "ok";
-  if (status === "cancelled") return "info";
-  return "warn";
-}
-
-function accentForTone(toneValue: Tone) {
-  switch (toneValue) {
-    case "ok":
-      return "#6fd043";
-    case "warn":
-      return "#f7c948";
-    case "dng":
-      return "#ff6b6b";
-    case "info":
-      return "#5da8ff";
-    default:
-      return "#7a8b78";
-  }
 }
 
 function countStatus(items: AdminWebApprovalItem[], status: AdminWebApprovalStatus): number {
@@ -322,18 +223,5 @@ function countStatus(items: AdminWebApprovalItem[], status: AdminWebApprovalStat
 }
 
 function hrefWith(params: RouteSearchParams, updates: Record<string, string | null | undefined>): string {
-  const next = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (Array.isArray(value)) {
-      for (const item of value) next.append(key, item);
-    } else if (value) {
-      next.set(key, value);
-    }
-  }
-  for (const [key, value] of Object.entries(updates)) {
-    if (value === null || value === undefined || value === "") next.delete(key);
-    else next.set(key, value);
-  }
-  const qs = next.toString();
-  return qs ? `${PATHNAME}?${qs}` : PATHNAME;
+  return approvalsHref(params, updates);
 }

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import test from "node:test";
 
 import {
+  notificationAction,
+  notificationChips,
+  notificationInitials,
   applyLocallyRead,
   idsToMarkAllRead,
   isNotificationRead,
@@ -115,4 +118,21 @@ test("mark-all sends the ids still unread, never a timestamp sweep", () => {
 test("blank and duplicate ids are dropped before a write leaves", () => {
   assert.deepEqual(normalizeNotificationIds([" n-1 ", "n-1", "", "  ", "n-2"]), ["n-1", "n-2"]);
   assert.deepEqual(normalizeNotificationIds([]), []);
+});
+
+test("inline action only for a task id or a load id; chips from short context values; initials", () => {
+  const base = { notification_request_id: "n", notification_type: "x", title: "t", body: "", status: "queued", requested_at: "2026-09-19T00:00:00Z" };
+  const task = "3f1c2a7e-9b1d-4c0a-8e2f-5a6b7c8d9e0f";
+  assert.equal(notificationAction({ ...base, context: { task_id: task } }).kind, "task");
+  assert.equal(notificationAction({ ...base, context: { load_id: task, load_ref: "101" } }).href, `/sales/loads?load=${task}`);
+  assert.equal(notificationAction({ ...base, context: { load_id: "not-a-uuid" } }), undefined);
+  assert.equal(notificationAction({ ...base, context: { href: "/evil" } }), undefined);
+  assert.deepEqual(notificationAction({ ...base, context: { screen: "sales_loads" } }), { kind: "load", href: "/sales/loads" });
+  assert.equal(notificationAction({ ...base, context: { screen: "leadership_task" } }), undefined);
+  assert.deepEqual(notificationChips({ ...base, context: { task_no: "T-214", priority: "high", status: "open", farm: "CPT" } }), ["T-214", "high", "open"]);
+  assert.deepEqual(notificationChips({ ...base, context: { status: "x".repeat(30) } }), []);
+  assert.deepEqual(notificationChips({ ...base, context: { priority: "normal", task_no: "T-1" } }), ["T-1"]);
+  assert.equal(notificationInitials("Ramesh Reddy"), "RR");
+  assert.equal(notificationInitials("Ravi"), "R");
+  assert.equal(notificationInitials(undefined), "");
 });

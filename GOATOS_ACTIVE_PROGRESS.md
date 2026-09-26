@@ -1,6 +1,33 @@
 # Goat OS Active Progress
 
-Last updated: 2026-09-16 00:35 IST
+Last updated: 2026-09-21 03:16 IST
+
+## Current Task: PR294 visual overhaul + API latency follow-up
+
+- Scope: continue PR #294 toward the Minimal Dashboard visual direction while keeping Mesha brand
+  colors, and keep the API latency gate from regressing.
+- Baseline artifact SHA/API stamp: `7e4c0b23fca256383690bb88fbce7d3ed7e8a807`.
+- Promotion state: PR branch only; no merge, no main push, no staging deploy.
+- Current local API: `127.0.0.1:18086`; rebuild/restart it after committing this wave before
+  claiming latency improvement.
+- Baseline red samples:
+  - `vaccination_operations`: p50 `484.9ms`, p90 `520.8ms`, p95 `522.2ms`,
+    p99 `530.5ms`.
+  - `vaccination_command_board`: p50 `275.9ms`, p90 `337.9ms`,
+    p95 `360.3ms`, p99 `362.5ms`.
+  - `vaccination_command_shed_dose_matrix`: p50 `524.8ms`, p90 `532.4ms`,
+    p95 `544.4ms`, p99 `631.7ms`.
+  - `work_board_page_cpt`: p50 `220.6ms`, p90 `302.1ms`, p95 `333.3ms`,
+    p99 `363.2ms`.
+- Planned safe edit: one backend SQL planner-fence patch in
+  `backend/internal/vaccinationexecution/adapters/postgres/commandboard_sql.go`
+  for the shed-dose matrix CTEs, matching the existing PR294 command-board
+  latency pattern from nearby SQL. Validate with focused command-board Go tests
+  plus `git diff --check`.
+- Additional local edits now present:
+  - vaccination command-board/cohort/shed-dose live cache keys use the explicit/live snapshot helper;
+  - mobile tabs, Work Board lanes and Procurement Vendors mobile card layout were patched;
+  - focused tests/typecheck/webview integrity are green, but latency rerun is still pending.
 
 ## Current State
 

@@ -17,10 +17,16 @@ const dialogShell = read("./use-dialog-shell.tsx");
 // `meta.cellClassName` reaches only the `<td>`s. A column dropped at phone width therefore left
 // the header row one cell longer than every body row, so the labels after it sat over the wrong
 // column. The header cell needs the class too, which is what `meta.headerClassName` is for.
+// The header row is the template TableHeadCustom: each head cell carries `className`.
 assert.match(
   dataTable,
-  /<th\b[\s\S]{0,200}?className=\{meta\?\.headerClassName\}/,
+  /className: meta\?\.headerClassName/,
   "components/data-table.tsx must apply meta.headerClassName to the header cell",
+);
+assert.match(
+  readFileSync(new URL("../../components/minimal/table/table-head-custom.tsx", import.meta.url), "utf8"),
+  /className=\{headCell\.className\}/,
+  "TableHeadCustom must put the head cell className on the <th>",
 );
 const urgencyMetas = table.match(/meta: \{ cellClassName: "lt-days-col"[^}]*\}/g) ?? [];
 assert.equal(urgencyMetas.length, 3, "all three spellings of the urgency column carry the class");

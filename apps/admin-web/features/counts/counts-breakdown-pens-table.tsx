@@ -6,6 +6,7 @@ import { ChevronRight } from "lucide-react";
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { copy, type AdminUiPageContract, type AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { operationalLocationLabel } from "@/lib/operational-location";
+import { stageLabel } from "@/lib/stage-labels";
 
 import { CensusValueEditor, type CensusSlice } from "./census-value-editor";
 import {
@@ -20,6 +21,7 @@ import {
 import type { InlineChoice } from "./inline-cell-editor";
 import { ShedTagEditor } from "./shed-tag-editor";
 import type { StageOption } from "./shed-stage-actions";
+import Button from "@mui/material/Button";
 
 /**
  * The Counts Breakdown pen table: one line per pen carrying its whole head count with the breed,
@@ -191,7 +193,7 @@ export function CountsBreakdownPensTable({
                   shedId={pen.shed_id}
                   partitionLabel={pen.partition_label ?? ""}
                   currentTag={pen.stages[0].key}
-                  currentTagLabel={stageLabels.get(pen.stages[0].key) ?? pen.stages[0].label}
+                  currentTagLabel={stageLabels.get(pen.stages[0].key) ?? stageLabel(pen.stages[0].label)}
                   emptyLabel={noStageLabel}
                   stages={stages}
                   enabled={retagEnabled}
@@ -281,17 +283,21 @@ export function CountsBreakdownPensTable({
 
   return (
     <>
-      <div className="xbar">
-        <span className="small muted">{copy(pageContract, "action.expand.hint")}</span>
+      {/* Table toolbar: the pen count on the left, expand/collapse as a soft kit button on the
+          right — the same row anatomy as every other table card, not a lone button. */}
+      <div className="xbar cb-xbar">
+        <span className="muted small">{pens.length} {copy(pageContract, "table.pens.noun")}{pens.length === 1 ? "" : "s"}</span>
         <span className="sp" />
-        <button
+        <Button
           type="button"
-          className="btn sm"
+          variant="soft"
+          color="inherit"
+          size="small"
           disabled={pens.length === 0}
           onClick={() => setOpen(everyOpen ? new Set() : new Set(pens.map(penRowId)))}
         >
           {everyOpen ? copy(pageContract, "action.collapse_all") : copy(pageContract, "action.expand_all")}
-        </button>
+        </Button>
       </div>
       <DataTable
         className="counts-breakdown-table counts-pens-table"
@@ -319,14 +325,14 @@ export function CountsBreakdownPensTable({
                     shedId={row.shed_id}
                     partitionLabel={row.partition_label ?? ""}
                     currentTag={row.management_stage}
-                    currentTagLabel={stageLabels.get(row.management_stage) ?? row.management_stage}
+                    currentTagLabel={stageLabels.get(row.management_stage) ?? stageLabel(row.management_stage)}
                     emptyLabel={noStageLabel}
                     stages={stages}
                     enabled={retagEnabled}
                     disabledReason={retagDisabledReason}
                   />
                 ) : (
-                  (stageLabels.get(row.management_stage) ?? row.management_stage) || noStageLabel
+                  (stageLabels.get(row.management_stage) ?? stageLabel(row.management_stage)) || noStageLabel
                 ),
                 breed: row.shed_id ? (
                   <CensusValueEditor

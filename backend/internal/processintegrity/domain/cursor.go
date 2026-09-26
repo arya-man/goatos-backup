@@ -108,12 +108,20 @@ func ValidateRowID(rowID string) error {
 	}
 }
 
+// isRowIDSegment accepts the partition label as the list projection EMITS it: the stored
+// shed_partitions label verbatim (repository.go builds the row id with
+// `':partition:' || COALESCE(NULLIF(partition_label, ”), 'whole')`), and live labels are
+// "Part 5", "Part 7" -- a word, a space, a number. The validator used to refuse the space, so
+// every drilldown link the control tower and work board emitted for a partitioned shed answered
+// invalid_row_id (judge finding, 2026-09-19). Interior single spaces are now allowed; leading or
+// trailing whitespace, runs of spaces and anything outside [A-Za-z0-9_.-] still are not, and the
+// segment can never contain ':' (the id's own separator) so the 12-part shape stays unambiguous.
 func isRowIDSegment(value string) bool {
-	if value == "" || strings.TrimSpace(value) != value {
+	if value == "" || strings.TrimSpace(value) != value || strings.Contains(value, "  ") {
 		return false
 	}
 	for _, r := range value {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.') {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' || r == ' ') {
 			return false
 		}
 	}

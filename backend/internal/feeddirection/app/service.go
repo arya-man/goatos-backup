@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -113,6 +114,9 @@ type Service struct {
 	// analytics is the OPTIONAL windowed directed-rollup reader behind the Feed
 	// Analytics page. Without it, DirectedAnalytics fails closed. See analytics.go.
 	analytics ports.DirectedAnalyticsReader
+	// servedSheetCache keeps immutable locked feed sheets off the hot path. Only fully locked
+	// sheets are stored; issued/amended sheets can still change until transport cutoff.
+	servedSheetCache sync.Map // map[string]servedSheetCacheEntry
 }
 
 func NewService(config ports.ConfigRepository, counts ports.ShedCountsReader) *Service {
@@ -544,23 +548,31 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
+	// The filter vocabulary (three bounded catalog reads) does not depend on the sheet, so it is
+	// read CONCURRENTLY with the sheet (2026-09-19): sequenced after it, those three round trips
+	// sat on the page's critical path behind the sheet's own reads on every render.
+	filtersCh := make(chan filtersResult, 1)
+	go func() {
+		filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, normalized.AuthorizedParkIDs)
+		filtersCh <- filtersResult{filters: filters, err: err}
+	}()
 	var page domain.PreviewPage
 	if normalized.Draft {
 		page, err = s.previewDraft(ctx, normalized)
 	} else {
 		page, err = s.servePreview(ctx, normalized)
 	}
+	filtersOut := <-filtersCh
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
 	// LifecycleStatus + the status filter are applied INSIDE the serve/generate paths, over the whole
 	// scope before paging (servePreview / servePreviewGenerated), and stamp-only for draft below -- so
 	// a status-filtered page and its summary stay consistent and pagination stays correct.
-	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, normalized.AuthorizedParkIDs)
-	if err != nil {
-		return domain.PreviewPage{}, err
+	if filtersOut.err != nil {
+		return domain.PreviewPage{}, filtersOut.err
 	}
-	page.Filters = filters
+	page.Filters = filtersOut.filters
 	return page, nil
 }
 
@@ -620,22 +632,28 @@ func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (d
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
+	// Filters concurrently with the sheet, as on the preview path (2026-09-19).
+	filtersCh := make(chan filtersResult, 1)
+	go func() {
+		filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, normalized.AuthorizedParkIDs)
+		filtersCh <- filtersResult{filters: filters, err: err}
+	}()
 	var page domain.PackingPage
 	if normalized.Draft {
 		page, err = s.packingDraft(ctx, normalized)
 	} else {
 		page, err = s.servePacking(ctx, normalized)
 	}
+	filtersOut := <-filtersCh
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
 	// LifecycleStatus + the status filter are applied INSIDE servePacking / servePackingGenerated over
 	// the whole scope before paging (stamp-only for draft), same contract as the preview path.
-	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, normalized.AuthorizedParkIDs)
-	if err != nil {
-		return domain.PackingPage{}, err
+	if filtersOut.err != nil {
+		return domain.PackingPage{}, filtersOut.err
 	}
-	page.Filters = filters
+	page.Filters = filtersOut.filters
 	return page, nil
 }
 
@@ -693,6 +711,12 @@ func parksInScope(parks []ports.Park, authorizedParkIDs []string) []ports.Park {
 	return out
 }
 
+// filtersResult carries buildFilters' answer across the goroutine boundary.
+type filtersResult struct {
+	filters domain.FeedFilterOptions
+	err     error
+}
+
 // buildFilters assembles the backend-owned farm/shed filter vocabulary for the served park. Two
 // bounded reads: the tenant park catalog (order-of two parks) and the served park's active shed
 // catalog (bounded by physical infrastructure, the same read the generation already trusts). The
@@ -703,23 +727,36 @@ func parksInScope(parks []ports.Park, authorizedParkIDs []string) []ports.Park {
 // principal or internal context). Sheds need no equivalent narrowing: they are already read for the
 // SERVED park alone, and that park was clamped to the caller's scope at the route boundary.
 func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID string, asOf time.Time, authorizedParkIDs []string) (domain.FeedFilterOptions, error) {
-	parks, err := s.config.ListParks(ctx, tenantID)
-	if err != nil {
-		return domain.FeedFilterOptions{}, err
-	}
-	scope, err := s.config.ListShedScope(ctx, ports.ShedScopeQuery{TenantID: tenantID, ParkID: servedParkID})
-	if err != nil {
-		return domain.FeedFilterOptions{}, err
-	}
+	// Three independent bounded catalog reads, issued together (2026-09-19) rather than one after
+	// another: over a 20-40 ms round trip the sequence cost three trips where the page needs one.
 	// The session vocabulary is the served park's authored split, effective on the feed day. It is a
 	// dedicated bounded read (~10 rows), NOT the full config snapshot: the read-count invariant is
 	// that the snapshot is loaded exactly once per request, by generation, never here. The filter
 	// offers exactly the sessions the sheet can contain -- the client holds no session list of its
-	// own (the golden frontend rule). Consistent with the parks/sheds reads above, this runs even on
-	// the beyond-horizon/never-issued path so the picker still renders.
-	sessions, err := s.config.ListSessionTemplates(ctx, tenantID, servedParkID, asOf)
-	if err != nil {
-		return domain.FeedFilterOptions{}, err
+	// own (the golden frontend rule). Consistent with the parks/sheds reads, this runs even on the
+	// beyond-horizon/never-issued path so the picker still renders.
+	var (
+		parks                           []ports.Park
+		scope                           ports.ShedScope
+		sessions                        []domain.SessionTemplate
+		errParks, errScope, errSessions error
+		wg                              sync.WaitGroup
+	)
+	wg.Add(3)
+	go func() { defer wg.Done(); parks, errParks = s.config.ListParks(ctx, tenantID) }()
+	go func() {
+		defer wg.Done()
+		scope, errScope = s.config.ListShedScope(ctx, ports.ShedScopeQuery{TenantID: tenantID, ParkID: servedParkID})
+	}()
+	go func() {
+		defer wg.Done()
+		sessions, errSessions = s.config.ListSessionTemplates(ctx, tenantID, servedParkID, asOf)
+	}()
+	wg.Wait()
+	for _, err := range []error{errParks, errScope, errSessions} {
+		if err != nil {
+			return domain.FeedFilterOptions{}, err
+		}
 	}
 	parks = parksInScope(parks, authorizedParkIDs)
 	parkOptions := make([]domain.FeedFilterPark, 0, len(parks))

@@ -40,7 +40,7 @@ export function parkScopeAmbiguousFromBody(status: number, body: unknown): ParkS
 export class OperatorAssignmentConfigNotFoundError extends Error {
   readonly code = OPERATOR_ASSIGNMENT_CONFIG_NOT_FOUND_CODE;
 
-  constructor(message = 'No operator assignment config authored for this park yet.') {
+  constructor(message = 'No operator assignment has been set up for this park yet.') {
     super(message);
     this.name = 'OperatorAssignmentConfigNotFoundError';
   }

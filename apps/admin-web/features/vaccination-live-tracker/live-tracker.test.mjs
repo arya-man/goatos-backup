@@ -166,7 +166,7 @@ test("operational queues declare truncation, while the live feed stays compact",
   const drawer = readFileSync(new URL("./live-tracker-passport-drawer.tsx", import.meta.url), "utf8");
   assert.match(drawer, /open\.length > DRAWER_ROW_LIMIT/, "the passport drawer must disclose dropped rows");
   assert.match(drawer, /drawer\.passport\.more_suffix/);
-  assert.match(drawer, /<thead>/, "the drawer's obligations table must label its columns");
+  assert.match(drawer, /<TableHead>/, "the drawer's obligations table must label its columns");
 });
 
 test("the combo header never invents a combination no animal received", () => {
@@ -249,7 +249,7 @@ test("live tracker styles are scoped so they cannot restyle other boards", () =>
   const block = css.slice(css.indexOf("/vaccination/live-tracker — ported verbatim"));
   const unscoped = block
     .split("\n")
-    .filter((line) => /^\.(feed|frow|legend|num|kpi|tag)\b/.test(line.trim()));
+    .filter((line) => /^\.(feed|frow|legend|num|kpi|tag)(?:$|[\s.{:#>,])/.test(line.trim()));
   assert.deepEqual(unscoped, [], "generic mock class names must stay under .lt-page");
 });
 

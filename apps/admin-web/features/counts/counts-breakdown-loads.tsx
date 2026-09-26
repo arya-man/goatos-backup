@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { CountsBreakdownResponse } from "@/lib/api/server";
@@ -102,37 +107,37 @@ export function CountsBreakdownLoads({
       </div>
       {loads.length > 0 ? (
         <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-          <table className="tbl" aria-label={copy(pageContract, "table.loads.aria")}>
-            <thead>
-              <tr>
+          <Table className="tbl" aria-label={copy(pageContract, "table.loads.aria")}>
+            <TableHead>
+              <TableRow>
                 {columns.map((key) => (
-                  <th
+                  <TableCell component="th"
                     key={key}
                     style={key.endsWith("purchased") || key.endsWith("on_farm") || key.endsWith("male") ? { textAlign: "right" } : undefined}
                   >
                     {copy(pageContract, key)}
-                  </th>
+                  </TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {loads.map((load) => (
-                <tr key={load.load_id}>
-                  <td>
+                <TableRow key={load.load_id}>
+                  <TableCell>
                     <b>{loadTitle(load)}</b>
-                  </td>
-                  <td className="muted">{load.vendor_name || "—"}</td>
-                  <td className="muted">{fmtDate(load.purchase_date || undefined)}</td>
-                  <td style={{ textAlign: "right" }}>{load.purchased}</td>
-                  <td style={{ textAlign: "right" }}>
+                  </TableCell>
+                  <TableCell className="muted">{load.vendor_name || "—"}</TableCell>
+                  <TableCell className="muted">{fmtDate(load.purchase_date || undefined)}</TableCell>
+                  <TableCell style={{ textAlign: "right" }}>{load.purchased}</TableCell>
+                  <TableCell style={{ textAlign: "right" }}>
                     <b>{load.on_farm}</b>
-                  </td>
-                  <td style={{ textAlign: "right" }}>{countFor(load.sexes, maleKey)}</td>
-                  <td style={{ textAlign: "right" }}>{countFor(load.sexes, femaleKey)}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell style={{ textAlign: "right" }}>{countFor(load.sexes, maleKey)}</TableCell>
+                  <TableCell style={{ textAlign: "right" }}>{countFor(load.sexes, femaleKey)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       ) : null}
     </section>

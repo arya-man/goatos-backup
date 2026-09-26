@@ -1,6 +1,9 @@
 import { Phone } from "lucide-react";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
 
 import Link from "@/components/no-prefetch-link";
+import { TimeField } from "@/components/app/time-field";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ApiResult } from "@/lib/api/server";
@@ -13,6 +16,8 @@ import {
   updateMarketQuestionAction,
 } from "./market-actions";
 import { MarketConfigForm, type MarketActionOutcomes } from "./market-config-form";
+import Alert from "@mui/material/Alert";
+import { EmptyState } from "@/components/app/empty-state";
 import { salesErrorText } from "./sales-error";
 
 /**
@@ -66,14 +71,13 @@ export function MarketConfigSection({
           {copy(pageContract, "link.sales_market_analytics")}
         </Link>
       </div>
-      <p className="muted small sales-config-card-copy">{copy(pageContract, "section.market.sub")}</p>
 
       {/* Body padding comes from the card's own .bd; the rows/blocks are spaced by the market-config-* rules. */}
       <div className="bd market-config-body">
       {!configResult.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           {salesErrorText(configResult.error, copy(pageContract, "market.error.load"))}
-        </div>
+        </Alert>
       ) : null}
       {/* A failed read shows the error and nothing else; otherwise the empty set-up invites the desk
           to re-enter a set-up that exists. */}
@@ -83,19 +87,26 @@ export function MarketConfigSection({
       {!canConfigure ? <div className="note">{copy(pageContract, "disabled.market_config")}</div> : null}
 
       {/* The ONE time each morning the cards appear on the phone and the reminder goes out. */}
-      {/* Maintainer decision 2026-09-14: native time input; value is "HH:MM" IST. */}
+      {/* Maintainer decision 2026-09-14: the value posted is "HH:MM" IST — unchanged; the kit
+          TimeField posts exactly that through its hidden input, so behaviour is the same. */}
       <div className="market-call-time">
         <div>
           <h4 className="market-config-h4">{copy(pageContract, "market.call_time.title")}</h4>
-          <p className="muted small market-config-hint">{copy(pageContract, "market.call_time.hint")}</p>
         </div>
         <div className="sp" style={{ flex: 1 }} />
         {canConfigure ? (
           <MarketConfigForm action={setMarketCallTimeAction} outcomes={outcomes} className="market-config-row" data-market-call-time="">
-            <input type="time" name="call_time" defaultValue={config.call_time} required aria-label={copy(pageContract, "market.call_time.title")} />
-            <button type="submit" className="btn sm primary">
+            <TimeField
+              name="call_time"
+              defaultValue={config.call_time}
+              required
+              ariaLabel={copy(pageContract, "market.call_time.title")}
+              hourLabel={copy(pageContract, "market.call_time.hour", "Hour")}
+              minuteLabel={copy(pageContract, "market.call_time.minute", "Minute")}
+            />
+            <Button type="submit" size="small" variant="contained">
               {copy(pageContract, "market.action.save_call_time")}
-            </button>
+            </Button>
           </MarketConfigForm>
         ) : (
           <Tag tone="info">{config.call_time}</Tag>
@@ -108,9 +119,8 @@ export function MarketConfigSection({
             {copy(pageContract, "market.cities.title")}
             <span className="market-config-count">{config.cities.filter((c) => c.status === "active").length}</span>
           </h4>
-          <p className="muted small market-config-hint">{copy(pageContract, "market.cities.hint")}</p>
           {config.cities.length === 0 ? (
-            <div className="empty">{copy(pageContract, "market.empty.cities")}</div>
+            <EmptyState title={copy(pageContract, "market.empty.cities")} />
           ) : (
             <ul className="market-config-list">
               {config.cities.map((city) => (
@@ -122,17 +132,17 @@ export function MarketConfigSection({
           )}
           {canConfigure ? (
             <MarketConfigForm action={addMarketCityAction} outcomes={outcomes} className="market-config-add">
-              <input
+              <TextField
+                size="small"
                 name="name"
                 required
-                maxLength={80}
                 placeholder={copy(pageContract, "market.field.city_name")}
-                aria-label={copy(pageContract, "market.field.city_name")}
-                style={{ flex: 1 }}
+                slotProps={{ htmlInput: { maxLength: 80, "aria-label": copy(pageContract, "market.field.city_name") } }}
+                sx={{ flex: 1 }}
               />
-              <button type="submit" className="btn sm primary">
+              <Button type="submit" size="small" variant="contained">
                 {copy(pageContract, "market.action.add_city")}
-              </button>
+              </Button>
             </MarketConfigForm>
           ) : null}
         </div>
@@ -142,9 +152,8 @@ export function MarketConfigSection({
             {copy(pageContract, "market.questions.title")}
             <span className="market-config-count">{config.questions.filter((q) => q.status === "active").length}</span>
           </h4>
-          <p className="muted small market-config-hint">{copy(pageContract, "market.questions.hint")}</p>
           {config.questions.length === 0 ? (
-            <div className="empty">{copy(pageContract, "market.empty.questions")}</div>
+            <EmptyState title={copy(pageContract, "market.empty.questions")} />
           ) : (
             <ul className="market-config-list">
               {config.questions.map((question) => (
@@ -156,32 +165,29 @@ export function MarketConfigSection({
           )}
           {canConfigure ? (
             <MarketConfigForm action={addMarketQuestionAction} outcomes={outcomes} className="market-config-add">
-              <input
+              <TextField
+                size="small"
                 name="label"
                 required
-                maxLength={80}
                 placeholder={copy(pageContract, "market.field.question_label")}
-                aria-label={copy(pageContract, "market.field.question_label")}
-                style={{ flex: 2 }}
+                slotProps={{ htmlInput: { maxLength: 80, "aria-label": copy(pageContract, "market.field.question_label") } }}
+                sx={{ flex: 2 }}
               />
-              <input
+              <TextField
+                size="small"
                 name="unit_label"
                 required
-                maxLength={24}
                 placeholder={copy(pageContract, "market.field.unit_label")}
-                aria-label={copy(pageContract, "market.field.unit_label")}
-                style={{ flex: 1 }}
+                slotProps={{ htmlInput: { maxLength: 24, "aria-label": copy(pageContract, "market.field.unit_label") } }}
+                sx={{ flex: 1 }}
               />
-              <button type="submit" className="btn sm primary">
+              <Button type="submit" size="small" variant="contained">
                 {copy(pageContract, "market.action.add_question")}
-              </button>
+              </Button>
             </MarketConfigForm>
           ) : null}
         </div>
       </div>
-      <p className="muted small market-config-footnote">
-        {copy(pageContract, "market.retired_note")}
-      </p>
       </>
       )}
       </div>
@@ -220,14 +226,21 @@ function CityRow({
   return (
     <MarketConfigForm action={updateMarketCityAction} outcomes={outcomes} className="market-config-row" data-market-city={city.id}>
       <input type="hidden" name="city_id" value={city.id} />
-      <input name="name" defaultValue={city.name} required maxLength={80} aria-label={copy(pageContract, "market.field.city_name")} style={{ flex: 1 }} />
+      <TextField
+        size="small"
+        name="name"
+        defaultValue={city.name}
+        required
+        slotProps={{ htmlInput: { maxLength: 80, "aria-label": copy(pageContract, "market.field.city_name") } }}
+        sx={{ flex: 1 }}
+      />
       <StatusTag status={city.status} pageContract={pageContract} />
-      <button type="submit" name="status" value={city.status} className="btn sm">
+      <Button type="submit" name="status" value={city.status} size="small" variant="outlined">
         {copy(pageContract, "market.action.save")}
-      </button>
-      <button type="submit" name="status" value={flipped} className="btn sm">
+      </Button>
+      <Button type="submit" name="status" value={flipped} size="small" variant="outlined">
         {city.status === "active" ? copy(pageContract, "market.action.retire") : copy(pageContract, "market.action.restore")}
-      </button>
+      </Button>
     </MarketConfigForm>
   );
 }
@@ -256,15 +269,29 @@ function QuestionRow({
   return (
     <MarketConfigForm action={updateMarketQuestionAction} outcomes={outcomes} className="market-config-row" data-market-question={question.id}>
       <input type="hidden" name="question_id" value={question.id} />
-      <input name="label" defaultValue={question.label} required maxLength={80} aria-label={copy(pageContract, "market.field.question_label")} style={{ flex: 2 }} />
-      <input name="unit_label" defaultValue={question.unit_label} required maxLength={24} aria-label={copy(pageContract, "market.field.unit_label")} style={{ flex: 1 }} />
+      <TextField
+        size="small"
+        name="label"
+        defaultValue={question.label}
+        required
+        slotProps={{ htmlInput: { maxLength: 80, "aria-label": copy(pageContract, "market.field.question_label") } }}
+        sx={{ flex: 2 }}
+      />
+      <TextField
+        size="small"
+        name="unit_label"
+        defaultValue={question.unit_label}
+        required
+        slotProps={{ htmlInput: { maxLength: 24, "aria-label": copy(pageContract, "market.field.unit_label") } }}
+        sx={{ flex: 1 }}
+      />
       <StatusTag status={question.status} pageContract={pageContract} />
-      <button type="submit" name="status" value={question.status} className="btn sm">
+      <Button type="submit" name="status" value={question.status} size="small" variant="outlined">
         {copy(pageContract, "market.action.save")}
-      </button>
-      <button type="submit" name="status" value={flipped} className="btn sm">
+      </Button>
+      <Button type="submit" name="status" value={flipped} size="small" variant="outlined">
         {question.status === "active" ? copy(pageContract, "market.action.retire") : copy(pageContract, "market.action.restore")}
-      </button>
+      </Button>
     </MarketConfigForm>
   );
 }

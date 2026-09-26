@@ -2,12 +2,26 @@
 
 import { useEffect, useId, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Plus, Trash2 } from "lucide-react";
+import MuiButton from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import MuiTextField from "@mui/material/TextField";
+import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { copy, optionalCopy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import MenuItem from "@mui/material/MenuItem";
+import Box from "@mui/material/Box";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
 import type { HealthCatalogItem, HealthConfigProtocolDetail, HealthConfigStep } from "@/lib/api/server";
 import type { HealthConfigActionResult } from "./health-config-actions";
 import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState } from "@/lib/authoring-idempotency";
+import Alert from "@mui/material/Alert";
+import MenuList from "@mui/material/MenuList";
+import { DropdownPaper } from "@/components/app/dropdown-paper";
+
+type SelectOption = { value: string; label: string };
 
 // The authoring surface for one treatment protocol.
 //
@@ -100,10 +114,8 @@ function EmptyDraftOverLiveNotice({
   const live = (detail.history ?? []).find((v) => v.status === "published");
   if (!live || live.step_count === 0) return null;
   return (
-    <div className="alert" style={{ marginBottom: 12 }}>
-      <AlertTriangle className="ic" aria-hidden="true" />
-      <div>{copy(pageContract, "warn.empty_draft_over_live")}</div>
-    </div>
+    <Alert severity="error" style={{ marginBottom: 12 }}><div>{copy(pageContract, "warn.empty_draft_over_live")}</div>
+    </Alert>
   );
 }
 
@@ -177,19 +189,13 @@ function MedicinePicker({
   };
 
   return (
-    <label className="fld" style={{ flex: "1 1 260px", minWidth: 200, position: "relative" }}>
-      <span>{copy(pageContract, "label.medicine_name")}</span>
-      <input
-        type="text"
-        role="combobox"
-        aria-expanded={showList}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        autoComplete="off"
+    <div style={{ flex: "1 1 260px", minWidth: 200, position: "relative" }}>
+      <MuiTextField
+        fullWidth
+        label={copy(pageContract, "label.medicine_name")}
         value={value}
         placeholder={copy(pageContract, "label.pick_medicine")}
-        aria-invalid={unknown || undefined}
-        style={unknown ? { borderColor: "var(--danger)" } : undefined}
+        error={unknown}
         onFocus={() => setOpen(true)}
         onChange={(event) => {
           onChange(event.target.value);
@@ -220,57 +226,48 @@ function MedicinePicker({
             choose(matches[Math.min(highlight, matches.length - 1)].name);
           }
         }}
+        slotProps={{
+          input: {
+            role: "combobox",
+            "aria-expanded": showList,
+            "aria-controls": listId,
+            "aria-autocomplete": "list",
+          },
+          htmlInput: { autoComplete: "off" },
+          inputLabel: { shrink: true },
+        }}
       />
       {showList ? (
-        <ul
-          id={listId}
-          role="listbox"
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: 0,
-            zIndex: 30,
-            margin: "2px 0 0",
-            padding: 4,
-            listStyle: "none",
-            maxHeight: 260,
-            overflowY: "auto",
-            background: "var(--panel, #10160f)",
-            border: "1px solid var(--line)",
-            borderRadius: 8,
-            boxShadow: "0 8px 24px rgba(0,0,0,.45)",
-          }}
-        >
-          {matches.map((m, i) => (
-            <li
-              key={m.item_id}
-              role="option"
-              aria-selected={i === highlight}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                choose(m.name);
-              }}
-              onMouseEnter={() => setHighlight(i)}
-              style={{
-                padding: "6px 8px",
-                borderRadius: 6,
-                cursor: "pointer",
-                background: i === highlight ? "var(--line)" : "transparent",
-              }}
-            >
-              <div>{m.name}</div>
-              {m.category_path ? <div className="small muted">{m.category_path}</div> : null}
-            </li>
-          ))}
-        </ul>
+        // Template dropdown paper IN PLACE: focus stays in the text field while the author types.
+        <DropdownPaper sx={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, mt: 0.25, maxHeight: 260, overflowY: "auto" }}>
+          <MenuList id={listId} role="listbox">
+            {matches.map((m, i) => (
+              <MenuItem
+                key={m.item_id}
+                role="option"
+                aria-selected={i === highlight}
+                selected={i === highlight}
+                tabIndex={-1}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  choose(m.name);
+                }}
+                onMouseEnter={() => setHighlight(i)}
+                sx={{ flexDirection: "column", alignItems: "flex-start", gap: 0, whiteSpace: "normal" }}
+              >
+                <div>{m.name}</div>
+                {m.category_path ? <div className="small muted">{m.category_path}</div> : null}
+              </MenuItem>
+            ))}
+          </MenuList>
+        </DropdownPaper>
       ) : null}
       {unknown ? (
         <span className="small" style={{ color: "var(--danger)" }}>
           {copy(pageContract, "warn.medicine_not_in_catalog")}
         </span>
       ) : null}
-    </label>
+    </div>
   );
 }
 
@@ -321,18 +318,10 @@ type DraftStep = {
 // the set that is actually accepted and would then offer an author a choice that fails on save.
 // Reading them from the contract means one source decides what a protocol may contain.
 
-/** Renders one option list, preserving the backend's order (which is meaningful, not alphabetical). */
-function OptionList({ options, includeBlank }: { options: AdminUiOption[]; includeBlank?: boolean }) {
-  return (
-    <>
-      {includeBlank ? <option value="" /> : null}
-      {options.map((choice) => (
-        <option key={choice.key} value={choice.key} title={choice.title || undefined}>
-          {choice.label}
-        </option>
-      ))}
-    </>
-  );
+/** Contract options as MUI TextField select options, preserving the backend's order. */
+function selectOptions(options: AdminUiOption[], includeBlank?: boolean, blankLabel = ""): SelectOption[] {
+  const rows = options.map((choice) => ({ value: choice.key, label: choice.label }));
+  return includeBlank ? [{ value: "", label: blankLabel }, ...rows] : rows;
 }
 
 function stepFromContract(step: HealthConfigStep, index: number): DraftStep {
@@ -407,7 +396,7 @@ function FieldErrors({
   const headline =
     optionalCopy(pageContract, result.messageKey) ?? copy(pageContract, "action.error_backend");
   return (
-    <div className="alert" style={{ marginTop: 10 }}>
+    <Alert severity="error" style={{ marginTop: 10 }}>
       <div>
         <b>{headline}</b>
         {result.detail ? <div className="small muted">{result.detail}</div> : null}
@@ -421,7 +410,7 @@ function FieldErrors({
           </ul>
         ) : null}
       </div>
-    </div>
+    </Alert>
   );
 }
 
@@ -447,61 +436,71 @@ export function AddDiseaseForm({
   const [result, setResult] = useState<HealthConfigActionResult | null>(null);
   const [idem, setIdem] = useState<AuthoringIdempotencyState>(CLOSED_STATE);
 
-  if (!idem.open) {
-    return (
-      <button
-        type="button"
-        className="btn sm p"
-        disabled={!enabled}
-        aria-disabled={!enabled}
-        title={enabled ? copy(pageContract, "note.both_bands") : disabledReason}
-        onClick={() => {
-          setResult(null);
-          setIdem(openIntent(() => crypto.randomUUID()));
-        }}
-      >
-        <Plus className="ic" aria-hidden="true" />
-        {copy(pageContract, "action.add_disease")}
-      </button>
-    );
-  }
+  const trigger = (
+    <MuiButton
+      type="button"
+      variant="contained"
+      startIcon={<Plus className="ic" aria-hidden="true" />}
+      disabled={!enabled}
+      title={enabled ? undefined : disabledReason}
+      onClick={() => {
+        setResult(null);
+        setIdem(openIntent(() => crypto.randomUUID()));
+      }}
+    >
+      {copy(pageContract, "action.add_disease")}
+    </MuiButton>
+  );
 
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        const formData = new FormData(event.currentTarget);
-        startTransition(async () => {
-          const outcome = await action(formData);
-          setResult(outcome);
-          setIdem((prev) => afterSubmit(prev, outcome.ok, () => crypto.randomUUID()));
-          if (outcome.ok) setIdem(CLOSED_STATE);
-        });
-      }}
-      style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 280 }}
-    >
-      <input type="hidden" name="idempotency_key" value={idem.key ?? ""} />
-      <label className="fld">
-        <span>{copy(pageContract, "label.disease")}</span>
-        <input name="display_name" type="text" autoFocus required maxLength={80} />
-      </label>
-      <label className="fld">
-        <span>{copy(pageContract, "label.duration_days")}</span>
-        <input name="duration_days" type="text" inputMode="numeric" placeholder="" />
-      </label>
-      <p className="small muted" style={{ margin: 0, lineHeight: 1.5 }}>
-        {copy(pageContract, "note.both_bands")}
-      </p>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <button type="submit" className="btn sm p" disabled={pending}>
-          {pending ? copy(pageContract, "state.loading") : copy(pageContract, "action.apply")}
-        </button>
-        <button type="button" className="btn sm" disabled={pending} onClick={() => setIdem(CLOSED_STATE)}>
-          {copy(pageContract, "action.cancel")}
-        </button>
-      </div>
-      <FieldErrors result={result} pageContract={pageContract} />
-    </form>
+    <>
+      {trigger}
+      {/* The form is a template form dialog, not an inline strip above the page head (judge B, 2026-09-19). */}
+      <Dialog fullWidth maxWidth="xs" open={idem.open} onClose={() => setIdem(CLOSED_STATE)} slotProps={{ paper: { "aria-label": copy(pageContract, "action.add_disease") } }}>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const formData = new FormData(event.currentTarget);
+            startTransition(async () => {
+              const outcome = await action(formData);
+              setResult(outcome);
+              setIdem((prev) => afterSubmit(prev, outcome.ok, () => crypto.randomUUID()));
+              if (outcome.ok) setIdem(CLOSED_STATE);
+            });
+          }}
+        >
+          <DialogTitle>{copy(pageContract, "action.add_disease")}</DialogTitle>
+          <DialogContent>
+          <input type="hidden" name="idempotency_key" value={idem.key ?? ""} />
+          <Box sx={{ pt: 1, display: "grid", gap: 2 }}>
+            <MuiTextField
+              fullWidth
+              name="display_name"
+              label={copy(pageContract, "label.disease")}
+              autoFocus
+              required
+              slotProps={{ htmlInput: { maxLength: 80 }, inputLabel: { shrink: true } }}
+            />
+            <MuiTextField
+              fullWidth
+              name="duration_days"
+              label={copy(pageContract, "label.duration_days")}
+              slotProps={{ htmlInput: { inputMode: "numeric" }, inputLabel: { shrink: true } }}
+            />
+            <FieldErrors result={result} pageContract={pageContract} />
+          </Box>
+          </DialogContent>
+          <DialogActions>
+            <MuiButton type="button" variant="outlined" disabled={pending} onClick={() => setIdem(CLOSED_STATE)}>
+              {copy(pageContract, "action.cancel")}
+            </MuiButton>
+            <MuiButton type="submit" variant="contained" loading={pending}>
+              {copy(pageContract, "action.apply")}
+            </MuiButton>
+          </DialogActions>
+        </form>
+      </Dialog>
+    </>
   );
 }
 
@@ -517,6 +516,7 @@ export function ProtocolActionButton({
   confirmKey,
   navigateOnSuccess,
   basePath,
+  icon,
 }: {
   pageContract: AdminUiPageContract;
   action: SubmitAction;
@@ -525,6 +525,8 @@ export function ProtocolActionButton({
   enabled: boolean;
   disabledReason: string;
   primary?: boolean;
+  /** Per-row placement: one pencil icon button per row (label as title/aria-label), not a column of outlined buttons. */
+  icon?: "edit";
   /** When set, the button asks once before running. Used for publish and discard. */
   confirmKey?: string;
   /**
@@ -593,31 +595,45 @@ export function ProtocolActionButton({
       ))}
       <input type="hidden" name="idempotency_key" value={idem} />
       {confirmKey && !armed ? (
-        <button
+        <MuiButton
           type="button"
-          className={primary ? "btn sm p" : "btn sm"}
+          size="small"
+          variant={primary ? "contained" : "outlined"}
           disabled={!enabled || pending}
-          aria-disabled={!enabled}
           title={enabled ? undefined : disabledReason}
           onClick={() => setArmed(true)}
         >
           {copy(pageContract, labelKey)}
-        </button>
+        </MuiButton>
       ) : (
         <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <button
+          {icon === "edit" ? (
+            <IconButton
+              type="submit"
+              size="small"
+              disabled={!enabled || pending}
+              aria-busy={pending || undefined}
+              title={enabled ? copy(pageContract, labelKey) : disabledReason}
+              aria-label={copy(pageContract, labelKey)}
+            >
+              <Pencil className="ic" aria-hidden="true" />
+            </IconButton>
+          ) : (
+          <MuiButton
             type="submit"
-            className={primary ? "btn sm p" : "btn sm"}
-            disabled={!enabled || pending}
-            aria-disabled={!enabled}
+            size="small"
+            variant={primary ? "contained" : "outlined"}
+            loading={pending}
+            disabled={!enabled}
             title={enabled ? undefined : disabledReason}
           >
-            {pending ? copy(pageContract, "state.loading") : copy(pageContract, labelKey)}
-          </button>
+            {copy(pageContract, labelKey)}
+          </MuiButton>
+          )}
           {armed ? (
-            <button type="button" className="btn sm" disabled={pending} onClick={() => setArmed(false)}>
+            <MuiButton type="button" size="small" variant="outlined" disabled={pending} onClick={() => setArmed(false)}>
               {copy(pageContract, "action.cancel")}
-            </button>
+            </MuiButton>
           ) : null}
         </span>
       )}
@@ -731,26 +747,22 @@ export function DraftEditor({
       <input type="hidden" name="idempotency_key" value={idem} />
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <label className="fld" style={{ minWidth: 220 }}>
-          <span>{copy(pageContract, "label.disease")}</span>
-          <input
-            name="display_name"
-            type="text"
-            maxLength={80}
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-        </label>
-        <label className="fld" style={{ maxWidth: 120 }}>
-          <span>{copy(pageContract, "label.duration_days")}</span>
-          <input
-            name="duration_days"
-            type="text"
-            inputMode="numeric"
-            value={durationDays}
-            onChange={(event) => setDurationDays(event.target.value)}
-          />
-        </label>
+        <MuiTextField
+          name="display_name"
+          label={copy(pageContract, "label.disease")}
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          slotProps={{ htmlInput: { maxLength: 80 }, inputLabel: { shrink: true } }}
+          sx={{ minWidth: 220 }}
+        />
+        <MuiTextField
+          name="duration_days"
+          label={copy(pageContract, "label.duration_days")}
+          value={durationDays}
+          onChange={(event) => setDurationDays(event.target.value)}
+          slotProps={{ htmlInput: { inputMode: "numeric" }, inputLabel: { shrink: true } }}
+          sx={{ maxWidth: 120 }}
+        />
         <p className="small muted" style={{ margin: 0, maxWidth: 420, lineHeight: 1.5 }}>
           {copy(pageContract, "note.days_shrink")} {copy(pageContract, "note.rename_scope")}
         </p>
@@ -791,30 +803,32 @@ export function DraftEditor({
                   <span className="tag t-mut" style={{ alignSelf: "center" }}>
                     {index + 1}
                   </span>
-                  <label className="fld" style={{ width: 84 }}>
-                    <span>{copy(pageContract, "label.day_no")}</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={step.day_no}
-                      onChange={(event) => updateStep(step.key, { day_no: event.target.value })}
-                    />
-                  </label>
-                  <label className="fld" style={{ minWidth: 150 }}>
-                    <span>{copy(pageContract, "label.session")}</span>
-                    <select
-                      value={step.session}
-                      onChange={(event) => updateStep(step.key, { session: event.target.value })}
-                    >
-                      <OptionList options={sessions} />
-                    </select>
-                  </label>
-                  <label className="fld" style={{ minWidth: 170 }}>
-                    <span>{copy(pageContract, "label.record_type")}</span>
-                    <select
-                      value={step.record_type}
-                      onChange={(event) => {
-                        const recordType = event.target.value;
+                  <MuiTextField
+                    label={copy(pageContract, "label.day_no")}
+                    value={step.day_no}
+                    onChange={(event) => updateStep(step.key, { day_no: event.target.value })}
+                    slotProps={{ htmlInput: { inputMode: "numeric" }, inputLabel: { shrink: true } }}
+                    sx={{ width: 84 }}
+                  />
+                  <MuiTextField
+                    select
+                    label={copy(pageContract, "label.session")}
+                    value={step.session}
+                    onChange={({ target: { value } }) => updateStep(step.key, { session: value })}
+                    sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+                    slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+                  >
+                    {selectOptions(sessions).map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </MuiTextField>
+                  <MuiTextField
+                    select
+                    label={copy(pageContract, "label.record_type")}
+                    value={step.record_type}
+                    onChange={({ target: { value: recordType } }) => {
                         // Clearing the fields that do not belong to the new kind is not a
                         // convenience: the database CHECK constraints reject a medicine step
                         // carrying a handoff type, and a critical step carrying a medicine.
@@ -825,21 +839,28 @@ export function DraftEditor({
                             : { medicine_name: "", dosage_text: "", dosage_denominator: "", medicine_route: "" }),
                           ...(recordType === "critical_action" ? {} : { critical_action_type: "" }),
                         });
-                      }}
-                    >
-                      <OptionList options={recordTypes} />
-                    </select>
-                  </label>
-                  <button
+                    }}
+                    sx={{ minWidth: { xs: 0, sm: 170 }, flexShrink: 0, maxWidth: 1 }}
+                    slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+                  >
+                    {selectOptions(recordTypes).map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </MuiTextField>
+                  <MuiButton
                     type="button"
-                    className="btn sm"
-                    style={{ marginLeft: "auto" }}
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    startIcon={<Trash2 className="ic" aria-hidden="true" />}
                     title={copy(pageContract, "action.remove_step")}
+                    sx={{ marginLeft: "auto" }}
                     onClick={() => setSteps((prev) => prev.filter((row) => row.key !== step.key))}
                   >
-                    <Trash2 className="ic" aria-hidden="true" />
                     {copy(pageContract, "action.remove_step")}
-                  </button>
+                  </MuiButton>
                 </div>
 
                 {/* WHAT: only the fields this kind of step actually carries. */}
@@ -851,55 +872,70 @@ export function DraftEditor({
                       pageContract={pageContract}
                       onChange={(name) => updateStep(step.key, { medicine_name: name })}
                     />
-                    <label className="fld" style={{ width: 110 }}>
-                      <span>{copy(pageContract, "label.dosage_text")}</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={step.dosage_text}
-                        onChange={(event) => updateStep(step.key, { dosage_text: event.target.value })}
-                      />
-                    </label>
-                    <label className="fld" style={{ width: 130 }}>
-                      <span>{copy(pageContract, "label.dosage_denominator")}</span>
-                      <select
-                        title={copy(pageContract, "note.dosage_unit")}
-                        value={step.dosage_denominator}
-                        onChange={(event) => updateStep(step.key, { dosage_denominator: event.target.value })}
-                      >
-                        <OptionList options={denominators} includeBlank />
-                      </select>
-                    </label>
-                    <label className="fld" style={{ width: 170 }}>
-                      <span>{copy(pageContract, "label.medicine_route")}</span>
-                      <select
-                        value={step.medicine_route}
-                        onChange={(event) => updateStep(step.key, { medicine_route: event.target.value })}
-                      >
-                        <OptionList options={routes} includeBlank />
-                      </select>
-                    </label>
+                    <MuiTextField
+                      label={copy(pageContract, "label.dosage_text")}
+                      value={step.dosage_text}
+                      onChange={(event) => updateStep(step.key, { dosage_text: event.target.value })}
+                      slotProps={{ htmlInput: { inputMode: "decimal" }, inputLabel: { shrink: true } }}
+                      sx={{ width: 110 }}
+                    />
+                    <MuiTextField
+                      select
+                      label={copy(pageContract, "label.dosage_denominator")}
+                      value={step.dosage_denominator}
+                      title={copy(pageContract, "note.dosage_unit")}
+                      onChange={({ target: { value } }) => updateStep(step.key, { dosage_denominator: value })}
+                      sx={{ minWidth: { xs: 0, sm: 130 }, flexShrink: 0, maxWidth: 1 }}
+                      slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+                    >
+                      {selectOptions(denominators, true).map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </MuiTextField>
+                    <MuiTextField
+                      select
+                      label={copy(pageContract, "label.medicine_route")}
+                      value={step.medicine_route}
+                      onChange={({ target: { value } }) => updateStep(step.key, { medicine_route: value })}
+                      sx={{ minWidth: { xs: 0, sm: 170 }, flexShrink: 0, maxWidth: 1 }}
+                      slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+                    >
+                      {selectOptions(routes, true).map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </MuiTextField>
                   </div>
                 ) : (
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                    <label className="fld" style={{ flex: "1 1 100%" }}>
-                      <span>{copy(pageContract, "label.instruction")}</span>
-                      <textarea
-                        rows={2}
-                        value={step.instruction}
-                        onChange={(event) => updateStep(step.key, { instruction: event.target.value })}
-                      />
-                    </label>
+                    <MuiTextField
+                      fullWidth
+                      multiline
+                      rows={2}
+                      label={copy(pageContract, "label.instruction")}
+                      value={step.instruction}
+                      onChange={(event) => updateStep(step.key, { instruction: event.target.value })}
+                      slotProps={{ inputLabel: { shrink: true } }}
+                      sx={{ flex: "1 1 100%" }}
+                    />
                     {isCritical ? (
-                      <label className="fld" style={{ minWidth: 260 }}>
-                        <span>{copy(pageContract, "label.critical_action_type")}</span>
-                        <select
-                          value={step.critical_action_type}
-                          onChange={(event) => updateStep(step.key, { critical_action_type: event.target.value })}
-                        >
-                          <OptionList options={criticalTypes} includeBlank />
-                        </select>
-                      </label>
+                      <MuiTextField
+                        select
+                        label={copy(pageContract, "label.critical_action_type")}
+                        value={step.critical_action_type}
+                        onChange={({ target: { value } }) => updateStep(step.key, { critical_action_type: value })}
+                        sx={{ minWidth: { xs: 0, sm: 260 }, flexShrink: 0, maxWidth: 1 }}
+                        slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+                      >
+                        {selectOptions(criticalTypes, true).map((option) => (
+                          <MenuItem key={option.value} value={option.value}>
+                            {option.label}
+                          </MenuItem>
+                        ))}
+                      </MuiTextField>
                     ) : null}
                   </div>
                 )}
@@ -910,19 +946,19 @@ export function DraftEditor({
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <button type="button" className="btn sm" onClick={addStep}>
-          <Plus className="ic" aria-hidden="true" />
+        <MuiButton type="button" size="small" variant="outlined" startIcon={<Plus className="ic" aria-hidden="true" />} onClick={addStep}>
           {copy(pageContract, "action.add_step")}
-        </button>
-        <button
+        </MuiButton>
+        <MuiButton
           type="submit"
-          className="btn sm p"
-          disabled={pending || !enabled}
-          aria-disabled={!enabled}
+          size="small"
+          variant="contained"
+          loading={pending}
+          disabled={!enabled}
           title={enabled ? undefined : disabledReason}
         >
-          {pending ? copy(pageContract, "state.loading") : copy(pageContract, "action.save_draft")}
-        </button>
+          {copy(pageContract, "action.save_draft")}
+        </MuiButton>
         <span className="small muted" style={{ lineHeight: 1.5 }}>
           {copy(pageContract, "note.unscheduled_session")}
         </span>

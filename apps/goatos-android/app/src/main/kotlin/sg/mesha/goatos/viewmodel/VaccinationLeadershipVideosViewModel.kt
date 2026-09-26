@@ -295,7 +295,7 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
             }
             delay(320)
         }
-        return "Close saved locally; waiting for backend sync."
+        return "Close saved on this device. It will sync when the connection is back."
     }
 
     /** Forwarded from the screen's player listener for telemetry and crash reporting. */

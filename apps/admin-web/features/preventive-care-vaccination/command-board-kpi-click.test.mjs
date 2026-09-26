@@ -9,7 +9,11 @@ test("command-board KPI tiles filter the status matrix instead of rendering dead
   assert.match(source, /setStatuses\(new Set\(\[key\]\)\)/);
   assert.match(source, /scrollIntoView\(\{ block: "start", behavior: "smooth" \}\)/);
   assert.match(source, /const statusKpiProps = \(key: StatusKey, count: number\) =>/);
-  assert.match(source, /onKeyDown: \(e: ReactKeyboardEvent<HTMLDivElement>\) =>/);
+  // The tiles are kit KpiCards now: passing `onClick` is what makes one clickable, and KpiCard
+  // itself binds the Enter/Space handler and the button role, so the keyboard path is no longer
+  // spelled out here. A zero-count tile is handed no onClick and therefore stays inert.
+  assert.match(source, /count > 0 \? \{ onClick: \(\) => activateStatusKpi\(key\) \} : \{\}/);
+  assert.match(source, /<KpiCard/);
   assert.match(source, /id="cbm-shed-dose-matrix"/);
 
   for (const [key, metric] of [

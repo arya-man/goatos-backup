@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
+import Tooltip from "@mui/material/Tooltip";
+import { Label, type LabelColor } from "@/components/minimal/label";
 
 // Mock palette tones — all defined in app/mesha-theme.css as `.t-<tone>`. Same literal set as the
 // per-domain `Tone` aliases in features/*/process-integrity.ts and features/*/work-state.ts; those
@@ -6,14 +8,22 @@ import type { CSSProperties, ReactNode } from "react";
 // values and still pass them here.
 export type Tone = "ok" | "warn" | "dng" | "info" | "mut" | "pur" | "teal";
 
-// Shared status pill. Ported from the mock's `.tag` shape; the only presentational primitive that
-// was copy-pasted into ~9 screens. `title` is optional so both the bare and tooltip call sites use
-// the same component.
+// Shared status pill: the template `Label` (soft), tone mapped onto the template palette.
+const TONE_COLOR: Record<Tone, LabelColor> = {
+  ok: "success",
+  warn: "warning",
+  dng: "error",
+  info: "info",
+  mut: "default",
+  pur: "secondary",
+  teal: "info",
+};
+
 export function Tag({ tone, children, title }: { tone: Tone; children: ReactNode; title?: string }) {
   return (
-    <span className={`tag t-${tone}`} title={title}>
+    <Label variant="soft" color={TONE_COLOR[tone] ?? "default"} title={title ?? (typeof children === "string" ? children : undefined)}>
       {children}
-    </span>
+    </Label>
   );
 }
 
@@ -38,14 +48,13 @@ export function InfoTooltip({
   align?: "start" | "end";
 }) {
   return (
-    <span className="tipwrap">
-      <span className="ihelp" role="note" tabIndex={0} aria-label={label}>
-        i
+    <Tooltip title={children} placement="top" slotProps={{ tooltip: { sx: { maxWidth: 300 } } }}>
+      <span className={align === "end" ? "tipwrap tip-end-anchor" : "tipwrap"}>
+        <span className="ihelp" role="note" tabIndex={0} aria-label={label}>
+          i
+        </span>
       </span>
-      <span className={align === "end" ? "tip tip-end" : "tip"} role="tooltip">
-        {children}
-      </span>
-    </span>
+    </Tooltip>
   );
 }
 

@@ -1,5 +1,10 @@
+import { listOrEmpty } from "@/lib/list-or-empty";
 import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
+import { EmptyState } from "@/components/app/empty-state";
+import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
+import { PageHeader } from "@/components/app/page-header";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { RouteSearchParams } from "@/lib/search-params";
 import {
@@ -152,27 +157,14 @@ function herdSignalsLiveStreamKey(params: HerdSignalsParams): string {
 export function HerdSignalsSkeleton() {
   return (
     <div className="herd-signals-page" aria-busy="true">
-      <div className="phead">
-        <div>
-          <div className="crumb">Herd Signals / <b>Live Monitor</b></div>
-          <h1>Herd Signals</h1>
-        </div>
-      </div>
-      <div className="kpis">
-        {Array.from({ length: 6 }, (_, index) => (
-          <div key={index} className="kpi">
-            <div className="skelrow" style={{ width: 92, height: 12 }} />
-            <div className="skelrow" style={{ width: 64, height: 26, marginTop: 8 }} />
-          </div>
+      <PageHeader title="Herd Signals" crumbs={[{ label: "Herd Signals" }, { label: "Live Monitor" }]} />
+      <SkeletonKpiRow count={6} />
+      <div style={{ display: "flex", gap: 8 }}>
+        {[130, 150, 110].map((w, wi) => (
+          <Skeleton key={`${wi}-${w}`} width={w} height={34} radius={10} />
         ))}
       </div>
-      <div className="card">
-        <div className="bd">
-          {Array.from({ length: 8 }, (_, index) => (
-            <div key={index} className="skelrow" style={{ width: "100%", height: 13, marginBottom: 10 }} />
-          ))}
-        </div>
-      </div>
+      <SkeletonTable rows={10} />
     </div>
   );
 }
@@ -232,7 +224,7 @@ export async function HerdSignalsBoard({
     tabCounts.mapping = fleet.tags_seen;
     if (alertsResult.ok) tabCounts.alerts = alertsResult.data.summary.tags_seen;
   }
-  if (gatewaysResult.ok) tabCounts.gateways = gatewaysResult.data.gateways.length;
+  if (gatewaysResult.ok) tabCounts.gateways = listOrEmpty(gatewaysResult.data.gateways).length;
 
   return (
     <div className="herd-signals-page">
@@ -240,35 +232,35 @@ export async function HerdSignalsBoard({
           pagination control on this tab — see herd-signals-nav-context.tsx for why a plain <Link>
           per control was the "clicking a filter reloads the whole page" defect. */}
       <HerdSignalsNavProvider>
-        <div className="phead">
-          <div>
-            <div className="crumb">
-              Herd Signals / <b>{TAB_LABEL[params.tab]}</b>
-            </div>
-            <h1>{copy(pageContract, "page.title", "Herd Signals")}</h1>
-            <div className="sub">
-              {copy(
-                pageContract,
-                "page.subtitle",
-                "BLE ear-tag signals, movement counters, and gateway coverage for mapped animals. Values are read from the tag broadcast — the tag reports a cumulative motion counter, not behaviour.",
-              )}
-            </div>
-          </div>
-          <div className="sp" style={{ flex: 1 }} />
-          {liveResult.ok ? <HerdSignalsStreamBridge generatedAt={new Date(nowMs).toISOString()} /> : null}
-        </div>
-
-        <div className="segs">
-          {HERD_SIGNALS_TABS.map((tab) => (
-            <Link key={tab} href={herdSignalsHref(params, { hs_tab: tab === "live" ? undefined : tab })} className={params.tab === tab ? "on" : undefined}>
-              <svg className="ic sm" viewBox="0 0 24 24" aria-hidden="true">
-                {TAB_ICON[tab]}
-              </svg>
-              {TAB_LABEL[tab]}
-              {tabCounts[tab] !== undefined ? <span className="cnt">{tabCounts[tab]}</span> : null}
-            </Link>
-          ))}
-        </div>
+        <PageHeader
+          title={copy(pageContract, "page.title", "Herd Signals")}
+          crumbs={[{ label: copy(pageContract, "crumb", "Herd Signals") }, { label: TAB_LABEL[params.tab] }]}
+          actions={
+            <>
+              {liveResult.ok ? <HerdSignalsStreamBridge generatedAt={new Date(nowMs).toISOString()} /> : null}
+            </>
+          }
+          tabs={
+            <>
+            <AnimatedTabs
+              ariaLabel="Herd Signals views"
+              countTone="brand"
+              value={params.tab}
+              items={HERD_SIGNALS_TABS.map((tab) => ({
+                value: tab,
+                label: TAB_LABEL[tab],
+                icon: (
+                  <svg className="ic sm" viewBox="0 0 24 24" aria-hidden="true">
+                    {TAB_ICON[tab]}
+                  </svg>
+                ),
+                count: tabCounts[tab] !== undefined ? tabCounts[tab] : undefined,
+                href: herdSignalsHref(params, { hs_tab: tab === "live" ? undefined : tab }),
+              }))}
+            />
+            </>
+          }
+        />
 
         {params.tab === "live" ? (
           <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} />
@@ -343,9 +335,7 @@ function LiveMonitorTab({
             <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
           </svg>
           <h3>Live tag signals</h3>
-          <span className="tag t-mut">{summary.tags_seen} tags</span>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="small faint">Click a row for tag detail</span>
+          <Tag tone="mut">{summary.tags_seen} tags</Tag>
         </div>
         <div className="bd flush">
           <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} />
@@ -382,26 +372,22 @@ function FilteredTableTab({
           <h3>{title}</h3>
         </div>
         <div className="bd flush">
-          <div className="empty">
-            <div className="eicon">
-              <svg className="ic" viewBox="0 0 24 24">
-                <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z" />
-                <circle cx="12" cy="10" r="3" />
-              </svg>
-            </div>
-            <h4>No mapped animals yet</h4>
-            <p>
-              {summary.tags_seen > 0
-                ? `${summary.tags_seen.toLocaleString("en-IN")} smart tag(s) are broadcasting, but none carry an active smart-tag-capable identifier yet.`
-                : "No BLE gateway has posted for this tenant yet."}{" "}
-              Map a tag to an animal identifier in Tag Mapping to see it here.
-            </p>
-            <div className="eact">
+          <EmptyState
+            icon={<svg className="ic" viewBox="0 0 24 24">
+              <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>}
+            title="No mapped animals yet"
+            description={<>{summary.tags_seen > 0
+              ? `${summary.tags_seen.toLocaleString("en-IN")} smart tag(s) are broadcasting, but none carry an active smart-tag-capable identifier yet.`
+              : "No BLE gateway has posted for this tenant yet."}{" "}
+              Map a tag to an animal identifier in Tag Mapping to see it here.</>}
+            action={
               <Link href={herdSignalsHref(params, { hs_tab: "mapping" })} className="btn sm">
                 Go to Tag Mapping
               </Link>
-            </div>
-          </div>
+            }
+          />
         </div>
       </div>
     );
@@ -461,17 +447,15 @@ function AlertsTab({
       </div>
       <div className="bd flush">
         {items.length === 0 ? (
-          <div className="empty">
-            <div className="eicon">
-              <svg className="ic" viewBox="0 0 24 24">
-                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-                <path d="M12 9v4" />
-                <path d="M12 17h.01" />
-              </svg>
-            </div>
-            <h4>No tags need attention right now</h4>
-            <p>No smart tag is unusual against its own baseline or its pen group in this scope.</p>
-          </div>
+          <EmptyState
+            icon={<svg className="ic" viewBox="0 0 24 24">
+              <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+              <path d="M12 9v4" />
+              <path d="M12 17h.01" />
+            </svg>}
+            title="No tags need attention right now"
+            description="No smart tag is unusual against its own baseline or its pen group in this scope."
+          />
         ) : (
           <>
             <div className="rowlist">

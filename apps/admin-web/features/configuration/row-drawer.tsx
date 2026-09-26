@@ -1,12 +1,17 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import Button from "@mui/material/Button";
+import MenuItem from "@mui/material/MenuItem";
+import TextField from "@mui/material/TextField";
 
 import { currentHistoryEntryIsLocalOverlay, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ConfigurationColumn, ConfigurationRefOption, ConfigurationRegister, ConfigurationRow } from "@/lib/api/configuration-server";
 import { createRowAction, deleteRowAction, setRowStatusAction, updateRowAction, type ConfigurationActionState } from "./configuration-actions";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 /**
  * The register row drawer: ONE form rendered from the register DEFINITION -- an input per column,
@@ -174,32 +179,43 @@ export function RowDrawerForm({
           const value = draft[column.key];
           const error = fieldErrors[column.key];
           const disabled = readOnly || (column.immutable && isEdit);
+          const label = `${column.label}${column.required ? " *" : ""}`;
           let control: React.ReactNode;
           switch (column.type) {
             case "bool":
               control = (
-                <label className="pen-routine-check" htmlFor={id}>
-                  <input id={id} type="checkbox" checked={value === true} onChange={(e) => update(column.key, e.target.checked)} disabled={disabled} />
-                  <span>{column.label}</span>
-                </label>
+                <FormControlLabel className="pen-routine-check" disabled={disabled} control={<Checkbox id={id} checked={value === true} onChange={(e) => update(column.key, e.target.checked)} disabled={disabled} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<><span>{column.label}</span></>} />
               );
               break;
             case "enum":
               control = (
-                <select id={id} value={String(value ?? "")} onChange={(e) => update(column.key, e.target.value)} disabled={disabled} required={column.required}>
-                  <option value="">—</option>
+                <TextField
+                  select
+                  fullWidth
+                  id={id}
+                  label={label}
+                  value={String(value ?? "")}
+                  onChange={(e) => update(column.key, e.target.value)}
+                  disabled={disabled}
+                  required={column.required}
+                  slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
+                >
+                  <MenuItem value="">—</MenuItem>
                   {(column.options ?? []).map((option) => (
-                    <option key={option.value} value={option.value}>
+                    <MenuItem key={option.value} value={option.value}>
                       {option.label}
-                    </option>
+                    </MenuItem>
                   ))}
-                </select>
+                </TextField>
               );
               break;
             case "ref":
               control = (
-                <select
+                <TextField
+                  select
+                  fullWidth
                   id={id}
+                  label={label}
                   value={String(value ?? "")}
                   onChange={(e) => {
                     update(column.key, e.target.value);
@@ -208,35 +224,74 @@ export function RowDrawerForm({
                   }}
                   disabled={disabled}
                   required={column.required}
+                  slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
                 >
-                  <option value="">—</option>
+                  <MenuItem value="">—</MenuItem>
                   {refOptions(column).map((option) => (
-                    <option key={option.id} value={option.id}>
+                    <MenuItem key={option.id} value={option.id}>
                       {option.label}
-                    </option>
+                    </MenuItem>
                   ))}
-                </select>
+                </TextField>
               );
               break;
             case "notes":
-              control = <textarea id={id} rows={3} value={String(value ?? "")} onChange={(e) => update(column.key, e.target.value)} readOnly={disabled} />;
+              control = (
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={3}
+                  id={id}
+                  label={label}
+                  value={String(value ?? "")}
+                  onChange={(e) => update(column.key, e.target.value)}
+                  slotProps={{ htmlInput: { readOnly: disabled }, inputLabel: { shrink: true } }}
+                />
+              );
               break;
             case "number":
-              control = <input id={id} type="number" inputMode={column.integer ? "numeric" : "decimal"} step={column.integer ? 1 : "any"} min={column.min ?? undefined} value={String(value ?? "")} onChange={(e) => update(column.key, e.target.value)} readOnly={disabled} required={column.required} />;
+              control = (
+                <TextField
+                  fullWidth
+                  type="number"
+                  id={id}
+                  label={label}
+                  value={String(value ?? "")}
+                  onChange={(e) => update(column.key, e.target.value)}
+                  required={column.required}
+                  slotProps={{
+                    htmlInput: {
+                      inputMode: column.integer ? "numeric" : "decimal",
+                      step: column.integer ? 1 : "any",
+                      min: column.min ?? undefined,
+                      readOnly: disabled,
+                    },
+                    inputLabel: { shrink: true },
+                  }}
+                />
+              );
               break;
             default:
               // An immutable column (a code) is DISABLED on edit, not merely read-only, so it reads
               // as fixed; the draft still carries its stored value and changedFields never sends it.
-              control = <input id={id} type="text" value={String(value ?? "")} onChange={(e) => update(column.key, e.target.value)} readOnly={readOnly} disabled={column.immutable && isEdit} required={column.required} maxLength={500} />;
+              control = (
+                <TextField
+                  fullWidth
+                  id={id}
+                  label={label}
+                  value={String(value ?? "")}
+                  onChange={(e) => update(column.key, e.target.value)}
+                  disabled={column.immutable && isEdit}
+                  required={column.required}
+                  slotProps={{
+                    htmlInput: { readOnly, maxLength: 500 },
+                    inputLabel: { shrink: true },
+                  }}
+                />
+              );
           }
           return (
             <div className="fld" key={column.key}>
-              {column.type !== "bool" ? (
-                <label htmlFor={id}>
-                  {column.label}
-                  {column.required ? " *" : ""}
-                </label>
-              ) : null}
               {control}
               {column.hint ? <div className="muted small">{column.hint}</div> : null}
               {error ? <div className="cfg-ferr">{error}</div> : null}
@@ -252,12 +307,12 @@ export function RowDrawerForm({
 
         {canEdit ? (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button type="submit" className="btn b" disabled={pending}>
+            <Button type="submit" variant="contained" loading={pending}>
               {c("action.save")}
-            </button>
-            <button type="button" className="btn" onClick={() => closeOverlay(listHref)} disabled={pending}>
+            </Button>
+            <Button type="button" variant="outlined" onClick={() => closeOverlay(listHref)} disabled={pending}>
               {c("action.cancel")}
-            </button>
+            </Button>
           </div>
         ) : null}
       </form>
@@ -280,9 +335,9 @@ export function RowDrawerForm({
                 <input type="hidden" name="row_id" value={row.id} />
                 <input type="hidden" name="row_version" value={row.row_version} />
                 <input type="hidden" name="status" value={row.status === "archived" ? "active" : "archived"} />
-                <button type="submit" className="btn sm" disabled={statusPending} title={c("drawer.archive_hint")}>
+                <Button type="submit" size="small" variant="outlined" loading={statusPending} title={c("drawer.archive_hint")}>
                   {row.status === "archived" ? c("action.restore") : c("action.archive")}
-                </button>
+                </Button>
               </form>
             ) : null}
             {canDelete && !row.is_builtin ? (
@@ -292,17 +347,17 @@ export function RowDrawerForm({
                   <input type="hidden" name="row_id" value={row.id} />
                   <input type="hidden" name="row_version" value={row.row_version} />
                   <span className="small">{c("drawer.delete_confirm")}</span>
-                  <button type="submit" className="btn sm" style={{ color: "var(--danger)" }} disabled={deletePending}>
+                  <Button type="submit" size="small" variant="outlined" color="error" loading={deletePending}>
                     {c("action.delete")}
-                  </button>
-                  <button type="button" className="btn sm ghost" onClick={() => setConfirmDelete(false)}>
+                  </Button>
+                  <Button type="button" size="small" variant="text" onClick={() => setConfirmDelete(false)}>
                     {c("action.cancel")}
-                  </button>
+                  </Button>
                 </form>
               ) : (
-                <button type="button" className="btn sm ghost" style={{ color: "var(--danger)" }} onClick={() => setConfirmDelete(true)}>
+                <Button type="button" size="small" variant="text" color="error" onClick={() => setConfirmDelete(true)}>
                   {c("action.delete")}
-                </button>
+                </Button>
               )
             ) : null}
           </div>

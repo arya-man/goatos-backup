@@ -505,6 +505,8 @@ WITH _param_types AS (
     $31::bool AS need_gain,
     $32::bool AS need_lump_span,
     $33::bool AS need_weekly_gain,
+    -- Anchors $34 so pruning the weight-bands section never drops the last placeholder
+    -- (pgx counts placeholders; one fewer placeholder than args was a 500 on every tab without weight bands).
     $34::numeric[] AS band_edges_kg
 ),
 scoped AS (

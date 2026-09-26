@@ -2,6 +2,7 @@
 
 import { LocalOverlayLink, useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { BodyPortal } from "@/components/app/body-portal";
 import { Clock, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { VIDEO_LOG_PANEL_ID, VIDEO_LOG_PANEL_SELECTION_KEY } from "./video-log-params";
@@ -58,7 +59,7 @@ export function VideoLogPanel({
           rule in mesha-theme.css; do not give either its own size or weight. */}
       <LocalOverlayLink
         href={`#${VIDEO_LOG_PANEL_SELECTION_KEY}=${VIDEO_LOG_PANEL_ID}`}
-        className="btn p vr-videolog-btn"
+        className="btn vr-videolog-btn"
         replace
         scroll={false}
       >
@@ -67,7 +68,8 @@ export function VideoLogPanel({
       </LocalOverlayLink>
 
       {displayedItem ? (
-        <>
+        // BodyPortal anchors the drawer + scrim to the viewport rather than a transformed ancestor.
+        <BodyPortal>
           <button
             type="button"
             className={`scrim${drawerOpen ? " on" : ""}`}
@@ -94,7 +96,7 @@ export function VideoLogPanel({
             </div>
             <div className="dc">{children}</div>
           </aside>
-        </>
+        </BodyPortal>
       ) : null}
     </>
   );

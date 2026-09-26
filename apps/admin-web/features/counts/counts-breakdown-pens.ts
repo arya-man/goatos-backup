@@ -2,6 +2,7 @@
 // rules the table relies on can be pinned by a node test without rendering anything.
 
 import type { CountsBreakdownResponse } from "@/lib/api/server";
+import { stageLabel } from "../../lib/stage-labels.ts";
 
 export type CountsBreakdownPenRow = CountsBreakdownResponse["pens"][number];
 export type CountsBreakdownPoint = CountsBreakdownPenRow["stages"][number];
@@ -33,7 +34,7 @@ export function pointLabel(
   vocabulary?: ReadonlyMap<string, string>,
 ): string {
   if (!point.key) return emptyLabel;
-  return vocabulary?.get(point.key) ?? point.label ?? point.key;
+  return stageLabel(vocabulary?.get(point.key) ?? point.label ?? point.key);
 }
 
 /**

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import CircularProgress from "@mui/material/CircularProgress";
 import { onIdTokenChanged } from "firebase/auth";
 import { getFirebaseAuth, isFirebaseSessionError, syncFirebaseSession } from "@/lib/auth/firebase-client";
 
@@ -51,10 +52,9 @@ export function LoginSessionGuard({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?:
   if (!redirecting) return null;
 
   return (
-    <div className="alert ok" style={{ marginTop: 18, display: "flex", alignItems: "center", gap: 10 }}>
-      <Loader2 className="ic h-4 w-4 animate-spin" aria-hidden="true" />
-      <span className="muted small">Session found. Opening dashboard…</span>
-    </div>
+    <Alert severity="success" role="status" icon={<CircularProgress size={20} color="inherit" />}>
+      Session found. Opening dashboard…
+    </Alert>
   );
 }
 

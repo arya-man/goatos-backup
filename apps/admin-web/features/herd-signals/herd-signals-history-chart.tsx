@@ -1,5 +1,10 @@
+"use client";
+
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
+import { Chart, useChart } from "@/components/minimal/chart";
+import { niceCeiling } from "@/components/chart-scale";
 import { fmtClockIst, fmtDelta, fmtRssi } from "./format";
+import { EmptyState } from "@/components/app/empty-state";
 
 // Shared bucket-chart renderer for the drawer's mini chart and the full-screen history view.
 //
@@ -17,14 +22,12 @@ export function HistoryChart({
   buckets,
   baseline,
   height = 130,
-  width = 900,
   onHover,
   markers,
 }: {
   buckets: HerdSignalTimelineBucket[];
   baseline?: number | null;
   height?: number;
-  width?: number;
   onHover?: (bucket: HerdSignalTimelineBucket | null) => void;
   // Other recorded farm activity (vaccination, feed, weighing, treatment, hoof trimming, shed
   // move), joined by tag/animal and time. Drawn as vertical lines at the event's REAL timestamp
@@ -32,30 +35,12 @@ export function HistoryChart({
   // correlation-not-cause copy in herd-signals-history-fullscreen.tsx, which this renders under.
   markers?: ChartMarker[];
 }) {
-  if (buckets.length === 0) {
-    return (
-      <div className="empty" style={{ padding: "24px 12px" }}>
-        <p className="muted small" style={{ margin: 0 }}>
-          No activity windows in this range yet. Buckets are written as packets arrive.
-        </p>
-      </div>
-    );
-  }
-
-  // Left/bottom padding for the y-axis max label and the x-axis time labels — without it those
-  // labels either get clipped by the viewBox edge or sit on top of the bars they're labelling.
-  const padL = 30;
-  const padB = 16;
-  const padT = 6;
-  const plotW = width - padL - 4;
-  const plotH = height - padT - padB;
-
   const rawMaxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0), baseline ?? 0);
   // Keep zero/gap-heavy tags from collapsing into a useless 1.0 / 0.7 / 0.3 / 0 axis. The mock's
   // mini chart always reads on a few-hundred-count scale, even when the selected tag is quiet.
-  const maxDelta = rawMaxDelta < 20 ? 396 : rawMaxDelta;
-  const barGap = 1;
-  const barWidth = Math.max(1, plotW / buckets.length - barGap);
+  // A ROUND ceiling (1/1.2/1.6/2/2.4/3/4/5/6/8 x 10^n) so the four gridlines carry round figures:
+  // 400 / 300 / 200 / 100, not 396 / 264 / 132.
+  const maxDelta = niceCeiling(rawMaxDelta < 20 ? 400 : rawMaxDelta);
   // baseline_delta is the p75 of 300s (5-minute) buckets (Section 8), and the backend already
   // excludes every gap_delta reading from that p75 (a gap total is not an "ordinary active bucket").
   // Comparing it unscaled against a 3600s or 21600s bucket always reads "spike" (a bigger window
@@ -63,120 +48,69 @@ export function HistoryChart({
   // a real signal, just a unit mismatch. Scale the baseline to each bucket's own width before
   // comparing or drawing it.
   const scaledBaseline = (bucketSeconds: number) => (baseline ? baseline * (bucketSeconds / 300) : null);
-  const chartBucketSeconds = buckets[0]?.bucket_seconds || 300;
-  const lineBaseline = scaledBaseline(chartBucketSeconds);
-  const baselineY = lineBaseline ? padT + plotH - (Math.min(lineBaseline, maxDelta) / maxDelta) * plotH : null;
+  const lineBaseline = scaledBaseline(buckets[0]?.bucket_seconds || 300);
 
-  // x-axis time labels: roughly six evenly-spaced ticks, IST, received_at-sourced (per the
-  // two-clocks rule — bucket_start already comes from the server clock, never gateway_seen_at).
-  // Marker x-position is placed from the event's real timestamp against the chart's actual time
-  // domain (first bucket start -> last bucket end), NOT snapped to the nearest bucket's x-slot —
-  // a bucket can span up to an hour, and snapping would visibly misplace a marker within it.
-  const domainStartMs = new Date(buckets[0].bucket_start).getTime();
-  const lastBucket = buckets[buckets.length - 1];
-  const domainEndMs = new Date(lastBucket.bucket_start).getTime() + lastBucket.bucket_seconds * 1000;
-  const domainSpanMs = Math.max(1, domainEndMs - domainStartMs);
-  const markerX = (atMs: number) => {
-    const fraction = Math.min(1, Math.max(0, (atMs - domainStartMs) / domainSpanMs));
-    return padL + fraction * plotW;
-  };
-
-  const tickEvery = Math.max(1, Math.ceil(buckets.length / 6));
+  // One bar per bucket on a TIME axis (bucket start, received_at clock), so event markers sit at
+  // their real timestamp instead of snapping to a bucket slot. A gap is a full-height danger band
+  // (a hole in the data, never a zero); a zero delta is a flush-to-baseline muted bar; a reconnect
+  // total is its own colour and never classified as a spike.
+  const points = buckets.map((bucket) => {
+    const x = new Date(bucket.bucket_start).getTime();
+    if (bucket.is_gap) return { x, y: maxDelta, fillColor: "color-mix(in srgb, var(--danger) 26%, transparent)" };
+    const delta = bucket.motion_delta ?? 0;
+    let fillColor: string;
+    if (bucket.gap_delta) {
+      fillColor = "var(--purple)";
+    } else {
+      const bucketBaseline = scaledBaseline(bucket.bucket_seconds);
+      const spike = delta > maxDelta * 0.85 && delta > (bucketBaseline ?? 0) * 3;
+      fillColor = delta === 0 ? "var(--line)" : delta < (bucketBaseline ?? 999999) ? "var(--muted)" : spike ? "var(--warn)" : "var(--ok)";
+    }
+    // A zero reading still draws a sliver on the baseline so "packets, no movement" stays visible.
+    return { x, y: Math.max(delta, maxDelta * 0.015), fillColor };
+  });
   const formatAxisTick = (value: number) => {
-    if (maxDelta < 10) return value === 0 ? "0" : value.toFixed(1).replace(/\\.0$/, "");
+    if (maxDelta < 10) return value === 0 ? "0" : value.toFixed(1).replace(/\.0$/, "");
     return Math.round(value).toString();
   };
 
+  // Bars = AnalyticsWebsiteVisits (useChart base options); no tooltip card — the readout under the
+  // chart names the hovered bucket (ChartReadout), so the three facts are worded one way everywhere.
+  const chartOptions = useChart({
+    chart: {
+      animations: { enabled: false },
+      events: {
+        dataPointMouseEnter: (_e, _c, opts) => onHover?.(buckets[opts?.dataPointIndex ?? -1] ?? null),
+        mouseLeave: () => onHover?.(null),
+      },
+    },
+    stroke: { width: 0 },
+    plotOptions: { bar: { columnWidth: "92%", borderRadius: 0 } },
+    states: { hover: { filter: { type: "darken" } } },
+    tooltip: { enabled: false },
+    grid: { padding: { left: 4, right: 4 } },
+    xaxis: {
+      type: "datetime",
+      tickAmount: 6,
+      labels: { rotate: 0, hideOverlappingLabels: true, formatter: (value: string | number) => fmtClockIst(new Date(Number(value)).toISOString()) },
+      tooltip: { enabled: false },
+    },
+    // The drawer's mini chart is ~100px tall: zero, half and top only, or five ticks touch.
+    yaxis: { min: 0, max: maxDelta, tickAmount: height < 160 ? 2 : 4, labels: { formatter: formatAxisTick } },
+    annotations: {
+      yaxis: lineBaseline
+        ? [{ y: Math.min(lineBaseline, maxDelta), borderColor: "var(--muted)", strokeDashArray: 4, label: { text: `baseline ${Math.round(lineBaseline)}`, borderWidth: 0, style: { background: "transparent", color: "var(--muted)" } } }]
+        : [],
+      xaxis: (markers ?? []).map((marker) => ({ x: marker.atMs, borderColor: marker.color, strokeDashArray: 0 })),
+    },
+  });
+
+  if (buckets.length === 0) {
+    return <EmptyState title="No activity windows in this range yet. Buckets are written as packets arrive." />;
+  }
   return (
-    <div className="hchartwrap" style={{ width: "100%", height }}>
-      {/* Explicit width/height ATTRIBUTES (not just CSS) on the svg root, plus a matching inline
-          style: this chart previously collapsed to a sliver because it relied entirely on a CSS
-          class rule for height inside a flex ancestor, which lost out to the SVG's intrinsic
-          aspect-ratio sizing from viewBox alone. Inline style has the highest cascade specificity
-          short of !important, so it cannot be silently overridden by an ancestor rule again. */}
-      <svg
-        className="hchart"
-        viewBox={`0 0 ${width} ${height}`}
-        width={width}
-        height={height}
-        preserveAspectRatio="none"
-        role="img"
-        aria-label="Motion-count delta history"
-        style={{ width: "100%", height: `${height}px`, display: "block" }}
-        onMouseLeave={() => onHover?.(null)}
-      >
-        {[0, 1, 2, 3].map((k) => {
-          const y = padT + (plotH * k) / 3;
-          return (
-            <g key={k}>
-              <line x1={padL} y1={y} x2={width - 4} y2={y} className="gl" />
-              <text x={2} y={y + 3}>{formatAxisTick(maxDelta - (maxDelta * k) / 3)}</text>
-            </g>
-          );
-        })}
-        {baselineY !== null ? (
-          <>
-            <line x1={padL} y1={baselineY} x2={width - 4} y2={baselineY} className="base" />
-            <text x={width - 66} y={baselineY - 3}>baseline {Math.round(lineBaseline ?? 0)}</text>
-          </>
-        ) : null}
-        {buckets.map((bucket, index) => {
-          const x = padL + index * (barWidth + barGap);
-          if (bucket.is_gap) {
-            // Two layers, matching the mock exactly: a faint danger band across the full plot
-            // height (so a run of gaps reads as one continuous band) plus a solid strip at the
-            // bottom edge (so a SINGLE isolated gap bucket is still visible even at narrow widths).
-            return (
-              <g key={bucket.bucket_start} onMouseEnter={() => onHover?.(bucket)}>
-                <rect x={x} y={padT} width={barWidth} height={plotH} className="gap" />
-                <rect x={x} y={padT + plotH - 3} width={barWidth} height={3} className="gapline" />
-              </g>
-            );
-          }
-          const delta = bucket.motion_delta ?? 0;
-          const barHeight = Math.max(delta > 0 ? 1.5 : 2, (delta / maxDelta) * plotH);
-          // A reconnect delta is a recovered TOTAL across an unknown span of time inside the gap,
-          // not a normal reading — it must never be classified as "spike" (a burst claim this data
-          // cannot support) and never compared against the per-bucket baseline like an ordinary bar.
-          let cls: string;
-          if (bucket.gap_delta) {
-            cls = "b-reconnect";
-          } else {
-            const bucketBaseline = scaledBaseline(bucket.bucket_seconds);
-            const spike = delta > maxDelta * 0.85 && delta > (bucketBaseline ?? 0) * 3;
-            cls = delta === 0 ? "b-zero" : delta < (bucketBaseline ?? 999999) ? "b-low" : spike ? "b-spike" : "b-move";
-          }
-          return (
-            <rect
-              key={bucket.bucket_start}
-              x={x}
-              y={padT + plotH - barHeight}
-              width={barWidth}
-              height={barHeight}
-              className={cls}
-              onMouseEnter={() => onHover?.(bucket)}
-            />
-          );
-        })}
-        {buckets.map((bucket, index) =>
-          index % tickEvery === 0 ? (
-            <text key={bucket.bucket_start} x={padL + index * (barWidth + barGap)} y={height - 4}>
-              {fmtClockIst(bucket.bucket_start)}
-            </text>
-          ) : null,
-        )}
-        {(markers ?? []).map((marker, index) => {
-          const x = markerX(marker.atMs);
-          return (
-            <g key={`${marker.atMs}-${index}`}>
-              <line x1={x} y1={padT} x2={x} y2={padT + plotH} className="evline" stroke={marker.color} />
-              <circle cx={x} cy={padT + 4} r={3.5} fill={marker.color}>
-                <title>{marker.label}</title>
-              </circle>
-            </g>
-          );
-        })}
-      </svg>
+    <div className="hchartwrap" style={{ width: "100%", height }} role="img" aria-label="Motion-count delta history" onMouseLeave={() => onHover?.(null)}>
+      <Chart type="bar" series={[{ name: "delta", data: points }]} options={chartOptions} className="hchart" sx={{ height: 1 }} />
     </div>
   );
 }
@@ -223,7 +157,8 @@ export function ChartReadout({
   hovered: HerdSignalTimelineBucket | null;
 }) {
   if (!hovered) {
-    return <span className="faint">Hover a bucket for motion_count, delta, packet count and avg RSSI.</span>;
+    // No instruction line: the readout area is empty until a bucket is hovered (aria-live announces the reading).
+    return null;
   }
   if (hovered.is_gap) {
     return (

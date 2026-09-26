@@ -12,6 +12,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, "feed-shed-feed-charts.tsx"), "utf8");
+const penColumns = readFileSync(new URL("./feed-pen-columns.tsx", import.meta.url), "utf8");
+const columns = readFileSync(join(here, "feed-pen-columns.tsx"), "utf8");
 const page = readFileSync(join(here, "feed-analytics.tsx"), "utf8");
 
 test("the bar is the backend's per-animal figure, never a local division", () => {
@@ -22,9 +24,28 @@ test("the bar is the backend's per-animal figure, never a local division", () =>
 });
 
 test("an absent day is a gap with backend copy, never a zero bar", () => {
-  assert.match(source, /className="penbars-gap"/, "a missing day renders the gap mark");
+  assert.match(source, /const value = day \? num\(day\.per_head_grams\) : null;/, "a missing day is null, which the kit chart draws as no bar");
+  assert.match(source, /directed: value,/, "the null reaches the chart as the series value, not a 0");
   assert.match(source, /fc\("shedfeed\.day\.gap"\)/, "the gap tooltip is backend copy");
   assert.doesNotMatch(source, /(per_head_grams|directed_kg|value|total)\)?\s*\?\?\s*0\b/, "a missing figure must never be coerced to 0");
+  assert.doesNotMatch(columns, /(directed|verified)\s*\?\?\s*0\b/, "the chart wrapper must not coerce a null figure to 0 either");
+});
+
+// The columns are the kit column chart (redesign, 2026-09-20): figures on hover only, draw-in on
+// first sight, the pens of one name on ONE value axis, and a missing verified figure an explicit
+// mark in the hover card rather than a silent gap.
+test("the pens draw as the kit column chart on one shared axis, figures on hover only", () => {
+  assert.match(source, /<FeedPenColumns/, "the section mounts the kit column charts");
+  assert.match(source, /yMax=\{scale\}/, "the shared scale is handed to every pen's chart");
+  assert.match(columns, /<TrendChart/, "each pen is a TrendChart");
+  assert.match(columns, /kind="bar"/, "drawn as columns");
+  assert.match(columns, /yDomain=\{\[0, top\]\}/, "every pen's value axis is the shared domain");
+  assert.match(columns, /missingLabel=\{missingLabel\}/, "a missing figure is named in the hover card");
+  assert.match(source, /missingLabel="—"/, "the missing mark is the explicit dash");
+  assert.doesNotMatch(columns, /LabelList|<Bar[^>]*label=/, "no static value labels on the bars: figures live in the hover card");
+  assert.doesNotMatch(source, /className="penbars-value"|className="penbars-bar"/, "the legacy CSS bars are gone");
+  assert.match(source, /<InfoHint text=\{fc\("shedfeed\.hint"\)\}/, "the section's meaning is the title's hint, not a paragraph");
+  assert.doesNotMatch(source, /<span className="small muted">\{fc\("shedfeed\.hint"\)\}<\/span>/, "no prose under the title");
 });
 
 test("every visible string is a page-contract key and the page mounts the charts, not the table", () => {
@@ -56,7 +77,7 @@ test("the verified bar is the backend's figure on the same scale, and a blank fi
     /if \(verified !== null && verified > max\) max = verified;/,
     "the shared scale spans the verified bars too, or a taller verified bar could mean less feed",
   );
-  assert.match(source, /className="penbars-bar verified"/, "the verified bar is its own series");
+  assert.match(columns, /key: "verified", label: verifiedLabel/, "the verified bar is its own series");
   assert.match(source, /fc\("shedfeed\.day\.verified_gap"\)/, "a day with no approved bag says so in backend copy");
   // `Number("")` is 0: the parser must treat a blank wire figure as absent, or an unverified
   // day draws a "0 g · 0 / 2 bags verified" bar that reads as "she measured nothing".
@@ -69,6 +90,11 @@ test("the verified bar is the backend's figure on the same scale, and a blank fi
 });
 
 test("mobile pen bar scroll regions are keyboard focusable and labelled", () => {
-  assert.match(source, /className="penbars"[\s\S]*?role="group"[\s\S]*?tabIndex=\{0\}/);
-  assert.match(source, /aria-label=\{\`\$\{pen\.operational_location_display\} · \$\{fc\("shedfeed\.chart\.aria"\)\}`\}/);
+  // The markup moved into the shared FeedPenColumns component; the RULE did not. `.penbars` can
+  // scroll at phone width and a scroll container nothing can focus cannot be scrolled from a
+  // keyboard, so the group + tabIndex are asserted where the element now lives. This page still
+  // composes the label (pen + chart aria) and hands it over.
+  assert.match(penColumns, /className="penbars"[\s\S]*?role="group"[\s\S]*?tabIndex=\{0\}/);
+  assert.match(penColumns, /aria-label=\{pen\.ariaLabel\}/);
+  assert.match(source, /ariaLabel: `\$\{pen\.operational_location_display\} · \$\{fc\("shedfeed\.chart\.aria"\)\}`/);
 });

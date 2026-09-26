@@ -81,3 +81,13 @@ test("pensFromPlacements passes the backend-composed display through verbatim", 
   );
   assert.deepEqual(pensFromPlacements(undefined), []);
 });
+
+test("a pen display that repeats itself is named once in the bracket", () => {
+  // Judge 4 P2-8: "142 · Gokul Agronomics (42d) (CBE Fattening Fattening)".
+  assert.equal(loadPenBracket([{ park: "CBE", pen: "Fattening Fattening" }]), " (CBE Fattening)");
+  assert.equal(loadPenBracket([{ park: "CBE", pen: "Fattening - Fattening" }]), " (CBE Fattening)");
+  assert.equal(loadPenBracket([{ park: "CPT", pen: "Castro 1 Castro 1" }]), " (CPT Castro 1)");
+  // Different words stay whole.
+  assert.equal(loadPenBracket([{ park: "CBE", pen: "Fattening F2" }]), " (CBE Fattening F2)");
+  assert.equal(loadPenBracket([{ park: "CBE", pen: "Godel 1 - Part 1" }]), " (CBE Godel 1 - Part 1)");
+});

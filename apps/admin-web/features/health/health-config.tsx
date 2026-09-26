@@ -1,6 +1,14 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { Tag } from "@/components/ui-primitives";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
-import { AlertTriangle, Search } from "lucide-react";
+import Box from "@mui/material/Box";
+import { SearchTextField } from "@/components/minimal/list/search-text-field";
 
 import { copy, optionalCopy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { controlEnabled, control } from "@/lib/admin-ui-contract";
@@ -20,8 +28,12 @@ import { WorklistFilters, type WorklistFilterField } from "@/components/worklist
 import { createDisease, discardDraft, openDraft, publishDraft, saveDraft } from "./health-config-actions";
 import { HealthRegisterSection } from "./health-register";
 import { HealthTypesSection } from "./health-types";
+import { RulebookTabStrip } from "./health-config-tab-strip";
 import { StaleVersionNotice } from "./health-stale-version-recovery";
 import { AddDiseaseForm, BackToListButton, DraftEditor, ProtocolActionButton } from "./health-config-editor";
+import { InfoHint } from "@/components/app/info-hint";
+import { PageHeader } from "@/components/app/page-header";
+import Alert from "@mui/material/Alert";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
 // age band, the day-by-day course of medicines, actions and critical handoffs.
@@ -55,15 +67,13 @@ function SectionError({
 }) {
   if (!result || result.ok) return null;
   return (
-    <div className="alert" style={{ marginBottom: 16 }}>
-      <AlertTriangle className="ic" aria-hidden="true" />
-      <div>
+    <Alert severity="error" style={{ marginBottom: 16 }}><div>
         <b>{copy(pageContract, "action.error_backend")}</b>
         <div className="small muted">
           {result.error.code ?? result.error.kind}&nbsp;{result.error.message}
         </div>
       </div>
-    </div>
+    </Alert>
   );
 }
 
@@ -82,11 +92,11 @@ function LiveVersion({
   pageContract: AdminUiPageContract;
 }) {
   if (!row.published_version_id) {
-    return <span className="tag t-warn">{copy(pageContract, "status.no_live")}</span>;
+    return <Tag tone="warn">{copy(pageContract, "status.no_live")}</Tag>;
   }
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-      <span className="tag t-ok">{copy(pageContract, "status.live")}</span>
+      <Tag tone="ok">{copy(pageContract, "status.live")}</Tag>
       <span className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
         v{row.published_version}
       </span>
@@ -126,7 +136,7 @@ function RulebookTabs({
     return qs ? `${basePath}?${qs}` : basePath;
   };
   return (
-    <div className="wftoolbar" style={{ gap: 8, marginBottom: 12 }}>
+    <RulebookTabStrip activeHref={href(tab)}>
       <Link className={tab === "treatment" ? "btn" : "btn ghost"} href={href("treatment")}>
         {copy(pageContract, "tab.protocols")}
       </Link>
@@ -136,7 +146,7 @@ function RulebookTabs({
       <Link className={tab === "types" ? "btn" : "btn ghost"} href={href("types")}>
         {copy(pageContract, "tab.types")}
       </Link>
-    </div>
+    </RulebookTabStrip>
   );
 }
 
@@ -267,14 +277,7 @@ export async function HealthConfigPage({
   if (tab === "types") {
     return (
       <div className="screen on">
-        <div className="phead">
-          <div>
-            <div className="crumb">
-              {copy(pageContract, "crumb")} / <b>{copy(pageContract, "tab.types")}</b>
-            </div>
-            <h1>{pageContract.title}</h1>
-          </div>
-        </div>
+        <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "tab.types") }]} />
 
         <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
 
@@ -295,21 +298,18 @@ export async function HealthConfigPage({
     })();
     return (
       <div className="screen on">
-        <div className="phead">
-          <div>
-            <div className="crumb">
-              {copy(pageContract, "crumb")} / <b>{copy(pageContract, "tab.registers")}</b>
-            </div>
-            <h1>{pageContract.title}</h1>
-          </div>
-          <div className="sp" style={{ flex: 1 }} />
-          {selectedRegisterId ? (
-            <BackToListButton
-              href={registerListHref}
-              label={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
-            />
-          ) : null}
-        </div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "tab.registers") }]}
+          actions={
+            selectedRegisterId ? (
+              <BackToListButton
+                href={registerListHref}
+                label={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+              />
+            ) : null
+          }
+        />
 
         <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
 
@@ -327,26 +327,21 @@ export async function HealthConfigPage({
   if (detail) {
     return (
       <div className="screen on">
-        <div className="phead" style={{ alignItems: "flex-start", gap: 12 }}>
-          <div>
-            <div className="crumb">
-              {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.catalog.title")}</b>
-            </div>
-            <h1>
-              {detail.display_name} ·{" "}
-              {copy(pageContract, detail.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}
-            </h1>
-          </div>
-          <div className="sp" style={{ flex: 1 }} />
-          <BackToListButton
-            href={listHref}
-            label={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
-          />
-        </div>
+        {/* One <h1> per page (spec 1): the section rides in the breadcrumb, the protocol name is the title. */}
+        <PageHeader
+          title={`${detail.display_name} · ${copy(pageContract, detail.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}`}
+          crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }, { label: copy(pageContract, "section.catalog.title") }]}
+          actions={
+            <BackToListButton
+              href={listHref}
+              label={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+            />
+          }
+        />
 
         <SelectedProtocolEditor
           detail={detail}
-          medicines={medicinesResult?.ok ? medicinesResult.data.medicines : []}
+          medicines={medicinesResult?.ok ? listOrEmpty(medicinesResult.data.medicines) : []}
           pageContract={pageContract}
           mayWrite={mayWrite}
           writeDisabledReason={writeDisabledReason}
@@ -358,21 +353,11 @@ export async function HealthConfigPage({
 
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.catalog.title")}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <AddDiseaseForm
-          pageContract={pageContract}
-          action={createDisease}
-          enabled={mayWrite}
-          disabledReason={writeDisabledReason}
-        />
-      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.catalog.title") }]}
+        actions={<AddDiseaseForm pageContract={pageContract} action={createDisease} enabled={mayWrite} disabledReason={writeDisabledReason} />}
+      />
 
       <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
 
@@ -392,11 +377,7 @@ export async function HealthConfigPage({
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.catalog.title")}</h3>
-          <span className="small muted">{copy(pageContract, "section.catalog.caption")}</span>
         </div>
-        <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
-          {copy(pageContract, "section.catalog.note")}
-        </p>
 
         {/* Disease search. A plain GET form, not a WorklistFilters field: that component has no text
             kind, and the server-rendered form is what the other keyset-paged authority screens
@@ -405,18 +386,11 @@ export async function HealthConfigPage({
             of the current page in the browser would silently hide matches sitting on later pages.
             `hc_cursor` is deliberately NOT preserved: a new search restarts paging, or the cursor
             from the old result set would be applied to a different one. */}
-        <div className="wftoolbar" style={{ marginBottom: 0 }}>
-          <form className="tsearch" action={PAGE_PATH} style={{ maxWidth: 300 }} title={copy(pageContract, "filter.search_label")}>
-            {preservedHiddenInputs(sp, ["hc_q", "hc_cursor"])}
-            <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-            <input
-              name="hc_q"
-              defaultValue={searchFilter}
-              placeholder={copy(pageContract, "filter.search_label")}
-              aria-label={copy(pageContract, "filter.search_label")}
-            />
-          </form>
-        </div>
+        {/* Template toolbar search (UserTableToolbar TextField + magnifier), as a GET form. */}
+        <Box component="form" action={PAGE_PATH} title={copy(pageContract, "filter.search_label")} sx={{ p: 2.5, pb: 0 }}>
+          {preservedHiddenInputs(sp, ["hc_q", "hc_cursor"])}
+          <SearchTextField name="hc_q" defaultValue={searchFilter} placeholder={copy(pageContract, "filter.search_label")} />
+        </Box>
 
         <WorklistFilters
           basePath={PAGE_PATH}
@@ -432,19 +406,19 @@ export async function HealthConfigPage({
           role="group"
           aria-label={copy(pageContract, "section.catalog.aria")}
         >
-          <table className="feed-table" aria-label={copy(pageContract, "section.catalog.aria")}>
-            <thead>
-              <tr>
+          <Table className="feed-table" aria-label={copy(pageContract, "section.catalog.aria")}>
+            <TableHead>
+              <TableRow>
                 {catalogCols.map((col) => (
-                  <th key={col}>{col}</th>
+                  <TableCell component="th" key={col}>{col}</TableCell>
                 ))}
-                <th>{copy(pageContract, "action.edit_protocol")}</th>
-              </tr>
-            </thead>
-            <tbody>
+                <TableCell component="th" className="kit-th-actions"><span className="sr-only">{copy(pageContract, "action.edit_protocol")}</span></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={catalogCols.length + 1}>
+                <TableRow>
+                  <TableCell colSpan={catalogCols.length + 1}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                       {catalogResult?.ok
                         ? hasFilter
@@ -452,51 +426,53 @@ export async function HealthConfigPage({
                           : copy(pageContract, "empty.catalog")
                         : copy(pageContract, "action.error_backend")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 rows.map((row) => (
-                  <tr key={`${row.disease_key}:${row.age_band}`}>
-                    <td>{row.display_name}</td>
-                    <td className="muted">
+                  <TableRow key={`${row.disease_key}:${row.age_band}`}>
+                    <TableCell>{row.display_name}</TableCell>
+                    <TableCell className="muted">
                       {copy(pageContract, row.age_band === "kid" ? "label.age_band.kid" : "label.age_band.adult")}
-                    </td>
-                    <td style={{ fontVariantNumeric: "tabular-nums" }}>{row.duration_days}</td>
-                    <td style={{ fontVariantNumeric: "tabular-nums" }}>{row.step_count}</td>
-                    <td style={{ fontVariantNumeric: "tabular-nums" }}>{row.medication_count}</td>
-                    <td style={{ fontVariantNumeric: "tabular-nums" }}>{row.critical_action_count}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.duration_days}</TableCell>
+                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.step_count}</TableCell>
+                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.medication_count}</TableCell>
+                    <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{row.critical_action_count}</TableCell>
+                    <TableCell>
                       <LiveVersion row={row} pageContract={pageContract} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {row.has_draft ? (
-                        <span className="tag t-info">{copy(pageContract, "status.draft_open")}</span>
+                        <Tag tone="info">{copy(pageContract, "status.draft_open")}</Tag>
                       ) : (
                         <span className="muted">{copy(pageContract, "status.draft_none")}</span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <ProtocolActionButton
                         pageContract={pageContract}
                         action={openDraft}
                         fields={{ disease_key: row.disease_key, age_band: row.age_band }}
                         labelKey="action.edit_protocol"
+                        icon="edit"
                         navigateOnSuccess="selected-version"
                         basePath={listHref}
                         enabled={mayWrite}
                         disabledReason={writeDisabledReason}
                       />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         <div className="pager2">
-          <span className="small muted" style={{ marginRight: "auto" }}>
-            {rows.length} · {copy(pageContract, "pager.rows_note")}
+          <span className="small muted" style={{ marginRight: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {rows.length} {copy(pageContract, "pager.rows").toLowerCase()}
+            <InfoHint text={copy(pageContract, "pager.rows_note")} />
           </span>
           {cursor ? (
             <a className="btn sm" href={restartHref}>
@@ -604,31 +580,31 @@ function SelectedProtocolEditor({
           // A published or retired version is read-only, and that is a business rule rather
           // than a permission: goats are being treated from it. Editing goes through a draft.
           <div className="bd tablewrap feed-stock-tablewrap feed-scroll" style={{ padding: 0, overflowX: "auto" }}>
-            <table className="feed-table" aria-label={copy(pageContract, "section.steps.aria")}>
-              <thead>
-                <tr>
+            <Table className="feed-table" aria-label={copy(pageContract, "section.steps.aria")}>
+              <TableHead>
+                <TableRow>
                   {tableLabels(pageContract, "protocol-steps").map((col) => (
-                    <th key={col}>{col}</th>
+                    <TableCell component="th" key={col}>{col}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {(detail.steps ?? []).length === 0 ? (
-                  <tr>
-                    <td colSpan={9}>
+                  <TableRow>
+                    <TableCell colSpan={9}>
                       <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
                         {copy(pageContract, "empty.steps")}
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   (detail.steps ?? []).map((step) => (
-                    <tr key={step.step_id ?? `${step.day_no}-${step.seq}`}>
-                      <td style={{ fontVariantNumeric: "tabular-nums" }}>{step.day_no}</td>
-                      <td className="muted">
+                    <TableRow key={step.step_id ?? `${step.day_no}-${step.seq}`}>
+                      <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{step.day_no}</TableCell>
+                      <TableCell className="muted">
                         {copy(pageContract, `label.session.${step.session === "unscheduled" ? "unscheduled" : step.session}`)}
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         {copy(
                           pageContract,
                           step.record_type === "medication"
@@ -637,13 +613,13 @@ function SelectedProtocolEditor({
                               ? "label.record_type.critical"
                               : "label.record_type.action",
                         )}
-                      </td>
-                      <td>{step.medicine_name ?? ""}</td>
-                      <td style={{ fontVariantNumeric: "tabular-nums" }}>{step.dosage_text ?? ""}</td>
-                      <td className="muted">{step.dosage_denominator ?? ""}</td>
-                      <td>{step.medicine_route ?? ""}</td>
-                      <td style={{ whiteSpace: "pre-wrap", minWidth: 260 }}>{step.instruction ?? ""}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell>{step.medicine_name ?? ""}</TableCell>
+                      <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{step.dosage_text ?? ""}</TableCell>
+                      <TableCell className="muted">{step.dosage_denominator ?? ""}</TableCell>
+                      <TableCell>{step.medicine_route ?? ""}</TableCell>
+                      <TableCell style={{ whiteSpace: "pre-wrap", minWidth: 260 }}>{step.instruction ?? ""}</TableCell>
+                      <TableCell>
                         {step.critical_action_type
                           ? copy(
                               pageContract,
@@ -652,12 +628,12 @@ function SelectedProtocolEditor({
                                 : "label.critical.quarantine",
                             )
                           : ""}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
 

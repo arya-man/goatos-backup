@@ -1,9 +1,16 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { Caption } from "@/components/app/caption";
 import { fmtDate } from "@/lib/format";
 import type { FeedAnalyticsFollowUpResponse, FeedAnalyticsFollowUpRow } from "@/lib/api/server";
+import { EmptyState } from "@/components/app/empty-state";
 
 // ---------------------------------------------------------------------------
 // Feed follow-up: when animals were bought, sold or lost, did the feed change?
@@ -77,23 +84,23 @@ export function FeedFollowUpTab({
   return (
     <section className="card ffu-card">
       <h2 className="h">{fa(pageContract, "followup.table.title")}</h2>
-      <p className="muted small" style={{ margin: "0 0 10px" }}>{fa(pageContract, "followup.hint")}</p>
+      <Caption>{fa(pageContract, "followup.hint")}</Caption>
       {allLines.length === 0 ? (
-        <p className="muted small">{fa(pageContract, "followup.empty")}</p>
+        <EmptyState title={fa(pageContract, "followup.empty")} />
       ) : (
         <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "followup.table.title")}>
-          <table className="tbl ffu-table">
-            <thead>
-              <tr>
-                <th>{fa(pageContract, "followup.col.pen")}</th>
-                <th>{fa(pageContract, "followup.col.changes")}</th>
-                <th>{fa(pageContract, "followup.col.when")}</th>
-                <th className="r">{fa(pageContract, "followup.col.animals")}</th>
-                <th className="r">{fa(pageContract, "followup.col.feed")}</th>
-                <th>{fa(pageContract, "followup.col.status")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="tbl ffu-table">
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">{fa(pageContract, "followup.col.pen")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "followup.col.changes")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "followup.col.when")}</TableCell>
+                <TableCell component="th" className="r">{fa(pageContract, "followup.col.animals")}</TableCell>
+                <TableCell component="th" className="r">{fa(pageContract, "followup.col.feed")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "followup.col.status")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {lines.map(({ pen, check }) => (
                 <FollowUpLine
                   key={`${pen.park_id}:${pen.shed_id}:${pen.partition_label}:${check.event_date}`}
@@ -102,8 +109,8 @@ export function FeedFollowUpTab({
                   pageContract={pageContract}
                 />
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </section>
@@ -122,13 +129,13 @@ function FollowUpLine({
   const tone = check.status === "not_followed" ? "dng" : check.status === "pending" ? "warn" : "ok";
   const pending = check.after_day === "";
   return (
-    <tr>
-      <td>
+    <TableRow>
+      <TableCell>
         {/* Backend-composed pen name, rendered verbatim (operational-location convention). */}
         <strong>{pen.operational_location_display}</strong>
         <span className="muted small"> · {pen.park_label}</span>
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         <span className="ffu-chips">
           {check.events.map((event) => (
             <Tag
@@ -146,8 +153,8 @@ function FollowUpLine({
             is a batch data-entry stamp, so printing it would invite a reader to
             reason from a clock that means nothing. */}
         <div className="muted small">{fmtDate(check.event_date)}</div>
-      </td>
-      <td className="muted small">
+      </TableCell>
+      <TableCell className="muted small">
         {/* The two sheets compared. Naming them is what keeps a negative
             verdict an observation rather than an accusation.
 
@@ -161,19 +168,19 @@ function FollowUpLine({
           : fa(pageContract, "followup.day.sheets")
               .replace("{before}", fmtDate(check.before_day))
               .replace("{after}", fmtDate(check.after_day))}
-      </td>
-      <td className="r nums">
+      </TableCell>
+      <TableCell className="r nums">
         <Movement
           before={String(check.head_before)}
           after={pending ? "—" : String(check.head_after)}
         />
-      </td>
-      <td className="r nums">
+      </TableCell>
+      <TableCell className="r nums">
         <Movement before={kg(check.kg_before)} after={pending ? "—" : kg(check.kg_after)} />
-      </td>
+      </TableCell>
       {/* The result and its footnote STACK. Side by side they pushed the
           column past the table's edge and the chip rendered clipped. */}
-      <td className="ffu-result">
+      <TableCell className="ffu-result">
         <Tag tone={tone}>{fa(pageContract, `followup.status.${check.status}`)}</Tag>
         {/* Only where the feed DID move by an amount the causes do not explain
             -- usually animals shifted in or out. On a line where nothing moved,
@@ -187,8 +194,8 @@ function FollowUpLine({
             )}
           </Tag>
         ) : null}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 

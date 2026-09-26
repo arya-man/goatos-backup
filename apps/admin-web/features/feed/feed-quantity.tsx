@@ -1,4 +1,6 @@
+import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { fmtQty } from "@/lib/format";
 import type { FeedDirectionItemQuantity } from "@/lib/api/server";
 import { classifyFeedQuantity, isConfiguredZeroQuantity } from "./feed-quantity-state";
 
@@ -88,16 +90,16 @@ export function FeedQuantityCell({
             color: configuredZero ? "var(--muted)" : "var(--brand-d)",
           }}
         >
-          {quantity}
+          {fmtQty(quantity)}
         </span>
         <span className="muted" style={{ fontSize: 11 }}>
           {copy(pageContract, "label.kg_noun")}
         </span>
       </span>
       {configuredZero ? (
-        <span className="tag t-info" title={copy(pageContract, "label.configured_zero_note")}>
+        <Tag tone="info" title={copy(pageContract, "label.configured_zero_note")}>
           {copy(pageContract, "label.configured_zero")}
-        </span>
+        </Tag>
       ) : null}
     </span>
   );
@@ -116,15 +118,15 @@ export function FeedItemStatusTag({
 }) {
   if (isBlockedItem(item)) {
     return (
-      <span className="tag t-dng" title={copy(pageContract, "label.blocked_note")}>
+      <Tag tone="dng" title={copy(pageContract, "label.blocked_note")}>
         {copy(pageContract, "label.blocked")}
-      </span>
+      </Tag>
     );
   }
   return (
-    <span className="tag t-ok" title={copy(pageContract, "label.ok_note")}>
+    <Tag tone="ok" title={copy(pageContract, "label.ok_note")}>
       {copy(pageContract, "label.ok")}
-    </span>
+    </Tag>
   );
 }
 
@@ -154,8 +156,8 @@ export function FeedWorkflowTag({
  */
 export function FeedOverdueShiftingChip({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
-    <span className="tag t-warn" title={copy(pageContract, "label.overdue_shifting_note")}>
+    <Tag tone="warn" title={copy(pageContract, "label.overdue_shifting_note")}>
       {copy(pageContract, "label.overdue_shifting_chip")}
-    </span>
+    </Tag>
   );
 }

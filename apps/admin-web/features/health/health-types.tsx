@@ -1,4 +1,8 @@
-import { AlertTriangle } from "lucide-react";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { copy, optionalCopy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getHealthConfigDiagnosisTypes, type HealthDiagnosisRouting } from "@/lib/api/server";
@@ -9,6 +13,7 @@ import {
   MapStageButton,
   RemoveStageChip,
 } from "./health-types-controls";
+import Alert from "@mui/material/Alert";
 
 /**
  * WHO IS JUDGED BY WHICH RULEBOOK.
@@ -53,10 +58,8 @@ export async function HealthTypesSection({
   return (
     <>
       {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>{copy(pageContract, "action.error_backend")}</div>
-        </div>
+        <Alert severity="error" style={{ marginBottom: 16 }}><div>{copy(pageContract, "action.error_backend")}</div>
+        </Alert>
       ) : null}
 
       {/* ---------------------------------------------------------------- the gaps, FIRST.
@@ -74,20 +77,20 @@ export async function HealthTypesSection({
           </p>
           <div className="bd health-scroll" style={{ padding: 0, overflowX: "auto" }} tabIndex={0}
             role="group" aria-label={copy(pageContract, "table.gaps.aria")}>
-            <table className="feed-table" aria-label={copy(pageContract, "table.gaps.aria")}>
-              <thead>
-                <tr>
-                  {gapCols.map((c) => <th key={c}>{c}</th>)}
-                  <th>{copy(pageContract, "action.map_stage")}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="feed-table" aria-label={copy(pageContract, "table.gaps.aria")}>
+              <TableHead>
+                <TableRow>
+                  {gapCols.map((c) => <TableCell component="th" key={c}>{c}</TableCell>)}
+                  <TableCell component="th">{copy(pageContract, "action.map_stage")}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {gaps.map((g) => (
-                  <tr key={`${g.age_band}/${g.stage_code}`}>
-                    <td>{g.stage_label || g.stage_code}</td>
-                    <td>{bandLabel(g.age_band)}</td>
-                    <td><b>{g.live_animals}</b></td>
-                    <td>
+                  <TableRow key={`${g.age_band}/${g.stage_code}`}>
+                    <TableCell>{g.stage_label || g.stage_code}</TableCell>
+                    <TableCell>{bandLabel(g.age_band)}</TableCell>
+                    <TableCell><b>{g.live_animals}</b></TableCell>
+                    <TableCell>
                       <MapStageButton
                         pageContract={pageContract}
                         ageBand={g.age_band}
@@ -97,11 +100,11 @@ export async function HealthTypesSection({
                         enabled={mayWrite}
                         disabledReason={writeDisabledReason}
                       />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </section>
       ) : null}
@@ -124,26 +127,26 @@ export async function HealthTypesSection({
         </p>
         <div className="bd health-scroll" style={{ padding: 0, overflowX: "auto" }} tabIndex={0}
           role="group" aria-label={copy(pageContract, "table.types.aria")}>
-          <table className="feed-table" aria-label={copy(pageContract, "table.types.aria")}>
-            <thead>
-              <tr>
-                {typeCols.map((c) => <th key={c}>{c}</th>)}
-                <th>{copy(pageContract, "action.edit_type")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="feed-table" aria-label={copy(pageContract, "table.types.aria")}>
+            <TableHead>
+              <TableRow>
+                {typeCols.map((c) => <TableCell component="th" key={c}>{c}</TableCell>)}
+                <TableCell component="th">{copy(pageContract, "action.edit_type")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {types.length === 0 ? (
-                <tr>
-                  <td colSpan={typeCols.length + 1}>
+                <TableRow>
+                  <TableCell colSpan={typeCols.length + 1}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
                       {copy(pageContract, "empty.types")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 types.map((t) => (
-                  <tr key={t.type_key}>
-                    <td>
+                  <TableRow key={t.type_key}>
+                    <TableCell>
                       <b>{t.label}</b>
                       {t.is_builtin ? (
                         <span className="chip" style={{ marginLeft: 8 }}>
@@ -155,11 +158,11 @@ export async function HealthTypesSection({
                           {copy(pageContract, "label.retired")}
                         </span>
                       ) : null}
-                    </td>
-                    <td className="small muted">{t.type_key}</td>
-                    <td>{t.status === "active" ? copy(pageContract, "label.register_live") : copy(pageContract, "label.retired")}</td>
-                    <td>{t.route_count}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="small muted">{t.type_key}</TableCell>
+                    <TableCell>{t.status === "active" ? copy(pageContract, "label.register_live") : copy(pageContract, "label.retired")}</TableCell>
+                    <TableCell>{t.route_count}</TableCell>
+                    <TableCell>
                       {t.has_published_register ? (
                         copy(pageContract, "label.register_live")
                       ) : (
@@ -168,8 +171,8 @@ export async function HealthTypesSection({
                         // rather than leaving a blank for the reader to interpret.
                         <span className="small muted">{copy(pageContract, "note.no_register_yet")}</span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <DiagnosisTypeControls
                         pageContract={pageContract}
                         mode="edit"
@@ -177,12 +180,12 @@ export async function HealthTypesSection({
                         enabled={mayWrite}
                         disabledReason={writeDisabledReason}
                       />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </section>
 

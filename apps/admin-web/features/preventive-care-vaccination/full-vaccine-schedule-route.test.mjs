@@ -165,7 +165,12 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.doesNotMatch(source, /<input name="override_date"[^>]*type="date"/);
   assert.doesNotMatch(source, /<select name="vaccine_code"/);
   assert.match(moveDrawerSource, /<ThemedDatePicker[\s\S]*name="override_date"/);
-  assert.match(moveDrawerSource, /<select name="vaccine_code"/);
+  // The vaccine choice is an MUI TextField select; the form still posts `vaccine_code` through a hidden
+  // input that mirrors the selected value, so the server action reads the same field as before.
+  assert.doesNotMatch(moveDrawerSource, /<select/);
+  assert.match(moveDrawerSource, /<input type="hidden" name="vaccine_code" value=\{selectedVaccineCode\} \/>/);
+  assert.match(moveDrawerSource, /<TextField\s+select[\s\S]*value=\{selectedVaccineCode\}[\s\S]*onChange=\{\(event\) => setSelectedVaccineCode\(event\.target\.value\)\}[\s\S]*displayedRow\.vaccineCodes\.map\(\(code, index\) => \([\s\S]*<MenuItem key=\{code\} value=\{code\}>[\s\S]*displayedRow\.vaccineNames\[index\] \?\? code/);
+  assert.match(source, /formData\.get\("vaccine_code"\)/);
   assert.match(moveDrawerSource, /schedule-move-form/);
   assert.doesNotMatch(themedDatePickerSource, /showPicker/);
   assert.doesNotMatch(themedDatePickerSource, /type="date"/);
@@ -174,17 +179,18 @@ test("vaccination schedule move date uses an overlay and themed dark date picker
   assert.match(themedDatePickerSource, /const minDate = useMemo\(\(\) => parseDateKey\(min\), \[min\]\)/);
   assert.match(moveDrawerSource, /displayedRow\.vaccineOriginalDates\[selectedVaccineCode\]/);
   assert.match(moveDrawerSource, /value=\{selectedVaccineCode\}/);
-  assert.match(moveDrawerSource, /onChange=\{\(event\) => setSelectedVaccineCode\(event\.currentTarget\.value\)\}/);
   assert.match(moveDrawerSource, /min=\{todayIso\(\)\}/);
   assert.match(themedDatePickerSource, /move-date-popover/);
-  assert.match(themedDatePickerSource, /move-date-spacer/);
+  // Calendar body now uses MUI X DateCalendar (template's CustomDateRangePicker calendar) so the
+  // hand-rolled `.move-date-spacer` empty-cell placeholders no longer exist; the check the test
+  // guards (not a native date input, month arrows aria-labelled, close-on-outside-click) stays.
+  assert.match(themedDatePickerSource, /DateCalendar/);
   assert.match(themedDatePickerSource, /document\.addEventListener\("pointerdown", onPointerDown\)/);
   assert.match(themedDatePickerSource, /detailsRef\.current\.open = false/);
   assert.match(moveDrawerSource, /schedule\.move\.previous_month/);
   assert.match(moveDrawerSource, /schedule\.move\.next_month/);
   assert.match(moveDrawerSource, /schedule\.move\.invalid_future_date/);
   assert.match(css, /\.move-date-popover/);
-  assert.match(css, /\.move-date-spacer/);
   assert.match(css, /background:var\(--panel\)/);
 });
 

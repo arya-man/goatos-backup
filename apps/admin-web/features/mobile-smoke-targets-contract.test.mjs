@@ -10,7 +10,7 @@ const css = read("../app/mesha-theme.css");
 
 test("health-config feed tables sit inside the shared mobile scroll owner", () => {
   const src = read("./health/health-config.tsx");
-  const wrappers = src.match(/className="bd[^"]*"[\s\S]{0,200}?<table className="feed-table"/g) ?? [];
+  const wrappers = src.match(/className="bd[^"]*"[\s\S]{0,200}?<Table className="feed-table"/g) ?? [];
   assert.equal(wrappers.length, 2);
   for (const w of wrappers) assert.match(w, /className="bd[^"]*\btablewrap feed-stock-tablewrap feed-scroll\b/);
   assert.match(css, /\.main \.feed-stock-tablewrap\{[^}]*overflow-x:auto[^}]*touch-action:pan-x pan-y/);
@@ -18,10 +18,13 @@ test("health-config feed tables sit inside the shared mobile scroll owner", () =
 
 test("notification-matrix checkboxes are wrapped in a 40px label hit area", () => {
   const src = read("./people/notification-matrix.tsx");
-  assert.match(src, /<label className="nmatrix-hit">\s*<input\s+type="checkbox"/);
+  assert.match(src, /<Checkbox className="nmatrix-hit"/);
   assert.match(css, /\.nmatrix-hit\{[^}]*min-width:40px;min-height:40px/);
 });
 
-test("breadcrumb links get a 40px tap height on mobile widths", () => {
-  assert.match(css, /@media\(max-width:760px\)\{\s*\.nbtrail a\.nbc\{[^}]*min-height:40px/);
+test("page-header breadcrumb and back links get a 44px tap box on phone widths", () => {
+  // The page header is the template CustomBreadcrumbs; PhoneTapStyles raises its links below `md`.
+  const tap = read("../components/minimal/_shared/phone-tap-styles.tsx");
+  assert.match(tap, /'\.MuiBreadcrumbs-li > a, a\.minimal__breadcrumbs__back': \{\s*minHeight: TAP,\s*minWidth: TAP/);
+  assert.match(tap, /const TAP = 44;/);
 });

@@ -1,6 +1,8 @@
 "use client";
 
-import { GitBranch, Lock, Plus } from "lucide-react";
+import { EmptyState } from "@/components/app/empty-state";
+
+import { GitBranch, Lock, Plus, MousePointerClick } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -230,7 +232,7 @@ export function WeighingFlow({
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
         </div>
-        {selected ? renderCard(selected) : <p className="muted" style={{ padding: 16 }}>{copy(pc, "studio.flow.none_selected")}</p>}
+        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<MousePointerClick className="ic" />} style={{ padding: 16 }} />}
       </aside>
     </div>
   );

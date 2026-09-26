@@ -57,7 +57,7 @@ test("each shed animal roster record has one keyboard-accessible link covering t
   const rosterEnd = pageSource.indexOf("// Shed-wise vaccination detail", rosterStart);
   const rosterSource = pageSource.slice(rosterStart, rosterEnd);
 
-  assert.match(rosterSource, /<tr key=\{a\.goatId\} className="shed-animal-roster-row">/);
+  assert.match(rosterSource, /<TableRow key=\{a\.goatId\} className="shed-animal-roster-row">/);
   assert.match(
     rosterSource,
     /<LocalOverlayLink[\s\S]*?className="shed-animal-roster-row-link"[\s\S]*?aria-label=/,

@@ -486,23 +486,37 @@ func (h *Handler) listQueue(
 		// candidates, alerts, the awaiting-application view) is left at the default false.
 		SamplingApplied: !holdsVerificationPermission(r, permissions.VerificationOversee),
 	}
-	result, err := h.service.ListQueue(r.Context(), params)
-	if err != nil {
-		h.respondError(w, r, err)
-		return
-	}
 	// Drive-closure cards belong to whoever holds verification.act (CEO/Director), NOT to the
 	// endpoint. Gating them on actionQueue meant leadership only saw them because their Videos
 	// nav happened to point at /verify/action; moving that href to the review queue silently
 	// removed the close card. The verifier holds verification.verdict, never act, so this stays
 	// off their queue.
+	//
+	// The closure read does not depend on the queue page, so it runs CONCURRENTLY with ListQueue
+	// (2026-09-19): sequenced after it, its ~130-280 ms statement sat on the page's critical path
+	// behind the queue's own three reads, and the SSR'd verification page paid both in series.
+	// Errors keep the previous precedence -- the queue's error is reported first, then the
+	// closures' -- and the response is byte-identical.
 	var closures []domain.VaccinationBatchClosure
+	var closuresErr error
+	closuresDone := make(chan struct{})
 	if holdsVerificationPermission(r, permissions.VerificationAct) {
-		closures, err = h.service.ListReadyVaccinationBatchClosures(r.Context(), params)
-		if err != nil {
-			h.respondError(w, r, err)
-			return
-		}
+		go func() {
+			defer close(closuresDone)
+			closures, closuresErr = h.service.ListReadyVaccinationBatchClosures(r.Context(), params)
+		}()
+	} else {
+		close(closuresDone)
+	}
+	result, err := h.service.ListQueue(r.Context(), params)
+	<-closuresDone
+	if err != nil {
+		h.respondError(w, r, err)
+		return
+	}
+	if closuresErr != nil {
+		h.respondError(w, r, closuresErr)
+		return
 	}
 	items := make([]queueItemResponse, len(result.Items))
 	itemIDs := make([]string, len(result.Items))

@@ -3,6 +3,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import {
   copy,
   optionGroup,
@@ -74,10 +76,12 @@ function FeedItemStatusCell({
    * an effect — a cascading render, and one React's lint rule rejects outright.
    */
   const [optimistic, setOptimistic] = useState<{ from: FeedItemStatus; to: FeedItemStatus } | null>(null);
-  const selectRef = useRef<HTMLSelectElement | null>(null);
+  // The MUI TextField select renders a role="combobox" element, so the editor is focused by reaching into the
+  // wrapper for it rather than by holding a ref to a native <select>.
+  const editorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (editing) selectRef.current?.focus();
+    if (editing) editorRef.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus();
   }, [editing]);
 
   const shown = optimistic && optimistic.from === status ? optimistic.to : status;
@@ -112,25 +116,39 @@ function FeedItemStatusCell({
 
   if (editing) {
     return (
-      <select
-        ref={selectRef}
-        className="inp sm"
-        defaultValue={shown}
-        disabled={pending}
-        aria-label={copy(pageContract, "hint.feed_item_status_edit")}
-        onChange={(event) => apply(event.target.value)}
+      <div
+        ref={editorRef}
         // Leaving the cell without picking cancels: nothing is written until a value changes.
-        onBlur={() => setEditing(false)}
+        // `relatedTarget` inside the wrapper means focus only moved between the trigger and its
+        // listbox, which is not a cancel.
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setEditing(false);
+        }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") setEditing(false);
+          // The field itself consumes Escape to close its menu; this closes the editor when the
+          // menu is already shut.
+          if (event.key === "Escape" && event.target === event.currentTarget.querySelector("button")) {
+            setEditing(false);
+          }
         }}
       >
-        {options.map((option) => (
-          <option key={option.key} value={option.key} title={option.title || undefined}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        <TextField
+          select
+          label={copy(pageContract, "hint.feed_item_status_edit")}
+          value={shown}
+          disabled={pending}
+          title={optionTitle(pageContract, STATUS_GROUP, shown) || undefined}
+          onChange={(event) => apply(event.target.value)}
+          sx={{ minWidth: { xs: 0, sm: 148 }, flexShrink: 0, maxWidth: 1 }}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+        >
+          {options.map((option) => (
+            <MenuItem key={option.key} value={option.key}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      </div>
     );
   }
 

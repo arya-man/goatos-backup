@@ -2,56 +2,62 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const source = readFileSync(new URL("./svg-bars.tsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../app/mesha-theme.css", import.meta.url), "utf8");
+import { BAR_ROW_PX, GROW_BARS, VISIBLE_BARS, barsScroll, barsViewHeight, barsWindowHeight } from "./minimal/bar-charts/geometry.ts";
 
-/** Re-derives the geometry from the component's own constants, so this test cannot go stale. */
-function geometry() {
-  const num = (name) => {
-    const match = source.match(new RegExp(`const ${name} = (\\d+);`));
-    assert.ok(match, `svg-bars.tsx must declare ${name}`);
-    return Number(match[1]);
-  };
-  const rowHeight = num("ROW_HEIGHT");
-  const rowGap = num("ROW_GAP");
-  const visible = num("VISIBLE_BARS");
-  return {
-    wide: num("WIDE_VIEW_WIDTH"),
-    narrow: num("NARROW_VIEW_WIDTH"),
-    visible,
-    // Mirrors barsViewHeight().
-    height: visible * (rowHeight + rowGap) + 4,
-  };
-}
+const wrapper = readFileSync(new URL("./svg-bars.tsx", import.meta.url), "utf8");
+const chart = readFileSync(new URL("./minimal/bar-charts/bar-charts.tsx", import.meta.url), "utf8");
 
-test("the scroll window is sized by ratio, never by a fixed height", () => {
-  // The SVG has no height attribute — it is scaled by its viewBox, so its rendered height is
-  // containerWidth × viewBoxHeight / viewBoxWidth. A max-height in px would hold ten rows at one
-  // card width and six at another, which is the whole reason this is an aspect-ratio.
-  assert.match(source, /viewBox=\{`0 0 \$\{viewWidth\} \$\{height\}`\}/);
-  assert.doesNotMatch(source, /height=\{height\}/, "a height attribute would break the ratio contract");
-  assert.match(css, /\.svgbars-scroll\{[^}]*aspect-ratio:/);
-  assert.doesNotMatch(css, /\.svgbars-scroll\{[^}]*max-height:/);
-});
-
-test("the CSS ratios match the component's own geometry, at BOTH scales", () => {
-  // The narrow scale draws the same ten rows into a 280-wide viewBox. Reusing the wide ratio there
-  // would show three bars on a phone, which is the failure this pins.
-  const { wide, narrow, height } = geometry();
-  assert.match(css, new RegExp(`\\.svgbars-scroll\\{[^}]*aspect-ratio:${wide} / ${height}\\}`));
-  assert.match(css, new RegExp(`\\.svgbars-scroll\\{aspect-ratio:${narrow} / ${height}\\}`));
+test("the scroll window is a whole number of fixed-height rows, never a width-dependent box", () => {
+  // Apex draws each row at chartHeight / rows, so the chart height is rows x BAR_ROW_PX and the
+  // window is VISIBLE_BARS of those rows at every card width (the old viewBox needed an
+  // aspect-ratio because its row height followed the width; this one must not).
+  assert.equal(barsViewHeight(12) - barsViewHeight(11), BAR_ROW_PX);
+  assert.equal(barsWindowHeight(GROW_BARS + 1), barsViewHeight(VISIBLE_BARS));
+  assert.match(chart, /sx=\{\{ height: barsViewHeight\(rows\.length\) \}\}/);
+  assert.match(chart, /maxHeight: barsWindowHeight\(rows\)/);
+  assert.doesNotMatch(chart, /aspectRatio|aspect-ratio/);
 });
 
 test("the window appears only when there is something to scroll to", () => {
-  // Applied unconditionally it would stretch a three-bar chart to ten rows of empty card.
-  assert.match(source, /const scrolls = bars\.length > VISIBLE_BARS;/);
-  assert.match(source, /svgbars\$\{scrolls \? " svgbars-scroll" : ""\}/);
+  // Applied unconditionally it would stretch a three-bar chart to ten rows of empty card; and up to
+  // GROW_BARS rows the chart simply grows, so a 12-row chart gains no needless inner scroll.
+  assert.ok(GROW_BARS >= VISIBLE_BARS);
+  assert.equal(barsScroll(GROW_BARS), false);
+  assert.equal(barsScroll(GROW_BARS + 1), true);
+  assert.equal(barsWindowHeight(3), barsViewHeight(3));
+  assert.match(chart, /const scrolls = barsScroll\(rows\);/);
+  assert.match(chart, /sx=\{\s*scrolls\s*\?/);
+});
+
+test("the window scrolls inside the card without trapping the page", () => {
+  assert.match(chart, /overflowY: "auto"/);
+  assert.match(chart, /overscrollBehavior: "contain"/);
 });
 
 test("a scrolling chart is keyboard-reachable, a short one adds no tab stop", () => {
-  assert.match(source, /tabIndex=\{scrolls \? 0 : undefined\}/);
+  assert.match(chart, /tabIndex=\{scrolls \? 0 : undefined\}/);
 });
 
 test("ten bars stand in the card", () => {
-  assert.equal(geometry().visible, 10);
+  assert.equal(VISIBLE_BARS, 10);
+});
+
+test("every drawn bar carries its value label, and a loss draws red left of a zero rule", () => {
+  assert.match(chart, /dataLabels: \{\s*enabled: true,/);
+  assert.match(chart, /hideOverflowingLabels: false/);
+  assert.match(chart, /r\.value < 0 \? "var\(--error\)"/);
+  assert.match(chart, /annotations: hasNegative/);
+  // Losses are data, not noise: only zeros and non-finite values are left off the chart.
+  assert.match(wrapper, /data\.filter\(\(d\) => Number\.isFinite\(d\.value\) && d\.value !== 0\)/);
+});
+
+test("category labels truncate at a card-relative width instead of being dropped", () => {
+  assert.match(chart, /maxWidth: labelPx/);
+  assert.match(chart, /fontSize: "13px"/);
+});
+
+test("the wrapper hands the client chart only serializable props", () => {
+  assert.doesNotMatch(wrapper, /^"use client"/);
+  assert.match(chart, /^"use client";/);
+  assert.doesNotMatch(wrapper, /formatter\s*[:=]/);
 });

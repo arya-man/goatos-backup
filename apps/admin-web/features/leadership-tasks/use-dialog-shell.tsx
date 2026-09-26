@@ -42,6 +42,8 @@ export function useDialogShell({
     if (!open) return undefined;
 
     const onKey = (event: KeyboardEvent) => {
+      // A template menu popover stacked on the overlay (a picker's list) owns the keys while open.
+      if (document.querySelector(".MuiPopover-root")) return;
       if (event.key === "Escape") {
         onClose();
         return;

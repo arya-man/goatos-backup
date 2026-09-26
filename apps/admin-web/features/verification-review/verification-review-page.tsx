@@ -1,9 +1,17 @@
+import { Label } from "@/components/minimal/label";
+import { FilterChip } from "@/components/minimal/list/filter-chip";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
+import { PageHeader } from "@/components/app/page-header";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { ArrowDown, ArrowUp, Filter, PlayCircle } from "lucide-react";
 
-import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -26,6 +34,7 @@ import { RANDOMIZATION_PANEL_ID, RANDOMIZATION_PANEL_SELECTION_KEY } from "./ran
 import { ModuleFilter } from "./module-filter";
 import { SubcategoryFilter } from "./subcategory-filter";
 import { VideoLogPanel } from "./video-log-panel";
+import { VrFormSelect } from "./vr-form-select";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
 // client-reference proxy, not the string, so vl_date/vl_shed silently never matched.
 import {
@@ -39,8 +48,10 @@ import {
 } from "./video-log-params";
 import { VideoLog } from "./video-log";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
+import { QueueEmptyState, StatusChip, reviewQueueStyles as rq } from "@/components/review-queue/review-queue-ui";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 import { ToxinReviewScreen, toxinTabLabel } from "./toxin-review-section";
+import Alert from "@mui/material/Alert";
 
 const PATHNAME = "/verify";
 
@@ -118,7 +129,7 @@ export async function VerificationReviewPage({
   const authError = firstAuthRequiredError(queue);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
-  const items = queue.ok ? queue.data.items : [];
+  const items = queue.ok ? listOrEmpty(queue.data.items) : [];
   const selectedId = one(sp, "vi_row") ?? (one(sp, "vi_open_first") === "1" ? items[0]?.item_id : undefined);
   // `?? []` is not defensive noise: admin-web and the API deploy separately, so a browser can hit a
   // backend one release behind that has no `modules` in its filter options. The contract declares
@@ -232,176 +243,167 @@ export async function VerificationReviewPage({
   const legendDotColor: Record<string, string> = { pending: "var(--warn)", approved: "var(--ok)", rejected: "var(--danger)" };
 
   return (
-    <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")} / <b>{pageContract.title}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {/* Oversight analytics live behind a right-side panel, not stacked above the queue: the
-            queue is the working surface. Shown ONLY when the oversight_analytics contract control
-            is enabled -- the same capability (permissions.VerificationOversee) that gates the
-            endpoint the panel's contents read -- so a verifier gets neither the button nor the data.
-
-            Rollout fallback only for module names: the analytics rows now carry their own
-            backend-owned module_label. This map (filter_options.modules, the same vocabulary the
-            chip row below renders) keeps the backlog rows readable against a backend that predates
-            that field. */}
-        {oversightAnalyticsEnabled ? (
-          <AnalyticsPanel
-            pageContract={pageContract}
-            // MUST drop the panel's own key. closeHref is what the overlay writes when it cannot
-            // simply pop history, so a href that still carries vi_analytics=open closes the drawer
-            // and immediately reopens it from the URL.
-            closeHref={hrefWith(sp, { [ANALYTICS_PANEL_SELECTION_KEY]: null })}
-            initialOpen={one(sp, ANALYTICS_PANEL_SELECTION_KEY) === ANALYTICS_PANEL_ID}
-          >
-            <OversightAnalytics
-              pageContract={pageContract}
-              moduleLabels={new Map(modules.map((option) => [option.key, option.label]))}
-              // A backlog row is a question ("729 waiting in Feed") whose answer is the queue itself,
-              // so each row links to that queue exactly as the module chip row does -- same
-              // nav_module key, same RESET_ON_FILTER (a cursor from the previous filter points into a
-              // different sequence), same category clear. Built here because only the page has the
-              // live search params; passed as plain data because the panel is a client component.
-              moduleHrefs={
-                new Map(
-                  modules.map((option) => [
-                    option.key,
-                    hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
-                  ]),
-                )
-              }
-            />
-          </AnalyticsPanel>
-        ) : null}
-        {/* The VIDEO LOG: one business day, per shed, when each proof arrived (maintainer decision
-            2026-08-14). A SECOND panel beside Analytics, not a tab inside it, because the two are
-            gated on DIFFERENT capabilities: this follows permissions.VerificationEvidenceTimeline,
-            which the VERIFIER holds, while Analytics follows VerificationOversee, which she does
-            not. Folding them together would have handed her the oversight chrome that the
-            2026-08-12 STG incident deliberately took away. */}
-        {videoLogEnabled ? (
-          <VideoLogPanel
-            pageContract={pageContract}
-            // MUST drop the panel key, and the panel's own filters with it.
-            //
-            // Every in-panel navigation (day, shed, Apply) re-asserts vi_video_log=open in the QUERY
-            // so the drawer survives it. That made a closeHref which preserved the whole query
-            // unable to close anything: the overlay wrote a URL that still said open and the hook
-            // reopened from it. Dropping the filters too means the next open starts on the day
-            // summary rather than silently restoring a shed the reader had already left.
-            closeHref={hrefWith(sp, {
-              [VIDEO_LOG_PANEL_SELECTION_KEY]: null,
-              [VIDEO_LOG_SHED_KEY]: null,
-              [VIDEO_LOG_PARK_KEY]: null,
-              [VIDEO_LOG_QUERY_KEY]: null,
-              [VIDEO_LOG_DATE_KEY]: null,
-            })}
-            initialOpen={one(sp, VIDEO_LOG_PANEL_SELECTION_KEY) === VIDEO_LOG_PANEL_ID}
-          >
-            <VideoLog
-              pageContract={pageContract}
-              // The panel's own day, independent of the queue's capture-date filter: the queue may
-              // be showing a range or the whole backlog, but a video log is always ONE day.
-              businessDate={one(sp, VIDEO_LOG_DATE_KEY) || undefined}
-              parkId={scope.parkId || undefined}
-              selectedShedKey={one(sp, VIDEO_LOG_SHED_KEY) || undefined}
-              parkFilter={one(sp, VIDEO_LOG_PARK_KEY) || undefined}
-              query={one(sp, VIDEO_LOG_QUERY_KEY) || undefined}
-              filterAction={PATHNAME}
-              // The filter form REPLACES the panel's own three params and keeps everything else --
-              // including the selected day and the panel key, without which Apply would close the
-              // drawer it was submitted from.
-              filterHiddenInputs={
-                <>
-                  {hiddenInputs(sp, [VIDEO_LOG_PARK_KEY, VIDEO_LOG_SHED_KEY, VIDEO_LOG_QUERY_KEY])}
-                  <input type="hidden" name={VIDEO_LOG_PANEL_SELECTION_KEY} value={VIDEO_LOG_PANEL_ID} />
-                </>
-              }
-              clearHref={hrefWith(sp, {
-                [VIDEO_LOG_PARK_KEY]: null,
-                [VIDEO_LOG_SHED_KEY]: null,
-                [VIDEO_LOG_QUERY_KEY]: null,
-                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
-              })}
-              basePath={PATHNAME}
-              today={today}
-              // The calendar's MECHANICS copy is shared with the queue's date filter — one
-              // vocabulary for one calendar. Only the FIELD label differs, and it must: the queue
-              // filters on capture date, while this picks the day whose arrivals are listed, so
-              // reusing "Capture date" here labelled the control with the wrong fact.
-              dateLabels={{
-                field: copy(pageContract, "video_log.day"),
-                today: copy(pageContract, "filter.date.today"),
-                single: copy(pageContract, "filter.date.single"),
-                range: copy(pageContract, "filter.date.range"),
-                aria: copy(pageContract, "filter.date.aria"),
-                previousMonth: copy(pageContract, "filter.date.previous_month"),
-                nextMonth: copy(pageContract, "filter.date.next_month"),
-                rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
-                rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
-                rangeSeparator: copy(pageContract, "filter.date.range_separator"),
-              }}
-              // An href TEMPLATE rather than a per-shed map: only the page knows the live search
-              // params, but only the component knows which sheds the day actually holds (they come
-              // from its own fetch). The component substitutes each shed's key into the token. A
-              // callback would be the obvious alternative and does not survive being passed as
-              // children of a client component.
-              // Both hrefs carry the panel key so the drawer SURVIVES the navigation. The trigger
-              // opens this panel with a hash (#vi_video_log=open) and a query-only href drops it,
-              // which closed the drawer on every shed click and every date change.
-              shedHrefTemplate={hrefWith(sp, {
-                [VIDEO_LOG_SHED_KEY]: VIDEO_LOG_SHED_TOKEN,
-                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
-              })}
-              backHref={hrefWith(sp, {
-                [VIDEO_LOG_SHED_KEY]: null,
-                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
-              })}
-              queueHrefs={
-                new Map(
-                  modules.map((option) => [
-                    option.key,
-                    hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
-                  ]),
-                )
-              }
-            />
-          </VideoLogPanel>
-        ) : null}
-        {/* RANDOMIZATION: how much of each module's proof the verifier is required to watch
-            (maintainer decision 2026-08-26). A THIRD panel, not a tab inside Analytics, because it
-            is gated on a THIRD capability: permissions.VerificationSampling is CEO-only, while
-            Analytics follows VerificationOversee, which the PC Director also holds. Folding them
-            together would hand a director the control over how deeply his own department's work is
-            checked. */}
-        {randomizationEnabled ? (
-          <RandomizationPanel
-            pageContract={pageContract}
-            // MUST drop the panel's own key: closeHref is what the overlay writes when it cannot
-            // pop history, and a href that still says open closes the drawer and immediately
-            // reopens it from the URL.
-            closeHref={hrefWith(sp, { [RANDOMIZATION_PANEL_SELECTION_KEY]: null })}
-            initialOpen={one(sp, RANDOMIZATION_PANEL_SELECTION_KEY) === RANDOMIZATION_PANEL_ID}
-          >
-            <Randomization
-              pageContract={pageContract}
-              // Saving a share redirects back here, so the return URL re-asserts the panel key in
-              // the QUERY -- otherwise the CEO would be dropped back on the queue with the drawer
-              // shut after every change.
-              returnTo={hrefWith(sp, { [RANDOMIZATION_PANEL_SELECTION_KEY]: RANDOMIZATION_PANEL_ID })}
-            />
-          </RandomizationPanel>
-        ) : null}
+    <div className={`kit-enter screen on ${rq.root}`}>
+      <div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+          actions={
+            <>
+            {oversightAnalyticsEnabled ? (
+              <AnalyticsPanel
+                pageContract={pageContract}
+                // MUST drop the panel's own key. closeHref is what the overlay writes when it cannot
+                // simply pop history, so a href that still carries vi_analytics=open closes the drawer
+                // and immediately reopens it from the URL.
+                closeHref={hrefWith(sp, { [ANALYTICS_PANEL_SELECTION_KEY]: null })}
+                initialOpen={one(sp, ANALYTICS_PANEL_SELECTION_KEY) === ANALYTICS_PANEL_ID}
+              >
+                <OversightAnalytics
+                  pageContract={pageContract}
+                  moduleLabels={new Map(modules.map((option) => [option.key, option.label]))}
+                  // A backlog row is a question ("729 waiting in Feed") whose answer is the queue itself,
+                  // so each row links to that queue exactly as the module chip row does -- same
+                  // nav_module key, same RESET_ON_FILTER (a cursor from the previous filter points into a
+                  // different sequence), same category clear. Built here because only the page has the
+                  // live search params; passed as plain data because the panel is a client component.
+                  moduleHrefs={
+                    new Map(
+                      modules.map((option) => [
+                        option.key,
+                        hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
+                      ]),
+                    )
+                  }
+                />
+              </AnalyticsPanel>
+            ) : null}
+            {/* The VIDEO LOG: one business day, per shed, when each proof arrived (maintainer decision
+                2026-08-14). A SECOND panel beside Analytics, not a tab inside it, because the two are
+                gated on DIFFERENT capabilities: this follows permissions.VerificationEvidenceTimeline,
+                which the VERIFIER holds, while Analytics follows VerificationOversee, which she does
+                not. Folding them together would have handed her the oversight chrome that the
+                2026-08-12 STG incident deliberately took away. */}
+            {videoLogEnabled ? (
+              <VideoLogPanel
+                pageContract={pageContract}
+                // MUST drop the panel key, and the panel's own filters with it.
+                //
+                // Every in-panel navigation (day, shed, Apply) re-asserts vi_video_log=open in the QUERY
+                // so the drawer survives it. That made a closeHref which preserved the whole query
+                // unable to close anything: the overlay wrote a URL that still said open and the hook
+                // reopened from it. Dropping the filters too means the next open starts on the day
+                // summary rather than silently restoring a shed the reader had already left.
+                closeHref={hrefWith(sp, {
+                  [VIDEO_LOG_PANEL_SELECTION_KEY]: null,
+                  [VIDEO_LOG_SHED_KEY]: null,
+                  [VIDEO_LOG_PARK_KEY]: null,
+                  [VIDEO_LOG_QUERY_KEY]: null,
+                  [VIDEO_LOG_DATE_KEY]: null,
+                })}
+                initialOpen={one(sp, VIDEO_LOG_PANEL_SELECTION_KEY) === VIDEO_LOG_PANEL_ID}
+              >
+                <VideoLog
+                  pageContract={pageContract}
+                  // The panel's own day, independent of the queue's capture-date filter: the queue may
+                  // be showing a range or the whole backlog, but a video log is always ONE day.
+                  businessDate={one(sp, VIDEO_LOG_DATE_KEY) || undefined}
+                  parkId={scope.parkId || undefined}
+                  selectedShedKey={one(sp, VIDEO_LOG_SHED_KEY) || undefined}
+                  parkFilter={one(sp, VIDEO_LOG_PARK_KEY) || undefined}
+                  query={one(sp, VIDEO_LOG_QUERY_KEY) || undefined}
+                  filterAction={PATHNAME}
+                  // The filter form REPLACES the panel's own three params and keeps everything else --
+                  // including the selected day and the panel key, without which Apply would close the
+                  // drawer it was submitted from.
+                  filterHiddenInputs={
+                    <>
+                      {hiddenInputs(sp, [VIDEO_LOG_PARK_KEY, VIDEO_LOG_SHED_KEY, VIDEO_LOG_QUERY_KEY])}
+                      <input type="hidden" name={VIDEO_LOG_PANEL_SELECTION_KEY} value={VIDEO_LOG_PANEL_ID} />
+                    </>
+                  }
+                  clearHref={hrefWith(sp, {
+                    [VIDEO_LOG_PARK_KEY]: null,
+                    [VIDEO_LOG_SHED_KEY]: null,
+                    [VIDEO_LOG_QUERY_KEY]: null,
+                    [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+                  })}
+                  basePath={PATHNAME}
+                  today={today}
+                  // The calendar's MECHANICS copy is shared with the queue's date filter — one
+                  // vocabulary for one calendar. Only the FIELD label differs, and it must: the queue
+                  // filters on capture date, while this picks the day whose arrivals are listed, so
+                  // reusing "Capture date" here labelled the control with the wrong fact.
+                  dateLabels={{
+                    field: copy(pageContract, "video_log.day"),
+                    today: copy(pageContract, "filter.date.today"),
+                    single: copy(pageContract, "filter.date.single"),
+                    range: copy(pageContract, "filter.date.range"),
+                    aria: copy(pageContract, "filter.date.aria"),
+                    previousMonth: copy(pageContract, "filter.date.previous_month"),
+                    nextMonth: copy(pageContract, "filter.date.next_month"),
+                    rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+                    rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+                    rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+                  }}
+                  // An href TEMPLATE rather than a per-shed map: only the page knows the live search
+                  // params, but only the component knows which sheds the day actually holds (they come
+                  // from its own fetch). The component substitutes each shed's key into the token. A
+                  // callback would be the obvious alternative and does not survive being passed as
+                  // children of a client component.
+                  // Both hrefs carry the panel key so the drawer SURVIVES the navigation. The trigger
+                  // opens this panel with a hash (#vi_video_log=open) and a query-only href drops it,
+                  // which closed the drawer on every shed click and every date change.
+                  shedHrefTemplate={hrefWith(sp, {
+                    [VIDEO_LOG_SHED_KEY]: VIDEO_LOG_SHED_TOKEN,
+                    [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+                  })}
+                  backHref={hrefWith(sp, {
+                    [VIDEO_LOG_SHED_KEY]: null,
+                    [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+                  })}
+                  queueHrefs={
+                    new Map(
+                      modules.map((option) => [
+                        option.key,
+                        hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
+                      ]),
+                    )
+                  }
+                />
+              </VideoLogPanel>
+            ) : null}
+            {/* RANDOMIZATION: how much of each module's proof the verifier is required to watch
+                (maintainer decision 2026-08-26). A THIRD panel, not a tab inside Analytics, because it
+                is gated on a THIRD capability: permissions.VerificationSampling is CEO-only, while
+                Analytics follows VerificationOversee, which the PC Director also holds. Folding them
+                together would hand a director the control over how deeply his own department's work is
+                checked. */}
+            {randomizationEnabled ? (
+              <RandomizationPanel
+                pageContract={pageContract}
+                // MUST drop the panel's own key: closeHref is what the overlay writes when it cannot
+                // pop history, and a href that still says open closes the drawer and immediately
+                // reopens it from the URL.
+                closeHref={hrefWith(sp, { [RANDOMIZATION_PANEL_SELECTION_KEY]: null })}
+                initialOpen={one(sp, RANDOMIZATION_PANEL_SELECTION_KEY) === RANDOMIZATION_PANEL_ID}
+              >
+                <Randomization
+                  pageContract={pageContract}
+                  // Saving a share redirects back here, so the return URL re-asserts the panel key in
+                  // the QUERY -- otherwise the CEO would be dropped back on the queue with the drawer
+                  // shut after every change.
+                  returnTo={hrefWith(sp, { [RANDOMIZATION_PANEL_SELECTION_KEY]: RANDOMIZATION_PANEL_ID })}
+                />
+              </RandomizationPanel>
+            ) : null}
+            </>
+          }
+        />
       </div>
 
       {queue.ok ? null : (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           <b>{copy(pageContract, "state.queue_unavailable")}</b>
           <div className="small" style={{ marginTop: 4 }}>
             {copy(pageContract, "state.queue_unavailable_body")}
@@ -409,7 +411,7 @@ export async function VerificationReviewPage({
           <div className="small muted" style={{ marginTop: 4 }}>
             {queue.error.code ?? queue.error.kind} · {queue.error.message}
           </div>
-        </div>
+        </Alert>
       )}
 
       <VerificationQueueTelemetry
@@ -510,37 +512,39 @@ export async function VerificationReviewPage({
           ) : null}
           {sheds.length ? (
             <>
-              <div className="vr-fld fld" style={{ marginBottom: 0 }}>
-                <label htmlFor="verification-shed">{copy(pageContract, "filter.shed")}</label>
-                {/* Grouped by park, because a shed NAME is not unique across the farm: Castro,
-                    Gandhi, Godel 1, Godel 2, Mandela 1, Mandela 2 and Yashoda each exist in BOTH
-                    parks, so nine of the sixty-seven options on a real STG day were exact duplicate
-                    labels sitting next to each other. The value was always the right shed — the id
-                    is a UUID — but a reader could not tell which one she was picking, and the park
-                    holding more pens read as the only park present.
+              {/* Grouped by park, because a shed NAME is not unique across the farm: Castro,
+                  Gandhi, Godel 1, Godel 2, Mandela 1, Mandela 2 and Yashoda each exist in BOTH
+                  parks, so nine of the sixty-seven options on a real STG day were exact duplicate
+                  labels sitting next to each other. The value was always the right shed — the id
+                  is a UUID — but a reader could not tell which one she was picking, and the park
+                  holding more pens read as the only park present.
 
-                    The park comes from the option's own park_label; it is NOT concatenated into the
-                    shed's display, which belongs to oploc. Options with no park (the backend sends
-                    none when an option's rows disagree) stay in a plain ungrouped list ABOVE the
-                    groups rather than being dropped or filed under a guess. */}
-                <select id="verification-shed" name="shed_id" className="vr-selbtn" defaultValue={shedId ?? ""}>
-                  <option value="">{copy(pageContract, "filter.all_sheds")}</option>
-                  {shedsWithoutPark.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.operational_location_display || option.label}
-                    </option>
-                  ))}
-                  {shedsByPark.map(([parkLabel, parkSheds]) => (
-                    <optgroup key={parkLabel} label={parkLabel}>
-                      {parkSheds.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.operational_location_display || option.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </div>
+                  The park comes from the option's own park_label; it is NOT concatenated into the
+                  shed's display, which belongs to oploc. Options with no park (the backend sends
+                  none when an option's rows disagree) stay in a plain ungrouped list ABOVE the
+                  groups rather than being dropped or filed under a guess. VrFormSelect's
+                  `group` is the <optgroup> equivalent and preserves that order exactly. */}
+              <VrFormSelect
+                id="verification-shed"
+                className="vr-fld fld"
+                name="shed_id"
+                label={copy(pageContract, "filter.shed")}
+                defaultValue={shedId ?? ""}
+                options={[
+                  { value: "", label: copy(pageContract, "filter.all_sheds") },
+                  ...shedsWithoutPark.map((option) => ({
+                    value: option.id,
+                    label: option.operational_location_display || option.label,
+                  })),
+                  ...shedsByPark.flatMap(([parkLabel, parkSheds]) =>
+                    parkSheds.map((option) => ({
+                      value: option.id,
+                      label: option.operational_location_display || option.label,
+                      group: parkLabel,
+                    })),
+                  ),
+                ]}
+              />
               <button type="submit" className="btn sm">
                 <Filter className="ic" aria-hidden="true" />
                 {copy(pageContract, "filter.apply")}
@@ -582,34 +586,30 @@ export async function VerificationReviewPage({
             <span />
           </div>
           {statuses.length ? (
-            <div className="vr-legend">
+            <div className="kit-chiprow vr-status-chips" role="group">
               {statusOptionsWithStatus.map((option) => (
-                <Link
+                <FilterChip
                   key={option.key}
                   href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null, va_fields: null, va_entries: null })}
                   replace
-                  scroll={false}
-                  className={`vr-lg${status === option.status ? " on" : ""}`}
-                >
-                  <i style={{ background: legendDotColor[option.status] }} />
-                  {option.label}
-                  <span className="n">{statusCounts[option.status] ?? 0}</span>
-                </Link>
+                  on={status === option.status}
+                  dot={legendDotColor[option.status]}
+                  label={<>{option.label} <Label variant={status === option.status ? "filled" : "soft"}>{statusCounts[option.status] ?? 0}</Label></>}
+                />
               ))}
             </div>
           ) : null}
 
           <div className="vr-secthd">
             <h2>{tableContract.title}</h2>
-            <span className="hint">{copy(pageContract, "table.hint")}</span>
           </div>
 
-          <div className="twrap" tabIndex={0} role="group">
-            <table data-enh="1" className="vr-table">
-              <thead>
-                <tr>
+          <div className="twrap tablewrap" tabIndex={0} role="group">
+            <Table data-enh="1" className="vr-table">
+              <TableHead>
+                <TableRow>
                   {columns.map((label, index) => (
-                    <th key={label}>
+                    <TableCell component="th" key={label}>
                       {index === 2 ? (
                         <Link
                           href={hrefWith(sp, { sort: nextSort, ...RESET_ON_FILTER })}
@@ -624,19 +624,20 @@ export async function VerificationReviewPage({
                       ) : (
                         label
                       )}
-                    </th>
+                    </TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {items.length === 0 ? (
-                  <tr>
-                    <td colSpan={columns.length}>
-                      <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                        {queue.ok ? copy(pageContract, "state.empty") : copy(pageContract, "state.queue_unavailable")}
-                      </div>
-                    </td>
-                  </tr>
+                  <TableRow>
+                    <TableCell colSpan={columns.length}>
+                      <QueueEmptyState
+                        ok={queue.ok}
+                        title={queue.ok ? copy(pageContract, "state.empty") : copy(pageContract, "state.queue_unavailable")}
+                      />
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   items.map((item) => (
                     <QueueRow
@@ -649,8 +650,8 @@ export async function VerificationReviewPage({
                     />
                   ))
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
           {/* Keyset pagination. The queue read is cursor-based (OFFSET is banned on this path), so
@@ -751,8 +752,8 @@ function QueueRow({
     </LocalOverlayLink>
   );
   return (
-    <tr className="vr-row">
-      <td>
+    <TableRow className="vr-row">
+      <TableCell>
         <LocalOverlayLink href={playHref} className="vr-rowlink" scroll={false}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span className="vr-thumb" aria-hidden="true">
@@ -763,32 +764,32 @@ function QueueRow({
           {actionTypeLabel}
           </div>
         </LocalOverlayLink>
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         {cell(subjectCell(item))}
-      </td>
-      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+      </TableCell>
+      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(fmtDateTime(item.captured_at))}
-      </td>
-      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+      </TableCell>
+      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(inQueueCell(item))}
-      </td>
-      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+      </TableCell>
+      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(item.verified_at ? fmtDateTime(item.verified_at) : <span className="small">—</span>)}
-      </td>
-      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+      </TableCell>
+      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(reviewTookCell(item))}
-      </td>
-      <td>
-        {cell(<Tag tone={item.status === "rejected" ? "dng" : item.status === "approved" ? "ok" : "warn"}>{statusLabels[item.status] || item.status}</Tag>)}
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
+        {cell(<StatusChip status={item.status}>{statusLabels[item.status] || item.status}</StatusChip>)}
+      </TableCell>
+      <TableCell>
         {cell(<span className="muted small">{item.verdict_reason || "—"}</span>)}
-      </td>
-      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+      </TableCell>
+      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(watchCell(item))}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 

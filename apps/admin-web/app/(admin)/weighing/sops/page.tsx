@@ -29,6 +29,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
     open.set("wt_assumptions", "1");
     return (
       <WeightsAssumptionsControl
+        key="weighing-assumptions"
         pageContract={pageContract}
         assumptions={assumptions.data}
         openHref={`${PAGE_PATH}?${open.toString()}`}

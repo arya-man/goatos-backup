@@ -1,6 +1,11 @@
-import { AlertTriangle } from "lucide-react";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { copy, optionalCopy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { Caption } from "@/components/app/caption";
 import {
   getHealthConfigRegister,
   listHealthConfigRegisters,
@@ -12,8 +17,9 @@ import {
 import { RegisterEditor } from "./health-register-editor";
 import { StaleVersionNotice } from "./health-stale-version-recovery";
 import { RegisterSheetControls, RegisterSheetHeaderControls } from "./health-register-sheet";
-import { InfoTooltip } from "@/components/ui-primitives";
+import { InfoTooltip, Tag } from "@/components/ui-primitives";
 import { OpenRegisterDraftButton } from "./health-register-open";
+import Alert from "@mui/material/Alert";
 
 // Health Config -> Diagnosis. The other half of the rulebook: the questions asked about a sick
 // animal, the findings each answer produces, and the illnesses those findings point to.
@@ -86,15 +92,13 @@ function SectionError({
 }) {
   if (!result || result.ok) return null;
   return (
-    <div className="alert" style={{ marginBottom: 16 }}>
-      <AlertTriangle className="ic" aria-hidden="true" />
-      <div>
+    <Alert severity="error" style={{ marginBottom: 16 }}><div>
         <b>{copy(pageContract, "action.error_backend")}</b>
         <div className="small muted">
           {result.error.code ?? result.error.kind}&nbsp;{result.error.message}
         </div>
       </div>
-    </div>
+    </Alert>
   );
 }
 
@@ -170,9 +174,7 @@ export async function HealthRegisterSection({
               both live here rather than repeating down the table. */}
           <RegisterSheetHeaderControls pageContract={pageContract} />
         </div>
-        <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
-          {copy(pageContract, "section.registers.note")}
-        </p>
+        <Caption>{copy(pageContract, "section.registers.note")}</Caption>
         <div
           className="bd health-scroll"
           style={{ padding: 0, overflowX: "auto" }}
@@ -180,20 +182,20 @@ export async function HealthRegisterSection({
           role="group"
           aria-label={copy(pageContract, "section.registers.aria")}
         >
-          <table className="feed-table" aria-label={copy(pageContract, "section.registers.aria")}>
-            <thead>
-              <tr>
+          <Table className="feed-table" aria-label={copy(pageContract, "section.registers.aria")}>
+            <TableHead>
+              <TableRow>
                 {cols.map((col) => (
-                  <th key={col}>{col}</th>
+                  <TableCell component="th" key={col}>{col}</TableCell>
                 ))}
-                <th>{copy(pageContract, "action.edit_register")}</th>
-                <th>{copy(pageContract, "action.download_sheet")}</th>
-              </tr>
-            </thead>
-            <tbody>
+                <TableCell component="th">{copy(pageContract, "action.edit_register")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "action.download_sheet")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={cols.length + 2}>
+                <TableRow>
+                  <TableCell colSpan={cols.length + 2}>
                     <div
                       className="muted small"
                       style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}
@@ -202,8 +204,8 @@ export async function HealthRegisterSection({
                         ? copy(pageContract, "empty.registers")
                         : copy(pageContract, "action.error_backend")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 rows.map((row) => {
                   // The DRAFT is what an author opens; the LIVE row is what the herd is being
@@ -211,28 +213,28 @@ export async function HealthRegisterSection({
                   // live register still asks something their unpublished draft no longer does.
                   const shown = row.draft ?? row.live;
                   return (
-                    <tr key={row.animalClass}>
-                      <td>{className(row.animalClass, pageContract, row.typeLabel)}</td>
-                      <td className="muted">{shown?.register_label ?? ""}</td>
-                      <td>
+                    <TableRow key={row.animalClass}>
+                      <TableCell>{className(row.animalClass, pageContract, row.typeLabel)}</TableCell>
+                      <TableCell className="muted">{shown?.register_label ?? ""}</TableCell>
+                      <TableCell>
                         {row.live ? (
-                          <span className="tag t-ok">{copy(pageContract, "label.register_live")}</span>
+                          <Tag tone="ok">{copy(pageContract, "label.register_live")}</Tag>
                         ) : (
-                          <span className="tag t-warn">{copy(pageContract, "status.no_live")}</span>
+                          <Tag tone="warn">{copy(pageContract, "status.no_live")}</Tag>
                         )}
                         {row.draft ? (
                           <>
                             {" "}
-                            <span className="tag t-warn">{copy(pageContract, "label.register_draft")}</span>
+                            <Tag tone="warn">{copy(pageContract, "label.register_draft")}</Tag>
                           </>
                         ) : null}
-                      </td>
-                      <td style={{ fontVariantNumeric: "tabular-nums" }}>{shown?.question_count ?? 0}</td>
-                      <td style={{ fontVariantNumeric: "tabular-nums" }}>{shown?.rule_count ?? 0}</td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{shown?.question_count ?? 0}</TableCell>
+                      <TableCell style={{ fontVariantNumeric: "tabular-nums" }}>{shown?.rule_count ?? 0}</TableCell>
+                      <TableCell className="muted">
                         {row.live?.published_at ? row.live.published_at.slice(0, 10) : ""}
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <OpenRegisterDraftButton
                           animalClass={row.animalClass}
                           pageContract={pageContract}
@@ -247,8 +249,8 @@ export async function HealthRegisterSection({
                           // stops a blank register reaching animals is untouched.
                           openable
                         />
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         {/* The sheet is offered per TYPE, in the row that names it, so there is
                             never a question of which rulebook a download belongs to. */}
                         <RegisterSheetControls
@@ -258,13 +260,13 @@ export async function HealthRegisterSection({
                           mayWrite={mayWrite}
                           disabledReason={writeDisabledReason}
                         />
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </section>
     </>

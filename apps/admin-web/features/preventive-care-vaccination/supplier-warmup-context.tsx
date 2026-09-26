@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
@@ -142,9 +147,6 @@ export async function SupplierWarmupContext({ scope, searchParams, pageContract 
         <div className="sp" style={{ flex: 1 }} />
         <Tag tone="info">{copy(pageContract, "section.supplier_warmup.badge")}</Tag>
       </div>
-      <div className="note" style={{ margin: "12px 14px 6px" }}>
-        {copy(pageContract, "section.supplier_warmup.note")}
-      </div>
       <div className="tbar">
         <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.supplier.search")} />
         <VaccinationFilterButton
@@ -160,26 +162,25 @@ export async function SupplierWarmupContext({ scope, searchParams, pageContract 
         <span className="muted small">
           {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {loads.length} {copy(pageContract, "pager.rows").toLowerCase()}
         </span>
-        <span className="muted small">{copy(pageContract, "section.supplier_warmup.row_hint")}</span>
       </div>
       <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.supplier_warmup.aria")}>
-        <table>
-          <thead>
-            <tr>
+        <Table>
+          <TableHead>
+            <TableRow>
               {labels.map((c) => (
-                <th key={c}>{c}</th>
+                <TableCell component="th" key={c}>{c}</TableCell>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {loads.length === 0 ? (
-              <tr>
-                <td colSpan={labels.length}>
+              <TableRow>
+                <TableCell colSpan={labels.length}>
                   <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
                     {copy(pageContract, "empty.supplier_warmup")}
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ) : (
               paged.items.map((load) => {
                 const drawerHref = scopeHref("/vaccination", scope, {}, { warmup_load: load.load_id });
@@ -189,63 +190,63 @@ export async function SupplierWarmupContext({ scope, searchParams, pageContract 
                 const hfVaccination = hfVaccinationLabel(pageContract, detail);
                 const healthSelection = healthSelectionLabel(pageContract, load.status);
                 return (
-                  <tr key={load.load_id}>
-                    <td>
+                  <TableRow key={load.load_id}>
+                    <TableCell>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         <span className="gid">{shortId(load.load_id)}</span>
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         <b>{sourceLocationLabel(pageContract, load)}</b>
                         <div className="muted small">{copy(pageContract, "label.supplier_prefix")} {sourcePartyLabel(load)}</div>
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         <Tag tone={purpose === copy(pageContract, "label.placeholder") ? "mut" : "ok"}>{purpose}</Tag>
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         {load.expected_count}
                       </LocalOverlayLink>
-                    </td>
-                    <td title={warmup.note}>
+                    </TableCell>
+                    <TableCell title={warmup.note}>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         <Tag tone={warmup.tone}>{warmup.label}</Tag>
                         <div className="muted small">{load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}</div>
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         <Tag tone="mut">{taggingLabel(detail, load.expected_count)}</Tag>
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         <Tag tone={healthSelection.tone}>{healthSelection.label}</Tag>
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           <Tag tone={optionTone(pageContract, "source_load_status", load.status) as Tone}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
                           <ArrowRight className="ic" style={{ width: 13, flexShrink: 0 }} aria-hidden="true" />
                         </span>
                       </LocalOverlayLink>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
       <div className="note" style={{ margin: "8px 14px 12px" }}>
         {copy(pageContract, "section.supplier_warmup.lifecycle")}

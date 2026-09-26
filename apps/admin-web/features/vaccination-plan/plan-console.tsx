@@ -1,4 +1,11 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+
+import { PageHeader } from "@/components/app/page-header";
 
 /**
  * Vaccination plan console — the list screen.
@@ -24,6 +31,7 @@ import { discardDraft, readVersionSettings, startNewVersion } from "./plan-actio
 import { describeFirstDoses, describeRepeats, readVaccines, type VaccineGroup } from "./plan-model";
 import { personName } from "./version-format";
 import { VersionSheet, type VersionSheetData } from "./version-sheet";
+import Alert from "@mui/material/Alert";
 
 type Props = {
   versions: ProtocolConfigItem[];
@@ -103,10 +111,10 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
       <div className="vplan">
         <section className="card">
           <div className="card-b">
-            <div className="alert">
+            <Alert severity="error">
               <span className="ic">!</span>
               <span>The vaccination plan could not be loaded.</span>
-            </div>
+            </Alert>
           </div>
         </section>
       </div>
@@ -116,38 +124,33 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
   const draftHref = draft ? `/vaccination/plan/edit?version=${draft.protocol_version_id}` : "#";
 
   return (
-    <div className="vplan">
-      <header className="head">
-        <div className="head-top">
-          <div>
-            <div className="eyebrow">Preventive Care</div>
-            <h1>Vaccination plan</h1>
-            <p className="sub">
-              One plan decides which animal gets which vaccine, and when. Only you and the COO can
-              publish it.
-            </p>
-          </div>
-          <div className="hactions">
-            {draft ? (
-              <a className="btn" href={draftHref}>
-                Open {draft.version_label || `V${draft.version}`}
-              </a>
-            ) : (
-              <button className="btn" onClick={onStart} disabled={pending} type="button">
-                {pending ? "Starting…" : "Start a new version"}
-              </button>
-            )}
-          </div>
-        </div>
-        {error ? (
-          <div className="alert" style={{ marginTop: 16, marginBottom: 0 }}>
-            <span className="ic">!</span>
-            <span>{error}</span>
-          </div>
-        ) : null}
-      </header>
+    <div className="kit-enter vplan" style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0,1fr)" }}>
+      <div style={{ minWidth: 0 }}>
+      <PageHeader
+        title="Vaccination plan"
+        crumbs={[{ label: "Preventive Care" }, { label: "Vaccination plan" }]}
+        actions={
+          draft ? (
+            <a className="btn primary" href={draftHref}>
+              Open {draft.version_label || `V${draft.version}`}
+            </a>
+          ) : (
+            <button className="btn primary" onClick={onStart} disabled={pending} type="button">
+              {pending ? "Starting…" : "Start a new version"}
+            </button>
+          )
+        }
+      />
+      {error ? (
+        <Alert severity="error" style={{ marginTop: 16, marginBottom: 0 }}>
+          <span className="ic">!</span>
+          <span>{error}</span>
+        </Alert>
+      ) : null}
+      </div>
 
       {live ? (
+        <div style={{ minWidth: 0 }}>
         <section className="card livecard">
           <div className="card-h">
             <div>
@@ -201,34 +204,34 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
 
             {catalog.length > 0 ? (
               <div className="scroll" tabIndex={0}>
-                <table className="tabl">
-                  <thead>
-                    <tr>
-                      <th>Vaccine</th>
-                      <th>First doses</th>
-                      <th>Repeats</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="tabl">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">Vaccine</TableCell>
+                      <TableCell component="th">First doses</TableCell>
+                      <TableCell component="th">Repeats</TableCell>
+                      <TableCell component="th" />
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {catalog.map((v) => (
-                      <tr className={v.inPlan ? undefined : "voff"} key={v.code}>
-                        <td>
+                      <TableRow className={v.inPlan ? undefined : "voff"} key={v.code}>
+                        <TableCell>
                           <b>{v.name}</b>
-                        </td>
-                        <td>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</td>
-                        <td>{v.inPlan ? describeRepeats(v.repeats) : "—"}</td>
-                        <td>
+                        </TableCell>
+                        <TableCell>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</TableCell>
+                        <TableCell>{v.inPlan ? describeRepeats(v.repeats) : "—"}</TableCell>
+                        <TableCell>
                           {v.inPlan ? (
                             <span className="tag on">in the plan</span>
                           ) : (
                             <span className="tag">not in this plan</span>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
                 <div className="pager2">
                   <span className="muted small">
                     Page 1 · {catalog.length} vaccine{catalog.length === 1 ? "" : "s"} on this page
@@ -297,59 +300,58 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
             ) : null}
           </div>
         </section>
+        </div>
       ) : null}
 
       {earlier.length > 0 ? (
+        <div style={{ minWidth: 0 }}>
         <section className="card">
           <div className="card-h">
             <div>
               <h2>Earlier versions</h2>
-              <p className="s">
-                Every published plan is kept. Publishing retires the current one and starts a new
-                number — nothing is overwritten.
-              </p>
             </div>
           </div>
           <div className="card-b">
             <div className="scroll" tabIndex={0}>
-              <table className="tabl">
-                <thead>
-                  <tr>
-                    <th>Version</th>
-                    <th>In force</th>
-                    <th>Published</th>
-                    <th>What changed</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="tabl">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">Version</TableCell>
+                    <TableCell component="th">In force</TableCell>
+                    <TableCell component="th">Published</TableCell>
+                    <TableCell component="th">What changed</TableCell>
+                    <TableCell component="th" />
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {earlier.map((v) => (
-                    <tr key={v.protocol_version_id}>
-                      <td>
+                    <TableRow key={v.protocol_version_id}>
+                      <TableCell>
                         <b>{v.version_label || `V${v.version}`}</b>
-                      </td>
-                      <td className="num">
+                      </TableCell>
+                      <TableCell className="num">
                         {formatInForceRange(v)}
-                      </td>
-                      <td className="num">
+                      </TableCell>
+                      <TableCell className="num">
                         {formatDate(v.published_at)}
                         {personName(v.published_by) ? (
                           <span className="vby">{personName(v.published_by)}</span>
                         ) : null}
-                      </td>
-                      <td>{changeNotes[v.protocol_version_id] ?? "—"}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell>{changeNotes[v.protocol_version_id] ?? "—"}</TableCell>
+                      <TableCell>
                         <button className="vbtn" type="button" onClick={() => void openVersion(v)}>
                           View settings
                         </button>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </div>
         </section>
+        </div>
       ) : null}
 
       {sheetOpen ? (

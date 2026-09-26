@@ -2,6 +2,7 @@
 
 import Link from "@/components/no-prefetch-link";
 import { ClipboardList, Paperclip } from "lucide-react";
+import Button from "@mui/material/Button";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
@@ -269,9 +270,9 @@ export function TaskDetailPanel({
               <p className="ltd-feed-loading ltd-feed-error" role="alert" data-testid="ltd-detail-error">
                 {detailError}{" "}
                 {onRetryDetail ? (
-                  <button type="button" className="btn ghost sm" onClick={onRetryDetail}>
+                  <Button color="primary" size="small" variant="text" onClick={onRetryDetail}>
                     {copy(pageContract, "action.retry", "Try again")}
-                  </button>
+                  </Button>
                 ) : null}
               </p>
             ) : null}
@@ -284,6 +285,7 @@ export function TaskDetailPanel({
               action={postLeadershipTaskCommentAction}
               returnTo={returnTo}
               mentionCandidates={assignees}
+              activityLoading={loadingDetail}
               initialIdempotencyKey={`admin-web-leadership-task-note:${detail.id}:r${detail.rowVersion}`}
             />
           </Section>

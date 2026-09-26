@@ -1,8 +1,19 @@
+import { Label } from "@/components/minimal/label";
+import { Iconify } from "@/components/minimal/iconify";
+import { LinkButton } from "@/components/minimal/link-button";
+import { FilterChip } from "@/components/minimal/list/filter-chip";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { Info, Video } from "lucide-react";
+import { PageHeader, type PageCrumb } from "@/components/app/page-header";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { getVaccinationActionCenter, getVaccinationVerificationQueue } from "@/lib/api/server";
-import { actionFeedbackCopy, copy, optionGroup, tableLabels, tablePageSizes, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { actionFeedbackCopy, copy, optionalCopy, optionGroup, tableLabels, tablePageSizes, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   ActionCenterObligation,
   ProcessIntegritySeverity,
@@ -10,6 +21,7 @@ import type {
   WorkState,
 } from "@/lib/api/server";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import {
   SEVERITY_ORDER,
@@ -25,9 +37,11 @@ import { rejectCompletionAction, verifyCompletionAction } from "./actions";
 import { ActionCenterFiltersButton } from "./action-center-filters";
 import { actionCenterRequestPlan } from "./action-center-request-plan";
 import { ActionCenterLocalDrawer } from "./action-center-local-drawer";
+import { VerificationRowActions } from "./verification-row-actions";
 import { WorkBoard } from "./work-board";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
+import Alert from "@mui/material/Alert";
 
 const PATH = "/action-center";
 
@@ -43,43 +57,6 @@ function shortId(id: string): string {
 
 function hasReviewHandle(taskId?: string, rowVersion?: number): boolean {
   return Boolean(taskId) && Number(rowVersion ?? 0) > 0;
-}
-
-// ActionForm posts a per-row server action (Verify / Reject / Rework) against a real completion id.
-function ActionForm({
-  action,
-  completionId,
-  taskId,
-  rowVersion,
-  returnTo,
-  reason,
-  disabledTitle,
-  primary,
-  children,
-}: {
-  action: (formData: FormData) => void | Promise<void>;
-  completionId: string;
-  taskId?: string;
-  rowVersion?: number;
-  returnTo: string;
-  reason?: string;
-  disabledTitle?: string;
-  primary?: boolean;
-  children: React.ReactNode;
-}) {
-  const canReview = hasReviewHandle(taskId, rowVersion);
-  return (
-    <form action={action} style={{ display: "inline" }}>
-      <input type="hidden" name="completion_id" value={completionId} />
-      {taskId ? <input type="hidden" name="task_id" value={taskId} /> : null}
-      {rowVersion ? <input type="hidden" name="row_version" value={rowVersion} /> : null}
-      <input type="hidden" name="return_to" value={returnTo} />
-      {reason ? <input type="hidden" name="reason" value={reason} /> : null}
-      <button type="submit" className={`btn sm${primary ? " p" : ""}`} disabled={!canReview} aria-disabled={!canReview || undefined} title={!canReview ? disabledTitle : undefined}>
-        {children}
-      </button>
-    </form>
-  );
 }
 
 export async function VaccinationActionCenterPage({
@@ -128,9 +105,9 @@ export async function VaccinationActionCenterPage({
     view === "verify" ? getVaccinationVerificationQueue(requestPlan.verificationQueue) : Promise.resolve(null),
   ]);
 
-  const items: ActionCenterObligation[] = actionCenter.ok ? actionCenter.data.items : [];
+  const items: ActionCenterObligation[] = actionCenter.ok ? listOrEmpty(actionCenter.data.items) : [];
   const boardRows = items;
-  const queueItems: VaccinationQueueItem[] = queue?.ok ? queue.data.items : [];
+  const queueItems: VaccinationQueueItem[] = queue?.ok ? listOrEmpty(queue.data.items) : [];
   const queueTotalCount = queue?.ok ? queue.data.total_count : 0;
   const verificationHeaders = tableLabels(pageContract, "verification-queue");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
@@ -181,7 +158,7 @@ export async function VaccinationActionCenterPage({
 
   // Filter chips use server totals; WorkBoard lane headers stay derived from visible rows.
   const stateCounts = new Map<WorkState, number>();
-  if (actionCenter.ok) for (const c of actionCenter.data.counts_by_work_state) stateCounts.set(c.work_state, c.count);
+  if (actionCenter.ok) for (const c of listOrEmpty(actionCenter.data.counts_by_work_state)) stateCounts.set(c.work_state, c.count);
   const totalCount = actionCenter.ok ? actionCenter.data.total_count : 0;
   const overdueCount = stateCounts.get("overdue") ?? 0;
   const dueCount = stateCounts.get("due") ?? 0;
@@ -241,14 +218,23 @@ export async function VaccinationActionCenterPage({
   ];
   const clearFiltersHref = hrefWith({ severity: "all", state: "all", ac_page: "1", ac_row: undefined });
 
+
+  // Breadcrumb trail. The parent segment is the contract's own `crumb` copy -- rendered only when
+  // the backend actually supplies one AND it is not just the page title again, which is what the
+  // old `<div className="crumb"><b>{title}</b></div>` rendered on every route in this module. No
+  // section name is invented here: a missing key means a single muted current segment, and the
+  // real two-level trail lands the moment the contract carries the section label.
+  const crumbSection = optionalCopy(pageContract, "crumb");
+  const crumbItems: PageCrumb[] = [
+    ...(crumbSection && crumbSection !== pageContract.title ? [{ label: crumbSection, href: "/" }] : []),
+    { label: pageContract.title },
+  ];
+
   return (
-    <div className="screen on">
-	      <div className="phead">
-	        <div>
-	          <h1>{pageContract.title}</h1>
-	          <div className="sub">{pageContract.subtitle}</div>
-	        </div>
-	      </div>
+    <div className="kit-enter screen on">
+      <div>
+        <PageHeader title={pageContract.title} crumbs={crumbItems} />
+      </div>
 
       {actionStatus ? (
         actionStatus === "success" ? (
@@ -256,33 +242,37 @@ export async function VaccinationActionCenterPage({
 	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
 	          </div>
 	        ) : (
-	          <div className="alert" style={{ marginBottom: 14 }}>
+	          <Alert severity="error" style={{ marginBottom: 14 }}>
 	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-	          </div>
+	          </Alert>
 	        )
       ) : null}
 
-      {/* View switch — Status board vs the SOP/verification queue (mock #acView). */}
-	      <div className="subtabs">
-	        <Link href={hrefWith({ bucket: undefined })} replace scroll={false} className={view === "board" ? "on" : ""}>
-	          {copy(pageContract, "view.status_board")}
-	        </Link>
-	        <Link href={hrefWith({ bucket: "verify" })} replace scroll={false} className={view === "verify" ? "on" : ""}>
-	          {copy(pageContract, "view.sop_queues")} <span className="cbq">{queueTotalCount}</span>
-	        </Link>
-	      </div>
+
+      {/* View switch — Status board vs the SOP/verification queue. */}
+      <div style={{ marginBottom: 14 }}>
+        <AnimatedTabs
+          ariaLabel={copy(pageContract, "view.status_board")}
+          value={view}
+          items={[
+            { value: "board", label: copy(pageContract, "view.status_board"), href: hrefWith({ bucket: undefined }) },
+            { value: "verify", label: copy(pageContract, "view.sop_queues"), count: queueTotalCount, href: hrefWith({ bucket: "verify" }) },
+          ]}
+        />
+      </div>
 
       {!actionCenter.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           <b>{actionCenter.error.code ?? actionCenter.error.kind}</b>&nbsp;{actionCenter.error.message}
-        </div>
+        </Alert>
       ) : null}
       {actionCenter.ok && queue && !queue.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           <b>{queue.error.code ?? queue.error.kind}</b>&nbsp;{queue.error.message}
-        </div>
+        </Alert>
       ) : null}
 
+      <TabPanel tabKey={`${view}|${stateFilter}|${severityFilter}`}>
       {view === "verify" ? (
         // ===== SOP queues — verification surface (accept / reject / request rework) =====
         <section className="card" data-filter-scope>
@@ -314,52 +304,51 @@ export async function VaccinationActionCenterPage({
 	              </p>
 	            </div>
 	          ) : (
-	            <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.verification.aria")}>
-	              <table>
-	                <thead>
-	                  <tr>
+	            <div className="twrap tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.verification.aria")}>
+	              <Table>
+	                <TableHead>
+	                  <TableRow>
 	                    {verificationHeaders.map((label) => (
-	                      <th key={label}>{label}</th>
+	                      <TableCell component="th" key={label}>{label}</TableCell>
 	                    ))}
-	                  </tr>
-                </thead>
-                <tbody>
-                  {queuePaged.items.map((q) => {
+	                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {queuePaged.items.map((q, qIndex) => {
                     const canReview = hasReviewHandle(q.sop_task_id, q.sop_task_row_version);
                     return (
-                      <tr key={q.completion_id}>
-                        <td>
+                      <TableRow key={q.completion_id} className="cx-row" style={{ "--i": qIndex } as React.CSSProperties}>
+                        <TableCell>
                           <span className="gid">{shortId(q.goat_id)}</span>
-                        </td>
-                        <td>{fmtDate(q.administered_at)}</td>
-                        <td>{q.doses}</td>
-                        <td>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                            {canReview ? (
-                              <>
-                                <ActionForm action={verifyCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} primary>
-                                  {copy(pageContract, "action.verify")}
-                                </ActionForm>
-                                <ActionForm action={rejectCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} reason="rejected">
-                                  {copy(pageContract, "action.reject")}
-                                </ActionForm>
-                                <ActionForm action={rejectCompletionAction} completionId={q.completion_id} taskId={q.sop_task_id} rowVersion={q.sop_task_row_version} returnTo={verifyReturnTo} reason="rework_requested">
-                                  {copy(pageContract, "action.request_rework")}
-                                </ActionForm>
-                              </>
-                            ) : (
-                              <Tag tone="warn">{copy(pageContract, "reason.no_sop_review_handle")}</Tag>
-                            )}
-	                            <Link href={`/goats/${q.goat_id}`} className="btn sm">
-	                              {copy(pageContract, "action.passport")}
-	                            </Link>
-                          </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                        <TableCell>{fmtDate(q.administered_at)}</TableCell>
+                        <TableCell>{q.doses}</TableCell>
+                        <TableCell className="kit-td-actions">
+                          {canReview ? null : <Tag tone="warn">{copy(pageContract, "reason.no_sop_review_handle")}</Tag>}
+                          <VerificationRowActions
+                            verifyAction={verifyCompletionAction}
+                            rejectAction={rejectCompletionAction}
+                            completionId={q.completion_id}
+                            taskId={q.sop_task_id}
+                            rowVersion={q.sop_task_row_version}
+                            returnTo={verifyReturnTo}
+                            canReview={canReview}
+                            passportHref={`/goats/${q.goat_id}`}
+                            labels={{
+                              verify: copy(pageContract, "action.verify"),
+                              reject: copy(pageContract, "action.reject"),
+                              rework: copy(pageContract, "action.request_rework"),
+                              passport: copy(pageContract, "action.passport"),
+                              menu: copy(pageContract, "label.row_actions"),
+                              noHandle: copy(pageContract, "reason.no_sop_review_handle"),
+                            }}
+                          />
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
           <VaccinationTablePager
@@ -378,28 +367,20 @@ export async function VaccinationActionCenterPage({
       ) : (
         // ===== Status board — mock taskboard shell from the real Action Center process-integrity rows =====
         <div data-filter-scope>
-          {/* Domain filter. Only the active vaccination module is visible in this slice. */}
-	          <div className="subtabs" id="acPillars" aria-label={copy(pageContract, "filter.domains.aria")}>
-	            <Link href={hrefWith({ severity: "all", state: "all", ac_page: "1", ac_row: undefined })} replace scroll={false} className="on">
-	              {copy(pageContract, "filter.domain.vaccination")} <span className="cbq">{totalCount}</span>
-	            </Link>
-	          </div>
-
           {/* Quick tabs (mock #acQuickTabs) + My tasks + Filters. Counts are server-authoritative. */}
           <div id="acToggles" style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-            <div className="subtabs" id="acQuickTabs" style={{ margin: 0 }}>
-	              <Link href={hrefWith({ state: "all", ac_page: "1", ac_row: undefined })} replace scroll={false} className={stateFilter === "all" ? "on" : ""}>
-	                {copy(pageContract, "filter.all")} <span className="qc">{totalCount}</span>
-	              </Link>
-	              <Link href={hrefWith({ state: "overdue", ac_page: "1", ac_row: undefined })} replace scroll={false} className={stateFilter === "overdue" ? "on" : ""}>
-	                {copy(pageContract, "filter.overdue")} <span className="qc">{overdueCount}</span>
-	              </Link>
-	              <Link href={hrefWith({ state: "due", ac_page: "1", ac_row: undefined })} replace scroll={false} className={stateFilter === "due" ? "on" : ""}>
-	                {copy(pageContract, "filter.due")} <span className="qc">{dueCount}</span>
-	              </Link>
-	              <Link href={hrefWith({ bucket: "verify", verify_page: "1" })} replace scroll={false} className="">
-	                {copy(pageContract, "filter.awaiting_verification")} <span className="qc">{queueTotalCount}</span>
-	              </Link>
+            <div className="kit-chiprow" role="group" aria-label={copy(pageContract, "filter.all")}>
+              {[
+                { value: "all", label: copy(pageContract, "filter.all"), count: totalCount, href: hrefWith({ state: "all", ac_page: "1", ac_row: undefined }) },
+                { value: "overdue", label: copy(pageContract, "filter.overdue"), count: overdueCount, href: hrefWith({ state: "overdue", ac_page: "1", ac_row: undefined }) },
+                { value: "due", label: copy(pageContract, "filter.due"), count: dueCount, href: hrefWith({ state: "due", ac_page: "1", ac_row: undefined }) },
+                { value: "awaiting", label: copy(pageContract, "filter.awaiting_verification"), count: queueTotalCount, href: hrefWith({ bucket: "verify", verify_page: "1" }) },
+              ].map((chip) => {
+                const on = (stateFilter === "overdue" || stateFilter === "due" ? stateFilter : "all") === chip.value;
+                return (
+                  <FilterChip key={chip.value} href={chip.href} on={on} label={<>{chip.label} <Label variant={on ? "filled" : "soft"}>{chip.count}</Label></>} />
+                );
+              })}
             </div>
             <span className="sp" style={{ flex: 1 }} />
 	            <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_visible_cards")} />
@@ -407,7 +388,7 @@ export async function VaccinationActionCenterPage({
 	              pageContract={pageContract}
 	              label={copy(pageContract, "filter.my_tasks.title")}
 	              mode="my"
-	              rowsLabel={`${boardPaged.start}-${boardPaged.end} of ${boardPaged.total} rows · owner filter applies after the server page loads`}
+	              rowsLabel={`${boardPaged.start}-${boardPaged.end} of ${boardPaged.total} rows`}
 	              clearHref={clearFiltersHref}
 	              stateLinks={stateFilterLinks}
 	              severityLinks={severityFilterLinks}
@@ -422,30 +403,37 @@ export async function VaccinationActionCenterPage({
             />
           </div>
 
-          {/* Filters — severity (server-side). Park scope is the top bar's single source of truth. */}
-          <div className="chipset" style={{ marginBottom: 12 }}>
-	            <Link href={hrefWith({ severity: "all", ac_page: "1", ac_row: undefined })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
-	              {copy(pageContract, "filter.all_severity")}
-	            </Link>
-	            {SEVERITY_ORDER.map((s) => (
-	              <Link key={s} href={hrefWith({ severity: s, ac_page: "1", ac_row: undefined })} replace scroll={false} className={`chip${severityFilter === s ? " on" : ""}`}>
-	                {optionLabel(severityOptions, s)}
-	              </Link>
-	            ))}
-	          </div>
+          {/* Severity (server-side) as filter chips on their own row. Park scope is the top bar's single source of truth. */}
+          <div className="kit-chiprow" role="group" aria-label={copy(pageContract, "filter.all_severity")} style={{ marginBottom: 12 }}>
+            {[
+              { value: "all", label: copy(pageContract, "filter.all_severity"), href: hrefWith({ severity: "all", ac_page: "1", ac_row: undefined }) },
+              ...SEVERITY_ORDER.map((s2) => ({ value: s2, label: optionLabel(severityOptions, s2), href: hrefWith({ severity: s2, ac_page: "1", ac_row: undefined }) })),
+            ].map((chip) => {
+              const on = severityFilter === chip.value;
+              return (
+                <FilterChip key={chip.value} href={chip.href} on={on} label={chip.label} />
+              );
+            })}
+          </div>
 
-          {/* Explanatory band (mock). */}
-	          <div className="note" style={{ marginBottom: 12 }}>
-	            {copy(pageContract, "note.board_explainer")}{" "}
-	            <Link href="/protocol-adherence" className="lk">
-	              {copy(pageContract, "note.board_explainer.link_adherence")}
-	            </Link>{" "}
-	            {copy(pageContract, "note.board_explainer.link_joiner")}{" "}
-	            <Link href="/" className="lk">
-	              {copy(pageContract, "note.board_explainer.link_tower")}
-	            </Link>
-	            .
-	          </div>
+          {/* Applied-filter chips (spec §2). The state/severity selections were only legible from
+              which pill happened to look active, two rows apart; a reader who scrolled past them
+              saw a short board and no reason. Each chip removes exactly its own filter, and Clear
+              all reuses the same href the empty state already uses -- one source of truth. */}
+          {hasBoardFilters ? (
+            <div className="kit-chiprow" style={{ marginBottom: 12 }}>
+              {stateFilter !== "all" ? (
+                <FilterChip removable href={hrefWith({ state: "all", ac_page: "1", ac_row: undefined })} label={optionLabel(workStateOptions, stateFilter)} />
+              ) : null}
+              {severityFilter !== "all" ? (
+                <FilterChip removable href={hrefWith({ severity: "all", ac_page: "1", ac_row: undefined })} label={optionLabel(severityOptions, severityFilter)} />
+              ) : null}
+              <LinkButton href={clearFiltersHref} scroll={false} color="error" startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
+                {copy(pageContract, "filter.clear_all")}
+              </LinkButton>
+            </div>
+          ) : null}
+
 
           {totalCount === 0 ? (
             <div className="note" style={{ marginBottom: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -516,6 +504,7 @@ export async function VaccinationActionCenterPage({
           />
         </div>
       )}
+      </TabPanel>
     </div>
   );
 }

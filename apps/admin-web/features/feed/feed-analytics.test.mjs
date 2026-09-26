@@ -106,7 +106,13 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   // The Stock tab never reads the daily sheet (maintainer request 2026-09-24): its cards come from
   // the stock read alone, for the stock-only reader and the full reader alike.
   assert.match(source, /const wantDirected = !stockOnly && \(tab === "overview" \|\| tab === "peranimal"\);/);
-  assert.match(source, /\{!stockOnly \? \(\s*<>\s*<p className="muted small"[\s\S]*?<SegmentedLinks[\s\S]*?<SegmentedLinks[\s\S]*?<\/>\s*\) : null\}/);
+  // The module strip is the page's one kit AnimatedTabs (href mode), the window is a filter-chip row
+  // and the Consumption view is main's local (no-reload) LocalViewToggle; all three sit inside the same
+  // !stockOnly gate as the banner.
+  assert.match(source, /\{!stockOnly \? \(\s*<>\s*<div[\s\S]*?<AnimatedTabs[\s\S]*?className="kit-chiprow"[\s\S]*?<LocalViewToggle[\s\S]*?<\/>\s*\) : null\}/);
+  // The DIRECTED-not-consumed caveat is an info hint beside the window, never prose under the title.
+  assert.match(source, /<InfoHint text=\{fa\(pageContract, "banner\.basis"\)\} \/>/);
+  assert.doesNotMatch(source, /<p className="muted small"[^>]*>\s*\{fa\(pageContract, "banner\.basis"\)\}/);
   assert.match(source, /const nonNull = \[directed, execution, experiment, stock, shedFeed, executionDay, loads, followUp\]\.filter/s);
   assert.match(source, /const gated = \[directed, execution, experiment, shedFeed, loads, followUp, tab === "execution" \? executionDay : null, stockOnly \|\| tab === "items" \? stock : null\];/s);
   // Feed follow-up reads the herd register's purchases, sales and deaths, so it rides the FULL

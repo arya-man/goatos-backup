@@ -93,6 +93,7 @@ const KNOWN_ROUTE_NAMES = buildRoutes({
   vaccinationDraftVersionId: "placeholder",
   vaccinationParkId: "placeholder",
   sopFlowIds: Object.fromEntries(Object.keys(SOP_FLOW_CODES).map((route) => [route, "placeholder"])),
+  sopIds: { general: "placeholder", weighing: "placeholder", feed: "placeholder" },
 }).map((route) => route.name).concat(Object.keys(RETIRED_ROUTES));
 const onlyRoutesRaw = process.env.GOATOS_SMOKE_ONLY_ROUTES;
 const onlyRoutes = (onlyRoutesRaw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -153,6 +154,22 @@ const vaccinationDraftVersionId = await resolveFixture("vaccination plan draft",
   resolveSmokeVaccinationDraftVersionID(apiBaseUrl, bearerToken, tenantId));
 const toxinSopId = await resolveFixture("toxin SOP", ["procurement-toxin-list", "procurement-toxin-flow"], () =>
   resolveSmokeToxinSopID(apiBaseUrl, bearerToken, tenantId));
+// The SOP STUDIO editor routes (feed / weighing / general work instruction) open on `?compose=1&
+// edit=<id>`; main's SOP_FLOW_CODES covers the `view=flow` routes only. Same resolveFixture
+// wrapper, so a failed lookup costs these six routes and not the sweep.
+const sopIds =
+  (await resolveFixture(
+    "SOP studio",
+    [
+      "feed-sops-editor",
+      "feed-sops-editor-flow",
+      "weighing-sops-editor",
+      "weighing-sops-editor-flow",
+      "configuration-work-instructions-editor",
+      "configuration-work-instructions-editor-flow",
+    ],
+    () => resolveSmokeSopIDs(apiBaseUrl, bearerToken, tenantId),
+  )) ?? { general: "missing", weighing: "missing", feed: "missing" };
 const sopFlowIds = {};
 for (const [routeName, { code }] of Object.entries(SOP_FLOW_CODES)) {
   const id = await resolveFixture(`SOP ${code}`, [routeName], () =>
@@ -168,8 +185,11 @@ if (baselineDir) mkdirSync(diffDir, { recursive: true });
 // the allow-list used to be a second hand-maintained copy and it drifted: counts-sops and
 // counts-sops-builder were in this table, so a full sweep visited them, while a focused run
 // naming either was rejected as an unknown route.
-function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, vaccinationDraftVersionId, vaccinationParkId, sopFlowIds = {} }) {
+function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, vaccinationDraftVersionId, vaccinationParkId, sopFlowIds = {}, sopIds = {} }) {
   const routes = [
+    // Command lenses. These five are cross-module screens with their own routes, tabs and tables;
+    // they were dropped from the sweep during the redesign, so nothing held their layout. Restored
+    // from origin/main so the route lane covers them again.
     { name: "control-tower", path: "/?scope_mode=company&lens=control-tower" },
     { name: "action-center", path: "/action-center?scope_mode=company" },
     { name: "action-center-verify", path: "/action-center?scope_mode=company&bucket=verify" },
@@ -182,6 +202,9 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "protocol-adherence", path: "/protocol-adherence?scope_mode=company" },
     { name: "protocol-adherence-high", path: "/protocol-adherence?scope_mode=company&severity=high" },
     { name: "protocol-adherence-overdue", path: "/protocol-adherence?scope_mode=company&state=overdue" },
+    { name: "workflows", path: "/workflows?scope_mode=company" },
+    { name: "workflow-record", path: `/workflows/${encodeURIComponent(workflowRowId)}?scope_mode=company` },
+    { name: "calendar-drive-detail", path: `/calendar/drive/${encodeURIComponent(calendarEventId)}?scope_mode=company` },
     { name: "work-board", path: "/work-board?scope_mode=company" },
     { name: "work-board-populated", path: "/work-board?scope_mode=company&date=2026-08-10" },
     // Alerts (2026-09-16): the page below the Work Board on both viewports, plus a populated day
@@ -189,7 +212,9 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     // also opens and closes the Configure drawer.
     { name: "alerts", path: "/alerts?scope_mode=company" },
     { name: "alerts-populated", path: "/alerts?scope_mode=company&date=2026-09-10&park=00000000-0000-4000-8000-000000003001" },
-    { name: "workflows", path: "/workflows?scope_mode=company" },
+    // Pen routines (redesign): an admin page with its own route, table and mobile
+    // stack that the sweep did not visit, so nothing held its 390px layout.
+    { name: "routines", path: "/routines?scope_mode=company" },
     { name: "approvals", path: "/approvals?scope_mode=company" },
     { name: "approvals-approved", path: "/approvals?scope_mode=company&status=approved" },
     { name: "approvals-rejected", path: "/approvals?scope_mode=company&status=rejected" },
@@ -261,6 +286,8 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "feed-analytics-range-61", path: "/feed/analytics?scope_mode=company&range=61" },
     { name: "feed-analytics-range-92", path: "/feed/analytics?scope_mode=company&range=92" },
     { name: "feed-sops", path: "/feed/sops?scope_mode=company" },
+    { name: "feed-sops-editor", path: `/feed/sops?compose=1&edit=${sopIds.feed}&scope_mode=company` },
+    { name: "feed-sops-editor-flow", path: `/feed/sops?compose=1&edit=${sopIds.feed}&view=flow&scope_mode=company` },
     { name: "feed-direction", path: "/feed/direction?scope_mode=company" },
     { name: "feed-packing", path: "/feed/packing?scope_mode=company" },
     { name: "weighing-analytics", path: `/weighing/analytics?scope_mode=company&tab=general&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
@@ -273,13 +300,22 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "weighing-analytics-shed", path: `/weighing/analytics?scope_mode=company&tab=shed&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     { name: "weighing-analytics-weight", path: `/weighing/analytics?scope_mode=company&tab=weight&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     // The Feed by weight band card's second view and a table-level filter (maintainer request 2026-09-18).
-    { name: "weighing-analytics-weight-not-shown", path: `/weighing/analytics?scope_mode=company&tab=weight&fb_view=unmatched&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
-    { name: "weighing-analytics-weight-band-filter", path: `/weighing/analytics?scope_mode=company&tab=weight&fb_band=25_30&fb_animals=all&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
+    {
+      name: "weighing-analytics-weight-not-shown",
+      path: `/weighing/analytics?scope_mode=company&tab=weight&fb_view=unmatched&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}`,
+    },
+    {
+      name: "weighing-analytics-weight-band-filter",
+      path: `/weighing/analytics?scope_mode=company&tab=weight&fb_band=25_30&fb_animals=all&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}`,
+    },
     { name: "weighing-analytics-time", path: `/weighing/analytics?scope_mode=company&tab=time&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     { name: "weighing-analytics-time-month", path: `/weighing/analytics?scope_mode=company&tab=time&tw_bucket=month&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     { name: "weighing-analytics-load", path: `/weighing/analytics?scope_mode=company&tab=load&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     { name: "weighing-analytics-fcr", path: `/weighing/analytics?scope_mode=company&tab=fcr&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     { name: "weighing-sops", path: "/weighing/sops?scope_mode=company" },
+    { name: "weighing-sops-assumptions", path: "/weighing/sops?scope_mode=company&wt_assumptions=1" },
+    { name: "weighing-sops-editor", path: `/weighing/sops?compose=1&edit=${sopIds.weighing}&scope_mode=company` },
+    { name: "weighing-sops-editor-flow", path: `/weighing/sops?compose=1&edit=${sopIds.weighing}&view=flow&scope_mode=company` },
     { name: "pc-care-sops", path: "/pc-care/sops?scope_mode=company" },
     { name: "weighing-weights", path: `/weighing/weights?scope_mode=company&wt_from=${smokeWideWindowFrom}&wt_to=${smokeWideWindowTo}` },
     {
@@ -288,6 +324,10 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     },
     { name: "counts-sops", path: "/counts/sops?scope_mode=company" },
     { name: "counts-sops-builder", path: "/counts/sops?compose=1&scope_mode=company" },
+    { name: "configuration-work-instructions", path: "/configuration/work-instructions?scope_mode=company" },
+    { name: "configuration-work-instructions-builder", path: "/configuration/work-instructions?compose=1&scope_mode=company" },
+    { name: "configuration-work-instructions-editor", path: `/configuration/work-instructions?compose=1&edit=${sopIds.general}&scope_mode=company` },
+    { name: "configuration-work-instructions-editor-flow", path: `/configuration/work-instructions?compose=1&edit=${sopIds.general}&view=flow&scope_mode=company` },
     { name: "counts-herd", path: "/counts/herd?scope_mode=company" },
     { name: "counts-analytics", path: "/counts/analytics?scope_mode=company" },
     // Herd Analytics date filter (herd-analytics.tsx readWindow: from/to, <= MAX_WINDOW_DAYS 1150).
@@ -297,7 +337,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "counts-milk-preparation", path: "/counts/milk-preparation?scope_mode=company" },
     { name: "milk-sops", path: "/milk/sops?scope_mode=company" },
     { name: "configuration-items", path: "/configuration/items?scope_mode=company" },
-    { name: "configuration-work-instructions", path: "/configuration/work-instructions?scope_mode=company" },
     { name: "herd-signals", path: "/herd-signals?scope_mode=company" },
     { name: "herd-signals-animals", path: "/herd-signals?scope_mode=company&hs_tab=animals" },
     { name: "herd-signals-mapping", path: "/herd-signals?scope_mode=company&hs_tab=mapping" },
@@ -324,7 +363,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "people-vaccination", path: `/people?scope_mode=company&tab=vaccination&park=${encodeURIComponent(vaccinationParkId)}` },
     { name: "people-clock", path: "/people?scope_mode=company&tab=clock" },
     { name: "people-notifications", path: "/people?scope_mode=company&tab=notifications" },
-    { name: "routines", path: "/routines?scope_mode=company" },
     { name: "leave", path: "/leave?scope_mode=company" },
     { name: "leave-approved", path: "/leave?scope_mode=company&status=approved" },
     { name: "leave-rejected", path: "/leave?scope_mode=company&status=rejected" },
@@ -337,8 +375,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "tasks-overdue", path: "/tasks?scope_mode=company&filter=overdue" },
     // Task search (leadership-tasks/params.ts q -> "t_q").
     { name: "tasks-search", path: "/tasks?scope_mode=company&t_q=pen" },
-    { name: "workflow-record", path: `/workflows/${encodeURIComponent(workflowRowId)}?scope_mode=company` },
-    { name: "calendar-drive-detail", path: `/calendar/drive/${encodeURIComponent(calendarEventId)}?scope_mode=company` },
     { name: "goat-passport", path: `/goats/${encodeURIComponent(goatId)}` },
     {
       name: "procurement-load-detail",
@@ -360,7 +396,7 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
   });
 }
 
-const routes = buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, vaccinationDraftVersionId, vaccinationParkId, sopFlowIds });
+const routes = buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, calendarEventId, vaccinationShedPath, vaccinationDraftVersionId, vaccinationParkId, sopFlowIds, sopIds });
 
 // Names were already validated up front against KNOWN_ROUTE_NAMES; resolve the selection to concrete
 // routes. A requested route the run couldn't build (e.g. procurement-load-detail with no seeded load,
@@ -377,7 +413,6 @@ const noRoutesLeft = noRoutesLeftError({ onlyRoutes, selectedNames: selectedRout
 if (noRoutesLeft) throw new Error(noRoutesLeft);
 
 const pagerMinimums = new Map([
-  ["workflows", 1],
   ["verify", 1],
   ["vaccination", 1],
   ["vaccination-execution", 1],
@@ -686,6 +721,20 @@ async function resolveSmokeProcurementLoadID(baseUrl, token, tenant) {
   return typeof loadID === "string" && loadID.length > 0 ? loadID : null;
 }
 
+// One SOP id per studio editor family, by code prefix: `general.` (work instruction), `weighing.session`,
+// `feed.direction`. A family with no SOP in this DB resolves to "missing" so its route 404s loudly.
+async function resolveSmokeSopIDs(baseUrl, token, tenant) {
+  const body = await fetchSmokeJson(`${baseUrl}/admin/sops?limit=200`, token, tenant, "sop list lookup");
+  const items = Array.isArray(body?.items) ? body.items : Array.isArray(body?.sops) ? body.sops : [];
+  const byCode = (test) => items.find((item) => typeof item?.code === "string" && test(item.code) && typeof (item.id ?? item.sop_id) === "string");
+  const id = (item) => (item ? (item.id ?? item.sop_id) : "missing");
+  return {
+    general: id(byCode((code) => code.startsWith("general."))),
+    weighing: id(byCode((code) => code === "weighing.session")),
+    feed: id(byCode((code) => code === "feed.direction")),
+  };
+}
+
 async function resolveSmokeWorkflowRowID(baseUrl, token, tenant) {
   const body = await fetchSmokeJson(`${baseUrl}/vaccination/action-center?limit=1`, token, tenant, "workflow row lookup");
   const rowID = body?.items?.[0]?.row_id;
@@ -747,11 +796,13 @@ function assertHealthyHTML(routeName, html, visibleText, token) {
     "Bearer authentication failed",
     "Token is valid, but",
     "Backend service is not reachable",
+    "Goat OS is not reachable right now",
     "Application error",
     "Runtime Error",
     "Trace ",
     "Rendered ",
     "Admin-web contract unavailable",
+    "Goat OS admin could not load",
     "route_not_registered",
     "Forgot password?",
   ];
@@ -897,7 +948,7 @@ async function assertRouteLoadedSignal(page, routeName, visibleText) {
     return { has_losing_weight_table: true };
   }
   if (routeName === "weighing-analytics") {
-    if (!/Pens weighed:/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bDaily gain\b/i.test(normalized)) {
+    if (!/\bPens\b/i.test(normalized) || !/\bkg\b/i.test(normalized) || !/\bdaily gain\b/i.test(normalized)) {
       throw new Error(`${routeName} did not prove loaded Weighing analytics data`);
     }
     return { has_weighing_kpis: true, tab: "general" };
@@ -1528,7 +1579,11 @@ async function assertPaginationControls(page, routeName, viewportLabel) {
   for (let index = 0; index < count; index += 1) {
     const pager = pagers.nth(index);
     const text = (await pager.innerText()).replace(/\s+/g, " ").trim();
-    if (!/(?:Prev(?:ious)?|Back)/i.test(text) || !/Next/i.test(text)) {
+    const previousControls = await pager.locator('[aria-label*="Prev" i], [title*="Prev" i], [aria-label*="Back" i], [title*="Back" i]').count().catch(() => 0);
+    const nextControls = await pager.locator('[aria-label*="Next" i], [title*="Next" i]').count().catch(() => 0);
+    const hasPrevious = /(?:Prev(?:ious)?|Back)/i.test(text) || previousControls > 0;
+    const hasNext = /Next/i.test(text) || nextControls > 0;
+    if (!hasPrevious || !hasNext) {
       throw new Error(`${routeName} ${viewportLabel} pager ${index + 1} is missing Prev/Next controls: ${text}`);
     }
   }

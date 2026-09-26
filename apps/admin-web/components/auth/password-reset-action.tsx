@@ -2,7 +2,18 @@
 
 import Link from "@/components/no-prefetch-link";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, KeyRound, Loader2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { FormHead } from "@/components/auth/form-head";
+import { NewPasswordIcon } from "@/components/auth/new-password-icon";
 import { confirmPasswordResetCode, verifyPasswordReset } from "@/lib/auth/firebase-client";
 
 type ResetStatus = "checking" | "ready" | "submitting" | "success" | "error";
@@ -19,6 +30,7 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
   const [message, setMessage] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const linkError =
     mode !== "resetPassword"
@@ -53,6 +65,18 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
     };
   }, [linkError, oobCode]);
 
+  const visibilityToggle = (
+    <InputAdornment position="end">
+      <IconButton
+        onClick={() => setShowPassword((shown) => !shown)}
+        edge="end"
+        aria-label={showPassword ? "Hide password" : "Show password"}
+      >
+        <Iconify icon={showPassword ? "solar:eye-bold" : "solar:eye-closed-bold"} />
+      </IconButton>
+    </InputAdornment>
+  );
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
@@ -75,110 +99,94 @@ export function PasswordResetAction({ mode, oobCode, continueHref }: PasswordRes
   // "Reset link unavailable" fallback instead of spinning forever on the checking spinner.
   if (linkError || status === "error") {
     return (
-      <div className="grid gap-4 text-center">
-        <AlertTriangle className="mx-auto h-8 w-8" style={{ color: "var(--danger)" }} aria-hidden="true" />
-        <div>
-          <h2 style={{ margin: 0, fontSize: 21 }}>Reset link unavailable</h2>
-          <p className="muted" style={{ margin: "8px 0 0", fontSize: 13.5, lineHeight: 1.6 }}>
-            {linkError || message}
-          </p>
-        </div>
-        <Link href="/login" className="btn p" style={{ width: "100%", justifyContent: "center", height: 44 }}>
+      <>
+        <FormHead title="Reset link unavailable" />
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {linkError || message}
+        </Alert>
+        <Button
+          component={Link}
+          href="/login"
+          fullWidth
+          size="large"
+          variant="contained"
+          endIcon={<ArrowRight aria-hidden="true" />}
+        >
           Back to sign in
-        </Link>
-      </div>
+        </Button>
+      </>
     );
   }
 
   if (status === "checking") {
     return (
-      <div className="grid gap-4 text-center">
-        <Loader2 className="mx-auto h-6 w-6 animate-spin" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Checking reset link
-        </p>
-      </div>
+      <Stack spacing={2} sx={{ alignItems: "center", color: "text.secondary" }}>
+        <CircularProgress color="inherit" />
+        <Typography variant="body2">Checking reset link</Typography>
+      </Stack>
     );
   }
 
   if (status === "success") {
     return (
-      <div className="grid gap-4 text-center">
-        <CheckCircle2 className="mx-auto h-8 w-8" style={{ color: "var(--ok)" }} aria-hidden="true" />
-        <div>
-          <h2 style={{ margin: 0, fontSize: 21 }}>Password updated</h2>
-          <p className="muted" style={{ margin: "8px 0 0", fontSize: 13.5, lineHeight: 1.6 }}>
-            You can sign in with your new password.
-          </p>
-        </div>
-        <Link href={continueHref} className="btn p" style={{ width: "100%", justifyContent: "center", height: 44 }}>
+      <>
+        <FormHead title="Password updated" description="You can sign in with your new password." />
+        <Button
+          component={Link}
+          href={continueHref}
+          fullWidth
+          size="large"
+          variant="contained"
+          endIcon={<ArrowRight aria-hidden="true" />}
+        >
           Continue to sign in
-        </Link>
-      </div>
+        </Button>
+      </>
     );
   }
 
   return (
-    <form className="grid gap-4" onSubmit={handleSubmit}>
-      <div className="grid gap-2 text-center">
-        <KeyRound className="mx-auto h-8 w-8" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <h2 style={{ margin: 0, fontSize: 21 }}>Choose a new password</h2>
-        <p className="muted" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6 }}>
-          {email}
-        </p>
-      </div>
+    <>
+      <FormHead icon={<NewPasswordIcon />} title="Choose a new password" description={email} />
 
-      <label className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
-        New password
-        <input
+      <Stack component="form" spacing={3} onSubmit={handleSubmit}>
+        <TextField
+          id="reset-password"
+          label="New password"
           autoComplete="new-password"
-          type="password"
+          type={showPassword ? "text" : "password"}
           value={password}
           onChange={(event) => setPassword(event.currentTarget.value)}
           disabled={status === "submitting"}
-          className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
-          style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+          slotProps={{ inputLabel: { shrink: true }, input: { endAdornment: visibilityToggle } }}
         />
-      </label>
-      <label className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--muted)" }}>
-        Confirm password
-        <input
+        <TextField
+          id="reset-confirm"
+          label="Confirm password"
           autoComplete="new-password"
-          type="password"
+          type={showPassword ? "text" : "password"}
           value={confirmation}
           onChange={(event) => setConfirmation(event.currentTarget.value)}
           disabled={status === "submitting"}
-          className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
-          style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+          slotProps={{ inputLabel: { shrink: true }, input: { endAdornment: visibilityToggle } }}
         />
-      </label>
 
-      {passwordError || message ? (
-        <p
-          style={{
-            borderRadius: 9,
-            border: "1px solid color-mix(in srgb, var(--danger) 40%, transparent)",
-            background: "var(--dangerx)",
-            color: "var(--danger)",
-            padding: "8px 12px",
-            fontSize: 13,
-            lineHeight: 1.6,
-            margin: 0,
-          }}
+        {passwordError || message ? <Alert severity="error">{message || passwordError}</Alert> : null}
+
+        <Button
+          fullWidth
+          size="large"
+          variant="contained"
+          type="submit"
+          disabled={!canSubmit}
+          loading={status === "submitting"}
+          loadingPosition="end"
+          endIcon={status === "submitting" ? undefined : <ArrowRight aria-hidden="true" />}
         >
-          {message || passwordError}
-        </p>
-      ) : null}
-
-      <button
-        type="submit"
-        disabled={!canSubmit}
-        className="btn p"
-        style={{ width: "100%", justifyContent: "center", height: 46 }}
-      >
-        {status === "submitting" ? "Updating password..." : "Update password"}
-      </button>
-    </form>
+          {status === "submitting" ? "Updating password…" : "Update password"}
+        </Button>
+      </Stack>
+    </>
   );
 }
 

@@ -145,7 +145,10 @@ test("grouped runs never merge two same-named groups from different parks", () =
   // CPT's — the name-keyed merge the operational-location convention bans (OL-1).
   assert.match(source, /function groupRuns\(/);
   assert.match(source, /last\.group === option\.group\) last\.options\.push\(option\)/);
-  assert.match(source, /<optgroup/);
+  // Each consecutive run renders under its own heading (the multi-select checkbox menu's
+  // <optgroup> equivalent), keyed by run index so two same-named parks never share one node.
+  assert.match(source, /groupRuns\(field\.options\)\.forEach\(\(run, runIndex\) =>/);
+  assert.match(source, /if \(run\.group !== undefined\) items\.push\(<ListSubheader key=\{`g:\$\{runIndex\}`\}>/);
 });
 
 test("shed filter is sourced from the backend facet, not the locations master", () => {
@@ -163,12 +166,19 @@ test("stage labels stay backend-owned across filter, table and retag options", (
   const source = readFileSync(new URL("./counts-breakdown.tsx", import.meta.url), "utf8");
   const tableSource = readFileSync(new URL("./counts-breakdown-pens-table.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /const stageLabels = new Map\(stageFacets/);
-  assert.match(source, /\.map\(\(point\) => \(\{ value: point\.key, label: point\.label \|\| point\.key \}\)\)/);
+  assert.match(source, /const stageLabels = new Map<string, string>\(\[\s*\.\.\.stageFacets/);
+  assert.match(source, /\.\.\.stageNameByCode,/);
+  assert.match(source, /\.map\(\(point\) => \(\{ value: point\.key, label: stageLabels\.get\(point\.key\) \?\? \(point\.label \|\| point\.key\) \}\)\)/);
   assert.match(source, /label: stageLabels\.get\(item\.stage_code\) \?\? item\.stage_code/);
-  assert.match(tableSource, /currentTagLabel=\{stageLabels\.get\(pen\.stages\[0\]\.key\) \?\? pen\.stages\[0\]\.label\}/);
-  assert.match(tableSource, /currentTagLabel=\{stageLabels\.get\(row\.management_stage\) \?\? row\.management_stage\}/);
-  assert.match(tableSource, /\(stageLabels\.get\(row\.management_stage\) \?\? row\.management_stage\) \|\| noStageLabel/);
+  // The MAP stays the backend's answer -- that is what this test is about. The FALLBACK is not a
+  // second opinion about the word: it is what happens when the facet does not carry the code at
+  // all, which is the normal case for a sexed fattening pen (the facet carries the family "F2",
+  // the row carries "F2-Male"). It used to be the raw code and put "F2-Male" on screen; it is now
+  // the presentation helper, whose only job is the token a reader may not see.
+  // See counts-breakdown-f2.test.mjs.
+  assert.match(tableSource, /currentTagLabel=\{stageLabels\.get\(pen\.stages\[0\]\.key\) \?\? stageLabel\(pen\.stages\[0\]\.label\)\}/);
+  assert.match(tableSource, /currentTagLabel=\{stageLabels\.get\(row\.management_stage\) \?\? stageLabel\(row\.management_stage\)\}/);
+  assert.match(tableSource, /\(stageLabels\.get\(row\.management_stage\) \?\? stageLabel\(row\.management_stage\)\) \|\| noStageLabel/);
 });
 
 test("counts breakdown renders requested business summary cards before filters", () => {

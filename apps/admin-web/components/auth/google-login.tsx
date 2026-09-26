@@ -2,7 +2,21 @@
 
 import Script from "next/script";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import CircularProgress from "@mui/material/CircularProgress";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import Link from "@mui/material/Link";
+import Skeleton from "@mui/material/Skeleton";
+import Stack from "@mui/material/Stack";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import { Iconify } from "@/components/minimal/iconify";
+import { FormDivider } from "@/components/auth/form-divider";
 import {
   getFirebaseClientRuntimeConfig,
   sendPasswordReset,
@@ -87,6 +101,7 @@ export function GoogleLogin({
   const [notice, setNotice] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
   const [googleAvailable, setGoogleAvailable] = useState(true);
@@ -315,9 +330,10 @@ export function GoogleLogin({
   // While the Google credential is being exchanged there is nothing for the operator to do, so the
   // sign-in controls stay out of the way rather than reading as "sign in again".
   const showSignInControls = !completingRedirect;
+  const showSsoSlot = (googleAvailable && showSignInControls) || showAuthProgress;
 
   return (
-    <div className="mt-8">
+    <Box>
       <Script
         src="https://accounts.google.com/gsi/client"
         strategy="afterInteractive"
@@ -329,8 +345,10 @@ export function GoogleLogin({
         }}
       />
       {/* The progress card lives OUTSIDE the Google block: a credential exchange in flight must stay
-          visible even when the Google button itself is unavailable, or the screen goes blank. */}
-      <div className="min-h-[66px] w-full" aria-live="polite">
+          visible even when the Google button itself is unavailable, or the screen goes blank.
+          The Google GSI button renders in an iframe we cannot restyle; while it loads a skeleton of
+          the same height holds its place so nothing below jumps when it arrives. */}
+      <Box aria-live="polite" sx={showSsoSlot ? { width: 1, display: "flex", alignItems: "center" } : undefined}>
         {googleAvailable && showSignInControls ? (
           <>
             <div
@@ -338,145 +356,110 @@ export function GoogleLogin({
               aria-hidden={status !== "ready"}
               style={{ display: status === "ready" ? "block" : "none" }}
             />
-            {status === "loading" ? (
-              <div
-                className="flex h-11 w-full items-center justify-center rounded-[10px] border"
-                style={{ borderColor: "var(--line)", background: "var(--card)", color: "var(--muted)" }}
-              >
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              </div>
-            ) : null}
+            {status === "loading" ? <Skeleton variant="rounded" width="100%" height={44} /> : null}
           </>
         ) : null}
         {showAuthProgress ? (
-          <div
-            className="flex min-h-[66px] w-full items-center gap-3 rounded-[10px] border px-4"
+          <Alert
+            severity="success"
+            variant="outlined"
             role="status"
-            style={{
-              borderColor: "color-mix(in srgb, var(--brand) 44%, var(--line))",
-              background: "color-mix(in srgb, var(--brand-soft) 58%, var(--card))",
-              color: "var(--ink)",
-              boxShadow: "0 0 0 3px color-mix(in srgb, var(--brand-soft) 52%, transparent)",
-            }}
+            icon={<CircularProgress size={20} color="inherit" />}
+            sx={{ width: 1 }}
           >
-            <span
-              className="grid h-9 w-9 place-items-center rounded-[9px]"
-              style={{ background: "var(--card)", color: "var(--brand-d)" }}
-            >
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[13px] font-extrabold">{authProgressTitle}</span>
-              <span className="mt-0.5 block text-[12px] font-semibold leading-5" style={{ color: "var(--muted)" }}>
-                {authProgressText}
-              </span>
-            </span>
-          </div>
+            <AlertTitle>{authProgressTitle}</AlertTitle>
+            {authProgressText}
+          </Alert>
         ) : null}
-      </div>
+      </Box>
       {googleAvailable && showSignInControls ? (
-        <div className="my-5 flex items-center gap-3" style={{ opacity: showAuthProgress ? 0.45 : 1 }}>
-          <span className="h-px flex-1" style={{ background: "var(--line)" }} />
-          <span className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--muted)" }}>
-            or
-          </span>
-          <span className="h-px flex-1" style={{ background: "var(--line)" }} />
-        </div>
+        <FormDivider label="or" sx={{ opacity: showAuthProgress ? 0.45 : 1 }} />
       ) : null}
       {showSignInControls ? (
-      <form className="grid gap-3.5" onSubmit={handleEmailPasswordSubmit}>
-        <label
-          htmlFor="login-email"
-          className="grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.14em]"
-          style={{ color: "var(--muted)" }}
-        >
-          Email
-          <input
+        <Stack component="form" spacing={3} onSubmit={handleEmailPasswordSubmit}>
+          <TextField
             id="login-email"
+            label="Email"
             autoComplete="email"
-            inputMode="email"
             type="email"
+            placeholder="you@mesha.sg"
             value={email}
             onChange={(event) => setEmail(event.currentTarget.value)}
             disabled={isBusy}
-            className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
-            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
+            slotProps={{ inputLabel: { shrink: true }, htmlInput: { inputMode: "email" } }}
           />
-        </label>
-        <div className="grid gap-1.5">
-          <div className="flex items-center justify-between gap-3">
-            <label
-              htmlFor="login-password"
-              className="text-[12px] font-bold uppercase tracking-[0.14em]"
-              style={{ color: "var(--muted)" }}
+          <Stack spacing={1.5}>
+            <Link
+              component="button"
+              type="button"
+              variant="body2"
+              color="inherit"
+              onClick={handleForgotPassword}
+              disabled={isBusy}
+              sx={(theme) => ({
+                alignSelf: "flex-end",
+                "&:disabled": { opacity: 0.48, cursor: "default", textDecoration: "none" },
+                [theme.breakpoints.down("md")]: { minHeight: theme.spacing(5.5) },
+              })}
             >
-              Password
-            </label>
-            <button type="button" onClick={handleForgotPassword} disabled={isBusy} className="login-forgot">
               Forgot password?
-            </button>
-          </div>
-          <input
-            id="login-password"
-            autoComplete="current-password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.currentTarget.value)}
+            </Link>
+            <TextField
+              id="login-password"
+              label="Password"
+              autoComplete="current-password"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(event) => setPassword(event.currentTarget.value)}
+              disabled={isBusy}
+              slotProps={{
+                inputLabel: { shrink: true },
+                input: {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setShowPassword((shown) => !shown)}
+                        edge="end"
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        <Iconify icon={showPassword ? "solar:eye-bold" : "solar:eye-closed-bold"} />
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+          </Stack>
+          <Button
+            fullWidth
+            size="large"
+            variant="contained"
+            color="inherit"
+            type="submit"
             disabled={isBusy}
-            className="h-11 rounded-[10px] border px-3 text-[14px] font-semibold normal-case tracking-normal outline-none"
-            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--card)" }}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={isBusy}
-          className="btn p"
-          style={{ marginTop: 2, width: "100%", justifyContent: "center", height: 46 }}
-        >
-          {status === "signing_in" ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+            loading={status === "signing_in"}
+            loadingPosition="end"
+            endIcon={status === "signing_in" ? undefined : <ArrowRight aria-hidden="true" />}
+          >
+            {status === "signing_in" ? "Signing in…" : "Sign in"}
+          </Button>
+        </Stack>
       ) : null}
-      <div className="mt-3 min-h-7">
+      <Box sx={(theme) => ({ mt: 2, minHeight: theme.spacing(3.5) })}>
         {message ? (
-          <p
-            style={{
-              borderRadius: 9,
-              border: "1px solid color-mix(in srgb, var(--danger) 40%, transparent)",
-              background: "var(--dangerx)",
-              color: "var(--danger)",
-              padding: "8px 12px",
-              fontSize: 13,
-              lineHeight: 1.6,
-            }}
-          >
-            {message}
-          </p>
+          <Alert severity="error">{message}</Alert>
         ) : notice ? (
-          <p
-            style={{
-              borderRadius: 9,
-              border: "1px solid color-mix(in srgb, var(--ok) 36%, transparent)",
-              background: "var(--okx)",
-              color: "var(--ok)",
-              padding: "8px 12px",
-              fontSize: 13,
-              lineHeight: 1.6,
-            }}
-          >
+          <Alert severity="success" role="status">
             {notice}
-          </p>
+          </Alert>
         ) : isBusy ? (
-          <p
-            className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em]"
-            style={{ color: "var(--muted)" }}
-          >
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            {statusText}
-          </p>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center", color: "text.secondary" }}>
+            <CircularProgress size={14} color="inherit" />
+            <Typography variant="body2">{statusText}</Typography>
+          </Stack>
         ) : null}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 

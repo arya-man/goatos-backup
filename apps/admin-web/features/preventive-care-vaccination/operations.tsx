@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+
+import { PageHeader } from "@/components/app/page-header";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
@@ -31,29 +33,26 @@ export function VaccinationOperationsPage({
 
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")}
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {isFullSchedule ? null : <VaccinationFullScheduleButton scope={scope} pageContract={pageContract} active={isFullSchedule} year={scheduleYear} />}
-      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+        actions={isFullSchedule ? null : <VaccinationFullScheduleButton scope={scope} pageContract={pageContract} active={isFullSchedule} year={scheduleYear} />}
+      />
 
       {isFullSchedule ? (
         <Suspense fallback={<VaccinationFullScheduleSkeleton pageContract={pageContract} />}>
           <VaccinationFullSchedule searchParams={sp} scope={scope} pageContract={pageContract} />
         </Suspense>
       ) : (
-        <>
+        <div className="kit-enter" style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0,1fr)" }}>
       {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
-      <Suspense fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}>
-        <VaccinationCommandBoard pageContract={pageContract} searchParams={sp} driveBatchId={one(sp, "cb_drive")} driveParkId={one(sp, "cb_drive_park")} />
-      </Suspense>
+      <div style={{ minWidth: 0 }}>
+        <Suspense fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}>
+          <VaccinationCommandBoard pageContract={pageContract} searchParams={sp} driveBatchId={one(sp, "cb_drive")} driveParkId={one(sp, "cb_drive_park")} />
+        </Suspense>
+      </div>
 
+      <div style={{ minWidth: 0 }}>
       <Suspense
         fallback={
           <section className="card" id="pc-care-inventory-progress">
@@ -68,13 +67,16 @@ export function VaccinationOperationsPage({
       >
         <InventoryVaccineProgressSection searchParams={sp} pageContract={pageContract} />
       </Suspense>
+      </div>
 
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
           and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
-      <Suspense fallback={<VaccinationShedBoardSkeleton pageContract={pageContract} />}>
-        <VaccinationShedBoard searchParams={sp} pageContract={pageContract} />
-      </Suspense>
-        </>
+      <div style={{ minWidth: 0 }}>
+        <Suspense fallback={<VaccinationShedBoardSkeleton pageContract={pageContract} />}>
+          <VaccinationShedBoard searchParams={sp} pageContract={pageContract} />
+        </Suspense>
+      </div>
+        </div>
       )}
     </div>
   );

@@ -43,6 +43,7 @@ import {
   sendCeoAiWatchStop,
 } from "@/lib/ceo-ai-stream";
 import { CeoAiWatchCard, mergeWatch } from "./ceo-ai-watch";
+import { createPortal } from "react-dom";
 import {
   createConversation,
   deleteConversation,
@@ -536,6 +537,13 @@ export function CeoAiPanel({
     const sync = () => setNarrow(mq.matches);
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
+  }, []);
+  // The top-bar dock slot, looked up once on the client (SSR has no document).
+  const [dockSlot, setDockSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const slot = document.getElementById("topbar-ai-slot");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time DOM lookup after mount
+    if (slot) setDockSlot(slot);
   }, []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>(
@@ -1741,69 +1749,93 @@ export function CeoAiPanel({
         </section>
       ) : (
         <>
-          <button
-            type="button"
-            className="mzai-bubble"
-            onPointerDown={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              dragRef.current = {
-                id: e.pointerId,
-                dx: e.clientX - r.left,
-                dy: e.clientY - r.top,
-                sx: e.clientX,
-                sy: e.clientY,
-                moved: false,
-              };
-              e.currentTarget.setPointerCapture(e.pointerId);
-            }}
-            onPointerMove={(e) => {
-              const d = dragRef.current;
-              if (!d || d.id !== e.pointerId) return;
-              if (
-                !d.moved &&
-                Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6
+          <CeoAiStyles />
+          {/* Closed: the launcher DOCKS into the top bar's slot when the shell offers one, so it
+              never sits over a table's last column or a footer's pager at the bottom-right of the
+              viewport. Without a slot (no shell) it stays the floating bubble. */}
+          {/* At phone width the top bar hides its slot (frame.css, max-width:620px), so a docked
+              launcher would be 0x0 and unreachable; the phone keeps the draggable bubble. */}
+          {dockSlot && !narrow
+            ? createPortal(
+                <button
+                  type="button"
+                  className="mzai-bubble mzai-bubble-dock"
+                  onClick={() => {
+                    setOpen(true);
+                    trackCeoAiEvent(CeoAiEvents.Open);
+                  }}
+                  aria-label={copy.open}
+                  title={copy.title}
+                >
+                  <GoatAvatar />
+                </button>,
+                dockSlot,
               )
-                return;
-              d.moved = true;
-              const size = e.currentTarget.offsetWidth;
-              setBubblePos({
-                x: clamp(e.clientX - d.dx, 4, window.innerWidth - size - 4),
-                y: clamp(e.clientY - d.dy, 4, window.innerHeight - size - 4),
-              });
-            }}
-            onPointerUp={(e) => {
-              const d = dragRef.current;
-              dragRef.current = null;
-              if (!d?.moved) return;
-              suppressClickRef.current = true;
-              const size = e.currentTarget.offsetWidth;
-              const r = e.currentTarget.getBoundingClientRect();
-              const snapped = {
-                x:
-                  r.left + size / 2 < window.innerWidth / 2
-                    ? 12
-                    : window.innerWidth - size - 12,
-                y: clamp(r.top, 12, window.innerHeight - size - 12),
-              };
-              setBubblePos(snapped);
-              writeBubblePos(snapped);
-            }}
-            onPointerCancel={() => {
-              dragRef.current = null;
-            }}
-            onClick={() => {
-              if (suppressClickRef.current) {
-                suppressClickRef.current = false;
-                return;
-              }
-              setOpen(true);
-              trackCeoAiEvent(CeoAiEvents.Open);
-            }}
-            aria-label={copy.open}
-            title={copy.title}
-          >
-            <GoatAvatar />
-          </button>
+            : (
+            <button
+              type="button"
+              className="mzai-bubble"
+              onPointerDown={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                dragRef.current = {
+                  id: e.pointerId,
+                  dx: e.clientX - r.left,
+                  dy: e.clientY - r.top,
+                  sx: e.clientX,
+                  sy: e.clientY,
+                  moved: false,
+                };
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                const d = dragRef.current;
+                if (!d || d.id !== e.pointerId) return;
+                if (
+                  !d.moved &&
+                  Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6
+                )
+                  return;
+                d.moved = true;
+                const size = e.currentTarget.offsetWidth;
+                setBubblePos({
+                  x: clamp(e.clientX - d.dx, 4, window.innerWidth - size - 4),
+                  y: clamp(e.clientY - d.dy, 4, window.innerHeight - size - 4),
+                });
+              }}
+              onPointerUp={(e) => {
+                const d = dragRef.current;
+                dragRef.current = null;
+                if (!d?.moved) return;
+                suppressClickRef.current = true;
+                const size = e.currentTarget.offsetWidth;
+                const r = e.currentTarget.getBoundingClientRect();
+                const snapped = {
+                  x:
+                    r.left + size / 2 < window.innerWidth / 2
+                      ? 12
+                      : window.innerWidth - size - 12,
+                  y: clamp(r.top, 12, window.innerHeight - size - 12),
+                };
+                setBubblePos(snapped);
+                writeBubblePos(snapped);
+              }}
+              onPointerCancel={() => {
+                dragRef.current = null;
+              }}
+              onClick={() => {
+                if (suppressClickRef.current) {
+                  suppressClickRef.current = false;
+                  return;
+                }
+                setOpen(true);
+                trackCeoAiEvent(CeoAiEvents.Open);
+              }}
+              aria-label={copy.open}
+              title={copy.title}
+            >
+              <GoatAvatar />
+            </button>
+              )}
         </>
       )}
     </div>

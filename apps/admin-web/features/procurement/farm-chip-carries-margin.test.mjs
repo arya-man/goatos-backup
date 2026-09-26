@@ -29,18 +29,20 @@ test("a chip built from the live URL carries the applied margin and switches the
 test("the farm chips render through the live-URL link, which follows in-place URL moves", () => {
   const chrome = readFileSync(new URL("./sales-chrome.tsx", import.meta.url), "utf8");
   const link = readFileSync(new URL("./live-query-link.tsx", import.meta.url), "utf8");
-  assert.match(chrome, /<LiveQueryLink[\s\S]*?patch=\{\{ \.\.\.cleared, \.\.\.salesParkPatch\(id\) \}\}/);
+  // MUI redesign: the chips are the template pill tabs (LiveQueryTabs), same live-URL rule.
+  assert.match(chrome, /<LiveQueryTabs[\s\S]*?patch: \{ \.\.\.cleared, \.\.\.salesParkPatch\(id\) \}/);
   assert.match(link, /LOCAL_OVERLAY_URL_CHANGE_EVENT/);
   assert.match(link, /liveQueryHref\(pagePath, search, patch\)/);
 });
 
+// MUI redesign: the grouped columns are the template ApexCharts chart; its legend is ChartLegends.
 test("the striped series' key is striped too, against the panel colour", () => {
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
-  assert.match(css, /\.gleg \.sw\.ok-hatch,\.gtip-r \.sw\.ok-hatch\{width:14px;height:12px;[^}]*repeating-linear-gradient\(135deg,var\(--chart-2\) 0 2px,var\(--panel\) 2px 4px\)/);
+  const legend = readFileSync(new URL("../../components/series-charts.tsx", import.meta.url), "utf8");
+  assert.match(legend, /repeating-linear-gradient\(135deg, \$\{e\.colorVar\} 0 2px, var\(--palette-background-paper\) 2px 4px\)/);
 });
 
-test("every swatch (legend and hover card) maps the tone through toneClass, so okHatch reaches the CSS", () => {
+test("every swatch (legend and bar) carries the okHatch stripe, not a fifth solid colour", () => {
   const chart = readFileSync(new URL("../../components/grouped-columns.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(chart, /`sw \$\{s\.tone\}`/);
-  assert.equal((chart.match(/`sw \$\{toneClass\(s\.tone\)\}`/g) ?? []).length, 2);
+  assert.match(chart, /hatched: s\.tone === "okHatch"/);
+  assert.match(chart, /s\.tone === "okHatch" \? "pattern" : "solid"/);
 });

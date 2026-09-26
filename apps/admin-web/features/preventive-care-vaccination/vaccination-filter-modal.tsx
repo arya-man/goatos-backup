@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { InfoHint } from "@/components/app/info-hint";
 import Link from "@/components/no-prefetch-link";
-import { createPortal } from "react-dom";
-import { Search, X } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import InputAdornment from "@mui/material/InputAdornment";
+import TextField from "@mui/material/TextField";
+import { DrawerSection, MinimalDrawer } from "@/components/minimal/drawer";
+import { Iconify } from "@/components/minimal/iconify";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 export interface VaccinationFilterModalProps {
@@ -46,16 +52,25 @@ export function VisibleTableSearch({
     }
   }
 
+  // Template toolbar search (UserTableToolbar TextField + magnifier) that filters the rows on screen.
   return (
-    <div className="tsearch" title={copy(pageContract, "filter.search_visible_rows")}>
-      <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-      <input
-        ref={inputRef}
-        placeholder={placeholder ?? copy(pageContract, "filter.search_placeholder")}
-        aria-label={label}
-        onChange={(event) => apply(event.target.value)}
-      />
-    </div>
+    <TextField
+      inputRef={inputRef}
+      title={copy(pageContract, "filter.search_visible_rows")}
+      placeholder={placeholder ?? copy(pageContract, "filter.search_placeholder")}
+      onChange={(event) => apply(event.target.value)}
+      sx={{ flex: "1 1 220px", minWidth: { xs: 1, sm: 200 } }}
+      slotProps={{
+        htmlInput: { "aria-label": label },
+        input: {
+          startAdornment: (
+            <InputAdornment position="start">
+              <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+            </InputAdornment>
+          ),
+        },
+      }}
+    />
   );
 }
 
@@ -75,26 +90,9 @@ export function VaccinationFilterButton({
   const [activeFacet, setActiveFacet] = useState("all");
   const [filteredCount, setFilteredCount] = useState<number | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null);
   const searchId = useId();
   const facetTerms = quickTerms ?? optionGroup(pageContract, "filter_quick_terms");
 
-  useEffect(() => {
-    if (!open) return;
-    const node = modalRef.current;
-    const first = node?.querySelector<HTMLElement>('a[href],button:not([disabled]),input:not([disabled])');
-    (first ?? node)?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [open]);
 
   function applyVisibleTableFilter(nextQuery = query, nextFacet = activeFacet) {
     const rows = filterableRows(filterRoot(buttonRef.current));
@@ -119,118 +117,86 @@ export function VaccinationFilterButton({
     setFilteredCount(null);
   }
 
-  const modal = open ? (
-    <>
-      <div
-        onClick={() => setOpen(false)}
-        aria-hidden="true"
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 260 }}
-      />
-      <div
-        ref={modalRef}
-        className="modal on card"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
-        style={{ display: "flex", flexDirection: "column", overflow: "hidden", zIndex: 261 }}
-      >
-        <div className="hd" style={{ borderBottom: "1px solid var(--line2)", flex: "0 0 auto" }}>
-          <Search className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          <h3>{title}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="iconbtn" onClick={() => setOpen(false)} aria-label={copy(pageContract, "filter.close_label")}>
-            <X className="ic" />
-          </button>
-        </div>
-        <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 14, overflow: "auto" }}>
-          <div className="fld" style={{ marginBottom: 0 }}>
-            <label htmlFor={searchId}>{copy(pageContract, "filter.search_rows_label")}</label>
-            <input
-              id={searchId}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={searchReason || copy(pageContract, "filter.search_visible_rows")}
-            />
-          </div>
-          <div>
-            <div className="muted small" style={{ marginBottom: 8 }}>
-              {filteredCount === null ? rowsLabel : `${filteredCount} ${copy(pageContract, "pager.matching_rows")}`}
-            </div>
-            <div className="note">{copy(pageContract, "filter.apply_immediately")}</div>
-          </div>
-          <div>
-            <div className="muted small" style={{ marginBottom: 8 }}>
-              {copy(pageContract, "filter.facets_label")}
-            </div>
-            <div className="chips" role="list" aria-label={`${title} ${copy(pageContract, "filter.quick_filters_aria")}`}>
-              {facetTerms.map((facet) => (
-                <button
-                  key={facet.key}
-                  type="button"
-                  className={`chip ${activeFacet === facet.key ? "on" : ""}`}
-                  onClick={() => {
-                    setActiveFacet(facet.key);
-                    applyVisibleTableFilter(query, facet.key);
-                  }}
-                >
-                  {facet.label}
-                </button>
-              ))}
-            </div>
-            <div className="muted small" style={{ marginTop: 8 }}>
-              {copy(pageContract, "filter.available_columns")}: {facets.join(copy(pageContract, "filter.column_separator"))}
-            </div>
-          </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            borderTop: "1px solid var(--line2)",
-            background: "var(--panel)",
-            padding: "14px 16px",
-          }}
-        >
-          <button type="button" className="btn" onClick={clearVisibleTableFilter}>
-            {copy(pageContract, "action.clear")}
-          </button>
-          <div className="sp" style={{ flex: 1 }} />
-          <button
-            type="button"
-            className="btn"
-            title={filterReason}
-            onClick={() => {
-              applyVisibleTableFilter();
-              setOpen(false);
-            }}
-          >
-            {copy(pageContract, "filter.apply_filters")}
-          </button>
-          {actionHref && actionLabel ? (
-            <Link href={actionHref} className="btn p" onClick={() => setOpen(false)}>
-              {actionLabel}
-            </Link>
-          ) : null}
-        </div>
-      </div>
-    </>
-  ) : null;
-
   return (
     <>
-      <button
+      <Button
         ref={buttonRef}
-        type="button"
-        className="btn sm"
+        variant="outlined"
+        color="inherit"
         onClick={() => setOpen(true)}
         title={filterReason}
         aria-haspopup="dialog"
+        startIcon={<Iconify icon="ic:round-filter-list" />}
       >
-        <Search className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.filters")}
-      </button>
-      {modal ? createPortal(modal, document.body) : null}
+        {copy(pageContract, "action.filters")}
+      </Button>
+      {/* Template filters drawer (calendar filters shell): sections, then the action footer. */}
+      <MinimalDrawer
+        open={open}
+        onClose={() => setOpen(false)}
+        title={title}
+        aria-label={title}
+        onReset={clearVisibleTableFilter}
+        canReset={filteredCount !== null}
+        width={360}
+        footer={
+          <>
+            <Button variant="outlined" color="inherit" onClick={clearVisibleTableFilter}>
+              {copy(pageContract, "action.clear")}
+            </Button>
+            <Button
+              variant="contained"
+              title={filterReason}
+              onClick={() => {
+                applyVisibleTableFilter();
+                setOpen(false);
+              }}
+            >
+              {copy(pageContract, "filter.apply_filters")}
+            </Button>
+            {actionHref && actionLabel ? (
+              <Button component={Link} href={actionHref} variant="contained" color="primary" onClick={() => setOpen(false)}>
+                {actionLabel}
+              </Button>
+            ) : null}
+          </>
+        }
+      >
+        <DrawerSection title={copy(pageContract, "filter.search_rows_label")}>
+          <TextField
+            id={searchId}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={searchReason || copy(pageContract, "filter.search_visible_rows")}
+            slotProps={{ htmlInput: { "aria-label": copy(pageContract, "filter.search_rows_label") } }}
+          />
+          <Box sx={{ typography: "body2", color: "text.secondary", display: "flex", alignItems: "center", gap: 0.75 }}>
+            {filteredCount === null ? rowsLabel : `${filteredCount} ${copy(pageContract, "pager.matching_rows")}`}
+            <InfoHint text={copy(pageContract, "filter.apply_immediately")} />
+          </Box>
+        </DrawerSection>
+        <DrawerSection title={copy(pageContract, "filter.facets_label")}>
+          <Box role="group" aria-label={`${title} ${copy(pageContract, "filter.quick_filters_aria")}`} sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+            {facetTerms.map((facet) => (
+              <Chip
+                key={facet.key}
+                clickable
+                label={facet.label}
+                color={activeFacet === facet.key ? "primary" : "default"}
+                variant={activeFacet === facet.key ? "filled" : "outlined"}
+                aria-pressed={activeFacet === facet.key}
+                onClick={() => {
+                  setActiveFacet(facet.key);
+                  applyVisibleTableFilter(query, facet.key);
+                }}
+              />
+            ))}
+          </Box>
+          <Box sx={{ typography: "caption", color: "text.secondary", display: "flex", alignItems: "center", gap: 0.75 }}>
+            <InfoHint text={`${copy(pageContract, "filter.available_columns")}: ${facets.join(copy(pageContract, "filter.column_separator"))}`} />
+          </Box>
+        </DrawerSection>
+      </MinimalDrawer>
     </>
   );
 }

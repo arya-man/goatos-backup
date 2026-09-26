@@ -39,6 +39,10 @@ export const APPROVALS_COPY = {
   farmTab: {
     all: "All farms",
   },
+  filter: {
+    status: "Status",
+    farm: "Farm",
+  },
   dateFilter: {
     field: "Raised",
     any: "Any date",

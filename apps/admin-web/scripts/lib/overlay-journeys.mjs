@@ -100,9 +100,9 @@ export const overlayJourneys = {
   "action-center": [
     {
       id: "notification-bell-panel",
-      // features/notifications/notification-bell.tsx: button.iconbtn[aria-haspopup=dialog] -> .parkmenu.on[role=dialog] (position:fixed)
+      // features/notifications/notification-bell.tsx: button.iconbtn[aria-haspopup=dialog] -> the template notifications drawer (MUI Drawer paper .nc-sheet[role=dialog])
       trigger: 'button.iconbtn[aria-haspopup="dialog"][aria-expanded]',
-      overlay: ".parkmenu.on[role=dialog]",
+      overlay: ".nc-sheet[role=dialog]",
       kind: "popover",
       source: "features/notifications/notification-bell.tsx; components/mesha-shell.tsx NotificationBell",
     },
@@ -197,14 +197,15 @@ export const overlayJourneys = {
   "control-tower": [
     {
       id: "mobile-nav",
-      // components/mesha-shell.tsx: button.iconbtn.hamb toggles aside.side.open#side (<=860px: fixed, 100vw)
-      trigger: "button.iconbtn.hamb",
-      overlay: "aside#side.side.open",
+      // layouts/dashboard/layout.tsx: header MenuButton[data-nav-open] opens the MUI drawer (NavMobile, paper.msh-side,
+      // <1200px); its own IconButton[data-nav-close] closes it. Full-width at <=860px (invariant bc8864617).
+      trigger: "button[data-nav-open]",
+      overlay: ".MuiDrawer-paper.msh-side",
       kind: "nav",
       viewports: ["mobile"],
       minWidthRatio: 0.98,
-      close: "button.iconbtn.hamb",
-      source: "components/mesha-shell.tsx (toggleNav, #side); app/mesha-theme.css .side @max-width:860px",
+      close: "button[data-nav-close]",
+      source: "layouts/dashboard/layout.tsx (MenuButton, NavMobile); layouts/dashboard/nav-mobile.tsx",
     },
   ],
 };

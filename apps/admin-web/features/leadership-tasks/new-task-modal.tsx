@@ -2,6 +2,9 @@
 
 import { FileText, Image, Mic, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
 
 import { AssigneePicker } from "@/components/assignee-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -99,18 +102,18 @@ export function NewTaskModal({
 
   return (
     <>
-      <button
+      <Button
         ref={openerRef}
         type="button"
-        className="btn p"
+        variant="contained"
         onClick={openModal}
         disabled={!assignees.length}
+        startIcon={<Plus className="ic" aria-hidden="true" />}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        <Plus className="ic" aria-hidden="true" />
         {text("new.open", "New task")}
-      </button>
+      </Button>
       {open ? (
         <>
           <button
@@ -130,14 +133,13 @@ export function NewTaskModal({
               <Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
               <h3 id={headingId}>{text("new.title", "New task")}</h3>
               <div className="sp" style={{ flex: 1 }} />
-              <button
+              <IconButton
                 type="button"
-                className="btn"
                 onClick={closeModal}
                 aria-label={text("action.close", "Close")}
               >
                 <X className="ic" aria-hidden="true" />
-              </button>
+              </IconButton>
             </div>
             <form
               action={action}
@@ -206,21 +208,28 @@ export function NewTaskModal({
                   </small>
                 ) : null}
               </div>
-              <label className="fld">
-                <span>{text("new.title_field", "Title")}</span>
-                <input
+              <div className="fld">
+                <TextField
+                  fullWidth
                   name="title"
+                  label={text("new.title_field", "Title")}
                   required
-                  maxLength={80}
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
+                  slotProps={{ htmlInput: { maxLength: 80 }, inputLabel: { shrink: true } }}
                 />
                 <small className="lt-counter">{title.length} / 80</small>
-              </label>
-              <label className="fld">
-                <span>{text("new.body_field", "Brief")}</span>
-                <textarea name="body" maxLength={4000} rows={4} />
-              </label>
+              </div>
+              <div className="fld">
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={4}
+                  name="body"
+                  label={text("new.body_field", "Brief")}
+                  slotProps={{ htmlInput: { maxLength: 4000 }, inputLabel: { shrink: true } }}
+                />
+              </div>
               <TaskDeadlineFields
                 pageContract={pageContract}
                 defaultLocal=""
@@ -258,9 +267,9 @@ export function NewTaskModal({
                   })}
                 </div>
               </div>
-              <button type="submit" className="btn p lt-send">
+              <Button type="submit" variant="contained" className="lt-send">
                 {text("new.send", "Send")}
-              </button>
+              </Button>
             </form>
           </div>
         </>

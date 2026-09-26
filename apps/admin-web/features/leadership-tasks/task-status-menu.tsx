@@ -1,7 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { XCircle } from "lucide-react";
+import { usePopover } from "minimal-shared/hooks";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Divider from "@mui/material/Divider";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import Typography from "@mui/material/Typography";
+import type { Theme } from "@mui/material/styles";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -11,6 +19,8 @@ import { changeLeadershipTaskStatusInPlaceAction, loadLeadershipTaskAction, type
 import { refusalSentence } from "./task-feedback-copy";
 import { currentTaskRowVersion, publishTaskRow, runTaskWrite, useTaskRow, useTaskWriteInFlight } from "./task-row-store";
 import { rowFromTask } from "./task-row";
+import { CustomPopover } from "@/components/minimal/custom-popover";
+import { TAP_MIN } from "@/components/minimal/_shared/tap";
 
 /**
  * THE status control of the task drawer: one dropdown, the Work Board's menu.
@@ -21,9 +31,8 @@ import { rowFromTask } from "./task-row";
  * languages. The CEO rejected that as not the same product as the Work Board.
  *
  * This is the one control. The trigger is the status pill (its tone and wording are the
- * backend's `status_chip`); it opens the Work Board's `.wb .menu` (the same classes the board's
- * Module and Assignee menus use, scoped under a local `.wb` so the board's rules apply verbatim
- * and nothing is restyled here). The items are the backend's `status_options` in the backend's
+ * backend's `status_chip`); it opens the template menu popover (CustomPopover + MenuList, the
+ * same as the board's Module and Assignee menus). The items are the backend's `status_options` in the backend's
  * order, and "Cancel task" — whenever the API lists it — is the LAST item, below a rule and in
  * the danger tone, behind a confirm. Who may cancel is decided by `can_cancel` upstream: this
  * menu never shows a move the API did not list.
@@ -52,7 +61,8 @@ export function TaskStatusMenu({
   // The row as the browser knows it -- a change made here, or a comment that bumped the version.
   const task = useTaskRow(serverTask);
   const rowVersion = task.rowVersion;
-  const [open, setOpen] = useState(false);
+  const menu = usePopover();
+  const open = menu.open;
   const [ownPending, startTransition] = useTransition();
   // A comment (or any other write) to this task still on the wire holds the menu: the status write
   // would otherwise be queued behind it carrying the fence from BEFORE the comment landed.
@@ -62,11 +72,12 @@ export function TaskStatusMenu({
   // The cancel confirm is IN the menu (the console's own control), never the browser's
   // `window.confirm` dialog -- "127.0.0.1 says" is not a thing the CEO should read (2026-09-18).
   const [confirmingCancel, setConfirmingCancel] = useState(false);
-  const close = useCallback(() => {
-    setOpen(false);
+  // MUI Popover closes on outside click and Escape (its own handler stops the press, so the
+  // drawer's Escape never hears it -- one press, one layer) and returns focus to the trigger.
+  const close = () => {
+    menu.onClose();
     setConfirmingCancel(false);
-  }, []);
-  const ref = useOutsideClose(open, close);
+  };
   const formRef = useRef<HTMLFormElement>(null);
   const keyRef = useRef<HTMLInputElement>(null);
   const statusRef = useRef<HTMLInputElement>(null);
@@ -137,7 +148,7 @@ export function TaskStatusMenu({
   };
 
   return (
-    <div className="wb ltd-statusmenu" ref={ref}>
+    <div className="wb ltd-statusmenu">
       <form ref={formRef} action={action}>
         <input ref={keyRef} type="hidden" name="idempotency_key" />
         <input type="hidden" name="return_to" value={returnTo} />
@@ -162,7 +173,7 @@ export function TaskStatusMenu({
         aria-label={`${copy(pageContract, "label.status", "Status")}: ${task.statusLabel}`}
         aria-busy={pending || undefined}
         disabled={pending}
-        onClick={() => setOpen((v) => !v)}
+        onClick={menu.onOpen}
       >
         {task.statusLabel}
         {pending ? (
@@ -176,68 +187,52 @@ export function TaskStatusMenu({
           {refusal}
         </p>
       ) : null}
-      {open ? (
-        <div className="menu ltd-status-pop" role="menu" id={menuId} aria-label={copy(pageContract, "status.menu_aria", "Change status")}>
+      <CustomPopover
+        open={open}
+        anchorEl={menu.anchorEl}
+        onClose={close}
+        slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { maxWidth: 320 } } }}
+      >
+        <MenuList id={menuId} aria-label={copy(pageContract, "status.menu_aria", "Change status")}>
           {moves.map((option) => (
-            <button key={option.key} type="button" role="menuitem" className="opt" onClick={() => submit(option.key)}>
-              <span className={`ltd-status-dot ltd-status-${statusTone(option.key as TaskRow["status"])}`} aria-hidden="true" />
+            <MenuItem key={option.key} onClick={() => submit(option.key)} sx={tapRow}>
+              <Box
+                component="span"
+                className={`ltd-status-${statusTone(option.key as TaskRow["status"])}`}
+                aria-hidden="true"
+                sx={{ width: 9, aspectRatio: "1", borderRadius: "50%", flex: "none", borderWidth: 1, borderStyle: "solid" }}
+              />
               {/* The item's wording is the backend's own status-option label. */}
               {option.label}
-            </button>
+            </MenuItem>
           ))}
+          {cancel && moves.length ? <Divider sx={{ borderStyle: "dashed" }} /> : null}
           {cancel && !confirmingCancel ? (
-            <div className={moves.length ? "foot ltd-status-foot" : "ltd-status-foot"}>
-              <button type="button" role="menuitem" className="opt ltd-opt-danger" onClick={() => setConfirmingCancel(true)}>
-                <XCircle className="ic" aria-hidden="true" />
-                {cancel.label}
-              </button>
-            </div>
+            <MenuItem onClick={() => setConfirmingCancel(true)} sx={(theme) => ({ ...tapRow(theme), color: theme.palette.error.main })}>
+              <XCircle className="ic" aria-hidden="true" />
+              {cancel.label}
+            </MenuItem>
           ) : null}
-          {cancel && confirmingCancel ? (
-            <div className={`${moves.length ? "foot " : ""}ltd-status-foot ltd-cancel-confirm`} role="group" aria-label={cancel.label}>
-              <p className="ltd-cancel-confirm-copy">{cancelConfirm}</p>
-              <div className="ltd-cancel-confirm-actions">
-                <button type="button" className="btn dng sm" onClick={() => submit(cancel.key)}>
-                  {copy(pageContract, "status.cancel_yes", "Yes, cancel task")}
-                </button>
-                <button type="button" className="btn ghost sm" onClick={() => setConfirmingCancel(false)}>
-                  {copy(pageContract, "status.cancel_no", "Keep task")}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+        </MenuList>
+        {cancel && confirmingCancel ? (
+          <Box role="group" aria-label={cancel.label} sx={{ px: 1, pb: 1, display: "grid", gap: 1 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>{cancelConfirm}</Typography>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Button size="small" variant="contained" color="error" onClick={() => submit(cancel.key)} sx={tapRow}>
+                {copy(pageContract, "status.cancel_yes", "Yes, cancel task")}
+              </Button>
+              <Button size="small" variant="outlined" color="inherit" onClick={() => setConfirmingCancel(false)} sx={tapRow}>
+                {copy(pageContract, "status.cancel_no", "Keep task")}
+              </Button>
+            </Box>
+          </Box>
+        ) : null}
+      </CustomPopover>
     </div>
   );
 }
 
-// The same close rule as the Work Board's toolbar menus (`components/assignee-picker.tsx`): an
-// outside click closes, and Escape closes on a CAPTURING document listener that stops
-// propagation, so the drawer's own Escape (which closes the whole drawer) never hears the press
-// that closed this menu — one press, one layer. Focus goes back to the trigger.
-function useOutsideClose(open: boolean, close: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    // On POINTERDOWN, not click: by the time a click bubbles to the document the button that
-    // was pressed may already be gone from the DOM (the cancel item re-renders into its
-    // confirm), and `contains()` then reads a press INSIDE the menu as one outside it.
-    const onDoc = (event: PointerEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      close();
-      ref.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
-    };
-    document.addEventListener("pointerdown", onDoc);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("pointerdown", onDoc);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, [open, close]);
-  return ref;
+/** Phone tap floor for menu rows and the confirm buttons (webview rule: >=44px). */
+function tapRow(theme: Theme) {
+  return { [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } };
 }

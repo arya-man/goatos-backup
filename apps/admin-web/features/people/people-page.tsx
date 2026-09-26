@@ -1,6 +1,7 @@
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import Link from "@/components/no-prefetch-link";
+import { PageHeader } from "@/components/app/page-header";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { PeopleBoard } from "./people-board";
 import { ClockScreen } from "./clock-screen";
 import { NotificationsScreen } from "./notifications-screen";
@@ -56,53 +57,36 @@ export async function PeoplePage({
   const initialParkId = park && park !== "all" ? park : undefined;
 
   return (
-    <div className="screen on">
-      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div>
-          <div className="crumb">
-            <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
+    <div className="kit-enter screen on">
+      <div>
+        <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />
       </div>
 
-      <nav className="subtabs" aria-label={pageContract.title}>
-        {tabs.map((tab) =>
-          tab.enabled ? (
-            <Link
-              key={tab.key}
-              href={tab.key === "all" ? "/people" : `/people?tab=${tab.key}`}
-              className={tab.key === active ? "on" : undefined}
-              aria-current={tab.key === active ? "page" : undefined}
-              scroll={false}
-            >
-              {tab.label}
-            </Link>
-          ) : (
-            <button
-              key={tab.key}
-              type="button"
-              className="disabled"
-              disabled
-              aria-disabled="true"
-              title={tab.disabled_reason}
-            >
-              {tab.label}
-            </button>
-          ),
-        )}
-      </nav>
+      <AnimatedTabs
+        ariaLabel={pageContract.title}
+        value={active}
+        items={tabs.map((tab) => ({
+          value: tab.key,
+          label: tab.label,
+          disabled: !tab.enabled,
+          href: tab.enabled ? (tab.key === "all" ? "/people" : `/people?tab=${tab.key}`) : undefined,
+        }))}
+      />
 
-      {active === "vaccination" ? (
-        <VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />
-      ) : active === "clock" ? (
-        <ClockScreen searchParams={searchParams} pageContract={pageContract} />
-      ) : active === "notifications" ? (
-        <NotificationsScreen pageContract={pageContract} />
-      ) : (
-        <PeopleBoard searchParams={searchParams} pageContract={pageContract} />
-      )}
+      {/* The four People desks are whole screens, and switching used to swap them instantly with a
+          height jump. TabPanel cross-fades the old screen out and rises the new one in against a
+          measured height, so the tab strip above it never moves under the pointer. */}
+      <TabPanel tabKey={active}>
+        {active === "vaccination" ? (
+          <VaccinationOperatorsScreen initialParkId={initialParkId} pageContract={pageContract} />
+        ) : active === "clock" ? (
+          <ClockScreen searchParams={searchParams} pageContract={pageContract} />
+        ) : active === "notifications" ? (
+          <NotificationsScreen pageContract={pageContract} />
+        ) : (
+          <PeopleBoard searchParams={searchParams} pageContract={pageContract} />
+        )}
+      </TabPanel>
     </div>
   );
 }

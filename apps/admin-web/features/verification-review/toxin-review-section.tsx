@@ -1,3 +1,4 @@
+import { listOrEmpty } from "@/lib/list-or-empty";
 // The Toxin review screen (maintainer decision 2026-08-25) — the /verify page renders this INSTEAD
 // of the verification queue when the backend-declared `toxin_tab` control is enabled AND the
 // ?toxin=1 chip is selected. Server component: one keyset page of GET /toxin/review (defaulting to
@@ -15,6 +16,8 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { redirect } from "next/navigation";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { ToxinReviewList } from "./toxin-review-list";
+import Alert from "@mui/material/Alert";
+import { PageHeader } from "@/components/app/page-header";
 
 const PATHNAME = "/verify";
 
@@ -32,7 +35,7 @@ export async function ToxinReviewScreen({
   const authError = firstAuthRequiredError(page);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
-  const tasks = page.ok ? page.data.tasks : [];
+  const tasks = page.ok ? listOrEmpty(page.data.tasks) : [];
   const nextCursor = page.ok ? page.data.next_cursor : undefined;
   const toxinLabel = toxinTabLabel(pageContract);
   const feedback = { status: one(sp, "tx_status"), code: one(sp, "tx_code") };
@@ -40,23 +43,15 @@ export async function ToxinReviewScreen({
 
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")} / <b>{pageContract.title}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{copy(pageContract, "toxin.table.hint")}</div>
-        </div>
-      </div>
+      <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />
 
       {page.ok ? null : (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           <b>{copy(pageContract, "state.queue_unavailable")}</b>
           <div className="small muted" style={{ marginTop: 4 }}>
             {page.error.code ?? page.error.kind} · {page.error.message}
           </div>
-        </div>
+        </Alert>
       )}
 
       <section className="card vr-board" style={{ minWidth: 0 }}>

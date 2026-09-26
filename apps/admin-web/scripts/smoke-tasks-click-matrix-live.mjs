@@ -100,7 +100,7 @@ async function waitForUi(page, ms) {
 /** The page region this harness owns. */
 const PAGE_REGION = ".lt-page";
 /** Shell controls this page is responsible for anyway: the bell lives on this desk. */
-const EXTRA_SELECTORS = ['.top button[aria-haspopup="dialog"]', ".top .parkmenu[role=dialog]"];
+const EXTRA_SELECTORS = ['.top button[aria-haspopup="dialog"]', ".nc-sheet[role=dialog]"];
 const INTERACTIVE = "a, button, select, input:not([type=hidden]), textarea, [role=button], [role=tab], [role=option], summary, [draggable=true]";
 /** How long an activation is given to show something: the Next dev router can take >1s to land a `router.replace`. */
 const SETTLE_MS = 4_000;
@@ -416,7 +416,7 @@ async function fingerprint(page) {
       checked: [...document.querySelectorAll("input:checked, [aria-checked=true]")].length,
       onClass: document.querySelectorAll(".on").length,
       dialogs: document.querySelectorAll('[role="dialog"].on, .lt-modal, .drawer.on, .lt-fgroup.open').length,
-      popovers: document.querySelectorAll("[data-people-popup], .avmenu, [data-assignee-menu], .lt-fdrop-pop, [data-mention-popup], .ltd-status-pop").length,
+      popovers: document.querySelectorAll("[data-people-popup], .MuiPopover-paper, .lt-fdrop-pop, [data-mention-popup]").length,
       detailsOpen: document.querySelectorAll("details[open]").length,
       cards: document.querySelectorAll(".ltb-card").length,
       rows: document.querySelectorAll("tbody tr").length,
@@ -1028,9 +1028,9 @@ async function scriptedChecks(page, viewport, task) {
     if ((await bell.count()) === 0) throw new Error("no notification bell in the top bar");
     if ((await bell.getAttribute("aria-expanded")) !== "false") throw new Error("bell does not start collapsed");
     await bell.click();
-    await page.locator(".top .parkmenu.on[role=dialog]").first().waitFor({ state: "visible", timeout: 5_000 }).catch(() => undefined);
+    await page.locator(".nc-sheet[role=dialog]").first().waitFor({ state: "visible", timeout: 5_000 }).catch(() => undefined);
     if ((await bell.getAttribute("aria-expanded")) !== "true") throw new Error("bell did not report expanded after a click");
-    const panel = page.locator(".top .parkmenu.on[role=dialog]").first();
+    const panel = page.locator(".nc-sheet[role=dialog]").first();
     if ((await panel.count()) === 0) throw new Error("the bell's panel did not open");
     const close = panel.locator("button[aria-label]").first();
     await close.click();

@@ -1,15 +1,61 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { forwardRef, useEffect, useMemo, useRef, useState, useTransition, type ComponentProps, type FocusEventHandler, type ReactNode } from "react";
+import Badge from "@mui/material/Badge";
+import Box from "@mui/material/Box";
+import MuiButton from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import Checkbox from "@mui/material/Checkbox";
+import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
+import FormControl from "@mui/material/FormControl";
+import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import InputLabel from "@mui/material/InputLabel";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import Select from "@mui/material/Select";
+import TextField from "@mui/material/TextField";
+import { CustomPopover } from "@/components/minimal/custom-popover";
+import { MinimalDrawer } from "@/components/minimal/drawer";
+import { FiltersBlock, chipProps } from "@/components/minimal/filters-result";
+import { Iconify } from "@/components/minimal/iconify";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { DateRangePicker, type DateRangePickerLabels } from "@/components/date-range-picker";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
+import { RowMenu } from "@/components/app/row-menu";
+import { InfoHint } from "@/components/app/info-hint";
+import type { InputBaseComponentProps } from "@mui/material/InputBase";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { fmtDate } from "@/lib/format";
 import { worklistFilterIsStaged } from "@/lib/worklist-filter-draft";
 import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 
 export type WorklistFilterOption = { value: string; label: string };
+
+/**
+ * A toolbar action — Columns, Filters, Export, Settings.
+ *
+ * The bar decides how many fit; the rest fold into ONE overflow menu. Pages must not pre-split the
+ * list themselves, or every page picks a different cut and the toolbar stops being one thing.
+ */
+export type WorklistToolbarAction = {
+  id: string;
+  label: string;
+  icon?: ReactNode;
+  onSelect: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+};
+
+/** Free-text search, committed to one URL parameter. */
+export type WorklistSearch = {
+  param: string;
+  value: string;
+  placeholder?: string;
+  ariaLabel?: string;
+};
 
 export type WorklistFilterTelemetry = {
   eventPrefix: string;
@@ -153,8 +199,14 @@ export function WorklistFilters({
   holdChildren = true,
   telemetry,
   trailing,
+  search,
+  actions,
+  maxInlineActions = 3,
   children,
+  label,
 }: {
+  /** Names this bar when a page carries two (phone button + sheet title); defaults to the page filter label. */
+  label?: string;
   basePath: string;
   pageParam: string;
   fields: WorklistFilterField[];
@@ -166,6 +218,18 @@ export function WorklistFilters({
    * filters are added, and wraps with the rest of the bar on a narrow viewport.
    */
   trailing?: ReactNode;
+  /**
+   * Free-text search, pinned to the START of the toolbar with a leading magnifier.
+   *
+   * Committed on Enter or on a short idle, never per keystroke: every commit rewrites the URL and
+   * re-renders the server page, so a per-keystroke search would run a full render for "b", "be",
+   * "ben" on the way to "benny" — the same rule the compare control follows.
+   */
+  search?: WorklistSearch;
+  /** Right-aligned toolbar actions; anything past `maxInlineActions` folds into an overflow menu. */
+  actions?: WorklistToolbarAction[];
+  /** How many actions render as buttons before the overflow menu takes over. Default 3. */
+  maxInlineActions?: number;
   /**
    * The rows this bar filters, passed in so the bar can hold them back while an apply is in flight.
    *
@@ -210,6 +274,9 @@ export function WorklistFilters({
   // STAGED EDITS. Null means the bar is showing exactly what is applied; a string means the operator
   // has changed something that Apply has not committed yet.
   const [draftSearch, setDraftSearch] = useState<string | null>(null);
+  // ≤640px the field row folds into a bottom sheet behind one "Filters" button (frame spec: no
+  // stack of 4-5 full-width fields before any content). Desktop ignores this state entirely.
+  const [mobileOpen, setMobileOpen] = useState(false);
   // Drop the staged edits whenever what is APPLIED changes underneath — Apply landing, back/forward,
   // or a link that carries its own filters. Adjusted DURING RENDER rather than in an effect: the
   // effect version renders the stale draft once and commits before correcting it, which on a filter
@@ -423,41 +490,157 @@ export function WorklistFilters({
 
   const loadingLabel = copy(pageContract, "state.loading");
 
-  return (
+  const searchApplied = search ? shownValue(search.param, search.value, true) : "";
+  const inlineActions = actions ? actions.slice(0, Math.max(0, maxInlineActions)) : [];
+  const overflowActions = actions ? actions.slice(Math.max(0, maxInlineActions)) : [];
+
+  /**
+   * One chip per APPLIED filter, so what is narrowing the table is readable without opening a
+   * single control.
+   *
+   * Built from the same `clearable` list the reset uses, which is what keeps the two honest: a chip
+   * can never name a filter Clear all would leave behind. A multi-select contributes one chip per
+   * value, because removing them one at a time is the whole point of a chip.
+   */
+  type WorklistChip =
+    | { key: string; label: string; value: string; kind: "search"; param: string }
+    | { key: string; label: string; value: string; kind: "select"; param: string; clears?: string[] }
+    | { key: string; label: string; value: string; kind: "multiselect"; param: string; remaining: string[] }
+    | { key: string; label: string; value: string; kind: "compare"; param: string; valueParam: string }
+    | { key: string; label: string; value: string; kind: "daterange"; field: Extract<WorklistFilterField, { kind: "daterange" }> };
+
+  const chips: WorklistChip[] = [];
+  for (const field of clearable) {
+    if (field.kind === "multiselect") {
+      const values = activeParams.getAll(field.param);
+      for (const value of values) {
+        chips.push({
+          kind: "multiselect",
+          key: `${field.param}:${value}`,
+          label: field.label,
+          value: field.options.find((option) => option.value === value)?.label ?? value,
+          param: field.param,
+          remaining: values.filter((item) => item !== value),
+        });
+      }
+      continue;
+    }
+    if (field.kind === "compare") {
+      const op = activeParams.get(field.param) ?? "";
+      const value = activeParams.get(field.valueParam) ?? "";
+      if (!op && !value) continue;
+      chips.push({
+        kind: "compare",
+        key: field.param,
+        label: field.label,
+        value: `${field.options.find((option) => option.value === op)?.label ?? op} ${value}`.trim(),
+        param: field.param,
+        valueParam: field.valueParam,
+      });
+      continue;
+    }
+    if (field.kind === "daterange") {
+      const from = activeParams.get(field.param);
+      const to = activeParams.get(field.toParam);
+      if (from === null && to === null) continue;
+      chips.push({
+        kind: "daterange",
+        key: field.param,
+        label: field.label,
+        // DD/MM/YYYY, like every other visible date. These come off the URL as ISO business dates
+        // and were rendered verbatim, so the chip read "2026-08-10 – 2026-09-22" directly under a
+        // picker reading "10/08/2026 to 22/09/2026" -- two date formats for one filter, on one
+        // screen. The wire value is untouched; only what the reader sees changes.
+        value: `${fmtDate(from ?? field.defaultFrom)} – ${fmtDate(to ?? field.defaultTo)}`,
+        field,
+      });
+      continue;
+    }
+    const value = activeParams.get(field.param);
+    if (!value) continue;
+    // `clearable` admits only select/multiselect/compare/daterange, so anything reaching here is a
+    // select; the guard is what tells the compiler that, and it costs one comparison.
+    if (field.kind !== "select") continue;
+    chips.push({
+      kind: "select",
+      key: field.param,
+      label: field.label,
+      value: field.options.find((option) => option.value === value)?.label ?? value,
+      param: field.param,
+      clears: field.clears,
+    });
+  }
+  if (search && searchApplied) {
+    chips.unshift({
+      kind: "search",
+      key: `__search:${search.param}`,
+      label: search.ariaLabel ?? copy(pageContract, "filter.bar_aria"),
+      value: searchApplied,
+      param: search.param,
+    });
+  }
+
+  /**
+   * Removing one chip.
+   *
+   * The chips carry DATA, not closures: each one says which filter it stands for and the removal is
+   * dispatched here, in an event handler. Building a list of `() => applyFilter(...)` during render
+   * is what `react-hooks/refs` objects to — those closures reach the telemetry ref through `push`,
+   * and a ref read on the render path is a real hazard, not a lint nit.
+   */
+  function removeChip(chip: WorklistChip) {
+    switch (chip.kind) {
+      case "search":
+        applyFilter(chip.param, "");
+        return;
+      case "select":
+        applyFilter(chip.param, "", chip.clears);
+        return;
+      case "multiselect":
+        applyMultiFilter(chip.param, chip.remaining);
+        return;
+      case "compare":
+        applyCompare(chip.param, chip.valueParam, "", "");
+        return;
+      case "daterange":
+        applyRange(chip.field, chip.field.defaultFrom, chip.field.defaultTo);
+        return;
+    }
+  }
+
+  const barLabel = label ?? copy(pageContract, "filter.bar_aria");
+  // The filter controls, once: inline on a laptop, inside the filters drawer on a phone.
+  const controls = (
     <>
-    <div
-      className="tbar"
-      style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", flexWrap: "wrap" }}
-      role="group"
-      aria-label={copy(pageContract, "filter.bar_aria")}
-      // Announced on the BAR, which is what the reader just acted on. The held-back rows below carry
-      // it too, so a screen reader hears "busy" whichever region it is in.
-      aria-busy={busy || undefined}
-    >
+      {search ? (
+        <WorklistSearchField
+          key={search.param}
+          pageContract={pageContract}
+          search={search}
+          applied={searchApplied}
+          busy={busy}
+          onCommit={(value) => applyFilter(search.param, value)}
+        />
+      ) : null}
       {fields.map((field) => {
         // Handled ahead of the shared `effectiveField` shaping below, which assumes a single
         // `value` — a span has two ends and no meaningful single value.
         if (field.kind === "daterange") {
           return (
-            <label
+            <DateRangePicker
               key={field.param}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
-            >
-              <span className="muted">{field.label}</span>
-              <DateRangePicker
-                labels={field.labels}
-                // Falls back to the default window when the parameter is absent, which is how the
-                // cleared state is expressed.
-                from={shownValue(field.param, field.from, true) || field.defaultFrom}
-                to={shownValue(field.toParam, field.to, true) || field.defaultTo}
-                today={field.today}
-                minDate={field.minDate}
-                busy={busy}
-                markerDates={field.markerDates}
-                markerFetchPath={field.markerFetchPath}
-                onChange={(from, to) => applyRange(field, from, to)}
-              />
-            </label>
+              labels={field.labels}
+              // Falls back to the default window when the parameter is absent, which is how the
+              // cleared state is expressed.
+              from={shownValue(field.param, field.from, true) || field.defaultFrom}
+              to={shownValue(field.toParam, field.to, true) || field.defaultTo}
+              today={field.today}
+              minDate={field.minDate}
+              busy={busy}
+              markerDates={field.markerDates}
+              markerFetchPath={field.markerFetchPath}
+              onChange={(from, to) => applyRange(field, from, to)}
+            />
           );
         }
         const effectiveField =
@@ -501,18 +684,48 @@ export function WorklistFilters({
             onChange={(op, value) => applyCompare(effectiveField.param, effectiveField.valueParam, op, value)}
           />
         ) : (
-        <label
-          key={effectiveField.param}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
-          // On the whole control, label included, so the hint is reachable from the word the reader
-          // is already looking at rather than only from the box itself.
-          title={effectiveField.kind === "select" ? effectiveField.note : undefined}
-        >
-          {/* The calendar button prints its own field name inside it, so the word beside it would
-              repeat the field name twice. Only the plain inputs need it. */}
-          {effectiveField.kind === "date" && effectiveField.labels && effectiveField.today && !effectiveField.disabledReason ? null : (
-            <span className="muted">{effectiveField.label}</span>
-          )}
+        effectiveField.kind === "select" ? (
+          <TextField
+            key={effectiveField.param}
+            select
+            label={
+              <>
+                {effectiveField.label}
+                {effectiveField.note ? (
+                  <Box component="span" sx={{ ml: 0.5, pointerEvents: "auto", display: "inline-flex", verticalAlign: "middle" }}>
+                    <InfoHint text={effectiveField.note} />
+                  </Box>
+                ) : null}
+              </>
+            }
+            value={
+              (effectiveField.allowAll === false ? effectiveField.options : [{ value: "" }, ...effectiveField.options]).some((option) => option.value === effectiveField.value)
+                ? effectiveField.value
+                : ""
+            }
+            disabled={Boolean(effectiveField.disabledReason)}
+            // Disabled reason first — it explains why the control cannot be used at all, which
+            // outranks a hint about what it does.
+            title={
+              effectiveField.disabledReason ||
+              effectiveField.note ||
+              (busy ? copy(pageContract, "state.loading") : undefined)
+            }
+            onChange={({ target: { value } }) => applyFilter(effectiveField.param, value, effectiveField.clears)}
+            sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+          >
+            {effectiveField.allowAll === false ? null : <MenuItem value="">{allLabel}</MenuItem>}
+            {effectiveField.options.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        ) : (
+        <Box key={effectiveField.param} className="kit-field-date" sx={{ position: "relative", display: "inline-flex", flexDirection: "column" }}>
+          {/* The calendar button prints its own field name inside it, so it carries no outer label;
+              only the plain themed calendar sits in an outlined, labelled TextField. */}
           {effectiveField.kind === "date" && effectiveField.labels && effectiveField.today && !effectiveField.disabledReason ? (
             <DateRangePicker
               labels={effectiveField.labels}
@@ -524,88 +737,146 @@ export function WorklistFilters({
               onChange={(from) => applyFilter(effectiveField.param, from)}
             />
           ) : effectiveField.kind === "date" ? (
-            <input
-              className="tsize"
-              type="date"
-              value={effectiveField.value}
-              min={effectiveField.min}
-              max={effectiveField.max}
-              aria-label={effectiveField.label}
-              disabled={Boolean(effectiveField.disabledReason)}
+            // Themed calendar, never the OS date control (kit rule). Bounds come from the field. It is
+            // the outlined TextField's inputComponent, so label, notch and focus outline are MUI's.
+            <TextField
+              size="small"
+              fullWidth
+              label={effectiveField.label}
               title={effectiveField.disabledReason || (busy ? copy(pageContract, "state.loading") : undefined)}
-              style={effectiveField.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-              onChange={(event) => applyFilter(effectiveField.param, event.target.value)}
+              sx={{ "& .MuiInputBase-input": { px: 0.75 } }}
+              slotProps={{
+                inputLabel: { shrink: true },
+                input: { inputComponent: ThemedDateInput },
+                htmlInput: {
+                  pickerDisabled: Boolean(effectiveField.disabledReason),
+                  picker: {
+                    name: effectiveField.param,
+                    label: effectiveField.label,
+                    value: effectiveField.value,
+                    min: effectiveField.min,
+                    max: effectiveField.max,
+                    onChange: (key: string) => applyFilter(effectiveField.param, key),
+                    previousMonthLabel: copy(pageContract, "filter.date.previous_month", "Previous month"),
+                    nextMonthLabel: copy(pageContract, "filter.date.next_month", "Next month"),
+                    invalidDateText: "",
+                  } satisfies ComponentProps<typeof ThemedDatePicker>,
+                },
+              }}
             />
-          ) : (
-            <select
-              className="tsize"
-              value={effectiveField.value}
-              aria-label={effectiveField.label}
-              disabled={Boolean(effectiveField.disabledReason)}
-              // Disabled reason first — it explains why the control cannot be used at all, which
-              // outranks a hint about what it does.
-              title={
-                effectiveField.disabledReason ||
-                effectiveField.note ||
-                (busy ? copy(pageContract, "state.loading") : undefined)
-              }
-              style={effectiveField.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-              onChange={(event) =>
-                applyFilter(effectiveField.param, event.target.value, effectiveField.clears)
-              }
-            >
-              {effectiveField.allowAll === false ? null : <option value="">{allLabel}</option>}
-              {effectiveField.options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          )}
-        </label>
+          ) : null}
+        </Box>
+        )
         );
       })}
-      {hasAnyFilter ? (
-        <button type="button" className="btn sm" onClick={clearAll}>
+      {/* The reset lives at the end of the CHIP row, beside the things it clears. It stays here only
+          for the case a bar can be "filtered" without producing a chip. */}
+      {hasAnyFilter && chips.length === 0 ? (
+        <MuiButton color="error" onClick={clearAll} startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
           {copy(pageContract, "filter.clear_all")}
-        </button>
+        </MuiButton>
       ) : null}
-      {/* The bar's ONE commit point when it defers. Always rendered rather than appearing with the
-          first edit, so the reader can see before touching anything that this bar waits for a press —
-          a button that materialises after the fact would leave the first pick looking like it did
-          nothing. Disabled until something is actually staged, which is also what stops a press from
-          re-running the page for an unchanged set. */}
+      {/* The bar's ONE commit point when it defers: always rendered, disabled until something is
+          staged, so the reader sees before touching anything that this bar waits for a press. */}
       {deferApply ? (
-        <button
-          type="button"
-          className="btn sm p"
-          disabled={!staged || busy}
-          aria-disabled={!staged || busy}
-          style={staged && !busy ? undefined : { opacity: 0.5, cursor: "not-allowed" }}
-          onClick={applyStaged}
-        >
+        <MuiButton variant="contained" disabled={!staged || busy} onClick={applyStaged}>
           {applyLabel}
-        </button>
+        </MuiButton>
       ) : null}
-      {/* The busy affordance, at the end of the bar so it appears beside the control that was just
-          pressed rather than somewhere the reader has to go looking. The word is the contract's, and
-          it is what a screen reader gets — the ring itself is decorative. */}
-      {busy ? (
-        <span
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
-          className="muted"
-          role="status"
+    </>
+  );
+
+  return (
+    <>
+    <Card
+      className="wf-bar"
+      role="group"
+      aria-label={barLabel}
+      // Announced on the BAR, which is what the reader just acted on. The held-back rows below carry
+      // it too, so a screen reader hears "busy" whichever region it is in.
+      aria-busy={busy || undefined}
+      sx={{
+        overflow: "visible",
+        // Inside another card (a table card) the toolbar is part of that card, as in the template list.
+        ".MuiCard-root &, .card &": { boxShadow: "none", bgcolor: "transparent", borderRadius: 0 },
+      }}
+    >
+      {/* Template list toolbar (UserTableToolbar): filters, search, trailing actions. */}
+      <Box sx={{ p: 2.5, gap: 2, display: "flex", flexWrap: "wrap", alignItems: "center" }}>
+        <Box sx={{ display: { xs: "none", md: "flex" }, flexWrap: "wrap", gap: 2, alignItems: "center", flex: "1 1 auto", minWidth: 0 }}>{controls}</Box>
+        <MuiButton
+          variant="outlined"
+          color="inherit"
+          aria-expanded={mobileOpen}
+          onClick={() => setMobileOpen(true)}
+          startIcon={
+            <Badge color="error" variant="dot" invisible={chips.length === 0}>
+              <Iconify icon="ic:round-filter-list" />
+            </Badge>
+          }
+          sx={{ display: { xs: "inline-flex", md: "none" } }}
         >
-          <span className="wfspin" aria-hidden="true" />
-          {loadingLabel}
-        </span>
+          {barLabel}
+          {chips.length > 0 ? ` (${chips.length})` : null}
+        </MuiButton>
+        {/* The busy affordance, beside the control that was just pressed. The word is the contract's,
+            and it is what a screen reader gets — the ring itself is decorative. */}
+        {busy ? (
+          <Box component="span" role="status" sx={{ display: "inline-flex", alignItems: "center", gap: 1, typography: "caption", color: "text.secondary" }}>
+            <CircularProgress size={14} color="inherit" aria-hidden="true" />
+            {loadingLabel}
+          </Box>
+        ) : null}
+        {inlineActions.length > 0 || overflowActions.length > 0 ? (
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1, ml: "auto" }}>
+            {inlineActions.map((action) => (
+              <MuiButton key={action.id} variant="outlined" color="inherit" disabled={action.disabled} onClick={action.onSelect} startIcon={action.icon}>
+                {action.label}
+              </MuiButton>
+            ))}
+            {overflowActions.length > 0 ? (
+              <RowMenu
+                ariaLabel={copy(pageContract, "filter.bar_aria")}
+                actions={overflowActions.map((action) => ({
+                  label: action.label,
+                  icon: action.icon,
+                  danger: action.danger,
+                  disabled: action.disabled,
+                  onSelect: action.onSelect,
+                }))}
+              />
+            ) : null}
+          </Box>
+        ) : null}
+        {trailing === undefined ? null : (
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "center", ml: inlineActions.length || overflowActions.length ? 0 : "auto" }}>
+            {trailing}
+          </Box>
+        )}
+      </Box>
+      {chips.length > 0 ? (
+        /* The applied set, spelled out (template FiltersResult: FiltersBlock + soft Chips + Clear).
+           Sits UNDER the controls so adding a filter never reflows the control just used. */
+        <Box role="group" aria-label={barLabel} sx={{ px: 2.5, pb: 2.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+          {chips.map((chip) => (
+            <FiltersBlock key={chip.key} label={`${chip.label}:`} isShow>
+              <Chip
+                {...chipProps}
+                label={chip.value}
+                onDelete={() => removeChip(chip)}
+                deleteIcon={<Iconify icon="solar:close-circle-bold" aria-label={`${copy(pageContract, "filter.clear_all")}: ${chip.label}`} />}
+              />
+            </FiltersBlock>
+          ))}
+          <MuiButton color="error" onClick={clearAll} startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
+            {copy(pageContract, "filter.clear_all")}
+          </MuiButton>
+        </Box>
       ) : null}
-      {trailing === undefined ? null : (
-        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center" }}>
-          {trailing}
-        </span>
-      )}
-    </div>
+    </Card>
+    <MinimalDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} title={barLabel} aria-label={barLabel}>
+      <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2.5, "& .MuiFormControl-root, & > .MuiTextField-root": { width: 1 } }}>{controls}</Box>
+    </MinimalDrawer>
     {children === undefined ? null : (
       <div className={busy && holdChildren ? "wfbusy" : undefined} aria-busy={busy || undefined}>
         {children}
@@ -683,8 +954,11 @@ function MultiSelectFilter({
   deferApply: boolean;
   onChange: (values: string[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const wrapper = useRef<HTMLSpanElement | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const open = Boolean(anchor);
+  const setOpen = (next: boolean) => {
+    if (!next) setAnchor(null);
+  };
   // Ticks are STAGED here and committed by Apply.
   //
   // Not applied per tick: every apply rewrites the URL and re-renders this server-rendered page, so
@@ -704,23 +978,6 @@ function MultiSelectFilter({
   }
   const chosen = new Set(draft);
 
-  // Close on an outside click or Escape — the two ways every popover on this screen closes. The
-  // listeners are attached only while the panel is open, so a page full of these costs nothing.
-  useEffect(() => {
-    if (!open) return undefined;
-    function onPointerDown(event: MouseEvent) {
-      if (wrapper.current && !wrapper.current.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
 
   const summary =
     field.values.length === 0
@@ -743,110 +1000,59 @@ function MultiSelectFilter({
     onChange(draft);
   }
 
+  // Template anatomy: the outlined select trigger (UserTableToolbar role filter) opening a
+  // CustomPopover MenuList of checkbox items; ticks are staged until Apply (or the bar's Apply).
   return (
-    <span
-      ref={wrapper}
-      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, position: "relative" }}
-    >
-      <span className="muted">{field.label}</span>
-      <button
-        type="button"
-        className="tsize"
-        aria-haspopup="true"
-        aria-expanded={open}
-        aria-label={field.label}
-        disabled={disabled}
-        // Hover, not inline: see CompareFilter for why these notes are no longer printed on the bar.
-        title={field.disabledReason ?? field.note}
-        onClick={() => setOpen((value) => !value)}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          cursor: disabled ? "not-allowed" : "pointer",
-          opacity: disabled ? 0.5 : 1,
-          minWidth: 120,
-          justifyContent: "space-between",
-        }}
-      >
-        <span>{summary}</span>
-        <ChevronDown className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
-      </button>
-      {open ? (
-        <div
-          className="card"
-          role="group"
-          aria-label={field.label}
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
-            zIndex: 40,
-            minWidth: 220,
-            // Capped and scrollable: the feed vocabulary is a dozen items today and grows with the
-            // workbook, and a panel that grows without limit would run off the bottom of the screen.
-            maxHeight: 260,
-            overflowY: "auto",
-            padding: "8px 4px",
-          }}
-        >
-          <div style={{ maxHeight: 200, overflowY: "auto" }}>
-            {field.options.map((option) => (
-              <label
-                key={option.value}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "5px 10px",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
+    <>
+      <FormControl sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0 }} disabled={disabled} title={field.disabledReason ?? field.note}>
+        <InputLabel shrink>{field.label}</InputLabel>
+        <Select
+          multiple
+          open={false}
+          value={field.values}
+          label={field.label}
+          notched
+          displayEmpty
+          renderValue={() => summary}
+          onOpen={(event) => setAnchor((event.currentTarget as HTMLElement).closest(".MuiInputBase-root") as HTMLElement)}
+          inputProps={{ "aria-label": field.label, "aria-haspopup": "true", "aria-expanded": open }}
+        />
+      </FormControl>
+      <CustomPopover open={open} anchorEl={anchor} onClose={() => setOpen(false)} slotProps={{ arrow: { placement: "top-left" } }}>
+        <MenuList aria-label={field.label} sx={{ minWidth: 220, maxHeight: 260, overflowY: "auto" }}>
+          {field.options.map((option) => (
+            <MenuItem key={option.value} onClick={() => toggle(option.value)}>
+              <Checkbox disableRipple size="small" checked={chosen.has(option.value)} slotProps={{ input: { "aria-label": option.label } }} />
+              {option.label}
+            </MenuItem>
+          ))}
+        </MenuList>
+        {/* Outside the scrolling list, so it stays reachable however long the vocabulary grows. On a
+            deferred bar the panel carries no Apply (the bar's does the committing). */}
+        {deferApply && draft.length === 0 ? null : (
+          <Box sx={{ display: "flex", gap: 1, p: 1, borderTop: 1, borderColor: "divider", borderStyle: "dashed" }}>
+            {deferApply ? null : (
+              <MuiButton size="small" variant="contained" onClick={apply}>
+                {applyLabel}
+              </MuiButton>
+            )}
+            {draft.length > 0 ? (
+              <MuiButton
+                size="small"
+                variant="outlined"
+                color="inherit"
+                onClick={() => {
+                  setDraft([]);
+                  if (deferApply) onChange([]);
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={chosen.has(option.value)}
-                  onChange={() => toggle(option.value)}
-                />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-          {/* Sits OUTSIDE the scrolling list, so it stays reachable however long the vocabulary
-              grows. On a deferred bar the panel carries no Apply — the bar's does the committing —
-              and this row is only the reset, shown when there is something to reset. */}
-          {deferApply && draft.length === 0 ? null : (
-            <div
-              style={{
-                display: "flex",
-                gap: 6,
-                padding: "8px 10px 2px",
-                borderTop: "1px solid var(--line)",
-                marginTop: 6,
-              }}
-            >
-              {deferApply ? null : (
-                <button type="button" className="btn sm p" onClick={apply}>
-                  {applyLabel}
-                </button>
-              )}
-              {draft.length > 0 ? (
-                <button
-                  type="button"
-                  className="btn sm"
-                  onClick={() => {
-                    setDraft([]);
-                    if (deferApply) onChange([]);
-                  }}
-                >
-                  {allLabel}
-                </button>
-              ) : null}
-            </div>
-          )}
-        </div>
-      ) : null}
-    </span>
+                {allLabel}
+              </MuiButton>
+            ) : null}
+          </Box>
+        )}
+      </CustomPopover>
+    </>
   );
 }
 
@@ -932,50 +1138,47 @@ function CompareFilter({
   const staged = opDraft !== field.op || valueDraft.trim() !== field.value;
 
   return (
-    <span
-      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
+    <Box
+      component="span"
+      // Wraps so the operator and value each take a full row inside the phone filters drawer.
+      sx={{ display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 1, maxWidth: "100%" }}
       // The explanation lives on hover rather than beside the control. Printed inline it was three
       // lines of prose wedged between two filters, which pushed the bar to three rows and made the
       // controls themselves harder to find than the note explaining them.
       title={field.note}
     >
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-        <span className="muted">{field.label}</span>
-        <select
-          className="tsize"
-          value={opDraft}
-          aria-label={field.label}
-          disabled={disabled}
-          title={field.disabledReason ?? field.note}
-          style={disabled ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-          onChange={(event) => {
-            setOpDraft(event.target.value);
-            // On a deferred bar every change is staged at once — it costs no render, and the pair is
-            // still only written when both halves are filled. Otherwise only "All" acts immediately,
-            // because it clears and there is nothing left to assemble; any real operator waits for
-            // Apply, since the value half is not filled in yet.
-            if (deferApply || event.target.value === "") commit(event.target.value, valueDraft);
-          }}
-        >
-          <option value="">{allLabel}</option>
-          {field.options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <input
-        className="tsize"
+      <TextField
+        select
+        label={field.label}
+        value={field.options.some((option) => option.value === opDraft) ? opDraft : ""}
+        disabled={disabled}
+        title={field.disabledReason ?? field.note}
+        onChange={({ target: { value: nextOp } }) => {
+          setOpDraft(nextOp);
+          // On a deferred bar every change is staged at once — it costs no render, and the pair is
+          // still only written when both halves are filled. Otherwise only "All" acts immediately,
+          // because it clears and there is nothing left to assemble.
+          if (deferApply || nextOp === "") commit(nextOp, valueDraft);
+        }}
+        sx={{ minWidth: { xs: 0, sm: 120 }, flexShrink: 0, maxWidth: 1 }}
+        slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+      >
+        <MenuItem value="">{allLabel}</MenuItem>
+        {field.options.map((option) => (
+          <MenuItem key={option.value} value={option.value}>
+            {option.label}
+          </MenuItem>
+        ))}
+      </TextField>
+      <TextField
+        sx={{ width: 96 }}
         // text + inputMode, not type="number": a number input reports an out-of-range or malformed
         // value as "" in some browsers, which would turn a typo into a cleared filter. The same
         // reasoning as the authoring inputs on this screen.
         type="text"
-        inputMode="decimal"
         value={valueDraft}
-        aria-label={field.valueAriaLabel}
+        slotProps={{ htmlInput: { "aria-label": field.valueAriaLabel, inputMode: "decimal" } }}
         disabled={disabled}
-        style={{ width: 72, ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
         onChange={(event) => {
           setValueDraft(event.target.value);
           if (deferApply) commit(opDraft, event.target.value);
@@ -994,10 +1197,111 @@ function CompareFilter({
           buttons waiting to be pressed. Enter in the value box does the same thing. Absent entirely
           on a deferred bar, which has exactly one Apply. */}
       {!deferApply && staged && !disabled ? (
-        <button type="button" className="btn sm p" onClick={() => commit(opDraft, valueDraft)}>
+        <MuiButton variant="contained" onClick={() => commit(opDraft, valueDraft)}>
           {applyLabel}
-        </button>
+        </MuiButton>
       ) : null}
-    </span>
+    </Box>
   );
 }
+
+/**
+ * The toolbar's search box: a leading magnifier, a clear affordance once there is something to
+ * clear, and a commit that waits.
+ *
+ * Commits on Enter, on a 450ms idle, and on clear — never on every keystroke, because each commit
+ * rewrites the URL and re-runs the server component. The box holds its own draft so the caret never
+ * jumps while the page behind it re-renders, and re-syncs when the APPLIED value changes underneath
+ * (back/forward, Clear all), by adjusting state during render rather than in an effect.
+ */
+function WorklistSearchField({
+  search,
+  applied,
+  busy,
+  onCommit,
+  pageContract,
+}: {
+  search: WorklistSearch;
+  applied: string;
+  busy: boolean;
+  onCommit: (value: string) => void;
+  pageContract: AdminUiPageContract;
+}) {
+  const [draft, setDraft] = useState(applied);
+  const [lastApplied, setLastApplied] = useState(applied);
+  if (lastApplied !== applied) {
+    setLastApplied(applied);
+    setDraft(applied);
+  }
+
+  const commit = useRef(onCommit);
+  useEffect(() => {
+    commit.current = onCommit;
+  }, [onCommit]);
+
+  useEffect(() => {
+    const trimmed = draft.trim();
+    if (trimmed === applied) return undefined;
+    const timer = window.setTimeout(() => commit.current(trimmed), 450);
+    return () => window.clearTimeout(timer);
+  }, [draft, applied]);
+
+  // Template toolbar search (UserTableToolbar): outlined TextField, magnifier adornment, clear button.
+  return (
+    <TextField
+      type="search"
+      value={draft}
+      placeholder={search.placeholder}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        onCommit(draft.trim());
+      }}
+      sx={{ flex: "1 1 240px", minWidth: { xs: 1, md: 200 }, opacity: busy ? 0.7 : 1 }}
+      slotProps={{
+        htmlInput: { "aria-label": search.ariaLabel ?? search.placeholder ?? copy(pageContract, "a11y.search", "Search") },
+        input: {
+          startAdornment: (
+            <InputAdornment position="start">
+              <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+            </InputAdornment>
+          ),
+          endAdornment: draft ? (
+            <InputAdornment position="end">
+              <IconButton
+                edge="end"
+                aria-label={copy(pageContract, "a11y.clear_search", "Clear search")}
+                onClick={() => {
+                  setDraft("");
+                  onCommit("");
+                }}
+              >
+                <Iconify icon="mingcute:close-line" />
+              </IconButton>
+            </InputAdornment>
+          ) : undefined,
+        },
+      }}
+    />
+  );
+}
+
+/**
+ * The themed calendar as an outlined TextField's `inputComponent` (MUI's documented slot for a
+ * custom input), so the filter's label, notch and focus outline come from TextField itself.
+ */
+const ThemedDateInput = forwardRef<HTMLDivElement, InputBaseComponentProps>(function ThemedDateInput({ className, onFocus, onBlur, picker, pickerDisabled }, ref) {
+  return (
+    <div
+      ref={ref}
+      className={className}
+      onFocus={onFocus as unknown as FocusEventHandler<HTMLDivElement>}
+      onBlur={onBlur as unknown as FocusEventHandler<HTMLDivElement>}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", height: 1, ...(pickerDisabled ? { opacity: 0.5, pointerEvents: "none" } : {}) }}>
+        <ThemedDatePicker {...(picker as ComponentProps<typeof ThemedDatePicker>)} />
+      </Box>
+    </div>
+  );
+});

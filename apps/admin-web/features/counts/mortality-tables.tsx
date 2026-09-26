@@ -93,15 +93,13 @@ export function RecentDeathsTable({
   });
 
   return (
-    <div className="health-analytics-scroll" tabIndex={0} role="region" aria-label={ariaLabel}>
-      <DataTable
-        columns={columns}
-        data={rows}
-        getRowId={(row) => row.goatId}
-        ariaLabel={ariaLabel}
-        className="health-analytics-table"
-        empty={empty}
-      />
-    </div>
+    <DataTable
+      columns={columns}
+      data={rows}
+      getRowId={(row) => row.goatId}
+      ariaLabel={ariaLabel}
+      className="health-analytics-table"
+      empty={empty}
+    />
   );
 }

@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
@@ -7,7 +12,10 @@ import { Tag } from "@/components/ui-primitives";
 import type { HerdSignalItem, HerdSignalsTagMappingResponse } from "@/lib/api/herd-signals";
 import { MAPPING_LABEL, MAPPING_TONE, fmtBleMac, fmtAgo } from "./format";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
+import { EmptyState } from "@/components/app/empty-state";
 
 // The Tag Mapping tab is NOT the live view with different filters: it answers "which BLE tag
 // belongs to which animal identifier, who said so, and when", so it has its own ten columns
@@ -670,16 +678,20 @@ export function HerdSignalsMappingTable({
         ) : null}
       </span>
       <span className="sp" style={{ flex: 1 }} />
-      <label className="fsel">
-        <span>Rows</span>
-        <select aria-label="Rows per page" value={params.limit} onChange={(event) => navigate(herdSignalsHref(params, { hs_limit: event.target.value }))}>
-          {PAGE_SIZE_OPTIONS.map((size) => (
-            <option key={size} value={size}>
-              {size}
-            </option>
-          ))}
-        </select>
-      </label>
+      <TextField
+        select
+        label="Rows per page"
+        value={String(params.limit)}
+        onChange={({ target: { value } }) => navigate(herdSignalsHref(params, { hs_limit: value }))}
+        sx={{ minWidth: { xs: 0, sm: 104 }, flexShrink: 0, maxWidth: 1 }}
+        slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+      >
+        {PAGE_SIZE_OPTIONS.map((size) => (
+          <MenuItem key={String(size)} value={String(size)}>
+            {String(size)}
+          </MenuItem>
+        ))}
+      </TextField>
     </div>
   );
 
@@ -743,27 +755,21 @@ export function HerdSignalsMappingTable({
   const body = () => {
     if (items.length === 0) {
       return (
-        <div className="empty">
-          <div className="eicon">
-            <svg className="ic" viewBox="0 0 24 24">
-              <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
-              <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12.2 19" />
-            </svg>
-          </div>
-          <h4>{params.mappingState ? "No tags in this mapping state" : "No BLE tags to map yet"}</h4>
-          <p>
-            {params.mappingState
-              ? "Every tag in scope is in a different mapping state — an outcome, not a read failure."
-              : "No BLE gateway has posted a tag for this tenant yet. Tags appear here the moment a gateway forwards one, mapped or not."}
-          </p>
-          {params.mappingState ? (
-            <div className="eact">
-              <Link href={herdSignalsHref(params, { hs_map: undefined })} className="btn sm">
-                Show all tags
-              </Link>
-            </div>
-          ) : null}
-        </div>
+        <EmptyState
+          icon={<svg className="ic" viewBox="0 0 24 24">
+            <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+            <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12.2 19" />
+          </svg>}
+          title={params.mappingState ? "No tags in this mapping state" : "No BLE tags to map yet"}
+          description={params.mappingState
+            ? "Every tag in scope is in a different mapping state — an outcome, not a read failure."
+            : "No BLE gateway has posted a tag for this tenant yet. Tags appear here the moment a gateway forwards one, mapped or not."}
+          action={params.mappingState ? (
+            <Link href={herdSignalsHref(params, { hs_map: undefined })} className="btn sm">
+              Show all tags
+            </Link>
+          ) : undefined}
+        />
       );
     }
 
@@ -771,26 +777,26 @@ export function HerdSignalsMappingTable({
       <>
         {pager("top")}
         <div className={`tblwrap${busy ? " wfbusy" : ""}`}>
-          <table className="resp">
-            <thead>
-              <tr>
-                <th>Animal</th>
-                <th>Existing tag 1</th>
-                <th>Existing tag 2</th>
-                <th>Smart tag capable</th>
-                <th>BLE tag ID</th>
-                <th>BLE MAC</th>
-                <th>Source</th>
-                <th>Verified by</th>
-                <th>Verified at</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="resp">
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">Animal</TableCell>
+                <TableCell component="th">Existing tag 1</TableCell>
+                <TableCell component="th">Existing tag 2</TableCell>
+                <TableCell component="th">Smart tag capable</TableCell>
+                <TableCell component="th">BLE tag ID</TableCell>
+                <TableCell component="th">BLE MAC</TableCell>
+                <TableCell component="th">Source</TableCell>
+                <TableCell component="th">Verified by</TableCell>
+                <TableCell component="th">Verified at</TableCell>
+                <TableCell component="th">Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {items.map((item) => {
                 const isSelected = item.tag_id === selectedTagId;
                 return (
-                  <tr
+                  <TableRow
                     key={item.tag_id}
                     className={`hs-selectable${isSelected ? " on" : ""}`}
                     // Selecting is NOT navigation: the row arms the action bar and nothing else.
@@ -807,21 +813,21 @@ export function HerdSignalsMappingTable({
                       setSelectedTagId(isSelected ? null : item.tag_id);
                     }}
                   >
-                    <td data-l="Animal" className="wide animcell">
+                    <TableCell data-l="Animal" className="wide animcell">
                       <AnimalCell item={item} />
-                    </td>
-                    <td data-l="Existing tag 1" className={item.animal_identifier_1 ? "" : "faint"}>
+                    </TableCell>
+                    <TableCell data-l="Existing tag 1" className={item.animal_identifier_1 ? "" : "faint"}>
                       {item.animal_identifier_1 ? <span className="mono">{item.animal_identifier_1}</span> : NOT_ON_CONTRACT}
-                    </td>
-                    <td data-l="Existing tag 2" className={item.animal_identifier_2 ? "" : "faint"}>
+                    </TableCell>
+                    <TableCell data-l="Existing tag 2" className={item.animal_identifier_2 ? "" : "faint"}>
                       {item.animal_identifier_2 ? <span className="mono">{item.animal_identifier_2}</span> : NOT_ON_CONTRACT}
-                    </td>
+                    </TableCell>
                     {/* Every row on this screen IS a BLE smart tag -- that is why it is here at all.
                         smart_tag_capable is a flag on the ANIMAL IDENTIFIER, so an unmapped tag has
                         no identifier for the flag to live on and the honest value is "not
                         applicable", not "No". Rendering "No" asserted that a real smart tag is not a
                         smart tag. */}
-                    <td data-l="Smart tag capable">
+                    <TableCell data-l="Smart tag capable">
                       {item.mapping_state === "mapped" ? (
                         <Tag tone="ok">Yes</Tag>
                       ) : (
@@ -829,21 +835,21 @@ export function HerdSignalsMappingTable({
                           {NOT_ON_CONTRACT}
                         </span>
                       )}
-                    </td>
-                    <td data-l="BLE tag ID">
+                    </TableCell>
+                    <TableCell data-l="BLE tag ID">
                       <span className="mono">{item.tag_id}</span>
-                    </td>
-                    <td data-l="BLE MAC">
+                    </TableCell>
+                    <TableCell data-l="BLE MAC">
                       <span className="mono faint">{fmtBleMac(item.tag_mac)}</span>
-                    </td>
+                    </TableCell>
                     {/* The only provenance the live contract carries: which gateway forwarded the
                         tag. A tag with no gateway id was not attributed to one, so it gets "—",
                         never a guessed source. */}
-                    <td data-l="Source">{item.gateway_id ? "Gateway" : <span className="faint">{NOT_ON_CONTRACT}</span>}</td>
+                    <TableCell data-l="Source">{item.gateway_id ? "Gateway" : <span className="faint">{NOT_ON_CONTRACT}</span>}</TableCell>
                     {/* TODO: Resolve mapped_by user ID to a human-readable operator name using the workforce
                         lookup pattern from the rest of the product (see docs for existing patterns).
                         For now, show the full ID; truncation to 8 chars can collide on UUIDs. */}
-                    <td data-l="Bound by" className={item.mapped_by ? "" : "faint"}>
+                    <TableCell data-l="Bound by" className={item.mapped_by ? "" : "faint"}>
                       {item.mapped_by ? (
                         <span className="mono text-sm" title={`Operator ID: ${item.mapped_by}`}>
                           {item.mapped_by}
@@ -851,18 +857,18 @@ export function HerdSignalsMappingTable({
                       ) : (
                         NOT_ON_CONTRACT
                       )}
-                    </td>
-                    <td data-l="Bound at" className={item.mapped_at ? "" : "faint"}>
+                    </TableCell>
+                    <TableCell data-l="Bound at" className={item.mapped_at ? "" : "faint"}>
                       {item.mapped_at ? fmtAgo(item.mapped_at, new Date().getTime()) : NOT_ON_CONTRACT}
-                    </td>
-                    <td data-l="Status">
+                    </TableCell>
+                    <TableCell data-l="Status">
                       <Tag tone={MAPPING_TONE[item.mapping_state]}>{MAPPING_LABEL[item.mapping_state]}</Tag>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
         {pager("bottom")}
       </>

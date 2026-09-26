@@ -74,6 +74,14 @@ test("all committed hot-path manifests satisfy the hard policy", () => {
   }
 });
 
+test("admin all latency manifest measures the projected admin-web shell bootstrap", () => {
+  const perfDir = new URL("./", import.meta.url);
+  const manifest = JSON.parse(readFileSync(new URL("hot-paths.admin-all.json", perfDir), "utf8"));
+  const endpoint = manifest.endpoints.find(({ name }) => name === "admin_web_bootstrap");
+  assert.equal(endpoint?.path, "/admin-web/bootstrap?pages=summary");
+  assert.ok(endpoint.max_response_bytes <= API_RESPONSE_BYTES_CEILING);
+});
+
 test("committed manifests cover every STG endpoint over 1s p95 plus analytics hot paths", () => {
   const manifests = readCommittedHotPathManifests();
   const names = new Set(manifests.flatMap(({ manifest }) => manifest.endpoints.map((endpoint) => endpoint.name)));
@@ -81,6 +89,18 @@ test("committed manifests cover every STG endpoint over 1s p95 plus analytics ho
   for (const name of STG_SLOW_AND_ANALYTICS_HOT_PATHS) {
     assert.ok(names.has(name), `missing STG slow/API hot path from latency manifests: ${name}`);
   }
+});
+
+test("admin-all notification latency boundary is either measured or explicitly excluded", () => {
+  const manifest = readHotPathManifest("hot-paths.admin-all.json");
+  const names = new Set(manifest.endpoints.map((endpoint) => endpoint.name));
+  const excluded = manifest.scope?.excluded?.notification_feed ?? "";
+  const measured = names.has("notifications_badge") && names.has("notifications_feed");
+
+  assert.ok(
+    measured || /\/app\/notifications/.test(excluded),
+    "admin notification reads must be in the admin-all latency gate, or documented as excluded until the backend endpoint exists",
+  );
 });
 
 test("analytics hot-path contracts use bounded sectioned feed execution reads", () => {

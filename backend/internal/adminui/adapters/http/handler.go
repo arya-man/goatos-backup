@@ -41,20 +41,23 @@ func (h *Handler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 		Grants:   httpmiddleware.AuthGrantsFromContext(r.Context()),
 		TraceID:  httpmiddleware.TraceIDFromContext(r.Context()),
 	}
-	if encoded, ok := h.service.(bodyService); ok {
-		etag, body, err := encoded.BootstrapBody(r.Context(), input)
-		if err == nil {
-			if writeCacheHeaders(w, r, etag) {
+	projection := pageProjection(r)
+	if projection.IsFull() {
+		if encoded, ok := h.service.(bodyService); ok {
+			etag, body, err := encoded.BootstrapBody(r.Context(), input)
+			if err == nil {
+				if writeCacheHeaders(w, r, etag) {
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(body)
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(body)
-			return
+			// An encode failure falls through to the generic encoder below.
 		}
-		// An encode failure falls through to the generic encoder below.
 	}
-	resp := h.service.Bootstrap(r.Context(), input)
+	resp := domain.ProjectPages(h.service.Bootstrap(r.Context(), input), projection)
 	if writeCacheHeaders(w, r, resp.CachePolicy.ETag) {
 		return
 	}
@@ -74,6 +77,17 @@ func writeCacheHeaders(w http.ResponseWriter, r *http.Request, etag string) bool
 		return true
 	}
 	return false
+}
+
+func pageProjection(r *http.Request) domain.PageProjection {
+	q := r.URL.Query()
+	if routeID := strings.TrimSpace(q.Get("page")); routeID != "" {
+		return domain.PageProjection{Summary: true, RouteID: routeID}
+	}
+	if strings.EqualFold(strings.TrimSpace(q.Get("pages")), "summary") {
+		return domain.PageProjection{Summary: true}
+	}
+	return domain.PageProjectionFull
 }
 
 func ifNoneMatch(values []string, etag string) bool {

@@ -1,4 +1,10 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
+import { fmtDate } from "@/lib/format";
 
 /**
  * One cell of a week pivot as the backend served it: which row it belongs to, which week, how
@@ -67,40 +73,40 @@ export function WeekGainTable({
   const nameKey = emphasisKey ?? fixed[0]?.key;
 
   return (
-    <table className={`tbl ${className}`} aria-label={labels.ariaLabel}>
-      <thead>
-        <tr>
+    <Table className={`tbl ${className}`} aria-label={labels.ariaLabel}>
+      <TableHead>
+        <TableRow>
           {fixed.map((column) => (
-            <th key={column.key} scope="col">
+            <TableCell component="th" key={column.key} scope="col">
               {column.label}
-            </th>
+            </TableCell>
           ))}
           {weeks.map((week) => (
-            <th key={week} scope="col" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-              {week}
-            </th>
+            <TableCell component="th" key={week} scope="col" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+              {fmtDate(week)}
+            </TableCell>
           ))}
-        </tr>
-      </thead>
-      <tbody>
+        </TableRow>
+      </TableHead>
+      <TableBody>
         {rows.length === 0 ? (
-          <tr>
-            <td colSpan={Math.max(columnCount, 1)}>{labels.empty}</td>
-          </tr>
+          <TableRow>
+            <TableCell colSpan={Math.max(columnCount, 1)}>{labels.empty}</TableCell>
+          </TableRow>
         ) : (
           rows.map((row) => {
             const rowCells = byRow.get(row.key);
             return (
-              <tr key={row.key}>
+              <TableRow key={row.key}>
                 {fixed.map((column) => (
-                  <td key={column.key}>
+                  <TableCell key={column.key}>
                     {column.key === nameKey ? <b>{row.fixed[column.key] ?? ""}</b> : (row.fixed[column.key] ?? "")}
-                  </td>
+                  </TableCell>
                 ))}
                 {weeks.map((week) => {
                   const cell = rowCells?.get(week);
                   return (
-                    <td key={week} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <TableCell key={week} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       {cell ? (
                         <span title={`${cell.animals.toLocaleString("en-IN")} ${labels.animals} · ${labels.unit}`}>
                           {Math.round(cell.gainGPerDay).toLocaleString("en-IN")} g
@@ -108,14 +114,14 @@ export function WeekGainTable({
                       ) : (
                         <span className="muted">{labels.blank}</span>
                       )}
-                    </td>
+                    </TableCell>
                   );
                 })}
-              </tr>
+              </TableRow>
             );
           })
         )}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }

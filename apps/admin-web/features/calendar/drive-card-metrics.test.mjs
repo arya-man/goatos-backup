@@ -153,13 +153,14 @@ test("calendar-drive-detail renders the backend progress contract, not its own",
 
 test("calendar drive status chips label obligation counts as doses", async () => {
   const { readFileSync } = await import("node:fs");
-  for (const file of ["./calendar-drive-card.tsx", "./calendar-drive-detail.tsx"]) {
-    const src = readFileSync(new URL(file, import.meta.url), "utf8");
-    assert.ok(
-      src.includes('copy(pageContract, "calendar.drive.doses").toLowerCase()'),
-      `${file} must distinguish dose status counts from the distinct-animal drive total`,
-    );
-  }
+  // Only the drive-detail page still renders status chips after the FullCalendar swap; drives are
+  // clicked from the calendar directly to /calendar/drive/[eventId], so the old inline drive card
+  // (calendar-drive-card.tsx, DriveProgressCard) is retired.
+  const src = readFileSync(new URL("./calendar-drive-detail.tsx", import.meta.url), "utf8");
+  assert.ok(
+    src.includes('copy(pageContract, "calendar.drive.doses").toLowerCase()'),
+    "calendar-drive-detail must distinguish dose status counts from the distinct-animal drive total",
+  );
 });
 
 test("the legacy detail percentage really did disagree with the card", () => {

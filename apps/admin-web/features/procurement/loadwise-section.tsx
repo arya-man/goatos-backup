@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { Boxes } from "lucide-react";
+import { Boxes, IndianRupee, TrendingUp } from "lucide-react";
+import { ProgressRow } from "@/components/app/progress-row";
+import { EmptyState } from "@/components/app/empty-state";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { GoatGlyph } from "@/components/goat-glyph";
+import { PagedRows } from "@/components/app/paged-rows";
 
 import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns";
 import { withLoadPens, type LoadPen } from "@/lib/load-pens";
@@ -12,6 +17,11 @@ import type { ApiResult } from "@/lib/api/server";
 import { humanDate, inr, inrCompact, num, numCompactWhole, signedInr, signedInrCompact } from "./sales-format";
 import { salesErrorText } from "./sales-error";
 import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
+import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { progressRowsClass } from "@/components/app/progress-row";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
 /**
  * Tooltip line for a count that includes pre-system history: the copy's label, the count, and the
@@ -117,7 +127,7 @@ export function LoadwiseSection({
     { key: "purchased", label: copy(pageContract, "chart.series.purchased"), tone: "info" },
     { key: "sold", label: copy(pageContract, "chart.series.sold_count"), tone: "ok" },
     { key: "mortality", label: copy(pageContract, "chart.series.mortality"), tone: "danger" },
-    { key: "remaining", label: copy(pageContract, "chart.series.remaining"), tone: "teal" },
+    { key: "remaining", label: copy(pageContract, "chart.series.remaining"), tone: "warn" },
     // Tagged to a sale whose deal has not closed: out of the herd, not yet sold. Striped sold
     // green, so it reads as "about to be sold" and never as one of the solid series.
     { key: "tagged_not_closed", label: copy(pageContract, "chart.series.tagged_not_closed"), tone: "okHatch" },
@@ -132,7 +142,7 @@ export function LoadwiseSection({
     // those animals weigh NOW, so an unsold or part-sold load has the live stock side beside its
     // bought/sold averages. Drawn only when the contract enabled the weighing read for this
     // principal.
-    ...(currentWeights ? [{ key: "current_avg_weight_kg", label: copy(pageContract, "chart.series.current_avg_weight"), tone: "teal" as const }] : []),
+    ...(currentWeights ? [{ key: "current_avg_weight_kg", label: copy(pageContract, "chart.series.current_avg_weight"), tone: "warn" as const }] : []),
   ];
   const perKgSeries: GroupedSeries[] = [
     { key: "landed_price_per_kg", label: copy(pageContract, "chart.series.landing_price_per_kg"), tone: "info" },
@@ -142,7 +152,7 @@ export function LoadwiseSection({
   // the days-so-far for the animals still here. A part-sold load shows both (maintainer decision
   // 2026-09-18), with its bar label stating the split so the stragglers' bar is read as theirs.
   const fatteningSeries: GroupedSeries[] = [
-    { key: "fattening_days", label: copy(pageContract, "chart.series.fattening_days"), tone: "teal" },
+    { key: "fattening_days", label: copy(pageContract, "chart.series.fattening_days"), tone: "warn" },
     { key: "days_on_farm_so_far", label: copy(pageContract, "chart.series.days_on_farm_so_far"), tone: "info" },
   ];
   // Money per load: what it cost, against what it returned -- the SOLD value (realised) with the
@@ -157,7 +167,7 @@ export function LoadwiseSection({
       tone: "okHatch",
       stackOn: "sold_value",
     },
-    { key: "profit_loss", label: copy(pageContract, "chart.series.profit_loss"), tone: "teal" },
+    { key: "profit_loss", label: copy(pageContract, "chart.series.profit_loss"), tone: "warn" },
   ];
 
   const data = loadwise?.ok ? loadwise.data : null;
@@ -173,82 +183,120 @@ export function LoadwiseSection({
       <div className="hd">
         <Boxes className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.loadwise.title")}</h3>
+        <div className="sp" style={{ flex: 1 }} />
+        {/* The price every unsold animal is valued at, as a chip on the header (title = the full
+            backend sentence): most of the profit figures below are stock, so the rate cannot be
+            buried, but it is a figure, not a paragraph. */}
+        {view === "purchased" && data ? (
+          data.overall_avg_sold_price ? (
+            <Tag tone="mut" title={`${copy(pageContract, "loadwise.stock_price_note")} ${inr(Math.round(data.overall_avg_sold_price))} ${copy(pageContract, "loadwise.stock_price_each")}`}>
+              {inr(Math.round(data.overall_avg_sold_price))} {copy(pageContract, "loadwise.stock_price_each")}
+            </Tag>
+          ) : (
+            <Tag tone="mut">{copy(pageContract, "loadwise.stock_price_unknown")}</Tag>
+          )
+        ) : null}
       </div>
-      {/* The section's own subtitle is deliberately NOT rendered here: the PAGE header already
-          carries that sentence, and repeating it under the card reads as a stutter. */}
-      {/* The unsold-animal price line is gone (maintainer instruction 2026-09-19): the figure is
-          set and read on Sales Config's Farm valuation, not stated under this table. */}
+
       {view !== "purchased" ? (
-        <div className="empty" style={{ marginTop: 12 }}>
-          {copy(pageContract, "empty.farm_born")}
-        </div>
+        <EmptyState title={copy(pageContract, "empty.farm_born")} style={{ marginTop: 12 }} />
       ) : loadwise && !loadwise.ok ? (
-        <div className="alert" style={{ marginTop: 12 }}>
+        <Alert severity="error" style={{ marginTop: 12 }}>
           {salesErrorText(loadwise.error, copy(pageContract, "error.load"))}
-        </div>
+        </Alert>
       ) : loads.length === 0 ? (
-        <div className="empty" style={{ marginTop: 12 }}>
-          {copy(pageContract, "empty.loadwise")}
-        </div>
+        <EmptyState title={copy(pageContract, "empty.loadwise")} style={{ marginTop: 12 }} />
       ) : (
         <>
           {/* Summary tiles: the backend's whole-read aggregates, verbatim. */}
           {summary ? (
-            <div className="grid g4 kpi-row" style={{ marginTop: 12 }}>
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "loadwise.kpi.purchased")}</div>
-                <div className="val">{num(summary.purchased)}</div>
-                <div className="dl">
-                  {num(summary.sold)} {copy(pageContract, "loadwise.kpi.sold").toLowerCase()} ·{" "}
-                  {num(summary.mortality)} {copy(pageContract, "loadwise.kpi.mortality").toLowerCase()} ·{" "}
-                  {num(summary.remaining)} {copy(pageContract, "loadwise.kpi.remaining").toLowerCase()}
-                  {summary.tagged_not_closed > 0 ? (
-                    <>
-                      {" · "}
-                      {num(summary.tagged_not_closed)} {copy(pageContract, "loadwise.kpi.tagged_not_closed")}
-                    </>
-                  ) : null}
-                </div>
-              </div>
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "loadwise.kpi.purchase_value")}</div>
-                <div className="val">{summary.costed_loads > 0 ? inrCompact(summary.purchase_value) : none}</div>
-                <div className="dl">
-                  {num(summary.costed_loads)} / {num(loads.length)} {copy(pageContract, "loadwise.kpi.purchase_value.hint")}
-                </div>
-              </div>
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "loadwise.kpi.sold_value")}</div>
-                <div className="val">{summary.sold_value > 0 ? inrCompact(summary.sold_value) : none}</div>
-                <div className="dl">{copy(pageContract, "loadwise.kpi.sold_value.hint")}</div>
-              </div>
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "loadwise.kpi.profit")}</div>
-                {/* Signed and toned: a loss must not read like a profit at a glance. */}
-                <div className="val" style={{ color: summary.profit_loss < 0 ? "var(--danger)" : "var(--ok)" }}>
-                  {summary.costed_loads > 0 ? signedInrCompact(summary.profit_loss) : none}
-                </div>
-                <div className="dl">{copy(pageContract, "loadwise.kpi.profit.hint")}</div>
-                {/* How much of that figure happened and how much is assumed, and how it was
-                    assumed -- the backend's own sentence, verbatim. */}
-                {summary.costed_loads > 0 ? (
-                  <div className="dl">
-                    {copy(pageContract, "loadwise.realised.label")} {signedInrCompact(summary.realised_profit_loss)} ·{" "}
-                    {copy(pageContract, "loadwise.assumed.label")}{" "}
-                    {summary.assumed_value > 0 ? inrCompact(summary.assumed_value) : copy(pageContract, "loadwise.assumed.none")}
-                  </div>
-                ) : null}
-                {summary.assumed_value > 0 && summary.assumed_value_basis ? (
-                  <div className="dl muted">{summary.assumed_value_basis}</div>
-                ) : null}
-              </div>
-            </div>
+            <>
+              <Box sx={{ mt: 1.5 }}>
+              <KpiGrid>
+                <KpiCard
+                  variant="gradient"
+                  tone="primary"
+                  label={copy(pageContract, "loadwise.kpi.purchased")}
+                  value={summary.purchased}
+                  icon={<GoatGlyph aria-hidden="true" />}
+                  hint={`${num(summary.sold)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()} · ${num(summary.mortality)} ${copy(pageContract, "loadwise.kpi.mortality").toLowerCase()} · ${num(summary.remaining)} ${copy(pageContract, "loadwise.kpi.remaining").toLowerCase()}${summary.tagged_not_closed > 0 ? ` · ${num(summary.tagged_not_closed)} ${copy(pageContract, "loadwise.kpi.tagged_not_closed")}` : ""}`}
+                />
+                <KpiCard
+                  variant="tint"
+                  tone="info"
+                  label={copy(pageContract, "loadwise.kpi.purchase_value")}
+                  value={summary.costed_loads > 0 ? inrCompact(summary.purchase_value) : none}
+                  icon={<IndianRupee aria-hidden="true" />}
+                  hint={`${num(summary.costed_loads)} / ${num(loads.length)} ${copy(pageContract, "loadwise.kpi.purchase_value.hint")}`}
+                />
+                <KpiCard
+                  variant="tint"
+                  tone="success"
+                  label={copy(pageContract, "loadwise.kpi.sold_value")}
+                  value={summary.sold_value > 0 ? inrCompact(summary.sold_value) : none}
+                  icon={<IndianRupee aria-hidden="true" />}
+                />
+                <KpiCard
+                  variant="tint"
+                  tone={summary.profit_loss < 0 ? "error" : "success"}
+                  label={copy(pageContract, "loadwise.kpi.profit")}
+                  // Signed and toned: a loss must not read like a profit at a glance.
+                  value={
+                    <span style={{ color: summary.profit_loss < 0 ? "var(--danger)" : "var(--ok)" }}>
+                      {summary.costed_loads > 0 ? signedInrCompact(summary.profit_loss) : none}
+                    </span>
+                  }
+                  icon={<TrendingUp aria-hidden="true" />}
+                  // How much of that figure happened and how much is assumed, and how it was
+                  // assumed -- the backend's own sentence, verbatim (main 7765efb29/c0b3a659f).
+                  hint={
+                    summary.costed_loads > 0 ? (
+                      <>
+                        {copy(pageContract, "loadwise.realised.label")} {signedInrCompact(summary.realised_profit_loss)} ·{" "}
+                        {copy(pageContract, "loadwise.assumed.label")}{" "}
+                        {summary.assumed_value > 0 ? inrCompact(summary.assumed_value) : copy(pageContract, "loadwise.assumed.none")}
+                        {summary.assumed_value > 0 && summary.assumed_value_basis ? (
+                          <Box component="span" sx={{ display: "block", color: "text.disabled" }}>
+                            {summary.assumed_value_basis}
+                          </Box>
+                        ) : null}
+                      </>
+                    ) : undefined
+                  }
+                />
+              </KpiGrid>
+              </Box>
+
+              {/* The same four whole-read aggregates as shares of what was purchased — the shape
+                  a person actually reads them in. Every figure is the backend's own; the bar is
+                  the value over `summary.purchased`, nothing new is computed. */}
+              <Box className={progressRowsClass} sx={{ display: "grid", gap: 1.75, mt: 2.5, px: 2, pt: 0.5, pb: 2.25 }}>
+                <ProgressRow
+                  label={copy(pageContract, "loadwise.kpi.sold")}
+                  value={num(summary.sold)}
+                  percent={summary.purchased > 0 ? (summary.sold / summary.purchased) * 100 : 0}
+                  tone="success"
+                />
+                <ProgressRow
+                  label={copy(pageContract, "loadwise.kpi.remaining")}
+                  value={num(summary.remaining)}
+                  percent={summary.purchased > 0 ? (summary.remaining / summary.purchased) * 100 : 0}
+                  tone="info"
+                />
+                <ProgressRow
+                  label={copy(pageContract, "loadwise.kpi.mortality")}
+                  value={num(summary.mortality)}
+                  percent={summary.purchased > 0 ? (summary.mortality / summary.purchased) * 100 : 0}
+                  tone="error"
+                />
+              </Box>
+            </>
           ) : null}
 
           {/* Chart 1 — animals per load. */}
-          <div className="mt" style={{ marginTop: 10 }}>
+          <Typography variant="overline" component="div" color="text.secondary" className="mt" sx={{ mt: 1.25 }}>
             {copy(pageContract, "chart.loadwise_counts.title")}
-          </div>
+          </Typography>
           <GroupedColumns
             series={countSeries}
             chartLabel={copy(pageContract, "chart.loadwise_counts.title")}
@@ -271,9 +319,10 @@ export function LoadwiseSection({
 
           {/* Chart 2 — money per load. The sub-line carries the sold/purchased COUNTS so what is
               left in a load is readable off this chart too. */}
-          <div className="mt">{copy(pageContract, "chart.loadwise_value.title")}</div>
+          <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.loadwise_value.title")}</Typography>
           <GroupedColumns
             series={valueSeries}
+            money
             chartLabel={copy(pageContract, "chart.loadwise_value.title")}
             emptyLabel={copy(pageContract, "chart.loadwise_value.empty")}
             data={loads.map((load) => ({
@@ -322,7 +371,7 @@ export function LoadwiseSection({
           {/* Chart 3 — weight per animal, in against out. The pair only means something when both
               halves exist, and a load that has sold nothing has no sale weight, so its second bar
               is absent rather than zero. */}
-          <div className="mt">{copy(pageContract, "chart.loadwise_weight.title")}</div>
+          <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.loadwise_weight.title")}</Typography>
           <GroupedColumns
             series={weightSeries}
             chartLabel={copy(pageContract, "chart.loadwise_weight.title")}
@@ -378,9 +427,10 @@ export function LoadwiseSection({
           />
 
           {/* Chart 4 — what a kilogram cost against what it fetched. */}
-          <div className="mt">{copy(pageContract, "chart.loadwise_per_kg.title")}</div>
+          <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.loadwise_per_kg.title")}</Typography>
           <GroupedColumns
             series={perKgSeries}
+            money
             chartLabel={copy(pageContract, "chart.loadwise_per_kg.title")}
             emptyLabel={copy(pageContract, "chart.loadwise_per_kg.empty")}
             data={loads.map((load) => ({
@@ -408,7 +458,7 @@ export function LoadwiseSection({
               (animal-weighted) for the animals that sold, and the days-so-far for the animals still
               on the farm. Neither is the load's AGE — that clock starts at purchase and is not on
               this axis. */}
-          <div className="mt">{copy(pageContract, "chart.loadwise_fattening.title")}</div>
+          <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "chart.loadwise_fattening.title")}</Typography>
           <GroupedColumns
             series={fatteningSeries}
             chartLabel={copy(pageContract, "chart.loadwise_fattening.title")}
@@ -453,18 +503,25 @@ export function LoadwiseSection({
             }))}
           />
 
-          {/* The reconciliation table. */}
-          <div className="twrap" style={{ marginTop: 12 }} tabIndex={0} role="region" aria-label={copy(pageContract, "section.loadwise.aria")}>
-            <table className="loadwise-table" aria-label={copy(pageContract, "section.loadwise.aria")}>
-              <thead>
-                <tr>
-                  {columns.map((label) => (
-                    <th key={label}>{label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loads.map((load) => {
+          {/* The reconciliation table: scrolls sideways inside the card, never past its edge. */}
+          <Box
+            sx={{
+              "& .twrap": { overflowX: "auto", maxWidth: "100%", minWidth: 0, scrollbarGutter: "stable", mt: 1.5, px: { xs: 2, sm: 0 } },
+              "& .twrap table": { minWidth: "100%" },
+            }}
+          >
+          <PagedRows
+            wrapClassName="twrap"
+            tableClassName="loadwise-table"
+            ariaLabel={copy(pageContract, "section.loadwise.aria")}
+            head={
+              <tr>
+                {columns.map((label) => (
+                  <th key={label}>{label}</th>
+                ))}
+              </tr>
+            }
+            rows={loads.map((load) => {
                   const cell = (value: ReactNode, extra?: string) =>
                     canRecordCost ? (
                       <td className={extra}>
@@ -593,17 +650,19 @@ export function LoadwiseSection({
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-          <div className="muted small" style={{ marginTop: 8, display: "flex", gap: 14, flexWrap: "wrap" }}>
-            {canRecordCost ? <span>{copy(pageContract, "loadwise.row_hint")}</span> : null}
-            {data && data.total_loads > loads.length ? (
-              <span>
-                {copy(pageContract, "section.loadwise.showing")}: {num(loads.length)} / {num(data.total_loads)}
-              </span>
-            ) : null}
-          </div>
+          />
+          </Box>
+          {data && data.total_loads > loads.length ? (
+            <TablePaginationLinks
+              page={0}
+              rowsPerPage={Math.max(loads.length, 1)}
+              count={-1}
+              hideActions
+              rangeLabel={`${copy(pageContract, "section.loadwise.showing")}: ${num(loads.length)} / ${num(data.total_loads)}`}
+              prevLabel=""
+              nextLabel=""
+            />
+          ) : null}
         </>
       )}
     </section>

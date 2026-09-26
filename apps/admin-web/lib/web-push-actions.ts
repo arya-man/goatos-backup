@@ -31,6 +31,8 @@ import {
  * anything. Convergence, not at-most-once delivery, is what makes that safe.
  */
 
+// Type-only aliases stay out of this "use server" module: Turbopack registers every export of a
+// server-action file as a server reference, and a type re-export becomes a runtime ReferenceError.
 type WebPushActionResult<T> = WebPushResult<T>;
 
 // Mirrors the backend's own ceilings (backend/internal/browserpush/registration.go) so an
@@ -68,13 +70,13 @@ export async function registerBrowserPush(input: {
   }
   const token = requiredField(input.token, MAX_TOKEN);
   if (!token) {
-    return { ok: false, error: "This browser did not return a usable notification token." };
+    return { ok: false, error: "This browser could not be registered for notifications. Try again or use another browser." };
   }
   // Control characters in a bearer credential are never legitimate and are exactly what a
   // log-injection or header-smuggling attempt looks like. Refused, never stripped: a stripped
   // token would be stored, would never resolve, and would report success.
   if (/[\x00-\x1f\x7f]/.test(token)) {
-    return { ok: false, error: "This browser returned a malformed notification token." };
+    return { ok: false, error: "This browser could not be registered for notifications. Try again or use another browser." };
   }
   const browserLabel = optionalField(input.browserLabel, MAX_BROWSER_LABEL);
 

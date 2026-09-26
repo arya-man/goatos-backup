@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { Layers } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import { ClipText } from "@/components/ui-primitives";
@@ -57,12 +62,9 @@ export function LiveTrackerSheds({
       {rows.length === 0 ? (
         <div className="bd lt-empty">
           <div style={{ minWidth: 0, flex: 1 }}>
-            <b style={{ fontSize: 14 }}>
+            <b style={{ fontSize: 14 }} title={hasFilter ? copy(pageContract, "section.sheds.filtered_body") : copy(pageContract, "section.sheds.empty_body")}>
               {hasFilter ? copy(pageContract, "section.sheds.filtered_title") : copy(pageContract, "section.sheds.empty_title")}
             </b>
-            <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-              {hasFilter ? copy(pageContract, "section.sheds.filtered_body") : copy(pageContract, "section.sheds.empty_body")}
-            </span>
           </div>
           {hasFilter ? (
             <Link href={resetHref} replace scroll={false} className="btn sm">
@@ -72,17 +74,17 @@ export function LiveTrackerSheds({
         </div>
       ) : (
         <div className="bd lt-tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.title")}>
-          <table className="lt-shed-table">
-            <thead>
-              <tr>
+          <Table className="lt-shed-table">
+            <TableHead>
+              <TableRow>
                 {cols.map((label, index) => (
-                  <th key={label} className={index >= 3 && index <= 6 ? "num" : undefined} style={index === 7 ? { minWidth: 150 } : undefined}>
+                  <TableCell component="th" key={label} className={index >= 3 && index <= 6 ? "num" : undefined} style={index === 7 ? { minWidth: 150 } : undefined}>
                     {label}
-                  </th>
+                  </TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => {
                 // Closure is what Remaining and the status pill are derived from, so it is what the
                 // bar shows. Proof arrival stays in its own column beside it.
@@ -90,8 +92,8 @@ export function LiveTrackerSheds({
                 const percent = pct(row.closed_administrations, row.scheduled_administrations);
                 const href = shedHref(row);
                 return (
-                  <tr key={`${row.shed_id}|${row.partition_label}|${row.vaccine_code}|${row.operator_id}`} className="lt-shed-row">
-                    <td className="lt-shedlbl">
+                  <TableRow key={`${row.shed_id}|${row.partition_label}|${row.vaccine_code}|${row.operator_id}`} className="lt-shed-row">
+                    <TableCell className="lt-shedlbl">
                       <Link
                         href={href}
                         className="celllink"
@@ -100,27 +102,27 @@ export function LiveTrackerSheds({
                       >
                         <ClipText title={row.shed_label}>{row.shed_label}</ClipText>
                       </Link>
-                    </td>
-                    <td>{row.vaccine_label || copy(pageContract, "label.placeholder")}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{row.vaccine_label || copy(pageContract, "label.placeholder")}</TableCell>
+                    <TableCell>
                       <ClipText title={row.operator_name}>
                         {row.operator_name || copy(pageContract, "label.placeholder")}
                       </ClipText>
-                    </td>
-                    <td className="num">{row.scheduled_administrations}</td>
-                    <td className="num">{row.proof_videos_received}</td>
-                    <td className="num">{row.closed_administrations}</td>
-                    <td className="num">{row.remaining}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="num">{row.scheduled_administrations}</TableCell>
+                    <TableCell className="num">{row.proof_videos_received}</TableCell>
+                    <TableCell className="num">{row.closed_administrations}</TableCell>
+                    <TableCell className="num">{row.remaining}</TableCell>
+                    <TableCell>
                       <div className="lt-pcell">
                         <div className="lt-pbar">
                           <i className={tone} style={{ width: `${percent}%` }} />
                         </div>
                         <span className="pct">{percent}%</span>
                       </div>
-                    </td>
-                    <td className="muted">{fmtClock(row.last_proof_at) || copy(pageContract, "label.placeholder")}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="muted">{fmtClock(row.last_proof_at) || copy(pageContract, "label.placeholder")}</TableCell>
+                    <TableCell>
                       <LiveStateTag
                         pageContract={pageContract}
                         group="live_shed_state"
@@ -134,12 +136,12 @@ export function LiveTrackerSheds({
                           ? `${row.extra_attempt_count} ${optionLabel(pageContract, "live_shed_state", "review")}`
                           : optionLabel(pageContract, "live_shed_state", row.state)}
                       </LiveStateTag>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {/* The shed board is capped server-side. The tiles above are folded from the untruncated
               rollup, so past the cap they legitimately exceed this table's Scheduled column — and a
               reader can only reconcile that if the page says the table is partial. */}

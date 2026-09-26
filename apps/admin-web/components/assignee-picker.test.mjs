@@ -24,7 +24,9 @@ test("the Work Board hosts the Tasks people dropdown; the shared picker keeps it
   assert.match(picker, /const on = selected \? o\.id === selected : true;/);
   assert.match(picker, /\{cardsByOwner\[o\.id\] \?\? 0\} \{labels\.rows\}/);
   assert.doesNotMatch(picker, /className="opt foot"/);
-  assert.match(picker, /className=\{`opt all\$\{!selected \? " on" : ""\}`\}/);
+  // The rows are template MenuItems inside the template menu popover (CustomPopover + MenuList).
+  assert.match(picker, /<CustomPopover open=\{open\}/);
+  assert.match(picker, /<MenuItem role="option" aria-selected=\{!selected\} className="all"/);
   assert.match(picker, /\{labels\.selectAll\}/);
   // Every tick is the lucide Check on the brand box, never a glyph that can inherit the fill colour.
   assert.doesNotMatch(picker, /"✓"/);
@@ -34,14 +36,14 @@ test("single mode is a form field: hidden id, Name — Title rows, Enter picks, 
   assert.match(picker, /mode\?: "multi" \| "single"/);
   assert.match(picker, /\{name \? <input type="hidden" name=\{name\} value=\{selected \?\? ""\} \/> : null\}/);
   assert.match(picker, /<b className="avs-name">\{o\.name\}<\/b>/);
-  assert.match(picker, /avs-title"> — \{o\.title\}/);
+  assert.match(picker, /avs-title"[^>]*> — \{o\.title\}/);
   // Typing matches the title too, only in single mode.
   assert.match(picker, /mode === "single" && \(o\.title \?\? ""\)\.toLowerCase\(\)\.includes\(q\)/);
   assert.match(picker, /if \(e\.key === "Enter"\) \{\s*e\.preventDefault\(\);\s*const row = shown\[highlight\];\s*if \(row\) pick\(row\.id\);/);
-  // Escape is caught on the document in the CAPTURE phase and stopped, so a dialog shell on the
-  // same document never hears the press that closed the list.
-  assert.match(picker, /document\.addEventListener\("keydown", onKey, true\)/);
-  assert.match(picker, /event\.stopPropagation\(\);\s*close\(\);/);
+  // Escape is the MUI popover's (its handler stops the press, so a dialog shell on the same
+  // document never hears the press that closed the list): it must not be disabled.
+  assert.match(picker, /<CustomPopover[\s\S]*?onClose=\{close\}/);
+  assert.doesNotMatch(picker, /disableEscapeKeyDown/);
   // No label is a local literal: every string comes in through `labels`.
   assert.doesNotMatch(picker, /placeholder="[A-Za-z]/);
 });

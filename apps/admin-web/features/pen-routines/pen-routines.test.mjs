@@ -63,12 +63,16 @@ test("authoring controls render only when the contract enables them, else the ba
   assert.match(feature, /controlEnabled\(pageContract, "create_routine", false\)/);
   assert.match(feature, /controlEnabled\(pageContract, "edit_routine", false\)/);
   assert.match(feature, /controlEnabled\(pageContract, "set_routine_status", false\)/);
-  assert.match(feature, /\{canCreate && catalogParkId \? \(\s*<LocalOverlayLink/);
-  assert.match(feature, /\{!canConfigure \? <div className="note"[^>]*>\{c\("configure\.disabled_no_access"\)\}<\/div> : null\}/);
+  // The create control sits in the PageHeader's `actions` slot as an MUI Button rendered through
+  // LocalOverlayLink; same gate, same link.
+  assert.match(feature, /\{\s*canCreate && catalogParkId \? \(\s*<Button component=\{LocalOverlayLink\}/);
+  assert.match(feature, /\{!canConfigure \? <Alert severity="info"[^>]*>\{c\("configure\.disabled_no_access"\)\}<\/Alert> : null\}/);
   assert.match(drawer, /readOnly \? \(?\s*<div className="note">\{copy\(pageContract, "configure\.disabled_no_access"\)\}/);
   assert.match(drawer, /isEdit && canSetStatus && routine\.status !== "retired"/);
   for (const source of [feature, drawer, filter, actions]) {
-    assert.doesNotMatch(source, /ceo_internal|park_head|pc_director|role ===|\.role\b/, "no role-string conditional");
+    // `.role` as a PROPERTY (actor.role) is a role conditional; the `"filter.role"` copy KEY of the
+    // backend-labelled Role filter is not, so quoted keys are excluded.
+    assert.doesNotMatch(source, /ceo_internal|park_head|pc_director|role ===|\.role\b(?!["'.])/, "no role-string conditional");
   }
 });
 

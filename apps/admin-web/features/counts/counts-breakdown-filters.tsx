@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Checkbox from "@mui/material/Checkbox";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import ListSubheader from "@mui/material/ListSubheader";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
+import Button from "@mui/material/Button";
+import { FilterBar } from "@/components/app/filter-bar";
+import TextField from "@mui/material/TextField";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { breakdownFilterQuery } from "./counts-breakdown-query";
 
@@ -85,26 +94,6 @@ function MultiSelectFilter({
   selectedSuffix: string;
   onToggle: (value: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-
-  // Outside click / Escape close, only wired while open.
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
   const selectedSet = new Set(selected);
   // 0 selected reads "All" (the same sentinel the single selects use); 1 selected shows the
   // option's own label (data, not composed copy); more show the count with the backend-owned
@@ -116,100 +105,42 @@ function MultiSelectFilter({
         ? (field.options.find((option) => option.value === selected[0])?.label ?? selected[0])
         : `${selected.length} ${selectedSuffix}`;
 
+  // Template UserTableToolbar role filter: FormControl + multi Select whose MenuItems carry a
+  // Checkbox; group runs render as ListSubheader. A pick only stages; the bar's Apply navigates.
+  const items: React.ReactNode[] = [];
+  groupRuns(field.options).forEach((run, runIndex) => {
+    if (run.group !== undefined) items.push(<ListSubheader key={`g:${runIndex}`}>{run.group}</ListSubheader>);
+    for (const option of run.options) {
+      items.push(
+        <MenuItem key={option.key ?? option.value} value={option.value}>
+          <Checkbox disableRipple size="small" checked={selectedSet.has(option.value)} slotProps={{ input: { "aria-label": option.label } }} />
+          {option.label}
+        </MenuItem>,
+      );
+    }
+  });
+
   return (
-    <div ref={rootRef} style={{ position: "relative", display: "inline-flex" }}>
-      <button
-        type="button"
-        className="tsize"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={field.label}
-        disabled={Boolean(field.disabledReason)}
-        title={field.disabledReason || undefined}
-        style={{
-          cursor: field.disabledReason ? "not-allowed" : "pointer",
-          opacity: field.disabledReason ? 0.5 : undefined,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 6,
-          // Match the native selects beside it (Farm/Gender render ~170px): a content-sized
-          // button collapses to the width of "All" and reads as a different control family.
-          minWidth: 170,
+    <FormControl className="cb-multi" disabled={Boolean(field.disabledReason)} title={field.disabledReason || undefined} sx={{ minWidth: { xs: 0, sm: 170 }, flexShrink: 0 }}>
+      <InputLabel shrink>{field.label}</InputLabel>
+      <Select
+        multiple
+        displayEmpty
+        notched
+        label={field.label}
+        value={selected}
+        renderValue={() => summary}
+        onChange={(event) => {
+          const next = typeof event.target.value === "string" ? event.target.value.split(",") : event.target.value;
+          const toggled = next.find((value) => !selectedSet.has(value)) ?? selected.find((value) => !next.includes(value));
+          if (toggled !== undefined) onToggle(toggled);
         }}
-        onClick={() => setOpen((current) => !current)}
+        inputProps={{ "aria-label": field.label }}
+        MenuProps={{ slotProps: { paper: { sx: { maxHeight: 300, maxWidth: 320 } } } }}
       >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", textAlign: "left", flex: "1 1 auto" }}>{summary}</span>
-        <span aria-hidden="true" style={{ fontSize: 9, color: "var(--muted)" }}>
-          ▾
-        </span>
-      </button>
-      {open ? (
-        <div
-          role="listbox"
-          aria-multiselectable="true"
-          aria-label={field.label}
-          style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            zIndex: 40,
-            minWidth: 220,
-            maxWidth: 320,
-            maxHeight: 300,
-            overflowY: "auto",
-            background: "var(--panel)",
-            border: "1px solid var(--line)",
-            borderRadius: 10,
-            boxShadow: "0 12px 28px rgba(0,0,0,.35)",
-            padding: 6,
-          }}
-        >
-          {groupRuns(field.options).map((run, runIndex) => (
-            <div key={`r:${runIndex}:${run.options[0]?.key ?? run.options[0]?.value}`}>
-              {run.group !== undefined ? (
-                <div
-                  className="muted"
-                  style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".04em", padding: "6px 8px 2px" }}
-                >
-                  {run.group}
-                </div>
-              ) : null}
-              {run.options.map((option) => {
-                const checked = selectedSet.has(option.value);
-                return (
-                  <label
-                    key={option.key ?? option.value}
-                    role="option"
-                    aria-selected={checked}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "5px 8px",
-                      borderRadius: 8,
-                      fontSize: 12.5,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => onToggle(option.value)}
-                      style={{ accentColor: "var(--brand)", flex: "0 0 auto" }}
-                    />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{option.label}</span>
-                  </label>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
+        {items}
+      </Select>
+    </FormControl>
   );
 }
 
@@ -266,21 +197,38 @@ export function CountsBreakdownFilters({
     navigateWith(cleared);
   }
 
+  // Single-select fields (Farm, Gender) use the MUI TextField select: same reported value as the native
+  // control it replaces, so the staged-apply logic above is untouched. The multi-select fields keep
+  // their checkbox dropdown - a listbox cannot express "three sheds OR-ed".
   return (
-    <div
-      className="tbar"
-      style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", flexWrap: "wrap" }}
-      role="group"
-      aria-label={copy(pageContract, "filter.bar_aria")}
+    <FilterBar
+      className="counts-breakdown-filterbar"
+      actions={
+        <>
+          {hasAnySelection ? (
+            <Button color="primary" type="button" variant="text" size="small" onClick={clearAll} disabled={isPending}>
+              {copy(pageContract, "filter.clear_all")}
+            </Button>
+          ) : null}
+          <Button
+            color="primary"
+            type="button"
+            variant="contained"
+            size="small"
+            onClick={applyFilters}
+            disabled={isPending}
+            title={isPending ? copy(pageContract, "state.loading") : undefined}
+          >
+            {copy(pageContract, "filter.apply")}
+          </Button>
+        </>
+      }
     >
-      {fields.map((field) => (
-        <label
-          key={field.param}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
-        >
-          <span className="muted">{field.label}</span>
-          {field.multi ? (
-            <MultiSelectFilter
+      <div role="group" aria-label={copy(pageContract, "filter.bar_aria")} style={{ display: "contents" }}>
+      {fields.map((field) =>
+        field.multi ? (
+          <MultiSelectFilter
+              key={field.param}
               field={field}
               selected={fieldValues(field)}
               allLabel={allLabel}
@@ -295,56 +243,28 @@ export function CountsBreakdownFilters({
                 );
               }}
             />
-          ) : (
-            <select
-              className="tsize"
-              value={fieldValues(field)[0] ?? ""}
-              aria-label={field.label}
-              disabled={Boolean(field.disabledReason)}
-              title={field.disabledReason || (isPending ? copy(pageContract, "state.loading") : undefined)}
-              style={field.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-              onChange={(event) => stage(field.param, event.target.value ? [event.target.value] : [])}
-            >
-              <option value="">{allLabel}</option>
-              {groupRuns(field.options).map((run) =>
-                run.group === undefined ? (
-                  run.options.map((option) => (
-                    <option key={option.key ?? option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))
-                ) : (
-                  <optgroup key={`g:${run.group}:${run.options[0]?.key ?? run.options[0]?.value}`} label={run.group}>
-                    {run.options.map((option) => (
-                      <option key={option.key ?? option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ),
-              )}
-            </select>
-          )}
-        </label>
-      ))}
-      {/* One right-pinned group, so Clear all sits beside Apply instead of wrapping to a new
-          row when the auto margin eats the free space. */}
-      <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 10 }}>
-        {hasAnySelection ? (
-          <button type="button" className="btn sm" onClick={clearAll} disabled={isPending}>
-            {copy(pageContract, "filter.clear_all")}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="btn sm primary"
-          onClick={applyFilters}
-          disabled={isPending}
-          title={isPending ? copy(pageContract, "state.loading") : undefined}
-        >
-          {copy(pageContract, "filter.apply")}
-        </button>
+        ) : (
+          <TextField
+            key={field.param}
+            select
+            label={field.label}
+            value={field.options.some((option) => option.value === fieldValues(field)[0]) ? fieldValues(field)[0] : ""}
+            disabled={Boolean(field.disabledReason)}
+            title={field.disabledReason || (isPending ? copy(pageContract, "state.loading") : undefined)}
+            onChange={({ target: { value } }) => stage(field.param, value ? [value] : [])}
+            sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+          >
+            <MenuItem value="">{allLabel}</MenuItem>
+            {field.options.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        ),
+      )}
       </div>
-    </div>
+    </FilterBar>
   );
 }

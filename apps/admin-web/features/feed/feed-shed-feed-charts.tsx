@@ -1,7 +1,9 @@
 import { byParkThen, parksInArrivalOrder } from "@/lib/park-order";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedAnalyticsShedFeedResponse } from "@/lib/api/server";
+import { InfoHint } from "@/components/app/info-hint";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
+import { FeedPenColumns, type PenColumnChart } from "./feed-pen-columns";
 
 // Feed Analytics overview — "Feed by pen" (maintainer request 2026-09-14, replacing
 // the feed-mix table): pick a pen NAME and every pen of that name -- Castro 1,
@@ -16,7 +18,10 @@ import { FeedFilters, type FeedFilterField } from "./feed-filters";
 // figure is the backend's `per_head_grams` (kg over the pen's head count that
 // day, heads counted once per day), the head count and the day's kg ride on the
 // bar's tooltip as served, and the only local work is picking which pens to draw,
-// laying seven day slots out from the window, and scaling bar heights.
+// laying seven day slots out from the window, and fixing the shared value axis.
+//
+// The columns themselves are the kit column chart (feed-pen-columns.tsx → TrendChart):
+// figures on hover only, draw-in on first sight, pens of one name on ONE axis.
 //
 // A day the sheet directed nothing resolvable to the pen is ABSENT from the
 // response and renders as a GAP with the backend's gap copy, never as a zero bar
@@ -45,7 +50,6 @@ const num = (raw: string) => {
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
 };
-const grams = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const kg = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
 
 /** Stable identity of a pen: the row's own location key, never the display string. */
@@ -121,7 +125,47 @@ export function FeedShedFeedCharts({
     }
     byPen.set(rowId(pen), days);
   }
+  // ONE scale for every pen of the chosen name: the top of the shared axis is the tallest figure
+  // across every drawn pen and both series, so on two charts a taller bar never means less feed.
   const scale = Math.max(1, max);
+
+  // The charts' data, composed here from the served figures and backend copy: a day the sheet
+  // directed nothing is null (a gap, never a zero bar), and so is a day nobody has verified yet.
+  const charts: PenColumnChart[] = pens.map((pen) => {
+    const days = byPen.get(rowId(pen)) ?? new Map<string, PenDay>();
+    return {
+      key: rowId(pen),
+      title: pen.operational_location_display,
+      park: pen.park_label || undefined,
+      ariaLabel: `${pen.operational_location_display} · ${fc("shedfeed.chart.aria")}`,
+      days: slots.map((iso) => {
+        const day = days.get(iso);
+        const value = day ? num(day.per_head_grams) : null;
+        const total = day ? num(day.directed_kg) : null;
+        const verified = day ? num(day.verified_per_head_grams) : null;
+        const verifiedTotal = day ? num(day.verified_kg) : null;
+        const directedDetail =
+          day && value !== null
+            ? `${day.head_count.toLocaleString("en-IN")} ${fc("shedfeed.day.animals")} · ${total === null ? "" : kg(total)} ${fc("shedfeed.day.total")}`
+            : fc("shedfeed.day.gap");
+        const verifiedDetail =
+          day && verified !== null
+            ? `${verifiedTotal === null ? "" : kg(verifiedTotal)} ${fc("shedfeed.day.total")} · ${day.verified_bags} / ${day.planned_bags} ${fc("shedfeed.day.bags")}`
+            : fc("shedfeed.day.verified_gap");
+        return {
+          day: iso,
+          label: dayLabel(iso),
+          directed: value,
+          verified,
+          // A 0 on either bar is left out of the hover, as on every feed chart.
+          detail: [
+            value === 0 ? null : `${fc("shedfeed.legend.directed")} · ${directedDetail}`,
+            verified === 0 ? null : `${fc("shedfeed.legend.verified")} · ${verifiedDetail}`,
+          ].filter((line): line is string => line !== null).join("\n"),
+        };
+      }),
+    };
+  });
 
   const fields: FeedFilterField[] = [
     {
@@ -150,12 +194,14 @@ export function FeedShedFeedCharts({
     <section className="card" aria-label={fc("shedfeed.title")}>
       <div className="hd">
         <h3>{fc("shedfeed.title")}</h3>
-        <span className="small muted">{fc("shedfeed.hint")}</span>
+        {/* The section's meaning lives behind the title's hint, not in a paragraph under it. */}
+        <InfoHint text={fc("shedfeed.hint")} />
       </div>
 
       <FeedFilters basePath={basePath} pageParam="fsf_offset" fields={fields} pageContract={pageContract} />
 
       {rows.length > 0 && pens.length > 0 ? (
+        // One legend for every pen of the name (they share the series and the axis), top-right.
         <div className="penbars-legend" aria-hidden="true">
           <span>
             <i />
@@ -173,83 +219,14 @@ export function FeedShedFeedCharts({
       ) : pens.length === 0 ? (
         <p className="muted small">{fc("shedfeed.empty_filtered")}</p>
       ) : (
-        <div className="qgrid penbars-grid">
-          {pens.map((pen) => {
-            const days = byPen.get(rowId(pen)) ?? new Map<string, PenDay>();
-            return (
-              <div
-                className="penbars"
-                key={rowId(pen)}
-                role="group"
-                tabIndex={0}
-                aria-label={`${pen.operational_location_display} · ${fc("shedfeed.chart.aria")}`}
-              >
-                {/* Backend-composed location, rendered verbatim: "Castro 1". */}
-                <div className="penbars-title">
-                  <b>{pen.operational_location_display}</b>
-                  {pen.park_label ? <span className="small muted"> · {pen.park_label}</span> : null}
-                  <span className="small muted">{fc("unit.g_per_head")}</span>
-                </div>
-                <div className="penbars-bars" role="img" aria-label={`${pen.operational_location_display} · ${fc("shedfeed.chart.aria")}`}>
-                  {slots.map((iso) => {
-                    const day = days.get(iso);
-                    const value = day ? num(day.per_head_grams) : null;
-                    const total = day ? num(day.directed_kg) : null;
-                    const verified = day ? num(day.verified_per_head_grams) : null;
-                    const verifiedTotal = day ? num(day.verified_kg) : null;
-                    const directedTip =
-                      day && value !== null
-                        ? `${fc("shedfeed.legend.directed")} · ${grams(value)} ${fc("unit.g_per_head")} · ${day.head_count.toLocaleString("en-IN")} ${fc("shedfeed.day.animals")} · ${total === null ? "" : kg(total)} ${fc("shedfeed.day.total")}`
-                        : `${fc("shedfeed.legend.directed")} · ${fc("shedfeed.day.gap")}`;
-                    const verifiedTip =
-                      day && verified !== null
-                        ? `${fc("shedfeed.legend.verified")} · ${grams(verified)} ${fc("unit.g_per_head")} · ${verifiedTotal === null ? "" : kg(verifiedTotal)} ${fc("shedfeed.day.total")} · ${day.verified_bags} / ${day.planned_bags} ${fc("shedfeed.day.bags")}`
-                        : `${fc("shedfeed.legend.verified")} · ${fc("shedfeed.day.verified_gap")}`;
-                    // A 0 on either bar is left out of the hover, as on every feed chart.
-                    const tip = [
-                      dayLabel(iso),
-                      value === 0 ? null : directedTip,
-                      verified === 0 ? null : verifiedTip,
-                    ].filter((line): line is string => line !== null).join("\n");
-                    return (
-                      <div className="penbars-slot" key={iso} title={tip}>
-                        <div className="penbars-pair">
-                          <div className="penbars-col">
-                            <span className="penbars-value">{value === null ? "" : grams(value)}</span>
-                            <div className="penbars-track">
-                              {value === null ? (
-                                <div className="penbars-gap" aria-hidden="true" />
-                              ) : (
-                                <div
-                                  className="penbars-bar"
-                                  style={{ height: `${Math.max(2, Math.round((value / scale) * 100))}%` }}
-                                />
-                              )}
-                            </div>
-                          </div>
-                          <div className="penbars-col">
-                            <span className="penbars-value">{verified === null ? "" : grams(verified)}</span>
-                            <div className="penbars-track">
-                              {verified === null ? (
-                                <div className="penbars-gap" aria-hidden="true" />
-                              ) : (
-                                <div
-                                  className="penbars-bar verified"
-                                  style={{ height: `${Math.max(2, Math.round((verified / scale) * 100))}%` }}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <span className="penbars-day small muted">{dayLabel(iso)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <FeedPenColumns
+          pens={charts}
+          yMax={scale}
+          directedLabel={fc("shedfeed.legend.directed")}
+          verifiedLabel={fc("shedfeed.legend.verified")}
+          unitLabel={fc("unit.g_per_head")}
+          missingLabel="—"
+        />
       )}
     </section>
   );

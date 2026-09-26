@@ -8,7 +8,7 @@ const editor = readFileSync(new URL("./plan-editor.tsx", import.meta.url), "utf8
 const server = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
 
 test("anchor panel defaults all safety flags to true", () => {
-  assert.match(panel, /<input type="checkbox" checked readOnly \/>/);
+  assert.match(panel, /<Checkbox checked readOnly\b/);
   assert.match(panel, /suppressBeforeAnchor:\s*true/);
   assert.match(panel, /chainFutureFromAnchor:\s*true/);
   assert.match(panel, /enforceAgeEligibility:\s*true/);

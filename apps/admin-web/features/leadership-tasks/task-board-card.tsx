@@ -88,11 +88,11 @@ export function TaskBoardCard({
           {initials(task.assignee)}
         </span>
         <span className="ltb-card-who">
-          <span className="ltb-card-name" title={task.assignee}>
-            {task.assignee}
+          <span className="ltb-card-name" title={task.assignee || undefined}>
+            {task.assignee || copy(pageContract, "label.placeholder", "—")}
           </span>
-          <span className="ltb-card-raiser" title={task.raisedBy}>
-            {copy(pageContract, "column.raised_by")} {task.raisedBy}
+          <span className="ltb-card-raiser" title={task.raisedBy || undefined}>
+            {copy(pageContract, "column.raised_by")} {task.raisedBy || copy(pageContract, "label.placeholder", "—")}
           </span>
         </span>
       </span>

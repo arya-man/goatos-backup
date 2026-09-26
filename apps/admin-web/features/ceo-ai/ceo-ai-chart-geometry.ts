@@ -1,10 +1,9 @@
 // Pure geometry for the leadership assistant's inline answer chart.
 //
-// This is the SANCTIONED mesha viz pattern — dependency-free inline SVG, the
-// same anatomy as `components/svg-bars.tsx` (mock `svgHBars`), ported here and
-// extended with a line mode for trend answers. recharts stays UNUSED. Colours
-// are CSS custom properties resolved by the caller, never hex literals, so the
-// chart is theme-correct in light and dark.
+// It decides WHAT an answer can draw (points, gaps, bar vs line); the drawing is
+// the template ApexCharts Chart in ceo-ai-chart.tsx. Colours are CSS custom
+// properties resolved by the caller, never hex literals, so the chart is
+// theme-correct in light and dark.
 //
 // Kept side-effect free (no JSX, no React) so it is unit-testable under
 // `node --test` and so the component is a thin renderer over these coordinates.

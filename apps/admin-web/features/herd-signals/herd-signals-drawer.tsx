@@ -217,6 +217,7 @@ export function HerdSignalsDrawer({
               <div className="readout" aria-live="polite">
                 <ChartReadout buckets={buckets} hovered={hovered} />
               </div>
+              {/* Why this pattern was flagged (0192898c9 / 07e72a680). */}
               <div className="small faint hs-pattern-note">
                 {item.pattern_state ? `${PATTERN_WHY[item.pattern_state].charAt(0).toUpperCase()}${PATTERN_WHY[item.pattern_state].slice(1)}. ` : ""}
                 Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns.

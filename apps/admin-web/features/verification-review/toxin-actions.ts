@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import {
   getProofDownloadRoute,
   getToxinTask,
@@ -41,7 +42,7 @@ export async function loadToxinTaskDetailAction(taskId: string): Promise<ToxinDe
   const detail = await getToxinTask(taskId);
   if (!detail.ok) return { ok: false, code: detail.error.code ?? detail.error.kind };
   const refs = new Set<string>();
-  for (const step of detail.data.steps) {
+  for (const step of listOrEmpty(detail.data.steps)) {
     if (step.proof_ref) refs.add(step.proof_ref);
   }
   if (detail.data.strip_photo_ref) refs.add(detail.data.strip_photo_ref);

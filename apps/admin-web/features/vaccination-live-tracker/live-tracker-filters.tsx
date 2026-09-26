@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { Layers, Syringe, User } from "lucide-react";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 export type LiveFilterChoice = { value: string; label: string; href: string };
@@ -49,22 +51,25 @@ export function LiveTrackerFilters({
         const Icon = filter.icon === "layers" ? Layers : filter.icon === "syringe" ? Syringe : filter.icon === "user" ? User : null;
         return (
           <span className="lt-fsel" key={filter.id}>
-            {Icon ? <Icon className="ic" style={{ width: 13, height: 13 }} aria-hidden="true" /> : null}
-            <select
-              aria-label={filter.label}
-              value={filter.selected}
-              onChange={(event) => {
-                const next = filter.choices.find((choice) => choice.value === event.target.value);
+            {Icon ? <Icon className="ic" style={{ width: 14, height: 14 }} aria-hidden="true" /> : null}
+            <TextField
+              select
+              label={filter.label}
+              value={filter.choices.some((choice) => choice.value === filter.selected) ? filter.selected : ""}
+              onChange={({ target: { value } }) => {
+                const next = filter.choices.find((choice) => choice.value === value);
                 go(next ? next.href : filter.clearHref);
               }}
+              sx={{ minWidth: { xs: 0, sm: 180 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
             >
-              <option value="">{filter.allLabel}</option>
-              {filter.choices.map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.label}
-                </option>
+              <MenuItem value="">{filter.allLabel}</MenuItem>
+              {filter.choices.map((c) => (
+                <MenuItem key={c.value} value={c.value}>
+                  {c.label}
+                </MenuItem>
               ))}
-            </select>
+            </TextField>
           </span>
         );
       })}
@@ -105,7 +110,6 @@ export function LiveTrackerFilters({
       {optionsTruncated ? (
         <span className="lt-fnote">{copy(pageContract, "filter.truncated_note")}</span>
       ) : null}
-      <span className="lt-fnote">{copy(pageContract, "filter.apply_note")}</span>
     </div>
   );
 }

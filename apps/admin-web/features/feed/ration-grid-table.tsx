@@ -8,6 +8,8 @@ import { copy, type AdminUiPageContract, type AdminUiTableContract } from "@/lib
 import type { FeedConfigRationRate } from "@/lib/api/server";
 import { RationRateEditor, type SaveAction } from "./feed-config-editor";
 import { RationRateValue } from "./feed-rate-optimistic";
+import { stageLabel } from "@/lib/stage-labels";
+import { EmptyState } from "@/components/app/empty-state";
 
 /**
  * In-force (`valid_to` absent) vs superseded by a later edit.
@@ -27,7 +29,7 @@ function EffectiveWindow({
 }) {
   const open = !validTo;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3 }}>
       <span
         className={open ? "tag t-ok" : "tag t-mut"}
         title={copy(pageContract, open ? "label.effective_open_note" : "label.effective_closed_note")}
@@ -131,7 +133,7 @@ export function RationGridTable({
     const dataColumns = columnsFromContract<FeedConfigRationRate>(JSON.parse(contractKey) as AdminUiTableContract, {
       ration_group: { cell: (row) => row.ration_group, sortValue: (row) => row.ration_group },
       shed_tag: {
-        cell: (row) => row.shed_tag,
+        cell: (row) => stageLabel(row.shed_tag),
         sortValue: (row) => row.shed_tag,
         meta: { cellClassName: "muted" },
       },
@@ -172,13 +174,53 @@ export function RationGridTable({
       },
     ];
   }, [contractKey, editHeader]);
+  const labelFor = (key: string) => contract.columns.find((column) => column.key === key)?.label ?? key;
 
   const cellContext = useMemo(() => ({ pageContract, action }), [pageContract, action]);
 
   return (
     <RationGridCellContext.Provider value={cellContext}>
+      <div className="feed-ration-mobile-list" aria-label={ariaLabel}>
+        {rows.length === 0 ? (
+          typeof empty === "string" ? <EmptyState title={empty} filled /> : empty
+        ) : (
+          rows.map((row) => (
+            <article className="feed-ration-mobile-row" key={row.ration_rate_id}>
+              <div className="feed-ration-mobile-main">
+                <span className="feed-ration-mobile-k">{labelFor("feed_item")}</span>
+                <strong>{row.feed_item}</strong>
+                <span className="feed-ration-mobile-meta">
+                  {row.ration_group} · {stageLabel(row.shed_tag)}
+                </span>
+              </div>
+              <div className="feed-ration-mobile-rate">
+                <span className="feed-ration-mobile-k">{labelFor("grams_per_head")}</span>
+                <RationRateValue
+                  pageContract={pageContract}
+                  parkId={row.park_id}
+                  rationGroup={row.ration_group}
+                  shedTag={row.shed_tag}
+                  feedItem={row.feed_item}
+                  gramsPerHead={row.grams_per_head}
+                />
+              </div>
+              <div className="feed-ration-mobile-edit" aria-label={copy(pageContract, "action.edit_rate")}>
+                <RationRateEditor
+                  pageContract={pageContract}
+                  action={action}
+                  parkId={row.park_id}
+                  rationGroup={row.ration_group}
+                  shedTag={row.shed_tag}
+                  feedItem={row.feed_item}
+                  gramsPerHead={row.grams_per_head}
+                />
+              </div>
+            </article>
+          ))
+        )}
+      </div>
       <DataTable
-        className="feed-table"
+        className="feed-table feed-ration-desktop-table"
         ariaLabel={ariaLabel}
         columns={columns}
         data={rows}

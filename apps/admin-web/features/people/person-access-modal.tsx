@@ -1,11 +1,19 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { AlertTriangle, ShieldCheck, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { AccessModuleWrite, PersonAccess } from "@/lib/api/server";
 import { designationDefaultsAction, savePersonAccessAction } from "./access-actions";
+import Alert from "@mui/material/Alert";
 
 /**
  * The per-person access editor.
@@ -228,9 +236,9 @@ export function PersonAccessModal({
 
         <div className="vr-modal-bd">
           {error ? (
-            <div className="alert" role="alert">
+            <Alert severity="error" role="alert">
               {error}
-            </div>
+            </Alert>
           ) : null}
 
           {access.warnings.map((warning) => (
@@ -245,22 +253,22 @@ export function PersonAccessModal({
 
           <div className="pa-setup">
             <div className="fld">
-              <label htmlFor="pa-designation" className="pa-lbl">
-                {t("access.designation")}
-              </label>
-              <select
-                id="pa-designation"
+              <TextField
+                select
+                label={t("access.designation")}
                 value={draft.designationCode}
                 disabled={pending || !mayEdit}
                 onChange={(event) => applyDesignation(event.target.value)}
+                sx={{ flexShrink: 0, maxWidth: 1 }}
+                slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
               >
-                <option value="">{t("access.designation.none")}</option>
+                <MenuItem value="">{t("access.designation.none")}</MenuItem>
                 {access.designations.map((designation) => (
-                  <option key={designation.code} value={designation.code}>
+                  <MenuItem key={designation.code} value={designation.code}>
                     {designation.label}
-                  </option>
+                  </MenuItem>
                 ))}
-              </select>
+              </TextField>
             </div>
 
             <div>
@@ -301,27 +309,23 @@ export function PersonAccessModal({
 
             {draft.scopeMode === "parks" && draft.parkIDs.length > 1 ? (
               <div className="fld">
-                <label className="pa-lbl" htmlFor="pa-home-park">
-                  {t("access.home_park")}
-                </label>
-                <select
-                  id="pa-home-park"
+                <TextField
+                  select
+                  label={t("access.home_park")}
                   value={draft.homeParkID}
                   disabled={!mayEdit || pending}
-                  onChange={(event) => {
-                    const homeParkID = event.target.value;
-                    setDraft((c) => ({ ...c, homeParkID }));
-                  }}
+                  onChange={({ target: { value: homeParkID } }) => setDraft((c) => ({ ...c, homeParkID }))}
+                  sx={{ flexShrink: 0, maxWidth: 1 }}
+                  slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
                 >
-                  <option value="">{t("access.home_park.none")}</option>
+                  <MenuItem value="">{t("access.home_park.none")}</MenuItem>
                   {access.parks
-                    .filter((park) => draft.parkIDs.includes(park.park_id))
-                    .map((park) => (
-                      <option key={park.park_id} value={park.park_id}>
-                        {park.label}
-                      </option>
-                    ))}
-                </select>
+                      .filter((park) => draft.parkIDs.includes(park.park_id)).map((park) => (
+                    <MenuItem key={park.park_id} value={park.park_id}>
+                      {park.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
                 <div className="pa-na">{t("access.home_park.hint")}</div>
               </div>
             ) : null}
@@ -358,34 +362,34 @@ export function PersonAccessModal({
             </div>
           </div>
 
-          <div className="pa-gridwrap">
-            <table className="pa-grid">
-              <thead>
-                <tr>
-                  <th>{t("access.column.module")}</th>
-                  <th className="pa-surface">{t("access.column.web")}</th>
-                  <th className="pa-surface">{t("access.column.mobile")}</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="pa-gridwrap tablewrap">
+            <Table className="pa-grid">
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{t("access.column.module")}</TableCell>
+                  <TableCell component="th" className="pa-surface">{t("access.column.web")}</TableCell>
+                  <TableCell component="th" className="pa-surface">{t("access.column.mobile")}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {access.modules.map((row) => {
                   const held = draft.modules[row.module_key] ?? { web: [], mobile: [], pages: [] };
                   const hasAny = held.web.length > 0 || held.mobile.length > 0;
                   return (
-                    <tr key={row.module_key} className={hasAny ? "pa-has" : undefined}>
-                      <td className="pa-mod">
+                    <TableRow key={row.module_key} className={hasAny ? "pa-has" : undefined}>
+                      <TableCell className="pa-mod">
                         <b>{row.label}</b>
                         <span>{row.blurb}</span>
-                      </td>
+                      </TableCell>
                       {(["web", "mobile"] as const).map((surface) => {
                         const offered = surface === "web" ? row.offered_web : row.offered_mobile;
                         if (offered.length === 0) {
                           return (
-                            <td key={surface}>
+                            <TableCell key={surface}>
                               <span className="pa-na">
                                 {t(surface === "web" ? "access.unavailable.web" : "access.unavailable.mobile")}
                               </span>
-                            </td>
+                            </TableCell>
                           );
                         }
                         // Page ticks belong to the WEB cell alone and only once the
@@ -394,7 +398,7 @@ export function PersonAccessModal({
                         const showPages =
                           surface === "web" && row.pages.length > 0 && held.web.length > 0;
                         return (
-                          <td key={surface}>
+                          <TableCell key={surface}>
                             <div className="pa-caps">
                               {offered.map((level) => {
                                 const copy = capabilityLabel(level);
@@ -433,14 +437,14 @@ export function PersonAccessModal({
                                 })}
                               </div>
                             ) : null}
-                          </td>
+                          </TableCell>
                         );
                       })}
-                    </tr>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </div>
 

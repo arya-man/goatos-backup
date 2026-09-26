@@ -24,7 +24,8 @@ export const dynamic = "force-dynamic";
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const params = await searchParams;
   const versionId = one(params, "version");
-  if (!versionId) notFound();
+  // No version chosen (a bare /vaccination/plan/edit link): back to the plan console, never a 404.
+  if (!versionId) redirect("/vaccination/plan");
 
   const [contract, configs, version, preview] = await Promise.all([
     requireAdminWebPageContract("vaccination-plan"),

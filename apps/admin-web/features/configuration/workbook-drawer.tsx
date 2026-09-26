@@ -1,6 +1,13 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
-import { BookOpen, Download, Loader2, Upload } from "lucide-react";
+import CircularProgress from "@mui/material/CircularProgress";
+import LinearProgress from "@mui/material/LinearProgress";
+import { BookOpen, Download, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -204,7 +211,7 @@ export function WorkbookDrawer({ pageContract, canWrite, registerLabels }: { pag
               data-testid="workbook-file"
             />
             <button type="button" className="btn sm b" disabled={busy || !fileName} onClick={() => void upload()} data-testid="workbook-upload">
-              {phase === "uploading" ? <Loader2 className="ic spin" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
+              {phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
               {phase === "uploading" ? c("sheet.uploading") : c("workbook.upload_action")}
             </button>
           </div>
@@ -254,43 +261,41 @@ export function WorkbookDrawer({ pageContract, canWrite, registerLabels }: { pag
                 </p>
               ) : null}
               <div className="cfg-workbook-scroll">
-              <table className="tbl cfg-workbook-tabs" data-testid="workbook-tabs">
-                <thead>
-                  <tr>
-                    <th>{c("workbook.tab")}</th>
-                    <th className="num">{c("workbook.col.rows")}</th>
-                    <th className="num">{c("workbook.col.ready")}</th>
-                    <th className="num">{c("workbook.col.fix")}</th>
-                    <th className="num">{c("workbook.col.applied")}</th>
-                    <th className="num">{c("workbook.col.failed")}</th>
-                    <th>{c("column.status")}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="tbl cfg-workbook-tabs" data-testid="workbook-tabs">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{c("workbook.tab")}</TableCell>
+                    <TableCell component="th" className="num">{c("workbook.col.rows")}</TableCell>
+                    <TableCell component="th" className="num">{c("workbook.col.ready")}</TableCell>
+                    <TableCell component="th" className="num">{c("workbook.col.fix")}</TableCell>
+                    <TableCell component="th" className="num">{c("workbook.col.applied")}</TableCell>
+                    <TableCell component="th" className="num">{c("workbook.col.failed")}</TableCell>
+                    <TableCell component="th">{c("column.status")}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {bundle.jobs.map((job) => (
-                    <tr key={job.id} data-testid="workbook-tab" data-register={job.register} data-status={job.status}>
-                      <td title={registerLabels[job.register] ?? job.register}>
+                    <TableRow key={job.id} data-testid="workbook-tab" data-register={job.register} data-status={job.status}>
+                      <TableCell title={registerLabels[job.register] ?? job.register}>
                         {job.sheet_name || job.register}
                         {registerLabels[job.register] && registerLabels[job.register] !== job.sheet_name ? <div className="muted small">{registerLabels[job.register]}</div> : null}
-                      </td>
-                      <td className="num">{job.total_rows}</td>
-                      <td className="num">{job.valid_rows}</td>
-                      <td className="num">{job.invalid_rows}</td>
-                      <td className="num">{job.applied_rows}</td>
-                      <td className="num">{job.failed_rows}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell className="num">{job.total_rows}</TableCell>
+                      <TableCell className="num">{job.valid_rows}</TableCell>
+                      <TableCell className="num">{job.invalid_rows}</TableCell>
+                      <TableCell className="num">{job.applied_rows}</TableCell>
+                      <TableCell className="num">{job.failed_rows}</TableCell>
+                      <TableCell>
                         <span className={`tag ${job.status === "applied" ? "ok" : job.status === "failed" ? "bad" : ""}`}>{statusLabel(job.status)}</span>
                         {job.status === "validating" || job.status === "applying" ? (
-                          <div className="cfg-sheet-progress" role="progressbar" aria-valuenow={jobProgress(job)} aria-valuemin={0} aria-valuemax={100}>
-                            <span style={{ width: `${jobProgress(job)}%` }} />
-                          </div>
+                          <LinearProgress variant="determinate" value={jobProgress(job)} />
                         ) : null}
                         {job.status === "failed" && job.error ? <div className="muted small">{job.error}</div> : null}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               </div>
               {bundle.status === "previewed" ? <p className="muted small">{c("workbook.apply_hint")}</p> : null}
               <div className="cfg-sheet-actions">

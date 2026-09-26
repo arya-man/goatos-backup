@@ -1,6 +1,19 @@
+import Box from "@mui/material/Box";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { AlertTriangle, Warehouse } from "lucide-react";
+import { AlertTriangle, ClipboardList, Fence } from "lucide-react";
 
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import { InfoHint } from "@/components/app/info-hint";
+import { EmptyState } from "@/components/app/empty-state";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -24,6 +37,9 @@ import {
 } from "./feed-quantity";
 import { isNothingToFeed, visibleOperationalFeedItems } from "./feed-quantity-state";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
+import { stageLabel } from "@/lib/stage-labels";
+import { fmtKg } from "@/lib/format";
+import Alert from "@mui/material/Alert";
 
 // Feed -> Feed Direction. The generated feed sheet for ONE park and ONE Asia/Kolkata business day:
 // projected head count x authored grams per head x shed factor, split across the park's sessions.
@@ -154,7 +170,7 @@ export async function FeedDirectionPage({
       param: "fd_session",
       label: copy(pageContract, "filter.session_label"),
       value: sessionRaw,
-      options: (sessionTemplates && sessionTemplates.ok ? sessionTemplates.data.items : []).map((template) => ({
+      options: (sessionTemplates && sessionTemplates.ok ? listOrEmpty(sessionTemplates.data.items) : []).map((template) => ({
         value: String(template.session_no),
         label: template.session_label,
       })),
@@ -162,7 +178,7 @@ export async function FeedDirectionPage({
   ];
 
   return (
-    <div className="screen on">
+    <div className="kit-enter screen on">
       <FeedFaroView
         routeId={pageContract.route_id}
         parkId={scope.parkId}
@@ -170,35 +186,25 @@ export async function FeedDirectionPage({
         blockedCells={summary?.blocked_count}
       />
 
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.direction.title")}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
+      <div>
+        <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.direction.title") }]} />
       </div>
 
       {/* An API failure surfaces as a visible error band. Swallowing it into an empty table would
           read to an operator as "nothing to feed today", which is the worst possible misreading. */}
       {previewResult && !previewResult.ok ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>
+        <Alert severity="error" style={{ marginBottom: 16 }}><div>
             <b>{copy(pageContract, "state.direction_unavailable")}</b>
             <div className="small muted">
               {previewResult.error.code ?? previewResult.error.kind}&nbsp;{previewResult.error.message}
             </div>
           </div>
-        </div>
+        </Alert>
       ) : null}
 
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="hd">
-          <h3>{copy(pageContract, "section.direction.title")}</h3>
-          <span className="small muted">{copy(pageContract, "section.direction.caption")}</span>
-        </div>
+      <div>
+      {/* overflow visible: the filter bar's pickers must not be clipped by the card edge. */}
+      <Card sx={{ p: { xs: 2, sm: 3 }, overflow: "visible" }}>
         <FeedFilters
           basePath={PAGE_PATH}
           pageParam="fd_offset"
@@ -212,37 +218,24 @@ export async function FeedDirectionPage({
         {lifecycle ? (
           <FeedLifecycleBanner lifecycle={lifecycle} feedDay={scope.targetDate} pageContract={pageContract} />
         ) : null}
+      </Card>
+      </div>
 
+      <div>
         {/* Always rendered. The API summary is WHOLE-SCOPE (`summary.scope === "filtered"`) and
             invariant to limit/offset, so these figures are the day's real totals on every page —
             they no longer need the first-page-only guard that used to hide a page subtotal. */}
         {summary && !lifecycleEmpty ? (
-          <div className="grid g2" aria-label={copy(pageContract, "section.summary.aria")}>
-            <div className="kpi">
-              <span className="acc" style={{ background: "var(--brand)" }} />
-              <div className="lab">{copy(pageContract, "kpi.sheds.label")}</div>
-              <div className="val">{summary.shed_count}</div>
-              <div className="dl">
-                <span className="muted">{copy(pageContract, "kpi.sheds.sub")}</span>
-              </div>
-              <Warehouse className="ic kpiic" aria-hidden="true" />
-            </div>
-            <div className="kpi">
-              <span className="acc" style={{ background: summary.blocked_count > 0 ? "var(--danger)" : "var(--teal)" }} />
-              <div className="lab">{copy(pageContract, "kpi.blocked.label")}</div>
-              <div className="val" style={summary.blocked_count > 0 ? { color: "var(--danger)" } : undefined}>
-                {summary.blocked_count}
-              </div>
-              <div className="dl">
-                <span className="muted">
-                  {summary.blocked_count > 0
-                    ? copy(pageContract, "kpi.blocked.sub")
-                    : copy(pageContract, "empty.blocked")}
-                </span>
-              </div>
-              <AlertTriangle className="ic kpiic" aria-hidden="true" />
-            </div>
-          </div>
+          <KpiGrid min={220} className="feed-direction-kpis">
+            <KpiCard tone="primary" icon={<Fence size={22} />} label={copy(pageContract, "kpi.sheds.label")} value={summary.shed_count} hint={copy(pageContract, "kpi.sheds.sub")} />
+            <KpiCard
+              tone={summary.blocked_count > 0 ? "error" : "info"}
+              icon={<AlertTriangle size={22} />}
+              label={copy(pageContract, "kpi.blocked.label")}
+              value={summary.blocked_count}
+              hint={summary.blocked_count > 0 ? copy(pageContract, "kpi.blocked.sub") : copy(pageContract, "empty.blocked")}
+            />
+          </KpiGrid>
         ) : null}
 
         {/* Per-item day totals for the WHOLE filtered scope, exactly as the API reports them. Each
@@ -251,23 +244,34 @@ export async function FeedDirectionPage({
         {/* The coverage claim the backend copy makes. It is rendered next to the figures rather than
             buried in a tooltip because the whole point of the whole-scope rewrite is that an
             operator can trust these numbers as the day's totals on any page. */}
-        {summary && !lifecycleEmpty ? (
-          <div className="note" style={{ marginBottom: 16 }}>
-            {copy(pageContract, "section.summary.note")}
-          </div>
-        ) : null}
+      </div>
 
+      <div>
+      <Card sx={{ p: { xs: 2, sm: 3 } }}>
+        <CardHeader
+          title={copy(pageContract, "section.direction.title")}
+          subheader={copy(pageContract, "section.direction.caption")}
+          action={summary && !lifecycleEmpty ? <InfoHint text={copy(pageContract, "section.summary.note")} /> : null}
+          sx={{ p: 0, mb: 2 }}
+        />
         {summary && !lifecycleEmpty && summary.total_kg_by_feed_item.length > 0 ? (
-          <div className="bd" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <div className="bd" style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingBottom: 16 }}>
             {summary.total_kg_by_feed_item.map((total) => (
               <span
                 key={total.feed_item}
                 className={total.blocked_cells > 0 ? "tag t-warn" : "tag t-mut"}
                 title={total.blocked_cells > 0 ? copy(pageContract, "label.blocked_note") : undefined}
               >
-                {total.feed_item} · {total.quantity_kg} {copy(pageContract, "label.kg_noun")}
+                {total.feed_item} · {fmtKg(total.quantity_kg)} {copy(pageContract, "label.kg_noun")}
               </span>
             ))}
+          </div>
+        ) : null}
+
+        {lifecycleEmpty ? (
+          <div className="bd">
+            {/* One glyph + one line: the card's own caption already names the grain above. */}
+            <EmptyState title={copy(pageContract, "empty.direction")} icon={<ClipboardList className="ic" />} />
           </div>
         ) : null}
 
@@ -280,18 +284,18 @@ export async function FeedDirectionPage({
           role="group"
           aria-label={copy(pageContract, "section.direction.aria")}
         >
-          <table className="feed-table" aria-label={copy(pageContract, "table.direction.aria")}>
-            <thead>
-              <tr>
+          <Table className="feed-table" aria-label={copy(pageContract, "table.direction.aria")}>
+            <TableHead>
+              <TableRow>
                 {cols.map((col) => (
-                  <th key={col}>{col}</th>
+                  <TableCell component="th" key={col}>{col}</TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={cols.length}>
+                <TableRow>
+                  <TableCell colSpan={cols.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                       {!previewResult || previewResult.ok
                         ? hasFilter
@@ -299,8 +303,8 @@ export async function FeedDirectionPage({
                           : copy(pageContract, "empty.direction")
                         : copy(pageContract, "state.direction_unavailable")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 rows.flatMap((row) => {
                   // Configured zeros drop out here. Blocked items are NOT touched by this filter.
@@ -317,14 +321,14 @@ export async function FeedDirectionPage({
                   const items = visibleItems.length > 0 ? visibleItems : [null];
 
                   return items.map((item, index) => (
-                    <tr key={`${rowKey}|${item ? item.feed_item : "none"}`}>
+                    <TableRow key={`${rowKey}|${item ? item.feed_item : "none"}`}>
                       {index === 0 ? (
                         <>
                           {/* No park cell: this endpoint is single-park by contract (park_id is
                               required), so the value is constant for the whole page and is named
                               once by the Park filter above. See the contract comment in
                               adminui/app/service.go pages(). */}
-                          <td rowSpan={span}>
+                          <TableCell rowSpan={span}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                               <span style={{ fontWeight: 650 }}>
                                 {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label })}
@@ -334,12 +338,12 @@ export async function FeedDirectionPage({
                                 {row.overdue_pending ? <FeedOverdueShiftingChip pageContract={pageContract} /> : null}
                               </span>
                             </div>
-                          </td>
+                          </TableCell>
                           {/* Always the ANIMALS' management stage, on every workflow — the experiment
                               arm has its own column now. Multi-stage sheds arrive pre-joined. */}
-                          <td className="muted" rowSpan={span}>
-                            {row.shed_tag || copy(pageContract, "label.placeholder")}
-                          </td>
+                          <TableCell className="muted" rowSpan={span}>
+                            {stageLabel(row.shed_tag) || copy(pageContract, "label.placeholder")}
+                          </TableCell>
                           {/* Breed only. The ration group used to print as a sub-line here, but on a
                               feed sheet it is derivable noise: the operator reads the breed at the
                               shed door, and the group is an internal lookup key that is empty on
@@ -347,13 +351,13 @@ export async function FeedDirectionPage({
                               where the breed → group merge is actually authored. A multi-breed shed
                               arrives already joined into one label by the backend; the frontend does
                               not decide how a mixed shed is named. */}
-                          <td rowSpan={span}>{row.breed || copy(pageContract, "label.placeholder")}</td>
-                          <td className="muted" rowSpan={span}>
+                          <TableCell rowSpan={span}>{row.breed || copy(pageContract, "label.placeholder")}</TableCell>
+                          <TableCell className="muted" rowSpan={span}>
                             {row.session_label}
-                          </td>
+                          </TableCell>
                           {/* Projected, not census. `head_count_informational` marks the experiment
                               case, whose kg is already a shed total and must not be multiplied. */}
-                          <td rowSpan={span}>
+                          <TableCell rowSpan={span}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                               <span
                                 style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
@@ -367,7 +371,7 @@ export async function FeedDirectionPage({
                                   : copy(pageContract, "label.projected_count")}
                               </span>
                             </div>
-                          </td>
+                          </TableCell>
                         </>
                       ) : null}
 
@@ -377,27 +381,27 @@ export async function FeedDirectionPage({
                               multi-word LABEL, and holding it on one line is what pushed the
                               session total off the right edge of the card. It word-wraps; it is
                               never broken mid-token. */}
-                          <td className="feed-wrap">{item.feed_item}</td>
-                          <td>
+                          <TableCell className="feed-wrap">{item.feed_item}</TableCell>
+                          <TableCell>
                             <FeedQuantityCell item={item} pageContract={pageContract} />
-                          </td>
+                          </TableCell>
                         </>
                       ) : nothingToFeed ? (
                         /* Every item was a configured zero. Say so across the item + quantity columns
                            rather than leaving two placeholder dashes, which would read as missing
                            data — the one meaning this shed's state is NOT. */
-                        <td className="muted feed-wrap" colSpan={2}>
+                        <TableCell className="muted feed-wrap" colSpan={2}>
                           {copy(pageContract, "empty.nothing_to_feed")}
-                        </td>
+                        </TableCell>
                       ) : (
                         <>
-                          <td className="muted feed-wrap">{copy(pageContract, "label.placeholder")}</td>
-                          <td className="muted">{copy(pageContract, "label.placeholder")}</td>
+                          <TableCell className="muted feed-wrap">{copy(pageContract, "label.placeholder")}</TableCell>
+                          <TableCell className="muted">{copy(pageContract, "label.placeholder")}</TableCell>
                         </>
                       )}
 
                       {index === 0 ? (
-                        <td className="feed-total" rowSpan={span} style={{ textAlign: "right" }}>
+                        <TableCell className="feed-total" rowSpan={span} style={{ textAlign: "right" }}>
                           {/* Sum of the RESOLVED items only. When the row is blocked this total is
                               partial by construction, and saying so is the whole point — the number
                               is not what the shed needs, it is what we know how to give it. */}
@@ -406,7 +410,7 @@ export async function FeedDirectionPage({
                               style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: "var(--brand-d)" }}
                               title={copy(pageContract, "label.session_split_note")}
                             >
-                              {row.session_total_kg} {copy(pageContract, "label.kg_noun")}
+                              {fmtKg(row.session_total_kg)} {copy(pageContract, "label.kg_noun")}
                             </span>
                             {row.blocked ? (
                               // One row now covers a whole pen, so "blocked" alone no longer says WHICH
@@ -425,30 +429,30 @@ export async function FeedDirectionPage({
                               </span>
                             ) : null}
                           </div>
-                        </td>
+                        </TableCell>
                       ) : null}
 
-                      <td>
+                      <TableCell>
                         {item ? (
                           <FeedItemStatusTag item={item} pageContract={pageContract} />
                         ) : (
                           <span className="muted">{copy(pageContract, "label.placeholder")}</span>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ));
                 })
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         {/* The omission is disclosed once, under the table it applies to — not per row. Without it a
             reader who expects an item and cannot find it has no way to tell "authored as 0" from
             "dropped", and those have opposite consequences. */}
-        <div className="note" style={{ marginTop: 12 }}>
-          {copy(pageContract, "label.zero_items_omitted")}
-        </div>
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1.5 }}>
+          <InfoHint text={copy(pageContract, "label.zero_items_omitted")} />
+        </Box>
 
         <FeedPager
           pageContract={pageContract}
@@ -463,10 +467,9 @@ export async function FeedDirectionPage({
         />
         </>
         ) : null}
-      </section>
+      </Card>
+      </div>
 
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.direction.note")}</div>
-      <div className="note">{copy(pageContract, "label.formula")}</div>
     </div>
   );
 }

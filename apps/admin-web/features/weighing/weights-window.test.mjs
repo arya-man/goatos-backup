@@ -176,7 +176,7 @@ test("analytics tab changes expose a visible pending state", () => {
   assert.match(segmentedLinksSource, /metricseg:navigate/);
   assert.doesNotMatch(segmentedLinksSource, /router\.prefetch/);
   assert.doesNotMatch(segmentedLinksSource, /from "next\/link"/);
-  assert.match(segmentedLinksSource, /aria-busy=\{isPending\}/);
+  assert.match(segmentedLinksSource, /busy=\{isPending\}/);
   assert.match(analyticsSource, /<WeightsAnalyticsTabLoading[\s\S]*currentTab=\{tab\}[\s\S]*tabLabels=\{/);
   assert.match(analyticsSource, /className="wt-tab-live"/);
   assert.match(analyticsTabLoadingSource, /window\.addEventListener\("metricseg:navigate"/);
@@ -209,22 +209,32 @@ test("weights analytics tab links preserve the resolved weighing window", () => 
   assert.match(analyticsSource, /\[TAB_PARAM\]: name === "general" \? null : name/);
 });
 
-test("weights analytics direct route renders without a client-router canonical redirect", () => {
-  assert.match(analyticsRouteSource, /const \[params, contract\] = await Promise\.all\(\[searchParams, getAdminWebBootstrap\(\)\]\);/);
-  assert.match(analyticsRouteSource, /assertContractAvailable\(contract\);/);
-  assert.match(analyticsRouteSource, /const pageContract = contract\.data\.pages\.find\(\(item\) => item\.route_id === "weighing-analytics"\);/);
-  assert.match(analyticsRouteSource, /<WeighingWeightsAnalyticsPage[\s\S]*searchParams=\{params\}[\s\S]*pageContract=\{pageContract\}/);
-  assert.doesNotMatch(analyticsRouteSource, /redirectToCanonicalWindow/);
-  assert.doesNotMatch(analyticsRouteSource, /hrefWithWindow/);
-  assert.doesNotMatch(analyticsRouteSource, /redirect\(hrefWithWindow/);
-  assert.doesNotMatch(analyticsRouteSource, /requireAdminWebPageContract/);
-  assert.doesNotMatch(analyticsRouteSource, /Promise\.all\(\[searchParams, requireAdminWebPageContract/);
+test("weights analytics landing resolves the dated window before rendering the heavy page, in ONE document", () => {
+  // The window is resolved server-side before the heavy page reads, and the address bar is settled
+  // in place (CanonicalUrl) rather than by a streamed redirect that cost a second document and a
+  // second skeleton on every visit to "/".
+  assert.match(analyticsRouteSource, /async function canonicalWindowParams\(params: RouteSearchParams\): Promise<RouteSearchParams>/);
+  assert.match(analyticsRouteSource, /if \(one\(params, WINDOW_FROM_PARAM\) \|\| one\(params, WINDOW_TO_PARAM\)\) return params;/);
+  assert.match(analyticsRouteSource, /const window = await landingWindow\(/);
+  assert.match(analyticsRouteSource, /\[WINDOW_FROM_PARAM\]: window\.from, \[WINDOW_TO_PARAM\]: window\.to/);
+  assert.doesNotMatch(analyticsRouteSource, /redirect\(hrefWithWindow\(/);
+  assert.match(analyticsRouteSource, /const params = await canonicalWindowParams\(cleaned\);/);
+  assert.match(analyticsRouteSource, /<CanonicalUrl href=\{hrefWithWindow\(params, /);
+  assert.match(analyticsRouteSource, /<WeighingWeightsAnalyticsPage\s*\n\s*searchParams=\{params\}/);
+  assert.match(analyticsRouteSource, /next\.set\(WINDOW_FROM_PARAM, from\);/);
+  assert.match(analyticsRouteSource, /next\.set\(WINDOW_TO_PARAM, to\);/);
 });
 
 test("weights analytics fails selected tabs instead of rendering API failures as empty data", () => {
-  assert.match(analyticsSource, /if \(growth && !growth\.ok\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
-  assert.match(analyticsSource, /if \(demographics && !demographics\.ok\) \{\s*return <WeightsAnalyticsLoadError pageContract=\{pageContract\} \/>;\s*\}/);
-  assert.match(analyticsSource, /function WeightsAnalyticsLoadError/);
+  // A failed tab read shows the error card in place of the tab, never an empty tab -- and never
+  // wipes the page header, tab strip or filters (the reader must still be able to switch tab).
+  assert.match(analyticsSource, /const tabReadFailed = \(growth != null && !growth\.ok\) \|\| \(demographics != null && !demographics\.ok\);/);
+  assert.match(analyticsSource, /\{tabReadFailed \? <WeightsAnalyticsErrorCard pageContract=\{pageContract\} \/> : null\}/);
+  for (const tabName of ["general", "breed", "birth", "shed", "weight", "time", "load", "fcr"]) {
+    assert.match(analyticsSource, new RegExp(`\\{!tabReadFailed && tab === "${tabName}" \\?`));
+  }
+  assert.doesNotMatch(analyticsSource, /if \(demographics && !demographics\.ok\) \{\s*return/);
+  assert.match(analyticsSource, /function WeightsAnalyticsLoadError[\s\S]*?<PageHeader/);
   assert.doesNotMatch(analyticsSource, /perParkResults/);
   assert.doesNotMatch(analyticsSource, /function mustHaveData/);
   // A failed growth read takes the tab down above; the per-park cards read that same response and
@@ -303,18 +313,23 @@ test("the headline row is five cards, and the gain figure is stated once", () =>
   // The sixth card printed the SAME number, denominator and sub-line as the "All parks — daily
   // gain" card in the row below it. Its copy keys are deleted too, so the duplicate cannot be
   // reinstated by pasting the markup back.
-  assert.match(source, /className="grid g5 kpi-row"/);
+  // The headline row is the kit KpiGrid deck (auto-fit columns, no `.g5` ladder): exactly five
+  // items in the first WeightsKpiDeck, and no sixth gain card.
+  const deckStart = source.indexOf("<WeightsKpiDeck");
+  const deckEnd = source.indexOf("/>", deckStart);
+  const headlineDeck = source.slice(deckStart, deckEnd);
+  assert.equal((headlineDeck.match(/\bkey: "/g) ?? []).length, 5, "the headline deck is five cards");
   assert.doesNotMatch(source, /className="grid g6 kpi-row"/);
   assert.doesNotMatch(source, /"kpi\.gain\.label"/);
   assert.doesNotMatch(contract, /"kpi\.gain\.label":/);
   assert.doesNotMatch(contract, /"kpi\.gain\.sub":/);
-  // g5 needs its own responsive ladder; without it the row falls back to one column.
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
+  // The kit KpiGrid carries its own responsive ladder (auto-fit, min column width), so the deck
+  // never falls back to one column on desktop; the analytics page keeps its metrics stack.
+  const css = readFileSync(new URL("../../app/minimal-theme.css", import.meta.url), "utf8");
   assert.match(analyticsSource, /className="wt-general-metrics"/);
-  assert.match(css, /\.wt-general-metrics\{display:flex;flex-direction:column;gap:18px\}/);
-  assert.match(css, /\.g5\{grid-template-columns:repeat\(5,minmax\(0,1fr\)\)\}/);
-  assert.match(css, /@media\(max-width:1400px\)\{\.g5\{/);
-  assert.match(css, /@media\(max-width:640px\)\{\.g5\{grid-template-columns:1fr\}\}/);
+  assert.match(source, /<WeightsKpiDeck[\s\S]*?<KpiGrid|import \{ WeightsKpiDeck \}/);
+  assert.match(readFileSync(new URL("./weights-kpi-deck.tsx", import.meta.url), "utf8"), /<KpiGrid min=\{min\}>/);
+  assert.match(css, /\.kit-kpi-grid\{display:grid;gap:24px\}/);
 });
 
 test("daily gain survives a park-scoped page", () => {
@@ -491,26 +506,44 @@ test("chart metric switches are local state, not route reloads", () => {
 });
 
 test("full-width shed chart labels fit without overlapping rows", () => {
-  const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
-  assert.match(css, /\.wcols \.wbar\{[^}]*min-height:86px/);
-  assert.match(css, /@media\(max-width:1200px\)\{\.wcols \.wbar\{[^}]*min-height:92px/);
-  assert.match(css, /\.wbar \.wbl-text\{[^}]*display:-webkit-box/);
-  assert.match(css, /\.wbar \.wbl-text\{[^}]*-webkit-line-clamp:2/);
-  assert.match(css, /\.wcols \.wbar \.wbl-text\{[^}]*display:-webkit-box/);
-  assert.match(css, /\.wcols \.wbar \.wbl-text\{[^}]*-webkit-line-clamp:3/);
-  assert.match(css, /\.wcols \.wbar \.wbl-text\{[^}]*white-space:normal/);
-  assert.match(css, /\.wcols \.wbar \.wbl-text\{[^}]*overflow:hidden/);
-  assert.match(css, /\.wcols \.wbar \.wbl-text\{[^}]*text-overflow:ellipsis/);
-  assert.match(css, /\.wcols \.wbar \.wbl-text\{[^}]*overflow-wrap:anywhere/);
-  assert.doesNotMatch(css, /\.wcols \.wbar \.wbl\{[^}]*overflow:visible/);
-  assert.match(css, /\.wbar\{[^}]*grid-template-columns:minmax\(88px,clamp\(160px,36%,260px\)\) minmax\(72px,1fr\) 72px/);
-  assert.match(css, /\.wbar\{[^}]*min-height:34px/);
-  assert.match(css, /\.wbar \.wbl\{[^}]*min-width:0/);
-  assert.match(css, /\.wbar \.wbt\{[^}]*min-width:0/);
-  assert.match(css, /@media\(max-width:900px\)\{\.wbar\{[^}]*minmax\(0,112px\)/);
-  assert.match(css, /@media\(max-width:520px\)\{\s*\.wgrouped \.wbar\{[^}]*grid-template-columns:minmax\(0,1fr\) auto/);
-  assert.match(css, /@media\(max-width:520px\)\{[\s\S]*\.wgrouped \.wbar \.wbt\{[^}]*grid-column:1\/-1/);
-  assert.match(css, /@media\(max-width:520px\)\{[\s\S]*\.wgrouped \.wbar \.wbv\{[^}]*grid-column:2/);
+  // The bar rows are the MUI Minimal template item (components/minimal/progress-list), drawn by
+  // the kit BarList that WeightBars and GroupedBars both render. The label rules that used to live
+  // on the `.wbar` grid are asserted on that item now.
+  const item = readFileSync(new URL("../../components/minimal/progress-list/progress-item.tsx", import.meta.url), "utf8");
+  const barList = readFileSync(new URL("../../components/bar-list.tsx", import.meta.url), "utf8");
+  const weightBars = readFileSync(new URL("./weight-bars.tsx", import.meta.url), "utf8");
+  const groupedBars = readFileSync(new URL("./grouped-bars.tsx", import.meta.url), "utf8");
+  assert.match(weightBars, /<BarList[\s\S]*wide=\{wide\}/);
+  assert.match(groupedBars, /<BarList[\s\S]*className="wgrouped"/);
+  // A long pen label wraps to TWO lines and is then cut, never collapsed to "C..": the clamped text
+  // carries display:-webkit-box + line-clamp 2, hides overflow and may break anywhere.
+  assert.match(item, /className=\{`\$\{hook\}-label-text`\}[\s\S]*?display: "-webkit-box"/);
+  assert.match(item, /-label-text`\}[\s\S]*?WebkitLineClamp: 2/);
+  assert.match(item, /-label-text`\}[\s\S]*?overflow: "hidden"/);
+  assert.match(item, /-label-text`\}[\s\S]*?overflowWrap: "anywhere"/);
+  // The label column has a 0 minimum and grows (so a long name never overlaps the value), the
+  // value never shrinks or wraps, and the track has a 0 minimum inside its row.
+  assert.match(item, /className=\{`\$\{hook\}-label`\}\s*sx=\{\{ flexGrow: 1, minWidth: 0/);
+  assert.match(item, /className=\{`\$\{hook\}-value`\}[\s\S]*?flexShrink: 0,\s*whiteSpace: "nowrap"/);
+  assert.match(item, /trackSx\(theme\), (?:display: "block", position: "relative", )?minWidth: 0/);
+  // The mode chip rides beside the label, OUTSIDE the clamped text, so the clamp cannot swallow it.
+  assert.match(item, /-label-text`\}[\s\S]*?\{label\}\s*<\/Box>\s*\{note \?/);
+  // Wide list (FCR by pen, loads): label / track / value on ONE row above 900px with the 240-420px
+  // label column and a >= 220px track; at <= 900px it stacks — label, tag and value on line 1, the
+  // full-width track on line 2 (the template item).
+  assert.match(item, /const WIDE = theme\.breakpoints\.up\(901\);/);
+  assert.match(item, /gridTemplateColumns: "minmax\(0, clamp\(240px, 42%, 420px\)\) minmax\(220px, 1fr\) auto"/);
+  assert.match(item, /\[WIDE\]: \{ display: "contents" \}/);
+  // Grouped rows at phone width: the value stays beside the label in the header row (it can never
+  // clip past the card edge) and the track sits on its own full-width line below.
+  assert.match(item, /-head`\}[\s\S]*?display: "flex"[\s\S]*?-value`\}[\s\S]*?track\.kind === "linear"/);
+  // Negative values: drawn from a zero rule in the danger tone, value text red, on the axis track.
+  assert.match(barList, /const axis = lo < 0 \|\| refValue != null;/);
+  assert.match(barList, /row\.color \?\? \(row\.value < 0 \? "var\(--danger\)" : "var\(--brand\)"\)/);
+  assert.match(item, /color: negative \? "var\(--danger\)" : undefined/);
+  // Fixed boxes: tall 300 / short 150, scrolling inside.
+  assert.match(item, /size === "tall" \? 300 : size === "short" \? 150 : null/);
+  assert.match(item, /height: box, overflowY: "auto"/);
 });
 
 test("the two table cards are inset without losing their full-bleed tables", () => {

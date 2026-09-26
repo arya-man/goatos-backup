@@ -1,4 +1,15 @@
 "use client";
+import Box from "@mui/material/Box";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import MuiLink from "@mui/material/Link";
+import IconButton from "@mui/material/IconButton";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import TextField from "@mui/material/TextField";
 
 import { Banknote, Save, Trash2, X } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
@@ -26,6 +37,10 @@ import {
   updateSalesDealPaymentAction,
   type SalesPaymentActionError,
 } from "./sales-actions";
+import { FormSelect } from "./form-select";
+import { listOptions } from "./option-utils";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import { PAYMENT_IDEMPOTENCY_FIELD, paymentKeyFor, type MintedPaymentKey } from "./payment-idempotency";
 
 /** Reads the selected deal from the address bar. "" means the drawer is closed; "new" is the form. */
@@ -307,15 +322,14 @@ export function SalesRecordDrawer({
             ) : null}
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <button
+          <IconButton
             ref={closeButtonRef}
             type="button"
-            className="iconbtn"
             aria-label={copy(pageContract, "action.close")}
             onClick={close}
           >
             <X className="ic" aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
 
         {isAdding ? (
@@ -342,7 +356,7 @@ export function SalesRecordDrawer({
               <input type="hidden" name="return_to" value={listHref} />
               <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={saleKey} />
 
-              {recordError && recordError.code !== "feed_stock_confirmation_required" ? <div ref={recordAlertRef} role="alert" className="note warn">{recordError.message}</div> : null}
+              {recordError && recordError.code !== "feed_stock_confirmation_required" ? <Alert ref={recordAlertRef} role="alert" severity="warning">{recordError.message}</Alert> : null}
               <div className="note">{copy(pageContract, "required.hint")}</div>
 
               <div className="fld">
@@ -365,17 +379,15 @@ export function SalesRecordDrawer({
                 />
               </div>
               <div className="fld">
-                <label htmlFor="s-farm">{field("farm")}</label>
-                <select id="s-farm" name="farm" required defaultValue="" onChange={() => setStockAck(false)}>
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {farmOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("farm")}
+                  name="farm"
+                  id="s-farm"
+                  onValueChange={() => setStockAck(false)}
+                  defaultValue=""
+                  required
+                  options={listOptions(farmOptions, (option) => option.key, (option) => option.label, "—")}
+                />
               </div>
               <SaleLinesEditor
                 lines={lines}
@@ -390,17 +402,20 @@ export function SalesRecordDrawer({
                 // tick the form carries on its own is not a confirmation of anything.
                 <div className="fld sales-stock-ack" ref={recordError?.code === "feed_stock_confirmation_required" ? recordAlertRef : undefined}>
                   {recordError?.message || stockConfirmDetail ? <div role="alert" className="note warn">{recordError?.message || stockConfirmDetail}</div> : null}
-                  <label htmlFor="s-stock_ack">
-                    <input
-                      id="s-stock_ack"
-                      name="stock_shortfall_acknowledged"
-                      type="checkbox"
-                      value="1"
-                      checked={stockAck}
-                      onChange={(event) => setStockAck(event.target.checked)}
-                    />{" "}
-                    {copy(pageContract, "field.stock_shortfall_ack")}
-                  </label>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        id="s-stock_ack"
+                        name="stock_shortfall_acknowledged"
+                        value="1"
+                        checked={stockAck}
+                        onChange={(event) => setStockAck(event.target.checked)}
+                        sx={{ p: { xs: 1.5, sm: 1 } }}
+                      />
+                    }
+                    label={<>{" "}
+                      {copy(pageContract, "field.stock_shortfall_ack")}</>}
+                  />
                   <div className="note">{copy(pageContract, "hint.stock_shortfall_ack")}</div>
                 </div>
               ) : null}
@@ -428,8 +443,11 @@ export function SalesRecordDrawer({
                   </>
                 ) : (
                   <>
-                    <div className="sales-vendor-search">
-                      <input
+                    <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.75 }}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        sx={{ flex: "1 1 auto", minWidth: 0 }}
                         id="s-vendor_search"
                         type="search"
                         // NOT part of the form payload: this filters the options and is never
@@ -437,100 +455,115 @@ export function SalesRecordDrawer({
                         name="vendor_search"
                         autoComplete="off"
                         placeholder={copy(pageContract, "search.vendor.placeholder")}
-                        aria-controls="s-buyer_vendor_id"
                         value={vendorQuery}
                         onChange={(event) => setVendorQuery(event.target.value)}
+                        slotProps={{ htmlInput: { "aria-controls": "s-buyer_vendor_id" } }}
                       />
                       {vendorQuery === "" ? null : (
-                        <button type="button" className="btn sm" onClick={() => setVendorQuery("")}>
+                        <Button type="button" size="small" variant="outlined" sx={{ flex: "none", whiteSpace: "nowrap" }} onClick={() => setVendorQuery("")}>
                           {copy(pageContract, "action.clear_search")}
-                        </button>
+                        </Button>
                       )}
-                    </div>
-                    <select
-                      id="s-buyer_vendor_id"
+                    </Box>
+                    {/* The kit field, not the OS listbox: the search input above still narrows
+                        `shownVendors`, and the value is reported exactly as the native control
+                        reported it, so the form's payload is unchanged. */}
+                    <FormSelect
+                      label={copy(pageContract, "select.vendor.placeholder")}
                       name="buyer_vendor_id"
+                      id="s-buyer_vendor_id"
                       required
-                      // Sized to show several rows at once while filtering, so a narrowed list
-                      // reads as a result set rather than a one-line box.
-                      size={searchActive ? Math.min(8, Math.max(2, shownVendors.length + 1)) : undefined}
                       value={vendorId}
-                      onChange={(event) => onVendorChange(event.target.value)}
-                    >
-                      <option value="" disabled>
-                        {copy(pageContract, "select.vendor.placeholder")}
-                      </option>
-                      {shownVendors.map((vendor) => (
-                        <option key={vendor.vendor_id} value={vendor.vendor_id}>
-                          {vendorLabel(vendor)}
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={onVendorChange}
+                      // The field's floating label already says "choose the vendor"; the empty
+                      // entry is the dash every other field uses, so the label is not printed twice.
+                      options={listOptions(
+                        shownVendors,
+                        (vendor) => vendor.vendor_id,
+                        (vendor) => vendorLabel(vendor),
+                        "—",
+                      )}
+                    />
                     {noMatches ? <div className="note">{copy(pageContract, "hint.vendor_no_match")}</div> : null}
                     {/* The exit from a required field the person may not be able to fill: the
                         buyer might simply not be on the register yet. */}
-                    <div className="note sales-vendor-hint">
+                    <div className="note">
                       {copy(pageContract, "hint.vendor")}{" "}
-                      <Link href="/procurement/vendors">{copy(pageContract, "action.open_vendors")}</Link>
+                      <MuiLink component={Link} href="/procurement/vendors" color="info" underline="always">
+                        {copy(pageContract, "action.open_vendors")}
+                      </MuiLink>
                     </div>
                   </>
                 )}
               </div>
               <div className="fld">
-                <label htmlFor="s-buyer_name">{field("buyer_name")}</label>
-                <input
+                <TextField
+                  fullWidth
                   id="s-buyer_name"
                   name="buyer_name"
+                  label={field("buyer_name")}
                   required
-                  maxLength={160}
                   value={buyerName}
                   onChange={(event) => setBuyerName(event.target.value)}
+                  slotProps={{ htmlInput: { maxLength: 160 }, inputLabel: { shrink: true } }}
                 />
               </div>
               <div className="fld">
-                <label htmlFor="s-buyer_place">{field("buyer_place")}</label>
-                <input
+                <TextField
+                  fullWidth
                   id="s-buyer_place"
                   name="buyer_place"
-                  maxLength={160}
+                  label={field("buyer_place")}
                   value={buyerPlace}
                   onChange={(event) => setBuyerPlace(event.target.value)}
+                  slotProps={{ htmlInput: { maxLength: 160 }, inputLabel: { shrink: true } }}
                 />
-                {selectedVendor ? <div className="note">{copy(pageContract, "hint.vendor_prefill")}</div> : null}
               </div>
               <div className="dgrp">{copy(pageContract, "section.payments.title")}</div>
               <div className="fld">
-                <label htmlFor="s-advance_amount">{field("advance_amount")}</label>
-                <input id="s-advance_amount" name="advance_amount" type="number" min={0} step="0.01" />
+                <TextField
+                  fullWidth
+                  id="s-advance_amount"
+                  name="advance_amount"
+                  type="number"
+                  label={field("advance_amount")}
+                  slotProps={{ htmlInput: { min: 0, step: 0.01 }, inputLabel: { shrink: true } }}
+                />
               </div>
               <div className="fld">
-                <label htmlFor="s-status">{field("status")}</label>
                 {/* Defaults to Deal Closed — a recorded sale is a finished one unless the desk says
                     otherwise. Advance Paid / In Discussion record an EXPECTED sale (a future sale
                     date is fine); the receipt itself is dated by when the money arrived. */}
-                <select id="s-status" name="status" defaultValue="Deal Closed">
-                  {dealStatusOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("status")}
+                  name="status"
+                  id="s-status"
+                  defaultValue="Deal Closed"
+                  options={listOptions(dealStatusOptions, (option) => option.key, (option) => option.label)}
+                />
                 <div className="muted small">{copy(pageContract, "hint.status")}</div>
               </div>
               <div className="fld">
-                <label htmlFor="s-comments">{field("comments")}</label>
-                <textarea id="s-comments" name="comments" maxLength={2000} rows={2} />
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={2}
+                  id="s-comments"
+                  name="comments"
+                  label={field("comments")}
+                  slotProps={{ htmlInput: { maxLength: 2000 }, inputLabel: { shrink: true } }}
+                />
               </div>
             </div>
             <div className="df">
               {/* A sale cannot be recorded without a vendor, so Save is disabled-with-reason rather
                   than left live to fail at the backend with a message about a field the form could
                   not offer. The route validates the same rule regardless. */}
-              <button
+              <Button
                 type="submit"
-                className="btn p"
-                disabled={!canPickVendor || recordPending}
-                aria-disabled={!canPickVendor || recordPending}
+                variant="contained"
+                loading={recordPending}
+                disabled={!canPickVendor}
                 title={
                   canPickVendor
                     ? undefined
@@ -545,10 +578,10 @@ export function SalesRecordDrawer({
                 }
               >
                 {copy(pageContract, "action.save")}
-              </button>
-              <button type="button" className="btn" onClick={close}>
+              </Button>
+              <Button type="button" variant="outlined" onClick={close}>
                 {copy(pageContract, "action.cancel")}
-              </button>
+              </Button>
             </div>
           </form>
         ) : deal ? (
@@ -597,18 +630,18 @@ export function SalesRecordDrawer({
               // laptop drawer, but a phone is narrower than any readable six-column table, so the
               // table pans here rather than painting off the screen.
               <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.lines.title")}>
-              <table className="sales-lines-table" data-testid="sale-detail-lines">
-                <thead>
-                  <tr>
-                    <th>{field("product_type")}</th>
-                    <th>{field("breed")}</th>
-                    <th className="num">{copy(pageContract, "field.line_animal_count")}</th>
-                    <th className="num">{copy(pageContract, "field.line_total_weight_kg")}</th>
-                    <th className="num">{copy(pageContract, "field.line_quantity_rate")}</th>
-                    <th className="num">{copy(pageContract, "field.sales_value")}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="sales-lines-table" data-testid="sale-detail-lines">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{field("product_type")}</TableCell>
+                    <TableCell component="th">{field("breed")}</TableCell>
+                    <TableCell component="th" className="num">{copy(pageContract, "field.line_animal_count")}</TableCell>
+                    <TableCell component="th" className="num">{copy(pageContract, "field.line_total_weight_kg")}</TableCell>
+                    <TableCell component="th" className="num">{copy(pageContract, "field.line_quantity_rate")}</TableCell>
+                    <TableCell component="th" className="num">{copy(pageContract, "field.sales_value")}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {deal.lines.map((line) => {
                     // A cell that does not belong to the line's kind reads as a dash, never as
                     // "Not recorded": an animal line owes no quantity, and a line sold by the unit
@@ -616,18 +649,18 @@ export function SalesRecordDrawer({
                     const byUnit = line.quantity != null;
                     const isAnimal = line.product_kind === "animal";
                     return (
-                      <tr key={line.line_id}>
-                        <td>{line.product_type}</td>
-                        <td className="wrap">{breedBeyondProduct(line.product_type, line.breed) ?? ""}</td>
-                        <td className="num">{line.animal_count == null ? (byUnit ? notApplicable : none) : num(line.animal_count)}</td>
-                        <td className="num">{line.total_weight_kg == null ? (byUnit ? notApplicable : none) : num(line.total_weight_kg, 1)}</td>
-                        <td className="num wrap">{quantityAtRate(line.quantity, line.unit, line.rate_per_unit) || (isAnimal ? notApplicable : none)}</td>
-                        <td className="num">{inr(line.sales_value)}</td>
-                      </tr>
+                      <TableRow key={line.line_id}>
+                        <TableCell>{line.product_type}</TableCell>
+                        <TableCell className="wrap">{breedBeyondProduct(line.product_type, line.breed) ?? ""}</TableCell>
+                        <TableCell className="num">{line.animal_count == null ? (byUnit ? notApplicable : none) : num(line.animal_count)}</TableCell>
+                        <TableCell className="num">{line.total_weight_kg == null ? (byUnit ? notApplicable : none) : num(line.total_weight_kg, 1)}</TableCell>
+                        <TableCell className="num wrap">{quantityAtRate(line.quantity, line.unit, line.rate_per_unit) || (isAnimal ? notApplicable : none)}</TableCell>
+                        <TableCell className="num">{inr(line.sales_value)}</TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               </div>
             )}
 
@@ -647,16 +680,16 @@ export function SalesRecordDrawer({
               <div className="muted small">{copy(pageContract, "payments.empty")}</div>
             ) : (
               <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.payments.title")}>
-                <table aria-label={copy(pageContract, "section.payments.title")}>
-                  <thead>
-                    <tr>
-                      <th>{copy(pageContract, "payments.column.received_on")}</th>
-                      <th>{copy(pageContract, "payments.column.amount")}</th>
-                      <th>{copy(pageContract, "payments.column.note")}</th>
-                      {showPaymentActions ? <th /> : null}
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table aria-label={copy(pageContract, "section.payments.title")}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">{copy(pageContract, "payments.column.received_on")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "payments.column.amount")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "payments.column.note")}</TableCell>
+                      {showPaymentActions ? <TableCell component="th" /> : null}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {deal.payments.map((payment) => (
                       <PaymentRow
                         key={payment.payment_id}
@@ -669,8 +702,8 @@ export function SalesRecordDrawer({
                         showActions={showPaymentActions}
                       />
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
 
@@ -688,18 +721,18 @@ export function SalesRecordDrawer({
               <form action={setSalesDealStatusAction} className="fld">
                 <input type="hidden" name="return_to" value={dealHref} />
                 <input type="hidden" name="deal_id" value={deal.deal_id} />
-                <label htmlFor="sds-status">{field("status")}</label>
-                <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-                  <select id="sds-status" name="status" required defaultValue={deal.status}>
-                    {editStatusOptions.map((option) => (
-                      <option key={option.key} value={option.key}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="submit" className="btn">
+                <div style={{ display: "flex", gap: 9, alignItems: "flex-end" }}>
+                  <FormSelect
+                    label={field("status")}
+                    name="status"
+                    id="sds-status"
+                    defaultValue={deal.status}
+                    required
+                    options={listOptions(editStatusOptions, (option) => option.key, (option) => option.label)}
+                  />
+                  <Button type="submit" variant="outlined">
                     {copy(pageContract, "action.update_deal_status.label")}
-                  </button>
+                  </Button>
                 </div>
                 {statusStockConfirmNeeded ? (
                   // Closing takes the sale's feed off the store, so the close asks the same
@@ -707,15 +740,11 @@ export function SalesRecordDrawer({
                   // ticked by default: a tick the form carries on its own confirms nothing.
                   <div className="fld sales-stock-ack">
                     {stockConfirmDetail ? <div className="note warn">{stockConfirmDetail}</div> : null}
-                    <label htmlFor="sds-stock_ack">
-                      <input
-                        id="sds-stock_ack"
-                        name="stock_shortfall_acknowledged"
-                        type="checkbox"
-                        value="1"
-                      />{" "}
-                      {copy(pageContract, "field.stock_shortfall_ack")}
-                    </label>
+                    <FormControlLabel
+                      control={<Checkbox id="sds-stock_ack" name="stock_shortfall_acknowledged" value="1" sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                      label={<>{" "}
+                    {copy(pageContract, "field.stock_shortfall_ack")}</>}
+                    />
                     <div className="note">{copy(pageContract, "hint.stock_shortfall_ack")}</div>
                   </div>
                 ) : null}
@@ -800,26 +829,45 @@ function RecordPaymentForm({
       <input type="hidden" name="deal_id" value={deal.deal_id} />
       <input type="hidden" name={PAYMENT_IDEMPOTENCY_FIELD} value={key} />
       {error ? (
-        <div role="alert" className="note warn">
+        <Alert role="alert" severity="warning" sx={{ mb: 1.5 }}>
           {paymentErrorText(pageContract, error, "action.payment_record_failed")}
-        </div>
+        </Alert>
       ) : null}
       <div className="fld">
-        <label htmlFor="sdp-received_on">{field("received_on")}</label>
-        <input id="sdp-received_on" name="received_on" type="date" required />
+        <label>{field("received_on")}</label>
+        <ThemedDatePicker
+          name="received_on"
+          label={field("received_on")}
+          required
+          previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+          nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+          invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+        />
       </div>
       <div className="fld">
-        <label htmlFor="sdp-amount">{field("amount_rupees")}</label>
-        <input id="sdp-amount" name="amount_rupees" type="number" min={0.01} step="0.01" required />
+        <TextField
+          fullWidth
+          id="sdp-amount"
+          name="amount_rupees"
+          type="number"
+          label={field("amount_rupees")}
+          required
+          slotProps={{ htmlInput: { min: 0.01, step: 0.01 }, inputLabel: { shrink: true } }}
+        />
       </div>
       <div className="fld">
-        <label htmlFor="sdp-note">{field("note")}</label>
-        <input id="sdp-note" name="note" maxLength={300} />
+        <TextField
+          fullWidth
+          id="sdp-note"
+          name="note"
+          label={field("note")}
+          slotProps={{ htmlInput: { maxLength: 300 }, inputLabel: { shrink: true } }}
+        />
         <div className="muted small">{copy(pageContract, "hint.record_payment")}</div>
       </div>
-      <button type="submit" className="btn p" disabled={pending} aria-disabled={pending}>
+      <Button type="submit" variant="contained" disabled={pending} aria-disabled={pending}>
         {copy(pageContract, "action.record_deal_payment.label")}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -864,52 +912,67 @@ function PaymentRow({
       : "";
   return (
     <>
-      <tr aria-busy={busy}>
-        <td style={{ whiteSpace: "nowrap" }}>
+      <TableRow aria-busy={busy}>
+        <TableCell style={{ whiteSpace: "nowrap" }}>
           {canUpdate ? (
-            <input
-              form={editFormId}
-              name="received_on"
+            <TextField
+              size="small"
               type="date"
               required
               defaultValue={payment.received_on}
-              aria-label={copy(pageContract, "payments.column.received_on")}
+              slotProps={{
+                htmlInput: {
+                  form: editFormId,
+                  name: "received_on",
+                  "aria-label": copy(pageContract, "payments.column.received_on"),
+                },
+              }}
             />
           ) : (
             fmtDate(payment.received_on)
           )}
-        </td>
-        <td style={{ whiteSpace: "nowrap" }}>
+        </TableCell>
+        <TableCell style={{ whiteSpace: "nowrap" }}>
           {canUpdate ? (
-            <input
-              form={editFormId}
-              name="amount_rupees"
+            <TextField
+              size="small"
               type="number"
-              min={0.01}
-              step="0.01"
               required
               defaultValue={payment.amount_rupees}
-              aria-label={copy(pageContract, "payments.column.amount")}
+              slotProps={{
+                htmlInput: {
+                  form: editFormId,
+                  name: "amount_rupees",
+                  min: 0.01,
+                  step: 0.01,
+                  "aria-label": copy(pageContract, "payments.column.amount"),
+                },
+              }}
             />
           ) : (
             inr(payment.amount_rupees)
           )}
-        </td>
-        <td>
+        </TableCell>
+        <TableCell>
           {canUpdate ? (
-            <input
-              form={editFormId}
-              name="note"
-              maxLength={300}
+            <TextField
+              size="small"
               defaultValue={payment.note}
-              aria-label={copy(pageContract, "payments.column.note")}
+              slotProps={{
+                htmlInput: {
+                  form: editFormId,
+                  name: "note",
+                  maxLength: 300,
+                  "aria-label": copy(pageContract, "payments.column.note"),
+                },
+              }}
             />
           ) : (
             payment.note || none
           )}
-        </td>
+        </TableCell>
         {showActions ? (
-          <td style={{ whiteSpace: "nowrap" }}>
+          <TableCell style={{ whiteSpace: "nowrap" }}>
             {canUpdate ? (
               <form id={editFormId} onSubmit={edit.onSubmit} hidden>
                 <input type="hidden" name="return_to" value={dealHref} />
@@ -928,43 +991,43 @@ function PaymentRow({
             ) : null}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               {canUpdate ? (
-                <button
+                <IconButton
                   type="submit"
                   form={editFormId}
-                  className="iconbtn"
+                  size="small"
                   disabled={busy}
                   aria-disabled={busy}
                   aria-label={copy(pageContract, "action.update_deal_payment.label")}
                   title={copy(pageContract, "action.update_deal_payment.label")}
                 >
                   <Save className="ic" aria-hidden="true" />
-                </button>
+                </IconButton>
               ) : null}
               {canDelete ? (
-                <button
+                <IconButton
                   type="submit"
                   form={deleteFormId}
-                  className="iconbtn"
+                  size="small"
                   disabled={busy}
                   aria-disabled={busy}
                   aria-label={copy(pageContract, "action.delete_deal_payment.label")}
                   title={copy(pageContract, "action.delete_deal_payment.label")}
                 >
                   <Trash2 className="ic" aria-hidden="true" />
-                </button>
+                </IconButton>
               ) : null}
             </div>
-          </td>
+          </TableCell>
         ) : null}
-      </tr>
+      </TableRow>
       {refusal ? (
-        <tr>
-          <td colSpan={showActions ? 4 : 3}>
-            <div role="alert" className="note warn">
+        <TableRow>
+          <TableCell colSpan={showActions ? 4 : 3}>
+            <Alert role="alert" severity="warning">
               {refusal}
-            </div>
-          </td>
-        </tr>
+            </Alert>
+          </TableCell>
+        </TableRow>
       ) : null}
     </>
   );

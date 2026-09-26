@@ -1,13 +1,29 @@
 "use client";
 
-import { Check, ChevronDown, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { useMemo, useState } from "react";
+import { usePopover } from "minimal-shared/hooks";
+import Box from "@mui/material/Box";
+import Checkbox from "@mui/material/Checkbox";
+import InputAdornment from "@mui/material/InputAdornment";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import TextField from "@mui/material/TextField";
+import Typography from "@mui/material/Typography";
+import type { Theme } from "@mui/material/styles";
+import { Avatar } from "@/components/app/avatar";
+import { CustomPopover } from "@/components/minimal/custom-popover";
+import { Iconify } from "@/components/minimal/iconify";
+import { TAP_MIN } from "@/components/minimal/_shared/tap";
 
 /**
  * THE ASSIGNEE PICKER: the Work Board's avatar stack + "+N" chip + searchable list, lifted out of
  * `features/work-board/work-board-board.tsx` so a second host can use the same control.
  *
- * Two modes, one anatomy (`.avs` / `.avmenu` in mesha-theme.css):
+ * Two modes, one anatomy: the `.avs` trigger (mesha-theme.css) opens the template menu popover
+ * (CustomPopover: search TextField + MenuList rows). MUI portals it, keeps it in the viewport,
+ * closes it on an outside click and on Escape (its handler stops the press, so a dialog shell on
+ * the same document never hears it -- one press, one layer) and returns focus to the trigger.
  *   - `multi`  — the Work Board FILTER, byte for byte what that page shipped: the stack shows
  *                everyone on the page, one owner narrows the read, "Select all" clears. Every
  *                row is ticked when nobody is picked, because the board is then showing all of
@@ -18,8 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
  *                Rows read "Name — Title", because the defect this replaced listed job titles
  *                only ("CEO / CXO" twice) and a CXO could not pick a PERSON. Typing matches the
  *                name or the title; Arrow keys move; Enter picks; Escape closes the list and
- *                nothing else (the outside-close hook stops the press before a dialog shell hears
- *                it).
+ *                nothing else.
  *
  * Every visible string is passed in by the host from its page contract (the backend-owns-labels
  * rule); nothing here is a local literal except the tick glyph and the caret.
@@ -58,39 +73,9 @@ export function initials(name?: string): string {
     .toUpperCase();
 }
 
-// A toolbar menu closes on an outside click and on Escape (Escape hands focus back to the
-// trigger so a keyboard user is not dropped on the page body). The Escape listener is a
-// CAPTURING document listener that stops propagation, so a dialog shell listening on the same
-// document never hears the press that closed this menu -- one press, one layer.
-function useOutsideClose(open: boolean, close: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      close();
-      ref.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
-    };
-    document.addEventListener("click", onDoc);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("click", onDoc);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, [open, close]);
-  return ref;
-}
-
-function Avatar({ name, className = "" }: { name: string; className?: string }) {
-  return (
-    <span className={`av ${className}`.trim()} title={name}>
-      {initials(name)}
-    </span>
-  );
+/** Phone tap floor for popover rows (webview rule: >=44px). */
+function tapRow(theme: Theme) {
+  return { gap: 1.25, [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } };
 }
 
 export function AssigneePicker({
@@ -124,19 +109,16 @@ export function AssigneePicker({
    */
   stackSize?: number;
 }) {
-  const [open, setOpen] = useState(false);
+  const menu = usePopover();
+  const open = menu.open;
   const [query, setQuery] = useState("");
   // `single` only: which row Enter would pick. Stored WITH the query it belongs to, so a new
   // query starts on its own first match rather than on a row that is now someone else.
   const [marker, setMarker] = useState<{ query: string; index: number }>({ query: "", index: 0 });
-  const inputRef = useRef<HTMLInputElement>(null);
-  const ref = useOutsideClose(open, () => {
-    setOpen(false);
+  const close = () => {
+    menu.onClose();
     setQuery("");
-  });
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+  };
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return owners;
@@ -151,7 +133,7 @@ export function AssigneePicker({
   const current = owners.find((o) => o.id === selected);
   const visible = current ? [current] : owners.slice(0, stackSize);
   const overflow = current ? 0 : Math.max(0, owners.length - stackSize);
-  const toggle = () => setOpen((v) => !v);
+  const toggle = (event: React.MouseEvent<HTMLElement>) => (open ? close() : menu.onOpen(event));
   const highlight =
     marker.query === query ? Math.min(marker.index, Math.max(shown.length - 1, 0)) : 0;
 
@@ -160,11 +142,10 @@ export function AssigneePicker({
   if (mode === "single") {
     const pick = (id: string) => {
       onSelect(id);
-      setOpen(false);
-      setQuery("");
+      close();
     };
     return (
-      <div ref={ref} className="avs avs-single" aria-label={labels.label}>
+      <div className="avs avs-single" aria-label={labels.label}>
         {name ? <input type="hidden" name={name} value={selected ?? ""} /> : null}
         <button
           type="button"
@@ -177,7 +158,7 @@ export function AssigneePicker({
           aria-label={`${labels.label}: ${current ? current.name : labels.placeholder ?? ""}`}
           onClick={toggle}
         >
-          {current ? <Avatar name={current.name} /> : null}
+          {current ? <Avatar name={current.name} initials={initials(current.name)} size={24} decorative /> : null}
           <span className="avs-value">
             {current ? (
               <>
@@ -190,71 +171,82 @@ export function AssigneePicker({
           </span>
           <ChevronDown className="ic" aria-hidden="true" />
         </button>
-        {open ? (
-          <div className="avmenu" role="presentation" data-assignee-menu>
-            <div className="avq">
-              <Search className="ic" aria-hidden="true" />
-              <input
-                ref={inputRef}
-                role="combobox"
-                aria-expanded="true"
-                aria-autocomplete="list"
-                aria-controls={listId}
-                aria-activedescendant={shown.length && listId ? `${listId}-${highlight}` : undefined}
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setMarker({ query: e.target.value, index: 0 });
-                }}
-                onKeyDown={(e) => {
-                  // Compared lower-cased: the copy guard reads a capitalised key name as text.
-                  const key = e.key.toLowerCase();
-                  if (key === "arrowdown" || key === "arrowup") {
-                    e.preventDefault();
-                    if (!shown.length) return;
-                    const delta = key === "arrowdown" ? 1 : -1;
-                    setMarker({ query, index: (highlight + delta + shown.length) % shown.length });
-                    return;
-                  }
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const row = shown[highlight];
-                    if (row) pick(row.id);
-                  }
-                }}
-                placeholder={labels.search}
-                aria-label={labels.search}
-                autoComplete="off"
-                maxLength={60}
-              />
-            </div>
-            <div className="list" role="listbox" id={listId} aria-label={labels.label}>
-              {shown.map((o, index) => {
-                const on = o.id === selected;
-                return (
-                  <button
-                    type="button"
-                    key={o.id}
-                    id={listId ? `${listId}-${index}` : undefined}
-                    role="option"
-                    aria-selected={on}
-                    className={`opt${on ? " on" : ""}${index === highlight ? " hl" : ""}`}
-                    onMouseEnter={() => setMarker({ query, index })}
-                    onClick={() => pick(o.id)}
-                  >
-                    <span className="cb" aria-hidden="true">{on ? <Check className="ic" strokeWidth={3} /> : null}</span>
-                    <Avatar name={o.name} />
-                    <span className="avs-row">
-                      <b className="avs-name">{o.name}</b>
-                      {o.title ? <span className="muted avs-title"> — {o.title}</span> : null}
-                    </span>
-                  </button>
-                );
-              })}
-              {shown.length === 0 ? <div className="nomatch">{labels.none}</div> : null}
-            </div>
-          </div>
-        ) : null}
+        <CustomPopover
+          open={open}
+          anchorEl={menu.anchorEl}
+          onClose={close}
+          slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { width: 320 } } }}
+        >
+          <Box sx={{ p: 1 }}>
+            <TextField
+              fullWidth
+              size="small"
+              autoFocus
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setMarker({ query: e.target.value, index: 0 });
+              }}
+              onKeyDown={(e) => {
+                // Compared lower-cased: the copy guard reads a capitalised key name as text.
+                const key = e.key.toLowerCase();
+                if (key === "arrowdown" || key === "arrowup") {
+                  e.preventDefault();
+                  if (!shown.length) return;
+                  const delta = key === "arrowdown" ? 1 : -1;
+                  setMarker({ query, index: (highlight + delta + shown.length) % shown.length });
+                  return;
+                }
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const row = shown[highlight];
+                  if (row) pick(row.id);
+                }
+              }}
+              placeholder={labels.search}
+              autoComplete="off"
+              slotProps={{
+                htmlInput: {
+                  role: "combobox",
+                  "aria-expanded": true,
+                  "aria-autocomplete": "list",
+                  "aria-controls": listId,
+                  "aria-activedescendant": shown.length && listId ? `${listId}-${highlight}` : undefined,
+                  "aria-label": labels.search,
+                  maxLength: 60,
+                },
+                input: { startAdornment: <InputAdornment position="start"><Iconify icon="eva:search-fill" /></InputAdornment> },
+              }}
+            />
+          </Box>
+          <MenuList role="listbox" id={listId} aria-label={labels.label} sx={{ maxHeight: 320, overflowY: "auto", overscrollBehavior: "contain" }}>
+            {shown.map((o, index) => {
+              const on = o.id === selected;
+              return (
+                <MenuItem
+                  key={o.id}
+                  id={listId ? `${listId}-${index}` : undefined}
+                  role="option"
+                  aria-selected={on}
+                  selected={on || index === highlight}
+                  onMouseEnter={() => setMarker({ query, index })}
+                  onClick={() => pick(o.id)}
+                  sx={tapRow}
+                >
+                  <Avatar name={o.name} initials={initials(o.name)} size={24} decorative />
+                  <Typography variant="body2" component="span" sx={{ minWidth: 0, overflowWrap: "anywhere", whiteSpace: "normal" }}>
+                    <b className="avs-name">{o.name}</b>
+                    {o.title ? <Box component="span" className="avs-title" sx={{ color: "text.secondary" }}> — {o.title}</Box> : null}
+                  </Typography>
+                  {on ? <Iconify icon="eva:checkmark-fill" sx={{ ml: "auto", color: "primary.main", flex: "none" }} /> : null}
+                </MenuItem>
+              );
+            })}
+            {shown.length === 0 ? (
+              <Typography component="li" variant="body2" sx={{ px: 1, py: 1, color: "text.secondary" }}>{labels.none}</Typography>
+            ) : null}
+          </MenuList>
+        </CustomPopover>
       </div>
     );
   }
@@ -269,7 +261,7 @@ export function AssigneePicker({
   // A host that passes no `all` word (the Work Board today) keeps its bare label.
   const stateLabel = current ? `${labels.label}: ${current.name}` : labels.all ? `${labels.label}: ${labels.all}` : labels.label;
   return (
-    <div ref={ref} className="avs" aria-label={stateLabel} title={stateLabel} data-picked={current ? "one" : "all"}>
+    <div className="avs" aria-label={stateLabel} title={stateLabel} data-picked={current ? "one" : "all"}>
       {visible.map((o) => (
         <button type="button" key={o.id} className={`av${o.id === selected ? " on" : ""}`} title={current ? o.name : stateLabel} aria-label={current ? stateLabel : `${stateLabel} (${o.name})`} aria-expanded={open} onClick={toggle}>
           {initials(o.name)}
@@ -285,36 +277,47 @@ export function AssigneePicker({
           {owners.length === 0 ? labels.label : "▾"}
         </button>
       ) : null}
-      {open ? (
-        <div className="avmenu" role="listbox" aria-label={labels.label}>
-          <div className="avq">
-            <Search className="ic" aria-hidden="true" />
-            <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={labels.search} aria-label={labels.search} autoComplete="off" />
-          </div>
-          <div className="list">
-            {/* "Select all" is the FIRST row, a checkbox like the rest: ticked while nobody is
-                picked (the board shows everyone), and clicking it clears a pick. */}
-            {query.trim() === "" ? (
-              <button type="button" role="option" aria-selected={!selected} className={`opt all${!selected ? " on" : ""}`} onClick={() => { onSelect(undefined); setOpen(false); setQuery(""); }}>
-                <span className="cb" aria-hidden="true">{!selected ? <Check className="ic" strokeWidth={3} /> : null}</span>
-                {labels.selectAll}
-              </button>
-            ) : null}
-            {shown.map((o) => {
-              const on = selected ? o.id === selected : true;
-              return (
-                <button type="button" key={o.id} role="option" aria-selected={o.id === selected} className={`opt${on ? " on" : ""}`} onClick={() => { onSelect(o.id === selected ? undefined : o.id); setOpen(false); setQuery(""); }}>
-                  <span className="cb" aria-hidden="true">{on ? <Check className="ic" strokeWidth={3} /> : null}</span>
-                  <Avatar name={o.name} />
-                  {o.name}
-                  <span className="cnt">{cardsByOwner[o.id] ?? 0} {labels.rows}</span>
-                </button>
-              );
-            })}
-            {shown.length === 0 ? <div className="nomatch">{labels.none}</div> : null}
-          </div>
-        </div>
-      ) : null}
+      <CustomPopover open={open} anchorEl={menu.anchorEl} onClose={close} slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { width: 300 } } }}>
+        <Box sx={{ p: 1 }}>
+          <TextField
+            fullWidth
+            size="small"
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={labels.search}
+            autoComplete="off"
+            slotProps={{
+              htmlInput: { "aria-label": labels.search },
+              input: { startAdornment: <InputAdornment position="start"><Iconify icon="eva:search-fill" /></InputAdornment> },
+            }}
+          />
+        </Box>
+        <MenuList role="listbox" aria-label={labels.label} sx={{ maxHeight: 320, overflowY: "auto", overscrollBehavior: "contain" }}>
+          {/* "Select all" is the FIRST row, a checkbox like the rest: ticked while nobody is
+              picked (the board shows everyone), and clicking it clears a pick. */}
+          {query.trim() === "" ? (
+            <MenuItem role="option" aria-selected={!selected} className="all" onClick={() => { onSelect(undefined); close(); }} sx={tapRow}>
+              <Checkbox size="small" checked={!selected} disableRipple tabIndex={-1} sx={{ p: 0 }} slotProps={{ input: { "aria-hidden": true } }} />
+              {labels.selectAll}
+            </MenuItem>
+          ) : null}
+          {shown.map((o) => {
+            const on = selected ? o.id === selected : true;
+            return (
+              <MenuItem key={o.id} role="option" aria-selected={o.id === selected} onClick={() => { onSelect(o.id === selected ? undefined : o.id); close(); }} sx={tapRow}>
+                <Checkbox size="small" checked={on} disableRipple tabIndex={-1} sx={{ p: 0 }} slotProps={{ input: { "aria-hidden": true } }} />
+                <Avatar name={o.name} initials={initials(o.name)} size={24} decorative />
+                <Box component="span" sx={{ minWidth: 0, flex: 1, overflowWrap: "anywhere", whiteSpace: "normal" }}>{o.name}</Box>
+                <Typography variant="caption" sx={{ color: "text.secondary", flex: "none" }}>{cardsByOwner[o.id] ?? 0} {labels.rows}</Typography>
+              </MenuItem>
+            );
+          })}
+          {shown.length === 0 ? (
+            <Typography component="li" variant="body2" sx={{ px: 1, py: 1, color: "text.secondary" }}>{labels.none}</Typography>
+          ) : null}
+        </MenuList>
+      </CustomPopover>
     </div>
   );
 }

@@ -28,7 +28,9 @@ test("Sales dates render DD/MM/YYYY, never the ISO wire value", () => {
   assert.match(read("./sales-config.tsx"), /dealCell\(humanDate\(deal\.sale_date\)\)/);
   assert.doesNotMatch(read("./sales-config.tsx"), /dealCell\(deal\.sale_date\)/);
   assert.match(read("./sales-record-drawer.tsx"), /cell\(field\("sale_date"\), fmtDate\(deal\.sale_date\)\)/);
-  assert.match(read("./valuation-section.tsx"), /fmtDateTime\(v\.updated_at\)/);
+  // The backend composes "DD/MM/YYYY HH24:MI" (87f77a0a7); fmtValuationSavedAt shows it as sent
+  // (re-parsing it with new Date() would read 05/09 as 9 May).
+  assert.match(read("./valuation-section.tsx"), /fmtValuationSavedAt\(v\.updated_at\)/);
 });
 
 test("a load that has sold nothing shows no sold value, never ₹0", () => {

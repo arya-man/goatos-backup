@@ -1,0 +1,16 @@
+/* Minimal DateCalendar (theme/core/components/mui-x-date-picker.tsx): popper = dropdown paper,
+   radius 12, no border; month title subtitle1 600; arrows are plain IconButtons (action.hover);
+   weekday captions 12 text.disabled; days 36 circles, hover action.hover, today a 1px
+   text.secondary ring, selected primary filled. Phones keep the 44px day/arrow taps. */
+.picker :global(.move-date-popover){padding:var(--sp-1h);border:0;border-radius:var(--r-lg);background:var(--paper);box-shadow:var(--shadow-dropdown)}
+.picker :global(.move-date-head b){font-size:var(--fs-subtitle1);font-weight:600}
+.picker :global(.move-date-head button){border:0;border-radius:var(--r-round);background:transparent;color:var(--fg-muted);transition:background-color var(--dur-fast) var(--ease)}
+.picker :global(.move-date-head button):hover{background:rgb(var(--g500-rgb)/.08);color:var(--fg)}
+.picker :global(.move-date-dow){font-size:var(--fs-caption);font-weight:400;text-transform:none;color:var(--g500)}
+.picker :global(.move-date-day){border:0;border-radius:var(--r-round);background:transparent;font-size:var(--fs-body2);font-weight:400;color:var(--fg);transition:background-color var(--dur-fast) var(--ease)}
+.picker :global(.move-date-day):hover:not(:disabled){background:rgb(var(--g500-rgb)/.08);color:var(--fg)}
+.picker :global(.move-date-day.today){box-shadow:inset 0 0 0 1px var(--fg-muted);color:var(--fg)}
+.picker :global(.move-date-day.on){background:var(--primary);color:var(--primary-fg);box-shadow:none;font-weight:600}
+.picker :global(.move-date-day):disabled{background:transparent;color:var(--g500);opacity:.48}
+.picker.picker :global(.move-date-head),:global(:root) :global(.main) .picker :global(.move-date-head){grid-template-columns:minmax(0,1fr) auto auto;gap:var(--sp-half)}
+.picker :global(.move-date-head b){order:-1;padding-left:var(--sp-1);text-align:left}

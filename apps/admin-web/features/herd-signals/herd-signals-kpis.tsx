@@ -1,7 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Activity, BatteryLow, Radio, TriangleAlert, Wifi } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
+import type { KitTone } from "@/lib/tone";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import type { HerdSignalsSummary } from "@/lib/api/herd-signals";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
@@ -11,7 +14,7 @@ type KpiDef = {
   key: KpiFilterKey;
   label: string;
   type: "Direct" | "Derived";
-  tone: "mut" | "ok" | "warn" | "dng" | "info" | "purple";
+  tone: KitTone;
   // mock/herd-signals-mock.html const IC — one glyph per card, in the mock's own path data.
   icon: ReactNode;
   value: (summary: HerdSignalsSummary) => number;
@@ -31,45 +34,12 @@ type KpiDef = {
 // mean summing it from the fetched page (banned — see herd-signals-row-filter.ts) rather than from
 // a real backend aggregate.
 const IC = {
-  radio: (
-    <>
-      <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
-      <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
-      <circle cx="12" cy="12" r="2" />
-      <path d="M16.2 7.8a6 6 0 0 1 0 8.4" />
-      <path d="M19.1 4.9a10 10 0 0 1 0 14.2" />
-    </>
-  ),
-  activity: <path d="M3 12h4l3 8 4-16 3 8h4" />,
-  wifi: (
-    <>
-      <path d="M5 12.5a7 7 0 0 1 14 0" />
-      <path d="M2 9a11 11 0 0 1 20 0" />
-      <circle cx="12" cy="17" r="2" />
-    </>
-  ),
-  alert: (
-    <>
-      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-      <path d="M12 9v4" />
-      <path d="M12 17h.01" />
-    </>
-  ),
-  battery: (
-    <>
-      <rect x="2" y="7" width="16" height="10" rx="2" />
-      <path d="M22 11v2" />
-    </>
-  ),
+  radio: <Radio />,
+  activity: <Activity />,
+  wifi: <Wifi />,
+  alert: <TriangleAlert />,
+  battery: <BatteryLow />,
 };
-
-function KpiIcon({ children }: { children: ReactNode }) {
-  return (
-    <svg className="ic sm" viewBox="0 0 24 24" aria-hidden="true">
-      {children}
-    </svg>
-  );
-}
 
 const KPI_DEFS: KpiDef[] = [
   {
@@ -86,7 +56,7 @@ const KPI_DEFS: KpiDef[] = [
     key: "moving_now",
     label: "Moving now",
     type: "Derived",
-    tone: "ok",
+    tone: "success",
     icon: IC.activity,
     value: (s) => s.moving_now,
     detail: () => "fresh packet with movement in last packet/30 sec",
@@ -95,7 +65,7 @@ const KPI_DEFS: KpiDef[] = [
     key: "active_1m",
     label: "Active 1m",
     type: "Derived",
-    tone: "ok",
+    tone: "primary",
     icon: IC.activity,
     value: (s) => s.active_1m,
     detail: () => "motion-count delta above 0 in last 1 min",
@@ -113,7 +83,7 @@ const KPI_DEFS: KpiDef[] = [
     key: "quiet",
     label: "Quiet tags",
     type: "Derived",
-    tone: "mut",
+    tone: "neutral",
     icon: IC.activity,
     // Matches the click filter exactly (movement_state=quiet) — summing in not_moving here would
     // make this number disagree with what clicking the card actually filters to.
@@ -124,7 +94,7 @@ const KPI_DEFS: KpiDef[] = [
     key: "weak_signal",
     label: "Weak signal",
     type: "Derived",
-    tone: "warn",
+    tone: "warning",
     icon: IC.wifi,
     value: (s) => s.weak_signal,
     detail: () => "RSSI ≤ -75 dBm",
@@ -133,7 +103,7 @@ const KPI_DEFS: KpiDef[] = [
     key: "missing_signal",
     label: "Missing signal",
     type: "Derived",
-    tone: "dng",
+    tone: "error",
     icon: IC.alert,
     value: (s) => s.stale,
     detail: () => "not seen for 30+ min — signal, not animal",
@@ -142,7 +112,7 @@ const KPI_DEFS: KpiDef[] = [
     key: "low_battery",
     label: "Low battery",
     type: "Derived",
-    tone: "purple",
+    tone: "violet",
     icon: IC.battery,
     value: (s) => s.low_battery,
     // Deliberately no "est. ~N left" / life estimate here — that was removed because no vendor
@@ -166,48 +136,46 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
   const displayedSummary = liveSnapshot?.data.summary ?? summary;
   const serverMovementKpis = new Set(["moving_now", "active_1m", "moving_15m", "quiet"]);
   return (
-    <div className={`kpis herd-signals-kpis${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
-      {KPI_DEFS.map((def, index) => {
-        const filterKey = index === 0 ? undefined : def.key;
-        const active = filterKey ? params.kpi === filterKey : false;
-        const href = filterKey
-          ? herdSignalsHref(params, {
-              hs_kpi: active ? undefined : filterKey,
-              hs_move: serverMovementKpis.has(filterKey) ? undefined : params.movementState,
-            })
-          : undefined;
-        const card = (
-          <div className={`kpi k-${def.tone}${active ? " active" : ""}${filterKey ? " kpi-clickable" : ""}`}>
-            <div className="lab">
-              <KpiIcon>{def.icon}</KpiIcon>
-              {def.label}
-            </div>
-            <div className="val">{def.value(displayedSummary).toLocaleString("en-IN")}</div>
-            <div className="dl">{def.detail(displayedSummary)}</div>
-            <div className="ty">{def.type}</div>
-            {/* mock/herd-signals-mock.html renderKpis: `.act` reads "Filtering table ▾ click to
-                clear" and only shows on the active tile (`.kpi.active .act{display:block}`, CSS
-                text-transform:uppercase renders it as FILTERING TABLE ▾ CLICK TO CLEAR). */}
-            <div className="act">Filtering table ▾ click to clear</div>
-            <div className="hint">{filterKey ? "Click to filter the table below" : "Shows every tag"}</div>
-          </div>
-        );
-        if (!href) return <div key={def.label}>{card}</div>;
-        return (
-          <Link
-            key={def.label}
-            href={href}
-            aria-current={active ? "true" : undefined}
-            onClick={(event) => {
-              if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-              event.preventDefault();
-              navigate(href);
-            }}
-          >
-            {card}
-          </Link>
-        );
-      })}
+    <div className={`herd-signals-kpis${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
+      <KpiGrid min={220}>
+        {KPI_DEFS.map((def, index) => {
+          const filterKey = index === 0 ? undefined : def.key;
+          const active = filterKey ? params.kpi === filterKey : false;
+          const href = filterKey
+            ? herdSignalsHref(params, {
+                hs_kpi: active ? undefined : filterKey,
+                hs_move: serverMovementKpis.has(filterKey) ? undefined : params.movementState,
+              })
+            : undefined;
+          const card = (
+            <KpiCard
+              label={def.label}
+              value={def.value(displayedSummary)}
+              format={(n) => n.toLocaleString("en-IN")}
+              tone={def.tone}
+              icon={def.icon}
+              hint={active ? `${def.detail(displayedSummary)} \u00b7 filtering` : def.detail(displayedSummary)}
+              className={active ? "is-active" : undefined}
+            />
+          );
+          if (!href) return <div key={def.label}>{card}</div>;
+          return (
+            <Link
+              key={def.label}
+              href={href}
+              className="kit-kpi-link"
+              aria-current={active ? "true" : undefined}
+              onClick={(event) => {
+                if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                navigate(href);
+              }}
+            >
+              {card}
+            </Link>
+          );
+        })}
+      </KpiGrid>
     </div>
   );
 }

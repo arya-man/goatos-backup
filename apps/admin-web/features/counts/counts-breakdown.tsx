@@ -1,8 +1,16 @@
+import { splitParts } from "@/components/minimal/widgets";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { Filter, Users } from "lucide-react";
 
-import { SvgBars, SvgStackedBars, type SvgBarDatum, type SvgStackedDatum } from "@/components/svg-bars";
-import { SeriesLegend } from "@/components/svg-series";
+import { SvgStackedBars, type SvgBarDatum, type SvgStackedDatum } from "@/components/svg-bars";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import CardContent from "@mui/material/CardContent";
+import type { KitTone } from "@/lib/tone";
+import { BarList } from "@/components/bar-list";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { GoatGlyph } from "@/components/goat-glyph";
 import { dash } from "@/lib/format";
 import { control, controlEnabled, copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -21,6 +29,7 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
+import "./counts-breakdown.css";
 import { LEGACY_FARM_PARAM, PARK_PARAM, withSelectedOptions } from "./counts-breakdown-query";
 import { CountsBreakdownLoads } from "./counts-breakdown-loads";
 import { CountsBreakdownPensTable } from "./counts-breakdown-pens-table";
@@ -28,6 +37,8 @@ import { buildShedFilterOptions } from "./counts-breakdown-sheds";
 import { buildCountsSummaryCards, countsSexDetail } from "./counts-summary-cards";
 import type { StageOption } from "./shed-stage-actions";
 import type { InlineChoice } from "./inline-cell-editor";
+import { stageLabel } from "@/lib/stage-labels";
+import Alert from "@mui/material/Alert";
 
 // Counts -> Counts Breakdown. The census view: how many live animals stand in each PEN, with the
 // breed, gender and stage mix on the same line, and the exact farm x stage x breed x gender x pen
@@ -49,6 +60,9 @@ import type { InlineChoice } from "./inline-cell-editor";
 // grouped set, so they cost nothing extra and are exact.
 
 const PAGE_PATH = "/counts/breakdown";
+
+/** Legacy summary-card tone names -> kit tones (presentation only). */
+const SUMMARY_TONE: Record<string, KitTone> = { brand: "primary", teal: "info", amber: "warning", muted: "neutral" };
 const DEFAULT_PAGE_SIZE = 10;
 
 type AnimalStageOptionItem = {
@@ -61,7 +75,7 @@ type AnimalStageOptionItem = {
 function toBarData(points: CountsBreakdownSeriesPoint[], fallbackLabel: string): SvgBarDatum[] {
   return points.map((point) => ({
     key: point.key || fallbackLabel,
-    label: point.label || fallbackLabel,
+    label: stageLabel(point.label) || fallbackLabel,
     value: point.count,
   }));
 }
@@ -164,7 +178,17 @@ export async function CountsBreakdownPage({
   // Stage code -> the label the BACKEND decided for it, taken from the response's own facet.
   // Reading it here rather than re-deriving one means the table, the chart and the Stage filter
   // are three renderings of one answer and cannot spell a stage three ways.
-  const stageLabels = new Map(stageFacets.filter((point) => point.key).map((point) => [point.key, point.label || point.key] as const));
+  // The tenant's stage NAME wins where the vocabulary has one (F2-Male -> "Fattening male",
+  // K2 -> "Milk drinking"); the facet's own label is the fallback for a code it lacks.
+  const stageNameByCode = new Map(
+    (stageResult.ok ? listOrEmpty(stageResult.data.items) : []).filter((s) => s.name).map((s) => [s.stage_code, s.name as string] as const),
+  );
+  // Vocabulary entries are spread LAST so they win, and so a sexed code the facet does not carry
+  // (the row's "F2-Male" under the facet's "F2") still resolves to its name.
+  const stageLabels = new Map<string, string>([
+    ...stageFacets.filter((point) => point.key).map((point) => [point.key, stageLabel(point.label || point.key)] as const),
+    ...stageNameByCode,
+  ]);
   const stageUnrecorded = stageFacets.length > 0 && stageFacets.every((point) => point.key === "");
 
   // The shed dropdown cascades to the selected park: only that park's sheds show, mirroring the
@@ -219,7 +243,7 @@ export async function CountsBreakdownPage({
       options: withSelectedOptions(
         (breakdown?.facets.stages ?? [])
           .filter((point) => point.key !== "")
-          .map((point) => ({ value: point.key, label: point.label || point.key })),
+          .map((point) => ({ value: point.key, label: stageLabels.get(point.key) ?? (point.label || point.key) })),
         stages,
         (value) => stageLabels.get(value),
       ),
@@ -318,7 +342,7 @@ export async function CountsBreakdownPage({
 
   const stageSexData: SvgStackedDatum[] = (breakdown?.charts.stage_sex ?? []).map((point) => ({
     key: point.key || noStageLabel,
-    label: point.label || noStageLabel,
+    label: (point.key && stageNameByCode.get(point.key)) || stageLabel(point.label) || noStageLabel,
     total: point.count,
     segments: [
       { ...sexSegments[0], value: point.female },
@@ -365,8 +389,11 @@ export async function CountsBreakdownPage({
   const totalFemale = (breakdown?.charts.stage_sex ?? []).reduce((sum, point) => sum + (point.female ?? 0), 0);
   const totalMale = (breakdown?.charts.stage_sex ?? []).reduce((sum, point) => sum + (point.male ?? 0), 0);
   const totalOther = (breakdown?.charts.stage_sex ?? []).reduce((sum, point) => sum + (point.other ?? 0), 0);
-  const pct = (part: number) => (totalCount > 0 ? Math.round((part / totalCount) * 100) : 0);
 
+  // The kid-stage cards are titled with the tenant's stage NAME (K1 -> "Milk training"), read from
+  // the same vocabulary the stage picker below uses; the contract's code label is the fallback.
+  const kidStageLabel = (code: "K0" | "K1" | "K2" | "K3" | "K4") =>
+    stageNameByCode.get(code) ?? copy(pageContract, `summary_card.${code.toLowerCase()}.label`);
   const stageSummaryCards = buildCountsSummaryCards(breakdown?.charts.stage_sex ?? [], {
     female: copy(pageContract, "label.sex_female"),
     male: copy(pageContract, "label.sex_male"),
@@ -376,11 +403,11 @@ export async function CountsBreakdownPage({
     bucks: copy(pageContract, "summary_card.bucks.label"),
     breeding: copy(pageContract, "summary_card.breeding.label"),
     icu: copy(pageContract, "summary_card.icu.label"),
-    k0: copy(pageContract, "summary_card.k0.label"),
-    k1: copy(pageContract, "summary_card.k1.label"),
-    k2: copy(pageContract, "summary_card.k2.label"),
-    k3: copy(pageContract, "summary_card.k3.label"),
-    k4: copy(pageContract, "summary_card.k4.label"),
+    k0: kidStageLabel("K0"),
+    k1: kidStageLabel("K1"),
+    k2: kidStageLabel("K2"),
+    k3: kidStageLabel("K3"),
+    k4: kidStageLabel("K4"),
     other: copy(pageContract, "summary_card.other_stages.label"),
   });
   const summaryCards = [
@@ -399,14 +426,16 @@ export async function CountsBreakdownPage({
       }),
       tone: "brand" as const,
     },
-    ...stageSummaryCards,
+    // Stage tiles with nothing in them (K4 = 0) are dropped from the deck: a zero tile is a slot
+    // that says nothing, and the stage table below still lists every stage.
+    ...stageSummaryCards.filter((card) => card.count > 0),
   ];
 
   // The tenant's active stage vocabulary, business-managed in Postgres. `name` is the human label
   // and `stage_code` is what the write sends.
   // Clinical tags (ICU, Quarantine) are dropped because the write rejects them: offering one and
   // failing on apply is worse than not offering it. The backend decides which those are.
-  const stageOptions: StageOption[] = (stageResult.ok ? stageResult.data.items : [])
+  const stageOptions: StageOption[] = (stageResult.ok ? listOrEmpty(stageResult.data.items) : [])
     .filter((item: AnimalStageOptionItem) => item.assignable_as_cohort !== false)
     .map((item: AnimalStageOptionItem) => ({
       code: item.stage_code,
@@ -444,68 +473,56 @@ export async function CountsBreakdownPage({
   const stageChangeReason = control(pageContract, "change_shed_stage").disabled_reason ?? "";
 
   return (
-    <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.breakdown.title")}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
+    <div className="kit-enter screen on counts-breakdown-page">
+      <div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "section.breakdown.title") }]}
+        />
       </div>
 
       {/* An API failure surfaces as a visible error band, never as an empty table that reads
           to an operator as "this tenant has no animals". */}
       {!breakdownResult.ok ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
+        <Alert severity="error" style={{ marginBottom: 16 }}>
           <b>{breakdownResult.error.code ?? breakdownResult.error.kind}</b>&nbsp;{breakdownResult.error.message}
-        </div>
+        </Alert>
       ) : null}
 
-      <section className="card counts-breakdown-card" style={{ marginBottom: 16 }}>
-        <div className="counts-breakdown-summary-cards" aria-label={copy(pageContract, "summary_card.group.aria")}>
+      <div style={{ marginBottom: 16 }}>
+        <KpiGrid min={210} className="counts-breakdown-kpi-deck">
+          {/* Headline totals for the CURRENT filter selection, read from the response's
+              whole-result window totals - never recomputed from the visible page, which would
+              report a page subtotal as business truth. An unavailable read shows a dash. */}
+          <KpiCard
+            tone="primary"
+            icon={<GoatGlyph size={22} />}
+            label={copy(pageContract, "kpi.matching.label")}
+            value={breakdown ? totalCount : dash(null)}
+            hint={breakdown ? undefined : copy(pageContract, "kpi.matching.unavailable")}
+          />
+          <KpiCard
+            tone="info"
+            icon={<GoatGlyph size={22} />}
+            label={copy(pageContract, "kpi.age.label")}
+            value={breakdown ? totalKids + totalAdults : dash(null)}
+            parts={breakdown ? splitParts(copy(pageContract, "kpi.age.label"), [totalKids, totalAdults]) : undefined}
+            hint={breakdown ? undefined : copy(pageContract, "kpi.matching.unavailable")}
+          />
           {summaryCards.map((card) => (
-            <div className={`counts-breakdown-summary-card ${card.tone}`} key={card.key}>
-              <div className="lab">{card.label}</div>
-              <div className="val">{breakdown ? card.count.toLocaleString("en-IN") : dash(null)}</div>
-              <div className="dl">
-                {breakdown ? card.detail || copy(pageContract, "chart.empty") : copy(pageContract, "kpi.matching.unavailable")}
-              </div>
-            </div>
+            <KpiCard
+              key={card.key}
+              tone={SUMMARY_TONE[card.tone] ?? "neutral"}
+              label={card.label}
+              value={breakdown ? card.count : dash(null)}
+              hint={breakdown ? card.detail || copy(pageContract, "chart.empty") : copy(pageContract, "kpi.matching.unavailable")}
+            />
           ))}
-        </div>
+        </KpiGrid>
+      </div>
 
-        {/* Headline totals for the CURRENT filter selection, read from the response's
-            whole-result window totals — never recomputed from the visible page, which would
-            report a page subtotal as business truth. An unavailable read shows a dash. */}
-        <div className="grid g2 counts-breakdown-kpis">
-          <div className="kpi">
-            <span className="acc" style={{ background: "var(--brand)" }} />
-            <div className="lab">{copy(pageContract, "kpi.matching.label")}</div>
-            <div className="val">{breakdown ? totalCount : dash(null)}</div>
-            <div className="dl">
-              <span className="muted">
-                {breakdown ? copy(pageContract, "kpi.matching.sub") : copy(pageContract, "kpi.matching.unavailable")}
-              </span>
-            </div>
-            <Filter className="ic kpiic" aria-hidden="true" />
-          </div>
-          <div className="kpi" aria-label={copy(pageContract, "kpi.age.aria")}>
-            <span className="acc" style={{ background: "var(--teal)" }} />
-            <div className="lab">{copy(pageContract, "kpi.age.label")}</div>
-            <div className="val">{breakdown ? `${totalKids} · ${totalAdults}` : dash(null)}</div>
-            <div className="dl">
-              <span className="muted">
-                {breakdown
-                  ? `${pct(totalKids)}% ${copy(pageContract, "label.kids")} · ${pct(totalAdults)}% ${copy(pageContract, "label.adults")}`
-                  : copy(pageContract, "kpi.matching.unavailable")}
-              </span>
-            </div>
-            <Users className="ic kpiic" aria-hidden="true" />
-          </div>
-        </div>
-
+      <div>
+      <Card className="counts-breakdown-card" sx={{ mb: 2 }}>
         <CountsBreakdownFilters fields={filterFields} penParks={penParks} pageContract={pageContract} />
 
         <div
@@ -536,7 +553,7 @@ export async function CountsBreakdownPage({
             noShedLabel={noShedLabel}
             stageLabels={stageLabels}
             empty={
-              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+              <div className="muted small counts-pens-empty" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                 {breakdownResult.ok
                   ? hasFilter
                     ? copy(pageContract, "empty.breakdown_filtered")
@@ -570,9 +587,8 @@ export async function CountsBreakdownPage({
           hrefForPage={(nextPage) => hrefWithParam("bd_page", String(nextPage))}
           hrefForPageSize={(nextSize) => hrefWithParam("bd_limit", String(nextSize))}
         />
-      </section>
-
-      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.breakdown.note")}</div>
+      </Card>
+      </div>
 
       {/* A dimension where every animal has a blank value is a source-data gap, not a bug. Say so
           plainly instead of leaving the operator staring at a uniformly-empty column and chart
@@ -585,54 +601,39 @@ export async function CountsBreakdownPage({
           which is a 340px multi-column layout — that would put these back side by side. */}
       <section aria-label={copy(pageContract, "section.charts.aria")} className="counts-breakdown-charts">
         {charts.map((chart) => (
-          <div className="chartcard" key={chart.id} style={{ cursor: "default" }}>
-            <h4>{chart.title}</h4>
-            <div className="cap">{chart.caption}</div>
+          <div key={chart.id}>
+          <Card className="chartcard">
+            <CardHeader title={chart.title} />
+            <CardContent>
             {/* No maxBars: the series must PARTITION the herd, so the chart sums to the same total
                 the KPI above it reports. Truncating here would reintroduce the gap the backend cap
                 just lost (12 of 130 pens showed 560 of 1,670 animals). The scroll window bounds
                 what a reader SEES — ten bars stand, the rest scroll — which is a different job from
                 bounding what the number MEANS. */}
             {chart.stacked ? (
-              <>
-                <SvgStackedBars
-                  data={chart.stacked}
-                  emptyLabel={emptyChartLabel}
-                  valueNoun={animalsNoun}
-                  chartLabel={chart.title}
-                  maxBars={chart.stacked.length}
-                />
-                {/* The legend is not optional decoration on a stacked chart: without it the two
-                    colours inside a bar name nothing. Only the segments actually drawn are
-                    listed, so a herd with every sex recorded never advertises a third key. */}
-                <SeriesLegend
-                  entries={sexSegments
-                    .filter((segment, index) =>
-                      (chart.stacked ?? []).some((bar) => bar.segments[index].value > 0),
-                    )
-                    .map((segment) => ({ label: segment.label, colorVar: segment.colorVar }))}
-                />
-              </>
-            ) : (
-              <SvgBars
-                data={chart.data ?? []}
+              // The chart names every segment it draws in its own template legend, and only those:
+              // a herd with every sex recorded never advertises a third key.
+              <SvgStackedBars
+                data={chart.stacked}
                 emptyLabel={emptyChartLabel}
                 valueNoun={animalsNoun}
                 chartLabel={chart.title}
-                maxBars={(chart.data ?? []).length}
+                maxBars={chart.stacked.length}
+              />
+            ) : (
+              <BarList
+                rows={(chart.data ?? []).map((bar) => ({ key: bar.key, label: bar.label, value: bar.value }))}
+                emptyLabel={emptyChartLabel}
+                valueNoun={animalsNoun}
+                ariaLabel={chart.title}
+                size={(chart.data ?? []).length > 10 ? "tall" : "auto"}
               />
             )}
+            </CardContent>
+          </Card>
           </div>
         ))}
       </section>
-
-      {/* Purchased loads, last (maintainer request 2026-09-18): what each load brought in, what is
-          still here under the current filters, male/female, and the tag those animals carry now. */}
-      <CountsBreakdownLoads
-        loads={breakdown?.loads ?? []}
-        pageContract={pageContract}
-        genderLabels={new Map(genderChoices.map((choice) => [choice.value, choice.label] as const))}
-      />
     </div>
   );
 }

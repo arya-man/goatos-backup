@@ -127,6 +127,8 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			if l.IsLive() && weight > 0 && l.SalesValue > 0 {
 				liveWeightForPrice += weight
 				liveRevenueForPrice += l.SalesValue
+				month.pricedWeightKg += weight
+				month.pricedRevenue += l.SalesValue
 				key := bandKey{l.ProductType, l.Breed}
 				band := bands[key]
 				if band == nil {
@@ -173,6 +175,9 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 
 	monthlyRows := make([]MonthlyRow, 0, len(monthly))
 	for _, row := range monthly {
+		if row.pricedWeightKg > 0 {
+			row.RealizedPricePerKg = row.pricedRevenue / row.pricedWeightKg
+		}
 		monthlyRows = append(monthlyRows, *row)
 	}
 	sort.Slice(monthlyRows, func(i, j int) bool { return monthlyRows[i].Month < monthlyRows[j].Month })

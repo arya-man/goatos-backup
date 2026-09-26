@@ -1,4 +1,14 @@
 "use client";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Typography from "@mui/material/Typography";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+
+import { Tag } from "@/components/ui-primitives";
 
 import { AlertTriangle, BellRing, RotateCcw } from "lucide-react";
 import { useCallback, useMemo, useState, useTransition } from "react";
@@ -7,6 +17,9 @@ import { controlEnabled, control, copy, type AdminUiPageContract } from "@/lib/a
 import type { NotificationAudienceMatrix } from "@/lib/api/server";
 import { saveNotificationAudienceAction } from "./notification-actions";
 import { groupAlertsByModule, isDirty, toggleDesignation, type MatrixAlert } from "./notification-matrix-rows";
+import { InfoHint } from "@/components/app/info-hint";
+import Checkbox from "@mui/material/Checkbox";
+import { EmptyState } from "@/components/app/empty-state";
 
 /**
  * The Notifications matrix (maintainer decision 2026-09-08): one row per configurable alert,
@@ -98,48 +111,63 @@ export function NotificationMatrix({
     [rows, patchRow, t],
   );
 
+  // ONE Save for the section (judge M2 round 4 #3): every dirty row is written through the same
+  // per-row action, one call per row, so the write semantics (row_version, per-alert result and
+  // message) are unchanged -- only the trigger moved from twelve row buttons to a sticky bar.
+  const dirtyKeys = useMemo(() => Object.values(rows).filter((row) => isDirty(row.alert, row.draft) && !row.pending).map((row) => row.alert.key), [rows]);
+  const anyPending = useMemo(() => Object.values(rows).some((row) => row.pending), [rows]);
+  const saveAll = useCallback(() => {
+    for (const key of dirtyKeys) submit(key, false);
+  }, [dirtyKeys, submit]);
+
   if (matrix.alerts.length === 0) {
-    return <div className="empty">{t("notifications.empty")}</div>;
+    return <EmptyState title={t("notifications.empty")} />;
   }
 
   return (
     <section className="notification-matrix" aria-label={t("notifications.column.alert")}>
-      <p className="sub" style={{ marginTop: 8 }}>
-        <BellRing size={14} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 6 }} />
-        {t("notifications.intro")}
-      </p>
-      <p className="sub" style={{ marginTop: 2 }}>
-        {t("notifications.always_told")}
-      </p>
+      <div className="kit-section-bar notification-matrix-bar">
+        <span className="kit-section-bar-title">
+          <BellRing size={16} aria-hidden="true" />
+          {t("notifications.column.alert")}
+          <InfoHint text={`${t("notifications.intro")} ${t("notifications.always_told")}`} />
+        </span>
+        {canEdit ? (
+          <button type="button" className="btn sm p" disabled={dirtyKeys.length === 0 || anyPending} aria-busy={anyPending || undefined} onClick={saveAll}>
+            {anyPending ? t("notifications.action.saving") : t("notifications.action.save")}
+            {dirtyKeys.length > 0 ? <span className="kit-count">{dirtyKeys.length}</span> : null}
+          </button>
+        ) : null}
+      </div>
       {!canEdit && disabledReason ? (
         <div className="callout warn" role="note" style={{ marginTop: 10 }}>
           <AlertTriangle size={14} aria-hidden="true" /> {disabledReason}
         </div>
       ) : null}
 
-      <div className="tblwrap" style={{ marginTop: 12, overflowX: "auto" }}>
-        <table className="people-table notification-matrix-table" style={{ tableLayout: "fixed", width: "100%", minWidth: 960 }}>
+      <Box className="tblwrap tablewrap" sx={{ mt: 1.5, overflowX: "auto", WebkitOverflowScrolling: "touch", display: { xs: "none", sm: "block" } }}>
+        <Table className="people-table" sx={{ "&&": { minWidth: 960 } }} style={{ tableLayout: "fixed", width: "100%" }}>
           <colgroup>
             <col style={{ width: 270 }} />
             {matrix.designations.map((d) => (
               <col key={d.code} />
             ))}
           </colgroup>
-          <thead>
-            <tr>
-              <th>{t("notifications.column.alert")}</th>
+          <TableHead>
+            <TableRow>
+              <TableCell component="th">{t("notifications.column.alert")}</TableCell>
               {matrix.designations.map((d) => (
-                <th
+                <TableCell component="th"
                   key={d.code}
                   title={d.grade ? d.grade : undefined}
                   style={{ textAlign: "center", whiteSpace: "normal", textTransform: "none", fontSize: 10.5, lineHeight: 1.25, padding: "8px 2px", verticalAlign: "bottom", overflowWrap: "normal" }}
                 >
                   {d.label}
-                </th>
+                </TableCell>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {groups.map((group) => (
               <GroupRows
                 key={group.key}
@@ -151,13 +179,91 @@ export function NotificationMatrix({
                 canEdit={canEdit}
                 t={t}
                 onToggle={onToggle}
-                onSave={(key) => submit(key, false)}
                 onReset={(key) => submit(key, true)}
               />
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </Box>
+      <Box sx={{ display: { xs: "grid", sm: "none" }, gap: 2, mt: 1.5 }}>
+        {groups.map((group) => (
+          <Box key={group.key} sx={{ display: "grid", gap: 1.5 }}>
+            <Typography variant="overline" sx={{ color: "text.secondary" }}>{group.label}</Typography>
+            {group.alerts.map((alert) => {
+              const row = rows[alert.key];
+              if (!row) return null;
+              const dirty = isDirty(row.alert, row.draft);
+              const nobody = row.draft.length === 0;
+              return (
+                <Card component="article" variant="outlined" key={alert.key} className="notification-matrix-mobile-card" data-alert-key={alert.key}>
+                  <Box sx={{ p: 2, "& .sub": { whiteSpace: "normal", lineHeight: 1.45 } }}>
+                    <div style={{ fontWeight: 700 }}>{row.alert.label}</div>
+                    <div className="sub" style={{ marginTop: 4 }}>
+                      {row.alert.blurb}
+                    </div>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", mt: 1 }}>
+                      {row.alert.customised ? <Tag tone="info">{t("notifications.chip.custom")}</Tag> : <Tag tone="mut">{t("notifications.chip.default")}</Tag>}
+                      {nobody ? <Tag tone="warn">{t("notifications.chip.nobody")}</Tag> : null}
+                      {dirty ? <Tag tone="warn">{row.pending ? t("notifications.action.saving") : t("notifications.chip.unsaved")}</Tag> : null}
+                      {canEdit && row.alert.customised ? (
+                        <button
+                          type="button"
+                          className="iconbtn kit-row-edit"
+                          title={`${t("notifications.action.use_default")} — ${t("notifications.action.reset_hint")}`}
+                          aria-label={t("notifications.action.use_default")}
+                          disabled={row.pending}
+                          onClick={() => submit(alert.key, true)}
+                        >
+                          <RotateCcw className="ic" aria-hidden="true" />
+                        </button>
+                      ) : null}
+                    </Box>
+                    {row.message ? (
+                      <div className={`sub ${row.message.tone === "dng" ? "t-dng" : "t-ok"}`} role="status" style={{ marginTop: 4 }}>
+                        {row.message.text}
+                      </div>
+                    ) : null}
+                  </Box>
+                  <Box sx={{ display: "grid" }}>
+                    {matrix.designations.map((d) => {
+                      const ticked = row.draft.includes(d.code);
+                      return (
+                        <Box
+                          component="label"
+                          key={d.code}
+                          className="notification-matrix-mobile-choice"
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 1.5,
+                            minHeight: 48,
+                            px: 2,
+                            borderTop: 1,
+                            borderColor: "divider",
+                            color: "text.secondary",
+                            typography: "subtitle2",
+                            "& > span:first-of-type": { minWidth: 0, whiteSpace: "normal" },
+                          }}
+                        >
+                          <span>{d.label}</span>
+                          <Checkbox
+                            checked={ticked}
+                            disabled={!canEdit || row.pending}
+                            onChange={() => onToggle(alert.key, d.code)}
+                            sx={{ p: { xs: 1.5, sm: 1 } }}
+                            slotProps={{ input: { "aria-label": `${row.alert.label}: ${d.label}` } }}
+                          />
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Card>
+              );
+            })}
+          </Box>
+        ))}
+      </Box>
     </section>
   );
 }
@@ -171,7 +277,6 @@ function GroupRows({
   canEdit,
   t,
   onToggle,
-  onSave,
   onReset,
 }: {
   label: string;
@@ -182,57 +287,46 @@ function GroupRows({
   canEdit: boolean;
   t: (key: string) => string;
   onToggle: (key: string, code: string) => void;
-  onSave: (key: string) => void;
   onReset: (key: string) => void;
 }) {
   return (
     <>
-      <tr className="group-row">
-        <th colSpan={columns} scope="colgroup" style={{ textAlign: "left", background: "var(--panel-2)" }}>
+      <TableRow className="group-row">
+        <TableCell component="th" colSpan={columns} scope="colgroup" style={{ textAlign: "left", background: "var(--panel-2)" }}>
           {label}
-        </th>
-      </tr>
+        </TableCell>
+      </TableRow>
       {alerts.map((alert) => {
         const row = rows[alert.key];
         if (!row) return null;
         const dirty = isDirty(row.alert, row.draft);
         const nobody = row.draft.length === 0;
         return (
-          <tr key={alert.key} data-alert-key={alert.key}>
-            <td>
+          <TableRow key={alert.key} data-alert-key={alert.key}>
+            <TableCell className="notification-matrix-alert-cell">
               <div style={{ fontWeight: 600 }}>{row.alert.label}</div>
               <div className="sub" style={{ marginTop: 2, whiteSpace: "normal" }}>
                 {row.alert.blurb}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 6 }}>
                 {row.alert.customised ? (
-                  <span className="tag t-info">{t("notifications.chip.custom")}</span>
+                  <Tag tone="info">{t("notifications.chip.custom")}</Tag>
                 ) : (
-                  <span className="tag t-mut">{t("notifications.chip.default")}</span>
+                  <Tag tone="mut">{t("notifications.chip.default")}</Tag>
                 )}
-                {nobody ? <span className="tag t-warn">{t("notifications.chip.nobody")}</span> : null}
-                {canEdit ? (
-                  <>
-                    <button
-                      type="button"
-                      className="btn b sm"
-                      disabled={!dirty || row.pending}
-                      onClick={() => onSave(alert.key)}
-                    >
-                      {row.pending ? t("notifications.action.saving") : t("notifications.action.save")}
-                    </button>
-                    {row.alert.customised ? (
-                      <button
-                        type="button"
-                        className="btn ghost sm"
-                        title={t("notifications.action.reset_hint")}
-                        disabled={row.pending}
-                        onClick={() => onReset(alert.key)}
-                      >
-                        <RotateCcw size={12} aria-hidden="true" /> {t("notifications.action.use_default")}
-                      </button>
-                    ) : null}
-                  </>
+                {nobody ? <Tag tone="warn">{t("notifications.chip.nobody")}</Tag> : null}
+                {dirty ? <Tag tone="warn">{row.pending ? t("notifications.action.saving") : t("notifications.chip.unsaved")}</Tag> : null}
+                {canEdit && row.alert.customised ? (
+                  <button
+                    type="button"
+                    className="iconbtn kit-row-edit"
+                    title={`${t("notifications.action.use_default")} — ${t("notifications.action.reset_hint")}`}
+                    aria-label={t("notifications.action.use_default")}
+                    disabled={row.pending}
+                    onClick={() => onReset(alert.key)}
+                  >
+                    <RotateCcw className="ic" aria-hidden="true" />
+                  </button>
                 ) : null}
               </div>
               {row.message ? (
@@ -240,24 +334,25 @@ function GroupRows({
                   {row.message.text}
                 </div>
               ) : null}
-            </td>
+            </TableCell>
             {designations.map((d) => {
               const ticked = row.draft.includes(d.code);
               return (
-                <td key={d.code} style={{ textAlign: "center", padding: "6px 4px" }}>
-                  <label className="nmatrix-hit">
-                    <input
-                      type="checkbox"
-                      aria-label={`${row.alert.label}: ${d.label}`}
+                <TableCell key={d.code} className="notification-matrix-choice" data-label={d.label} style={{ textAlign: "center", padding: "6px 4px" }}>
+                  {/* The label is main's TAP TARGET: an 18x18 checkbox is far under the 44px
+                      minimum, and `.nmatrix-hit` gives it a thumb-sized hit area. Kept with the
+                      redesign's cell classes, which carry the stacked phone layout. */}
+                  <Checkbox className="nmatrix-hit"
                       checked={ticked}
                       disabled={!canEdit || row.pending}
                       onChange={() => onToggle(alert.key, d.code)}
+                      sx={{ p: { xs: 1.5, sm: 1 } }}
+                      slotProps={{ input: { "aria-label": `${row.alert.label}: ${d.label}` } }}
                     />
-                  </label>
-                </td>
+                </TableCell>
               );
             })}
-          </tr>
+          </TableRow>
         );
       })}
     </>

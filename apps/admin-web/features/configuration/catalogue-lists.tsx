@@ -1,5 +1,7 @@
 "use client";
 
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+
 import { Layers, Lock, Pencil, Plus, Search } from "lucide-react";
 import { useState } from "react";
 
@@ -81,14 +83,14 @@ export function CatalogueLists({
           <Search className="ic" aria-hidden="true" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={copy["lists.search"]} aria-label={copy["lists.search"]} />
         </label>
-        <div className="subtabs" aria-label={copy["column.status"]}>
-          <button type="button" className={status === "active" ? "on" : ""} onClick={() => setStatus("active")}>
-            {copy["status.active"]}
-          </button>
-          <button type="button" className={status === "archived" ? "on" : ""} onClick={() => setStatus("archived")}>
-            {copy["status.archived"]}
-          </button>
-        </div>
+        <SegmentTabs
+          ariaLabel={copy["column.status"]}
+          value={status}
+          tabs={[
+            { value: "active", label: copy["status.active"], onClick: () => setStatus("active") },
+            { value: "archived", label: copy["status.archived"], onClick: () => setStatus("archived") },
+          ]}
+        />
       </div>
       <div className="cfg-lists-body">
         {status === "active" && !needle ? (

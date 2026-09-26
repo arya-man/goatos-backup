@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
 
 import { copy, optionalCopy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { Caption } from "@/components/app/caption";
 import type {
   HealthConfigFieldError,
   HealthRegisterDetail,
@@ -31,6 +32,9 @@ import {
   saveRegisterDraft,
   type HealthRegisterActionResult,
 } from "./health-register-actions";
+import Alert from "@mui/material/Alert";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 // The diagnosis-register editor.
 //
@@ -189,10 +193,8 @@ export function RegisterEditor({
       <ResultBand result={result} pageContract={pageContract} />
 
       {!mayWrite ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>{disabledReason}</div>
-        </div>
+        <Alert severity="error" style={{ marginBottom: 16 }}><div>{disabledReason}</div>
+        </Alert>
       ) : null}
 
       <RegisterProblems
@@ -235,9 +237,7 @@ export function RegisterEditor({
             <h3>{copy(pageContract, "section.questions.title")}</h3>
             <span className="small muted">{copy(pageContract, "section.questions.caption")}</span>
           </div>
-          <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
-            {copy(pageContract, "note.questions_how")}
-          </p>
+          <Caption>{copy(pageContract, "note.questions_how")}</Caption>
           <div className="bd" style={{ display: "grid", gap: 12 }}>
             {doc.questions.length === 0 ? (
               <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
@@ -302,9 +302,7 @@ export function RegisterEditor({
             <h3>{copy(pageContract, "section.rules.title")}</h3>
             <span className="small muted">{copy(pageContract, "section.rules.caption")}</span>
           </div>
-          <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
-            {copy(pageContract, "note.rules_how")}
-          </p>
+          <Caption>{copy(pageContract, "note.rules_how")}</Caption>
           <div className="bd" style={{ display: "grid", gap: 12 }}>
             {doc.rules.length === 0 ? (
               <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
@@ -502,22 +500,14 @@ function AnswerRow({
           onChange={(e) => onChange({ label: e.target.value })}
           aria-label={`${copy(pageContract, "label.answer_label")} ${index + 1}`}
         />
-        <label className="small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <input
-            type="checkbox"
-            checked={isSign}
-            disabled={!editable}
-            onChange={(e) =>
+        <FormControlLabel className="small" disabled={!editable} control={<Checkbox checked={isSign} disabled={!editable} onChange={(e) =>
               onChange({
                 // Ticking DERIVES the token; unticking drops it. An author never types one,
                 // and an answer that means nothing is wrong carries none -- which is what
                 // keeps "Eating normally" out of the evidence the engine reasons over.
                 emits: e.target.checked ? [derivedSign(question, option.value)] : [],
               })
-            }
-          />
-          {copy(pageContract, isSign ? "label.is_a_sign" : "label.not_a_sign")}
-        </label>
+            } sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pageContract, isSign ? "label.is_a_sign" : "label.not_a_sign")}</>} />
         {editable ? (
           <button
             type="button"
@@ -957,7 +947,7 @@ function ResultBand({
   if (!result) return null;
   const text = optionalCopy(pageContract, result.messageKey) ?? result.detail ?? "";
   return (
-    <div className={result.ok ? "alert ok" : "alert"} style={{ marginBottom: 16 }}>
+    <Alert severity={result.ok ? "success" : "error"} style={{ marginBottom: 16 }}>
       {result.ok ? null : <AlertTriangle className="ic" aria-hidden="true" />}
       <div>
         <b>{text}</b>
@@ -970,6 +960,6 @@ function ResultBand({
           </ul>
         ) : null}
       </div>
-    </div>
+    </Alert>
   );
 }

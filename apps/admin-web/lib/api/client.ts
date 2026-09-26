@@ -44,7 +44,7 @@ export function getAdminApi() {
       const url = `/api/admin/roster/backup-config${query.toString() ? '?' + query.toString() : ''}`;
       const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`Failed to fetch backup config: ${response.statusText}`);
+        throw new Error("Could not load the backup roster. Reload the page and try again.");
       }
       const body = (await response.json()) as {
         items: AdminApiComponents['schemas']['BackupConfig'][];
@@ -79,7 +79,7 @@ export function getAdminApi() {
     async getVaccinationCapacityConfig() {
       const response = await fetch('/api/vaccination/capacity-config', { cache: 'no-store' });
       if (!response.ok) {
-        throw new Error(`Failed to fetch vaccination capacity config: ${response.statusText}`);
+        throw new Error("Could not load the vaccination capacity setting. Reload the page and try again.");
       }
       const body = (await response.json()) as AppApiComponents['schemas']['VaccinationCapacityConfig'];
       return { data: body };
@@ -100,7 +100,7 @@ export function getAdminApi() {
         if (ambiguous) throw ambiguous;
         const notFound = operatorAssignmentConfigNotFoundFromBody(response.status, await response.clone().json().catch(() => null));
         if (notFound) throw notFound;
-        throw new Error(`Failed to fetch vaccination operator assignment config: ${response.statusText}`);
+        throw new Error("Could not load the operator assignment setting. Reload the page and try again.");
       }
       const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
       return { data: body };
@@ -115,7 +115,7 @@ export function getAdminApi() {
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(body?.message ?? `Failed to update vaccination capacity config: ${response.statusText}`);
+        throw new Error(body?.message ?? "Could not save the vaccination capacity setting. Check the values and try again.");
       }
       const body = (await response.json()) as AppApiComponents['schemas']['VaccinationCapacityConfig'];
       return { data: body };
@@ -129,7 +129,7 @@ export function getAdminApi() {
         cache: 'no-store',
       });
       if (!response.ok) {
-        throw new Error(`Failed to update vaccination operator assignment config: ${response.statusText}`);
+        throw new Error("Could not save the operator assignment setting. Check the values and try again.");
       }
       const body = (await response.json()) as AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
       return { data: body };

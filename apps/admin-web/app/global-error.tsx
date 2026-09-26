@@ -1,21 +1,77 @@
 "use client";
 
-export default function GlobalError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
+// A global error replaces the ROOT layout, so this file must load the stylesheets and the theme
+// provider itself — nothing from app/layout.tsx renders around it.
+import "./globals.css";
+import "./minimal-tokens.css";
+import "./mesha-theme.css";
+import "./minimal-theme.css";
+import "./frame.css";
+
+import { RotateCcw } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Container from "@mui/material/Container";
+import Typography from "@mui/material/Typography";
+
+import { Logo } from "@/layouts/template/logo";
+import { AppThemeProvider } from "@/theme/app-theme-provider";
+
+// Template pattern: Minimal_TypeScript_v7.7.0 next-ts src/sections/error/500-view.tsx inside the
+// SimpleLayout compact content (centred column, logo on top). The illustration is left out.
+export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
       <body className="font-sans antialiased" suppressHydrationWarning>
-        <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-          <section className="w-full max-w-md space-y-4 text-center">
-            <h1 className="text-2xl font-semibold">Something went wrong</h1>
-            <button
-              type="button"
-              onClick={reset}
-              className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
-            >
-              Try again
-            </button>
-          </section>
-        </main>
+        <AppThemeProvider>
+          <Box
+            component="main"
+            sx={(theme) => ({
+              minHeight: "100dvh",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              p: theme.spacing(3, 2, 10, 2),
+              bgcolor: "background.default",
+              color: "text.primary",
+            })}
+          >
+            <Container maxWidth="xs" sx={{ textAlign: "center" }}>
+              <Box sx={{ mb: 5, display: "flex", justifyContent: "center" }}>
+                <Logo />
+              </Box>
+              <Typography variant="h3" sx={{ mb: 2 }}>
+                Something went wrong
+              </Typography>
+              <Typography sx={{ color: "text.secondary" }}>
+                The dashboard could not finish rendering this screen. Retrying reloads it from the server; if it keeps
+                failing, quote the reference below.
+              </Typography>
+              {error.digest ? (
+                <Box
+                  component="code"
+                  sx={{
+                    mt: 3,
+                    px: 1.25,
+                    py: 0.75,
+                    display: "inline-block",
+                    borderRadius: "var(--r-sm)",
+                    typography: "caption",
+                    fontFamily: "monospace",
+                    bgcolor: "action.hover",
+                  }}
+                >
+                  {error.digest}
+                </Box>
+              ) : null}
+              <Box sx={{ mt: 5 }}>
+                <Button size="large" variant="contained" onClick={reset} startIcon={<RotateCcw aria-hidden="true" />}>
+                  Try again
+                </Button>
+              </Box>
+            </Container>
+          </Box>
+        </AppThemeProvider>
       </body>
     </html>
   );

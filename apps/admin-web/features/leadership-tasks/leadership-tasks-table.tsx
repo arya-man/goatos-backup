@@ -86,7 +86,7 @@ export function LeadershipTasksTable({
   const clockCell = (task: TaskRow) => <DeadlineClock task={task} compact />;
 
   const columns = columnsFromContract<TaskRow>(contract, {
-    task: { cell: taskCell, sortValue: (task) => task.title },
+    task: { cell: taskCell, meta: { cellClassName: "lt-task-col", headerClassName: "lt-task-col" }, sortValue: (task) => task.title },
     // Both spellings of the urgency column; see the note above.
     priority: {
       cell: clockCell,
@@ -116,9 +116,10 @@ export function LeadershipTasksTable({
           </span>
         </div>
       ),
+      meta: { cellClassName: "lt-people-col", headerClassName: "lt-people-col" },
       sortValue: (task) => task.assignee,
     },
-    raised_by: { cell: (task) => task.raisedBy, sortValue: (task) => task.raisedBy },
+    raised_by: { cell: (task) => task.raisedBy, meta: { cellClassName: "lt-people-col", headerClassName: "lt-people-col" }, sortValue: (task) => task.raisedBy },
     status: {
       cell: (task) => <Tag tone={statusTone(task.status)}>{task.statusLabel}</Tag>,
       sortValue: (task) => task.status,
@@ -142,7 +143,7 @@ export function LeadershipTasksTable({
       getRowId={(task) => task.id}
       ariaLabel={contract.title}
       className="lt-task-table"
-      empty={<div className="muted small lt-table-empty">{copy(pageContract, "empty.tasks")}</div>}
+      empty={copy(pageContract, "empty.tasks")}
     />
   );
 }

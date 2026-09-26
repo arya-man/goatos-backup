@@ -1,5 +1,6 @@
-import { LinkPending } from "@/components/link-pending";
-import { LiveQueryLink } from "./live-query-link";
+import { PageHeader } from "@/components/app/page-header";
+import type { ReactNode } from "react";
+import { LiveQueryTabs } from "./live-query-link";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { redirect } from "next/navigation";
 import { getAdminWebBootstrap } from "@/lib/api/server";
@@ -11,6 +12,7 @@ import {
   salesParkPatch,
   type SalesPark,
 } from "./sales-park-scope";
+import Box from "@mui/material/Box";
 
 /**
  * Chrome the three read pages under Sales share (the board, Sold and Farm value, split
@@ -25,22 +27,17 @@ export function hrefWithQuery(pagePath: string, sp: RouteSearchParams, patch: Re
   return salesPageHref(pagePath, sp, patch);
 }
 
-export function SalesPageHeader({ pageContract }: { pageContract: AdminUiPageContract }) {
+export function SalesPageHeader({ pageContract, actions, tabs }: { pageContract: AdminUiPageContract; subtitle?: boolean; actions?: ReactNode; tabs?: ReactNode }) {
+  // Kit PageHeader: eyebrow = the vertical, title = the page, crumbs "Sales • Page". No description
+  // slot on purpose (the page explains itself with its labels). Both strings stay backend-owned.
+  const crumb = copy(pageContract, "crumb");
   return (
-    <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-      <div>
-        <div className="crumb">
-          {/* The crumb names the VERTICAL and the title names the page. The board carries the
-              vertical's own name, so appending the title there would repeat one word on both
-              sides of the separator. The dedupe is presentation only -- both strings stay
-              backend-owned and neither is composed here. */}
-          <b>{copy(pageContract, "crumb")}</b>
-          {copy(pageContract, "crumb") === pageContract.title ? null : <> · {pageContract.title}</>}
-        </div>
-        <h1>{pageContract.title}</h1>
-        <div className="sub">{pageContract.subtitle}</div>
-      </div>
-    </div>
+    <PageHeader
+      title={pageContract.title}
+      crumbs={crumb === pageContract.title ? [{ label: crumb }] : [{ label: crumb, href: "/sales" }, { label: pageContract.title }]}
+      actions={actions}
+      tabs={tabs}
+    />
   );
 }
 
@@ -98,25 +95,20 @@ export function SalesFarmToggle({
     return park ? [{ option, id: park.id }] : [];
   });
   return (
-    <div className="chips" role="group" aria-label={copy(pageContract, "filter.farm")} style={{ marginBottom: 14 }}>
-      <span className="muted small" style={{ marginRight: 6 }}>
-        {copy(pageContract, "filter.farm")}
-      </span>
-      {choices.map(({ option, id }) => (
-        // The chip's query follows the LIVE URL, so a parameter the page moved in place (Farm
-        // value's applied Over 35 kg margin) survives a farm switch (defect 2026-09-25).
-        <LiveQueryLink
-          key={option.key}
-          pagePath={pagePath}
-          patch={{ ...cleared, ...salesParkPatch(id) }}
-          fallbackHref={salesPageHref(pagePath, searchParams, { ...cleared, ...salesParkPatch(id) })}
-          className={id === parkId ? "btn sm p" : "btn sm"}
-          current={id === parkId}
-        >
-          {option.label}
-          <LinkPending />
-        </LiveQueryLink>
-      ))}
-    </div>
+    // The chips' query follows the LIVE URL, so a parameter the page moved in place (Farm value's
+    // applied Over 35 kg margin) survives a farm switch (defect 2026-09-25). Template pill tabs.
+    <Box sx={{ mb: 1.75 }}>
+      <LiveQueryTabs
+        pagePath={pagePath}
+        ariaLabel={copy(pageContract, "filter.farm")}
+        value={choices.find(({ id }) => id === parkId)?.option.key ?? ""}
+        items={choices.map(({ option, id }) => ({
+          value: option.key,
+          label: option.label,
+          patch: { ...cleared, ...salesParkPatch(id) },
+          fallbackHref: salesPageHref(pagePath, searchParams, { ...cleared, ...salesParkPatch(id) }),
+        }))}
+      />
+    </Box>
   );
 }

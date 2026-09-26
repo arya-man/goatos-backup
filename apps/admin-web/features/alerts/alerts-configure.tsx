@@ -1,13 +1,17 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import TextField from "@mui/material/TextField";
 import { Settings2 } from "lucide-react";
 
 import { LocalOverlayDrawer } from "@/components/local-overlay-drawer";
+import MenuItem from "@mui/material/MenuItem";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { AlertEventKind, AlertEventRule, AlertRuleConfig } from "@/lib/api/alerts-server";
 import { deleteAlertEventRuleAction, saveAlertEventRuleAction, saveAlertRuleAction } from "./actions";
 import { PARAM_CONFIGURE } from "./alerts-model";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 /**
  * The Configure drawer: one row per catalog rule -- on/off, the threshold with its backend-named
@@ -96,10 +100,12 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
     <div className="card alerts-rule" style={{ marginBottom: 10 }} data-testid="alerts-rule-row" data-rule={rule.key}>
       <div className="bd" style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <label className="small" style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
-            <input type="checkbox" checked={enabled} disabled={pending} onChange={(event) => setEnabled(event.target.checked)} data-testid="alerts-rule-enabled" />
-            {rule.label}
-          </label>
+          <FormControlLabel
+            className="small"
+            disabled={pending}
+            control={<Checkbox checked={enabled} onChange={(event) => setEnabled(event.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} slotProps={{ input: { "data-testid": "alerts-rule-enabled" } as React.InputHTMLAttributes<HTMLInputElement> }} />}
+            label={rule.label}
+          />
           <span className="sp" style={{ flex: 1 }} />
           <span className={`tag ${enabled ? "t-ok" : "t-mut"}`}>{enabled ? t("configure.enabled") : t("configure.disabled")}</span>
         </div>
@@ -108,17 +114,23 @@ function RuleRow({ rule: initial, pageContract }: { rule: AlertRuleConfig; pageC
           <label className="small" htmlFor={inputId}>
             {rule.threshold_label}
           </label>
-          <input
+          <TextField
             id={inputId}
             type="number"
-            inputMode="numeric"
-            min={rule.min_threshold}
-            max={rule.max_threshold}
-            step={1}
+            size="small"
             value={threshold}
             disabled={pending}
             onChange={(event) => setThreshold(event.target.value)}
-            data-testid="alerts-rule-threshold"
+            sx={{ width: 96 }}
+            slotProps={{
+              htmlInput: {
+                inputMode: "numeric",
+                min: rule.min_threshold,
+                max: rule.max_threshold,
+                step: 1,
+                "data-testid": "alerts-rule-threshold",
+              },
+            }}
           />
           <span className="small muted">{rule.threshold_unit}</span>
           <span className="small muted">
@@ -217,28 +229,50 @@ function EventRuleRow({ rule, kinds, pageContract, onSaved, onRemoved }: { rule:
     <div className="card alerts-rule" style={{ marginBottom: 10 }} data-testid="alerts-event-rule" data-rule-id={rule.id}>
       <div className="bd" style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <label className="small" style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, flex: 1 }}>
-            <input type="checkbox" checked={enabled} disabled={pending} onChange={(e) => setEnabled(e.target.checked)} data-testid="alerts-event-enabled" />
-            <input type="text" value={label} maxLength={80} disabled={pending} onChange={(e) => setLabel(e.target.value)} aria-label={t("configure.events.label")} style={{ flex: 1 }} data-testid="alerts-event-label" />
-          </label>
+          <FormControlLabel
+            className="small"
+            disabled={pending}
+            control={<Checkbox checked={enabled} onChange={(e) => setEnabled(e.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} slotProps={{ input: { "data-testid": "alerts-event-enabled" } as React.InputHTMLAttributes<HTMLInputElement> }} />}
+            label={<TextField size="small" value={label} disabled={pending} onChange={(e) => setLabel(e.target.value)} sx={{ flex: 1 }} slotProps={{ htmlInput: { maxLength: 80, "aria-label": t("configure.events.label"), "data-testid": "alerts-event-label" } }} />}
+          />
           <span className={`tag ${enabled ? "t-ok" : "t-mut"}`}>{enabled ? t("configure.enabled") : t("configure.disabled")}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span className="small">{t("configure.events.when")}</span>
-          <select value={kind} disabled={pending} onChange={(e) => setKind(e.target.value)} aria-label={t("configure.events.kind")} data-testid="alerts-event-kind">
-            {kinds.map((k) => (
-              <option key={k.key} value={k.key}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-          <select value={severity} disabled={pending} onChange={(e) => setSeverity(e.target.value)} aria-label={t("filter.severity")} data-testid="alerts-event-severity">
-            {severityOptions(pageContract).map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          <div data-testid="alerts-event-kind">
+            <TextField
+              select
+              label={t("configure.events.kind")}
+              value={kind}
+              disabled={pending}
+              onChange={(event) => setKind(event.target.value)}
+              sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
+              {kinds.map((k) => (
+                <MenuItem key={k.key} value={k.key}>
+                  {k.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </div>
+          <div data-testid="alerts-event-severity">
+            <TextField
+              select
+              label={t("filter.severity")}
+              value={severity}
+              disabled={pending}
+              onChange={(event) => setSeverity(event.target.value)}
+              sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
+              {severityOptions(pageContract).map((o) => (
+                <MenuItem key={o.key} value={o.key}>
+                  {o.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </div>
           <span className="sp" style={{ flex: 1 }} />
           <button type="button" className="btn sm" disabled={pending} onClick={remove} data-testid="alerts-event-remove">
             {t("configure.events.remove")}
@@ -285,23 +319,43 @@ function NewEventRule({ pageContract, kinds, onCreated }: { pageContract: AdminU
     <div className="card alerts-rule" style={{ marginBottom: 10, borderStyle: "dashed" }} data-testid="alerts-event-new">
       <div className="bd" style={{ display: "grid", gap: 8 }}>
         <b className="small">{t("configure.events.add")}</b>
-        <input type="text" value={label} maxLength={80} placeholder={t("configure.events.label.placeholder")} disabled={pending} onChange={(e) => setLabel(e.target.value)} aria-label={t("configure.events.label")} data-testid="alerts-event-new-label" />
+        <TextField size="small" fullWidth value={label} placeholder={t("configure.events.label.placeholder")} disabled={pending} onChange={(e) => setLabel(e.target.value)} slotProps={{ htmlInput: { maxLength: 80, "aria-label": t("configure.events.label"), "data-testid": "alerts-event-new-label" } }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span className="small">{t("configure.events.when")}</span>
-          <select value={kind} disabled={pending} onChange={(e) => setKind(e.target.value)} aria-label={t("configure.events.kind")} data-testid="alerts-event-new-kind">
-            {kinds.map((k) => (
-              <option key={k.key} value={k.key}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-          <select value={severity} disabled={pending} onChange={(e) => setSeverity(e.target.value)} aria-label={t("filter.severity")} data-testid="alerts-event-new-severity">
-            {severityOptions(pageContract).map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          <div data-testid="alerts-event-new-kind">
+            <TextField
+              select
+              label={t("configure.events.kind")}
+              value={kind}
+              disabled={pending}
+              onChange={(event) => setKind(event.target.value)}
+              sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
+              {kinds.map((k) => (
+                <MenuItem key={k.key} value={k.key}>
+                  {k.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </div>
+          <div data-testid="alerts-event-new-severity">
+            <TextField
+              select
+              label={t("filter.severity")}
+              value={severity}
+              disabled={pending}
+              onChange={(event) => setSeverity(event.target.value)}
+              sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+            >
+              {severityOptions(pageContract).map((o) => (
+                <MenuItem key={o.key} value={o.key}>
+                  {o.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </div>
           <span className="sp" style={{ flex: 1 }} />
           <button type="button" className="btn primary sm" disabled={pending || !label.trim() || !kind} onClick={add} data-testid="alerts-event-new-add">
             {t("configure.events.add_button")}

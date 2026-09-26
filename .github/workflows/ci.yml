@@ -260,11 +260,22 @@ jobs:
           node tools/perf/api-latency-gate.mjs \
             --manifest tools/perf/hot-paths.analytics.json \
             --output artifacts/api-latency/current-sha-analytics.json
+          GOATOS_BEARER_TOKEN="$token" \
+          GOATOS_PERF_DATASET_LABEL="ci_admin_all_hot_paths" \
+          GOATOS_PERF_DATASET_ANIMALS=0 \
+          GOATOS_PERF_DATASET_CANONICAL_ROWS=0 \
+          GOATOS_PERF_CERTIFICATION_BOUNDARY="local_admin_all_latency_guard" \
+          node tools/perf/api-latency-gate.mjs \
+            --manifest tools/perf/hot-paths.admin-all.json \
+            --output artifacts/api-latency/current-sha-admin-all.json
           node tools/perf/api-latency-evidence.mjs \
             --report artifacts/api-latency/current-sha.json \
             --expected-sha "$GITHUB_SHA"
           node tools/perf/api-latency-evidence.mjs \
             --report artifacts/api-latency/current-sha-analytics.json \
+            --expected-sha "$GITHUB_SHA"
+          node tools/perf/api-latency-evidence.mjs \
+            --report artifacts/api-latency/current-sha-admin-all.json \
             --expected-sha "$GITHUB_SHA"
       - name: Stop API and print its log
         if: always()

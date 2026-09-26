@@ -1,7 +1,20 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
-import { BellRing, Settings2, ShieldCheck } from "lucide-react";
+import { BellRing, Settings2, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
+import { EmptyState } from "@/components/app/empty-state";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { control, controlEnabled, copy, optionGroup, table, tableLabels, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -13,6 +26,7 @@ import { istDayPlus, todayIso } from "@/lib/format";
 import { hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
 import { AlertsConfigure } from "./alerts-configure";
 import { alertsEmptyState, ALERTS_PATH, PARAM_CONFIGURE } from "./alerts-model";
+import Alert from "@mui/material/Alert";
 
 const PARAM_PARK = "park";
 const PARAM_DATE = "date";
@@ -74,7 +88,7 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   // it, otherwise from the rows themselves, which carry their rule's label. A viewer never fires
   // the config read, and the rule keys are config vocabulary that must not be shown in their place.
   const ruleLabels: Record<string, string> = Object.fromEntries(allRows.map((row) => [row.rule_key, row.rule_label]));
-  if (config?.ok) for (const rule of config.data.rules) ruleLabels[rule.key] = rule.label;
+  if (config?.ok) for (const rule of listOrEmpty(config.data.rules)) ruleLabels[rule.key] = rule.label;
   const alertsTable = table(pageContract, "alerts");
   const labels = tableLabels(pageContract, "alerts");
   const isToday = businessDate === todayIso();
@@ -91,96 +105,108 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
   const closeHref = href({ [PARAM_CONFIGURE]: undefined });
 
   return (
-    <div className="screen on alerts-page">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            <b>{t("crumb")}</b>
-          </div>
-          <h1>{t("title")}</h1>
-          <div className="sub">{t("subtitle")}</div>
-        </div>
-        <span className="sp" style={{ flex: 1 }} />
-        {mayConfigure ? (
-          <LocalOverlayLink href={configureHref} scroll={false} className="btn primary" data-testid="alerts-configure-open">
-            <Settings2 className="ic" aria-hidden="true" /> {configureControl.label}
-          </LocalOverlayLink>
-        ) : (
-          <button type="button" className="btn" disabled aria-disabled title={configureControl.disabled_reason ?? undefined} data-testid="alerts-configure-open">
-            <Settings2 className="ic" aria-hidden="true" /> {configureControl.label}
-          </button>
-        )}
+    <div className="kit-enter screen on alerts-page">
+      <div>
+        <PageHeader
+          title={t("title")}
+          crumbs={[{ label: t("crumb"), href: "/" }, { label: t("title") }]}
+          actions={
+            mayConfigure ? (
+              <LocalOverlayLink href={configureHref} scroll={false} className="btn primary" data-testid="alerts-configure-open">
+                <Settings2 className="ic" aria-hidden="true" /> {configureControl.label}
+              </LocalOverlayLink>
+            ) : (
+              <button type="button" className="btn" disabled aria-disabled title={configureControl.disabled_reason ?? undefined} data-testid="alerts-configure-open">
+                <Settings2 className="ic" aria-hidden="true" /> {configureControl.label}
+              </button>
+            )
+          }
+        />
       </div>
 
-      <div className="grid g3" style={{ marginBottom: 14 }}>
-        <div className="kpi">
-          <span className="acc" style={{ background: critical > 0 ? "var(--danger)" : "var(--brand)" }} />
-          <div className="lab">
-            <BellRing className="ic" aria-hidden="true" /> {t("kpi.total")}
-          </div>
-          <div className="val" data-testid="alerts-kpi-total">{total}</div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: "var(--danger)" }} />
-          <div className="lab">{t("kpi.critical")}</div>
-          <div className="val" data-testid="alerts-kpi-critical">{critical}</div>
-        </div>
-        <div className="kpi">
-          <span className="acc" style={{ background: "var(--info)" }} />
-          <div className="lab">
-            <ShieldCheck className="ic" aria-hidden="true" /> {t("kpi.rules")}
-          </div>
-          <div className="val">{rulesRun.size}</div>
-          <div className="dl">{Array.from(rulesRun).map((key) => ruleLabels[key] ?? "").filter(Boolean).join(" · ")}</div>
-        </div>
-      </div>
+      <KpiGrid min={220}>
+        <KpiCard
+          label={t("kpi.total")}
+          value={total}
+          tone={critical > 0 ? "error" : "primary"}
+          icon={<BellRing />}
+          className="kpi-total"
+        />
+        <KpiCard label={t("kpi.critical")} value={critical} tone="error" icon={<TriangleAlert />} className="kpi-critical" />
+        <KpiCard
+          label={t("kpi.rules")}
+          value={rulesRun.size}
+          tone="info"
+          icon={<ShieldCheck />}
+        />
+      </KpiGrid>
 
-      <section className="card" data-testid="alerts-table">
-        <div className="hd" style={{ flexWrap: "wrap" }}>
-          <h3 style={{ marginRight: "auto" }}>{alertsTable.title}</h3>
-          <div className="subtabs" aria-label={t("filter.park")}>
-            <Link href={href({ [PARAM_PARK]: null })} replace scroll={false} className={chosenPark ? "" : "on"}>
-              {t("filter.park.all")}
-            </Link>
-            {parks.map((park) => (
-              <Link key={park.key} href={href({ [PARAM_PARK]: park.key })} replace scroll={false} className={chosenPark?.key === park.key ? "on" : ""}>
-                {park.label}
-              </Link>
-            ))}
-          </div>
-          <div className="subtabs" aria-label={t("filter.severity")}>
-            <Link href={href({ [PARAM_SEVERITY]: null })} replace scroll={false} className={severity ? "" : "on"}>
-              {t("filter.severity.all")}
-            </Link>
-            {severities.map((option) => (
-              <Link key={option.key} href={href({ [PARAM_SEVERITY]: option.key })} replace scroll={false} className={severity === option.key ? "on" : ""}>
-                {option.label}
-              </Link>
-            ))}
-          </div>
-          <div className="subtabs" aria-label={t("filter.date")}>
-            <Link href={href({ [PARAM_DATE]: istDayPlus(businessDate, -1) })} replace scroll={false} aria-label={t("filter.date.previous")}>
-              ‹
-            </Link>
-            <Link href={href({ [PARAM_DATE]: null })} replace scroll={false} className={isToday ? "on" : ""}>
-              {isToday ? t("filter.date.today") : businessDate}
-            </Link>
-            <Link href={href({ [PARAM_DATE]: istDayPlus(businessDate, 1) })} replace scroll={false} aria-label={t("filter.date.next")}>
-              ›
-            </Link>
-          </div>
-        </div>
+      <Card className="kit-tablecard" data-testid="alerts-table">
+        <CardHeader
+          title={alertsTable.title}
+          sx={{
+            pt: 2.5,
+            px: 3,
+            pb: 2,
+            alignItems: "center",
+            flexWrap: "wrap",
+            rowGap: 1.5,
+            [`& .${cardHeaderClasses.action}`]: { m: 0, flex: { xs: "1 1 100%", sm: "0 1 auto" }, minWidth: 0, maxWidth: "100%" },
+          }}
+          action={
+            <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 1.5 }}>
+              <AnimatedTabs
+                variant="pill"
+                ariaLabel={t("filter.park")}
+                value={chosenPark?.key ?? "all"}
+                items={[
+                  { value: "all", label: t("filter.park.all"), href: href({ [PARAM_PARK]: null }) },
+                  ...parks.map((park) => ({ value: park.key, label: park.label, href: href({ [PARAM_PARK]: park.key }) })),
+                ]}
+              />
+              <AnimatedTabs
+                variant="pill"
+                ariaLabel={t("filter.severity")}
+                value={severity || "all"}
+                items={[
+                  { value: "all", label: t("filter.severity.all"), count: allRows.length, href: href({ [PARAM_SEVERITY]: null }) },
+                  ...severities.map((option) => ({
+                    value: option.key,
+                    label: option.label,
+                    // Counted over the UNFILTERED day, so every badge keeps its number when one severity is picked.
+                    count: allRows.filter((row) => row.severity === option.key).length,
+                    href: href({ [PARAM_SEVERITY]: option.key }),
+                  })),
+                ]}
+              />
+              <AnimatedTabs
+                variant="pill"
+                ariaLabel={t("filter.date")}
+                value="day"
+                items={[
+                  { value: "prev", label: "\u2039", href: href({ [PARAM_DATE]: istDayPlus(businessDate, -1) }) },
+                  { value: "day", label: isToday ? t("filter.date.today") : businessDate, href: href({ [PARAM_DATE]: null }) },
+                  { value: "next", label: "\u203a", href: href({ [PARAM_DATE]: istDayPlus(businessDate, 1) }) },
+                ]}
+              />
+            </Box>
+          }
+        />
 
+        {/* Park / severity / date all re-fetch the list. Keyed on the three of them together, the
+            body cross-fades instead of snapping, which is what makes a filter feel applied rather
+            than the page feel reloaded. */}
+        <TabPanel tabKey={`${chosenPark?.key ?? "all"}|${severity || "all"}|${businessDate}`}>
         {allFailed ? (
-          <div className="alert" style={{ margin: 12 }} role="status">
+          <Alert severity="error" style={{ margin: 12 }} role="status">
             {t("state.error")} <Link href={href({})}>{t("action.retry")}</Link>
-          </div>
+          </Alert>
         ) : null}
 
         {partial ? (
-          <div className="alert" style={{ margin: 12 }} role="status">
+          <Alert severity="error" style={{ margin: 12 }} role="status">
             {t("state.partial")} {[...failedParks, ...Array.from(degraded).map((key) => ruleLabels[key] ?? "")].filter(Boolean).join(", ")}. <Link href={href({})}>{t("action.retry")}</Link>
-          </div>
+          </Alert>
         ) : null}
 
         {skipped.length > 0 ? (
@@ -190,61 +216,57 @@ export async function AlertsPage({ searchParams, pageContract }: { searchParams?
         ) : null}
 
         {emptyState ? (
-          <div className="empty" style={{ padding: 28 }}>
-            <ShieldCheck size={22} aria-hidden="true" />
-            <div className="small muted" style={{ marginTop: 8 }} data-testid="alerts-empty">
-              {t(emptyState)}
-            </div>
-          </div>
+          <EmptyState icon={<ShieldCheck className="ic" aria-hidden="true" />} title={<span data-testid="alerts-empty">{t(emptyState)}</span>} />
         ) : null}
 
         {rows.length > 0 ? (
           <div className="tablewrap" style={{ overflowX: "auto" }}>
-            <table className="tbl">
-              <thead>
-                <tr>
+            <Table className="tbl">
+              <TableHead>
+                <TableRow>
                   {labels.map((label) => (
-                    <th key={label}>{label}</th>
+                    <TableCell component="th" key={label}>{label}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((row) => (
-                  <tr key={row.key} data-testid="alerts-row" data-severity={row.severity}>
-                    <td>
+                  <TableRow key={row.key} data-testid="alerts-row" data-severity={row.severity}>
+                    <TableCell>
                       <Tag tone={severityTone(row.severity)}>{t(`severity.${row.severity}`)}</Tag>
-                    </td>
-                    <td style={{ maxWidth: 360, whiteSpace: "normal" }}>
+                    </TableCell>
+                    <TableCell style={{ maxWidth: 360, whiteSpace: "normal" }}>
                       <b>{row.title}</b>
-                    </td>
-                    <td>{row.park_label}</td>
-                    <td>{row.operational_location_display || <span className="muted">—</span>}</td>
-                    <td style={{ maxWidth: 420, whiteSpace: "normal" }} className="small">
+                    </TableCell>
+                    <TableCell>{row.park_label}</TableCell>
+                    <TableCell>{row.operational_location_display || <span className="muted">—</span>}</TableCell>
+                    <TableCell style={{ maxWidth: 420, whiteSpace: "normal" }} className="small">
                       {row.detail}
                       {row.href ? (
                         <>
                           {" "}
-                          <Link href={row.href} className="small">
+                          <Link href={row.href} className="small alerts-open-link">
                             {t("action.open")}
                           </Link>
                         </>
                       ) : null}
-                    </td>
-                    <td className="small muted">{row.rule_label}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="small muted">{row.rule_label}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         ) : null}
-      </section>
+        </TabPanel>
+      </Card>
 
       {mayConfigure ? (
         <AlertsConfigure
           pageContract={pageContract}
           rules={config?.ok ? config.data.rules : null}
-          eventRules={config?.ok ? config.data.event_rules : []}
-          eventKinds={config?.ok ? config.data.event_kinds : []}
+          eventRules={config?.ok ? listOrEmpty(config.data.event_rules) : []}
+          eventKinds={config?.ok ? listOrEmpty(config.data.event_kinds) : []}
           initialOpen={one(sp, PARAM_CONFIGURE) === "1"}
           closeHref={closeHref}
         />

@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 // Live BLE ear-tag watch card for Ask Mesha (watch_tags tool). The agent server
 // polls the Herd Signals live table and streams frames; this card shows the live
@@ -111,55 +116,55 @@ export function CeoAiWatchCard(props: { watch: WatchState; onStop?: () => void }
       {watch.unmatched?.length ? <p className="mzai-w-err">No tag matched: {watch.unmatched.join(", ")}</p> : null}
       {watch.rows.length ? (
         <div className="mzai-w-scroll">
-          <table className="mzai-w-table">
-            <thead>
-              <tr>
-                <th>Tag</th>
-                <th>Pen</th>
-                <th>State</th>
-                <th className="num">Motion</th>
-                {showOwn ? <th className="num">vs own</th> : null}
-                {showPen ? <th className="num">vs pen</th> : null}
-                <th>Last seen</th>
-                <th>Signal</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="mzai-w-table">
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">Tag</TableCell>
+                <TableCell component="th">Pen</TableCell>
+                <TableCell component="th">State</TableCell>
+                <TableCell component="th" className="num">Motion</TableCell>
+                {showOwn ? <TableCell component="th" className="num">vs own</TableCell> : null}
+                {showPen ? <TableCell component="th" className="num">vs pen</TableCell> : null}
+                <TableCell component="th">Last seen</TableCell>
+                <TableCell component="th">Signal</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {watch.rows.map((r) => (
-                <tr key={r.tag}>
-                  <td>
+                <TableRow key={r.tag}>
+                  <TableCell>
                     <span className="mzai-w-tag">{r.tag}</span>
                     {r.animal ? <span className="mzai-w-dim">{r.animal}</span> : null}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {r.pen ?? "Unmapped"}
                     {r.park ? <span className="mzai-w-dim">{r.park}</span> : null}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <span className={`mzai-w-pill ${STATE_TONE[r.state] ?? "mut"}`}>{r.state_label}</span>
                     {r.live_state === "moving_now" ? <span className="mzai-w-dim">moving now</span> : null}
                     {r.still_min >= 1 ? <span className="mzai-w-dim">still {r.still_min}m</span> : null}
-                  </td>
-                  <td className="num">
+                  </TableCell>
+                  <TableCell className="num">
                     {r.motion_count ?? "—"}
                     <span className="mzai-w-dim">
                       {r.delta_since_start !== null ? `+${r.delta_since_start} since start` : ""}
                     </span>
-                  </td>
-                  {showOwn ? <td className="num">{pct(r.vs_own_pct) ?? "—"}</td> : null}
-                  {showPen ? <td className="num">{pct(r.vs_pen_pct) ?? "—"}</td> : null}
-                  <td>{ago(r.last_seen_s)}</td>
-                  <td>
+                  </TableCell>
+                  {showOwn ? <TableCell className="num">{pct(r.vs_own_pct) ?? "—"}</TableCell> : null}
+                  {showPen ? <TableCell className="num">{pct(r.vs_pen_pct) ?? "—"}</TableCell> : null}
+                  <TableCell>{ago(r.last_seen_s)}</TableCell>
+                  <TableCell>
                     <span className={`mzai-w-pill ${STATUS_TONE[r.status] ?? "mut"}`}>{r.status}</span>
                     <span className="mzai-w-dim">
                       {r.rssi !== null ? `${r.rssi} dBm` : ""}
                       {r.battery_mv !== null ? ` · ${(r.battery_mv / 1000).toFixed(2)} V` : ""}
                     </span>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       ) : null}
       {feed.length ? (

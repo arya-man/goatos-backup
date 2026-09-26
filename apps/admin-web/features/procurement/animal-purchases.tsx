@@ -1,7 +1,19 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
+import { EmptyState } from "@/components/app/empty-state";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { AnimalPurchaseRecordedRange } from "./animal-purchase-recorded-range";
+import { KpiValue } from "./kpi-value";
 import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
-import { Truck, Video } from "lucide-react";
+import { CircleCheck, CircleX, Hourglass, Truck, Video } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getAnimalPurchaseDeskCounts, listAnimalPurchaseLoads, listAnimalPurchaseReview } from "@/lib/api/procurement-server";
@@ -23,6 +35,15 @@ import { AnimalPurchaseDecisionForm } from "./animal-purchase-decision-form";
 import { AnimalPurchaseTelemetry } from "./animal-purchase-telemetry";
 import { AnimalPurchaseAnswers, AnimalPurchaseMedia, FieldVerdictChip, type SopCopy } from "./animal-purchase-sop";
 import { AnimalPurchaseLightbox } from "./animal-purchase-lightbox";
+import { FormSelect } from "./form-select";
+import { ProcurementTableFooter } from "./table-footer-links";
+import { listOptions } from "./option-utils";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
+import Box from "@mui/material/Box";
+import { phoneLoadCardsSx } from "./procurement-sx";
+
+const LOAD_CARDS_SX = phoneLoadCardsSx("animal-purchase-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 3, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1", row: 2, secondary: true }, { nth: 6, column: "2", row: 2, alignEnd: true }]);
 
 const PATHNAME = "/procurement/animal-purchases";
 const DEFAULT_DECISION = "pending";
@@ -85,7 +106,14 @@ export async function AnimalPurchasesPage({
 
   const loadsTable = table(pageContract, "animal-purchase-loads");
   const animalsTable = table(pageContract, "animal-purchase-animals");
-  const loadsLimit = loadsTable.page_size_options[0] ?? DEFAULT_LIMIT;
+  // Rows per page for the loads table: a contract page size chosen in the URL (`ld_limit`), else the
+  // first. `ld_offset` is only the position shown in the footer range ("21–40 of …"); the read
+  // itself stays keyset-paged by `ld_cursor`.
+  const loadsPageSizes = loadsTable.page_size_options.length > 0 ? loadsTable.page_size_options : [DEFAULT_LIMIT];
+  const requestedLoadsLimit = Number(one(sp, "ld_limit"));
+  const loadsLimit = loadsPageSizes.includes(requestedLoadsLimit) ? requestedLoadsLimit : loadsPageSizes[0];
+  const loadsOffsetRaw = Number(one(sp, "ld_offset"));
+  const loadsOffset = loadCursor && Number.isInteger(loadsOffsetRaw) && loadsOffsetRaw > 0 ? loadsOffsetRaw : 0;
   const animalsLimit = animalsTable.page_size_options[0] ?? DEFAULT_LIMIT;
 
   const [loadsResult, reviewResult, totalsResult] = await Promise.all([
@@ -104,11 +132,11 @@ export async function AnimalPurchasesPage({
   ]);
   if (firstAuthRequiredError(loadsResult, reviewResult, totalsResult)) redirect(INTERNAL_LOGIN_PATH);
 
-  const loads: AnimalPurchaseLoad[] = loadsResult.ok ? loadsResult.data.loads : [];
+  const loads: AnimalPurchaseLoad[] = loadsResult.ok ? listOrEmpty(loadsResult.data.loads) : [];
   const loadsNextCursor = loadsResult.ok ? loadsResult.data.next_cursor : undefined;
-  const animals: AnimalPurchaseAnimal[] = reviewResult.ok ? reviewResult.data.animals : [];
+  const animals: AnimalPurchaseAnimal[] = reviewResult.ok ? listOrEmpty(reviewResult.data.animals) : [];
   const animalsNextCursor = reviewResult.ok ? reviewResult.data.next_cursor : undefined;
-  const filters = reviewResult.ok ? reviewResult.data.filters : [];
+  const filters = reviewResult.ok ? listOrEmpty(reviewResult.data.filters) : [];
   const totals = totalsResult.ok ? totalsResult.data : null;
 
   const none = copy(pageContract, "value.none");
@@ -156,59 +184,58 @@ export async function AnimalPurchasesPage({
     <div className="screen on">
       <AnimalPurchaseTelemetry rows={animals.length} pending={totals?.pending ?? 0} feedback={feedback} />
 
-      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div>
-          <div className="crumb">
-            <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-      </div>
+      <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb"), href: "/procurement/source-entry" }, { label: pageContract.title }]} />
 
       {/* Decision feedback from the Server Action's redirect. Every code resolves to page copy;
           an unknown one falls back to the generic failure line rather than leaking the token. */}
       {feedback.status ? (
-        <div className={feedback.status === "success" ? "note" : "alert"} style={{ marginBottom: 14 }} role="status">
+        <Alert severity={feedback.status === "success" ? "info" : "error"} style={{ marginBottom: 14 }} role="status">
           {feedbackText}
-        </div>
+        </Alert>
       ) : null}
 
       {!loadsResult.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{loadsResult.error.code ?? loadsResult.error.kind}</b>&nbsp;{loadsResult.error.message}
-        </div>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
+          {loadsResult.error.message}
+        </Alert>
       ) : null}
       {!reviewResult.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{reviewResult.error.code ?? reviewResult.error.kind}</b>&nbsp;{reviewResult.error.message}
-        </div>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
+          {reviewResult.error.message}
+        </Alert>
       ) : null}
 
       {/* Whole-desk figures from the backend counts, never sums over the rendered page. */}
-      <div className="grid g4 kpi-row" style={{ marginBottom: 14 }}>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "summary.loads")}</div>
-          {/* The loads read is one keyset page; a trailing "+" says there are more than shown. */}
-          <div className="val">{loadsResult.ok ? `${num(loads.length)}${loadsNextCursor ? "+" : ""}` : none}</div>
-          <div className="dl">{loadsTable.title}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "summary.pending")}</div>
-          <div className="val">{totals ? num(totals.pending) : none}</div>
-          <div className="dl">{copy(pageContract, "summary.hint")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "summary.accepted")}</div>
-          <div className="val">{totals ? num(totals.accepted) : none}</div>
-          <div className="dl">{copy(pageContract, "summary.hint")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "summary.rejected")}</div>
-          <div className="val">{totals ? num(totals.rejected) : none}</div>
-          <div className="dl">{copy(pageContract, "summary.hint")}</div>
-        </div>
-      </div>
+      <Box sx={{ mb: 1.75 }}>
+      <KpiGrid>
+        <KpiCard
+          tone="primary"
+          label={copy(pageContract, "summary.loads")}
+          // The loads read is one keyset page; a trailing "+" says there are more than shown.
+          value={loadsResult.ok ? `${num(loads.length)}${loadsNextCursor ? "+" : ""}` : none}
+          icon={<Truck aria-hidden="true" />}
+          hint={loadsTable.title}
+        />
+        <KpiCard
+          tone="warning"
+          label={copy(pageContract, "summary.pending")}
+          value={totals ? <KpiValue value={totals.pending} /> : none}
+          icon={<Hourglass aria-hidden="true" />}
+        />
+        <KpiCard
+          tone="success"
+          label={copy(pageContract, "summary.accepted")}
+          value={totals ? <KpiValue value={totals.accepted} /> : none}
+          icon={<CircleCheck aria-hidden="true" />}
+        />
+        <KpiCard
+          tone="error"
+          label={copy(pageContract, "summary.rejected")}
+          value={totals ? <KpiValue value={totals.rejected} /> : none}
+          icon={<CircleX aria-hidden="true" />}
+        />
+      </KpiGrid>
+      </Box>
 
       <section className="card" style={{ marginBottom: 14 }}>
         <div className="hd">
@@ -217,24 +244,16 @@ export async function AnimalPurchasesPage({
           <div className="sp" style={{ flex: 1 }} />
           {/* The load FILTER: a plain query-param link, not an overlay. Clicking a load narrows
               the animals section below; the all-loads chip clears it. */}
-          <div className="chips" role="group" aria-label={copy(pageContract, "filter.load")}>
-            <span className="muted small" style={{ marginRight: 6 }}>
-              {copy(pageContract, "filter.load")}
-            </span>
-            <Link
-              href={hrefWithQuery(sp, { load_id: null, ap_cursor: null, ap_status: null, ap_code: null })}
-              scroll={false}
-              className={loadId ? "btn sm" : "btn sm p"}
-              aria-current={loadId ? undefined : "true"}
-            >
-              {copy(pageContract, "filter.load.all")}
-            </Link>
-            {loadId ? (
-              <span className="btn sm p" aria-current="true">
-                {selectedLoadRef ?? none}
-              </span>
-            ) : null}
-          </div>
+          {/* The load FILTER as one pill strip: All loads · <selected>. Query-param links, no overlay. */}
+          <AnimatedTabs
+            variant="pill"
+            ariaLabel={copy(pageContract, "filter.load")}
+            value={loadId ? "selected" : "all"}
+            items={[
+              { value: "all", label: copy(pageContract, "filter.load.all"), href: hrefWithQuery(sp, { load_id: null, ap_cursor: null, ap_status: null, ap_code: null }) },
+              ...(loadId ? [{ value: "selected", label: selectedLoadRef ?? none, href: hrefWithQuery(sp, {}) }] : []),
+            ]}
+          />
         </div>
         {/* The selected load's own record: what the buying desk typed when it opened the load on
             the phone (load number, vendor, farm, expected count, note), who recorded it and when,
@@ -281,71 +300,77 @@ export async function AnimalPurchasesPage({
         ) : null}
 
         {loads.length === 0 ? (
-          <div className="empty">{copy(pageContract, "empty.loads")}</div>
+          <EmptyState title={copy(pageContract, "empty.loads")} />
         ) : (
-          <div className="twrap" tabIndex={0} role="region" aria-label={loadsTable.title}>
-            <table className="animal-purchase-loads-table" aria-label={loadsTable.title}>
-              <thead>
-                {/* Header labels come from the page contract IN ITS ORDER; the body cells below
-                    are written in that same order (load_ref, vendor_name, farm, expected_count,
-                    total, pending, accepted, rejected, created_at). */}
-                <tr>
-                  {loadColumns.map((label) => (
-                    <th key={label}>{label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loads.map((load) => {
-                  const selected = load.load_id === loadId;
-                  const filterHref = hrefWithQuery(sp, {
-                    load_id: selected ? null : load.load_id,
-                    ap_cursor: null,
-                    ap_status: null,
-                    ap_code: null,
-                  });
-                  const cellLink = (content: ReactNode) => (
-                    <Link href={filterHref} className="celllink" scroll={false} aria-current={selected ? "true" : undefined}>
-                      {content}
-                    </Link>
-                  );
-                  return (
-                    <tr key={load.load_id} className={selected ? "on" : undefined} aria-selected={selected ? "true" : undefined}>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(<b>{load.load_ref}</b>)}</td>
-                      <td>{cellLink(load.vendor_name || none)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(load.farm)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.expected_count))}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.total))}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        {cellLink(<Tag tone={load.counts.pending > 0 ? "warn" : "mut"}>{num(load.counts.pending)}</Tag>)}
-                      </td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.accepted))}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.rejected))}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(fmtDate(load.created_at))}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div id="animal-purchase-loads" className="twrap" tabIndex={0} role="region" aria-label={loadsTable.title}>
+            <Box sx={LOAD_CARDS_SX}>
+              <Table className="animal-purchase-loads-table" aria-label={loadsTable.title}>
+                <TableHead>
+                  {/* Header labels come from the page contract IN ITS ORDER; the body cells below
+                      are written in that same order (load_ref, vendor_name, farm, expected_count,
+                      total, pending, accepted, rejected, created_at). */}
+                  <TableRow>
+                    {loadColumns.map((label) => (
+                      <TableCell component="th" key={label}>{label}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {loads.map((load) => {
+                    const selected = load.load_id === loadId;
+                    const filterHref = hrefWithQuery(sp, {
+                      load_id: selected ? null : load.load_id,
+                      ap_cursor: null,
+                      ap_status: null,
+                      ap_code: null,
+                    });
+                    const cellLink = (content: ReactNode) => (
+                      <Link href={filterHref} className="celllink" scroll={false} aria-current={selected ? "true" : undefined}>
+                        {content}
+                      </Link>
+                    );
+                    return (
+                      <TableRow key={load.load_id} className={selected ? "on" : undefined} aria-selected={selected ? "true" : undefined}>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(<b>{load.load_ref}</b>)}</TableCell>
+                        <TableCell>{cellLink(load.vendor_name || none)}</TableCell>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(load.farm)}</TableCell>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.expected_count))}</TableCell>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.total))}</TableCell>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>
+                          {cellLink(<Tag tone={load.counts.pending > 0 ? "warn" : "mut"}>{num(load.counts.pending)}</Tag>)}
+                        </TableCell>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.accepted))}</TableCell>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(load.counts.rejected))}</TableCell>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(fmtDate(load.created_at))}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </Box>
           </div>
         )}
 
-        {loadsNextCursor || loadCursor ? (
-          <div className="pager2">
-            <div className="sp" style={{ flex: 1 }} />
-            {/* Keyset cursors read forward only; "Back" returns to the first page rather than
-                growing a trail — the loads list is expected to stay shallow. */}
-            {loadCursor ? (
-              <Link href={hrefWithQuery(sp, { ld_cursor: null })} className="btn" scroll={false}>
-                {copy(pageContract, "action.prev_page")}
-              </Link>
-            ) : null}
-            {loadsNextCursor ? (
-              <Link href={hrefWithQuery(sp, { ld_cursor: loadsNextCursor })} className="btn" scroll={false}>
-                {copy(pageContract, "action.next_page")}
-              </Link>
-            ) : null}
-          </div>
+        {loads.length > 0 ? (
+          /* Keyset cursors read forward only; "Back" returns to the first page rather than growing
+             a trail — the loads list is expected to stay shallow. There is no row total, so the range
+             reads "1–20 of more than 20" while a next page exists and "1–2 of 2" once it does not. */
+          <ProcurementTableFooter
+            denseLabel={copy(pageContract, "action.dense", "Dense")}
+            rowsLabel={copy(pageContract, "pager.rows_per_page")}
+            rowsValue={loadsLimit}
+            rowsOptions={loadsPageSizes.map((size) => ({ size, href: hrefWithQuery(sp, { ld_limit: String(size), ld_cursor: null, ld_offset: null }) }))}
+            page={loadCursor ? 2 : 1}
+            pageCount={loadsNextCursor ? (loadCursor ? 3 : 2) : loadCursor ? 2 : 1}
+            prevHref={loadCursor ? hrefWithQuery(sp, { ld_cursor: null, ld_offset: null }) : null}
+            nextHref={loadsNextCursor ? hrefWithQuery(sp, { ld_cursor: loadsNextCursor, ld_offset: String(loadsOffset + loads.length) }) : null}
+            rangeLabel={`${num(loadsOffset + 1)}–${num(loadsOffset + loads.length)} ${copy(pageContract, "pager.of", "of")} ${
+              loadsNextCursor ? `${copy(pageContract, "pager.more_than")} ${num(loadsOffset + loads.length)}` : num(loadsOffset + loads.length)
+            }`}
+            prevLabel={copy(pageContract, "action.prev_page")}
+            nextLabel={copy(pageContract, "action.next_page")}
+            denseTargetId="animal-purchase-loads"
+          />
         ) : null}
       </section>
 
@@ -353,73 +378,87 @@ export async function AnimalPurchasesPage({
         <div className="hd">
           <Video className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
           <h3>{copy(pageContract, "section.animals.title")}</h3>
-          <span className="muted small">{copy(pageContract, "section.animals.hint")}</span>
         </div>
 
         {/* Load and recorded-on window: a plain GET form, so the filter lives in the URL like
             every other list filter and the whole-filter chip counts follow it. The chip and the
             page cursor are dropped on submit by construction (they are not form fields). */}
-        <form method="get" action={PATHNAME} className="ap-filter-bar" role="search" aria-label={copy(pageContract, "filter.load")}>
+        {/* The fields sit straight on the card (template invoice toolbar, no inner bordered box); the
+            top inset keeps the notched "Load" / "Recorded from" labels clear of the card edge. */}
+        <Box
+          component="form"
+          method="get"
+          action={PATHNAME}
+          className="ap-filter-bar"
+          role="search"
+          aria-label={copy(pageContract, "filter.load")}
+          sx={{
+            "&&": { pt: 1.25, px: 0, pb: 0, border: 0, borderRadius: 0, background: "none" },
+            "& .kit-daterange.ap-filter-date": { height: "auto", p: 0, border: 0, borderRadius: 0, background: "none", flex: "1 1 20rem", minWidth: "17.5rem" },
+          }}
+        >
           {decision !== DEFAULT_DECISION ? <input type="hidden" name="decision" value={decision} /> : null}
-          <label className="ap-filter">
-            <span className="muted small">{copy(pageContract, "filter.load")}</span>
-            <select name="load_id" defaultValue={loadId ?? ""} className="ap-filter-select">
-              <option value="">{copy(pageContract, "filter.load.all")}</option>
-              {loads.map((load) => (
-                <option key={load.load_id} value={load.load_id}>
-                  {load.load_ref} · {load.vendor_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="ap-filter">
-            <span className="muted small">{copy(pageContract, "filter.recorded_from")}</span>
-            <input type="date" name="recorded_from" defaultValue={recordedFrom} className="ap-filter-date" />
-          </label>
-          <label className="ap-filter">
-            <span className="muted small">{copy(pageContract, "filter.recorded_to")}</span>
-            <input type="date" name="recorded_to" defaultValue={recordedTo} className="ap-filter-date" />
-          </label>
-          <button type="submit" className="btn sm p">
+          <FormSelect
+            label={copy(pageContract, "filter.load")}
+            name="load_id"
+            defaultValue={loadId ?? ""}
+            className="ap-filter"
+            minWidth={220}
+            options={listOptions(
+              loads,
+              (load) => load.load_id,
+              (load) => `${load.load_ref} · ${load.vendor_name}`,
+              copy(pageContract, "filter.load.all"),
+            )}
+          />
+          <AnimalPurchaseRecordedRange
+            from={recordedFrom}
+            to={recordedTo}
+            label={copy(pageContract, "filter.recorded_from")}
+            fromLabel={copy(pageContract, "filter.from")}
+            toLabel={copy(pageContract, "filter.recorded_to")}
+            previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+            nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+          />
+          <Button type="submit" variant="contained" color="primary" size="small">
             {copy(pageContract, "filter.apply")}
-          </button>
+          </Button>
           {loadId || recordedFrom || recordedTo ? (
             <Link href={hrefWithQuery(sp, { load_id: null, recorded_from: null, recorded_to: null, ap_cursor: null, ap_status: null, ap_code: null })} className="btn sm" scroll={false}>
               {copy(pageContract, "filter.clear")}
             </Link>
           ) : null}
-        </form>
+        </Box>
 
         {/* Decision chips are the response's own filters: label and WHOLE-FILTER count verbatim,
             selection as the backend reports it. A filter switch drops the cursor by construction. */}
         {filters.length > 0 ? (
-          <div className="chips ap-decision-chips" role="group" aria-label={copy(pageContract, "filter.decision")}>
-            <span className="muted small" style={{ marginRight: 6 }}>
-              {copy(pageContract, "filter.decision")}
-            </span>
-            {filters.map((filter) => (
-              <Link
-                key={filter.key}
-                href={hrefWithQuery(sp, {
+          <Box sx={{ mb: 1.75 }}>
+            <AnimatedTabs
+              ariaLabel={copy(pageContract, "filter.decision")}
+              value={filters.find((filter) => filter.selected)?.key ?? decision}
+              items={filters.map((filter) => ({
+                value: filter.key,
+                label: filter.label,
+                count: num(filter.count),
+                href: hrefWithQuery(sp, {
                   decision: filter.key === DEFAULT_DECISION ? null : filter.key,
                   ap_cursor: null,
                   ap_status: null,
                   ap_code: null,
-                })}
-                scroll={false}
-                className={filter.selected ? "btn sm p" : "btn sm"}
-                aria-current={filter.selected ? "true" : undefined}
-              >
-                {filter.label} <span className="chip count">{num(filter.count)}</span>
-              </Link>
-            ))}
-          </div>
+                }),
+              }))}
+            />
+          </Box>
         ) : null}
 
+        {/* The decision tabs drive a server navigation. The kit `TabPanel` content transition is
+            NOT wrapped around this body: it branches on `useReducedMotion()`, which is false on the
+            server and true on a reduced-motion client, so it renders a different element tree on
+            each side and hydration fails on every load under that setting. Put it back once the kit
+            renders one tree and only zeroes the durations. */}
         {animals.length === 0 ? (
-          <div className="empty">
-            {copy(pageContract, decision === DEFAULT_DECISION ? "empty.pending" : "empty.animals")}
-          </div>
+          <EmptyState title={copy(pageContract, decision === DEFAULT_DECISION ? "empty.pending" : "empty.animals")} />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {animals.map((animal) => {
@@ -525,22 +564,17 @@ export async function AnimalPurchasesPage({
         )}
 
         {animalsNextCursor || animalCursor ? (
-          <div className="pager2">
-            <span className="muted small">
-              {num(animals.length)} {copy(pageContract, animals.length === 1 ? "pager.noun.one" : "pager.noun")}
-            </span>
-            <div className="sp" style={{ flex: 1 }} />
-            {animalCursor ? (
-              <Link href={hrefWithQuery(sp, { ap_cursor: null, ap_status: null, ap_code: null })} className="btn" scroll={false}>
-                {copy(pageContract, "action.prev_page")}
-              </Link>
-            ) : null}
-            {animalsNextCursor ? (
-              <Link href={hrefWithQuery(sp, { ap_cursor: animalsNextCursor, ap_status: null, ap_code: null })} className="btn" scroll={false}>
-                {copy(pageContract, "action.next_page")}
-              </Link>
-            ) : null}
-          </div>
+          <ProcurementTableFooter
+            denseLabel={copy(pageContract, "action.dense", "Dense")}
+            rowsLabel={copy(pageContract, "pager.rows", "Rows")}
+            page={1}
+            pageCount={1}
+            prevHref={animalCursor ? hrefWithQuery(sp, { ap_cursor: null, ap_status: null, ap_code: null }) : null}
+            nextHref={animalsNextCursor ? hrefWithQuery(sp, { ap_cursor: animalsNextCursor, ap_status: null, ap_code: null }) : null}
+            rangeLabel={`${num(animals.length)} ${copy(pageContract, animals.length === 1 ? "pager.noun.one" : "pager.noun")}`}
+            prevLabel={copy(pageContract, "action.prev_page")}
+            nextLabel={copy(pageContract, "action.next_page")}
+          />
         ) : null}
       </section>
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, X } from "lucide-react";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
 import { useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -73,33 +74,23 @@ export function TaskFeedbackBanner({
   const message =
     specific ||
     copy(pageContract, success ? "action.success_message" : "action.failed_message");
+  // Template MUI Alert (Minimal alert-view: standard severity + AlertTitle + onClose): the
+  // severity carries the ok / danger tone, `closeText` is the dismiss button's accessible name.
   return (
-    <div
-      className={`lt-banner${success ? " ok" : " bad"}`}
+    <Alert
+      severity={success ? "success" : "error"}
       role={success ? "status" : "alert"}
       aria-live="polite"
+      onClose={() => setDismissed(true)}
+      closeText={copy(pageContract, "action.close")}
+      sx={{ mb: 2 }}
     >
-      {success ? (
-        <CheckCircle2 className="ic" aria-hidden="true" />
-      ) : (
-        <AlertTriangle className="ic" aria-hidden="true" />
-      )}
-      <div className="lt-banner-tx">
-        <b>
-          {success
-            ? copy(pageContract, "action.success_title", "Done")
-            : copy(pageContract, "action.failed_title")}
-        </b>
-        <span>{message}</span>
-      </div>
-      <button
-        type="button"
-        className="btn sm"
-        onClick={() => setDismissed(true)}
-        aria-label={copy(pageContract, "action.close")}
-      >
-        <X className="ic" aria-hidden="true" />
-      </button>
-    </div>
+      <AlertTitle>
+        {success
+          ? copy(pageContract, "action.success_title", "Done")
+          : copy(pageContract, "action.failed_title")}
+      </AlertTitle>
+      {message}
+    </Alert>
   );
 }

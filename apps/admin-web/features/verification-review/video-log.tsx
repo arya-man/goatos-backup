@@ -1,6 +1,12 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import type { ReactNode } from "react";
 
 import Link from "@/components/no-prefetch-link";
+import { VrFormSelect } from "./vr-form-select";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getVerificationVideoLog, type VerificationVideoLogResponse } from "@/lib/api/server";
@@ -209,42 +215,35 @@ function VideoLogFilters({
   return (
     <form action={action} className="vl-frow">
       {hidden}
-      <div className="vr-fld fld" style={{ marginBottom: 0 }}>
-        <label htmlFor="vl-park">{copy(pageContract, "video_log.filter.park")}</label>
-        <select id="vl-park" name={VIDEO_LOG_PARK_KEY} className="vr-selbtn" defaultValue={parkFilter ?? ""}>
-          <option value="">{copy(pageContract, "video_log.filter.all_parks")}</option>
-          {parkOptions.map((park) => (
-            <option key={park.id} value={park.id}>
-              {park.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="vr-fld fld" style={{ marginBottom: 0 }}>
-        <label htmlFor="vl-shed">{copy(pageContract, "video_log.filter.shed")}</label>
-        {/* Picking a shed here opens that shed's videos — the same destination as clicking its row,
-            which is the point: on a 74-shed day, scrolling to find one pen is the slow path. */}
-        <select id="vl-shed" name={VIDEO_LOG_SHED_KEY} className="vr-selbtn" defaultValue={selectedShedKey}>
-          <option value="">{copy(pageContract, "video_log.filter.all_sheds")}</option>
-          {groups.map(([park, group]) =>
-            park ? (
-              <optgroup key={park} label={park}>
-                {group.map((shed) => (
-                  <option key={shed.shed_key} value={shed.shed_key}>
-                    {shed.operational_location_display}
-                  </option>
-                ))}
-              </optgroup>
-            ) : (
-              group.map((shed) => (
-                <option key={shed.shed_key} value={shed.shed_key}>
-                  {shed.operational_location_display}
-                </option>
-              ))
-            ),
-          )}
-        </select>
-      </div>
+      <VrFormSelect
+        className="vr-fld fld"
+        name={VIDEO_LOG_PARK_KEY}
+        label={copy(pageContract, "video_log.filter.park")}
+        defaultValue={parkFilter ?? ""}
+        options={[
+          { value: "", label: copy(pageContract, "video_log.filter.all_parks") },
+          ...parkOptions.map((park) => ({ value: park.id, label: park.label })),
+        ]}
+      />
+      {/* Picking a shed here opens that shed's videos — the same destination as clicking its row,
+          which is the point: on a 74-shed day, scrolling to find one pen is the slow path.
+          Grouped by park (VrFormSelect ListSubheader headings, the <optgroup> equivalent): ungrouped
+          sheds stay first, exactly as the native markup nested them. */}
+      <VrFormSelect
+        className="vr-fld fld"
+        name={VIDEO_LOG_SHED_KEY}
+        label={copy(pageContract, "video_log.filter.shed")}
+        defaultValue={selectedShedKey}
+        options={[
+          { value: "", label: copy(pageContract, "video_log.filter.all_sheds") },
+          ...groups
+            .filter(([park]) => !park)
+            .flatMap(([, group]) => group.map((shed) => ({ value: shed.shed_key, label: shed.operational_location_display }))),
+          ...groups
+            .filter(([park]) => Boolean(park))
+            .flatMap(([park, group]) => group.map((shed) => ({ value: shed.shed_key, label: shed.operational_location_display, group: park }))),
+        ]}
+      />
       <div className="vr-fld fld vl-search" style={{ marginBottom: 0 }}>
         <label htmlFor="vl-q">{copy(pageContract, "video_log.filter.search")}</label>
         <input
@@ -325,68 +324,70 @@ function DaySummary({
     return <div className="small muted vl-empty">{copy(pageContract, "video_log.empty_day")}</div>;
   }
   return (
-    <table className="tbl vl-tbl">
-      <thead>
-        <tr>
-          <th>{copy(pageContract, "video_log.col.shed")}</th>
-          <th>{copy(pageContract, "video_log.col.videos")}</th>
-          <th>{copy(pageContract, "video_log.col.first_last")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {sheds.map((shed) => {
-          // shed_key carries a "#" separator, so it MUST be encoded before it goes into a query
-          // value -- unencoded it would truncate the URL into a fragment and the panel would open
-          // with no shed selected.
-          const href = shedHrefTemplate
-            ? shedHrefTemplate.replace(VIDEO_LOG_SHED_TOKEN, encodeURIComponent(shed.shed_key))
-            : undefined;
-          // The composed display is the ONLY location string rendered. A shed whose day is only
-          // weighing/shifting/birth/death carries no partition (those producers do not record one),
-          // so it correctly shows its bare shed name rather than a dangling separator.
-          const display = shed.operational_location_display;
-          return (
-            <tr key={shed.shed_key}>
-              <td>
-                {href ? (
-                  <Link href={href} className="lnk">
-                    {display}
-                  </Link>
-                ) : (
-                  display
-                )}
-                {shed.modules.length > 0 ? <div className="small muted">{shed.modules.join(" · ")}</div> : null}
-                {/* The per-video times live one level down, and the shed name alone did not say so
-                    — it read as a plain label, so the drill-down was undiscoverable. This is the
-                    affordance, in backend-owned copy. */}
-                {href ? (
-                  <Link href={href} className="small vl-drill">
-                    {copy(pageContract, "video_log.view_videos")} →
-                  </Link>
-                ) : null}
-              </td>
-              <td>
-                <span className="val">{shed.proof_count}</span>{" "}
-                <span className="small muted">{copy(pageContract, "video_log.videos_count")}</span>
-                <div className="small muted">
-                  {shed.item_count} {copy(pageContract, "video_log.items_count")}
-                </div>
-                {/* Registered but not received. Counted INSIDE proof_count, so this is a
-                    breakdown of the number above it, never a second total beside it. */}
-                {shed.awaiting_upload_count > 0 ? (
-                  <div className="small warn">
-                    {shed.awaiting_upload_count} {copy(pageContract, "video_log.awaiting_upload")}
+    <div className="tablewrap">
+      <Table className="tbl vl-tbl">
+        <TableHead>
+          <TableRow>
+            <TableCell component="th">{copy(pageContract, "video_log.col.shed")}</TableCell>
+            <TableCell component="th">{copy(pageContract, "video_log.col.videos")}</TableCell>
+            <TableCell component="th">{copy(pageContract, "video_log.col.first_last")}</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {sheds.map((shed, shedIndex) => {
+            // shed_key carries a "#" separator, so it MUST be encoded before it goes into a query
+            // value -- unencoded it would truncate the URL into a fragment and the panel would open
+            // with no shed selected.
+            const href = shedHrefTemplate
+              ? shedHrefTemplate.replace(VIDEO_LOG_SHED_TOKEN, encodeURIComponent(shed.shed_key))
+              : undefined;
+            // The composed display is the ONLY location string rendered. A shed whose day is only
+            // weighing/shifting/birth/death carries no partition (those producers do not record one),
+            // so it correctly shows its bare shed name rather than a dangling separator.
+            const display = shed.operational_location_display;
+            return (
+              <TableRow key={shed.shed_key} className="cx-row" style={{ "--i": shedIndex } as React.CSSProperties}>
+                <TableCell>
+                  {href ? (
+                    <Link href={href} className="lnk">
+                      {display}
+                    </Link>
+                  ) : (
+                    display
+                  )}
+                  {shed.modules.length > 0 ? <div className="small muted">{shed.modules.join(" · ")}</div> : null}
+                  {/* The per-video times live one level down, and the shed name alone did not say so
+                      — it read as a plain label, so the drill-down was undiscoverable. This is the
+                      affordance, in backend-owned copy. */}
+                  {href ? (
+                    <Link href={href} className="small vl-drill">
+                      {copy(pageContract, "video_log.view_videos")} →
+                    </Link>
+                  ) : null}
+                </TableCell>
+                <TableCell>
+                  <span className="val">{shed.proof_count}</span>{" "}
+                  <span className="small muted">{copy(pageContract, "video_log.videos_count")}</span>
+                  <div className="small muted">
+                    {shed.item_count} {copy(pageContract, "video_log.items_count")}
                   </div>
-                ) : null}
-              </td>
-              <td>
-                <ArrivalRange first={shed.first_upload_at} last={shed.last_upload_at} day={day} />
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                  {/* Registered but not received. Counted INSIDE proof_count, so this is a
+                      breakdown of the number above it, never a second total beside it. */}
+                  {shed.awaiting_upload_count > 0 ? (
+                    <div className="small warn">
+                      {shed.awaiting_upload_count} {copy(pageContract, "video_log.awaiting_upload")}
+                    </div>
+                  ) : null}
+                </TableCell>
+                <TableCell>
+                  <ArrivalRange first={shed.first_upload_at} last={shed.last_upload_at} day={day} />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -419,59 +420,61 @@ function ShedDetail({
       {rows.length === 0 ? (
         <div className="small muted vl-empty">{copy(pageContract, "video_log.empty_shed")}</div>
       ) : (
-        <table className="tbl vl-tbl">
-          <thead>
-            <tr>
-              <th>{copy(pageContract, "video_log.col.work")}</th>
-              <th>{copy(pageContract, "video_log.col.video")}</th>
-              <th>{copy(pageContract, "video_log.col.uploaded")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const href = row.nav_module ? queueHrefs?.get(row.nav_module) : undefined;
-              const moduleLabel = row.module_label?.trim() || "";
-              const categoryLabel = row.category_label?.trim() || "";
-              return row.proofs.map((proof, index) => (
-                // One table row per PROOF, with the work described only on its first row: a feed
-                // distribution item is three arrivals at three different times, and collapsing them
-                // onto one line would hide exactly the times this panel exists to show.
-                <tr key={proof.proof_id}>
-                  {index === 0 ? (
-                    <td rowSpan={row.proofs.length}>
-                      <div className="val">
-                        {href ? (
-                          <Link href={href} className="lnk">
-                            {categoryLabel || moduleLabel}
-                          </Link>
-                        ) : (
-                          categoryLabel || moduleLabel
-                        )}
-                      </div>
-                      {/* The producing module's own words, verbatim. Legitimately EMPTY for feed
-                          transport, whose producer writes no label because the shed header already
-                          names it -- render nothing rather than a placeholder that looks broken. */}
-                      {row.subject_label ? <div className="small">{row.subject_label}</div> : null}
-                      {row.operator_name ? <div className="small muted">{row.operator_name}</div> : null}
-                      <div className="small muted">
-                        {/* Neutral tone on purpose: grain is a FACT about the work, not a status.
-                            A coloured chip here would read as a warning about the row. */}
-                        <Tag tone="mut">{copy(pageContract, `video_log.grain.${row.grain}`)}</Tag>
-                      </div>
-                    </td>
-                  ) : null}
-                  {/* The backend-owned proof label already names the medium where it matters, so a
-                      locally-appended media-kind suffix was both a hardcoded visible literal and a
-                      duplicate of what the label already says. */}
-                  <td>{proof.label}</td>
-                  <td>
-                    <ArrivalTime uploadedAt={proof.uploaded_at} day={day} pageContract={pageContract} />
-                  </td>
-                </tr>
-              ));
-            })}
-          </tbody>
-        </table>
+        <div className="tablewrap">
+          <Table className="tbl vl-tbl">
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">{copy(pageContract, "video_log.col.work")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "video_log.col.video")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "video_log.col.uploaded")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row) => {
+                const href = row.nav_module ? queueHrefs?.get(row.nav_module) : undefined;
+                const moduleLabel = row.module_label?.trim() || "";
+                const categoryLabel = row.category_label?.trim() || "";
+                return row.proofs.map((proof, index) => (
+                  // One table row per PROOF, with the work described only on its first row: a feed
+                  // distribution item is three arrivals at three different times, and collapsing them
+                  // onto one line would hide exactly the times this panel exists to show.
+                  <TableRow key={proof.proof_id} className="cx-row" style={{ "--i": index } as React.CSSProperties}>
+                    {index === 0 ? (
+                      <TableCell rowSpan={row.proofs.length}>
+                        <div className="val">
+                          {href ? (
+                            <Link href={href} className="lnk">
+                              {categoryLabel || moduleLabel}
+                            </Link>
+                          ) : (
+                            categoryLabel || moduleLabel
+                          )}
+                        </div>
+                        {/* The producing module's own words, verbatim. Legitimately EMPTY for feed
+                            transport, whose producer writes no label because the shed header already
+                            names it -- render nothing rather than a placeholder that looks broken. */}
+                        {row.subject_label ? <div className="small">{row.subject_label}</div> : null}
+                        {row.operator_name ? <div className="small muted">{row.operator_name}</div> : null}
+                        <div className="small muted">
+                          {/* Neutral tone on purpose: grain is a FACT about the work, not a status.
+                              A coloured chip here would read as a warning about the row. */}
+                          <Tag tone="mut">{copy(pageContract, `video_log.grain.${row.grain}`)}</Tag>
+                        </div>
+                      </TableCell>
+                    ) : null}
+                    {/* The backend-owned proof label already names the medium where it matters, so a
+                        locally-appended media-kind suffix was both a hardcoded visible literal and a
+                        duplicate of what the label already says. */}
+                    <TableCell>{proof.label}</TableCell>
+                    <TableCell>
+                      <ArrivalTime uploadedAt={proof.uploaded_at} day={day} pageContract={pageContract} />
+                    </TableCell>
+                  </TableRow>
+                ));
+              })}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
       {/* No silent caps: a truncated shed says so rather than reading as a complete day. */}

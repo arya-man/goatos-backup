@@ -289,7 +289,7 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            "Couldn't load weighing. Check the laptop backend or network, then refresh.",
+            "Couldn't load weighing. Check your connection, then refresh.",
             vm.state.value.message,
         )
     }

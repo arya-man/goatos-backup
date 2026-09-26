@@ -4,7 +4,12 @@
 
 import { useState, useTransition } from "react";
 
+import Box from "@mui/material/Box";
+import { Weight } from "lucide-react";
+
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
+import { KpiCard } from "@/components/minimal/widgets";
+import { KpiValue } from "./kpi-value";
 import { num } from "./sales-format";
 import { countOver35Action } from "./over35-actions";
 import { SalesReadyToleranceControl } from "./sales-ready-tolerance-control";
@@ -72,32 +77,45 @@ export function Over35Kpi({
   };
 
   return (
-    <div className="kpi" aria-busy={pending || undefined}>
-      <div className="lab">{fillKg(labels.title, lineKg)}</div>
-      {/* The figure stays readable while it is re-counted -- only this card says it is busy. */}
-      <div className="val" style={pending ? { opacity: 0.6 } : undefined}>
-        {count == null ? labels.noneValue : num(count)}
-      </div>
-      <div className="dl">
-        {!enabled
+    <KpiCard
+      variant="tint"
+      tone="success"
+      label={fillKg(labels.title, lineKg)}
+      // The figure stays readable while it is re-counted -- only this card says it is busy.
+      value={
+        count == null ? (
+          labels.noneValue
+        ) : (
+          <Box component="span" aria-busy={pending || undefined} sx={pending ? { opacity: 0.6 } : undefined}>
+            <KpiValue value={count} />
+          </Box>
+        )
+      }
+      watermark={<Weight aria-hidden="true" />}
+      hint={
+        !enabled
           ? disabledReason
           : failed
             ? labels.failed
             : count == null
               ? labels.none
-              : `${labels.sub} · ${num(thresholdKg, 1)}+`}
-      </div>
-      {enabled ? (
-        <SalesReadyToleranceControl
-          lineKg={lineKg}
-          valueG={toleranceG}
-          maxG={maxG}
-          label={labels.tolerance}
-          applyLabel={labels.apply}
-          onApply={apply}
-          pending={pending}
-        />
-      ) : null}
-    </div>
+              : `${labels.sub} · ${num(thresholdKg, 1)}+`
+      }
+      // The error margin tunes THIS card's figure and nothing else on the page, so it sits inside
+      // the card (maintainer request 2026-09-14).
+      footer={
+        enabled ? (
+          <SalesReadyToleranceControl
+            lineKg={lineKg}
+            valueG={toleranceG}
+            maxG={maxG}
+            label={labels.tolerance}
+            applyLabel={labels.apply}
+            onApply={apply}
+            pending={pending}
+          />
+        ) : null
+      }
+    />
   );
 }

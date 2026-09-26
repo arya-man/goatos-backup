@@ -1,9 +1,15 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import type { ReactNode } from "react";
 import { randomUUID } from "node:crypto";
-import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
 import { Wheat } from "lucide-react";
+import { LinkSelect } from "@/components/app/link-select";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getFeedPurchaseForm, getFeedPurchaseOptions, listFeedPurchases } from "@/lib/api/procurement-server";
@@ -22,7 +28,13 @@ import {
 import { fmtDate } from "@/lib/format";
 import { deliveryStatusChip, paymentStatusChip } from "./feed-purchase-format";
 import { inr, num, resolveFarm } from "./sales-format";
+import { IdentityCell } from "@/components/data-table";
+import { ProcurementTableFooter } from "./table-footer-links";
+import { ProcurementTableToolbar } from "./table-toolbar";
 import { FeedPurchaseDrawer } from "./feed-purchase-drawer";
+import { EmptyState } from "@/components/app/empty-state";
+import { PageHeader } from "@/components/app/page-header";
+import Alert from "@mui/material/Alert";
 
 const PATHNAME = "/procurement/feed-purchases";
 const DEFAULT_FARM = "all";
@@ -99,7 +111,7 @@ export async function FeedPurchasesPage({
 
   if (firstAuthRequiredError(result, optionsResult)) redirect(INTERNAL_LOGIN_PATH);
 
-  const purchases: FeedPurchase[] = result.ok ? result.data.purchases : [];
+  const purchases: FeedPurchase[] = result.ok ? listOrEmpty(result.data.purchases) : [];
   // Whole-filter aggregates from the backend, never sums over the rendered page: these must keep
   // reading the ledger's real totals while the table shows 25 of them.
   const total = result.ok ? result.data.total : 0;
@@ -122,26 +134,17 @@ export async function FeedPurchasesPage({
 
   return (
     <div className="screen on">
-      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div>
-          <div className="crumb">
-            <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {canOpenRecordDrawer ? (
-          <LocalOverlayLink
-            href={hrefWithQuery(sp, { purchase_id: "new" })}
-            className="btn primary"
-            scroll={false}
-            style={{ marginBottom: 4 }}
-          >
-            {copy(pageContract, "action.record_feed_purchase.label")}
-          </LocalOverlayLink>
-        ) : null}
-      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+        actions={
+          canOpenRecordDrawer ? (
+            <LocalOverlayLink href={hrefWithQuery(sp, { purchase_id: "new" })} className="btn primary" scroll={false}>
+              {copy(pageContract, "action.record_feed_purchase.label")}
+            </LocalOverlayLink>
+          ) : null
+        }
+      />
 
       {/* Write feedback. Without this the operator saves a load and the drawer simply closes, which
           is indistinguishable from the save being dropped. */}
@@ -151,75 +154,84 @@ export async function FeedPurchasesPage({
             {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </div>
         ) : (
-          <div className="alert" style={{ marginBottom: 14 }}>
+          <Alert severity="error" style={{ marginBottom: 14 }}>
             {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
+          </Alert>
         )
       ) : null}
 
       {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message || copy(pageContract, "error.load")}
-        </div>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
+          {result.error.message || copy(pageContract, "error.load")}
+        </Alert>
       ) : null}
 
       {!optionsResult.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{optionsResult.error.code ?? optionsResult.error.kind}</b>&nbsp;
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           {optionsResult.error.message || copy(pageContract, "error.options")}
-        </div>
+        </Alert>
       ) : null}
 
-      {/* Farm scope toggle: server-rendered links, so the selection survives a reload and a shared
-          URL. A farm switch drops the offset by construction (the patch clears it). */}
-      <div className="chips" role="group" aria-label={copy(pageContract, "filter.farm")} style={{ marginBottom: 14 }}>
-        <span className="muted small" style={{ marginRight: 6 }}>
-          {copy(pageContract, "filter.farm")}
-        </span>
-        {farmOptions.map((option) => (
-          <Link
-            key={option.key}
-            href={hrefWithQuery(sp, {
+      {/* Farm and delivery scope: server-built links behind outlined selects, so the selection still
+          survives a reload and a shared URL. A switch drops the offset by construction. */}
+      <ProcurementTableToolbar
+        clearLabel={copy(pageContract, "action.clear_all", "Clear all")}
+        columnsLabel={copy(pageContract, "action.columns", "Columns")}
+        exportLabel={copy(pageContract, "action.export", "Export")}
+        moreLabel={copy(pageContract, "action.more", "More")}
+        ariaLabel={ledgerTable.title}
+        tableId="feed-purchases-ledger"
+        exportName="feed-purchases"
+        chips={[
+          ...(farm !== DEFAULT_FARM
+            ? [{
+                id: "farm",
+                label: `${copy(pageContract, "filter.farm", "Farm")}: ${farmOptions.find((option) => option.key === farm)?.label ?? farm}`,
+                href: hrefWithQuery(sp, { farm: null, offset: null, purchase_id: null }),
+              }]
+            : []),
+          ...(delivery !== DEFAULT_DELIVERY
+            ? [{
+                id: "delivery",
+                label: `${copy(pageContract, "filter.delivery", "Delivery")}: ${deliveryOptions.find((option) => option.key === delivery)?.label ?? delivery}`,
+                href: hrefWithQuery(sp, { delivery: null, offset: null, purchase_id: null }),
+              }]
+            : []),
+        ]}
+        clearHref={isFiltered ? hrefWithQuery(sp, { farm: null, delivery: null, offset: null, purchase_id: null }) : undefined}
+      >
+        <LinkSelect
+          label={copy(pageContract, "filter.farm")}
+          value={farm}
+          minWidth={200}
+          options={farmOptions.map((option) => ({
+            value: option.key,
+            label: option.label,
+            href: hrefWithQuery(sp, {
               farm: option.key === DEFAULT_FARM ? null : option.key,
               offset: null,
               purchase_id: null,
-            })}
-            scroll={false}
-            className={option.key === farm ? "btn sm p" : "btn sm"}
-            aria-current={option.key === farm ? "true" : undefined}
-          >
-            {option.label}
-          </Link>
-        ))}
-      </div>
-
-      {/* Delivery scope: the same server-rendered chip shape as the farm toggle. "All loads" is
-          page copy rather than an option, because the write vocabulary has exactly two states and
-          a third key in the option group would be offered on the mark-reached form. */}
-      <div className="chips" role="group" aria-label={copy(pageContract, "filter.delivery")} style={{ marginBottom: 14 }}>
-        <span className="muted small" style={{ marginRight: 6 }}>
-          {copy(pageContract, "filter.delivery")}
-        </span>
-        <Link
-          href={hrefWithQuery(sp, { delivery: null, offset: null, purchase_id: null })}
-          scroll={false}
-          className={delivery === DEFAULT_DELIVERY ? "btn sm p" : "btn sm"}
-          aria-current={delivery === DEFAULT_DELIVERY ? "true" : undefined}
-        >
-          {copy(pageContract, "filter.delivery.all")}
-        </Link>
-        {deliveryOptions.map((option) => (
-          <Link
-            key={option.key}
-            href={hrefWithQuery(sp, { delivery: option.key, offset: null, purchase_id: null })}
-            scroll={false}
-            className={option.key === delivery ? "btn sm p" : "btn sm"}
-            aria-current={option.key === delivery ? "true" : undefined}
-          >
-            {option.label}
-          </Link>
-        ))}
-      </div>
+            }),
+          }))}
+        />
+        <LinkSelect
+          label={copy(pageContract, "filter.delivery")}
+          value={delivery}
+          minWidth={200}
+          options={[
+            {
+              value: DEFAULT_DELIVERY,
+              label: copy(pageContract, "filter.delivery.all"),
+              href: hrefWithQuery(sp, { delivery: null, offset: null, purchase_id: null }),
+            },
+            ...deliveryOptions.map((option) => ({
+              value: option.key,
+              label: option.label,
+              href: hrefWithQuery(sp, { delivery: option.key, offset: null, purchase_id: null }),
+            })),
+          ]}
+        />
+      </ProcurementTableToolbar>
 
       <section className="card">
         <div className="hd">
@@ -238,23 +250,21 @@ export async function FeedPurchasesPage({
         </div>
 
         {purchases.length === 0 ? (
-          <div className="empty">
-            {isFiltered ? copy(pageContract, "empty.purchases") : copy(pageContract, "empty.purchases.unset")}
-          </div>
+          <EmptyState title={isFiltered ? copy(pageContract, "empty.purchases") : copy(pageContract, "empty.purchases.unset")} />
         ) : (
-          <div className="twrap" tabIndex={0} role="region" aria-label={ledgerTable.title}>
-            <table className="feed-purchases-table" aria-label={ledgerTable.title}>
-              <thead>
+          <div id="feed-purchases-ledger" className="twrap" tabIndex={0} role="region" aria-label={ledgerTable.title}>
+            <Table className="feed-purchases-table" aria-label={ledgerTable.title}>
+              <TableHead>
                 {/* Header labels come from the page contract IN ITS ORDER; the body cells below
                     are written in that same order. Both must move together if the contract's
                     column list changes. */}
-                <tr>
+                <TableRow>
                   {columns.map((label) => (
-                    <th key={label}>{label}</th>
+                    <TableCell component="th" key={label}>{label}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {purchases.map((purchase) => {
                   const drawerHref = hrefWithQuery(sp, { purchase_id: purchase.feed_purchase_id });
                   const cellLink = (content: ReactNode) => (
@@ -263,15 +273,15 @@ export async function FeedPurchasesPage({
                     </LocalOverlayLink>
                   );
                   return (
-                    <tr key={purchase.feed_purchase_id}>
+                    <TableRow key={purchase.feed_purchase_id}>
                       {/* The short cells never wrap: with nine columns the browser was breaking a
                           three-letter farm code across two lines, which reads as a different farm. */}
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(fmtDate(purchase.purchase_date))}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(purchase.farm)}</td>
-                      <td>{cellLink(<b>{purchase.feed_item}</b>)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(purchase.batch_no)}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>{cellLink(num(purchase.quantity_kg, 0))}</td>
-                      <td style={{ whiteSpace: "nowrap" }}>
+                      <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(fmtDate(purchase.purchase_date))}</TableCell>
+                      <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(purchase.farm)}</TableCell>
+                      <TableCell>{cellLink(<IdentityCell primary={purchase.feed_item} secondary={purchase.vendor || undefined} />)}</TableCell>
+                      <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(purchase.batch_no)}</TableCell>
+                      <TableCell style={{ whiteSpace: "nowrap" }}>{cellLink(num(purchase.quantity_kg, 0))}</TableCell>
+                      <TableCell style={{ whiteSpace: "nowrap" }}>
                         {cellLink(
                           // Tone AND label are backend option metadata. A reached load also shows
                           // the day it came in, because "Reached" alone does not say when stock
@@ -287,15 +297,15 @@ export async function FeedPurchasesPage({
                             ) : null}
                           </>,
                         )}
-                      </td>
-                      <td style={{ whiteSpace: "nowrap" }}>
+                      </TableCell>
+                      <TableCell style={{ whiteSpace: "nowrap" }}>
                         {cellLink(purchase.total_cost == null ? none : inr(purchase.total_cost))}
-                      </td>
-                      <td style={{ whiteSpace: "nowrap" }}>
+                      </TableCell>
+                      <TableCell style={{ whiteSpace: "nowrap" }}>
                         {cellLink(purchase.per_kg_cost == null ? none : inr(purchase.per_kg_cost, 2))}
-                      </td>
-                      <td>{cellLink(purchase.vendor || none)}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell>{cellLink(purchase.vendor || none)}</TableCell>
+                      <TableCell>
                         {cellLink(
                           // Tone AND label are backend-owned option metadata, not a comparison
                           // against a hardcoded payment word.
@@ -303,49 +313,36 @@ export async function FeedPurchasesPage({
                             {paymentStatusChip(pageContract, purchase.payment_status, none).label}
                           </Tag>,
                         )}
-                      </td>
-                      <td style={{ whiteSpace: "nowrap" }}>
+                      </TableCell>
+                      <TableCell style={{ whiteSpace: "nowrap" }}>
                         {/* BACKEND-derived money still owed (total minus instalments, floored at
                             zero); "—" while the landed cost is unknown. The page never subtracts
                             anything itself. */}
                         {cellLink(purchase.payment_balance == null ? none : inr(purchase.payment_balance))}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
 
         {pageCount > 1 ? (
-          <div className="pager2" style={{ paddingRight: 56 }}>
-            <span className="muted">
-              {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount}
-            </span>
-            {pageNumber > 1 ? (
-              <Link
-                href={hrefWithQuery(sp, { offset: String(Math.max(0, offset - limit)) })}
-                scroll={false}
-                className="btn"
-              >
-                {copy(pageContract, "action.prev_page")}
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.prev_page")}
-              </span>
-            )}
-            {pageNumber < pageCount ? (
-              <Link href={hrefWithQuery(sp, { offset: String(offset + limit) })} scroll={false} className="btn">
-                {copy(pageContract, "action.next_page")}
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.next_page")}
-              </span>
-            )}
-          </div>
+          <ProcurementTableFooter
+            denseLabel={copy(pageContract, "action.dense", "Dense")}
+            rowsLabel={copy(pageContract, "pager.rows", "Rows")}
+            page={pageNumber}
+            pageCount={pageCount}
+            rangeLabel={`${offset + 1}\u2013${offset + purchases.length} ${copy(pageContract, "pager.of")} ${total}`}
+            rowsValue={limit}
+            rowsOptions={pageSizes.map((size) => ({ size, href: hrefWithQuery(sp, { limit: String(size), offset: null }) }))}
+            prevHref={hrefWithQuery(sp, { offset: String(Math.max(0, (pageNumber - 2) * limit)) })}
+            nextHref={hrefWithQuery(sp, { offset: String(pageNumber * limit) })}
+            prevLabel={copy(pageContract, "action.prev_page")}
+            nextLabel={copy(pageContract, "action.next_page")}
+            denseTargetId="feed-purchases-ledger"
+          />
         ) : null}
       </section>
 

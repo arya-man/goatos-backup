@@ -1,0 +1,32 @@
+/* Storybook preview stylesheet.
+   Loads the REAL app stylesheets, in the same order as app/layout.tsx, so every
+   story renders against the real tokens (mesha-theme.css) and the real
+   presentation layer (minimal-theme.css). No tokens are declared here. */
+@import "./fonts.css";
+@import "../app/globals.css";
+@import "../app/minimal-tokens.css";
+@import "../app/mesha-theme.css";
+@import "../app/minimal-theme.css";
+@import "../app/frame.css";
+@import "../components/minimal/chart/styles.css";
+
+/* tailwind.config.ts only scans app/, components/, pages/. Stories live outside
+   those roots, so register them as extra Tailwind sources. */
+@source "../stories";
+@source "../.storybook";
+
+/* next/font fills these in the app (app/layout.tsx). Storybook loads the same families from
+   ./fonts.css, so the variables must be defined here or --font-sans / --font-display
+   resolve to nothing and every story renders in system-ui. */
+:root {
+  --font-public-sans: "Public Sans";
+  --font-barlow: "Barlow";
+}
+
+/* Storybook's own canvas must inherit the app surface, not addon defaults. */
+html,
+body,
+#storybook-root {
+  background: var(--bg);
+  color: var(--fg);
+}

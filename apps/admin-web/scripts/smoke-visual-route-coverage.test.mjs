@@ -13,27 +13,14 @@ const routeEntries = Array.from(
   ([, name, quote, path]) => [name, quote === "`" ? path.replace(/\$\{[^}]+\}/g, "${dynamic}") : path],
 );
 
-test("visual smoke visits every live sidebar navigation leaf", () => {
+test("visual smoke visits every visible visual-overhaul route", () => {
   const routes = new Map(routeEntries);
   const required = new Map([
-    ["control-tower", "/?scope_mode=company&lens=control-tower"],
-    ["action-center", "/action-center?scope_mode=company"],
-    ["action-center-verify", "/action-center?scope_mode=company&bucket=verify"],
-    ["action-center-overdue", "/action-center?scope_mode=company&state=overdue"],
-    ["action-center-due", "/action-center?scope_mode=company&state=due"],
-    ["calendar", "/calendar?scope_mode=company&day=week"],
-    ["calendar-month", "/calendar?scope_mode=company&view=month"],
-    ["calendar-history", "/calendar?scope_mode=company&status=completed"],
-    ["calendar-owner-pc", "/calendar?scope_mode=company&day=week&owner_key=pc"],
-    ["protocol-adherence", "/protocol-adherence?scope_mode=company"],
-    ["protocol-adherence-high", "/protocol-adherence?scope_mode=company&severity=high"],
-    ["protocol-adherence-overdue", "/protocol-adherence?scope_mode=company&state=overdue"],
     ["work-board", "/work-board?scope_mode=company"],
     ["work-board-populated", "/work-board?scope_mode=company&date=2026-08-10"],
     ["alerts", "/alerts?scope_mode=company"],
     ["alerts-populated", "/alerts?scope_mode=company&date=2026-09-10&park=00000000-0000-4000-8000-000000003001"],
-    ["workflows", "/workflows?scope_mode=company"],
-    ["procurement", "/procurement?scope_mode=company"],
+    ["routines", "/routines?scope_mode=company"],
     ["procurement-source-entry", "/procurement/source-entry?scope_mode=company"],
     ["procurement-source-entry-health-pending", "/procurement/source-entry?scope_mode=company&status=health_pending"],
     ["procurement-source-entry-arrival-review", "/procurement/source-entry?scope_mode=company&status=arrival_review"],
@@ -147,8 +134,6 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
     "vaccination-schedule",
     "goat-passport",
     "procurement-load-detail",
-    "workflow-record",
-    "calendar-drive-detail",
     "vaccination-shed-execution-detail",
   ]) {
     assert.ok(routes.has(routeName), `${routeName} dynamic route must stay in the live visual smoke sweep`);

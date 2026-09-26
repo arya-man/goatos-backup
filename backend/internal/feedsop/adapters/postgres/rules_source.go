@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,10 +25,12 @@ import (
 type RulesSource struct {
 	pool         *pgxpool.Pool
 	queryTimeout time.Duration
+	mu           sync.RWMutex
+	versionCache map[feedRulesVersionKey]domain.Rules
 }
 
 func NewRulesSource(pool *pgxpool.Pool, queryTimeout time.Duration) *RulesSource {
-	return &RulesSource{pool: pool, queryTimeout: queryTimeout}
+	return &RulesSource{pool: pool, queryTimeout: queryTimeout, versionCache: make(map[feedRulesVersionKey]domain.Rules)}
 }
 
 var _ ports.SOPRulesSource = (*RulesSource)(nil)
@@ -74,6 +77,13 @@ func (s *RulesSource) RulesVersion(ctx context.Context, tenantID, stage string, 
 	if !ok {
 		return domain.Rules{}, fmt.Errorf("feed sop: unknown stage %q", stage)
 	}
+	key := feedRulesVersionKey{tenantID: tenantID, stage: stage, version: version}
+	s.mu.RLock()
+	cached, ok := s.versionCache[key]
+	s.mu.RUnlock()
+	if ok {
+		return cached, nil
+	}
 	rules, found, err := s.read(ctx, stage, sqlFeedSOPVersion, tenantID, code, version)
 	if err != nil {
 		return domain.Rules{}, err
@@ -81,7 +91,16 @@ func (s *RulesSource) RulesVersion(ctx context.Context, tenantID, stage string, 
 	if !found {
 		return domain.Rules{}, ports.ErrSOPVersionUnknown
 	}
+	s.mu.Lock()
+	s.versionCache[key] = rules
+	s.mu.Unlock()
 	return rules, nil
+}
+
+type feedRulesVersionKey struct {
+	tenantID string
+	stage    string
+	version  int
 }
 
 func (s *RulesSource) read(ctx context.Context, stage, sql string, args ...any) (domain.Rules, bool, error) {

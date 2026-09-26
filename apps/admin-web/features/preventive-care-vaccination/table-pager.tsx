@@ -1,5 +1,7 @@
-import Link from "@/components/no-prefetch-link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { ReactNode } from "react";
+
+import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
+import { DenseToggleAuto } from "@/components/app/dense-toggle-auto";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -57,9 +59,19 @@ export function paginateRows<T>(
   };
 }
 
-// Mock `.pager2` footer for bounded vaccination read models. These endpoints still do not expose a backend
-// cursor/has_more, so this is honest front-end pagination over the returned bounded set. The UI shape matches
-// the mock and prevents one giant long table while backend cursor work can land behind the same component later.
+/**
+ * The shared vaccination table footer.
+ *
+ * Same anatomy as the kit `TableFooter` (left slot · rows-per-page select · range · arrow icon
+ * buttons), but every control is a LINK because these tables page on the SERVER through the URL.
+ * Three things the previous hand-rolled `.pager2` got wrong and this one keeps right:
+ *  - It returned `null` at `totalPages <= 1`, so most tables in the module had NO footer. The
+ *    footer now always renders: the range is information even when there is one page.
+ *  - Rows-per-page was a row of link chips (5 10 25 50) which does not fit 390px; it is one
+ *    styled `LinkSelect` (no native <select>).
+ *  - Prev/Next were unbounded-width text buttons; they are icon buttons with accessible names.
+ * `left` carries the dense toggle / selection count, owned by whatever renders the table.
+ */
 export function VaccinationTablePager({
   pageContract,
   pageSizeOptions,
@@ -71,6 +83,7 @@ export function VaccinationTablePager({
   noun = "row",
   hrefForPage,
   hrefForPageSize,
+  left,
 }: {
   pageContract: AdminUiPageContract;
   pageSizeOptions: readonly number[];
@@ -82,57 +95,35 @@ export function VaccinationTablePager({
   noun?: string;
   hrefForPage: (page: number) => string;
   hrefForPageSize: (pageSize: VaccinationPageSize) => string;
+  left?: ReactNode;
 }) {
   const totalPages = cappedTotalPages(total, pageSize);
   const hasPrevious = page > 1;
   const hasNext = page < totalPages;
   const pluralNoun = total === 1 ? noun : `${noun}s`;
-  const range =
-    total === 0
-      ? `0 ${pluralNoun}`
-      : `${start}-${end} ${copy(pageContract, "pager.of")} ${total} ${pluralNoun}`;
-
-  if (totalPages <= 1) return null;
+  const previousLabel = copy(pageContract, "action.previous");
+  const nextLabel = copy(pageContract, "action.next");
 
   return (
-    <div className="pager2">
-      <span className="muted small">
-        {range} · {copy(pageContract, "pager.page")} {page} {copy(pageContract, "pager.of")} {totalPages}
-      </span>
-      <span className="sp" style={{ flex: 1 }} />
-      <span className="muted small">{copy(pageContract, "pager.rows")}</span>
-      <span className="chipset" style={{ gap: 4 }}>
-        {pageSizeOptions.map((size) => (
-          <Link
-            key={size}
-            href={hrefForPageSize(size)}
-            replace
-            scroll={false}
-            className={`chip pgsize${pageSize === size ? " on" : ""}`}
-            style={{ padding: "5px 8px", fontSize: 11 }}
-          >
-            {size}
-          </Link>
-        ))}
-      </span>
-      {hasPrevious ? (
-        <Link href={hrefForPage(page - 1)} replace scroll={false} className="btn sm">
-          <ChevronLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.previous")}
-        </Link>
-      ) : (
-        <span className="btn sm" aria-disabled="true" style={{ opacity: 0.45, cursor: "not-allowed" }}>
-          <ChevronLeft className="ic" style={{ width: 13 }} aria-hidden="true" /> {copy(pageContract, "action.previous")}
-        </span>
-      )}
-      {hasNext ? (
-        <Link href={hrefForPage(page + 1)} replace scroll={false} className="btn sm">
-          {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
-        </Link>
-      ) : (
-        <span className="btn sm" aria-disabled="true" style={{ opacity: 0.45, cursor: "not-allowed" }}>
-          {copy(pageContract, "action.next")} <ChevronRight className="ic" style={{ width: 13 }} aria-hidden="true" />
-        </span>
-      )}
-    </div>
+    <TablePaginationLinks
+      className="pager2"
+      replace
+      page={Math.max(0, page - 1)}
+      rowsPerPage={pageSize}
+      count={total}
+      rowsPerPageHrefs={pageSizeOptions.map((size) => ({ value: size, href: hrefForPageSize(size) }))}
+      prevHref={hasPrevious ? hrefForPage(page - 1) : null}
+      nextHref={hasNext ? hrefForPage(page + 1) : null}
+      labelRowsPerPage={`${copy(pageContract, "pager.rows")}:`}
+      rangeLabel={
+        total === 0
+          ? `0 ${pluralNoun}`
+          : `${start}\u2013${end} ${pluralNoun} \u00b7 ${copy(pageContract, "pager.page")} ${page} ${copy(pageContract, "pager.of")} ${totalPages}`
+      }
+      prevLabel={previousLabel}
+      nextLabel={nextLabel}
+      /* Density switch on every table with more than a page of rows (frame spec). */
+      left={left ?? (total > 10 ? <DenseToggleAuto label={copy(pageContract, "pager.dense", "Dense")} /> : null)}
+    />
   );
 }

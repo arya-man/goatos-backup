@@ -27,5 +27,6 @@ test("a card's bare empty line is padded and muted, at zero specificity", () => 
 });
 
 test("on a phone the Load wise hover card spans the screen instead of being cut by its chart scroller", () => {
-  assert.match(css, /\.sales-loads-page \.gcol \.gtip,[^{]*\{\s*position:fixed;top:72px;left:16px;right:16px;/);
+  // MUI redesign: the chart is the template ApexCharts chart, so the card is its .apexcharts-tooltip.
+  assert.match(css, /\.sales-loads-page \.gcols-chart \.apexcharts-tooltip\{position:fixed!important;top:72px!important;left:16px!important;right:16px!important;/);
 });

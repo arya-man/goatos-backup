@@ -22,12 +22,17 @@
  * and every row clears 44px. It is rendered after the textarea in the DOM, so the on-screen
  * keyboard pushes the field up and the list stays attached to it.
  *
- * STYLING: existing shared classes only (`.card`, `.pm-item`, `.pm-hint`, `.achip`, `.pn`,
- * `.muted`), plus `.mention-pop` for the popover geometry.
+ * STYLING: the template dropdown paper + MenuItem rows (components/app/dropdown-paper), plus
+ * `.mention-pop` for the popover geometry.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MentionComposerCopy } from "./notification-copy";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import Typography from "@mui/material/Typography";
+import { DropdownPaper } from "@/components/app/dropdown-paper";
+import { TAP_MIN } from "@/components/minimal/_shared/tap";
 import {
   activeMentionQuery,
   applyMentionSelection,
@@ -177,17 +182,20 @@ export default function MentionPicker({
         // generic `.card .bd` overflow -- for exactly as long as this popup exists. Absolute
         // positioning alone did NOT save it: measured in Chromium, one of eight rows was
         // reachable at every width until those two ancestors stopped clipping.
-        <div className="card mention-pop" data-mention-popup>
-          <ul id={listId} role="listbox" aria-label={composerCopy.peopleLabel} style={{ listStyle: "none", margin: 0, padding: 4 }}>
+        // Template dropdown paper IN PLACE (never a portalled Popover: its focus trap would take the
+        // caret out of the textarea while the reader is still typing the name).
+        <DropdownPaper className="mention-pop" data-mention-popup>
+          <MenuList id={listId} role="listbox" aria-label={composerCopy.peopleLabel}>
             {matches.map((candidate, index) => (
-              <li
+              <MenuItem
                 key={candidate.user_id}
                 id={`${listId}-${index}`}
                 role="option"
                 aria-selected={index === highlighted}
-                className={`pm-item ${index === highlighted ? "on" : ""}`}
+                selected={index === highlighted}
+                tabIndex={-1}
                 // 44px: a real tap target at phone width.
-                style={{ minHeight: 44, cursor: "pointer" }}
+                sx={{ minHeight: TAP_MIN, whiteSpace: "normal" }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   choose(candidate);
@@ -195,20 +203,22 @@ export default function MentionPicker({
                 onMouseEnter={() => setMarker({ query, index })}
               >
                 <span style={{ minWidth: 0 }}>
-                  <span className="pn" style={{ display: "block" }}>
+                  <Typography variant="subtitle2" component="span" sx={{ display: "block" }}>
                     {candidate.name}
-                  </span>
+                  </Typography>
                   {candidate.title ? (
-                    <span className="muted" style={{ display: "block", fontSize: 11 }}>
+                    <Typography variant="caption" component="span" sx={{ display: "block", color: "text.secondary" }}>
                       {candidate.title}
-                    </span>
+                    </Typography>
                   ) : null}
                 </span>
-              </li>
+              </MenuItem>
             ))}
-          </ul>
-          {matches.length === 0 ? <div className="pm-hint">{composerCopy.noMatches}</div> : null}
-        </div>
+          </MenuList>
+          {matches.length === 0 ? (
+            <Typography variant="caption" component="div" sx={{ px: 1, py: 1, color: "text.secondary" }}>{composerCopy.noMatches}</Typography>
+          ) : null}
+        </DropdownPaper>
       ) : null}
     </>
   );

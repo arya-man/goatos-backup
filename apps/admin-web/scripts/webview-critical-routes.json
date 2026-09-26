@@ -1,0 +1,29 @@
+{
+  "note": "Visible admin-web product routes a director / park head opens on a PHONE (Android Chrome / WebView rendering of dashboard.mesha.sg). Command-lens/deprecated routes are intentionally excluded from the visual-overhaul parity gate: Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows remain functional/deep-link code paths, but they are not visible product surfaces for PR #294 template parity. NOTE: the Android app does NOT embed admin-web in a WebView today (grep found no WebView usage; only API proof-media URLs) — 'webview' here means Android Chrome at phone width, which is what the emulator gate drives. `node scripts/smoke-routes-visual.mjs --webview-critical` runs only these.",
+  "routes": [
+    "home",
+    "alerts",
+    "alerts-populated",
+    "approvals",
+    "verify",
+    "verify-toxin",
+    "vaccination",
+    "vaccination-live-tracker",
+    "counts-herd",
+    "counts-analytics",
+    "counts-mortality",
+    "counts-breakdown",
+    "counts-milk-preparation",
+    "feed-analytics",
+    "feed-direction",
+    "feed-packing",
+    "weighing-analytics",
+    "weighing-analytics-load",
+    "weighing-weights",
+    "sales-sold",
+    "sales-loads",
+    "routines",
+    "work-board",
+    "herd-signals-alerts"
+  ]
+}

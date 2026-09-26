@@ -1,17 +1,30 @@
+import Table from "@mui/material/Table";
+import Typography from "@mui/material/Typography";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
 import { Gauge, TrendingDown, Warehouse } from "lucide-react";
 
 import { GrowthDirectorSection } from "./growth-director";
+import { WeightsKpiDeck } from "./weights-kpi-deck";
+import { splitParts } from "@/components/minimal/widgets";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { GainThresholdBars, type GainThresholdRow } from "./gain-threshold-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { Tag } from "@/components/ui-primitives";
+import { Caption } from "@/components/app/caption";
+import { InfoHint } from "@/components/app/info-hint";
+import { EmptyState } from "@/components/app/empty-state";
+import { PageHeader } from "@/components/app/page-header";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { ORIGIN_KEYS, canonicalOriginRedirect, originFromParam } from "@/lib/animal-origin";
-import { fmtDate, todayIso } from "@/lib/format";
+import { fmtDate, humanizeEnum, todayIso } from "@/lib/format";
 import { sharesOfWhole } from "@/lib/shares";
 import {
   firstAuthRequiredError,
@@ -137,7 +150,7 @@ function compositionLabel(
   pageContract: AdminUiPageContract,
 ): string {
   const breed = chip.breed?.trim() || copy(pageContract, "composition.unknown_breed");
-  const sex = chip.sex?.trim() || copy(pageContract, "composition.unknown_sex");
+  const sex = chip.sex?.trim() ? humanizeEnum(chip.sex.trim()) : copy(pageContract, "composition.unknown_sex");
   return `${breed} · ${sex}`;
 }
 
@@ -159,7 +172,7 @@ function shedCohorts(
 ): readonly { breed: string; sex: string; animals: number }[] {
   return (composition?.chips ?? []).map((chip) => ({
     breed: chip.breed?.trim() || copy(pageContract, "composition.unknown_breed"),
-    sex: chip.sex?.trim() || copy(pageContract, "composition.unknown_sex"),
+    sex: chip.sex?.trim() ? humanizeEnum(chip.sex.trim()) : copy(pageContract, "composition.unknown_sex"),
     animals: chip.animals,
   }));
 }
@@ -378,7 +391,7 @@ export async function WeighingWeightsPage({
   // Biggest loss first: the kid that dropped most is the one to go and look at.
   // Sorted on the CHANGE, not the daily rate, because that is what the table shows
   // and a reader ordering by an unshown column has no way to check the order.
-  const losingAll = (growth.ok ? growth.data.losing_animals : [])
+  const losingAll = (growth.ok ? listOrEmpty(growth.data.losing_animals) : [])
     .slice()
     .sort(
       (a, b) =>
@@ -545,6 +558,14 @@ export async function WeighingWeightsPage({
   // of this farm's kids are weighed by the whole shed rather than one at a time.
   const headlineGain = growth.ok ? (growth.data.headline.average_adg_g_per_day ?? null) : null;
   const headlineWeight = growth.ok ? growth.data.headline.headline_animals : 0;
+  // Presentation only: weekly gain drives the headline card's sparkline and trend pill.
+  const weeklyGainSpark = (growth.ok ? (growth.data.weekly_gain ?? []) : []).map((point) =>
+    Math.round(point.average_adg_g_per_day),
+  );
+  const weeklyGainDelta =
+    weeklyGainSpark.length >= 2
+      ? weeklyGainSpark[weeklyGainSpark.length - 1] - weeklyGainSpark[weeklyGainSpark.length - 2]
+      : null;
 
   // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
   // restricted to per-animal sheds — a whole-shed total can never produce a per-kid gain.
@@ -555,7 +576,7 @@ export async function WeighingWeightsPage({
   // which population change also moves. Merging them silently would be the defect;
   // showing only the first would drop every whole-shed shed from a gain view they
   // now have real history for.
-  const perAnimalGainRows = (growth.ok ? growth.data.shed_leaderboard : [])
+  const perAnimalGainRows = (growth.ok ? listOrEmpty(growth.data.shed_leaderboard) : [])
       .filter(
         (shed): shed is typeof shed & { average_adg_g_per_day: number } =>
           shed.average_adg_g_per_day != null && shed.adg_animals > 0 && visibleRowKeys.has(shedKey(shed.location_id, shed.partition_label)),
@@ -693,7 +714,7 @@ export async function WeighingWeightsPage({
   // "nobody has weighed them twice yet". The span rides on the label for the same
   // reason it does on the shed chart — a figure drawn from two days deserves to be
   // discounted on sight.
-  const byLoad = weights.ok ? weights.data.by_load : [];
+  const byLoad = weights.ok ? listOrEmpty(weights.data.by_load) : [];
   const loadUnattributed = weights.ok ? weights.data.load_unattributed_sheds : 0;
   // A load's park cluster, for the same CBE-then-CPT clustering the shed chart uses. A load
   // is placed into pens, and the pens name the park; a load split across both parks (a real
@@ -859,19 +880,10 @@ export async function WeighingWeightsPage({
 
   return (
     <div className="weights-page">
-      {/* The download opener rides at the far end of the filter bar, on the same line as the park
-          and period controls, rather than on a line of its own above them (maintainer, 2026-08-24).
-
-          The Sex control sits IN LINE with the filters, beside Weighing, and is shaped like the
-          fields next to it — but it is held in client state, not the URL: all three grains arrive
-          in one response, so it changes nothing the server has to fetch and must not cost a page
-          render. See gain-sex-scope. */}
-      <WorklistFilters
-        basePath={PAGE_PATH}
-        pageParam="offset"
-        fields={filterFields}
-        pageContract={pageContract}
-        trailing={
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb", "Weighing") }, { label: pageContract.title }]}
+        actions={
           <WeightsExportControl
             pageContract={pageContract}
             parks={parks.map((park) => ({ park_id: park.park_id, name: park.name }))}
@@ -887,6 +899,16 @@ export async function WeighingWeightsPage({
           />
         }
       />
+      {/* The Sex control sits IN LINE with the filters, beside Weighing, and is shaped like the
+          fields next to it — but it is held in client state, not the URL: all three grains arrive
+          in one response, so it changes nothing the server has to fetch and must not cost a page
+          render. See gain-sex-scope. */}
+      <WorklistFilters
+        basePath={PAGE_PATH}
+        pageParam="offset"
+        fields={filterFields}
+        pageContract={pageContract}
+      />
 
       <p className="muted small" style={{ margin: "0 0 -4px" }}>
         {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}
@@ -899,78 +921,86 @@ export async function WeighingWeightsPage({
           daily gain" card in the row below it — one figure stated twice, costing a sixth of the
           headline row. The gain row below is now unconditional so removing it here loses nothing in
           any scope. */}
-      <section className="grid g5 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.kids.split.label")}</div>
-          <div className="val">
-            {summary.individual_animals_weighed.toLocaleString("en-IN")} ·{" "}
-            {summary.lump_sum_animals_weighed.toLocaleString("en-IN")}
-          </div>
-          <div className="dl">
-            {summary.animals_weighed.toLocaleString("en-IN")} {copy(pageContract, "kpi.kids.split.total_sub")}
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.total.label")}</div>
-          <div className="val">{kg(summary.total_weight_kg, 0)} kg</div>
-          <div className="dl">{copy(pageContract, "kpi.total.sub")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.average.label")}</div>
-          {/* Null average means nothing was weighed. Rendering 0.0 kg would read as a herd that
-              weighs nothing — a different, untrue statement. */}
-          <div className="val">
-            {summary.average_weight_kg == null
-              ? copy(pageContract, "empty.no_data.title")
-              : `${kg(summary.average_weight_kg)} kg`}
-          </div>
-          <div className="dl">{copy(pageContract, "kpi.average.sub")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG)}</div>
-          <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
-          {/* The threshold counts carry their OWN denominator: a whole-shed weigh contributes
-              nothing to them, so showing them against animals_weighed would understate them. */}
-          <div className="dl">
-            {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
-            {copy(pageContract, "kpi.threshold.basis")}
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg)}</div>
-          <div className="val">{summary.at_or_above_35kg.toLocaleString("en-IN")}</div>
-          <div className="dl">
-            {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
-            {copy(pageContract, "kpi.threshold.basis")}
-          </div>
-        </div>
-      </section>
+      <WeightsKpiDeck
+        ariaLabel={copy(pageContract, "section.sheds.aria")}
+        items={[
+          {
+            key: "kids",
+            // Two readings, two labels (template split card): the contract label names both halves in
+            // order ("Individual · Lump-sum"); the card title is the whole count.
+            label: `${summary.animals_weighed.toLocaleString("en-IN")} ${copy(pageContract, "kpi.kids.split.total_sub")}`,
+            value: summary.animals_weighed,
+            parts: splitParts(copy(pageContract, "kpi.kids.split.label"), [summary.individual_animals_weighed, summary.lump_sum_animals_weighed]),
+            noDataText: copy(pageContract, "empty.no_data.title"),
+            icon: "kids",
+            tone: "info",
+          },
+          {
+            key: "total",
+            label: copy(pageContract, "kpi.total.label"),
+            value: summary.total_weight_kg,
+            noDataText: copy(pageContract, "empty.no_data.title"),
+            unit: "kg",
+            icon: "total",
+            hint: copy(pageContract, "kpi.total.sub"),
+          },
+          {
+            // Null average means nothing was weighed: never render 0.0 kg.
+            key: "average",
+            label: copy(pageContract, "kpi.average.label"),
+            value: summary.average_weight_kg ?? null,
+            noDataText: copy(pageContract, "empty.no_data.title"),
+            digits: 1,
+            unit: "kg",
+            icon: "average",
+            tone: "violet",
+            hint: copy(pageContract, "kpi.average.sub"),
+          },
+          {
+            // Threshold counts carry their OWN denominator (whole-shed weighs contribute nothing).
+            key: "over30",
+            label: fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG),
+            value: summary.at_or_above_30kg,
+            noDataText: copy(pageContract, "empty.no_data.title"),
+            icon: "over30",
+            tone: "success",
+            hint: `${summary.threshold_basis_animals.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`,
+          },
+          {
+            key: "over35",
+            label: fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg),
+            value: summary.at_or_above_35kg,
+            noDataText: copy(pageContract, "empty.no_data.title"),
+            icon: "over35",
+            tone: "warning",
+            hint: `${summary.threshold_basis_animals.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`,
+          },
+        ]}
+      />
 
-      {/* Daily gain, ALWAYS rendered — it used to appear only when the page was showing more than
-          one park, because the headline card above carried it in every other scope. With that card
-          gone, keeping the condition would have deleted the growth figure entirely from a
-          park-scoped page: the one number this screen exists to answer. Its first card names the
-          CURRENT scope, so the all-parks wording appears only when it really is all of them. */}
-      <section className="grid g3 kpi-row" aria-label={copy(pageContract, "section.park_gain.aria")}>
-        <div className="kpi">
-          <div className="lab">
-            {selectedParkName || copy(pageContract, "kpi.park_gain.all")}{" "}
-            {copy(pageContract, "kpi.park_gain.suffix")}
-          </div>
-          {/* insufficient_data is a real state: a park where nothing was weighed twice has NO
-              gain, and printing 0 g/day would read as a herd that stopped growing. */}
-          <div className="val">
-            {headlineGain == null
-              ? copy(pageContract, "empty.no_data.title")
-              : `${Math.round(headlineGain)} g`}
-          </div>
-          <div className="dl">
-            {headlineGain == null
-              ? copy(pageContract, "kpi.gain.none")
-              : `${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`}
-          </div>
-        </div>
-      </section>
+      {/* Daily gain, ALWAYS rendered, naming the CURRENT scope. insufficient_data is a real state:
+          no gain renders the no-data text, never 0 g/day. */}
+      <WeightsKpiDeck
+        ariaLabel={copy(pageContract, "section.park_gain.aria")}
+        min={260}
+        items={[
+          {
+            key: "headline",
+            label: `${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`,
+            value: headlineGain == null ? null : Math.round(headlineGain),
+            noDataText: copy(pageContract, "empty.no_data.title"),
+            unit: "g",
+            icon: "gain",
+            sparkline: weeklyGainSpark,
+            trend: headlineGain == null ? null : weeklyGainDelta,
+            trendSuffix: " g",
+            hint:
+              headlineGain == null
+                ? copy(pageContract, "kpi.gain.none")
+                : `${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`,
+          },
+        ]}
+      />
 
       {/* Row 1 — the true growth charts. These sit before shed/scale movement because
           their daily gain is same-tag-twice ADG, not lump-sum average movement. */}
@@ -1089,7 +1119,7 @@ export async function WeighingWeightsPage({
             ]}
           />
         </h2>
-        <p className="muted small">{gainCaption}</p>
+        <Caption>{gainCaption}</Caption>
         {gainThresholdView === "chart" ? (
           <GainThresholdBars
             rows={gainThresholdRows}
@@ -1099,38 +1129,36 @@ export async function WeighingWeightsPage({
             ofLabel={copy(pageContract, "value.gain_thresholds.of")}
           />
         ) : gainThresholdRows.length === 0 ? (
-          <div className="empty">
-            <span className="muted small">{gainEmptyLabel}</span>
-          </div>
+          <EmptyState title={gainEmptyLabel} />
         ) : (
           <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
-            <table className="tbl" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
-              <thead>
-                <tr>
+            <Table className="tbl" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
+              <TableHead>
+                <TableRow>
                   {gainThresholdColumns.map((label, index) => (
-                    <th key={label} className={index >= 1 ? "num" : undefined}>
+                    <TableCell component="th" key={label} className={index >= 1 ? "num" : undefined}>
                       {label}
-                    </th>
+                    </TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {gainThresholdRows.map((row) => (
-                  <tr key={row.key}>
-                    <td>
+                  <TableRow key={row.key}>
+                    <TableCell>
                       <b>{row.breed}</b>
-                    </td>
-                    <td className="num">{row.animals.toLocaleString("en-IN")}</td>
+                    </TableCell>
+                    <TableCell className="num">{row.animals.toLocaleString("en-IN")}</TableCell>
                     {row.marks.map((mark) => (
-                      <td key={mark.step} className="num">
+                      <TableCell key={mark.step} className="num">
                         {mark.count.toLocaleString("en-IN")}{" "}
                         <span className="muted">({mark.pct.toFixed(1)}%)</span>
-                      </td>
+                      </TableCell>
                     ))}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
@@ -1161,9 +1189,14 @@ export async function WeighingWeightsPage({
           wide
         />
         {loadUnattributed > 0 ? (
-          <p className="muted small">
-            {loadUnattributed.toLocaleString("en-IN")} {copy(pageContract, "note.load.unmapped")}
-          </p>
+          <Typography
+            component="p"
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "flex", justifyContent: "flex-end", m: 0 }}
+          >
+            <InfoHint text={`${loadUnattributed.toLocaleString("en-IN")} ${copy(pageContract, "note.load.unmapped")}`} />
+          </Typography>
         ) : null}
       </div>
 
@@ -1179,41 +1212,39 @@ export async function WeighingWeightsPage({
         <h2 className="h">
           <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load_placements.title")}
         </h2>
-        <p className="muted small">{copy(pageContract, "section.load_placements.caption")}</p>
+        <Caption>{copy(pageContract, "section.load_placements.caption")}</Caption>
         {loadPlacementRows.length === 0 ? (
-          <div className="empty">
-            <span className="muted small">{copy(pageContract, "empty.load_placements.body")}</span>
-          </div>
+          <EmptyState title={copy(pageContract, "empty.load_placements.body")} />
         ) : (
           <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.load_placements.aria")}>
-            <table className="tbl" aria-label={copy(pageContract, "section.load_placements.aria")}>
-              <thead>
-                <tr>
+            <Table className="tbl" aria-label={copy(pageContract, "section.load_placements.aria")}>
+              <TableHead>
+                <TableRow>
                   {placementColumns.map((label) => (
-                    <th key={label}>{label}</th>
+                    <TableCell component="th" key={label}>{label}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {loadPlacementRows.map((row) => (
-                  <tr key={row.key}>
-                    <td>
+                  <TableRow key={row.key}>
+                    <TableCell>
                       <b>{row.loadRef}</b>
                       {row.ownerName ? <div className="muted small">{row.ownerName}</div> : null}
-                    </td>
-                    <td>{row.parks.join(", ")}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{row.parks.join(", ")}</TableCell>
+                    <TableCell>
                       {row.sheds.map((shed) => (
                         <Tag key={shed.key} tone="mut">
                           {shed.label}
                         </Tag>
                       ))}
-                    </td>
-                    <td>{row.animals.toLocaleString("en-IN")}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell>{row.animals.toLocaleString("en-IN")}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
@@ -1231,21 +1262,13 @@ export async function WeighingWeightsPage({
         <h2 className="h">
           <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.sheds.title")}
         </h2>
-        <p className="muted small">{copy(pageContract, "note.total_weight")}</p>
+        <Caption>{copy(pageContract, "note.total_weight")}</Caption>
 
         {slice.length === 0 ? (
-          <div className="empty">
-            <b>
-              {hasAnyData
-                ? copy(pageContract, "empty.filtered.title")
-                : copy(pageContract, "empty.no_data.title")}
-            </b>
-            <span className="muted small">
-              {hasAnyData
-                ? copy(pageContract, "empty.filtered.body")
-                : copy(pageContract, "empty.no_data.body")}
-            </span>
-          </div>
+          <EmptyState
+            title={hasAnyData ? copy(pageContract, "empty.filtered.title") : copy(pageContract, "empty.no_data.title")}
+            description={hasAnyData ? copy(pageContract, "empty.filtered.body") : copy(pageContract, "empty.no_data.body")}
+          />
         ) : (
           <>
             <div
@@ -1254,22 +1277,22 @@ export async function WeighingWeightsPage({
               role="group"
               aria-label={copy(pageContract, "section.sheds.aria")}
             >
-              <table className="tbl">
-                <thead>
-                  <tr>
+              <Table className="tbl">
+                <TableHead>
+                  <TableRow>
                     {shedColumns.map((label) => (
-                      <th key={label}>{label}</th>
+                      <TableCell component="th" key={label}>{label}</TableCell>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {slice.map((row) => {
                     const mode = modeTag(row, pageContract);
                     const composition = compositionByShed.get(shedKey(row.location_id, row.partition_label));
                     return (
-                      <tr key={shedKey(row.location_id, row.partition_label)}>
-                        <td>{row.park_name}</td>
-                        <td>
+                      <TableRow key={shedKey(row.location_id, row.partition_label)}>
+                        <TableCell>{row.park_name}</TableCell>
+                        <TableCell>
                           <b>{row.operational_location_display || row.shed_display_name}</b>
                           {composition?.chips.length ? (
                             <span className="wcomp-chips" aria-label="Breed and sex composition">
@@ -1286,26 +1309,26 @@ export async function WeighingWeightsPage({
                               ))}
                             </span>
                           ) : null}
-                        </td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
                           <Tag tone={mode.tone}>{mode.label}</Tag>
-                        </td>
-                        <td className="num">{row.animals_weighed.toLocaleString("en-IN")}</td>
-                        <td className="num">{kg(row.average_weight_kg)} kg</td>
-                        <td className="num">{kg(row.total_weight_kg, 0)} kg</td>
-                        <td className="num">
+                        </TableCell>
+                        <TableCell className="num">{row.animals_weighed.toLocaleString("en-IN")}</TableCell>
+                        <TableCell className="num">{kg(row.average_weight_kg)} kg</TableCell>
+                        <TableCell className="num">{kg(row.total_weight_kg, 0)} kg</TableCell>
+                        <TableCell className="num">
                           {row.last_weighed_date ? fmtDate(row.last_weighed_date) : (
                             <span className="muted">
                               {copy(pageContract, "value.never_weighed")}
                             </span>
                           )}
-                        </td>
-                        <td>{workflowLabel(row.bucket_status, pageContract)}</td>
-                      </tr>
+                        </TableCell>
+                        <TableCell>{workflowLabel(row.bucket_status, pageContract)}</TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
             <WorklistPager
               pageContract={pageContract}
@@ -1321,7 +1344,7 @@ export async function WeighingWeightsPage({
           </>
         )}
 
-        <p className="muted small">{copy(pageContract, "note.threshold_basis")}</p>
+        <Caption>{copy(pageContract, "note.threshold_basis")}</Caption>
       </section>
 
       <section className="card wtable" aria-label={copy(pageContract, "section.losing.aria")}>
@@ -1329,13 +1352,13 @@ export async function WeighingWeightsPage({
           <TrendingDown className="ic" size={15} aria-hidden />{" "}
           {copy(pageContract, "section.losing.title")}
         </h2>
-        <p className="muted small">{copy(pageContract, "section.losing.caption")}</p>
+        <Caption>{copy(pageContract, "section.losing.caption")}</Caption>
 
         {losingSlice.length === 0 ? (
-          <div className="empty">
-            <b>{copy(pageContract, "empty.losing.title")}</b>
-            <span className="muted small">{copy(pageContract, "empty.losing.body")}</span>
-          </div>
+          <EmptyState
+            title={copy(pageContract, "empty.losing.title")}
+            description={copy(pageContract, "empty.losing.body")}
+          />
         ) : (
           <>
             <div
@@ -1344,34 +1367,34 @@ export async function WeighingWeightsPage({
               role="group"
               aria-label={copy(pageContract, "section.losing.aria")}
             >
-              <table className="tbl">
-                <thead>
-                  <tr>
+              <Table className="tbl">
+                <TableHead>
+                  <TableRow>
                     {losingColumns.map((label) => (
-                      <th key={label}>{label}</th>
+                      <TableCell component="th" key={label}>{label}</TableCell>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {losingSlice.map((animal) => (
-                    <tr key={`${animal.scanned_identifier}-${animal.latest_weigh_date}`}>
-                      <td>
+                    <TableRow key={`${animal.scanned_identifier}-${animal.latest_weigh_date}`}>
+                      <TableCell>
                         <b>{animal.scanned_identifier}</b>
-                      </td>
-                      <td>{animal.operational_location_display || animal.shed_display_name}</td>
-                      <td className="num">{kg(animal.previous_weight_kg)} kg</td>
-                      <td className="num">{kg(animal.latest_weight_kg)} kg</td>
-                      <td className="num">
+                      </TableCell>
+                      <TableCell>{animal.operational_location_display || animal.shed_display_name}</TableCell>
+                      <TableCell className="num">{kg(animal.previous_weight_kg)} kg</TableCell>
+                      <TableCell className="num">{kg(animal.latest_weight_kg)} kg</TableCell>
+                      <TableCell className="num">
                         <Tag tone="dng">
                           {kg(animal.latest_weight_kg - animal.previous_weight_kg)} kg
                         </Tag>
-                      </td>
-                      <td className="num">{Math.round(animal.days_between)}</td>
-                      <td className="num">{fmtDate(animal.latest_weigh_date)}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="num">{Math.round(animal.days_between)}</TableCell>
+                      <TableCell className="num">{fmtDate(animal.latest_weigh_date)}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
             <WorklistPager
               pageContract={pageContract}

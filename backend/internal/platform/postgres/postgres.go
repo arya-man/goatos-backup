@@ -137,7 +137,7 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	// to call even before SetupTelemetry runs (delegating no-ops until a real
 	// provider is installed). Query SQL is summarized, not bound-arg-included,
 	// keeping span attributes low-cardinality per the design's cardinality guard.
-	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+	poolCfg.ConnConfig.Tracer = newQueryTracer(otelpgx.NewTracer())
 
 	connectCtx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
 	defer cancel()

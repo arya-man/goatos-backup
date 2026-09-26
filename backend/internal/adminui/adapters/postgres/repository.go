@@ -16,7 +16,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 )
 
-const defaultQueryTimeout = 3 * time.Second
+const (
+	defaultQueryTimeout = 10 * time.Second
+	minQueryTimeout     = 10 * time.Second
+)
 
 type Repository struct {
 	pool    *pgxpool.Pool
@@ -26,6 +29,9 @@ type Repository struct {
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
+	}
+	if queryTimeout < minQueryTimeout {
+		queryTimeout = minQueryTimeout
 	}
 	return &Repository{pool: pool, timeout: queryTimeout}
 }

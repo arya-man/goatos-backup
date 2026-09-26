@@ -3,6 +3,8 @@
 import { CalendarClock, CheckCircle2, MessageSquareText } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { splitFarmDeadlineLocal } from "./deadline";
@@ -262,42 +264,48 @@ export function TaskDeadlineFields({
             invalidDateText={text("deadline.day_min", "Pick a day on or after {date}.")}
           />
         </div>
-        <label className="lt-deadline-time">
-          <span className="lt-fld-sub">{text("deadline.hour", "Hour")}</span>
-          <select
-            name="deadline_hour"
-            aria-required={required}
-            aria-invalid={missing && !hour ? true : undefined}
+        {/* Hour / minute are the MUI TextField select (the same listbox every filter bar uses), not
+            native <select>s. Each posts its value through a text input the Server Action reads
+            by the SAME name (`deadline_hour` / `deadline_minute`). No native `required`: the form
+            checks day, hour and minute itself and says so in ONE sentence (`missing`). */}
+        <div className="lt-deadline-time">
+          <TextField
+            select
+            label={text("deadline.hour", "Hour")}
             value={hour}
-            aria-describedby={hintId}
+            error={missing && !hour}
             onChange={(event) => setHour(event.target.value)}
+            sx={{ flexShrink: 0, maxWidth: 1 }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
           >
-            <option value="">--</option>
+            <MenuItem value="">--</MenuItem>
             {DEADLINE_HOURS.map((option) => (
-              <option key={option} value={option}>
+              <MenuItem key={option} value={option}>
                 {option}
-              </option>
+              </MenuItem>
             ))}
-          </select>
-        </label>
-        <label className="lt-deadline-time">
-          <span className="lt-fld-sub">{text("deadline.minute", "Minute")}</span>
-          <select
-            name="deadline_minute"
-            aria-required={required}
-            aria-invalid={missing && !minute ? true : undefined}
+          </TextField>
+          <input type="text" name="deadline_hour" value={hour} aria-describedby={hintId} aria-hidden="true" tabIndex={-1} className="lt-posted-value" onChange={(event) => setHour(event.target.value)} />
+        </div>
+        <div className="lt-deadline-time">
+          <TextField
+            select
+            label={text("deadline.minute", "Minute")}
             value={minute}
-            aria-describedby={hintId}
+            error={missing && !minute}
             onChange={(event) => setMinute(event.target.value)}
+            sx={{ flexShrink: 0, maxWidth: 1 }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
           >
-            <option value="">--</option>
+            <MenuItem value="">--</MenuItem>
             {minutes.map((option) => (
-              <option key={option} value={option}>
+              <MenuItem key={option} value={option}>
                 {option}
-              </option>
+              </MenuItem>
             ))}
-          </select>
-        </label>
+          </TextField>
+          <input type="text" name="deadline_minute" value={minute} aria-describedby={hintId} aria-hidden="true" tabIndex={-1} className="lt-posted-value" onChange={(event) => setMinute(event.target.value)} />
+        </div>
       </div>
       {missing ? (
         <small className="lt-fnote" role="alert" data-testid="lt-deadline-missing">

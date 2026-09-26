@@ -1,5 +1,7 @@
 "use client";
 
+import { Tag } from "@/components/ui-primitives";
+
 import { fmtGrams } from "./feed-config-format";
 import { useSyncExternalStore } from "react";
 
@@ -152,9 +154,9 @@ export function RationRateValue({
         {fmtGrams(value)}
       </span>
       {authoredZero ? (
-        <span className="tag t-info" title={copy(pageContract, "label.configured_zero_note")}>
+        <Tag tone="info" title={copy(pageContract, "label.configured_zero_note")}>
           {copy(pageContract, "label.configured_zero")}
-        </span>
+        </Tag>
       ) : null}
       {/* Said out loud while the server catches up, rather than shown as a settled number. The write
           IS committed at this point -- the form only closes on a confirmed save -- so this reports

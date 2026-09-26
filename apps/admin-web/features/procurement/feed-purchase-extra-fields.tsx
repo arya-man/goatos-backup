@@ -17,6 +17,8 @@ import { visibleQuestionIds } from "./authored-form-visibility";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendorForm, ProcurementVendorQuestion } from "@/lib/api/server";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 type ProcurementVendorFormPage = ProcurementVendorForm["pages"][number];
 type ProcurementVendorQuestionOption = NonNullable<ProcurementVendorQuestion["options"]>[number];
@@ -117,9 +119,12 @@ export function FeedPurchaseExtraFields({ form, pageContract }: { form: Procurem
                 ) : q.kind === "multi" ? (
                   <div className="vendor-form-multi">
                     {(q.options ?? []).map((o: ProcurementVendorQuestionOption) => (
-                      <label key={o.value} className="chkline">
-                        <input type="checkbox" name={name} value={o.value} /> {o.label}
-                      </label>
+                      <FormControlLabel
+                        key={o.value}
+                        className="chkline"
+                        control={<Checkbox name={name} value={o.value} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                        label={<>{o.label}</>}
+                      />
                     ))}
                   </div>
                 ) : q.kind === "number" ? (

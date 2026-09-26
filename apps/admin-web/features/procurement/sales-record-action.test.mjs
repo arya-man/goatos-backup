@@ -68,7 +68,8 @@ test("the record-sale drawer guards a same-frame double click and clears a stale
   assert.match(drawer, /checked=\{stockAck\}/);
   assert.match(drawer, /onChange=\{changeLines\}/);
   assert.match(drawer, /const changeLines = \(next: SaleLineDraft\[\]\) => \{\s*setLines\(next\);\s*setStockAck\(false\);/);
-  assert.match(drawer, /id="s-farm"[^>]*onChange=\{\(\) => setStockAck\(false\)\}/);
+  // MUI redesign: the farm picker is the kit FormSelect, whose change callback is onValueChange.
+  assert.match(drawer, /id="s-farm"[^>]*onValueChange=\{\(\) => setStockAck\(false\)\}/);
 });
 
 test("a refused record-sale brings its reason into view", () => {
@@ -81,5 +82,5 @@ test("a refused record-sale brings its reason into view", () => {
 
 test("the sale's lines table pans inside the drawer instead of painting past it", () => {
   const drawer = readFileSync(new URL("./sales-record-drawer.tsx", import.meta.url), "utf8");
-  assert.match(drawer, /<div className="twrap"[^>]*>\s*<table className="sales-lines-table"/);
+  assert.match(drawer, /<div className="twrap"[^>]*>\s*<Table className="sales-lines-table"/);
 });

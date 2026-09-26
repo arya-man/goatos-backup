@@ -1,11 +1,18 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import type { ReactNode } from "react";
 
 import { redirect } from "next/navigation";
 import { Banknote, Boxes } from "lucide-react";
 
-import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
+import { IdentityCell } from "@/components/data-table";
+import { ProcurementTableFooter } from "./table-footer-links";
 import {
   actionFeedbackCopy,
   controlEnabled,
@@ -22,6 +29,7 @@ import type { LoadwiseLoad, SalesDeal } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { breedBeyondProduct, dealStatusTone, humanDate, inr, num } from "./sales-format";
 import { SalesItemsAndRecordDrawer } from "./sales-config-items";
+import { SalesPageHeader } from "./sales-chrome";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 import { LoadCostDrawer } from "./load-cost-drawer";
 import { getMarketConfig, getMarketReporters } from "@/lib/api/market-server";
@@ -29,6 +37,9 @@ import { getValuationAssumptions } from "@/lib/api/sales-valuation-server";
 import { MarketConfigSection } from "./market-config-section";
 import { MarketReportersSection } from "./market-reporters-section";
 import { ValuationSection } from "./valuation-section";
+import Alert from "@mui/material/Alert";
+import { EmptyState } from "@/components/app/empty-state";
+import Button from "@mui/material/Button";
 import { salesErrorText } from "./sales-error";
 
 const PAGE_PATH = "/sales/config";
@@ -112,11 +123,11 @@ export async function SalesConfigPage({
 
   if (firstAuthRequiredError(dealsResult, loadwiseResult)) redirect(INTERNAL_LOGIN_PATH);
 
-  const deals: SalesDeal[] = dealsResult.ok ? dealsResult.data.deals : [];
+  const deals: SalesDeal[] = dealsResult.ok ? listOrEmpty(dealsResult.data.deals) : [];
   const total = dealsResult.ok ? dealsResult.data.total : 0;
   const pageCount = Math.max(1, Math.ceil(total / limit));
   const pageNumber = Math.min(pageCount, Math.floor(offset / limit) + 1);
-  const loads: LoadwiseLoad[] = loadwiseResult.ok ? loadwiseResult.data.loads : [];
+  const loads: LoadwiseLoad[] = loadwiseResult.ok ? listOrEmpty(loadwiseResult.data.loads) : [];
   // null means the park/shed catalog could NOT be read, which is a different fact from a
   // farm that has no sheds. Collapsing the two rendered a picker offering "Choose a park"
   // and nothing to choose, and read as a broken screen rather than a missing grant.
@@ -146,40 +157,39 @@ export async function SalesConfigPage({
 
   return (
     <div className="screen on">
-      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div>
-          <div className="crumb">
-            <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
+      <SalesPageHeader
+        pageContract={pageContract}
+        actions={
+          <>
         {canRecord ? (
-          <LocalOverlayLink
+          <Button
+            component={LocalOverlayLink}
             href={hrefWithQuery(sp, { deal_id: "new" })}
-            className="btn primary"
+            variant="contained"
+            color="primary"
             scroll={false}
-            style={{ marginBottom: 4 }}
           >
             {copy(pageContract, "action.record_sale.label")}
-          </LocalOverlayLink>
+          </Button>
         ) : null}
         {/* Tagging animals to a sale WRITES HERD IDENTITY — it exits each animal as sold — so it
             is gated on the same capability as recording the deal, and additionally on there
             being a recorded sale to tag animals to. */}
         {canAllocateAnimals && deals.length > 0 ? (
-          <LocalOverlayLink
+          <Button
+            component={LocalOverlayLink}
             href={hrefWithQuery(sp, { tag_sale: deals[0].deal_id })}
-            className="btn"
+            variant="outlined"
+            color="inherit"
             scroll={false}
-            style={{ marginBottom: 4 }}
             title={copy(pageContract, "action.tag_animals.hint")}
           >
             {copy(pageContract, "action.tag_animals.label")}
-          </LocalOverlayLink>
+          </Button>
         ) : null}
-      </div>
+          </>
+        }
+      />
 
       {/* Write feedback. Without this a save simply closes the drawer, which is
           indistinguishable from the save being dropped. */}
@@ -189,7 +199,7 @@ export async function SalesConfigPage({
             {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </div>
         ) : (
-          <div className="alert" style={{ marginBottom: 14 }}>
+          <Alert severity="error" style={{ marginBottom: 14 }}>
             {/* ONE flex child: .alert lays its children out in a row, so a detail sentence beside
                 the headline gets squeezed and clipped at the card edge. Stacked inside a single
                 block, the sentence gets the card's full width and wraps. */}
@@ -197,7 +207,7 @@ export async function SalesConfigPage({
               {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
               {actionDetail ? <div className="note" style={{ marginTop: 6 }}>{actionDetail}</div> : null}
             </div>
-          </div>
+          </Alert>
         )
       ) : null}
 
@@ -212,77 +222,82 @@ export async function SalesConfigPage({
             {num(total)} {copy(pageContract, "summary.count")}
           </Tag>
           <div className="sp" style={{ flex: 1 }} />
-          <span className="muted small">{copy(pageContract, "section.sales_entry.row_hint")}</span>
         </div>
-        <p className="muted small sales-config-card-copy">
-          {copy(pageContract, "section.sales_entry.subtitle")}
-        </p>
 
         {!dealsResult.ok ? (
-          <div className="alert" style={{ marginBottom: 14 }}>
+          <Alert severity="error" style={{ marginBottom: 14 }}>
             {salesErrorText(dealsResult.error, copy(pageContract, "error.load"))}
-          </div>
+          </Alert>
         ) : null}
 
         {/* A failed read is not an empty ledger: under the error box, "No sales recorded yet.
             Record the first sale" told the desk the opposite of what happened. */}
         {!dealsResult.ok ? null : deals.length === 0 ? (
-          <div className="empty">{copy(pageContract, "empty.deals.unset")}</div>
+          <EmptyState title={copy(pageContract, "empty.deals.unset")} />
         ) : (
-          <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sales_entry.title")}>
-            <table className="sales-deals-table" aria-label={copy(pageContract, "section.sales_entry.title")}>
-              <thead>
-                <tr>
+          <div id="sales-config-deals" className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sales_entry.title")}>
+            <Table
+              className="sales-deals-table"
+              aria-label={copy(pageContract, "section.sales_entry.title")}
+              sx={{
+                // Single-line ledger cells: the global .celllink overflow-wrap:anywhere otherwise splits
+                // "2026-08-11" and "CPT" mid-token. Headers may wrap so a 1-2px overshoot never scrolls the ledger.
+                "&& td, && td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+                "&& td .celllink": { maxWidth: "none", minWidth: "max-content" },
+                "&& th": { whiteSpace: "normal", overflowWrap: "normal", wordBreak: "normal" },
+              }}
+            >
+              <TableHead>
+                <TableRow>
                   {dealColumns.map((label) => (
-                    <th key={label}>{label}</th>
+                    <TableCell component="th" key={label}>{label}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {deals.map((deal) => {
                   const drawerHref = hrefWithQuery(sp, { deal_id: deal.deal_id });
                   const dealCell = (value: ReactNode, extra?: string) => (
-                    <td className={extra}>
+                    <TableCell className={extra}>
                       <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                         {value}
                       </LocalOverlayLink>
-                    </td>
+                    </TableCell>
                   );
                   return (
-                    <tr key={deal.deal_id}>
+                    <TableRow key={deal.deal_id}>
                       {dealCell(humanDate(deal.sale_date))}
                       {dealCell(deal.farm)}
-                      {dealCell(<b>{deal.buyer_name}</b>)}
+                      {dealCell(<IdentityCell primary={deal.buyer_name} secondary={deal.product_type || undefined} />)}
                       {dealCell(deal.product_type)}
                       {dealCell(breedBeyondProduct(deal.product_type, deal.breed) ?? "")}
                       {dealCell(deal.animal_count == null ? none : num(deal.animal_count), "num")}
                       {dealCell(deal.total_weight_kg == null ? none : num(deal.total_weight_kg, 1), "num")}
                       {dealCell(inr(deal.sales_value), "num")}
                       {dealCell(<Tag tone={dealStatusTone(deal.status)}>{deal.status}</Tag>)}
-                    </tr>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
 
         {pageCount > 1 ? (
-          <div className="pager2" style={{ paddingRight: 56 }}>
-            <span className="muted">
-              {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount}
-            </span>
-            {pageNumber > 1 ? (
-              <Link href={pagerHref(Math.max(0, offset - limit))} scroll={false} className="btn">
-                {copy(pageContract, "action.prev_page")}
-              </Link>
-            ) : null}
-            {pageNumber < pageCount ? (
-              <Link href={pagerHref(offset + limit)} scroll={false} className="btn">
-                {copy(pageContract, "action.next_page")}
-              </Link>
-            ) : null}
-          </div>
+          <ProcurementTableFooter
+            denseLabel={copy(pageContract, "action.dense", "Dense")}
+            rowsLabel={copy(pageContract, "pager.rows", "Rows")}
+            page={pageNumber}
+            pageCount={pageCount}
+            rangeLabel={`${offset + 1}\u2013${offset + deals.length} ${copy(pageContract, "pager.of")} ${num(total)}`}
+            rowsValue={limit}
+            rowsOptions={pageSizes.map((size) => ({ size, href: hrefWithQuery(sp, { limit: String(size), offset: null }) }))}
+            prevHref={pagerHref(Math.max(0, (pageNumber - 2) * limit))}
+            nextHref={pagerHref(pageNumber * limit)}
+            prevLabel={copy(pageContract, "action.prev_page")}
+            nextLabel={copy(pageContract, "action.next_page")}
+            denseTargetId="sales-config-deals"
+          />
         ) : null}
       </section>
 
@@ -293,47 +308,51 @@ export async function SalesConfigPage({
           <Boxes className="ic" style={{ color: "var(--ok)" }} aria-hidden="true" />
           <h3>{copy(pageContract, "section.load_entry.title")}</h3>
           <div className="sp" style={{ flex: 1 }} />
-          <span className="muted small">{copy(pageContract, "section.load_entry.row_hint")}</span>
         </div>
-        <p className="muted small sales-config-card-copy">
-          {copy(pageContract, "section.load_entry.subtitle")}
-        </p>
 
         {!loadwiseResult.ok ? (
-          <div className="alert" style={{ marginBottom: 14 }}>
+          <Alert severity="error" style={{ marginBottom: 14 }}>
             {salesErrorText(loadwiseResult.error, copy(pageContract, "error.load"))}
-          </div>
+          </Alert>
         ) : null}
 
         {!canRecordCost ? <div className="note">{copy(pageContract, "disabled.load_cost")}</div> : null}
 
         {!loadwiseResult.ok ? null : loads.length === 0 ? (
-          <div className="empty">{copy(pageContract, "empty.loads")}</div>
+          <EmptyState title={copy(pageContract, "empty.loads")} />
         ) : (
           <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.load_entry.title")}>
-            <table className="sales-load-entry-table" aria-label={copy(pageContract, "section.load_entry.title")}>
-              <thead>
-                <tr>
-                  <th>{copy(pageContract, "column.load")}</th>
-                  <th>{copy(pageContract, "column.farm")}</th>
-                  <th className="num">{copy(pageContract, "column.purchased")}</th>
-                  <th className="num">{copy(pageContract, "column.sold")}</th>
-                  <th className="num">{copy(pageContract, "column.remaining")}</th>
-                  <th className="num">{copy(pageContract, "column.purchase_value")}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table
+              aria-label={copy(pageContract, "section.load_entry.title")}
+              // Phone-width Load wise cells stay whole (main f864abb22): no wrapping inside a cell,
+              // the table pans instead of shredding "L-12" or a farm name across lines.
+              sx={{
+                "& th, & td, & td .celllink": { whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal" },
+                "& td .celllink": { maxWidth: "none", minWidth: "max-content" },
+              }}
+            >
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{copy(pageContract, "column.load")}</TableCell>
+                  <TableCell component="th">{copy(pageContract, "column.farm")}</TableCell>
+                  <TableCell component="th" className="num">{copy(pageContract, "column.purchased")}</TableCell>
+                  <TableCell component="th" className="num">{copy(pageContract, "column.sold")}</TableCell>
+                  <TableCell component="th" className="num">{copy(pageContract, "column.remaining")}</TableCell>
+                  <TableCell component="th" className="num">{copy(pageContract, "column.purchase_value")}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {loads.map((load) => {
                   const costHref = hrefWithQuery(sp, { cost_load: load.load_id });
                   const costCell = (value: ReactNode, extra?: string) => (
-                    <td className={extra}>
+                    <TableCell className={extra}>
                       <LocalOverlayLink href={costHref} className="celllink" scroll={false}>
                         {value}
                       </LocalOverlayLink>
-                    </td>
+                    </TableCell>
                   );
                   return (
-                    <tr key={load.load_id}>
+                    <TableRow key={load.load_id}>
                       {costCell(
                         <>
                           <b>{load.load_ref || load.vendor_name}</b>
@@ -352,11 +371,11 @@ export async function SalesConfigPage({
                         load.purchase_value == null ? copy(pageContract, "value.cost_missing") : inr(load.purchase_value),
                         "num",
                       )}
-                    </tr>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>

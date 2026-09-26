@@ -48,17 +48,11 @@ export function LiveTrackerComboCard({
         </span>
       </div>
       <div className="bd">
-        <div className="note" style={{ marginBottom: 11 }}>
-          {copy(pageContract, "section.combo.note")}
-        </div>
 
         {combo.rows.length === 0 ? (
           <div className="lt-empty" style={{ padding: "6px 0" }}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <b style={{ fontSize: 14 }}>{copy(pageContract, "section.combo.empty_title")}</b>
-              <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-                {copy(pageContract, "section.combo.empty_body")}
-              </span>
+              <b style={{ fontSize: 14 }} title={copy(pageContract, "section.combo.empty_body")}>{copy(pageContract, "section.combo.empty_title")}</b>
             </div>
           </div>
         ) : (

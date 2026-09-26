@@ -1,7 +1,7 @@
 "use client";
 
 import { Minus, Plus, Scan } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -87,7 +87,15 @@ export function FlowCanvas<T, I>({
         <span className="muted small studio-flow-hint">{hint ?? copy(pc, "studio.flow.select_hint")}</span>
       </div>
       <div className="studio-flow-canvas" ref={canvasRef}>
-        <div className="studio-flow-scale" style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})` }}>
+        <div
+          className="studio-flow-scale"
+          style={{
+            width: layout.width,
+            height: layout.height,
+            transform: `scale(${zoom})`,
+            "--studio-flow-zoom": zoom,
+          } as CSSProperties}
+        >
           <svg className="studio-flow-edges" width={layout.width} height={layout.height} aria-hidden="true">
             {layout.edges.map((e) => {
               const a = anchor(e.from).bottom;
@@ -117,7 +125,7 @@ export function FlowCanvas<T, I>({
             return (
               <div key={e.id + ":ctl"}>
                 {e.label ? (
-                  <span className="studio-flow-edge-label" style={{ left: label.x, top: label.y }}>
+                  <span className="studio-flow-edge-label" style={{ left: label.x, top: label.y }} title={e.label}>
                     {e.label}
                   </span>
                 ) : null}

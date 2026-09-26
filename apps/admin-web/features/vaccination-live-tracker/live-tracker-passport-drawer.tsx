@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -161,28 +166,28 @@ export function LiveTrackerPassportDrawer({
                 </p>
               ) : (
                 <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "drawer.passport.open_obligations")}>
-                  <table>
+                  <Table>
                     {/* Three unheadered columns is a table the reader has to decode. The sibling
                         passport drawers in counts and vaccination-sheds both label theirs. */}
-                    <thead>
-                      <tr>
-                        <th>{copy(pageContract, "drawer.passport.col_due")}</th>
-                        <th>{copy(pageContract, "drawer.passport.col_dose")}</th>
-                        <th>{copy(pageContract, "drawer.passport.col_status")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell component="th">{copy(pageContract, "drawer.passport.col_due")}</TableCell>
+                        <TableCell component="th">{copy(pageContract, "drawer.passport.col_dose")}</TableCell>
+                        <TableCell component="th">{copy(pageContract, "drawer.passport.col_status")}</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {open.slice(0, DRAWER_ROW_LIMIT).map((due) => (
-                        <tr key={due.obligation_id}>
-                          <td>{fmtDate(due.scheduled_for || due.due_at)}</td>
-                          <td>{due.display_label}</td>
-                          <td>
+                        <TableRow key={due.obligation_id}>
+                          <TableCell>{fmtDate(due.scheduled_for || due.due_at)}</TableCell>
+                          <TableCell>{due.display_label}</TableCell>
+                          <TableCell>
                             <Tag tone={obligationTone(due.status)}>{due.status}</Tag>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                   {/* The API returns up to 200 open obligations and this drawer shows 6. Dropping the
                       rest silently is the one thing every sibling drawer in this codebase refuses to
                       do — and combo animals, the only animals this drawer is ever opened on, are by

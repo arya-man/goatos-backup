@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { useState } from "react";
 import { Search, X } from "lucide-react";
@@ -8,6 +13,7 @@ import { Tag } from "@/components/ui-primitives";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { BandCell } from "./feed-weight-band-table";
+import { EmptyState } from "@/components/app/empty-state";
 
 /** One animal that exited the register inside the period (sold, died or other), already resolved by the card. */
 export type FeedWeightBandExitItem = {
@@ -163,9 +169,7 @@ export function FeedWeightBandExitsDrawer({
             />
           </label>
           {groups.length === 0 ? (
-            <div className="empty">
-              <span className="muted small">{labels.empty}</span>
-            </div>
+            <EmptyState title={labels.empty} />
           ) : (
             groups.map((group) => (
               <div key={group.weighed ? `${group.park}|${group.pen}` : "not-weighed"} className="wt-feedband-exitgroup">
@@ -174,21 +178,21 @@ export function FeedWeightBandExitsDrawer({
                   <span className="muted small"> · {group.weighed ? `${group.park} · ` : ""}{group.items.length.toLocaleString("en-IN")}</span>
                 </h3>
                 <div className="tablewrap" tabIndex={0} role="group" aria-label={group.weighed ? group.pen : labels.notWeighed}>
-                  <table className="tbl wt-feedband">
-                    <thead>
-                      <tr>
+                  <Table className="tbl wt-feedband">
+                    <TableHead>
+                      <TableRow>
                         {(group.weighed ? columns : columnsWithPen).map((column) => (
-                          <th key={column.key} scope="col" className={column.key === "last_kg" ? "num" : undefined}>
+                          <TableCell component="th" key={column.key} scope="col" className={column.key === "last_kg" ? "num" : undefined}>
                             {column.label}
-                          </th>
+                          </TableCell>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {group.items.map((item) => (
-                        <tr key={item.key}>
+                        <TableRow key={item.key}>
                           {(group.weighed ? columns : columnsWithPen).map((column) => (
-                            <td key={column.key} className={column.key === "last_kg" ? "num" : undefined}>
+                            <TableCell key={column.key} className={column.key === "last_kg" ? "num" : undefined}>
                               {column.key === "tag" ? (
                                 <b>{item.tag}</b>
                               ) : column.key === "pen" ? (
@@ -215,12 +219,12 @@ export function FeedWeightBandExitsDrawer({
                               ) : (
                                 <span className="muted">{labels.noFeed}</span>
                               )}
-                            </td>
+                            </TableCell>
                           ))}
-                        </tr>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
             ))

@@ -15,6 +15,7 @@
 // It renders NO copy of its own: labels arrive already resolved from the page contract.
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 
 export type SegmentedOption = {
   /** Stable identity for this option, compared against `current`. */
@@ -82,42 +83,36 @@ export function SegmentedLinks({
   }, [isPending]);
 
   return (
-    <span
+    <SegmentTabs
       className={isPending ? "metricseg metricseg-pending" : "metricseg"}
-      role="group"
-      aria-label={ariaLabel}
-      aria-busy={isPending}
-    >
-      {options.map((option) => (
-        <a
-          key={option.value}
-          className={option.value === selected ? "on" : ""}
-          href={option.href}
-          aria-current={option.value === selected ? "true" : undefined}
-          onClick={(event) => {
-            // Modified clicks (new tab, new window, download) are left to the browser — these are
-            // real links with real hrefs, and hijacking them would break open-in-new-tab.
-            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
-              return;
-            }
-            event.preventDefault();
-            setOptimistic({ value: option.value, navKey });
-            restoreTo.current = window.scrollY;
-            if (fallbackTimer.current !== null) {
-              window.clearTimeout(fallbackTimer.current);
-              fallbackTimer.current = null;
-            }
-            window.dispatchEvent(
-              new CustomEvent("metricseg:navigate", {
-                detail: { value: option.value, href: option.href },
-              }),
-            );
-            router.push(option.href, { scroll: false });
-          }}
-        >
-          {option.label}
-        </a>
-      ))}
-    </span>
+      ariaLabel={ariaLabel}
+      busy={isPending}
+      value={selected}
+      tabs={options.map((option) => ({
+        value: option.value,
+        label: option.label,
+        href: option.href,
+        onClick: (event: React.MouseEvent<HTMLElement>) => {
+          // Modified clicks (new tab, new window, download) are left to the browser — these are
+          // real links with real hrefs, and hijacking them would break open-in-new-tab.
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+            return;
+          }
+          event.preventDefault();
+          setOptimistic({ value: option.value, navKey });
+          restoreTo.current = window.scrollY;
+          if (fallbackTimer.current !== null) {
+            window.clearTimeout(fallbackTimer.current);
+            fallbackTimer.current = null;
+          }
+          window.dispatchEvent(
+            new CustomEvent("metricseg:navigate", {
+              detail: { value: option.value, href: option.href },
+            }),
+          );
+          router.push(option.href, { scroll: false });
+        },
+      }))}
+    />
   );
 }

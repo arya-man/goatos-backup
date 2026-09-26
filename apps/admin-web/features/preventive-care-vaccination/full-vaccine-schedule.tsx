@@ -1,3 +1,9 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
@@ -356,31 +362,31 @@ export function VaccinationFullScheduleSkeleton({
           ))}
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table className="shed-summary-table">
-            <thead>
-              <tr>
-                <th>{copy(pageContract, "schedule.column.date")}</th>
-                <th>{copy(pageContract, "schedule.column.operator")}</th>
-                <th>{copy(pageContract, "schedule.column.park")}</th>
-                <th>{copy(pageContract, "schedule.column.shed")}</th>
-                <th>{copy(pageContract, "schedule.column.vaccines")}</th>
-                <th>{copy(pageContract, "schedule.column.workload")}</th>
-                <th>{copy(pageContract, "schedule.column.capacity")}</th>
-                <th>{copy(pageContract, "schedule.column.postpone")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="shed-summary-table">
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">{copy(pageContract, "schedule.column.date")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.operator")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.park")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.shed")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.vaccines")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.workload")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.capacity")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.postpone")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {Array.from({ length: 5 }, (_, row) => (
-                <tr key={row}>
+                <TableRow key={row}>
                   {Array.from({ length: 8 }, (_, col) => (
-                    <td key={col}>
+                    <TableCell key={col}>
                       <span className="skel" style={{ width: col === 5 ? 48 : 96, height: 16 }} />
-                    </td>
+                    </TableCell>
                   ))}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </div>
     </section>
@@ -404,7 +410,7 @@ export async function VaccinationFullSchedule({
   const month = isScheduleWindowMonth(requestedYear, requestedMonth) ? requestedMonth : CURRENT_MONTH;
   const monthWindow = scheduleWindowMonths();
   const result = scheduleResult ?? (await loadDriveSchedule(scope, year, month));
-  const rows = result.ok ? result.data.rows : [];
+  const rows = result.ok ? listOrEmpty(result.data.rows) : [];
   const operatorDayRows = groupOperatorDayRows(rows);
   const parks = new Set(rows.map((row) => row.parkId).filter(Boolean));
   const sheds = new Set(rows.map((row) => schedulePenKey(row)));
@@ -517,19 +523,19 @@ export async function VaccinationFullSchedule({
         </div>
       ) : (
         <div className="bd tablewrap vaccination-schedule-tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.full_schedule.operator_title")}>
-          <table className="full-vaccine-schedule-table">
-            <thead>
-              <tr>
-                <th>{copy(pageContract, "schedule.column.date")}</th>
-                <th>{copy(pageContract, "schedule.column.operator")}</th>
-                <th>{copy(pageContract, "schedule.column.park")}</th>
-                <th>{copy(pageContract, "schedule.column.sheds")}</th>
-                <th>{copy(pageContract, "schedule.column.vaccines")}</th>
-                <th>{copy(pageContract, "schedule.column.workload")}</th>
-                <th>{copy(pageContract, "schedule.column.postpone")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="full-vaccine-schedule-table">
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">{copy(pageContract, "schedule.column.date")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.operator")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.park")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.sheds")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.vaccines")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.workload")}</TableCell>
+                <TableCell component="th">{copy(pageContract, "schedule.column.postpone")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {operatorDayRows.map((row) => {
                 const drawerHref = scheduleDrawerHref(closeHref, row);
                 const load = scheduleLoadBuckets({
@@ -544,18 +550,18 @@ export async function VaccinationFullSchedule({
                 const visibleBuckets = load.buckets.filter((bucket) => bucket.value > 0);
                 const segmentTotal = visibleBuckets.reduce((sum, bucket) => sum + bucket.value, 0) || load.total || row.animals || 1;
                 return (
-                <tr key={row.key} className="schedule-click-row">
-                  <td className="schedule-date-cell state-scheduled">
+                <TableRow key={row.key} className="schedule-click-row">
+                  <TableCell className="schedule-date-cell state-scheduled">
                     <LocalOverlayLink href={drawerHref} className="celllink schedule-date-link" scroll={false}>
                       <span className="schedule-date-stack">
                       <span className="schedule-date-main">{fmtDate(row.plannedDate)}</span>
                       <span className="schedule-date-sub">{dateEyebrow(row.plannedDate)}</span>
                     </span>
                     </LocalOverlayLink>
-                  </td>
-                  <td><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><b>{row.operatorName}</b></LocalOverlayLink></td>
-                  <td><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><ClipText title={row.parkName}>{row.parkName}</ClipText></LocalOverlayLink></td>
-                  <td className="schedule-shed-cell">
+                  </TableCell>
+                  <TableCell><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><b>{row.operatorName}</b></LocalOverlayLink></TableCell>
+                  <TableCell><LocalOverlayLink href={drawerHref} className="celllink" scroll={false}><ClipText title={row.parkName}>{row.parkName}</ClipText></LocalOverlayLink></TableCell>
+                  <TableCell className="schedule-shed-cell">
                     <LocalOverlayLink href={drawerHref} className="celllink schedule-wrap-link" scroll={false} title={row.pens.map(penTitle).join(", ")}>
                       <span className="operator-day-sheds">
                         {row.pens.map((pen) => (
@@ -566,8 +572,8 @@ export async function VaccinationFullSchedule({
                         ))}
                       </span>
                     </LocalOverlayLink>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <LocalOverlayLink href={drawerHref} className="celllink schedule-wrap-link" scroll={false}>
                     <span className="operator-day-vaccines">
                       {row.vaccineNames.map((vaccineName) => (
@@ -575,8 +581,8 @@ export async function VaccinationFullSchedule({
                       ))}
                     </span>
                     </LocalOverlayLink>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                     <span className="schedule-load-card operator-workload-card">
                       <span className="schedule-load-head">
@@ -606,17 +612,17 @@ export async function VaccinationFullSchedule({
                       </span>
                     </span>
                     </LocalOverlayLink>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <LocalOverlayLink href={scheduleMoveHref(closeHref, row)} className="celllink schedule-status-link" scroll={false}>
                       <span className="btn sm">{copy(pageContract, "schedule.move.open")}</span>
                     </LocalOverlayLink>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           <ScheduleLocalDrawer
             rows={scheduleDrawerRows}
             initialSelectedEventId={selectedScheduleEvent}

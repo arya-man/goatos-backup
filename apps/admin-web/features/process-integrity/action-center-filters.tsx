@@ -1,6 +1,8 @@
 "use client";
 
+import Box from "@mui/material/Box";
 import Link from "@/components/no-prefetch-link";
+import { InfoHint } from "@/components/app/info-hint";
 import { useEffect, useRef, useState } from "react";
 import { Search, Users, X } from "lucide-react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -127,7 +129,7 @@ export function ActionCenterFiltersButton({
                   }}
 	                />
 	              </div>
-	              <div className="note">{copy(pageContract, "filter.scope_note")}</div>
+	              <Box sx={{ display: "flex", justifyContent: "flex-end" }}><InfoHint text={copy(pageContract, "filter.scope_note")} /></Box>
 	            </div>
             <div
               style={{

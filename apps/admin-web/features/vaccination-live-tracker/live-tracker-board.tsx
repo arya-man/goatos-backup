@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { Activity, AlertTriangle, CalendarDays } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import { getVaccinationLiveTracker, type ApiResult, type VaccinationLiveTrackerResponse } from "@/lib/api/server";
@@ -7,6 +12,9 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import type { LiveTrackerShedRow } from "@/lib/api/vaccination-live-tracker";
 import { liveTrackerHref, liveTrackerResetHref, parseLiveTrackerParams } from "./params";
 import { vaccinationScheduleYear } from "@/features/preventive-care-vaccination";
+import { SkeletonKpiRow } from "@/components/app/page-skeletons";
+import { PageHeader } from "@/components/app/page-header";
+import { Label } from "@/components/minimal/label";
 import { LiveTrackerKpis } from "./live-tracker-kpis";
 import { LiveTrackerOperators } from "./live-tracker-operators";
 import { LiveTrackerSheds } from "./live-tracker-sheds";
@@ -40,16 +48,8 @@ export function loadLiveTracker(searchParams: RouteSearchParams | undefined): Pr
 export function LiveTrackerSkeleton({ pageContract }: { pageContract: AdminUiPageContract }) {
   const operatorCols = tableLabels(pageContract, "live-operators");
   return (
-    <div className="lt-page" aria-busy="true">
-      <div className="lt-kpis">
-        {Array.from({ length: 6 }, (_, index) => (
-          <div key={index} className="kpi lt-kpi">
-            <div className="skel" style={{ width: 92, height: 12 }} />
-            <div className="skel" style={{ width: 64, height: 26, marginTop: 8 }} />
-            <div className="skel" style={{ width: 118, height: 11, marginTop: 6 }} />
-          </div>
-        ))}
-      </div>
+    <div className="lt-page lt-live-page" aria-busy="true">
+      <SkeletonKpiRow count={6} />
       <div className="lt-grid">
         <div className="lt-stack">
           <section className="card lt-card">
@@ -57,26 +57,26 @@ export function LiveTrackerSkeleton({ pageContract }: { pageContract: AdminUiPag
               <div className="skel" style={{ width: 160, height: 16 }} />
             </div>
             <div className="bd lt-tablewrap">
-              <table className="lt-operator-table">
-                <thead>
-                  <tr>
+              <Table className="lt-operator-table">
+                <TableHead>
+                  <TableRow>
                     {operatorCols.map((label) => (
-                      <th key={label}>{label}</th>
+                      <TableCell component="th" key={label}>{label}</TableCell>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {Array.from({ length: 5 }, (_, row) => (
-                    <tr key={row}>
+                    <TableRow key={row}>
                       {operatorCols.map((label, index) => (
-                        <td key={label}>
+                        <TableCell key={label}>
                           <span className="skel" style={{ width: index < 3 ? 116 : 48, height: 16 }} />
-                        </td>
+                        </TableCell>
                       ))}
-                    </tr>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </section>
         </div>
@@ -132,7 +132,7 @@ export async function LiveTrackerBoard({
 
   if (!result.ok) {
     return (
-      <div className="lt-page">
+      <div className="lt-page lt-live-page">
         {/* activeParks is null, not 0. The read FAILED, so nothing is known about how many parks are
             running; rendering a hard zero under a pulsing LIVE badge asserts that none are, which is
             a measurement this branch does not have. */}
@@ -191,7 +191,7 @@ export async function LiveTrackerBoard({
     data.activity.items.length === 0;
 
   return (
-    <div className="lt-page">
+    <div className="lt-page lt-live-page">
       <PageHead
         pageContract={pageContract}
         businessDate={data.business_date}
@@ -224,16 +224,11 @@ export async function LiveTrackerBoard({
           the other park is running, and the reader is given no hint that a scope is even active. */}
       {isEmpty ? (
         <div className="note lt-emptynote">
-          <b>
+          <b title={params.hasNarrowing ? copy(pageContract, "state.empty_filtered_body") : copy(pageContract, "state.empty_body")}>
             {params.hasNarrowing
               ? copy(pageContract, "state.empty_filtered_title")
               : copy(pageContract, "state.empty_title")}
           </b>
-          <span className="muted small" style={{ display: "block", marginTop: 3, lineHeight: 1.5 }}>
-            {params.hasNarrowing
-              ? copy(pageContract, "state.empty_filtered_body")
-              : copy(pageContract, "state.empty_body")}
-          </span>
           {params.hasFilter ? (
             <Link href={resetHref} replace scroll={false} className="btn sm" style={{ marginTop: 8 }}>
               {copy(pageContract, "action.reset_filters")}
@@ -314,36 +309,19 @@ function PageHead({
 }) {
   const dayLabel = businessDate ? fmtDriveDay(businessDate) : copy(pageContract, "label.placeholder");
   return (
-    <div className="phead lt-phead">
-      <div>
-        <div className="crumb">
-          {copy(pageContract, "crumb")} / <b>{copy(pageContract, "page.title")}</b>
-        </div>
-        <h1 style={{ margin: 0, fontSize: 21, letterSpacing: "-.4px" }}>
-          {copy(pageContract, "page.heading_prefix")} — {dayLabel}
-          {/* A past drive day is a legitimate read here, and the rest of the page is already
-              clock-corrected for it. The chip was not: a drive that closed days ago rendered "1 park
-              running" under a pulsing LIVE badge. Past days get a neutral, past-tense chip. */}
-          {activeParks == null ? null : (
-            <span
-              className={`tag ${isLiveDay ? "t-live" : "t-mut"}`}
-              style={{ verticalAlign: "middle", marginLeft: 6 }}
-            >
-              {isLiveDay ? <i /> : null}
-              {activeParks}{" "}
-              {isLiveDay
-                ? copy(pageContract, activeParks === 1 ? "chip.parks_running_one" : "chip.parks_running_many")
-                : copy(pageContract, activeParks === 1 ? "chip.parks_active_one" : "chip.parks_active_many")}
-            </span>
-          )}
-        </h1>
-        <div className="sub">{copy(pageContract, "page.subtitle")}</div>
-      </div>
-      <div className="sp" style={{ flex: 1 }} />
-      <div className="lt-headactions">
-        {/* The mock's own top bar carried the LIVE badge, clock and interval picker. Brand, park
-            scope, date scope and theme already live in the app shell, so only the live controls move
-            here — every element still appears, just hosted by the surface that owns it. */}
+    <PageHeader
+      title={`${copy(pageContract, "page.heading_prefix")} — ${dayLabel}`}
+      crumbs={[{ label: copy(pageContract, "crumb") }, { label: copy(pageContract, "page.title") }]}
+      actions={
+        <>
+        {activeParks == null ? null : (
+          <Label variant="soft" color={isLiveDay ? "success" : "default"}>
+            {activeParks}{" "}
+            {isLiveDay
+              ? copy(pageContract, activeParks === 1 ? "chip.parks_running_one" : "chip.parks_running_many")
+              : copy(pageContract, activeParks === 1 ? "chip.parks_active_one" : "chip.parks_active_many")}
+          </Label>
+        )}
         {generatedAt && isLiveDay ? <LivePoller generatedAt={generatedAt} pageContract={pageContract} /> : null}
         <div className="lt-headbtns">
           <a href={scheduleHref} className="btn">
@@ -355,9 +333,9 @@ function PageHead({
             {copy(pageContract, "action.command_board")}
           </Link>
         </div>
-      </div>
-      <span className="lt-scopenote muted small">{copy(pageContract, "label.park_scope_note")}</span>
-    </div>
+        </>
+      }
+    />
   );
 }
 

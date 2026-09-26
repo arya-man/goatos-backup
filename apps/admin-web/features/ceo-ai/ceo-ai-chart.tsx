@@ -1,141 +1,79 @@
+"use client";
+
 import type { ReactElement } from "react";
+import { Chart, ChartLegends, useChart } from "@/components/minimal/chart";
 import {
+  CHART_PALETTE,
   chartAccessibleLabel,
   chartLayout,
+  formatChartValue,
   isRenderableChart,
+  lineTicks,
+  tickBudget,
   type CeoAiChart as CeoAiChartData,
 } from "./ceo-ai-chart-geometry";
 
-// Inline-SVG renderer for the leadership assistant's optional answer chart.
-// It is a thin view over ceo-ai-chart-geometry (the sanctioned mesha viz
-// pattern ported from components/svg-bars.tsx). No charting library: recharts
-// stays unused. Every colour is a theme token, so the chart is correct in light
-// and dark. The SVG scales to the bubble width via viewBox + width="100%".
+// The leadership assistant's optional answer chart, drawn with the template's ApexCharts Chart:
+// bars = AnalyticsConversionRates (horizontal, value printed at the bar end), trends =
+// EcommerceYearlySales (line). ceo-ai-chart-geometry still decides WHAT is drawable (at least two
+// real readings, null = a gap, series capped at the palette); this file only draws it.
 //
-// Renders nothing when the chart is absent or not renderable (< 2 points), so
-// the assistant bubble falls back to its text answer.
+// Renders nothing when the chart is absent or not renderable (< 2 points), so the assistant bubble
+// falls back to its text answer.
+
+/** Category labels are kept WHOLE (distinct bars must never look identical): wrapped at word
+ *  boundaries into axis lines instead of truncated. */
+function wrap(text: string, max = 22): string[] {
+  const lines: string[] = [];
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && `${last} ${word}`.length <= max) lines[lines.length - 1] = `${last} ${word}`;
+    else lines.push(word);
+  }
+  return lines.length ? lines : [""];
+}
+
 export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): ReactElement | null {
-  if (!isRenderableChart(chart)) return null;
-  const layout = chartLayout(chart);
-  if (!layout) return null;
+  const layout = isRenderableChart(chart) ? chartLayout(chart) : null;
+  const isBar = layout?.kind === "bar";
+  const labels = chart?.x.map(String) ?? [];
+  const series = layout
+    ? layout.legend.length
+      ? layout.legend.map((item) => ({ name: item.name, data: (chart?.series.find((s) => String(s.name) === item.name)?.data ?? []).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null)) }))
+      : [{ name: chart?.series[0]?.name ?? "", data: (chart?.series[0]?.data ?? []).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null)) }]
+    : [];
+  const colors = layout?.legend.length ? layout.legend.map((item) => item.color) : [CHART_PALETTE[0]];
+  const ticks = new Set(lineTicks(labels.length, tickBudget(labels)));
+  const wrapped = labels.map((label) => wrap(label));
+  const lineCount = wrapped.reduce((sum, lines) => sum + Math.max(1, lines.length), 0);
 
-  const label = chartAccessibleLabel(chart);
+  const chartOptions = useChart({
+    colors,
+    legend: { show: false },
+    tooltip: { shared: true, intersect: false, y: { formatter: (v: number) => (v == null ? "—" : formatChartValue(v)) } },
+    ...(isBar
+      ? {
+          stroke: { width: 2, colors: ["transparent"] },
+          xaxis: { categories: wrapped, labels: { formatter: (v: string) => formatChartValue(Number(v)) } },
+          yaxis: { labels: { maxWidth: 160 } },
+          dataLabels: { enabled: true, offsetX: 18, style: { colors: ["var(--palette-text-primary)"] }, formatter: (v: number) => formatChartValue(v) },
+          plotOptions: { bar: { horizontal: true, barHeight: "60%", dataLabels: { position: "top", hideOverflowingLabels: false } } },
+          grid: { padding: { right: 36 } },
+        }
+      : {
+          xaxis: { categories: labels, overwriteCategories: labels.map((l, i) => (ticks.has(i) ? l : "")), labels: { rotate: 0, hideOverlappingLabels: false } },
+          yaxis: { labels: { formatter: (v: number) => formatChartValue(v) } },
+          markers: { size: 3, strokeWidth: 0 },
+        }),
+  });
 
+  if (!chart || !layout) return null;
+  const height = isBar ? Math.max(140, lineCount * 18 + labels.length * series.length * 14 + 40) : 200;
   return (
-    <figure className="mzai-chart" role="img" aria-label={label}>
+    <figure className="mzai-chart" role="img" aria-label={chartAccessibleLabel(chart)}>
       <figcaption className="mzai-chart-title">{chart.title}</figcaption>
-      {layout.legend.length ? (
-        <ul className="mzai-chart-legend" aria-hidden="true">
-          {layout.legend.map((item) => (
-            <li key={item.name}>
-              <span className="mzai-chart-swatch" style={{ background: item.color }} />
-              {item.name}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {layout.kind === "bar" ? (
-        <ul className="mzai-chart-bars" aria-hidden="true">
-          {layout.bars.map((bar) => (
-            <li key={bar.key} className="mzai-chart-row" title={`${bar.label}: ${bar.valueLabel}`}>
-              <span className="mzai-chart-label">{bar.label}</span>
-              {(bar.parts ?? [{ name: "", value: bar.value, valueLabel: bar.valueLabel, pct: bar.pct, color: bar.color }]).map((part) => (
-                <span key={part.name || "value"} className="mzai-chart-track" title={part.name ? `${bar.label} · ${part.name}: ${part.valueLabel}` : undefined}>
-                  <span className="mzai-chart-area">
-                    <span className="mzai-chart-bar" style={{ width: `${part.pct}%`, background: part.color }} />
-                  </span>
-                  <span className="mzai-chart-value">{part.valueLabel}</span>
-                </span>
-              ))}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="mzai-chart-line" aria-hidden="true">
-          <div className="mzai-chart-plot">
-          <div className="mzai-chart-yaxis">
-            {layout.yTicks.map((tick) => (
-              <span key={tick.value} className="mzai-chart-ytick" style={{ top: `${tick.pct}%` }}>
-                {tick.label}
-              </span>
-            ))}
-          </div>
-          <svg
-            className="mzai-chart-svg"
-            viewBox={`0 0 ${layout.viewWidth} ${layout.viewHeight}`}
-            width="100%"
-            preserveAspectRatio="none"
-          >
-            <line
-              x1="0"
-              y1={layout.baselineY}
-              x2={layout.viewWidth}
-              y2={layout.baselineY}
-              stroke="var(--line)"
-              strokeWidth="1"
-              vectorEffect="non-scaling-stroke"
-            />
-            {layout.zeroY !== null ? (
-              <line
-                x1="0"
-                y1={layout.zeroY}
-                x2={layout.viewWidth}
-                y2={layout.zeroY}
-                stroke="var(--muted)"
-                strokeWidth="1"
-                strokeDasharray="3 3"
-                vectorEffect="non-scaling-stroke"
-              />
-            ) : null}
-            {layout.lines.map((line) => (
-              <path
-                key={line.name}
-                d={line.path}
-                fill="none"
-                stroke={line.color}
-                strokeWidth="2"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
-          </svg>
-          {layout.lines.flatMap((line) =>
-            line.points.filter((point) => point.cy !== null).map((point) => (
-              <span
-                key={point.key}
-                className="mzai-chart-dot"
-                style={{
-                  left: `${(point.cx / layout.viewWidth) * 100}%`,
-                  top: `${((point.cy ?? 0) / layout.viewHeight) * 100}%`,
-                  background: line.color,
-                }}
-                title={`${layout.lines.length > 1 ? `${line.name} · ` : ""}${point.label}: ${point.value}`}
-              />
-            )),
-          )}
-          </div>
-          <div
-            className="mzai-chart-ticks"
-            // Tick labels never overlap: an end label spans at most 2/3 of the gap.
-            style={{ ["--tick-max" as string]: `${(100 / Math.max(layout.ticks.length - 1, 1)) * 0.64}%` }}
-          >
-            {layout.ticks.map((i, k) => {
-              const point = layout.points[i];
-              const edge = k === 0 ? " start" : k === layout.ticks.length - 1 ? " end" : "";
-              return (
-                <span
-                  key={point.key}
-                  className={`mzai-chart-tick${edge}`}
-                  style={{ left: `${(point.cx / layout.viewWidth) * 100}%` }}
-                >
-                  {point.label}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {layout.legend.length ? <ChartLegends labels={layout.legend.map((l) => l.name)} colors={layout.legend.map((l) => l.color)} sx={{ gap: 1.5, mb: 1 }} /> : null}
+      <Chart type={isBar ? "bar" : "line"} series={series} options={chartOptions} sx={{ height }} />
     </figure>
   );
 }

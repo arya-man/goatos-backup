@@ -1,0 +1,10 @@
+/* Template typography names its primary face "Public Sans Variable" (@fontsource-variable/public-sans).
+   Admin-web self-hosts the same variable Public Sans (Cloud Build is sandboxed), so the same family
+   name is declared on the local file and the copied theme stays template-exact. */
+@font-face {
+  font-family: "Public Sans Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../app/fonts/PublicSans-variable-latin.woff2") format("woff2");
+}

@@ -1,4 +1,21 @@
+import { FilterChip } from "@/components/minimal/list/filter-chip";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { Tag } from "@/components/ui-primitives";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { redirect } from "next/navigation";
+import { IndianRupee, Package, Route, Scale, ShieldCheck, Timer, Truck, Wallet, Wheat } from "lucide-react";
+
+import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import { Caption } from "@/components/app/caption";
+import { InfoHint } from "@/components/app/info-hint";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard } from "@/components/minimal/widgets";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { GoatGlyph } from "@/components/goat-glyph";
 
 import { copy, optionGroup, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
@@ -23,7 +40,6 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { backendScope, parseScope } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { ChartHover } from "@/components/chart-hover";
 import { RangeCoverageNote } from "./range-coverage-note";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
@@ -48,6 +64,9 @@ import {
   type StackedDay,
 } from "./feed-analytics-charts";
 import { FeedFaroView } from "./feed-faro-view";
+import { completeDaySeries } from "./feed-spark-series";
+import { FeedAnalyticsExport } from "@/components/analytics-export";
+import { stageLabel } from "@/lib/stage-labels";
 
 // Feed -> Feed Analytics. The leadership read of the feed chain over a date
 // window: DIRECTED kg off the frozen sheet, ration per animal, execution
@@ -58,8 +77,9 @@ import { FeedFaroView } from "./feed-faro-view";
 // `banner.basis` line says so on every tab and every quantity label comes from
 // the backend copy map already carrying that framing.
 //
-// Rendering rules inherited from the repo chart stack: server components only,
-// inline SVG per the mock's chart anatomy, series colour follows the FEED ITEM
+// Rendering rules inherited from the repo chart stack: a server page whose charts
+// are the template's ApexCharts marks fed pre-composed strings (components/
+// svg-series.tsx), series colour follows the FEED ITEM
 // across charts (never its rank on one chart), and the page derives NO business
 // number of its own — every figure below is a backend field or a straight
 // per-day re-grouping of backend rows for drawing. Park scope belongs to the
@@ -198,6 +218,8 @@ type DirectedView = {
   itemSeries: ItemLineSeries[];
   perHead: LineSeries[];
   latestDay?: FeedAnalyticsDirectedResponse["days"][number];
+  /** The last settled business day (yesterday); the KPI sparklines end here, never on today. */
+  settledDay: string;
 };
 
 function buildDirectedView(
@@ -292,6 +314,7 @@ function buildDirectedView(
     // sheet whose second park may not be issued yet. Named explicitly rather than taken
     // positionally, so the number under the label is the day the label says.
     latestDay: data.days.find((d) => d.feed_day === settledDay),
+    settledDay,
   };
 }
 
@@ -492,60 +515,94 @@ export async function FeedAnalyticsPage({
   const failed = gated.some((r) => r !== null && !r.ok);
   const failedError = gated.find((r) => r !== null && !r.ok)?.error;
 
+  // Tab count chip and the export payload, both taken from the rows THIS request already read.
+  // A tab whose payload was not fetched on this request carries no chip: the tile would otherwise
+  // be a number nobody measured.
+  const tabCount =
+    tab === "execution"
+      ? (execution?.ok ? listOrEmpty(execution.data.days).length : undefined)
+      : tab === "experiment"
+        ? (experiment?.ok ? listOrEmpty(experiment.data.items).length : undefined)
+        : (directed?.ok ? listOrEmpty(directed.data.days).length : undefined);
+  const exportRows: (string | number)[][] = directed?.ok
+    ? [
+        [fa(pageContract, "col.variance.day"), fa(pageContract, "col.variance.item"), fa(pageContract, "unit.kg")],
+        ...directed.data.items.map((item) => [item.feed_day, item.feed_item_label, item.directed_kg ?? ""]),
+      ]
+    : [];
+
   return (
-    <div className="pagegrid">
+    <div className="kit-enter pagegrid feed-analytics-page">
       <FeedFaroView routeId={pageContract.route_id} parkId={parkId} />
 
+      <div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: fa(pageContract, "crumb") }, { label: fa(pageContract, "section.analytics.title") }]}
+          actions={<FeedAnalyticsExport rows={exportRows} filename={`${pageContract.route_id}-${range}`} label={fa(pageContract, "action.export")} />}
+        />
+      </div>
+
+      {/* Stock-only callers (the page narrowed to its Stock tab) still need a way between the
+          tabs they are allowed; the full page carries its strip inside the !stockOnly block. */}
       {stockOnly && allowedTabs.length > 1 ? (
-        <div className="feed-tabbar" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-          <SegmentedLinks
-            current={tab}
-            options={allowedTabs.map((t) => ({
-              value: t,
-              label: fa(pageContract, `tab.${t}`),
-              href: hrefWith(searchParams, { tab: t === allowedTabs[0] ? undefined : t }),
-            }))}
-          />
-        </div>
-      ) : null}
-
-      {!stockOnly ? (
-        <>
-          <p className="muted small" style={{ margin: "0 0 4px" }}>
-            {fa(pageContract, "banner.basis")}
-          </p>
-
-          <div
-            className="feed-tabbar"
-            style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}
-          >
+        <div>
+          <div className="kit-chiprow feed-tabbar">
             <SegmentedLinks
               current={tab}
               options={allowedTabs.map((t) => ({
                 value: t,
                 label: fa(pageContract, `tab.${t}`),
-                href: hrefWith(searchParams, { tab: t === "overview" ? undefined : t, fc_view: undefined }),
-              }))}
-            />
-            <SegmentedLinks
-              current={range}
-              ariaLabel={fa(pageContract, "range.aria")}
-              options={RANGES.map((r) => ({
-                value: r,
-                label: fa(pageContract, `range.${r}`),
-                href: hrefWith(searchParams, { range: r === "30" ? undefined : r }),
+                href: hrefWith(searchParams, { tab: t === allowedTabs[0] ? undefined : t }),
               }))}
             />
           </div>
-          {tab === "overview" ? (
-            <LocalViewToggle
-              param="fc_view"
-              current={consumptionView}
-              defaultValue="general"
-              ariaLabel={fa(pageContract, "consumption.view.aria")}
-              options={CONSUMPTION_VIEWS.map((v) => ({ value: v, label: fa(pageContract, `consumption.view.${v}`) }))}
+        </div>
+      ) : null}
+
+      {!stockOnly ? (
+        <>
+          <div className="feed-tabbar"
+            style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}
+          >
+            {/* URL-driven tabs: each tab is a distinct server read, so the segment is a real link
+                (AnimatedTabs' `href` mode) rather than client state. The sliding underline and the
+                count chip are the kit's; the count is shown only for the tab whose payload this
+                render actually fetched — the others are not read on this request, and a badge
+                invented for them would be a number nobody measured. */}
+            <AnimatedTabs
+              value={tab}
+              ariaLabel={fa(pageContract, "range.aria")}
+              items={allowedTabs.map((t) => ({
+                value: t,
+                label: fa(pageContract, `tab.${t}`),
+                count: t === tab ? tabCount : undefined,
+                href: hrefWith(searchParams, { tab: t === "overview" ? undefined : t, fc_view: undefined }),
+              }))}
             />
-          ) : null}
+            {/* Window as filter chips: the module strip above is the page's ONE tab component. */}
+            <div className="kit-chiprow" role="group" aria-label={fa(pageContract, "range.aria")}>
+              {RANGES.map((r) => (
+                <FilterChip key={r} href={hrefWith(searchParams, { range: r === "30" ? undefined : r })} on={range === r} label={fa(pageContract, `range.${r}`)} />
+              ))}
+              {/* The DIRECTED-not-consumed caveat rides an info hint beside the window, not a
+                  paragraph under the title (design system: no prose under titles). */}
+              <InfoHint text={fa(pageContract, "banner.basis")} />
+              {/* One toolbar under the tabs (MUI): the Consumption view toggle rides the same row
+                  as the window chips instead of a third stacked row. */}
+              {tab === "overview" ? (
+                <span className="feed-toolbar-view">
+                  <LocalViewToggle
+                    param="fc_view"
+                    current={consumptionView}
+                    defaultValue="general"
+                    ariaLabel={fa(pageContract, "consumption.view.aria")}
+                    options={CONSUMPTION_VIEWS.map((v) => ({ value: v, label: fa(pageContract, `consumption.view.${v}`) }))}
+                  />
+                </span>
+              ) : null}
+            </div>
+          </div>
         </>
       ) : null}
 
@@ -696,7 +753,7 @@ function FeedStatusWise({
     return (
       <section className="card">
         <h2 className="h">{fa(pageContract, "empty.title")}</h2>
-        <p className="muted small">{fa(pageContract, "status.empty")}</p>
+        <Caption>{fa(pageContract, "status.empty")}</Caption>
       </section>
     );
   }
@@ -708,7 +765,6 @@ function FeedStatusWise({
   const rupeeNoun = fa(pageContract, "unit.rupees");
   return (
     <>
-      <p className="muted small" style={{ margin: "4px 0 0" }}>{fa(pageContract, "status.hint")}</p>
       {/* One card per stage in the Feed Items card anatomy (maintainer request 2026-09-17): the two
           figures on top, and the line below shows how the stage has run across the range. */}
       <div className="feed-status-cards">
@@ -727,7 +783,7 @@ function FeedStatusWise({
           const animals = row.avg_animals === "" ? "—" : nf(num(row.avg_animals));
           return (
             <div className="chartcard" key={row.pen_tag_key}>
-              <h4>{row.pen_tag_label}</h4>
+              <h4>{stageLabel(row.pen_tag_label)}</h4>
               <div className="cap">{fa(pageContract, "status.chart.cap").replace("{count}", animals)}</div>
               <div className="feed-item-strip">
                 <div>
@@ -739,37 +795,35 @@ function FeedStatusWise({
                   <div className="muted small">{kgNoun}</div>
                 </div>
               </div>
-              <ChartHover>
-                {priced ? (
-                  <FeedLines
-                    hideZeroInTip
-                    series={[
-                      {
-                        label: fa(pageContract, "status.series.spend"),
-                        colorVar,
-                        points: dayLabels.map((day) => {
-                          const point = byDay.get(day);
-                          return point && point.rupees !== "" ? num(point.rupees) : null;
-                        }),
-                      },
-                    ]}
-                    secondary={{ series: kgSeries, valueNoun: kgNoun }}
-                    dayLabels={dayLabels}
-                    valueNoun={rupeeNoun}
-                    chartLabel={row.pen_tag_label}
-                    emptyLabel={fa(pageContract, "status.empty")}
-                  />
-                ) : (
-                  <FeedLines
-                    hideZeroInTip
-                    series={[kgSeries]}
-                    dayLabels={dayLabels}
-                    valueNoun={kgNoun}
-                    chartLabel={row.pen_tag_label}
-                    emptyLabel={fa(pageContract, "status.empty")}
-                  />
-                )}
-              </ChartHover>
+              {priced ? (
+                <FeedLines
+                  hideZeroInTip
+                  series={[
+                    {
+                      label: fa(pageContract, "status.series.spend"),
+                      colorVar,
+                      points: dayLabels.map((day) => {
+                        const point = byDay.get(day);
+                        return point && point.rupees !== "" ? num(point.rupees) : null;
+                      }),
+                    },
+                  ]}
+                  secondary={{ series: kgSeries, valueNoun: kgNoun }}
+                  dayLabels={dayLabels}
+                  valueNoun={rupeeNoun}
+                  chartLabel={stageLabel(row.pen_tag_label)}
+                  emptyLabel={fa(pageContract, "status.empty")}
+                />
+              ) : (
+                <FeedLines
+                  hideZeroInTip
+                  series={[kgSeries]}
+                  dayLabels={dayLabels}
+                  valueNoun={kgNoun}
+                  chartLabel={stageLabel(row.pen_tag_label)}
+                  emptyLabel={fa(pageContract, "status.empty")}
+                />
+              )}
             </div>
           );
         })}
@@ -836,8 +890,14 @@ function itemCardHidden(rule: string, label: string): boolean {
 function distinctSliceColors(slices: PieSlice[]): PieSlice[] {
   // The HUE, not the token: `--brand-d` / `--brand-l` are the brand green darkened and
   // lightened, and a colour-mix of a token is that token shaded -- all the same hue to a reader.
-  const hueOf = (colorVar: string) =>
-    (colorVar.match(/var\(--[a-z]+(?:-[a-z]+)*\)/)?.[0] ?? colorVar).replace(/-[dl]\)$/, ")");
+  // A blend of TWO chart tokens (the palette's indigo/orange/lime/pink/cyan/mint entries) is its
+  // own hue, so it is keyed by the whole expression.
+  const hueOf = (colorVar: string) => {
+    const tokens = colorVar.match(/var\(--[a-z]+(?:-[a-z]+)*\)/g) ?? [];
+    const chartTokens = tokens.filter((t) => !/--(ink|panel)\)/.test(t));
+    if (chartTokens.length > 1) return colorVar;
+    return (tokens[0] ?? colorVar).replace(/-[dl]\)$/, ")");
+  };
   const used = new Set<string>();
   return slices.map((slice) => {
     let colorVar = slice.colorVar;
@@ -907,7 +967,7 @@ function DirectedTabs({
 
   if (empty) {
     return (
-      <section className="card">
+      <section className="card feed-empty-state">
         <h2 className="h">{noData}</h2>
         <p className="muted small">{fa(pageContract, "empty.body")}</p>
       </section>
@@ -942,39 +1002,50 @@ function DirectedTabs({
     if (spentDay) costPerAnimal = `₹${rate(num(spentDay.rupees) / latest.head_days)}`;
   }
 
+  // KPI sparklines: the last 14 served feed days of the SAME daily figures the tiles headline, and
+  // the trend chip is the settled day against the day before it -- both backend figures already on
+  // the page, compared for display only. Fewer than two days: no spark, no chip.
+  // The series runs through today, which the farm is still feeding; the sparklines stop at the
+  // settled day the tiles describe, so the last point is never a half-issued sheet.
+  const recentDays = data.days.filter((d) => view.settledDay >= d.feed_day).slice(-14);
+  // A trailing day still being recorded (missing, zero, or under 60% of the trailing 7-day
+  // median) is dropped by completeDaySeries, so the line ends at the last complete day.
+  // The day's DIRECTED total decides whether it is complete; every tile's line then ends on that
+  // same day, so a half-issued day cannot leave a per-head or head-count point behind either.
+  const completeDays = completeDaySeries(recentDays.map((d) => num(d.directed_kg)))?.length ?? 0;
+  const sparkDays = recentDays.slice(0, completeDays);
+  const daySpark = (pick: (d: (typeof data.days)[number]) => number | null) => completeDaySeries(sparkDays.map(pick));
+  const dayTrend = (pick: (d: (typeof data.days)[number]) => number | null) => {
+    if (!latest) return undefined;
+    const i = data.days.findIndex((d) => d.feed_day === latest.feed_day);
+    const prev = i > 0 ? pick(data.days[i - 1]) : null;
+    const cur = pick(latest);
+    if (prev === null || cur === null || prev === 0) return undefined;
+    return { value: ((cur - prev) / prev) * 100, digits: 1 };
+  };
+  const directedOf = (d: (typeof data.days)[number]) => num(d.directed_kg);
+  const headOf = (d: (typeof data.days)[number]) => d.head_days;
+  const perHeadOf = (d: (typeof data.days)[number]) => (d.per_head_grams === "" ? null : num(d.per_head_grams));
+  const sparkHint = (key: string) => (
+    <>
+      {fa(pageContract, key)}
+      <span className="feed-kpi-spark-caption">14 days</span>
+    </>
+  );
+
   return (
     <>
       {coverageNote !== null ? (
         <RangeCoverageNote key={`${range}-${coveredDays}`} message={coverageNote} />
       ) : null}
       {tab === "overview" ? (
-        <section className="grid kpi-row feed-analytics-kpis" aria-label={fa(pageContract, "chart.daily.title")}>
-          <div className="kpi card">
-            <div className="val">{latest ? `${nf(num(latest.directed_kg))} ${fa(pageContract, "unit.kg")}` : "—"}</div>
-            <div className="dl">{fa(pageContract, "kpi.directed.label")}</div>
-            <div className="muted small">{fa(pageContract, "kpi.directed.sub")}</div>
-          </div>
-          <div className="kpi card">
-            <div className="val">{latest ? nf(latest.head_days) : "—"}</div>
-            <div className="dl">{fa(pageContract, "kpi.head_days.label")}</div>
-            <div className="muted small">{fa(pageContract, "kpi.head_days.sub")}</div>
-          </div>
-          <div className="kpi card">
-            <div className="val">
-              {latest && latest.per_head_grams !== "" ? `${nf(num(latest.per_head_grams))} g` : "—"}
-            </div>
-            <div className="dl">{fa(pageContract, "kpi.per_head.label")}</div>
-            <div className="muted small">{fa(pageContract, "kpi.per_head.sub")}</div>
-          </div>
-          <div className="kpi card">
-            <div className="val">{adherence ?? "—"}</div>
-            <div className="dl">{fa(pageContract, "kpi.adherence.label")}</div>
-            <div className="muted small">{fa(pageContract, "kpi.adherence.sub")}</div>
-          </div>
-          <div className="kpi card">
-            <div className="val">{costPerAnimal ?? "—"}</div>
-            <div className="dl">{fa(pageContract, "kpi.cost_per_animal.label")}</div>
-            <div className="muted small">{fa(pageContract, "kpi.cost_per_animal.sub")}</div>
+        <section className="kit-kpi-wrap" aria-label={fa(pageContract, "chart.daily.title")}>
+          <div className="kit-kpi-grid feed-analytics-kpis" data-n={5} style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(200px,100%),1fr))" }}>
+          <KpiCard tone="primary" icon={<Scale size={22} />} label={fa(pageContract, "kpi.directed.label")} value={latest ? num(latest.directed_kg) : "—"} digits={1} unit={latest ? fa(pageContract, "unit.kg") : undefined} sparkline={daySpark(directedOf)} sparkVariant="line" trend={dayTrend(directedOf)} hint={sparkHint("kpi.directed.sub")} />
+          <KpiCard tone="info" icon={<GoatGlyph size={22} />} label={fa(pageContract, "kpi.head_days.label")} value={latest ? latest.head_days : "—"} digits={0} sparkline={daySpark(headOf)} sparkVariant="line" trend={dayTrend(headOf)} hint={sparkHint("kpi.head_days.sub")} />
+          <KpiCard tone="success" icon={<Wheat size={22} />} label={fa(pageContract, "kpi.per_head.label")} value={latest && latest.per_head_grams !== "" ? num(latest.per_head_grams) : "—"} digits={0} unit={latest && latest.per_head_grams !== "" ? "g" : undefined} sparkline={daySpark(perHeadOf)} sparkVariant="line" trend={dayTrend(perHeadOf)} hint={sparkHint("kpi.per_head.sub")} />
+          <KpiCard tone="violet" icon={<ShieldCheck size={22} />} label={fa(pageContract, "kpi.adherence.label")} value={adherence ?? "—"} hint={fa(pageContract, "kpi.adherence.sub")} />
+          <KpiCard tone="warning" icon={<IndianRupee size={22} />} label={fa(pageContract, "kpi.cost_per_animal.label")} value={costPerAnimal ?? "—"} hint={fa(pageContract, "kpi.cost_per_animal.sub")} />
           </div>
         </section>
       ) : null}
@@ -983,44 +1054,41 @@ function DirectedTabs({
       {tab === "overview" ? (
         <section className="card wchart" aria-label={fa(pageContract, "chart.daily.title")}>
           <h2 className="h">{fa(pageContract, "chart.daily.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.daily.hint")}</p>
-          <ChartHover>
-            <FeedStackedColumns
-              hideZeroInTip
-              days={view.stacked}
-              seriesLabels={view.itemLabels}
-              valueNoun={fa(pageContract, "unit.kg")}
-              chartLabel={fa(pageContract, "chart.daily.title")}
-              emptyLabel={fa(pageContract, "empty.body")}
-            />
-          </ChartHover>
           <FeedChartLegend
             entries={view.itemLabels.map((label, s) => ({
               label,
               colorVar: seriesColorVar(s),
             }))}
           />
+          <FeedStackedColumns
+            hideZeroInTip
+            days={view.stacked}
+            seriesLabels={view.itemLabels}
+            valueNoun={fa(pageContract, "unit.kg")}
+            chartLabel={fa(pageContract, "chart.daily.title")}
+            emptyLabel={fa(pageContract, "empty.body")}
+          />
         </section>
       ) : null}
 
       {tab === "overview" && stock && stock.expenditure.length > 0 ? (
-        <section
-          className="grid g4 kpi-row"
-          style={{ marginTop: 14, gap: 14 }}
-          aria-label={fa(pageContract, "chart.spend.title")}
-        >
-          {([
-            ["week", stock.spend.last_7_days],
-            ["month", stock.spend.this_month],
-            ["quarter", stock.spend.three_months],
-            ["year", stock.spend.this_year],
-          ] as const).map(([period, rupees]) => (
-            <div className="kpi card" key={period}>
-              <div className="val">{`₹${nf(num(rupees))}`}</div>
-              <div className="dl">{fa(pageContract, `spend.${period}.label`)}</div>
-              <div className="muted small">{fa(pageContract, `spend.${period}.sub`)}</div>
-            </div>
-          ))}
+        <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "chart.spend.title")}>
+          <StatStrip
+            ariaLabel={fa(pageContract, "chart.spend.title")}
+            cells={([
+              ["week", stock.spend.last_7_days],
+              ["month", stock.spend.this_month],
+              ["quarter", stock.spend.three_months],
+              ["year", stock.spend.this_year],
+            ] as const).map(([period, rupees]) => ({
+              key: period,
+              tone: "success" as const,
+              icon: <Wallet size={18} />,
+              label: fa(pageContract, `spend.${period}.label`),
+              value: `₹${nf(num(rupees))}`,
+              meta: fa(pageContract, `spend.${period}.sub`),
+            }))}
+          />
         </section>
       ) : null}
 
@@ -1053,31 +1121,29 @@ function DirectedTabs({
           </div>
           {SPEND_MODES.map((mode) => (
             <LocalViewPane key={mode} param="spend" value={mode} current={spendMode}>
-            <ChartHover>
-              <FeedLines
-                hideZeroInTip
-                series={[
-                  mode === "per_animal"
-                    ? {
-                        label: fa(pageContract, "chart.spend.per_animal.label"),
-                        colorVar: FEED_SERIES_VARS[2],
-                        points: stock.expenditure.map((d) => {
-                          const day = data.days.find((x) => x.feed_day === d.feed_day);
-                          return day && day.head_days > 0 ? num(d.rupees) / day.head_days : null;
-                        }),
-                      }
-                    : {
-                        label: fa(pageContract, "chart.spend.title"),
-                        colorVar: FEED_SERIES_VARS[2],
-                        points: stock.expenditure.map((d) => num(d.rupees)),
-                      },
-                ]}
-                dayLabels={stock.expenditure.map((d) => d.feed_day)}
-                valueNoun={fa(pageContract, mode === "per_animal" ? "unit.rupees_per_animal" : "unit.rupees")}
-                chartLabel={fa(pageContract, "chart.spend.title")}
-                emptyLabel={fa(pageContract, "stock.empty")}
-              />
-            </ChartHover>
+            <FeedLines
+              hideZeroInTip
+              series={[
+                mode === "per_animal"
+                  ? {
+                      label: fa(pageContract, "chart.spend.per_animal.label"),
+                      colorVar: FEED_SERIES_VARS[2],
+                      points: stock.expenditure.map((d) => {
+                        const day = data.days.find((x) => x.feed_day === d.feed_day);
+                        return day && day.head_days > 0 ? num(d.rupees) / day.head_days : null;
+                      }),
+                    }
+                  : {
+                      label: fa(pageContract, "chart.spend.title"),
+                      colorVar: FEED_SERIES_VARS[2],
+                      points: stock.expenditure.map((d) => num(d.rupees)),
+                    },
+              ]}
+              dayLabels={stock.expenditure.map((d) => d.feed_day)}
+              valueNoun={fa(pageContract, mode === "per_animal" ? "unit.rupees_per_animal" : "unit.rupees")}
+              chartLabel={fa(pageContract, "chart.spend.title")}
+              emptyLabel={fa(pageContract, "stock.empty")}
+            />
             </LocalViewPane>
           ))}
         </section>
@@ -1090,16 +1156,13 @@ function DirectedTabs({
         // and so no slice — the cards below still show its kg.
         <section className="card wchart" aria-label={fa(pageContract, "chart.spend_share.title")}>
           <h2 className="h">{fa(pageContract, "chart.spend_share.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.spend_share.hint")}</p>
-          <ChartHover>
-            <FeedSpendPie
-              slices={spendShareSlices}
-              valueNoun={fa(pageContract, "chart.spend_share.unit")}
-              formatValue={(v) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
-              chartLabel={fa(pageContract, "chart.spend_share.title")}
-              emptyLabel={fa(pageContract, "empty.body")}
-            />
-          </ChartHover>
+          <FeedSpendPie
+            slices={spendShareSlices}
+            valueNoun={fa(pageContract, "chart.spend_share.unit")}
+            formatValue={(v) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+            chartLabel={fa(pageContract, "chart.spend_share.title")}
+            emptyLabel={fa(pageContract, "empty.body")}
+          />
         </section>
       ) : null}
 
@@ -1158,28 +1221,26 @@ function DirectedTabs({
                     </div>
                   ) : null}
                 </div>
-                <ChartHover>
-                  {money ? (
-                    <FeedLines
-                      hideZeroInTip
-                      series={[{ label: fa(pageContract, "item.series.spend"), colorVar: series.colorVar, points: money.rupees }]}
-                      secondary={{ series: fedSeries, valueNoun: kgNoun }}
-                      dayLabels={view.dayLabels}
-                      valueNoun={rupeeNoun}
-                      chartLabel={series.label}
-                      emptyLabel={fa(pageContract, "empty.body")}
-                    />
-                  ) : (
-                    <FeedLines
-                      hideZeroInTip
-                      series={[fedSeries]}
-                      dayLabels={view.dayLabels}
-                      valueNoun={kgNoun}
-                      chartLabel={series.label}
-                      emptyLabel={fa(pageContract, "empty.body")}
-                    />
-                  )}
-                </ChartHover>
+                {money ? (
+                  <FeedLines
+                    hideZeroInTip
+                    series={[{ label: fa(pageContract, "item.series.spend"), colorVar: series.colorVar, points: money.rupees }]}
+                    secondary={{ series: fedSeries, valueNoun: kgNoun }}
+                    dayLabels={view.dayLabels}
+                    valueNoun={rupeeNoun}
+                    chartLabel={series.label}
+                    emptyLabel={fa(pageContract, "empty.body")}
+                  />
+                ) : (
+                  <FeedLines
+                    hideZeroInTip
+                    series={[fedSeries]}
+                    dayLabels={view.dayLabels}
+                    valueNoun={kgNoun}
+                    chartLabel={series.label}
+                    emptyLabel={fa(pageContract, "empty.body")}
+                  />
+                )}
               </div>
             );
           })}
@@ -1189,15 +1250,12 @@ function DirectedTabs({
       {tab === "overview" ? (
         <section className="card wchart" aria-label={fa(pageContract, "chart.mix.title")}>
           <h2 className="h">{fa(pageContract, "chart.mix.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.mix.hint")}</p>
-          <ChartHover>
-            <SvgBars
-              data={view.mix}
-              valueNoun={fa(pageContract, "unit.kg")}
-              chartLabel={fa(pageContract, "chart.mix.title")}
-              emptyLabel={fa(pageContract, "empty.body")}
-            />
-          </ChartHover>
+          <SvgBars
+            data={view.mix}
+            valueNoun={fa(pageContract, "unit.kg")}
+            chartLabel={fa(pageContract, "chart.mix.title")}
+            emptyLabel={fa(pageContract, "empty.body")}
+          />
         </section>
       ) : null}
 
@@ -1220,16 +1278,14 @@ function DirectedTabs({
                 <div className="val" style={{ fontSize: 26, fontWeight: 700, margin: "2px 0 6px" }}>
                   {latest === null ? "—" : `${nf(latest)} ${fa(pageContract, "unit.g_per_head")}`}
                 </div>
-                <ChartHover>
-                  <FeedLines
-                    hideZeroInTip
-                    series={[series]}
-                    dayLabels={view.dayLabels}
-                    valueNoun={fa(pageContract, "unit.g_per_head")}
-                    chartLabel={series.label}
-                    emptyLabel={fa(pageContract, "empty.body")}
-                  />
-                </ChartHover>
+                <FeedLines
+                  hideZeroInTip
+                  series={[series]}
+                  dayLabels={view.dayLabels}
+                  valueNoun={fa(pageContract, "unit.g_per_head")}
+                  chartLabel={series.label}
+                  emptyLabel={fa(pageContract, "empty.body")}
+                />
               </div>
             );
           })}
@@ -1296,7 +1352,7 @@ function ExecutionTab({
   if (data.days.length === 0) {
     return (
       <div className="grid" style={{ gap: 14 }}>
-        <section className="card">
+        <section className="card feed-empty-state">
           <h2 className="h">{fa(pageContract, "empty.title")}</h2>
           <p className="muted small">{fa(pageContract, "empty.execution.body")}</p>
         </section>
@@ -1341,31 +1397,16 @@ function ExecutionTab({
   // slot, awaiting the amber slot, rework the danger slot.
   return (
     <>
-      <section className="grid g4 kpi-row feed-analytics-kpis" aria-label={fa(pageContract, "chart.execution.title")}>
-        <div className="kpi card">
-          <div className="val">{pct(packingDone, packingAll)}</div>
-          <div className="dl">{fa(pageContract, "kpi.packing.label")}</div>
-          <div className="muted small">{`${nf(packingDone)} / ${nf(packingAll)} · ${fa(pageContract, "kpi.packing.sub")}`}</div>
-        </div>
-        <div className="kpi card">
-          <div className="val">{pct(distDone, distAll)}</div>
-          <div className="dl">{fa(pageContract, "kpi.distribution.label")}</div>
-          <div className="muted small">{`${nf(distDone)} / ${nf(distAll)} · ${fa(pageContract, "kpi.distribution.sub")}`}</div>
-        </div>
-        <div className="kpi card">
-          <div className="val">{pct(transDone, transAll)}</div>
-          <div className="dl">{fa(pageContract, "kpi.transport.label")}</div>
-          <div className="muted small">{`${nf(transDone)} / ${nf(transAll)} · ${fa(pageContract, "kpi.transport.sub")}`}</div>
-        </div>
-        <div className="kpi card">
-          <div className="val">{latestLatency === null ? "—" : `${nf(latestLatency)} ${fa(pageContract, "unit.minutes")}`}</div>
-          <div className="dl">{fa(pageContract, "kpi.latency.label")}</div>
-          <div className="muted small">{fa(pageContract, "kpi.latency.sub")}</div>
+      <section className="kit-kpi-wrap" aria-label={fa(pageContract, "chart.execution.title")}>
+        <div className="kit-kpi-grid feed-analytics-kpis" data-n={4} style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(200px,100%),1fr))" }}>
+        <KpiCard tone="primary" icon={<Package size={22} />} label={fa(pageContract, "kpi.packing.label")} value={pct(packingDone, packingAll)} hint={`${nf(packingDone)} / ${nf(packingAll)} · ${fa(pageContract, "kpi.packing.sub")}`} />
+        <KpiCard tone="info" icon={<Truck size={22} />} label={fa(pageContract, "kpi.distribution.label")} value={pct(distDone, distAll)} hint={`${nf(distDone)} / ${nf(distAll)} · ${fa(pageContract, "kpi.distribution.sub")}`} />
+        <KpiCard tone="violet" icon={<Route size={22} />} label={fa(pageContract, "kpi.transport.label")} value={pct(transDone, transAll)} hint={`${nf(transDone)} / ${nf(transAll)} · ${fa(pageContract, "kpi.transport.sub")}`} />
+        <KpiCard tone="warning" icon={<Timer size={22} />} label={fa(pageContract, "kpi.latency.label")} value={latestLatency === null ? "—" : `${nf(latestLatency)} ${fa(pageContract, "unit.minutes")}`} hint={fa(pageContract, "kpi.latency.sub")} />
         </div>
       </section>
       <section className="card wchart" aria-label={fa(pageContract, "chart.execution.title")}>
         <h2 className="h">{fa(pageContract, "chart.execution.title")}</h2>
-        <p className="muted small">{fa(pageContract, "chart.execution.hint")}</p>
         <ExecutionStacked stacked={stacked} statuses={statuses} pageContract={pageContract} />
       </section>
       {/* Intended-vs-entered packing mismatches (maintainer decision 2026-08-21). The verifier
@@ -1377,7 +1418,6 @@ function ExecutionTab({
       <section className="card" aria-label={fa(pageContract, "variance.title")}>
         <div className="hd">
           <h3>{fa(pageContract, "variance.title")}</h3>
-          <span className="small muted">{fa(pageContract, "variance.hint")}</span>
         </div>
         <FeedFilters
           basePath={PAGE_PATH}
@@ -1428,42 +1468,42 @@ function ExecutionTab({
           pageContract={pageContract}
         />
         {varianceRows.length === 0 ? (
-          <p className="muted small" style={{ padding: "12px 14px" }}>{fa(pageContract, "variance.empty")}</p>
+          <Caption>{fa(pageContract, "variance.empty")}</Caption>
         ) : (
           <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "variance.title")}>
-            <table className="tbl feed-mismatch-table">
-              <thead>
-                <tr>
-                  <th>{fa(pageContract, "col.variance.day")}</th>
-                  <th>{fa(pageContract, "col.variance.park")}</th>
-                  <th>{fa(pageContract, "col.variance.pen")}</th>
-                  <th>{fa(pageContract, "col.variance.session")}</th>
-                  <th>{fa(pageContract, "col.variance.item")}</th>
-                  <th>{fa(pageContract, "col.consumption.breed")}</th>
-                  <th>{fa(pageContract, "col.variance.planned")}</th>
-                  <th>{fa(pageContract, "col.variance.verified")}</th>
-                  <th>{fa(pageContract, "col.variance.diff")}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="tbl feed-mismatch-table">
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{fa(pageContract, "col.variance.day")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.variance.park")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.variance.pen")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.variance.session")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.variance.item")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.consumption.breed")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.variance.planned")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.variance.verified")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.variance.diff")}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {varianceRows.map((row) => (
-                  <tr key={`${row.feed_day}:${row.shed_id}:${row.partition_label ?? ""}:${row.session_no}:${row.feed_item_key}:${row.workflow}`}>
-                    <td>{fmtDate(row.packing_day)}</td>
-                    <td>{row.park_label}</td>
-                    <td>{row.operational_location_display}</td>
-                    <td>{row.session_label || row.session_no}</td>
-                    <td>{row.feed_item_label}</td>
+                  <TableRow key={`${row.feed_day}:${row.shed_id}:${row.partition_label ?? ""}:${row.session_no}:${row.feed_item_key}:${row.workflow}`}>
+                    <TableCell>{fmtDate(row.packing_day)}</TableCell>
+                    <TableCell>{row.park_label}</TableCell>
+                    <TableCell>{row.operational_location_display}</TableCell>
+                    <TableCell>{row.session_label || row.session_no}</TableCell>
+                    <TableCell>{row.feed_item_label}</TableCell>
                     {/* Empty when the frozen sheet row behind the reading is gone -- said in words
                         rather than left blank, so the reader knows the cohort is unknown for this
                         bag rather than absent from the pen. */}
-                    <td>{row.breed_label || fa(pageContract, "variance.cohort_unknown")}</td>
-                    <td>
+                    <TableCell>{row.breed_label || fa(pageContract, "variance.cohort_unknown")}</TableCell>
+                    <TableCell>
                       {row.planned_kg === ""
                         ? fa(pageContract, "variance.planned_unknown")
                         : `${row.planned_kg} ${fa(pageContract, "unit.kg")}`}
-                    </td>
-                    <td>{`${row.verified_kg} ${fa(pageContract, "unit.kg")}`}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{`${row.verified_kg} ${fa(pageContract, "unit.kg")}`}</TableCell>
+                    <TableCell>
                       {/* Two tones, on the BACKEND's judgement (maintainer decision 2026-08-24,
                           superseding the no-tolerance-flag decision made earlier the same day): a
                           bag within the packing tolerance is quiet, a bag beyond it is loud. The
@@ -1484,11 +1524,11 @@ function ExecutionTab({
                         )}
                         <span>{`${nf(Math.abs(num(row.variance_kg)))} ${fa(pageContract, "unit.kg")}`}</span>
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
         {/* The pager sits between the rows and the trend: it belongs to the TABLE, and the graph
@@ -1530,20 +1570,18 @@ function ExecutionStacked({
 }) {
   return (
     <>
-      <ChartHover>
-        <FeedStackedColumns
-          hideZeroInTip
-          days={stacked}
-          seriesLabels={statuses.map((s) => s.label)}
-          // The legend owns the colours: filling by position painted "Awaiting verdict" blue and
-          // "Rework" amber under a legend that says amber and red.
-          seriesColors={statuses.map((s) => s.colorVar)}
-          valueNoun={fa(pageContract, "table.items.noun")}
-          chartLabel={fa(pageContract, "chart.execution.title")}
-          emptyLabel={fa(pageContract, "empty.execution.body")}
-        />
-      </ChartHover>
       <FeedChartLegend entries={statuses} />
+      <FeedStackedColumns
+        hideZeroInTip
+        days={stacked}
+        seriesLabels={statuses.map((s) => s.label)}
+        // The legend owns the colours: filling by position painted "Awaiting verdict" blue and
+        // "Rework" amber under a legend that says amber and red.
+        seriesColors={statuses.map((s) => s.colorVar)}
+        valueNoun={fa(pageContract, "table.items.noun")}
+        chartLabel={fa(pageContract, "chart.execution.title")}
+        emptyLabel={fa(pageContract, "empty.execution.body")}
+      />
     </>
   );
 }
@@ -1595,31 +1633,27 @@ function ExperimentTab({
   return (
     <div className="grid" style={{ gap: 14 }}>
       {data.items.length === 0 ? (
-        <section className="card">
+        <section className="card feed-empty-state">
           <h2 className="h">{fa(pageContract, "empty.title")}</h2>
           <p className="muted small">{fa(pageContract, "empty.experiment.body")}</p>
         </section>
       ) : (
         <section className="card wchart" aria-label={fa(pageContract, "chart.experiment.title")}>
           <h2 className="h">{fa(pageContract, "chart.experiment.title")}</h2>
-          <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
-          <ChartHover>
-            <FeedLines
-              hideZeroInTip
-              series={series}
-              dayLabels={dayKeys}
-              valueNoun={fa(pageContract, "unit.kg")}
-              chartLabel={fa(pageContract, "chart.experiment.title")}
-              emptyLabel={fa(pageContract, "empty.experiment.body")}
-            />
-          </ChartHover>
           <FeedChartLegend entries={series.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
+          <FeedLines
+            hideZeroInTip
+            series={series}
+            dayLabels={dayKeys}
+            valueNoun={fa(pageContract, "unit.kg")}
+            chartLabel={fa(pageContract, "chart.experiment.title")}
+            emptyLabel={fa(pageContract, "empty.experiment.body")}
+          />
         </section>
       )}
       <section className="card" aria-label={fa(pageContract, "wastage.title")}>
         <div className="hd">
           <h3>{fa(pageContract, "wastage.title")}</h3>
-          <span className="small muted">{fa(pageContract, "wastage.hint")}</span>
         </div>
         <FeedFilters
           basePath={PAGE_PATH}
@@ -1649,29 +1683,29 @@ function ExperimentTab({
           pageContract={pageContract}
         />
         {data.wastage_pens.length === 0 ? (
-          <p className="muted small">{fa(pageContract, "wastage.empty")}</p>
+          <Caption>{fa(pageContract, "wastage.empty")}</Caption>
         ) : (
           <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "wastage.title")}>
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>{fa(pageContract, "col.wastage.park")}</th>
-                  <th>{fa(pageContract, "col.wastage.pen")}</th>
-                  <th>{fa(pageContract, "col.wastage.kg")}</th>
-                  <th>{fa(pageContract, "col.wastage.status")}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="tbl">
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{fa(pageContract, "col.wastage.park")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.wastage.pen")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.wastage.kg")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "col.wastage.status")}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {data.wastage_pens.map((row) => (
-                  <tr key={`${row.shed_id}|${row.partition_label}`}>
-                    <td>{row.park_label}</td>
-                    <td>{row.operational_location_display}</td>
-                    <td>{row.wastage_kg === "" ? "—" : nf(num(row.wastage_kg))}</td>
-                    <td>{wastageStatus(row)}</td>
-                  </tr>
+                  <TableRow key={`${row.shed_id}|${row.partition_label}`}>
+                    <TableCell>{row.park_label}</TableCell>
+                    <TableCell>{row.operational_location_display}</TableCell>
+                    <TableCell>{row.wastage_kg === "" ? "—" : nf(num(row.wastage_kg))}</TableCell>
+                    <TableCell>{wastageStatus(row)}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
@@ -1764,58 +1798,58 @@ function StockCards({
       {!stock || active.length === 0 ? (
         <section className="card" style={{ marginTop: 14 }}>
           <h2 className="h">{fa(pageContract, "stock.title")}</h2>
-          <p className="muted small">{fa(pageContract, "stock.empty")}</p>
+          <Caption>{fa(pageContract, "stock.empty")}</Caption>
         </section>
       ) : (
         <section style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.title")}>
           <h2 className="h">{fa(pageContract, "stock.title")}</h2>
-          <p className="muted small">{fa(pageContract, "stock.hint")}</p>
-          <div className="grid kpi-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginTop: 8 }}>
-            {active.map((item) => (
-              <div className="kpi card" key={`${item.farm_label}|${item.feed_item_key}`}>
-                <div className="dl" title={`${item.farm_label} · ${item.feed_item_label}`}>
-                  {`${item.farm_label} · ${item.feed_item_label}`}
-                </div>
-                <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
-                  {item.not_started
-                    ? `${nf(num(item.balance_kg))} ${fa(pageContract, "unit.kg")}`
-                    : item.days_left === null || item.days_left === undefined
-                      ? fa(pageContract, "stock.never_directed")
-                      : `${nf(Math.max(item.days_left, 0))} ${fa(pageContract, "stock.days_left")}`}
-                </div>
-                <div className="muted small">
-                  {item.not_started
-                    ? `${fa(pageContract, "stock.not_started_sub")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`
-                    : `${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
-                        item.avg_daily_kg ? ` · ${nf(num(item.avg_daily_kg))} ${fa(pageContract, "stock.per_day")}` : ""
-                      } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
-                </div>
-                {item.low_stock ? <span className="tag t-dng">{fa(pageContract, "stock.low")}</span> : null}
-                {item.not_started ? <span className="tag t-ok">{fa(pageContract, "stock.not_started")}</span> : null}
-              </div>
-            ))}
+          <div className="card" style={{ marginTop: 8 }}>
+            <StatStrip
+              ariaLabel={fa(pageContract, "stock.title")}
+              cells={active.map((item) => ({
+                key: `${item.farm_label}|${item.feed_item_key}`,
+                tone: item.low_stock ? ("error" as const) : item.not_started ? ("success" as const) : ("primary" as const),
+                icon: <Package size={18} />,
+                label: <span title={`${item.farm_label} · ${item.feed_item_label}`}>{`${item.farm_label} · ${item.feed_item_label}`}</span>,
+                value: item.not_started
+                  ? `${nf(num(item.balance_kg))} ${fa(pageContract, "unit.kg")}`
+                  : item.days_left === null || item.days_left === undefined
+                    ? fa(pageContract, "stock.never_directed")
+                    : `${nf(Math.max(item.days_left, 0))} ${fa(pageContract, "stock.days_left")}`,
+                meta: (
+                  <>
+                    {item.not_started ? <Tag tone="ok">{fa(pageContract, "stock.not_started")}</Tag> : null}
+                    {item.low_stock ? <Tag tone="dng">{fa(pageContract, "stock.low")}</Tag> : null}{" "}
+                    {item.not_started
+                      ? `${fa(pageContract, "stock.not_started_sub")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`
+                      : `${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
+                          item.avg_daily_kg ? ` · ${nf(num(item.avg_daily_kg))} ${fa(pageContract, "stock.per_day")}` : ""
+                        } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
+                  </>
+                ),
+              }))}
+            />
           </div>
         </section>
       )}
       <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "stock.farms.title")}>
         <div className="hd">
           <h3>{fa(pageContract, "stock.farms.title")}</h3>
-          <span className="small muted">{fa(pageContract, "stock.farms.hint")}</span>
         </div>
         {farmItems.length === 0 ? (
           <div className="bd">
-            <p className="muted small">{fa(pageContract, "stock.farms.empty")}</p>
+            <Caption>{fa(pageContract, "stock.farms.empty")}</Caption>
           </div>
         ) : (
           <div className="tablewrap feed-stock-tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "stock.farms.title")}>
-            <table className="tbl feed-stock-table">
-              <thead>
-                <tr>
-                  <th>{fa(pageContract, "stock.farms.col.item")}</th>
-                  <th>{fa(pageContract, "stock.farms.col.farm")}</th>
-                  <th>{fa(pageContract, "stock.farms.col.directed_since")}</th>
-                  <th>{fa(pageContract, "stock.farms.col.last_load")}</th>
-                  <th>
+            <Table className="tbl feed-stock-table">
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{fa(pageContract, "stock.farms.col.item")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "stock.farms.col.farm")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "stock.farms.col.directed_since")}</TableCell>
+                  <TableCell component="th">{fa(pageContract, "stock.farms.col.last_load")}</TableCell>
+                  <TableCell component="th">
                     <span className="feed-stock-check-head">
                       {fa(pageContract, "stock.farms.col.avg")}
                       <span className="feed-stock-info" tabIndex={0} aria-label="How average per day is calculated">
@@ -1825,8 +1859,8 @@ function StockCards({
                         </span>
                       </span>
                     </span>
-                  </th>
-                  <th>
+                  </TableCell>
+                  <TableCell component="th">
                     <span className="feed-stock-check-head">
                       {fa(pageContract, "stock.farms.col.week")}
                       <span className="feed-stock-info" tabIndex={0} aria-label="How weekly requirement is calculated">
@@ -1836,8 +1870,8 @@ function StockCards({
                         </span>
                       </span>
                     </span>
-                  </th>
-                  <th>
+                  </TableCell>
+                  <TableCell component="th">
                     <span className="feed-stock-check-head">
                       {fa(pageContract, "stock.farms.col.stock")}
                       <span className="feed-stock-info" tabIndex={0} aria-label="How stock is calculated">
@@ -1847,8 +1881,8 @@ function StockCards({
                         </span>
                       </span>
                     </span>
-                  </th>
-                  <th>
+                  </TableCell>
+                  <TableCell component="th">
                     <span className="feed-stock-check-head">
                       {fa(pageContract, "stock.farms.col.days_left")}
                       <span className="feed-stock-info" tabIndex={0} aria-label="How days left is calculated">
@@ -1858,22 +1892,22 @@ function StockCards({
                         </span>
                       </span>
                     </span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {farmItems.map((row) => (
-                  <tr key={`${row.feed_item_key}|${row.farm_label}`}>
-                    <td>{row.feed_item_label}</td>
-                    <td>{row.farm_label}</td>
-                    <td>
+                  <TableRow key={`${row.feed_item_key}|${row.farm_label}`}>
+                    <TableCell>{row.feed_item_label}</TableCell>
+                    <TableCell>{row.farm_label}</TableCell>
+                    <TableCell>
                       {row.last_load_consumption_from !== ""
                         ? fmtDate(row.last_load_consumption_from)
                         : row.avg_daily_kg !== ""
                           ? fa(pageContract, "stock.farms.load_pending")
                           : fa(pageContract, "stock.never_directed")}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <div className="feed-stock-load">
                         {[
                           `${fa(pageContract, "stock.farms.batch")} ${row.last_load_batch_no}`,
@@ -1887,27 +1921,27 @@ function StockCards({
                       {row.last_load_total_cost !== "" ? (
                         <div className="muted small">{`₹${money(num(row.last_load_total_cost))} · ₹${rate(num(row.last_load_per_kg_cost))}/kg`}</div>
                       ) : null}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {row.avg_daily_kg === ""
                         ? "—"
                         : `${nf(num(row.avg_daily_kg))} ${fa(pageContract, "unit.kg")}`}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {row.weekly_required_kg === ""
                         ? "—"
                         : `${nf(num(row.weekly_required_kg))} ${fa(pageContract, "unit.kg")}`}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <div className="feed-stock-qty">{`${nf(num(row.ledger_stock_kg))} ${fa(pageContract, "unit.kg")}`}</div>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <DaysLeftText row={row} pageContract={pageContract} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </section>
@@ -1939,39 +1973,38 @@ function ForecastTable({
     <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "forecast.title")}>
       <div className="hd">
         <h3>{fa(pageContract, "forecast.title")}</h3>
-        <span className="small muted">{fa(pageContract, "forecast.hint")}</span>
       </div>
       {rows.length === 0 ? (
-        <p className="muted small">{fa(pageContract, "forecast.empty")}</p>
+        <Caption>{fa(pageContract, "forecast.empty")}</Caption>
       ) : (
         <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "forecast.title")}>
-          <table className="tbl feed-forecast-table">
-            <thead>
-              <tr>
-                <th>{fa(pageContract, "forecast.col.farm")}</th>
-                <th>{fa(pageContract, "forecast.col.item")}</th>
-                <th>{fa(pageContract, "forecast.col.avg")}</th>
-                <th>{fa(pageContract, "forecast.col.required")}</th>
-                <th>{fa(pageContract, "forecast.col.stock")}</th>
-                <th>{fa(pageContract, "forecast.col.shortfall")}</th>
-                <th>{fa(pageContract, "forecast.col.rate")}</th>
-                <th>{fa(pageContract, "forecast.col.required_cost")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="tbl feed-forecast-table">
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">{fa(pageContract, "forecast.col.farm")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "forecast.col.item")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "forecast.col.avg")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "forecast.col.required")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "forecast.col.stock")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "forecast.col.shortfall")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "forecast.col.rate")}</TableCell>
+                <TableCell component="th">{fa(pageContract, "forecast.col.required_cost")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => {
                 const kg = fa(pageContract, "unit.kg");
                 const short = num(row.shortfall_kg);
                 return (
-                  <tr key={`${row.farm_label}:${row.feed_item_key}`}>
-                    <td>{row.farm_label}</td>
-                    <td>{row.feed_item_label}</td>
-                    <td>{`${nf(num(row.avg_daily_kg))} ${kg}`}</td>
-                    <td>
+                  <TableRow key={`${row.farm_label}:${row.feed_item_key}`}>
+                    <TableCell>{row.farm_label}</TableCell>
+                    <TableCell>{row.feed_item_label}</TableCell>
+                    <TableCell>{`${nf(num(row.avg_daily_kg))} ${kg}`}</TableCell>
+                    <TableCell>
                       <strong>{`${nf(num(row.required_kg))} ${kg}`}</strong>
-                    </td>
-                    <td>{row.stock_kg === "" ? "—" : `${nf(num(row.stock_kg))} ${kg}`}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{row.stock_kg === "" ? "—" : `${nf(num(row.stock_kg))} ${kg}`}</TableCell>
+                    <TableCell>
                       {row.shortfall_kg === "" ? (
                         "—"
                       ) : short > 0 ? (
@@ -1983,28 +2016,28 @@ function ForecastTable({
                           <span>{fa(pageContract, "forecast.covered")}</span>
                         </span>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {row.per_kg_cost === ""
                         ? fa(pageContract, "forecast.unpriced")
                         : `₹${rate(num(row.per_kg_cost))}`}
-                    </td>
-                    <td>{row.required_cost === "" ? "—" : `₹${money(num(row.required_cost))}`}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell>{row.required_cost === "" ? "—" : `₹${money(num(row.required_cost))}`}</TableCell>
+                  </TableRow>
                 );
               })}
               {anyPriced ? (
-                <tr className="feed-forecast-total">
-                  <td colSpan={7}>
+                <TableRow className="feed-forecast-total">
+                  <TableCell colSpan={7}>
                     <strong>{fa(pageContract, "forecast.total")}</strong>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <strong>{`₹${money(requiredCostTotal)}`}</strong>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : null}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </section>

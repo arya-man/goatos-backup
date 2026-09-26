@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import { AlertTriangle } from "lucide-react";
 
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
+import Alert from "@mui/material/Alert";
 
 /**
  * The recovery half of a dead ?hc_version= / ?hc_register=.
@@ -52,15 +52,13 @@ export function StaleVersionNotice({
   listHref: string;
 }) {
   return (
-    <div className="alert" style={{ marginBottom: 16 }}>
-      <AlertTriangle className="ic" aria-hidden="true" />
-      <div>
+    <Alert severity="error" style={{ marginBottom: 16 }}><div>
         {message}{" "}
         <a href={listHref} style={{ textDecoration: "underline", whiteSpace: "nowrap" }}>
           {linkLabel}
         </a>
       </div>
       <StaleVersionRecovery listHref={listHref} />
-    </div>
+    </Alert>
   );
 }

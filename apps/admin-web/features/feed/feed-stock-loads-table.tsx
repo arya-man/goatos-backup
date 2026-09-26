@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
@@ -87,25 +92,25 @@ export function FeedStockLoadsTable({
       ) : (
         <>
           <div className="tablewrap" tabIndex={0} role="group" aria-label={fl("loads.title")}>
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>{fl("loads.col.purchase_date")}</th>
-                  <th>{fl("loads.col.feed_item")}</th>
-                  <th>{fl("loads.col.status")}</th>
-                  <th className="num">{fl("loads.col.purchased_kg")}</th>
-                  <th className="num">{fl("loads.col.consumed_kg")}</th>
-                  <th className="num">{fl("loads.col.left_kg")}</th>
-                  <th className="num">{fl("loads.col.days_said")}</th>
-                  <th className="num">{fl("loads.col.days_consumed")}</th>
-                  <th className="num">{fl("loads.col.days_left")}</th>
-                  <th>{fl("loads.col.gap_days")}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="tbl">
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{fl("loads.col.purchase_date")}</TableCell>
+                  <TableCell component="th">{fl("loads.col.feed_item")}</TableCell>
+                  <TableCell component="th">{fl("loads.col.status")}</TableCell>
+                  <TableCell component="th" className="num">{fl("loads.col.purchased_kg")}</TableCell>
+                  <TableCell component="th" className="num">{fl("loads.col.consumed_kg")}</TableCell>
+                  <TableCell component="th" className="num">{fl("loads.col.left_kg")}</TableCell>
+                  <TableCell component="th" className="num">{fl("loads.col.days_said")}</TableCell>
+                  <TableCell component="th" className="num">{fl("loads.col.days_consumed")}</TableCell>
+                  <TableCell component="th" className="num">{fl("loads.col.days_left")}</TableCell>
+                  <TableCell component="th">{fl("loads.col.gap_days")}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((row) => (
-                  <tr key={row.feed_purchase_id} data-testid="feed-stock-load-row" data-gap={row.gap_days ?? ""}>
-                    <td>
+                  <TableRow key={row.feed_purchase_id} data-testid="feed-stock-load-row" data-gap={row.gap_days ?? ""}>
+                    <TableCell>
                       {fmtDate(row.purchase_date)}
                       {/* The load's life in dates sits under the day it was bought, so the status
                           cell stays one chip wide and the check column stays on screen. */}
@@ -119,45 +124,45 @@ export function FeedStockLoadsTable({
                           {fl("loads.finished_on").replace("{date}", fmtDate(row.finished_on))}
                         </div>
                       ) : null}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {row.feed_item_label}
                       {/* Farm and load number ride under the feed name: two fewer columns, and the
                           check column stays on screen without a horizontal scroll. */}
                       <div className="muted small">
                         {fl("loads.load_line").replace("{farm}", row.farm_label).replace("{batch}", String(row.batch_no))}
                       </div>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <Tag tone={STATUS_TONE[row.status] ?? "mut"}>{fl(`loads.status.${row.status}`)}</Tag>
-                    </td>
-                    <td className="num">{kg(row.purchased_kg)}</td>
-                    <td className="num">{kg(row.consumed_kg)}</td>
-                    <td className="num" style={Number(row.left_kg) < 0 ? { color: "var(--danger)", fontWeight: 600 } : undefined}>
+                    </TableCell>
+                    <TableCell className="num">{kg(row.purchased_kg)}</TableCell>
+                    <TableCell className="num">{kg(row.consumed_kg)}</TableCell>
+                    <TableCell className="num" style={Number(row.left_kg) < 0 ? { color: "var(--danger)", fontWeight: 600 } : undefined}>
                       {kg(row.left_kg)}
-                    </td>
-                    <td className="num">
+                    </TableCell>
+                    <TableCell className="num">
                       {row.days_said ?? (
                         <span className="muted" title={fl("loads.days_said.none")}>
                           {fl("loads.gap.none")}
                         </span>
                       )}
-                    </td>
-                    <td className="num">{row.days_consumed}</td>
-                    <td className="num">
+                    </TableCell>
+                    <TableCell className="num">{row.days_consumed}</TableCell>
+                    <TableCell className="num">
                       {row.days_left ?? (
                         <span className="muted" title={fl("loads.days_left.unknown")}>
                           {fl("loads.gap.none")}
                         </span>
                       )}
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
+                    </TableCell>
+                    <TableCell style={{ whiteSpace: "nowrap" }}>
                       <GapCell gap={row.gap_days} fl={fl} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
           <FeedPager

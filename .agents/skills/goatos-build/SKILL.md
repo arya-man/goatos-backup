@@ -518,6 +518,19 @@ one product; this skill is the navigation layer.
   catch a truly empty one. Count the painted nodes in the DOM before believing a
   surprising verdict, and fix the rule in the same change.
 
+  **Template-fidelity + visual-pattern lens (2026-09-26).** Beyond regression-checks,
+  `scripts/lib/visual-pattern-guards.mjs` (route visual lane) adds `P-text-icon-overlap`,
+  `P-wide-table-no-wrapper`, `P-chart-axis-tiny` (<11px), `P-pinned-bar-blur-flicker`,
+  `P-drawer-filter-mismatch` and `P-chart-hover-remount`. `raw-chart-lib` refuses non-Apex chart
+  libs (recharts / d3 / chart.js / nivo / victory / visx / echarts / highcharts). Every admin-web
+  area maps to a MUI Minimal v7.7.0 template SECTION in `docs/design/route-template-map.json`
+  (template at `~/mesha/mui/Minimal_TypeScript_v7.7.0`; licensed, **not** committed); a NEW page
+  must add its area in the same change or fail `route-template-map-missing`. How to add a page:
+  template section → minimal component (`components/minimal/<area>` or a kit component) → story
+  (states + 390 + light/dark) → route in `scripts/smoke-visual-live.mjs` → baseline. Verify at
+  1440 / 390 / 412, dark + light, chart hover interactive, before push. Full pattern → guard
+  table: `docs/design/README.md` §5b + §5c.
+
   **Android/mobile carries the same obligation on its own lane.** Compose screens
   are not covered by the admin-web guard, and Android screenshots are OFF by
   default in `ci-local`, so prove them explicitly and read them the same way:

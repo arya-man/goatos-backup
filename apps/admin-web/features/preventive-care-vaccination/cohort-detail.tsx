@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Syringe } from "lucide-react";
 import type { VaccinationOperationsResponse } from "@/lib/api/server";
@@ -9,6 +14,7 @@ import { VaccinationFilterButton, VisibleTableSearch } from "./vaccination-filte
 import { VaccinationRecordVerifyLocalDrawer } from "./record-verify-drawer";
 import { paginateRows, VaccinationTablePager, type VaccinationPageSize } from "./table-pager";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { stageLabel } from "@/lib/stage-labels";
 
 // Per-cohort vaccination detail (mock table). Source-backed from /vaccination/operations: one row per
 // cohort with headcount, age band, REAL last dose (latest accepted administered_at), next due, and worst
@@ -73,58 +79,57 @@ export function VaccinationCohortDetail({
             <span className="muted small">
               {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {cohorts.length} {copy(pageContract, "pager.rows").toLowerCase()}
             </span>
-            <span className="muted small">{copy(pageContract, "section.cohort_detail.row_hint")}</span>
           </div>
           <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.cohort_detail.aria")}>
-            <table className="vaccination-cohort-detail-table">
-              <thead>
-                <tr>
+            <Table className="vaccination-cohort-detail-table">
+              <TableHead>
+                <TableRow>
                   {labels.map((label) => (
-                    <th key={label}>{label}</th>
+                    <TableCell component="th" key={label}>{label}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {paged.items.map((c) => {
                   const href = scopeHref("/vaccination", scope, {}, { cohort_record: cohortRecordId(c) });
                   return (
-                    <tr key={`${c.parkId}|${c.shedId}|${c.stage}|${c.partitionLabel ?? ""}`}>
-                      <td>
+                    <TableRow key={`${c.parkId}|${c.shedId}|${c.stage}|${c.partitionLabel ?? ""}`}>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <b>{`${c.stage} · ${c.operationalLocationDisplay || c.shedName}`}</b>
+                          <b>{`${stageLabel(c.stage)} · ${c.operationalLocationDisplay || c.shedName}`}</b>
                           <div className="muted small">{c.parkName}</div>
                         </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell className="muted">
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {c.animals || "—"}
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <Tag tone="info">{c.ageBand ?? c.stage}</Tag>
+                          <Tag tone="info">{c.ageBand ?? stageLabel(c.stage)}</Tag>
                         </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell className="muted">
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {c.lastDose ? fmtDate(c.lastDose) : "—"}
                         </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell className="muted">
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {c.nextDue ? fmtDate(c.nextDue) : "—"}
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           {statusTag(pageContract, c.workState)}
                         </LocalOverlayLink>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <div className="note" style={{ margin: "12px 14px" }}>
             {copy(pageContract, "section.cohort_detail.note")}

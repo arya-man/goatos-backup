@@ -1,9 +1,15 @@
+import { KpiValue } from "./kpi-value";
 import { redirect } from "next/navigation";
 
+import { IndianRupee, Scale } from "lucide-react";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { BarList } from "@/components/bar-list";
+import { StatStrip } from "@/components/minimal/widgets/stat-strip";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights } from "@/lib/api/server";
+import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights, listAnimalStages } from "@/lib/api/server";
+import { stageNameMap, stageVocabularyLabel, type StageNameMap } from "@/lib/stage-display";
 import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG } from "@/features/weighing";
 import { istDayPlus, todayIso } from "@/lib/format";
 import { getSalesOverview } from "@/lib/api/procurement-server";
@@ -14,6 +20,10 @@ import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-ch
 import { Over35Kpi } from "./over35-kpi";
 import { OVER35_MAX_TOLERANCE_G, OVER35_WINDOW_DAYS } from "./over35-window";
 import { salesErrorText } from "./sales-error";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import { salesKpiRowSx } from "./procurement-sx";
 
 const PAGE_PATH = "/sales/farm-value";
 
@@ -42,6 +52,17 @@ type Over35Card = {
  * males are ONE sex by construction, so a split there would only restate the label.
  */
 const SEX_SPLIT_BUCKETS = new Set(["fattening", "K0", "K1", "K2", "K3"]);
+/**
+ * A stat strip reads as ONE row of cells; past five cells it wraps into an orphaned second row
+ * (seven buckets on Farm value: six cells and a lonely K3). Beyond this the same figures are a
+ * ranked bar list instead — label · track · value — which holds any count.
+ */
+const STAT_STRIP_MAX_CELLS = 5;
+
+/** "not valued" (contract copy) as a line opener: first letter up, nothing else touched. */
+function sentenceCase(text: string): string {
+  return text.length === 0 ? text : text[0].toUpperCase() + text.slice(1);
+}
 
 function farmValuationNotValuedLabel(overview: SalesOverview, pageContract: AdminUiPageContract): string {
   const notValued = overview.farm_valuation.not_valued ?? [];
@@ -69,10 +90,13 @@ function FarmValueSections({
   overview,
   pageContract,
   over35,
+  stageNames,
 }: {
   overview: SalesOverview;
   pageContract: AdminUiPageContract;
   over35: Over35Card;
+  /** Tenant stage vocabulary: the by-category buckets keyed by stage code (K0…K3) show its words. */
+  stageNames: StageNameMap;
 }) {
   const none = copy(pageContract, "value.none");
   const kgSuffix = copy(pageContract, "value.kg_suffix");
@@ -85,23 +109,25 @@ function FarmValueSections({
               sold tiles, putting the herd valuation next to the sales revenue — two figures about
               different herds, inviting a subtraction that means nothing. */}
           <section className="sales-block" aria-label={copy(pageContract, "section.farm_value.aria")}>
-            <div className="sales-block-hd">
-              <h3>{copy(pageContract, "section.farm_value.title")}</h3>
-              <span className="muted small">{copy(pageContract, "section.farm_value.sub")}</span>
-            </div>
-            <div className="grid g3 kpi-row sales-kpi-row sales-farm-value-row">
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "kpi.farm_value")}</div>
-                <div className="val">{inr(overview.farm_valuation.total_value_rupees)}</div>
-                <div className="dl">{copy(pageContract, "kpi.farm_value.detail")}</div>
-              </div>
-              <div className="kpi">
-                <div className="lab">{copy(pageContract, "kpi.total_meat")}</div>
-                <div className="val">
-                  {num(overview.farm_valuation.total_meat_kg, 1)} {kgSuffix}
-                </div>
-                <div className="dl">{copy(pageContract, "kpi.total_meat.detail")}</div>
-              </div>
+            <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
+              {copy(pageContract, "section.farm_value.title")}
+            </Typography>
+            <Box sx={salesKpiRowSx}>
+            <KpiGrid className="sales-kpi-row sales-farm-value-row">
+              <KpiCard
+                variant="gradient"
+                tone="primary"
+                label={copy(pageContract, "kpi.farm_value")}
+                value={<KpiValue value={overview.farm_valuation.total_value_rupees} kind="inr" />}
+                watermark={<IndianRupee aria-hidden="true" />}
+              />
+              <KpiCard
+                variant="tint"
+                tone="info"
+                label={copy(pageContract, "kpi.total_meat")}
+                value={<KpiValue value={overview.farm_valuation.total_meat_kg} digits={1} suffix={kgSuffix} />}
+                watermark={<Scale aria-hidden="true" />}
+              />
               {/* Over 35 kg belongs with the valuation, not the ledger (maintainer decision
                   2026-09-10). It counts animals STANDING ON THE FARM that have reached sale
                   weight — inventory ready to go, not anything that has gone. Sitting in the Sold
@@ -128,7 +154,8 @@ function FarmValueSections({
                   failed: copy(pageContract, "error.load"),
                 }}
               />
-            </div>
+            </KpiGrid>
+            </Box>
           </section>
 
           <section className="card sales-card" aria-label={copy(pageContract, "section.farm_value.breakdown")}>
@@ -142,30 +169,72 @@ function FarmValueSections({
                 {copy(pageContract, countKey(overview.farm_valuation.total_animals, "value.live_animal", "value.live_animals"))}
               </Tag>
             </div>
-            <div className="grid g4">
-              {overview.farm_valuation.buckets.map((bucket) => (
-                <div className="kpi mini" key={bucket.bucket}>
-                  <div className="lab">{bucket.label}</div>
-                  {/* On top, under the label (maintainer request 2026-09-11): the bucket's animals by
-                      recorded sex, male and female only ("don't show missing", same day). The two
-                      are backend counts rendered verbatim; an animal with no recorded sex is in the
-                      card's animal count but in neither figure here, and that gap is deliberate. */}
-                  {SEX_SPLIT_BUCKETS.has(bucket.bucket) ? (
-                    <div className="dl sales-sex-split" data-bucket={bucket.bucket}>
-                      {num(bucket.male_count)} {copy(pageContract, "value.sex.male")} · {num(bucket.female_count)}{" "}
-                      {copy(pageContract, "value.sex.female")}
-                    </div>
+            {/* One figure per bucket: value in rupees, one meta line (sex split where the bucket
+                has one, else kg · animals) and the bucket's share of the farm's value. Up to five
+                buckets sit in one hairline-divided strip; more than that is a ranked bar list, so
+                the row never wraps into an orphan. Buckets keyed by a stage code show the tenant's
+                word for it (K0 → Newborn); a bucket worth nothing is named once on the line below
+                instead of holding an empty bar. The weighed-count behind the fattening average is
+                deliberately not printed (maintainer instruction 2026-09-11). */}
+            {(() => {
+              const total = overview.farm_valuation.total_value_rupees;
+              const buckets = overview.farm_valuation.buckets.map((bucket) => ({
+                ...bucket,
+                display: stageVocabularyLabel(bucket.label, stageNames),
+                meta: SEX_SPLIT_BUCKETS.has(bucket.bucket)
+                  ? `${num(bucket.male_count)} ${copy(pageContract, "value.sex.male")} · ${num(bucket.female_count)} ${copy(pageContract, "value.sex.female")} · ${num(bucket.meat_kg, 1)} ${kgSuffix}`
+                  : `${num(bucket.meat_kg, 1)} ${kgSuffix} · ${num(bucket.animal_count)} ${copy(pageContract, countKey(bucket.animal_count, "value.live_animal", "value.live_animals"))}`,
+              }));
+              if (buckets.length <= STAT_STRIP_MAX_CELLS) {
+                return (
+                  <StatStrip
+                    className="kit-statstrip-wrap"
+                    ariaLabel={copy(pageContract, "section.farm_value.breakdown")}
+                    cells={buckets.map((bucket) => ({
+                      key: bucket.bucket,
+                      label: bucket.display,
+                      // A formatted string, not a number + formatter: this is a Server Component
+                      // and a function prop cannot cross into the client CountUp.
+                      value: inr(bucket.value_rupees),
+                      tone: "primary" as const,
+                      meta: bucket.meta,
+                      share: total > 0 ? (bucket.value_rupees / total) * 100 : 0,
+                    }))}
+                  />
+                );
+              }
+              const valued = buckets.filter((bucket) => bucket.value_rupees > 0);
+              const unvalued = buckets.filter((bucket) => !(bucket.value_rupees > 0));
+              return (
+                <>
+                  <BarList
+                    className="sales-farm-value-bars"
+                    ariaLabel={copy(pageContract, "section.farm_value.breakdown")}
+                    valueNoun={copy(pageContract, "kpi.farm_value")}
+                    rows={valued.map((bucket) => ({
+                      key: bucket.bucket,
+                      label: bucket.display,
+                      labelText: bucket.display,
+                      value: bucket.value_rupees,
+                      display: inr(bucket.value_rupees),
+                      note: <span className="muted small">{bucket.meta}</span>,
+                    }))}
+                    emptyLabel={copy(pageContract, "value.none")}
+                  />
+                  {unvalued.length > 0 ? (
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mx: { xs: 2.5, sm: 3 }, mb: { xs: 2.5, sm: 3 }, pt: 1.75, borderTop: "1px dashed", borderColor: "divider" }}
+                    >
+                      <b>{sentenceCase(copy(pageContract, "value.not_valued"))}</b>
+                      {" · "}
+                      {unvalued.map((bucket) => bucket.display).join(" · ")}
+                    </Typography>
                   ) : null}
-                  <div className="val">{inr(bucket.value_rupees)}</div>
-                  <div className="dl">
-                    {num(bucket.meat_kg, 1)} {kgSuffix} · {num(bucket.animal_count)}{" "}
-                    {copy(pageContract, countKey(bucket.animal_count, "value.live_animal", "value.live_animals"))}
-                    {/* The "N weighed" count behind the fattening average is deliberately not
-                        printed (maintainer instruction 2026-09-11). */}
-                  </div>
-                </div>
-              ))}
-            </div>
+                </>
+              );
+            })()}
           </section>
 
     </>
@@ -215,11 +284,15 @@ export async function SalesFarmValuePage({
   };
   // The weighing count is read for the selected park directly: the page's scope IS the park id
   // the weighing read takes, so there is no all-parks read to throw away.
-  const [overviewResult, weightsResult] = await Promise.all([
+  const [overviewResult, weightsResult, stageResult] = await Promise.all([
     overviewPromise,
     over35Enabled && !assumptionsFailed ? getShedWeights({ ...over35Params, ...(parkId ? { park_id: parkId } : {}) }) : Promise.resolve(null),
+    // Tenant stage vocabulary, so a bucket keyed by a stage code (K0…K3) shows the tenant's word
+    // for it (lib/stage-display). Values stay the code; only the label changes.
+    listAnimalStages(),
   ]);
-  if (firstAuthRequiredError(overviewResult)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(overviewResult, stageResult)) redirect(INTERNAL_LOGIN_PATH);
+  const stageNames = stageNameMap(stageResult.ok ? stageResult.data.items : undefined);
   const over35Count: number | null = weightsResult?.ok ? weightsResult.data.summary.at_or_above_35kg : null;
   const over35: Over35Card = {
     enabled: over35Enabled && !assumptionsFailed,
@@ -241,14 +314,14 @@ export async function SalesFarmValuePage({
       <SalesPageHeader pageContract={pageContract} />
 
       {!overviewResult.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           {salesErrorText(overviewResult.error, copy(pageContract, "error.load"))}
-        </div>
+        </Alert>
       ) : null}
       {assumptions && !assumptions.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           {salesErrorText(assumptions.error, copy(pageContract, "error.load"))}
-        </div>
+        </Alert>
       ) : null}
 
       <SalesFarmToggle
@@ -259,7 +332,7 @@ export async function SalesFarmValuePage({
         parks={parks}
       />
 
-      {overview ? <FarmValueSections overview={overview} pageContract={pageContract} over35={over35} /> : null}
+      {overview ? <FarmValueSections overview={overview} pageContract={pageContract} over35={over35} stageNames={stageNames} /> : null}
     </div>
   );
 }

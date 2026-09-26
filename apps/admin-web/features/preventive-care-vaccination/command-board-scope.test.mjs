@@ -70,13 +70,19 @@ test("the drive selector round-trips (batch, park) through the URL", () => {
   assert.match(commandBoardViewSource, /params\.set\("cb_drive", selection\.driveBatchId\)/);
   assert.match(commandBoardViewSource, /params\.set\("cb_drive_park", selection\.parkId\)/);
   assert.match(commandBoardViewSource, /params\.delete\("cb_drive_park"\)/);
-  // Both the option value and the React key carry the park, so two parks sharing one batch render
-  // as two distinct, separately-selectable rows.
+  // The option VALUE carries the park, so two parks sharing one batch are two distinct,
+  // separately-selectable options of the MUI select (one MenuItem keyed by value).
+  // Two operator days of one batch in one park share an identity and collapse to one option.
   assert.match(commandBoardViewSource, /const selectedDrive = optimisticDrive\?\.from === currentSearch/);
   assert.match(commandBoardViewSource, /driveSelectionValue\(driveBatchId, driveParkId\)/);
   assert.match(commandBoardViewSource, /value=\{selectedDrive\}/);
-  assert.match(commandBoardViewSource, /key=\{`\$\{driveSelectionValue\(drive\.batchIds\[0\] \?\? drive\.key, drive\.parkId\)\}\|\$\{drive\.dateKeys\.join\(","\)\}`\}/);
+  assert.match(commandBoardViewSource, /onChange=\{\(event\) => selectDrive\(event\.target\.value\)\}/);
+  assert.match(commandBoardViewSource, /const value = driveSelectionValue\(drive\.batchIds\[0\] \?\? drive\.key, drive\.parkId\);/);
+  assert.match(commandBoardViewSource, /if \(seenDriveValues\.has\(value\)\) return \[\];/);
   assert.doesNotMatch(commandBoardViewSource, /key=\{drive\.driveBatchId\} value=\{drive\.driveBatchId\}/);
+  assert.doesNotMatch(commandBoardViewSource, /<select/);
+  // Template MUI TextField select: one MenuItem per option, keyed and valued by that value.
+  assert.match(commandBoardViewSource, /driveSelectOptions\.map\(\(option\) => \(\s*<MenuItem key=\{option\.value\} value=\{option\.value\}>/);
   // Operator-day option rows come from the already park-specific campaign treatments, not the raw API rows.
   assert.match(commandBoardViewSource, /campaign\.treatments\.map/);
 });

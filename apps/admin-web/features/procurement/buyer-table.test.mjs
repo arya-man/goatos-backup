@@ -14,7 +14,14 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(import.meta.url);
 const modules = new Map();
 function load(filename) {
-  if (!path.extname(filename)) filename += existsSync(`${filename}.tsx`) ? ".tsx" : ".ts";
+  // CSS (kit *.module.css, global sheets) is a bundler concern: class maps resolve to their own keys.
+  if (filename.endsWith(".css")) return new Proxy({}, { get: (_, key) => (typeof key === "string" ? key : undefined) });
+  if (!path.extname(filename)) {
+    if (existsSync(`${filename}.tsx`)) filename += ".tsx";
+    else if (existsSync(`${filename}.ts`)) filename += ".ts";
+    else if (existsSync(path.join(filename, "index.ts"))) filename = path.join(filename, "index.ts");
+    else filename += ".ts";
+  }
   if (modules.has(filename)) return modules.get(filename).exports;
   const loaded = { exports: {} };
   modules.set(filename, loaded);
@@ -40,13 +47,16 @@ const row = {
   first_sale_date: "2026-09-10", last_sale_date: "2026-09-10", outstanding: 0,
   cadence_lines: [], recency: "",
 };
+// The shared table is the template table kit (MUI styled): render inside the app's own theme.
+const { ThemeProvider } = require("@mui/material/styles");
+const theme = load(path.join(root, "theme/create-theme.ts")).createTheme();
 function render(columnKeys, showPhones = true, rows = [row]) {
-  return renderToStaticMarkup(React.createElement(BuyerTable, {
+  return renderToStaticMarkup(React.createElement(ThemeProvider, { theme }, React.createElement(BuyerTable, {
     contract: { columns: columnKeys.map(key => ({ key, label: key, visible: true, sortable: key !== "phone_number" })) },
     rows, showPhones,
     order: { sort: "", dir: "desc" },
     labels: { ariaLabel: "Buyers", none: "None", repeat: "Repeat", oneTime: "One-time", settled: "Settled", empty: "Empty", sortAll: "sort all rows" },
-  }));
+  })));
 }
 test("previous backend columns render the same buyer table after rollback", () => {
   assert.equal(render(legacyKeys), render(keys));
@@ -69,14 +79,16 @@ test("the buyer table renders the backend's whole-result order and never re-sort
   const newer = { ...row, buyer_key: "b", buyer_name: "Newer", last_sale_date: "2026-09-10", revenue: 10 };
   // Served revenue-desc: Older (900) then Newer (10). A client-side sort on the default column
   // (newest last sale) would put Newer first.
-  const html = renderToStaticMarkup(React.createElement(BuyerTable, {
+  // The shared table is the template table kit (MUI styled): render inside the app's own theme.
+  const html = renderToStaticMarkup(React.createElement(ThemeProvider, { theme }, React.createElement(BuyerTable, {
     contract: { columns: keys.map(key => ({ key, label: key, visible: true, sortable: key !== "phone_number" })) },
     rows: [older, newer], showPhones: true,
     order: { sort: "revenue", dir: "desc" },
     labels: { ariaLabel: "Buyers", none: "None", repeat: "Repeat", oneTime: "One-time", settled: "Settled", empty: "Empty", sortAll: "sort all rows" },
-  }));
+  })));
   assert.ok(html.indexOf("Older") < html.indexOf("Newer"), "rows must stay in the served order");
-  assert.match(html, /aria-sort="descending"[^>]*>\s*<button[^>]*aria-label="revenue — sort all rows"/);
+  // MUI redesign: the header is the template TableSortLabel (a role="button" span) in the th.
+  assert.match(html, /aria-sort="descending"[^>]*>\s*<span[^>]*role="button"[^>]*aria-label="revenue — sort all rows"/);
 });
 
 test("both Sales tables send their order to the backend read", () => {

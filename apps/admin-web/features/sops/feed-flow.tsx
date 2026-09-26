@@ -1,6 +1,8 @@
 "use client";
 
-import { Lock, Plus } from "lucide-react";
+import { EmptyState } from "@/components/app/empty-state";
+
+import { Lock, Plus, MousePointerClick } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -15,7 +17,8 @@ export type FeedInsert = { stage: FeedStage; kind: "proof" | "question"; index: 
 type Data = { ref?: FeedRef; stage?: FeedStage; fixed?: string };
 
 const GAP_Y = 54;
-const GROUP_H = NODE_H + 26;
+const FEED_NODE_H = NODE_H + 20;
+const GROUP_H = FEED_NODE_H + 34;
 
 /**
  * The FLOW view of a feed SOP (SOP studio phase 2, 2026-09-18): the cards the crew runs, in the
@@ -48,8 +51,8 @@ export function FeedFlow({
     const centre = NODE_W / 2 + 40;
     const link = (from: string, to: string, insert?: FeedInsert, label = "") => edges.push({ id: `${from}->${to}`, from, to, label, insert });
     let y = 0;
-    nodes.push({ id: "start", tid: "start", kind: "start", x: centre - NODE_W / 2, y, w: NODE_W, h: NODE_H, data: {} });
-    y += NODE_H + GAP_Y;
+    nodes.push({ id: "start", tid: "start", kind: "start", x: centre - NODE_W / 2, y, w: NODE_W, h: FEED_NODE_H, data: {} });
+    y += FEED_NODE_H + GAP_Y;
     let prev = "start";
     let prevInsert: FeedInsert | undefined;
     for (const stage of stages) {
@@ -62,28 +65,28 @@ export function FeedFlow({
       prev = gid;
       block.proofs.forEach((p, i) => {
         const id = `${stage}:proof:${p.id}`;
-        nodes.push({ id, tid: `${stage}-proof-${p.key || i}`, kind: "step", x: centre - NODE_W / 2, y, w: NODE_W, h: NODE_H, data: { ref: { stage, kind: "proof", id: p.id } }, selectable: true });
+        nodes.push({ id, tid: `${stage}-proof-${p.key || i}`, kind: "step", x: centre - NODE_W / 2, y, w: NODE_W, h: FEED_NODE_H, data: { ref: { stage, kind: "proof", id: p.id } }, selectable: true });
         link(prev, id, { stage, kind: "proof", index: i });
         prev = id;
-        y += NODE_H + GAP_Y;
+        y += FEED_NODE_H + GAP_Y;
       });
       block.questions.forEach((q, i) => {
         const id = `${stage}:question:${q.id}`;
-        nodes.push({ id, tid: `${stage}-question-${q.key || i}`, kind: "question", x: centre - NODE_W / 2, y, w: NODE_W, h: NODE_H, data: { ref: { stage, kind: "question", id: q.id } }, selectable: true });
+        nodes.push({ id, tid: `${stage}-question-${q.key || i}`, kind: "question", x: centre - NODE_W / 2, y, w: NODE_W, h: FEED_NODE_H, data: { ref: { stage, kind: "question", id: q.id } }, selectable: true });
         const dep = q.onlyIfQuestion ? block.questions.find((d) => d.key === q.onlyIfQuestion) : undefined;
         const label = q.onlyIfQuestion ? `${copy(pc, "studio.branch.note")} “${dep?.title || q.onlyIfQuestion}” ${copy(pc, "studio.branch.op.eq")} ${q.onlyIfValue}` : "";
         link(prev, id, i === 0 && block.proofs.length === 0 ? { stage, kind: "proof", index: 0 } : { stage, kind: "question", index: i }, label);
         prev = id;
-        y += NODE_H + GAP_Y;
+        y += FEED_NODE_H + GAP_Y;
       });
       prevInsert = { stage, kind: "question", index: block.questions.length };
     }
-    nodes.push({ id: "verify", tid: "verify", kind: "fixed", x: centre - NODE_W / 2, y, w: NODE_W, h: NODE_H, data: { fixed: "fsop.flow.verify" } });
+    nodes.push({ id: "verify", tid: "verify", kind: "fixed", x: centre - NODE_W / 2, y, w: NODE_W, h: FEED_NODE_H, data: { fixed: "fsop.flow.verify" } });
     link(prev, "verify", prevInsert);
-    y += NODE_H + GAP_Y;
-    nodes.push({ id: "finish", tid: "finish", kind: "finish", x: centre - NODE_W / 2, y, w: NODE_W, h: NODE_H, data: {} });
+    y += FEED_NODE_H + GAP_Y;
+    nodes.push({ id: "finish", tid: "finish", kind: "finish", x: centre - NODE_W / 2, y, w: NODE_W, h: FEED_NODE_H, data: {} });
     link("verify", "finish");
-    y += NODE_H;
+    y += FEED_NODE_H;
     return { nodes, edges, width: Math.max(...nodes.map((n) => n.x + n.w)) + 24, height: y + 24 };
   }, [rows, stages, pc]);
 
@@ -168,7 +171,7 @@ export function FeedFlow({
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
         </div>
-        {selected ? renderCard(selected) : <p className="muted" style={{ padding: 16 }}>{copy(pc, "studio.flow.none_selected")}</p>}
+        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} icon={<MousePointerClick className="ic" />} style={{ padding: 16 }} />}
       </aside>
     </div>
   );

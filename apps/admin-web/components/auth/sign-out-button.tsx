@@ -1,29 +1,33 @@
 "use client";
 
 import { useState } from "react";
+import Button from "@mui/material/Button";
 import { LogOut } from "lucide-react";
 import { LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { clearFirebaseSession } from "@/lib/auth/firebase-client";
 
+/** The account popover's sign-out row: the template layouts/components/sign-out-button (MUI Button, error, text in the popover). */
 export function SignOutButton() {
   const [pending, setPending] = useState(false);
 
   return (
-    <button
-      type="button"
+    <Button
+      fullWidth
+      color="error"
+      variant="text"
       title="Sign out"
       aria-label="Sign out"
       disabled={pending}
+      startIcon={<LogOut aria-hidden="true" />}
       onClick={() => {
         setPending(true);
         void clearFirebaseSession().finally(() => {
           window.location.assign(LOGIN_PATH);
         });
       }}
-      className="btn sm signout"
+      sx={{ justifyContent: "flex-start" }}
     >
-      <LogOut className="h-4 w-4" aria-hidden="true" />
-      <span className="hidden sm:inline">{pending ? "Signing out" : "Sign out"}</span>
-    </button>
+      {pending ? "Signing out" : "Sign out"}
+    </Button>
   );
 }

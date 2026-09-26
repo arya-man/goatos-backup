@@ -1,12 +1,26 @@
-import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, Ban, MapPin, ShieldCheck, Syringe, UserRound, Warehouse } from "lucide-react";
+import { Ban, MapPin, ShieldCheck, Syringe, UserRound, Warehouse } from "lucide-react";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Grid from "@mui/material/Grid";
+import Stack from "@mui/material/Stack";
+import Divider from "@mui/material/Divider";
+import Typography from "@mui/material/Typography";
 import { getVaccinationExecutionShedDrilldown } from "@/lib/api/server";
 import type { VaccinationExecutionRow } from "@/lib/api/vaccination-execution";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 import { copy, optionLabel, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { scopeHref, type Scope } from "@/lib/scope";
+import { stageLabel } from "@/lib/stage-labels";
+import { PageHeader } from "@/components/app/page-header";
+import { EmptyContent } from "@/components/minimal/empty-content";
+
+// Order-details layout twin from sections/order/view/order-details-view.tsx: toolbar with back
+// arrow + title + chips inside PageHeader (template CustomBreadcrumbs), Grid xs=12 md=8 body
+// column with the operational cards, Grid xs=12 md=4 right Card with dashed dividers listing
+// scope + owner chain + drives. Feature markup + read/write behaviour unchanged.
 
 function Stat({ label, value, tone, pageContract }: { label: string; value: number; tone: Tone; pageContract: AdminUiPageContract }) {
   return (
@@ -32,32 +46,27 @@ function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; page
   );
 }
 
+function SummaryBlock({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <Stack spacing={0.5}>
+      <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4 }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ color: "text.primary", wordBreak: "break-word" }}>
+        {value}
+      </Typography>
+    </Stack>
+  );
+}
+
 // The pen could not be opened. Everything on this screen is backend-owned farm copy from the page
 // contract: never the pen's raw id and never the API's error string (which is written for logs --
 // "shed vaccination execution was not found" -- and put both a uuid and the word "shed" on screen).
 function PenUnavailable({ backHref, pageContract }: { backHref: string; pageContract: AdminUiPageContract }) {
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            <Link href={backHref} className="lk">
-              {copy(pageContract, "crumb")}
-            </Link>
-          </div>
-          <h1>{copy(pageContract, "fallback.title")}</h1>
-        </div>
-      </div>
-      <section className="card">
-        <div className="bd">
-          <p className="muted small" style={{ marginBottom: 12 }}>
-            {copy(pageContract, "fallback.body")}
-          </p>
-          <Link href={backHref} className="btn">
-            <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back")}
-          </Link>
-        </div>
-      </section>
+      <PageHeader title={copy(pageContract, "fallback.title")} backHref={backHref} crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }]} />
+      <EmptyContent filled title={copy(pageContract, "fallback.body")} />
     </div>
   );
 }
@@ -94,178 +103,194 @@ export async function ShedExecutionDetailPage({
   const backHref = scope ? `${scopeHref("/vaccination", scope, { mode: "park", park: shed.parkId })}#execution` : "/vaccination#execution";
 
   const s = shed.summary;
-  // Owner chain comes from the most-at-risk row so the drilldown header shows the live accountable chain.
   const owner = shed.rows.find((r) => r.owner?.operatorName)?.owner ?? shed.rows[0]?.owner;
   const shedDisplayLabel = shed.operationalLocationDisplay;
   const blockers = shed.rows.filter((r) => r.blockerReason);
   const driveRowLabels = tableLabels(pageContract, "shed-drive-rows");
+  const stageList = shed.animalStages.map(stageLabel).join(" · ") || copy(pageContract, "label.placeholder");
+
+  const headerActions = (
+    <Tag tone="mut">{s.total} {copy(pageContract, "label.drive_rows")}</Tag>
+  );
 
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            <Link href={backHref} className="lk">
-              {copy(pageContract, "crumb")}
-            </Link>{" "}
-            · {shed.parkName} · <b>{shedDisplayLabel}</b>
-          </div>
-          <h1 style={{ display: "flex", alignItems: "center", gap: 10 }} data-shed-id={shed.shedId}>
-            <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-            {shed.parkName} · {shedDisplayLabel}
-          </h1>
-          <div className="sub">{copy(pageContract, "label.animal_stages")}: {shed.animalStages.join(" · ") || copy(pageContract, "label.placeholder")}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <Link href={backHref} className="btn">
-	          <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back")}
-        </Link>
-      </div>
+      <PageHeader
+        title={`${shed.parkName} · ${shedDisplayLabel}`}
+        backHref={backHref}
+        crumbs={[{ label: copy(pageContract, "crumb"), href: backHref }, { label: shed.parkName }, { label: `${copy(pageContract, "label.animal_stages")}: ${stageList}` }]}
+        actions={headerActions}
+      />
 
-      {/* Work-state summary for this shed */}
-      <section className="card" style={{ marginBottom: 14 }}>
-        <div className="hd">
-          <Syringe className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-	          <h3>{copy(pageContract, "section.work_state.title")}</h3>
-          <Tag tone="mut">{s.total} {copy(pageContract, "label.drive_rows")}</Tag>
-        </div>
-        <div className="bd">
-          <div className="metagrid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 14 }}>
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "due")} value={s.due} tone="warn" />
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "overdue")} value={s.overdue} tone="dng" />
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "proof_pending")} value={s.proofPending} tone="warn" />
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "verification_pending")} value={s.verificationPending} tone="pur" />
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "rejected")} value={s.rejected} tone="dng" />
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "deferred")} value={s.deferred} tone="mut" />
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "missed")} value={s.missed} tone="warn" />
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "blocked")} value={s.blocked} tone="dng" />
-            <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "completed")} value={s.completed} tone="ok" />
-          </div>
-        </div>
-      </section>
-
-      <div className="grid g2" style={{ marginBottom: 14 }}>
-        {/* Drives */}
-        <section className="card">
-          <div className="hd">
-            <Syringe className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-	            <h3>{copy(pageContract, "section.drives.title")}</h3>
-            <Tag tone="mut">{shed.drives.length}</Tag>
-          </div>
-          <div className="bd">
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {shed.drives.length === 0 ? (
-                <span className="muted small">{copy(pageContract, "empty.drives")}</span>
-              ) : (
-                shed.drives.map((d, i) => (
-                  <Tag key={`${d.driveId ?? copy(pageContract, "label.drive_fallback")}-${i}`} tone={optionTone(pageContract, "work_state_filter_chips", d.workState) as Tone} title={optionLabel(pageContract, "severity_chips", d.severity)}>
-                    {d.driveName ?? copy(pageContract, "label.drive_fallback")} · {optionLabel(pageContract, "work_state_filter_chips", d.workState)}
-                  </Tag>
-                ))
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* Owner chain */}
-        <section className="card">
-          <div className="hd">
-            <ShieldCheck className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-	            <h3>{copy(pageContract, "section.owner_chain.title")}</h3>
-          </div>
-          <div className="bd">
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <UserRound className="ic" style={{ width: 14, opacity: 0.75 }} aria-hidden="true" />
-                <div>
-                  <div className="k">{copy(pageContract, "label.operator_ground")}</div>
-                  <div className="v">{owner?.operatorName ?? <Tag tone="dng">{copy(pageContract, "label.unassigned")}</Tag>}</div>
+      <Grid container spacing={3}>
+        <Grid size={{ xs: 12, md: 8 }}>
+          <Box sx={{ gap: 3, display: "flex", flexDirection: { xs: "column-reverse", md: "column" } }}>
+            <Card aria-label={copy(pageContract, "section.work_state.title")}>
+              <CardHeader
+                title={
+                  <span className="gp-card-title" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <Syringe className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+                    {copy(pageContract, "section.work_state.title")}
+                  </span>
+                }
+                action={<Tag tone="mut">{s.total} {copy(pageContract, "label.drive_rows")}</Tag>}
+              />
+              <Box sx={{ p: 3 }}>
+                <div className="metagrid shed-workstate" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 14 }}>
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "due")} value={s.due} tone="warn" />
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "overdue")} value={s.overdue} tone="dng" />
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "proof_pending")} value={s.proofPending} tone="warn" />
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "verification_pending")} value={s.verificationPending} tone="pur" />
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "rejected")} value={s.rejected} tone="dng" />
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "deferred")} value={s.deferred} tone="mut" />
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "missed")} value={s.missed} tone="warn" />
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "blocked")} value={s.blocked} tone="dng" />
+                  <Stat pageContract={pageContract} label={optionLabel(pageContract, "work_state_filter_chips", "completed")} value={s.completed} tone="ok" />
                 </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <MapPin className="ic" style={{ width: 14, opacity: 0.75 }} aria-hidden="true" />
-                <div>
-                  <div className="k">{copy(pageContract, "label.park_head")}</div>
-                  <div className="v">{owner?.parkHeadName ?? copy(pageContract, "label.placeholder")}</div>
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <ShieldCheck className="ic" style={{ width: 14, opacity: 0.75 }} aria-hidden="true" />
-                <div>
-                  <div className="k">{copy(pageContract, "label.verifier")}</div>
-                  <div className="v">{owner?.verifierName ?? copy(pageContract, "label.verifier_default")}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
+              </Box>
+            </Card>
 
-      {/* Blockers / deferred reasons surfaced explicitly */}
-      {blockers.length > 0 ? (
-        <section className="card" style={{ marginBottom: 14 }}>
-          <div className="hd">
-            <Ban className="ic" style={{ color: "var(--danger)" }} aria-hidden="true" />
-	            <h3>{copy(pageContract, "section.blocked.title")}</h3>
-            <Tag tone="dng">{blockers.length}</Tag>
-          </div>
-          <div className="bd">
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {blockers.map((r, i) => (
-                <div key={`${r.driveId ?? "drive"}-${i}`} className="note">
-                  <Tag tone={optionTone(pageContract, "work_state_filter_chips", r.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", r.workState)}</Tag>{" "}
-                  <b>{r.driveName ?? copy(pageContract, "label.drive_fallback")}</b> ({r.animalStage}) — {r.blockerReason}
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      ) : null}
+            {blockers.length > 0 ? (
+              <Card>
+                <CardHeader
+                  title={
+                    <span className="gp-card-title" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <Ban className="ic" style={{ color: "var(--danger)" }} aria-hidden="true" />
+                      {copy(pageContract, "section.blocked.title")}
+                    </span>
+                  }
+                  action={<Tag tone="dng">{blockers.length}</Tag>}
+                />
+                <Box sx={{ p: 3 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {blockers.map((r, i) => (
+                      <div key={`${r.driveId ?? "drive"}-${i}`} className="note">
+                        <Tag tone={optionTone(pageContract, "work_state_filter_chips", r.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", r.workState)}</Tag>{" "}
+                        <b>{r.driveName ?? copy(pageContract, "label.drive_fallback")}</b> ({r.animalStage}) — {r.blockerReason}
+                      </div>
+                    ))}
+                  </div>
+                </Box>
+              </Card>
+            ) : null}
 
-      {/* Full row detail */}
-      <section className="card">
-        <div className="hd">
-          <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-	          <h3>{copy(pageContract, "section.drive_rows.title")}</h3>
-          <Tag tone="mut">{shed.rows.length}</Tag>
-        </div>
-        <div className="pexec" role="group" aria-label={`${shedDisplayLabel} ${copy(pageContract, "table.drive_rows.aria")}`}>
-          <div className="pexh">
-            {driveRowLabels.map((label) => (
-              <div key={label}>{label}</div>
-            ))}
-          </div>
-          {shed.rows.length === 0 ? <p className="muted small" style={{ padding: "10px 14px" }}>{copy(pageContract, "empty.drive_rows")}</p> : null}
-          {shed.rows.map((row, idx) => (
-            <div className="pexr" key={`${row.driveId ?? copy(pageContract, "label.drive_fallback")}-${idx}`}>
-              <div className="pexc">
-                <div className="pexc-h">{driveRowLabels[0]}</div>
-                <span className="small">{row.animalStage}</span>
+            <Card>
+              <CardHeader
+                title={
+                  <span className="gp-card-title" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+                    {copy(pageContract, "section.drive_rows.title")}
+                  </span>
+                }
+                action={<Tag tone="mut">{shed.rows.length}</Tag>}
+              />
+              <Box sx={{ p: 3 }}>
+                <div className="pexec" role="group" aria-label={`${shedDisplayLabel} ${copy(pageContract, "table.drive_rows.aria")}`}>
+                  <div className="pexh">
+                    {driveRowLabels.map((label) => (
+                      <div key={label}>{label}</div>
+                    ))}
+                  </div>
+                  {/* A pen with no drive rows says so (main 5ef37c050). */}
+                  {shed.rows.length === 0 ? (
+                    <Typography variant="body2" sx={{ color: "text.secondary", px: 1.75, py: 1.25 }}>
+                      {copy(pageContract, "empty.drive_rows")}
+                    </Typography>
+                  ) : null}
+                  {shed.rows.map((row, idx) => (
+                    <div className="pexr" key={`${row.driveId ?? copy(pageContract, "label.drive_fallback")}-${idx}`}>
+                      <div className="pexc">
+                        <div className="pexc-h">{driveRowLabels[0]}</div>
+                        <span className="small">{row.animalStage}</span>
+                      </div>
+                      <div className="pexc">
+                        <div className="pexc-h">{driveRowLabels[1]}</div>
+                        <span className="small">{row.driveName ?? copy(pageContract, "label.placeholder")}</span>
+                      </div>
+                      <div className="pexc">
+                        <div className="pexc-h">{driveRowLabels[2]}</div>
+                        <span className="small">{fmtDate(row.dueDate)}</span>
+                      </div>
+                      <div className="pexc">
+                        <div className="pexc-h">{driveRowLabels[3]}</div>
+                        <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag>
+                      </div>
+                      <div className="pexc">
+                        <div className="pexc-h">{driveRowLabels[4]}</div>
+                        <StatusChips row={row} pageContract={pageContract} />
+                      </div>
+                      <div className="pexc">
+                        <div className="pexc-h">{driveRowLabels[5]}</div>
+                        <span className="small">{row.nextAction}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Box>
+            </Card>
+          </Box>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Card>
+            <Box sx={{ p: 3 }}>
+              <Stack spacing={2}>
+                <SummaryBlock label={copy(pageContract, "label.park", "Park")} value={shed.parkName} />
+                <SummaryBlock label={copy(pageContract, "label.pen", "Pen")} value={shedDisplayLabel} />
+                <SummaryBlock label={copy(pageContract, "label.animal_stages")} value={stageList} />
+              </Stack>
+            </Box>
+
+            <Divider sx={{ borderStyle: "dashed" }} />
+            <Box sx={{ p: 3 }}>
+              <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4, mb: 1, display: "block" }}>
+                {copy(pageContract, "section.owner_chain.title")}
+              </Typography>
+              <Stack spacing={1.5}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <UserRound className="ic" style={{ width: 14, opacity: 0.75 }} aria-hidden="true" />
+                  <div>
+                    <div className="k">{copy(pageContract, "label.operator_ground")}</div>
+                    <div className="v">{owner?.operatorName ?? <Tag tone="dng">{copy(pageContract, "label.unassigned")}</Tag>}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <MapPin className="ic" style={{ width: 14, opacity: 0.75 }} aria-hidden="true" />
+                  <div>
+                    <div className="k">{copy(pageContract, "label.park_head")}</div>
+                    <div className="v">{owner?.parkHeadName ?? copy(pageContract, "label.placeholder")}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <ShieldCheck className="ic" style={{ width: 14, opacity: 0.75 }} aria-hidden="true" />
+                  <div>
+                    <div className="k">{copy(pageContract, "label.verifier")}</div>
+                    <div className="v">{owner?.verifierName ?? copy(pageContract, "label.verifier_default")}</div>
+                  </div>
+                </div>
+              </Stack>
+            </Box>
+
+            <Divider sx={{ borderStyle: "dashed" }} />
+            <Box sx={{ p: 3 }}>
+              <Typography variant="caption" sx={{ color: "text.disabled", textTransform: "uppercase", letterSpacing: 0.4, mb: 1, display: "block" }}>
+                {copy(pageContract, "section.drives.title")}
+              </Typography>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {shed.drives.length === 0 ? (
+                  <span className="muted small">{copy(pageContract, "empty.drives")}</span>
+                ) : (
+                  shed.drives.map((d, i) => (
+                    <Tag key={`${d.driveId ?? copy(pageContract, "label.drive_fallback")}-${i}`} tone={optionTone(pageContract, "work_state_filter_chips", d.workState) as Tone} title={optionLabel(pageContract, "severity_chips", d.severity)}>
+                      {d.driveName ?? copy(pageContract, "label.drive_fallback")} · {optionLabel(pageContract, "work_state_filter_chips", d.workState)}
+                    </Tag>
+                  ))
+                )}
               </div>
-              <div className="pexc">
-                <div className="pexc-h">{driveRowLabels[1]}</div>
-                <span className="small">{row.driveName ?? copy(pageContract, "label.placeholder")}</span>
-              </div>
-              <div className="pexc">
-                <div className="pexc-h">{driveRowLabels[2]}</div>
-                <span className="small">{fmtDate(row.dueDate)}</span>
-              </div>
-              <div className="pexc">
-                <div className="pexc-h">{driveRowLabels[3]}</div>
-                <Tag tone={optionTone(pageContract, "work_state_filter_chips", row.workState) as Tone}>{optionLabel(pageContract, "work_state_filter_chips", row.workState)}</Tag>
-              </div>
-              <div className="pexc">
-                <div className="pexc-h">{driveRowLabels[4]}</div>
-                <StatusChips row={row} pageContract={pageContract} />
-              </div>
-              <div className="pexc">
-                <div className="pexc-h">{driveRowLabels[5]}</div>
-                <span className="small">{row.nextAction}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            </Box>
+          </Card>
+        </Grid>
+      </Grid>
     </div>
   );
 }

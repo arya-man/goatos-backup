@@ -1,0 +1,90 @@
+"use client";
+
+import type { MouseEvent, ReactNode } from "react";
+
+import Box from "@mui/material/Box";
+import Skeleton from "@mui/material/Skeleton";
+
+import { CustomBreadcrumbs } from "@/components/minimal/custom-breadcrumbs";
+import { useNavTrail } from "@/components/shell/nav-trail-context";
+import { iconifyClasses } from "@/components/minimal/iconify";
+
+export type PageCrumb = { label: string; href?: string };
+
+export type PageHeaderProps = {
+  title: string;
+  /** Full path, "Module • Page". The last crumb is the current page and renders disabled. */
+  crumbs?: PageCrumb[];
+  /** Primary action(s), right-aligned. */
+  actions?: ReactNode;
+  /**
+   * Parent page for an L2/L3 route. The heading itself becomes the back link (template
+   * `CustomBreadcrumbs` `backHref`). The session trail wins when the reader arrived from another page.
+   */
+  backHref?: string;
+  /** One tab strip under the header. */
+  tabs?: ReactNode;
+  /** Filter row / scope controls under the tabs. */
+  toolbar?: ReactNode;
+  className?: string;
+  id?: string;
+};
+
+/**
+ * THE page header: the template's `CustomBreadcrumbs` (heading, full-path links, actions on the
+ * right), one per page. There is deliberately no description slot — a page explains itself with its
+ * labels, fields, tables and buttons.
+ */
+export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, toolbar, className, id }: PageHeaderProps) {
+  const trail = useNavTrail();
+  // A trail that only repeats the page title ("Approvals • Approvals") tells the reader nothing.
+  const crumbs = crumbsIn && crumbsIn.length > 0 && !crumbsIn.every((crumb) => crumb.label.trim() === title.trim()) ? crumbsIn : [];
+  const last = trail.items[trail.items.length - 1];
+  const back = last ? last.href : backHref;
+
+  return (
+    <Box component="header" className={className} id={id} data-page-header="" sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--sp-3)",
+        // The template hangs the back arrow into the page gutter; below md the page column clips
+        // sideways overflow (WebView rule), so the arrow sits inline there instead of being cut off.
+        [`& .minimal__breadcrumbs__back .${iconifyClasses.root}`]: { ml: { xs: 0, md: "-18px" } },
+      }}>
+      <CustomBreadcrumbs
+        heading={title}
+        backHref={back}
+        links={crumbs.map((crumb) => ({ name: crumb.label, href: crumb.href }))}
+        action={actions ? <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>{actions}</Box> : undefined}
+        slotProps={{
+          heading: { as: "h1", className: "kit-page-title" } as never,
+          backLink: last
+            ? {
+                title: trail.backTitle(last),
+                "data-nav-back": "true",
+                onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+                  event.preventDefault();
+                  trail.back();
+                },
+              } as never
+            : undefined,
+        }}
+      />
+      {tabs ? <div>{tabs}</div> : null}
+      {toolbar ? <div>{toolbar}</div> : null}
+    </Box>
+  );
+}
+
+/** Loading twin of `PageHeader`: the `CustomBreadcrumbs` heading + links rows (MUI `Skeleton`). */
+export function PageHeaderSkeleton({ action = false }: { action?: boolean }) {
+  return (
+    <Box component="header" aria-hidden="true" sx={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "flex-start" }}>
+      <Box sx={{ flex: "1 1 auto", display: "flex", flexDirection: "column", gap: 2 }}>
+        <Skeleton variant="rounded" width={220} height={36} sx={{ maxWidth: "100%" }} />
+        <Skeleton variant="rounded" width={180} height={22} sx={{ maxWidth: "100%" }} />
+      </Box>
+      {action ? <Skeleton variant="rounded" width={132} height={36} /> : null}
+    </Box>
+  );
+}

@@ -1,6 +1,16 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+
+import { Tag } from "@/components/ui-primitives";
+import { listOrEmpty } from "@/lib/list-or-empty";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTheme, type Theme } from "@mui/material/styles";
+import { EmptyState } from "@/components/app/empty-state";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
 import type { HerdSignalActivityResponse } from "@/lib/api/herd-signals";
@@ -57,15 +67,16 @@ const BUCKET_LABEL: Record<number, string> = { 60: "1-minute", 300: "5-minute", 
 // The six farm-activity overlays. GET /herd-signals/tags/{id}/activity is the data source (see
 // readTimeline's sibling fetch below); each toggle here filters the correlation table AND the
 // chart markers by event.kind, using the same colour for a kind's chip, its markers, and its
-// legend text everywhere so the three never drift out of sync. Colours match the mock's
-// EVENT_TYPES table exactly (mock/herd-signals-mock.html).
-const KIND_META: Record<HerdSignalActivityResponse["events"][number]["kind"], { label: string; color: string }> = {
-  vaccination: { label: "Vaccination", color: "#A78BF5" },
-  feed_given: { label: "Feed given", color: "#34C2A6" },
-  weighing: { label: "Weighing", color: "#5B9BE8" },
-  treatment: { label: "Treatment", color: "#F0635F" },
-  hoof_trimming: { label: "Hoof trimming", color: "#E0A53A" },
-  shed_move: { label: "Pen move", color: "#94A89A" },
+// legend text everywhere so the three never drift out of sync. Hues come from the theme palette
+// (scheme-aware CSS variables), not literal hexes, so they follow the light/dark themes.
+type Palette = Theme["vars"]["palette"];
+const KIND_META: Record<HerdSignalActivityResponse["events"][number]["kind"], { label: string; color: (p: Palette) => string }> = {
+  vaccination: { label: "Vaccination", color: (p) => p.secondary.main },
+  feed_given: { label: "Feed given", color: (p) => p.warning.main },
+  weighing: { label: "Weighing", color: (p) => p.info.main },
+  treatment: { label: "Treatment", color: (p) => p.error.main },
+  hoof_trimming: { label: "Hoof trimming", color: (p) => p.primary.darker },
+  shed_move: { label: "Pen move", color: () => "var(--muted)" },
 };
 const OVERLAY_KINDS = Object.keys(KIND_META) as (keyof typeof KIND_META)[];
 
@@ -99,6 +110,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
     selectionKey: "hs_history",
     closeHref,
   });
+  const palette = useTheme().vars.palette;
   const [range, setRange] = useState<RangeKey>("24h");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -196,17 +208,17 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   // correlation table or the chart markers below. Both consume this SAME filtered list so a
   // toggle can never leave the table and the chart disagreeing about what is "shown".
   const filteredEvents = useMemo(
-    () => (activity.data ? activity.data.events.filter((event) => overlaysOn[event.kind]) : []),
+    () => (activity.data ? listOrEmpty(activity.data.events).filter((event) => overlaysOn[event.kind]) : []),
     [activity.data, overlaysOn],
   );
   const chartMarkers = useMemo(
     () =>
       filteredEvents.map((event) => ({
         atMs: new Date(event.at).getTime(),
-        color: KIND_META[event.kind].color,
+        color: KIND_META[event.kind].color(palette),
         label: `${KIND_META[event.kind].label} · ${event.label}`,
       })),
-    [filteredEvents],
+    [filteredEvents, palette],
   );
 
   // Prefill custom date inputs when a preset is active (not custom range)
@@ -300,7 +312,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                 key={kind}
                 type="button"
                 className={`evchip${on ? " on" : ""}`}
-                style={{ color: on ? meta.color : "var(--muted)" }}
+                style={{ color: on ? meta.color(palette) : "var(--muted)" }}
                 disabled={activity.data === null && activity.error !== null}
                 title={activity.error ? `Failed to load activity: ${activity.error}` : undefined}
                 onClick={() => setOverlaysOn((current) => ({ ...current, [kind]: !(current[kind] ?? true) }))}
@@ -317,10 +329,10 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
           <div className="hd">
             <h3>Movement trend</h3>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span className="tag t-mut">{item.pattern_state ? PATTERN_LABEL[item.pattern_state] : "—"}</span>
-              <span className="tag t-mut">
+              <Tag tone="mut">{item.pattern_state ? PATTERN_LABEL[item.pattern_state] : "—"}</Tag>
+              <Tag tone="mut">
                 baseline {item.baseline_delta !== null ? item.baseline_delta.toLocaleString("en-IN") : "—"} / 5 min
-              </span>
+              </Tag>
             </div>
             <div className="sp" style={{ flex: 1 }} />
             <span className="small faint">{BUCKET_LABEL[bucketSeconds] ?? `${bucketSeconds / 60}-minute`} buckets</span>
@@ -394,71 +406,67 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
               </svg>
               <h3>Activity around recorded farm activity</h3>
               <div className="sp" style={{ flex: 1 }} />
-              <span className="tag t-mut">Correlated</span>
+              <Tag tone="mut">Correlated</Tag>
             </div>
             <div className="bd flush">
               <div className="tblwrap">
-                <table className="resp">
-                  <thead>
-                    <tr>
-                      <th>Activity</th>
-                      <th>When (IST)</th>
-                      <th className="num">2h before</th>
-                      <th className="num">2h after</th>
-                      <th className="num">Change</th>
-                      <th>Read</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table className="resp">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">Activity</TableCell>
+                      <TableCell component="th">When (IST)</TableCell>
+                      <TableCell component="th" className="num">2h before</TableCell>
+                      <TableCell component="th" className="num">2h after</TableCell>
+                      <TableCell component="th" className="num">Change</TableCell>
+                      <TableCell component="th">Read</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {activity.error && activity.key ? (
-                      <tr>
-                        <td colSpan={6}>
+                      <TableRow>
+                        <TableCell colSpan={6}>
                           <div className="empty dngstate">
                             <h4>Activity read failed</h4>
                             <p>{activity.error}</p>
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ) : activity.data === null ? (
-                      <tr>
-                        <td colSpan={6}>
+                      <TableRow>
+                        <TableCell colSpan={6}>
                           <div style={{ padding: 16 }}>
                             <div className="skelrow" style={{ width: "100%", height: 40 }} />
                           </div>
-                        </td>
-                      </tr>
-                    ) : activity.data.events.length === 0 ? (
-                      <tr>
-                        <td colSpan={6}>
-                          <div className="empty">
-                            <h4>
-                              {activity.data.reason ? (
-                                <>
-                                  No activity {activity.data.reason === "tag_not_mapped_to_animal" && "— tag is not mapped to an animal"}
-                                  {activity.data.reason === "monitoring_boundary_unknown" && "— mapping start time unknown"}
-                                  {activity.data.reason === "window_entirely_before_monitoring_start" && "— window before tag mapping"}
-                                </>
-                              ) : (
-                                "No recorded farm activity in this window"
-                              )}
-                            </h4>
-                            {!activity.data.reason && <p>No vaccination, feed, weighing, treatment, hoof trimming, or pen move records found.</p>}
-                          </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
+                    ) : listOrEmpty(activity.data.events).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6}>
+                          <EmptyState
+                            title={activity.data.reason ? (
+                              <>
+                                No activity {activity.data.reason === "tag_not_mapped_to_animal" && "— tag is not mapped to an animal"}
+                                {activity.data.reason === "monitoring_boundary_unknown" && "— mapping start time unknown"}
+                                {activity.data.reason === "window_entirely_before_monitoring_start" && "— window before tag mapping"}
+                              </>
+                            ) : (
+                              "No recorded farm activity in this window"
+                            )}
+                            description={!activity.data.reason ? "No vaccination, feed, weighing, treatment, hoof trimming, or pen move records found." : undefined}
+                          />
+                        </TableCell>
+                      </TableRow>
                     ) : filteredEvents.length === 0 ? (
-                      <tr>
-                        <td colSpan={6}>
-                          <div className="empty">
-                            <h4>All recorded activity is hidden</h4>
-                            <p>
-                              {activity.data.events.length.toLocaleString("en-IN")} event
-                              {activity.data.events.length === 1 ? "" : "s"} found in this window, but every overlay
-                              category above is turned off. Turn one on to show it.
-                            </p>
-                          </div>
-                        </td>
-                      </tr>
+                      <TableRow>
+                        <TableCell colSpan={6}>
+                          <EmptyState
+                            title="All recorded activity is hidden"
+                            description={<>{listOrEmpty(activity.data.events).length.toLocaleString("en-IN")} event
+                              {listOrEmpty(activity.data.events).length === 1 ? "" : "s"} found in this window, but every overlay
+                              category above is turned off. Turn one on to show it.</>}
+                          />
+                        </TableCell>
+                      </TableRow>
                     ) : (
                       filteredEvents.map((event, idx) => {
                         const eventTime = new Date(event.at);
@@ -489,24 +497,24 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
 
                         const grainLabel = event.grain === "animal" ? "" : event.grain === "shed" ? " (pen)" : " (scanned)";
                         return (
-                          <tr key={`${event.at}${idx}`}>
-                            <td>
+                          <TableRow key={`${event.at}${idx}`}>
+                            <TableCell>
                               <span className="tag t-event">{event.kind}</span>
                               <span className="small faint">{event.label}{grainLabel}</span>
-                            </td>
-                            <td className="mono small">{isoTime}</td>
-                            <td className="num small" title={event.before_window_incomplete ? "Window contains gaps or reconnect delta" : undefined}>{beforeDelta}</td>
-                            <td className="num small" title={event.after_window_incomplete ? "Window contains gaps or reconnect delta" : undefined}>{afterDelta}</td>
-                            <td className={`num small ${tone}`} title={event.before_window_incomplete || event.after_window_incomplete ? "Change computed from incomplete windows" : undefined}>{changePercent}</td>
-                            <td className="small">
+                            </TableCell>
+                            <TableCell className="mono small">{isoTime}</TableCell>
+                            <TableCell className="num small" title={event.before_window_incomplete ? "Window contains gaps or reconnect delta" : undefined}>{beforeDelta}</TableCell>
+                            <TableCell className="num small" title={event.after_window_incomplete ? "Window contains gaps or reconnect delta" : undefined}>{afterDelta}</TableCell>
+                            <TableCell className={`num small ${tone}`} title={event.before_window_incomplete || event.after_window_incomplete ? "Change computed from incomplete windows" : undefined}>{changePercent}</TableCell>
+                            <TableCell className="small">
                               <span className="tag">{event.grain === "animal" ? "Animal" : event.grain === "shed" ? "Pen" : "ID"}</span>
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         );
                       })
                     )}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
               <p className="chartnote">
                 Change compares the summed motion-count delta in the two hours before and after the recorded activity. A

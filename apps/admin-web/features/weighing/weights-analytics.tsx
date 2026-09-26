@@ -1,11 +1,14 @@
 import { redirect } from "next/navigation";
-import { CalendarRange, LayoutGrid, PackageOpen, Scale, Sprout, Warehouse } from "lucide-react";
+import Box from "@mui/material/Box";
+import { LayoutGrid, PackageOpen, Scale, Sprout, Warehouse } from "lucide-react";
 
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { LoadComparisonTab } from "./load-comparison-tab";
-import { WeightBars } from "./weight-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
-import { SegmentedLinks } from "@/components/segmented-links";
+import { Caption } from "@/components/app/caption";
+import { EmptyState } from "@/components/app/empty-state";
+import { PageHeader } from "@/components/app/page-header";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -13,6 +16,8 @@ import { FCRTab } from "./fcr-tab";
 import { assumptionValue, bandEdgesParam, DEFAULT_SALE_READY_LOWER_KG, fillKg } from "./assumption-copy";
 import { PensTable, type PensTableRow } from "./pens-table";
 import { FeedWeightBandCard } from "./feed-weight-band-card";
+import { GainTrendCard, WeightsKpiDeck, type GainTrendPoint } from "./weights-kpi-deck";
+import { splitParts } from "@/components/minimal/widgets";
 import { PenWeekGainTable, type PenWeekGainPoint } from "./pen-week-gain-table";
 import { LoadWeekGainTable, type LoadWeekGainPoint } from "./load-week-gain-table";
 import { ORIGIN_KEYS, canonicalOriginRedirect, originFromParam } from "@/lib/animal-origin";
@@ -149,13 +154,6 @@ function boundedOffset(raw: string | undefined): number {
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 5000 ? parsed : 0;
 }
 
-function kg(value: number, fractionDigits = 1): string {
-  return value.toLocaleString("en-IN", {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  });
-}
-
 function shedKey(locationID: string, partitionLabel?: string | null): string {
   return `${locationID}|${partitionLabel ?? ""}`;
 }
@@ -262,22 +260,10 @@ export async function WeighingWeightsAnalyticsPage({
   const growthSections =
     tab === "general" ? "headline,shed_leaderboard,by_park" : tab === "time" ? "weekly_gain" : "";
   const wantsGrowth = growthSections !== "";
-  // General reads demographics too, for the pens table's Breed column ONLY (maintainer request
-  // 2026-09-21): the pen's resident cohort lives on the same `shed_composition` chips the Weights
-  // table renders, so the two screens can never name a different breed for one pen. It asks for
-  // the `composition` section alone -- the landing tab pays for that one read, not for the
-  // dimensions, bands and weekly gain it draws nothing from.
   const wantsDemographics =
-    tab === "general" ||
-    tab === "breed" ||
-    tab === "shed" ||
-    tab === "birth" ||
-    tab === "weight" ||
-    tab === "time";
+    tab === "breed" || tab === "shed" || tab === "birth" || tab === "weight" || tab === "time";
   const demographicsSections =
-    tab === "general"
-      ? "composition"
-      : tab === "breed"
+    tab === "breed"
       ? "dimensions"
       : tab === "birth"
         ? "origin"
@@ -366,12 +352,9 @@ export async function WeighingWeightsAnalyticsPage({
   if (!weights.ok) {
     return <WeightsAnalyticsLoadError pageContract={pageContract} />;
   }
-  if (growth && !growth.ok) {
-    return <WeightsAnalyticsLoadError pageContract={pageContract} />;
-  }
-  if (demographics && !demographics.ok) {
-    return <WeightsAnalyticsLoadError pageContract={pageContract} />;
-  }
+  // A failed TAB read (growth / demographics) is that tab's failure, not the page's: the header,
+  // tab strip and filters stay so the reader can switch tab or period instead of a blank screen.
+  const tabReadFailed = (growth != null && !growth.ok) || (demographics != null && !demographics.ok);
 
   const { rows, summary, parks, period_start: periodStart, period_end: periodEnd } = weights.data;
   const demo = demographics?.ok ? demographics.data : null;
@@ -485,12 +468,10 @@ export async function WeighingWeightsAnalyticsPage({
 
   return (
     <div className="weights-page">
-      <WorklistFilters
-        basePath={PAGE_PATH}
-        pageParam="offset"
-        fields={visibleFilterFields}
-        pageContract={pageContract}
-        trailing={
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb", "Weighing") }, { label: pageContract.title }]}
+        actions={
           <WeightsExportControl
             pageContract={pageContract}
             parks={parks.map((park) => ({ park_id: park.park_id, name: park.name }))}
@@ -505,42 +486,44 @@ export async function WeighingWeightsAnalyticsPage({
             closeHref={hrefWith(params, { wt_export: null })}
           />
         }
+        tabs={
+          <AnimatedTabs
+            ariaLabel={copy(pageContract, "tab.aria")}
+            value={tab}
+            items={TABS.map((name) => ({
+              value: name,
+              label: copy(pageContract, `tab.${name}`),
+              // The default tab clears the parameter, so a shared link keeps meaning "the tab this
+              // page opens on" rather than freezing on the one it was copied from.
+              href: hrefWith(params, {
+                [TAB_PARAM]: name === "general" ? null : name,
+                [WINDOW_FROM_PARAM]: window.from,
+                [WINDOW_TO_PARAM]: window.to,
+                offset: null,
+              }),
+            }))}
+          />
+        }
+      />
+      <WorklistFilters
+        basePath={PAGE_PATH}
+        pageParam="offset"
+        fields={visibleFilterFields}
+        pageContract={pageContract}
       />
 
       {/* Centred, not left-flush: this strip is the page's primary navigation across five views of
           one dataset, and hard against the left edge it read as another filter belonging to the bar
           above it rather than as the control that changes the whole screen. */}
-      <div className="feed-tabbar wt-tabbar">
-        <SegmentedLinks
-          ariaLabel={copy(pageContract, "tab.aria")}
-          current={tab}
-          options={TABS.map((name) => ({
-            value: name,
-            label: copy(pageContract, `tab.${name}`),
-            // The default tab clears the parameter, so a shared link keeps meaning "the tab this
-            // page opens on" rather than freezing on the one it was copied from.
-            href: hrefWith(params, {
-              [TAB_PARAM]: name === "general" ? null : name,
-              [WINDOW_FROM_PARAM]: window.from,
-              [WINDOW_TO_PARAM]: window.to,
-              offset: null,
-            }),
-          }))}
-        />
-      </div>
       <WeightsAnalyticsTabLoading
         currentTab={tab}
         tabLabels={Object.fromEntries(TABS.map((name) => [name, copy(pageContract, `tab.${name}`)]))}
       />
 
-      <p className="muted small" style={{ margin: "0 0 -4px" }}>
-        {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}
-        {" · "}
-        {fmtDate(periodStart)} – {fmtDate(periodEnd)}
-      </p>
 
       <div className="wt-tab-live">
-        {tab === "general" ? (
+        {tabReadFailed ? <WeightsAnalyticsErrorCard pageContract={pageContract} /> : null}
+        {!tabReadFailed && tab === "general" ? (
           <GeneralTab
             pageContract={pageContract}
             summary={summary}
@@ -559,13 +542,13 @@ export async function WeighingWeightsAnalyticsPage({
           />
         ) : null}
 
-        {tab === "breed" ? <BreedTab pageContract={pageContract} demo={demo} /> : null}
+        {!tabReadFailed && tab === "breed" ? <BreedTab pageContract={pageContract} demo={demo} /> : null}
 
-        {tab === "birth" ? <BirthTab pageContract={pageContract} demo={demo} /> : null}
+        {!tabReadFailed && tab === "birth" ? <BirthTab pageContract={pageContract} demo={demo} /> : null}
 
-        {tab === "shed" ? <ShedTab pageContract={pageContract} demo={demo} /> : null}
+        {!tabReadFailed && tab === "shed" ? <ShedTab pageContract={pageContract} demo={demo} /> : null}
 
-        {tab === "weight" ? (
+        {!tabReadFailed && tab === "weight" ? (
           <WeightTab
             pageContract={pageContract}
             demo={demo}
@@ -575,7 +558,7 @@ export async function WeighingWeightsAnalyticsPage({
           />
         ) : null}
 
-        {tab === "time" ? (
+        {!tabReadFailed && tab === "time" ? (
           <TimeTab
             pageContract={pageContract}
             growth={growth?.ok ? growth.data : null}
@@ -595,7 +578,7 @@ export async function WeighingWeightsAnalyticsPage({
 
         {/* Load-wise degrades by half, not whole-page: a dead purchase ledger empties the tab
             with its own message, a dead weighing side keeps the purchase figures with a band. */}
-        {tab === "load" ? (
+        {!tabReadFailed && tab === "load" ? (
           <LoadComparisonTab
             pageContract={pageContract}
             loads={loadwise?.ok ? (loadwise.data.loads ?? []) : null}
@@ -608,7 +591,7 @@ export async function WeighingWeightsAnalyticsPage({
 
         {/* FCR degrades whole: every figure on the tab comes from the one read, so a failed read
             shows the tab's own error rather than half a strip. */}
-        {tab === "fcr" ? (
+        {!tabReadFailed && tab === "fcr" ? (
           <FCRTab
             pageContract={pageContract}
             fcr={fcr?.ok ? fcr.data : null}
@@ -626,12 +609,31 @@ export async function WeighingWeightsAnalyticsPage({
   );
 }
 
-function WeightsAnalyticsLoadError({ pageContract }: { pageContract: AdminUiPageContract }) {
+/** "1 animal" / "425 animals": the contract's plural noun, singular for exactly one. */
+function animalCount(pageContract: AdminUiPageContract, n: number): string {
+  const noun = copy(pageContract, "value.time.animals");
+  return `${n.toLocaleString("en-IN")} ${n === 1 ? noun.replace(/s$/, "") : noun}`;
+}
+
+function WeightsAnalyticsErrorCard({ pageContract }: { pageContract: AdminUiPageContract }) {
   return (
-    <section className="card">
+    <section className="card" role="alert">
       <h2 className="h">{copy(pageContract, "error.load.title")}</h2>
       <p className="muted small">{copy(pageContract, "error.load.body")}</p>
     </section>
+  );
+}
+
+// A whole-page failure still keeps the page's own header, so the reader knows where they are.
+function WeightsAnalyticsLoadError({ pageContract }: { pageContract: AdminUiPageContract }) {
+  return (
+    <div className="weights-page">
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb", "Weighing") }, { label: pageContract.title }]}
+      />
+      <WeightsAnalyticsErrorCard pageContract={pageContract} />
+    </div>
   );
 }
 
@@ -666,7 +668,6 @@ function GeneralTab({
   parkFilter: string;
   modeFilter: string;
   growth: WeighingGrowthResponse | null;
-  /** The `composition` section only; a FAILED demographics read takes the page down above. */
   demo: WeightDemographicsResponse | null;
   perParkGain: readonly { name: string; gain: number | null; animals: number }[];
   limit: number;
@@ -752,95 +753,121 @@ function GeneralTab({
   const headlineGain = growth ? (growth.headline.average_adg_g_per_day ?? null) : null;
   const headlineAnimals = growth ? growth.headline.headline_animals : 0;
   const selectedParkName = parks.find((park) => park.park_id === parkFilter)?.name ?? "";
+  // Presentation only: the weekly series the Time tab already draws, reused as the headline card's
+  // sparkline, trend pill (latest week vs the one before) and the General tab's area chart.
+  const weeklyGain: GainTrendPoint[] = (growth?.weekly_gain ?? []).map((point) => ({
+    week: point.week_start,
+    label: fmtDate(point.week_start),
+    gain: Math.round(point.average_adg_g_per_day),
+    animals: point.animals,
+  }));
+  const weeklyDelta =
+    weeklyGain.length >= 2 ? weeklyGain[weeklyGain.length - 1].gain - weeklyGain[weeklyGain.length - 2].gain : null;
 
   return (
     <>
       <div className="wt-general-metrics">
-        <section className="grid g5 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
-          <div className="kpi">
-            <div className="lab">{copy(pageContract, "kpi.kids.split.label")}</div>
-            <div className="val">
-              {summary.individual_animals_weighed.toLocaleString("en-IN")} ·{" "}
-              {summary.lump_sum_animals_weighed.toLocaleString("en-IN")}
-            </div>
-            <div className="dl">
-              {summary.animals_weighed.toLocaleString("en-IN")} {copy(pageContract, "kpi.kids.split.total_sub")}
-            </div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{copy(pageContract, "kpi.total.label")}</div>
-            <div className="val">{kg(summary.total_weight_kg, 0)} kg</div>
-            <div className="dl">{copy(pageContract, "kpi.total.sub")}</div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{copy(pageContract, "kpi.average.label")}</div>
-            {/* Null average means nothing was weighed. Rendering 0.0 kg would read as a herd that
-                weighs nothing — a different, untrue statement. */}
-            <div className="val">
-              {summary.average_weight_kg == null
-                ? copy(pageContract, "empty.no_data.title")
-                : `${kg(summary.average_weight_kg)} kg`}
-            </div>
-            <div className="dl">{copy(pageContract, "kpi.average.sub")}</div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG)}</div>
-            <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
-            <div className="dl">
-              {summary.threshold_basis_animals.toLocaleString("en-IN")} {copy(pageContract, "kpi.threshold.basis")}
-            </div>
-          </div>
-          <div className="kpi">
-            <div className="lab">{fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg)}</div>
-            <div className="val">{summary.at_or_above_35kg.toLocaleString("en-IN")}</div>
-            <div className="dl">
-              {summary.threshold_basis_animals.toLocaleString("en-IN")} {copy(pageContract, "kpi.threshold.basis")}
-            </div>
-          </div>
-        </section>
+        <WeightsKpiDeck
+          ariaLabel={copy(pageContract, "section.sheds.aria")}
+          items={[
+            {
+              key: "kids",
+              // Two readings, two labels (template split card): the contract label names both halves in
+              // order ("Individual · Lump-sum"); the card title is the whole count.
+              label: `${summary.animals_weighed.toLocaleString("en-IN")} ${copy(pageContract, "kpi.kids.split.total_sub")}`,
+              value: summary.animals_weighed,
+              parts: splitParts(copy(pageContract, "kpi.kids.split.label"), [summary.individual_animals_weighed, summary.lump_sum_animals_weighed]),
+              noDataText: copy(pageContract, "empty.no_data.title"),
+              icon: "kids",
+              tone: "info",
+            },
+            {
+              key: "total",
+              label: copy(pageContract, "kpi.total.label"),
+              value: summary.total_weight_kg,
+              noDataText: copy(pageContract, "empty.no_data.title"),
+              unit: "kg",
+              icon: "total",
+              tone: "primary",
+              hint: copy(pageContract, "kpi.total.sub"),
+            },
+            {
+              // Null average means nothing was weighed: the no-data text renders, never 0.0 kg.
+              key: "average",
+              label: copy(pageContract, "kpi.average.label"),
+              value: summary.average_weight_kg ?? null,
+              noDataText: copy(pageContract, "empty.no_data.title"),
+              digits: 1,
+              unit: "kg",
+              icon: "average",
+              tone: "violet",
+              hint: copy(pageContract, "kpi.average.sub"),
+            },
+            {
+              key: "over30",
+              label: fillKg(copy(pageContract, "kpi.over30.label"), saleLowerKg ?? DEFAULT_SALE_READY_LOWER_KG),
+              value: summary.at_or_above_30kg,
+              noDataText: copy(pageContract, "empty.no_data.title"),
+              icon: "over30",
+              tone: "success",
+              hint: `${summary.threshold_basis_animals.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`,
+            },
+            {
+              key: "over35",
+              label: fillKg(copy(pageContract, "kpi.over35.label"), saleThresholdKg),
+              value: summary.at_or_above_35kg,
+              noDataText: copy(pageContract, "empty.no_data.title"),
+              icon: "over35",
+              tone: "warning",
+              hint: `${summary.threshold_basis_animals.toLocaleString("en-IN")} ${copy(pageContract, "kpi.threshold.basis")}`,
+            },
+          ]}
+        />
 
-        <section className="grid g3 kpi-row" aria-label={copy(pageContract, "section.park_gain.aria")}>
-          <div className="kpi">
-            <div className="lab">
-              {selectedParkName || copy(pageContract, "kpi.park_gain.all")}{" "}
-              {copy(pageContract, "kpi.park_gain.suffix")}
-            </div>
-            {/* No gain is a real state: a period where nothing was weighed twice HAS no gain, and
-                printing 0 g/day would read as a herd that stopped growing. */}
-            <div className="val">
-              {headlineGain == null ? copy(pageContract, "empty.no_data.title") : `${Math.round(headlineGain)} g`}
-            </div>
-            <div className="dl">
-              {headlineGain == null
-                ? copy(pageContract, "kpi.gain.none")
-                : `${copy(pageContract, "kpi.gain.blended")} · ${headlineAnimals.toLocaleString("en-IN")}`}
-            </div>
-          </div>
-          {perParkGain.map((park) => (
-            <div className="kpi" key={park.name}>
-              <div className="lab">
-                {park.name} {copy(pageContract, "kpi.park_gain.suffix")}
-              </div>
-              {/* A park where nothing was weighed twice HAS no gain. Printing 0 g/day would read as
-                  a park whose kids stopped growing, which is a different and untrue statement. */}
-              <div className="val">
-                {park.gain == null ? copy(pageContract, "empty.no_data.title") : `${Math.round(park.gain)} g`}
-              </div>
-              <div className="dl">
-                {park.gain == null
+        {/* No gain is a real state: a period where nothing was weighed twice HAS no gain, and
+            printing 0 g/day would read as a herd that stopped growing. */}
+        <WeightsKpiDeck
+          ariaLabel={copy(pageContract, "section.park_gain.aria")}
+          min={240}
+          items={[
+            {
+              key: "headline",
+              label: `${selectedParkName || copy(pageContract, "kpi.park_gain.all")} ${copy(pageContract, "kpi.park_gain.suffix")}`,
+              value: headlineGain == null ? null : Math.round(headlineGain),
+              noDataText: copy(pageContract, "empty.no_data.title"),
+              unit: "g",
+              tone: "primary",
+              icon: "gain",
+              sparkline: weeklyGain.map((point) => point.gain),
+              trend: headlineGain == null ? null : weeklyDelta,
+              trendSuffix: " g",
+              hint:
+                headlineGain == null
                   ? copy(pageContract, "kpi.gain.none")
-                  : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`}
-              </div>
-            </div>
-          ))}
-        </section>
+                  : `${copy(pageContract, "kpi.gain.blended")} · ${headlineAnimals.toLocaleString("en-IN")}`,
+            },
+            ...perParkGain.map((park, index) => ({
+              key: `park-${park.name}`,
+              label: `${park.name} ${copy(pageContract, "kpi.park_gain.suffix")}`,
+              value: park.gain == null ? null : Math.round(park.gain),
+              noDataText: copy(pageContract, "empty.no_data.title"),
+              unit: "g",
+              tone: (["info", "violet", "success", "warning"] as const)[index % 4],
+              icon: "activity" as const,
+              hint:
+                park.gain == null
+                  ? copy(pageContract, "kpi.gain.none")
+                  : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`,
+            })),
+          ]}
+        />
+
       </div>
 
       <section className="card wtable" aria-label={copy(pageContract, "section.sheds.aria")}>
         <h2 className="h">
           <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.sheds.title")}
         </h2>
-        <p className="muted small">{copy(pageContract, "note.total_weight")}</p>
         {/* STAGED, not applied per keystroke: the operator and the value are one question, so the
             bar collects both and a single Apply commits them (deferApply). Scoped to the pens
             table; the page's own bar above stays as it is. */}
@@ -853,12 +880,10 @@ function GeneralTab({
           telemetry={{ eventPrefix: "weights_analytics_pens_filter_apply", surface: "pens_table", route: PAGE_PATH }}
         />
         {slice.length === 0 ? (
-          <div className="empty">
-            <b>{hasAnyData ? copy(pageContract, "empty.filtered.title") : copy(pageContract, "empty.no_data.title")}</b>
-            <span className="muted small">
-              {hasAnyData ? copy(pageContract, "empty.filtered.body") : copy(pageContract, "empty.no_data.body")}
-            </span>
-          </div>
+          <EmptyState
+            title={hasAnyData ? copy(pageContract, "empty.filtered.title") : copy(pageContract, "empty.no_data.title")}
+            description={hasAnyData ? copy(pageContract, "empty.filtered.body") : copy(pageContract, "empty.no_data.body")}
+          />
         ) : (
           <>
             <div className="tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.sheds.aria")}>
@@ -906,7 +931,6 @@ function GeneralTab({
             />
           </>
         )}
-        <p className="muted small">{copy(pageContract, "note.threshold_basis")}</p>
       </section>
     </>
   );
@@ -939,7 +963,7 @@ function BreedTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
         label: copy(pageContract, "series.gain"),
         value: Math.round(gain.median_gain_g_per_day),
         seriesKey: "gain",
-        noteLabel: `${gain.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        noteLabel: `${animalCount(pageContract, gain.animals)}`,
       });
     }
     if (weight) {
@@ -948,7 +972,7 @@ function BreedTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
         label: copy(pageContract, "series.weight"),
         value: Number(weight.average_weight_kg.toFixed(1)),
         seriesKey: "weight",
-        noteLabel: `${weight.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        noteLabel: `${animalCount(pageContract, weight.animals)}`,
       });
     }
     return { key: breed, heading: breed, bars };
@@ -959,7 +983,6 @@ function BreedTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
       <h2 className="h">
         <Sprout className="ic" size={15} aria-hidden /> {copy(pageContract, "section.breed.title")}
       </h2>
-      <p className="muted small">{copy(pageContract, "section.breed.caption")}</p>
       <GroupedBars
         groups={groups}
         series={[
@@ -999,7 +1022,7 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
         label: copy(pageContract, `view.origin.${key}`),
         value: Math.round(bucket.median_gain_g_per_day),
         seriesKey: key,
-        noteLabel: `${bucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        noteLabel: animalCount(pageContract, bucket.animals),
       });
     }
     return { key: breed, heading: breed, bars };
@@ -1010,7 +1033,6 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
       <h2 className="h">
         <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.birth.title")}
       </h2>
-      <p className="muted small">{copy(pageContract, "section.birth.caption")}</p>
       <GroupedBars
         groups={groups}
         // All three share the g/day scale, unlike Breed-wise: these bars ARE the same measure
@@ -1108,7 +1130,7 @@ function ShedTab({
         label: type.label,
         value: Math.round(bucket.average_gain_g_per_day),
         seriesKey: type.key,
-        noteLabel: `${bucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        noteLabel: animalCount(pageContract, bucket.animals),
         hint: hintFor(breed, type.key),
       });
     }
@@ -1120,7 +1142,6 @@ function ShedTab({
       <h2 className="h">
         <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.shed.title")}
       </h2>
-      <p className="muted small">{copy(pageContract, "section.shed.caption")}</p>
       <GroupedBars
         groups={groups}
         series={series}
@@ -1178,7 +1199,7 @@ function WeightTab({
           value: Math.round(band.average_gain_g_per_day),
           seriesKey: "gain",
           // The gain's own denominator rides on the bar, because it is not the head count beside it.
-          noteLabel: `${band.gain_animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+          noteLabel: `${animalCount(pageContract, band.gain_animals)}`,
         });
       }
       return {
@@ -1200,7 +1221,6 @@ function WeightTab({
       <h2 className="h">
         <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "section.weight.title")}
       </h2>
-      <p className="muted small">{copy(pageContract, "section.weight.caption")}</p>
       <GroupedBars
         groups={groups}
         // Two scales, because a head count and a growth rate are not comparable lengths -- the same
@@ -1290,6 +1310,13 @@ function TimeTab({
    */
   pens: readonly { key: string; park: string; label: string }[];
 }) {
+  const weeklyPoints: GainTrendPoint[] = (growth?.weekly_gain ?? []).map((point) => ({
+    week: point.week_start,
+    label: fmtDate(point.week_start),
+    gain: Math.round(point.average_adg_g_per_day),
+    animals: point.animals,
+  }));
+
   // Every heading, caption and empty state on this tab has a WEEK wording and a 30-DAY wording,
   // both authored in the page contract. This picks the pair that matches the bucket the backend
   // actually cut the data into; it never edits a string, so a heading can never describe columns
@@ -1345,7 +1372,7 @@ function TimeTab({
     label: fmtDate(point.week_start),
     value: Math.round(point.average_adg_g_per_day),
     valueLabel: `${Math.round(point.average_adg_g_per_day).toLocaleString("en-IN")} g`,
-    modeLabel: `${point.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+    modeLabel: `${animalCount(pageContract, point.animals)}`,
     modeTone: "mut" as const,
   }));
 
@@ -1363,7 +1390,7 @@ function TimeTab({
       label: fmtDate(point.week_start),
       value: Math.round(point.average_gain_g_per_day),
       seriesKey: "gain",
-      noteLabel: `${point.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+      noteLabel: `${animalCount(pageContract, point.animals)}`,
     });
   }
 
@@ -1398,23 +1425,22 @@ function TimeTab({
       pageParam="offset"
       fields={timeFilterFields}
       pageContract={pageContract}
+      /* The page's own filter bar is also on screen; its twin button must not say the same thing. */
+      label={timeFilterFields.map((field) => field.label).join(" · ")}
       telemetry={{ eventPrefix: "weights_analytics_time_filter_apply", surface: "time_wise", route: PAGE_PATH }}
     />
-    <section className="card wchart" aria-label={bucketCopy("section.time.aria")}>
-      <h2 className="h">
-        <CalendarRange className="ic" size={15} aria-hidden /> {bucketCopy("section.time.title")}
-      </h2>
-      <p className="muted small">{bucketCopy("section.time.caption")}</p>
-      <WeightBars
-        data={bars}
+    <Box component="section" aria-label={bucketCopy("section.time.aria")} sx={{ display: "grid", gap: 1.5, mb: 3 }}>
+      {/* Titled through the bucket pair, so a heading can never describe columns the chart is not
+          showing; the gaps note stays because it explains a hole in the series, not the section. */}
+      <GainTrendCard
+        title={bucketCopy("section.time.title")}
+        subtitle={bucketCopy("section.time.caption")}
+        seriesLabel={copy(pageContract, "kpi.park_gain.suffix")}
+        points={weeklyPoints}
         emptyLabel={bucketCopy("empty.time.body")}
-        unit="g"
-        chartLabel={bucketCopy("section.time.aria")}
-        size="bands"
-        wide
       />
-      <p className="muted small">{bucketCopy("note.time.gaps")}</p>
-    </section>
+      <Caption>{bucketCopy("note.time.gaps")}</Caption>
+    </Box>
     {/* The selected period's weeks, one row per breed. A second section rather than more series on
         the chart above: many weeks across six breeds is dense, and stacking them on one axis
         answers "which breed" more slowly than six short rows do.
@@ -1426,7 +1452,7 @@ function TimeTab({
       <h2 className="h">
         <Sprout className="ic" size={15} aria-hidden /> {bucketCopy("section.time.breed.title")}
       </h2>
-      <p className="muted small">{bucketCopy("section.time.breed.caption")}</p>
+      <Caption>{bucketCopy("section.time.breed.caption")}</Caption>
       <GroupedBars
         groups={breedWeekGroups}
         series={[{ key: "gain", label: copy(pageContract, "series.gain"), unit: "g", fractionDigits: 0 }]}
@@ -1443,7 +1469,8 @@ function TimeTab({
       <h2 className="h">
         <LayoutGrid className="ic" size={15} aria-hidden /> {bucketCopy("section.time.pen.title")}
       </h2>
-      <p className="muted small">{bucketCopy("section.time.pen.caption")}</p>
+      {/* Pinned by pen-week-gain.contract.test.mjs (the page must read this backend key). */}
+      <Caption>{bucketCopy("section.time.pen.caption")}</Caption>
       {/* A long period is many week columns, so the grid scrolls inside its own box rather
           than pushing the page sideways. */}
       <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={bucketCopy("section.time.pen.aria")}>
@@ -1469,7 +1496,8 @@ function TimeTab({
       <h2 className="h">
         <PackageOpen className="ic" size={15} aria-hidden /> {bucketCopy("section.time.load.title")}
       </h2>
-      <p className="muted small">{bucketCopy("section.time.load.caption")}</p>
+      {/* Pinned by load-week-gain.contract.test.mjs. */}
+      <Caption>{bucketCopy("section.time.load.caption")}</Caption>
       <div className="tablewrap" style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={bucketCopy("section.time.load.aria")}>
         <LoadWeekGainTable
           contract={table(pageContract, "load-week-gain")}

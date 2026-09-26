@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Syringe } from "lucide-react";
@@ -12,6 +17,7 @@ import { VaccinationRecordVerifyLocalDrawer, type VaccinationRecordSelection } f
 import { paginateRows, VaccinationTablePager, type VaccinationPageSize } from "./table-pager";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { sortVaccinationProtocols, vaccinationProtocolDisplayName } from "./vaccine-display";
+import { stageLabel } from "@/lib/stage-labels";
 
 // Matrix chips use the mock's short operational language. The backend work_state stays canonical; this is only
 // display copy for the cohort x vaccine table.
@@ -132,19 +138,18 @@ export function VaccinationStatusMatrix({
             <span className="muted small">
               {paged.start}-{paged.end} {copy(pageContract, "pager.of")} {cohorts.length} {copy(pageContract, "pager.rows").toLowerCase()}
             </span>
-            <span className="muted small">{copy(pageContract, "section.status_matrix.row_hint")}</span>
           </div>
           <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.status_matrix.aria")}>
-            <table className="vaccination-status-matrix-table">
-              <thead>
-                <tr>
-                  <th>{labels[0]}</th>
+            <Table className="vaccination-status-matrix-table">
+              <TableHead>
+                <TableRow>
+                  <TableCell component="th">{labels[0]}</TableCell>
                   {protocols.map((p) => (
-                    <th key={p.protocolId}>{vaccinationProtocolDisplayName(p)}</th>
+                    <TableCell component="th" key={p.protocolId}>{vaccinationProtocolDisplayName(p)}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {paged.items.map((c) => {
                   const byProtocol = new Map<string, VaccinationOperationsCell>();
                   for (const cell of c.cells) byProtocol.set(cell.protocolId, cell);
@@ -153,34 +158,34 @@ export function VaccinationStatusMatrix({
                     ? scopeHref("/vaccination", scope, {}, { vacc_record: matrixRecordId(c, firstProtocol.protocolId) })
                     : null;
                   return (
-                    <tr key={`${c.parkId}|${c.shedId}|${c.stage}|${c.partitionLabel ?? ""}`}>
-                      <td>
+                    <TableRow key={`${c.parkId}|${c.shedId}|${c.stage}|${c.partitionLabel ?? ""}`}>
+                      <TableCell>
                         {cohortHref ? (
                           <LocalOverlayLink href={cohortHref} className="celllink" scroll={false} title={copy(pageContract, "section.status_matrix.row_hint")}>
-                            <b>{`${c.stage} · ${c.operationalLocationDisplay || c.shedName}`}</b>
+                            <b>{`${stageLabel(c.stage)} · ${c.operationalLocationDisplay || c.shedName}`}</b>
                             <div className="muted small">{c.parkName}</div>
                           </LocalOverlayLink>
                         ) : (
                           <>
-                            <b>{`${c.stage} · ${c.operationalLocationDisplay || c.shedName}`}</b>
+                            <b>{`${stageLabel(c.stage)} · ${c.operationalLocationDisplay || c.shedName}`}</b>
                             <div className="muted small">{c.parkName}</div>
                           </>
                         )}
-                      </td>
+                      </TableCell>
                       {protocols.map((p) => {
                         const cell = byProtocol.get(p.protocolId);
                         if (!cell) {
                           return (
-                            <td key={p.protocolId}>
+                            <TableCell key={p.protocolId}>
                               <Tag tone="mut">—</Tag>
-                            </td>
+                            </TableCell>
                           );
                         }
                         const meta = matrixCellMeta(pageContract, cell);
                         const protocolLabel = vaccinationProtocolDisplayName(p);
                         const title = cell.lastDose ? `${protocolLabel} — ${meta.label} · ${copy(pageContract, "label.last_dose")} ${fmtDate(cell.lastDose)}` : `${protocolLabel} — ${meta.label}`;
                         return (
-                          <td key={p.protocolId}>
+                          <TableCell key={p.protocolId}>
                             <LocalOverlayLink
                               href={scopeHref("/vaccination", scope, {}, { vacc_record: matrixRecordId(c, p.protocolId) })}
                               className="celllink"
@@ -189,14 +194,14 @@ export function VaccinationStatusMatrix({
                             >
                               <Tag tone={meta.tone}>{meta.label}</Tag>
                             </LocalOverlayLink>
-                          </td>
+                          </TableCell>
                         );
                       })}
-                    </tr>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           <div className="note" style={{ margin: "12px 14px" }}>
             {copy(pageContract, "section.status_matrix.note")}{" "}

@@ -7,10 +7,14 @@
 // question also travels as an answer under its id, with the form version, so the backend checks
 // the submission against exactly the form this drawer rendered.
 import { useState } from "react";
+import MenuItem from "@mui/material/MenuItem";
+import TextField from "@mui/material/TextField";
 import { visibleQuestionIds } from "./authored-form-visibility";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ProcurementVendor, ProcurementVendorForm, ProcurementVendorQuestion } from "@/lib/api/server";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 type Answers = Record<string, string>;
 
@@ -82,12 +86,7 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
           {page.questions.map((q) => {
             if (!visible(q)) return null;
             const id = `vq-${q.id}`;
-            const label = (
-              <label htmlFor={id}>
-                {q.title}
-                {q.required ? " *" : ""}
-              </label>
-            );
+            const labelText = `${q.title}${q.required ? " *" : ""}`;
             const hint = q.hint ? <div className="muted small">{q.hint}</div> : null;
             const value = initial[q.id] ?? "";
             switch (q.kind) {
@@ -98,26 +97,36 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
                 const stale = value && !options.some((o) => o.value === value);
                 return (
                   <div className="fld" key={q.id}>
-                    {label}
-                    <select
+                    <TextField
+                      select
+                      fullWidth
                       id={id}
                       name={q.id}
+                      label={labelText}
                       required={q.required}
                       value={picked[q.id] ?? ""}
                       onChange={(e) => setPicked((s) => ({ ...s, [q.id]: e.target.value }))}
+                      slotProps={{ select: { displayEmpty: true }, inputLabel: { shrink: true } }}
                     >
-                      <option value="" disabled={q.required}>
+                      <MenuItem value="" disabled={q.required}>
                         —
-                      </option>
-                      {stale ? <option value={value}>{value}</option> : null}
+                      </MenuItem>
+                      {stale ? <MenuItem value={value}>{value}</MenuItem> : null}
                       {options.map((o) => (
-                        <option key={o.value} value={o.value}>
+                        <MenuItem key={o.value} value={o.value}>
                           {o.label}
-                        </option>
+                        </MenuItem>
                       ))}
-                    </select>
+                    </TextField>
                     {q.allow_other && picked[q.id] === "other" ? (
-                      <input name={`${q.id}_other`} placeholder={copy(pageContract, "hint.other")} defaultValue={initial[`${q.id}_other`] ?? ""} required maxLength={160} />
+                      <TextField
+                        fullWidth
+                        name={`${q.id}_other`}
+                        placeholder={copy(pageContract, "hint.other")}
+                        defaultValue={initial[`${q.id}_other`] ?? ""}
+                        required
+                        slotProps={{ htmlInput: { maxLength: 160 } }}
+                      />
                     ) : null}
                     {hint}
                   </div>
@@ -127,12 +136,15 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
                 const chosen = new Set(value.split("|").map((x) => x.trim()).filter(Boolean));
                 return (
                   <div className="fld" key={q.id}>
-                    {label}
+                    <label htmlFor={id}>{labelText}</label>
                     <div className="vendor-form-multi">
                       {(q.options ?? []).map((o) => (
-                        <label key={o.value} className="chkline">
-                          <input type="checkbox" name={q.id} value={o.value} defaultChecked={chosen.has(o.value)} /> {o.label}
-                        </label>
+                        <FormControlLabel
+                          key={o.value}
+                          className="chkline"
+                          control={<Checkbox name={q.id} value={o.value} defaultChecked={chosen.has(o.value)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                          label={<>{o.label}</>}
+                        />
                       ))}
                     </div>
                     {hint}
@@ -142,20 +154,40 @@ export function VendorFormFields({ form, vendor, pageContract }: { form: Procure
               case "number":
                 return (
                   <div className="fld" key={q.id}>
-                    {label}
-                    <input id={id} name={q.id} inputMode="decimal" type="number" step="any" min={q.min} max={q.max} required={q.required} defaultValue={value} placeholder={q.unit ?? ""} />
+                    <TextField
+                      fullWidth
+                      id={id}
+                      name={q.id}
+                      type="number"
+                      label={labelText}
+                      required={q.required}
+                      defaultValue={value}
+                      placeholder={q.unit ?? ""}
+                      slotProps={{
+                        htmlInput: { inputMode: "decimal", step: "any", min: q.min, max: q.max },
+                        inputLabel: { shrink: true },
+                      }}
+                    />
                     {hint}
                   </div>
                 );
               default:
                 return (
                   <div className="fld" key={q.id}>
-                    {label}
-                    {q.id === "comments" || q.id === "details" ? (
-                      <textarea id={id} name={q.id} maxLength={2000} rows={2} required={q.required} defaultValue={value} />
-                    ) : (
-                      <input id={id} name={q.id} maxLength={160} required={q.required} defaultValue={value} />
-                    )}
+                    <TextField
+                      fullWidth
+                      id={id}
+                      name={q.id}
+                      label={labelText}
+                      required={q.required}
+                      defaultValue={value}
+                      multiline={q.id === "comments" || q.id === "details"}
+                      rows={q.id === "comments" || q.id === "details" ? 2 : undefined}
+                      slotProps={{
+                        htmlInput: { maxLength: q.id === "comments" || q.id === "details" ? 2000 : 160 },
+                        inputLabel: { shrink: true },
+                      }}
+                    />
                     {hint}
                   </div>
                 );

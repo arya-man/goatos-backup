@@ -312,7 +312,7 @@ export interface paths {
         };
         /**
          * Return the backend-owned admin-web UI contract.
-         * @description Read-only shell/page contract for admin-web IA, nav, route labels, top-bar controls, role lenses, page/table/drawer metadata, disabled reasons, and summary-vs-detail display rules. Frontend renders this contract and owns only layout/local UI state.
+         * @description Read-only shell/page contract for admin-web IA, nav, route labels, top-bar controls, role lenses, page/table/drawer metadata, disabled reasons, and summary-vs-detail display rules. Frontend renders this contract and owns only layout/local UI state. The page list can be projected: `page=<route_id>` carries that page in full and every other page as a summary (identity fields kept; sections, tables, drawers, controls, copy, option_groups and validation_notes empty), `pages=summary` carries every page as a summary. The page field set is identical in every view; the ETag names the view.
          */
         get: operations["adminWebBootstrap"];
         put?: never;
@@ -10494,6 +10494,11 @@ export interface components {
             target?: string;
             /** @description The BUSINESS status of the thing the notification is about (e.g. a task being open), NOT the notification's own delivery status. */
             status?: string;
+            /**
+             * Format: uuid
+             * @description The procurement load the notification is about, when it is about one (loadwise producers stamp it), so a client can deep-link "Open load". ABSENT otherwise.
+             */
+            load_id?: string;
         };
         AppNotification: {
             /**
@@ -10525,6 +10530,8 @@ export interface components {
         };
         AppNotificationPage: {
             items: components["schemas"]["AppNotification"][];
+            /** @description The caller's notification total across their WHOLE feed (read and unread), at the same notification grain as `items` and `unread_count`, so the All/Archived chips can show real numbers. Computed in the same scan as `unread_count`; never page-local. */
+            total_count: number;
             /** @description The caller's unread total across their WHOLE feed, never the returned page's own unread rows -- the bell badge must not shrink because the reader paged. Counts notifications, not delivery rows. */
             unread_count: number;
             /** @description Pass as `cursor` for the next page. ABSENT on the last page. */
@@ -11026,6 +11033,8 @@ export interface components {
             sheep_count: number;
             goat_count: number;
             manure_kg: number;
+            /** @description Live revenue over live weight for the month's priced lines (weight and value both recorded); 0 when none were priced. */
+            realized_price_per_kg: number;
         };
         /** @description Realized price per kg for one (live product type, breed), over closed deals with weight and value recorded. Ordered by average price, highest first. */
         SalesPriceBand: {
@@ -11107,6 +11116,10 @@ export interface components {
             /** @description Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it. */
             unsold_stock_price_rupees: number | null;
             row_version: number;
+            /**
+             * Format: date-time
+             * @description When the row was last saved, RFC3339 (UTC). Absent when never saved.
+             */
             updated_at?: string;
             updated_by_name?: string;
             /** @description The bands a write is refused outside of. */
@@ -11136,6 +11149,8 @@ export interface components {
             fixed_weight_kg: number | null;
             price_per_kg: number;
             display_order: number;
+            /** @description True when label is the tenant's stage name shown in place of a blank or raw-code stored label. Display only; ignored on write. */
+            label_is_default?: boolean;
         };
         /** @description The whole sales page contract, all blocks whole-filter aggregates. */
         SalesOverview: {
@@ -22213,7 +22228,12 @@ export interface operations {
     };
     adminWebBootstrap: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Route id of the one page to carry in full; every other page is summarised. */
+                page?: string;
+                /** @description `summary` carries every page summarised. Ignored when `page` is sent. */
+                pages?: "summary";
+            };
             header?: never;
             path?: never;
             cookie?: never;

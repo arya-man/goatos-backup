@@ -1,6 +1,11 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
-import { Wheat, X } from "lucide-react";
+import { Pencil, Wheat, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 import {
@@ -24,6 +29,8 @@ import {
   recordFeedPurchasePaymentAction,
   setFeedPurchasePaymentStatusAction,
 } from "./feed-purchase-actions";
+import { FormSelect } from "./form-select";
+import { listOptions } from "./option-utils";
 
 type ProcurementVendorFormPage = ProcurementVendorForm["pages"][number];
 type ProcurementVendorFormQuestion = ProcurementVendorForm["pages"][number]["questions"][number];
@@ -206,6 +213,16 @@ export function FeedPurchaseDrawer({
             ) : null}
           </div>
           <span className="sp" style={{ flex: 1 }} />
+          {purchase && !isAdding && !isEditing && canEdit ? (
+            <button
+              type="button"
+              className="btn sm dh-action"
+              onClick={() => replaceLocalOverlayUrl(`${detailHref}&edit=1`)}
+            >
+              <Pencil aria-hidden="true" />
+              {copy(pageContract, "action.edit_feed_purchase.label")}
+            </button>
+          ) : null}
           <button
             ref={closeButtonRef}
             type="button"
@@ -224,9 +241,11 @@ export function FeedPurchaseDrawer({
               <input type="hidden" name="idempotency_key" value={recordIdempotencyKey} />
 
               <div className="note">{copy(pageContract, "required.hint")}</div>
+              {/* The authored form's version and every question it asked: readFormAnswers only maps
+                  typed fields onto question ids the drawer declares here (40466370a). */}
               {purchaseForm ? <>
                 <input type="hidden" name="questionnaire_version" value={purchaseForm.version} />
-                {purchaseForm.pages.flatMap((page: ProcurementVendorFormPage) => page.questions).map((question: ProcurementVendorFormQuestion) => (
+                {purchaseForm.pages.flatMap((page) => page.questions).map((question) => (
                   <input key={question.id} type="hidden" name="questionnaire_question" value={question.id} />
                 ))}
               </> : null}
@@ -236,32 +255,26 @@ export function FeedPurchaseDrawer({
                 {datePicker("purchase_date", "purchase_date", { required: true })}
               </div>
               <div className="fld">
-                <label htmlFor="fp-farm">{field("farm")}</label>
-                <select id="fp-farm" name="farm" required defaultValue="">
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {farmOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("farm")}
+                  name="farm"
+                  id="fp-farm"
+                  defaultValue=""
+                  required
+                  options={listOptions(farmOptions, (option) => option.key, (option) => option.label, "—")}
+                />
               </div>
               <div className="fld">
-                <label htmlFor="fp-feed_item">{field("feed_item")}</label>
                 {/* The catalog LABEL is both the option value and what is sent: the backend resolves
                     it through the same normalization the ledger's key uses. */}
-                <select id="fp-feed_item" name="feed_item" required defaultValue="">
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {feedItems.map((item) => (
-                    <option key={item.key} value={item.label}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("feed_item")}
+                  name="feed_item"
+                  id="fp-feed_item"
+                  defaultValue=""
+                  required
+                  options={listOptions(feedItems, (item) => item.label, (item) => item.label, "—")}
+                />
               </div>
               <div className="fld">
                 <label htmlFor="fp-quantity_kg">{field("quantity_kg")}</label>
@@ -287,7 +300,6 @@ export function FeedPurchaseDrawer({
               <div className="fld">
                 <label htmlFor="fp-total_cost">{field("total_cost")}</label>
                 <input id="fp-total_cost" name="total_cost" type="number" min={0} step="0.01" />
-                <div className="muted small">{copy(pageContract, "hint.total_cost")}</div>
               </div>
 
               <div className="fld">
@@ -311,17 +323,14 @@ export function FeedPurchaseDrawer({
                 <input id="fp-payment_released" name="payment_released" type="number" min={0} step="0.01" />
               </div>
               <div className="fld">
-                <label htmlFor="fp-payment_status">{field("payment_status")}</label>
-                <select id="fp-payment_status" name="payment_status" required defaultValue="">
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {paymentOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("payment_status")}
+                  name="payment_status"
+                  id="fp-payment_status"
+                  defaultValue=""
+                  required
+                  options={listOptions(paymentOptions, (option) => option.key, (option) => option.label, "—")}
+                />
               </div>
 
               {/* DELIVERY: blank = the load is still on the road (the normal case). A date here
@@ -330,12 +339,10 @@ export function FeedPurchaseDrawer({
               <div className="fld">
                 <label htmlFor="fp-reached_on">{field("reached_on")}</label>
                 {datePicker("reached_on", "reached_on")}
-                <div className="muted small">{copy(pageContract, "hint.record_reached")}</div>
               </div>
               <div className="fld">
                 <label htmlFor="fp-reached_weight_kg">{field("reached_weight_kg")}</label>
                 <input id="fp-reached_weight_kg" name="reached_weight_kg" type="number" min={0.001} step="0.001" />
-                <div className="muted small">{copy(pageContract, "hint.reached_weight")}</div>
               </div>
 
               {/* Whatever the farm authored beyond the ledger's own columns, from the published
@@ -359,7 +366,6 @@ export function FeedPurchaseDrawer({
 
               {/* Identity is read-only by design: farm, feed and batch are the natural key the
                   stock cards group by. The hint says so rather than leaving greyed boxes mute. */}
-              <div className="note">{copy(pageContract, "hint.edit_identity")}</div>
               <div className="metagrid">
                 <div>
                   <div className="k">{field("farm")}</div>
@@ -402,7 +408,6 @@ export function FeedPurchaseDrawer({
               <div className="fld">
                 <label htmlFor="fpe-total_cost">{field("total_cost")}</label>
                 <input id="fpe-total_cost" name="total_cost" type="number" min={0} step="0.01" defaultValue={purchase.total_cost ?? ""} />
-                <div className="muted small">{copy(pageContract, "hint.total_cost")}</div>
               </div>
               <div className="fld">
                 <label htmlFor="fpe-vendor">{field("vendor")}</label>
@@ -432,17 +437,6 @@ export function FeedPurchaseDrawer({
           </form>
         ) : purchase ? (
           <div className="dc">
-            {canEdit ? (
-              <div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => replaceLocalOverlayUrl(`${detailHref}&edit=1`)}
-                >
-                  {copy(pageContract, "action.edit_feed_purchase.label")}
-                </button>
-              </div>
-            ) : null}
             {/* RECORD drawer body: the mock's .metagrid of uppercase-key cells, never a flat stack. */}
             <div className="metagrid">
               {cell(field("purchase_date"), fmtDate(purchase.purchase_date))}
@@ -492,10 +486,6 @@ export function FeedPurchaseDrawer({
               {/* BACKEND-derived: received weight if entered, else buying weight; absent on the road. */}
               {cell(field("stock_kg"), purchase.stock_kg == null ? null : num(purchase.stock_kg, 1))}
             </div>
-            {purchase.stock_kg == null ? (
-              <div className="note">{copy(pageContract, "delivery.in_transit_note")}</div>
-            ) : null}
-
             {canRecordDelivery ? (
               <form action={recordFeedPurchaseDeliveryAction}>
                 <input type="hidden" name="return_to" value={detailHref} />
@@ -563,24 +553,24 @@ export function FeedPurchaseDrawer({
               <div className="muted small">{copy(pageContract, "payments.empty")}</div>
             ) : (
               <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.payments.title")}>
-                <table aria-label={copy(pageContract, "section.payments.title")}>
-                  <thead>
-                    <tr>
-                      <th>{copy(pageContract, "payments.column.paid_on")}</th>
-                      <th>{copy(pageContract, "payments.column.amount")}</th>
-                      <th>{copy(pageContract, "payments.column.note")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table aria-label={copy(pageContract, "section.payments.title")}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">{copy(pageContract, "payments.column.paid_on")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "payments.column.amount")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "payments.column.note")}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {purchase.payments.map((payment) => (
-                      <tr key={payment.payment_id}>
-                        <td style={{ whiteSpace: "nowrap" }}>{fmtDate(payment.paid_on)}</td>
-                        <td style={{ whiteSpace: "nowrap" }}>{inr(payment.amount_rupees)}</td>
-                        <td>{payment.note || none}</td>
-                      </tr>
+                      <TableRow key={payment.payment_id}>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{fmtDate(payment.paid_on)}</TableCell>
+                        <TableCell style={{ whiteSpace: "nowrap" }}>{inr(payment.amount_rupees)}</TableCell>
+                        <TableCell>{payment.note || none}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
 
@@ -600,7 +590,6 @@ export function FeedPurchaseDrawer({
                 <div className="fld">
                   <label htmlFor="fpp-note">{field("note")}</label>
                   <input id="fpp-note" name="note" maxLength={300} />
-                  <div className="muted small">{copy(pageContract, "hint.record_payment")}</div>
                 </div>
                 <button type="submit" className="btn p">
                   {copy(pageContract, "action.record_feed_payment.label")}
@@ -612,15 +601,15 @@ export function FeedPurchaseDrawer({
               <form action={setFeedPurchasePaymentStatusAction} className="fld">
                 <input type="hidden" name="return_to" value={detailHref} />
                 <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
-                <label htmlFor="fpp-status">{field("payment_status")}</label>
-                <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-                  <select id="fpp-status" name="payment_status" required defaultValue={purchase.payment_status}>
-                    {paymentOptions.map((option) => (
-                      <option key={option.key} value={option.key}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                <div style={{ display: "flex", gap: 9, alignItems: "flex-end" }}>
+                  <FormSelect
+                    label={field("payment_status")}
+                    name="payment_status"
+                    id="fpp-status"
+                    defaultValue={purchase.payment_status}
+                    required
+                    options={listOptions(paymentOptions, (option) => option.key, (option) => option.label)}
+                  />
                   <button type="submit" className="btn">
                     {copy(pageContract, "action.update_payment_status.label")}
                   </button>

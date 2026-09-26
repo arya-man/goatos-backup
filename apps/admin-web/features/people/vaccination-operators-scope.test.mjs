@@ -98,7 +98,7 @@ test("an unscoped actor with no authored assignment config is still a hard failu
   const api = fakeApi({ config: CONFIG, configNotFound: true });
   await assert.rejects(
     () => loadVaccinationOperatorsScreen(api),
-    /No operator assignment config authored/,
+    /No operator assignment has been set up/,
     "without a chosen or resolved park, the frontend must not invent a park",
   );
 });

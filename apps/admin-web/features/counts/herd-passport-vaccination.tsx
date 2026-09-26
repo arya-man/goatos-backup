@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { Syringe } from "lucide-react";
 import { Tag } from "@/components/ui-primitives";
@@ -144,30 +149,30 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
         </p>
       ) : (
         <div style={{ overflowX: "auto", marginBottom: 12 }} tabIndex={0} role="group" aria-label={copy(pageContract, "vaccination.open_due_rows")}>
-          <table>
-            <thead>
-              <tr>
+          <Table>
+            <TableHead>
+              <TableRow>
                 {openCols.slice(0, 4).map((label) => (
-                  <th key={label}>{label}</th>
+                  <TableCell component="th" key={label}>{label}</TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {open.slice(0, DRAWER_ROW_LIMIT).map((due) => {
                 const rowId = realWorkflowRowId(due.workflow_row_id);
                 return (
-                  <tr key={due.obligation_id}>
-                    <td>
+                  <TableRow key={due.obligation_id}>
+                    <TableCell>
                       <div>{fmtDate(due.scheduled_for || due.due_at)}</div>
                       {due.scheduled_for && due.clinical_due_at && !sameDate(due.scheduled_for, due.clinical_due_at) ? (
                         <div className="muted small">{copy(pageContract, "vaccination.clinical_due")} {fmtDate(due.clinical_due_at)}</div>
                       ) : null}
-                    </td>
-                    <td>{vaccineRowLabel(due)}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{vaccineRowLabel(due)}</TableCell>
+                    <TableCell>
                       <Tag tone={obligationTone(due.status)}>{due.status}</Tag>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {rowId ? (
                         <Link href={workflowHref(rowId)} className="lk small">
                           {copy(pageContract, "action.open_workflow")} →
@@ -175,12 +180,12 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
                       ) : (
                         <span className="gid" title={due.obligation_id}>{sourceObligationLabel(due.obligation_id)}</span>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {open.length > DRAWER_ROW_LIMIT ? (
             <p className="muted small" style={{ margin: "6px 0 0" }}>
               +{open.length - DRAWER_ROW_LIMIT} more
@@ -198,30 +203,30 @@ export async function HerdPassportVaccinationBlock({ goatId }: { goatId: string 
         </p>
       ) : (
         <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.vaccination.aria")}>
-          <table>
-            <thead>
-              <tr>
+          <Table>
+            <TableHead>
+              <TableRow>
                 {historyCols.slice(0, 5).map((label) => (
-                  <th key={label}>{label}</th>
+                  <TableCell component="th" key={label}>{label}</TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {history.slice(0, DRAWER_ROW_LIMIT).map((h) => (
-                <tr key={h.completion_id}>
-                  <td>{fmtDate(h.administered_at)}</td>
-                  <td>{vaccineRowLabel(h)}</td>
-                  <td>
+                <TableRow key={h.completion_id}>
+                  <TableCell>{fmtDate(h.administered_at)}</TableCell>
+                  <TableCell>{vaccineRowLabel(h)}</TableCell>
+                  <TableCell>
                     <Tag tone={historyTone(h.status)}>{h.status}</Tag>
-                  </td>
-                  <td>{proofLabel(h, pageContract)}</td>
-                  <td>
+                  </TableCell>
+                  <TableCell>{proofLabel(h, pageContract)}</TableCell>
+                  <TableCell>
                     <span className="gid" title={h.obligation_id}>{sourceObligationLabel(h.obligation_id)}</span>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {history.length > DRAWER_ROW_LIMIT ? (
             <p className="muted small" style={{ margin: "6px 0 0" }}>
               +{history.length - DRAWER_ROW_LIMIT} more

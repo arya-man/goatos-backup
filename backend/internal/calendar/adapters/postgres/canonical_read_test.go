@@ -61,6 +61,18 @@ func TestCalendarCanonicalListKeysetPlanUsesIndex(t *testing.T) {
 	if strings.Contains(fullPlan, "Seq Scan on obligation_instances") {
 		t.Fatalf("canonical read sequentially scans obligation_instances (the keyset driver):\n%s", fullPlan)
 	}
+	// (1b) STALE-STATS GUARD. The batch branch must keep its two materialized CTEs: batch_scope
+	// (the bounded candidate-batch set) and batch_obligations (the ONE join that touches
+	// obligation_instances for batched work). Without them the planner, on a database with stale or
+	// absent statistics, nested the whole obligation_instances scan under a loop over batches x
+	// protocol rules (>60 s on the staging clone, 2026-09-19). A materialized CTE shows up as its own
+	// "CTE <name>" subplan; if someone drops AS MATERIALIZED, inlines the CTE or renames it, the
+	// subplan disappears and this fails before the regression can reach a latency gate.
+	for _, cte := range []string{"CTE batch_scope", "CTE batch_obligations"} {
+		if !strings.Contains(fullPlan, cte) {
+			t.Fatalf("canonical read lost its materialized %q subplan (stale-stats guard for the batch branch):\n%s", cte, fullPlan)
+		}
+	}
 
 	// (2) The obligation_instances tenant+due-window keyset page — the scan that bounds the whole
 	// canonical read — must be index-backed. Prove it in isolation with enable_seqscan off so the

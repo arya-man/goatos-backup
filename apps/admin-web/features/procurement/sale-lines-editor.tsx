@@ -6,6 +6,8 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesProductOption } from "@/lib/api/procurement";
 import { newSaleLine, saleLinesTotals, saleLineValue, type SaleLineDraft } from "./sale-lines";
 import { countKey, inr, MAX_SALE_LINES, num } from "./sales-format";
+import { FormSelect } from "./form-select";
+import { listOptions } from "./option-utils";
 
 /**
  * The "What was sold" block of the record-sale drawer (maintainer decision 2026-09-12): one card
@@ -57,7 +59,6 @@ export function SaleLinesEditor({
   return (
     <div className="sales-lines">
       <div className="dgrp">{copy(pageContract, "section.lines.title")}</div>
-      <div className="note">{copy(pageContract, "hint.lines")}</div>
 
       {lines.map((line, index) => {
         const product = products.find((candidate) => candidate.name === line.product);
@@ -94,8 +95,8 @@ export function SaleLinesEditor({
             </div>
             <div className="sales-line-grid">
               <div className="fld">
-                <label htmlFor={`s-line-product-${line.id}`}>{copy(pageContract, "field.product_type")}</label>
-                <select
+                <FormSelect
+                  label={copy(pageContract, "field.product_type")}
                   id={`s-line-product-${line.id}`}
                   name={`line_product_type_${index}`}
                   required
@@ -103,9 +104,9 @@ export function SaleLinesEditor({
                   // Changing the product empties everything it decided the shape of: a breed from
                   // the previous product's vocabulary, or kilograms typed against a feed, must
                   // never ride along into the submit of a different product.
-                  onChange={(event) =>
+                  onValueChange={(next) =>
                     update(line.id, {
-                      product: event.target.value,
+                      product: next,
                       breed: "",
                       quantity: "",
                       rate: "",
@@ -114,37 +115,22 @@ export function SaleLinesEditor({
                       value: "",
                     })
                   }
-                >
-                  {products.map((option) => (
-                    <option key={option.code} value={option.name}>
-                      {option.name}
-                    </option>
-                  ))}
-                </select>
+                  options={listOptions(products, (option) => option.name, (option) => option.name)}
+                />
               </div>
               {variantIsItself ? (
                 <input type="hidden" name={`line_breed_${index}`} value={line.product} />
               ) : (
               <div className="fld">
-                <label htmlFor={`s-line-breed-${line.id}`}>
-                  {copy(pageContract, isFeed ? "field.line_feed_item" : "field.breed")}
-                </label>
-                <select
+                <FormSelect
+                  label={copy(pageContract, isFeed ? "field.line_feed_item" : "field.breed")}
                   id={`s-line-breed-${line.id}`}
                   name={`line_breed_${index}`}
                   required
                   value={variantValid ? line.breed : ""}
-                  onChange={(event) => update(line.id, { breed: event.target.value })}
-                >
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {variantOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(next) => update(line.id, { breed: next })}
+                  options={listOptions(variantOptions, (option) => option, (option) => option, "—")}
+                />
               </div>
               )}
             </div>

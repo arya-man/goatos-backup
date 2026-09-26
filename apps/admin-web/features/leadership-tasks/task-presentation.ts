@@ -25,11 +25,15 @@ export function statusTone(status: TaskRow["status"]): Tone {
 }
 
 /** The avatar's letters. The NAME is always rendered beside it; this is never the only label. */
-export function initials(name: string): string {
-  return name
+export function initials(name: string | null | undefined): string {
+  // A task whose assignee/raiser has no name on record still gets a readable avatar ("?"),
+  // never an empty circle.
+  const letters = (name ?? "")
     .split(/\s+/)
+    .filter(Boolean)
     .map((part) => part.charAt(0))
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  return letters || "?";
 }

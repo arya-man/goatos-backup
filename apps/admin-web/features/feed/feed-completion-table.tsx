@@ -1,4 +1,10 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { byParkThen, parksInArrivalOrder } from "@/lib/park-order";
+import { StatStrip } from "@/components/minimal/widgets/stat-strip";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -28,6 +34,10 @@ type CompletionTotals = FeedAnalyticsExecutionResponse["completion_totals"];
 /** The four backend buckets, in worst-first order — the reader is here for what went wrong. */
 const STATUS_ORDER = ["not_started", "rework", "pending_verification", "completed"] as const;
 type CompletionStatus = (typeof STATUS_ORDER)[number];
+
+function nfCount(n: number): string {
+  return n.toLocaleString("en-IN");
+}
 
 const STATUS_TONE: Record<CompletionStatus, Tone> = {
   not_started: "dng",
@@ -198,47 +208,47 @@ export function FeedCompletionTable({
         <p className="muted small">{fc("completion.empty")}</p>
       ) : (
         <>
-          <div className="grid g4 kpi-row" style={{ marginBottom: 10 }}>
-            {STATUS_ORDER.map((status) => {
-              const count = totalFor(totals, status);
-              return (
-                <div className="kpi card" key={status}>
-                  <div
-                    className="val"
-                    style={status === "not_started" && count > 0 ? { color: "var(--danger)" } : undefined}
-                  >
-                    {count}
-                  </div>
-                  <div className="dl">{fc(STATUS_KPI_KEY[status])}</div>
-                  <div className="muted small">{fc("completion.kpi.sub")}</div>
-                </div>
-              );
-            })}
+          <div className="card" style={{ marginBottom: 10 }}>
+            <StatStrip
+              ariaLabel={fc("completion.title")}
+              cells={STATUS_ORDER.map((status) => {
+                const count = totalFor(totals, status);
+                const all = STATUS_ORDER.reduce((sum, key) => sum + totalFor(totals, key), 0);
+                return {
+                  key: status,
+                  tone: status === "not_started" && count > 0 ? ("error" as const) : status === "not_started" ? ("neutral" as const) : ("primary" as const),
+                  label: fc(STATUS_KPI_KEY[status]),
+                  value: nfCount(count),
+                  meta: fc("completion.kpi.sub"),
+                  share: all > 0 ? (count / all) * 100 : 0,
+                };
+              })}
+            />
           </div>
 
           {rows.length === 0 ? (
             <p className="muted small">{fc("completion.empty_filtered")}</p>
           ) : (
             <div className="tablewrap" tabIndex={0} role="group" aria-label={fc("completion.title")}>
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>{fc("col.completion.park")}</th>
-                    <th>{fc("col.completion.pen")}</th>
-                    <th>{fc("col.completion.session")}</th>
-                    <th>{fc("col.completion.status")}</th>
-                    <th>{fc("col.completion.videos")}</th>
-                    <th>{fc("col.completion.who")}</th>
-                    <th>{fc("col.completion.when")}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="tbl">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{fc("col.completion.park")}</TableCell>
+                    <TableCell component="th">{fc("col.completion.pen")}</TableCell>
+                    <TableCell component="th">{fc("col.completion.session")}</TableCell>
+                    <TableCell component="th">{fc("col.completion.status")}</TableCell>
+                    <TableCell component="th">{fc("col.completion.videos")}</TableCell>
+                    <TableCell component="th">{fc("col.completion.who")}</TableCell>
+                    <TableCell component="th">{fc("col.completion.when")}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {rows.map((row) => {
                     const id = rowId(row);
                     return (
-                      <tr key={id}>
-                        <td>{row.park_label}</td>
-                        <td>
+                      <TableRow key={id}>
+                        <TableCell>{row.park_label}</TableCell>
+                        <TableCell>
                           {/* Backend-composed location, rendered verbatim: "Godel 1 - Part 3". */}
                           <LocalOverlayLink
                             href={hrefWith(basePath, searchParams, { fdc_row: id })}
@@ -247,21 +257,21 @@ export function FeedCompletionTable({
                           >
                             {row.operational_location_display}
                           </LocalOverlayLink>
-                        </td>
-                        <td>{row.session_label || String(row.session_no)}</td>
-                        <td>
+                        </TableCell>
+                        <TableCell>{row.session_label || String(row.session_no)}</TableCell>
+                        <TableCell>
                           <Tag tone={isStatus(row.status) ? STATUS_TONE[row.status] : "mut"}>
                             {isStatus(row.status) ? fc(STATUS_COPY_KEY[row.status]) : row.status}
                           </Tag>
-                        </td>
-                        <td>{fc("completion.videos.count").replace("{done}", String(recordedCount(row)))}</td>
-                        <td>{row.submitted_by_name || fc("drawer.completion.none")}</td>
-                        <td>{istInstant(row.submitted_at) ?? fc("drawer.completion.none")}</td>
-                      </tr>
+                        </TableCell>
+                        <TableCell>{fc("completion.videos.count").replace("{done}", String(recordedCount(row)))}</TableCell>
+                        <TableCell>{row.submitted_by_name || fc("drawer.completion.none")}</TableCell>
+                        <TableCell>{istInstant(row.submitted_at) ?? fc("drawer.completion.none")}</TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
 
@@ -357,35 +367,35 @@ function drawerItem(row: CompletionRow, pageContract: AdminUiPageContract): Loca
           {fc("drawer.completion.videos")}
         </h4>
         <div className="tablewrap">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>{fc("drawer.completion.col.video")}</th>
-                <th>{fc("drawer.completion.col.when")}</th>
-                <th>{fc("drawer.completion.col.who")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="tbl">
+            <TableHead>
+              <TableRow>
+                <TableCell component="th">{fc("drawer.completion.col.video")}</TableCell>
+                <TableCell component="th">{fc("drawer.completion.col.when")}</TableCell>
+                <TableCell component="th">{fc("drawer.completion.col.who")}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {row.proofs.map((slot: ProofSlot) => {
                 const uploaded = istInstant(slot.uploaded_at);
                 return (
-                  <tr key={slot.field_key}>
-                    <td>{fc(SLOT_COPY_KEY[slot.field_key] ?? "completion.slot.missing")}</td>
-                    <td>
+                  <TableRow key={slot.field_key}>
+                    <TableCell>{fc(SLOT_COPY_KEY[slot.field_key] ?? "completion.slot.missing")}</TableCell>
+                    <TableCell>
                       {slot.proof_ref === "" ? (
                         <Tag tone="dng">{fc("completion.slot.missing")}</Tag>
                       ) : (
                         uploaded ?? dash
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {slot.proof_ref === "" ? dash : slot.uploaded_by_name || fc("completion.slot.no_name")}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </>
     ),

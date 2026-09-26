@@ -77,6 +77,9 @@ type Context struct {
 	MessageKey string
 	Target     string
 	Status     string
+	// LoadID is the procurement load the notification is about (loadwise producers stamp
+	// context.load_id), so the web can deep-link "Open load". Empty otherwise.
+	LoadID string
 }
 
 // Notification is one row of the caller's own feed.
@@ -101,6 +104,10 @@ type Page struct {
 	// UnreadCount is the caller's unread total across their entire feed, never the page's
 	// own unread rows: the bell badge must not shrink just because the reader paged.
 	UnreadCount int
+	// TotalCount is the caller's WHOLE-FEED notification total (read and unread, at the same
+	// dedupe grain as Items), so the All/Archived chips can show real numbers. Computed in the
+	// same scan as UnreadCount, never page-local.
+	TotalCount int
 	// NextCursor is empty on the last page.
 	NextCursor string
 }

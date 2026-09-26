@@ -126,7 +126,10 @@ test("sales chart bar labels stay whole and suffix-free", () => {
   // The monthly and price-band charts live on Sold since the 2026-09-11 split.
   const salesSource = readFileSync(new URL("./sales-sold.tsx", import.meta.url), "utf8");
   const loadwiseSource = readFileSync(new URL("./loadwise-section.tsx", import.meta.url), "utf8");
-  assert.match(salesSource, /display: numCompactWhole\(month\.manure_kg\)/);
+  // Monthly charts are the kit column chart: the figure is the HOVER card's, formatted whole and
+  // suffix-free by the same formatters (no static value label on the bar).
+  assert.match(salesSource, /segments: \[month\.manure_kg\],[\s\S]*formatValue=\{numCompactWhole\}/);
+  assert.match(salesSource, /segments: \[monthlyRevenueTotal\(month\)\],[\s\S]*formatValue=\{inrCompact\}/);
   assert.match(salesSource, /display: inr\(Math\.round\(band\.avg_price_per_kg\)\)/);
   assert.doesNotMatch(salesSource, /display: `\$\{inr\(Math\.round\(band\.avg_price_per_kg\)\)\} \$\{perKgSuffix\}`/);
   assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.avg_purchase_weight_kg == null \? null : numCompactWhole\(load\.avg_purchase_weight_kg\)/s);

@@ -1621,7 +1621,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// existing behavior/tests) while otelhttp mints an independent root span -
 	// see docs/observability/OBSERVABILITY_DESIGN.md section 2.2 and the
 	// SetupTelemetry doc comment for why this ordering was chosen.
-	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(mux))
+	// Compress sits INSIDE RequestContext so the access log records the response as the
+	// handler produced it, and OUTSIDE the mux so every JSON route (the 1 MB admin-web
+	// bootstrap first of all) is gzipped for clients that accept it; see httpmiddleware.Compress.
+	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(httpmiddleware.Compress(mux)))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
@@ -1736,7 +1739,10 @@ func newEventsAPI(
 	)
 	mux := http.NewServeMux()
 	mux.Handle("/", authz.Wrap(instrumentedProtectedMux))
-	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(mux))
+	// Compress sits INSIDE RequestContext so the access log records the response as the
+	// handler produced it, and OUTSIDE the mux so every JSON route (the 1 MB admin-web
+	// bootstrap first of all) is gzipped for clients that accept it; see httpmiddleware.Compress.
+	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(httpmiddleware.Compress(mux)))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,

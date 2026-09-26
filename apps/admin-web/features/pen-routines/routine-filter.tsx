@@ -3,6 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+
 /**
  * The Today table's routine filter: a URL-driven select (`?routine=`), the same shape as the
  * page's park segments -- a real navigation, no local filtering of the rows on screen, because
@@ -26,24 +29,25 @@ export function RoutineFilter({
   const [optimistic, setOptimistic] = useState<string | null>(null);
   const selected = pending && optimistic !== null ? optimistic : current;
   return (
-    <select
-      aria-label={label}
-      value={selected}
-      aria-busy={pending}
-      onChange={(event) => {
-        const value = event.target.value;
+    <TextField
+      select
+      label={label}
+      value={options.some((option) => option.value === selected) ? selected : ""}
+      onChange={({ target: { value } }) => {
         const href = hrefFor[value];
         if (!href) return;
         setOptimistic(value);
         startTransition(() => router.push(href, { scroll: false }));
       }}
+      sx={{ minWidth: { xs: 0, sm: 180 }, flexShrink: 0, maxWidth: 1 }}
+      slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
     >
-      <option value="">{label}</option>
+      <MenuItem value="">{label}</MenuItem>
       {options.map((option) => (
-        <option key={option.value} value={option.value}>
+        <MenuItem key={option.value} value={option.value}>
           {option.label}
-        </option>
+        </MenuItem>
       ))}
-    </select>
+    </TextField>
   );
 }

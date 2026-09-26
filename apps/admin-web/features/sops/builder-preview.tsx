@@ -1,5 +1,7 @@
 "use client";
 
+import { Tag } from "@/components/ui-primitives";
+
 import { useMemo, useState } from "react";
 import { Camera, Check, ChevronDown, RotateCcw, ScanLine, Video, X } from "lucide-react";
 import { fieldConfigKind, type BuilderCondition, type BuilderStep } from "./sop-derive";
@@ -104,8 +106,8 @@ export function BuilderPreview({ pc, steps }: { pc: AdminUiPageContract; steps: 
               <div className="pvlabel">
                 <span className="pvnum">{num}</span>
                 <span className="pvq">{step.label.trim() || `${copy(pc, "builder.question_label")} ${num}`}</span>
-                {step.required ? <span className="tag t-warn">{copy(pc, "builder.preview.required_badge")}</span> : null}
-                {step.visibleWhen ? <span className="tag t-info">{copy(pc, "builder.preview.conditional_badge")}</span> : null}
+                {step.required ? <Tag tone="warn">{copy(pc, "builder.preview.required_badge")}</Tag> : null}
+                {step.visibleWhen ? <Tag tone="info">{copy(pc, "builder.preview.conditional_badge")}</Tag> : null}
               </div>
               {step.helpText.trim() ? <div className="muted small pvhelp">{step.helpText}</div> : null}
 

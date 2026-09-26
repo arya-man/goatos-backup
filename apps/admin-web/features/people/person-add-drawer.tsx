@@ -2,13 +2,18 @@
 
 import { UserPlus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
 
 import {
   currentHistoryEntryIsLocalOverlay,
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
+import MenuItem from "@mui/material/MenuItem";
 import { Tag, type Tone } from "@/components/ui-primitives";
+import { PeopleFormSelect } from "./people-form-select";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkforcePeopleCatalog, WorkforcePerson } from "@/lib/api/server";
 import { changePersonStatusAction, createPersonAction, setPersonTitleAction } from "./people-actions";
@@ -72,10 +77,12 @@ export function PersonAddDrawer({
   // Role selection drives whether the park select is REQUIRED — the option's
   // title carries the grant's scope shape ("park"/"tenant") from the backend.
   const [role, setRole] = useState("");
+  const [parkID, setParkID] = useState("");
   // Two-step confirm for the activate/deactivate action: the first click arms
   // the confirm block, the second submits. Reset whenever the selection moves.
   const [confirmingStatus, setConfirmingStatus] = useState(false);
   const parkRequired = roles.find((r) => r.key === role)?.title === "park";
+  const incomplete = !role || (parkRequired && !parkID);
 
   // Reset the armed confirm during render when the selection moves (never in an
   // effect — same pattern as the vendor drawer's mode reset).
@@ -95,6 +102,7 @@ export function PersonAddDrawer({
 
   const close = useCallback(() => {
     setRole("");
+    setParkID("");
     setConfirmingStatus(false);
     if (currentHistoryEntryIsLocalOverlay()) {
       window.history.back();
@@ -155,15 +163,14 @@ export function PersonAddDrawer({
             ) : null}
           </div>
           <span className="sp" style={{ flex: 1 }} />
-          <button
+          <IconButton
             ref={closeButtonRef}
             type="button"
-            className="iconbtn"
             aria-label={copy(pageContract, "action.close")}
             onClick={close}
           >
             <X className="ic" aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
 
         {isAdding ? (
@@ -175,90 +182,99 @@ export function PersonAddDrawer({
               <div className="note">{copy(pageContract, "required.hint")}</div>
 
               <div className="fld">
-                <label htmlFor="p-first_name">{field("first_name")}</label>
-                <input id="p-first_name" name="first_name" required maxLength={120} />
-              </div>
-              <div className="fld">
-                <label htmlFor="p-last_name">
-                  {field("last_name")} <span className="muted small">({field("optional")})</span>
-                </label>
-                <input id="p-last_name" name="last_name" maxLength={120} />
-              </div>
-              <div className="fld">
-                <label htmlFor="p-email">{field("email")}</label>
-                <input id="p-email" name="email" type="email" required maxLength={254} />
-              </div>
-              <div className="fld">
-                <label htmlFor="p-role">{field("role")}</label>
-                <select
-                  id="p-role"
-                  name="role"
+                <TextField
+                  fullWidth
+                  id="p-first_name"
+                  name="first_name"
+                  label={field("first_name")}
                   required
+                  slotProps={{ htmlInput: { maxLength: 120 }, inputLabel: { shrink: true } }}
+                />
+              </div>
+              <div className="fld">
+                <TextField
+                  fullWidth
+                  id="p-last_name"
+                  name="last_name"
+                  label={`${field("last_name")} (${field("optional")})`}
+                  slotProps={{ htmlInput: { maxLength: 120 }, inputLabel: { shrink: true } }}
+                />
+              </div>
+              <div className="fld">
+                <TextField
+                  fullWidth
+                  id="p-email"
+                  name="email"
+                  type="email"
+                  label={field("email")}
+                  required
+                  slotProps={{ htmlInput: { maxLength: 254 }, inputLabel: { shrink: true } }}
+                />
+              </div>
+              {/* Role and Park were `required` native selects. A hidden input is barred from
+                  constraint validation, so the required-ness now lives on the Save button
+                  (`incomplete` below) -- the same "you cannot submit without these" rule, stated
+                  in the control the operator actually clicks. The server action is unchanged. */}
+              <div className="fld">
+                <input type="hidden" name="role" value={role} />
+                <TextField
+                  select
+                  label={field("role")}
                   value={role}
                   onChange={(event) => setRole(event.target.value)}
+                  sx={{ flexShrink: 0, maxWidth: 1 }}
+                  slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
                 >
-                  <option value="" disabled>
-                    —
-                  </option>
+                  <MenuItem value="">—</MenuItem>
                   {roles.map((option) => (
-                    <option key={option.key} value={option.key}>
+                    <MenuItem key={option.key} value={option.key}>
                       {option.label}
-                    </option>
+                    </MenuItem>
                   ))}
-                </select>
+                </TextField>
               </div>
               <div className="fld">
-                <label htmlFor="p-park">
-                  {field("park")}{" "}
-                  {!parkRequired ? <span className="muted small">({field("optional")})</span> : null}
-                </label>
-                <select id="p-park" name="park_id" required={parkRequired} defaultValue="">
-                  <option value="" disabled={parkRequired}>
-                    —
-                  </option>
+                <input type="hidden" name="park_id" value={parkID} />
+                <TextField
+                  select
+                  label={parkRequired ? field("park") : `${field("park")} (${field("optional")})`}
+                  value={parkID}
+                  onChange={(event) => setParkID(event.target.value)}
+                  sx={{ flexShrink: 0, maxWidth: 1 }}
+                  slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+                >
+                  <MenuItem value="">—</MenuItem>
                   {catalog.parks.map((park) => (
-                    <option key={park.id} value={park.id}>
+                    <MenuItem key={park.id} value={park.id}>
                       {park.label}
-                    </option>
+                    </MenuItem>
                   ))}
-                </select>
+                </TextField>
               </div>
-              <div className="fld">
-                <label htmlFor="p-department">
-                  {field("department")} <span className="muted small">({field("optional")})</span>
-                </label>
-                <select id="p-department" name="department_id" defaultValue="">
-                  <option value="">—</option>
-                  {catalog.departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="fld">
-                <label htmlFor="p-designation">
-                  {field("designation")} <span className="muted small">({field("optional")})</span>
-                </label>
-                <select id="p-designation" name="designation_grade" defaultValue="">
-                  <option value="">—</option>
-                  {grades.map((grade) => (
-                    <option key={grade.key} value={grade.key}>
-                      {grade.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <PeopleFormSelect
+                className="fld"
+                name="department_id"
+                minWidth={0}
+                label={`${field("department")} (${field("optional")})`}
+                options={[{ value: "", label: "—" }, ...catalog.departments.map((department) => ({ value: department.id, label: department.label }))]}
+              />
+              <PeopleFormSelect
+                className="fld"
+                name="designation_grade"
+                minWidth={0}
+                label={`${field("designation")} (${field("optional")})`}
+                options={[{ value: "", label: "—" }, ...grades.map((grade) => ({ value: grade.key, label: grade.label }))]}
+              />
 
               <div className="note">{copy(pageContract, "password.note")}</div>
             </div>
             <div className="df">
-              <button type="submit" className="btn primary">
+              <Button type="submit" variant="contained" disabled={incomplete}>
                 {copy(pageContract, "action.save")}
-              </button>
-              <button type="button" className="btn" onClick={close}>
+              </Button>
+              <Button type="button" variant="outlined" onClick={close}>
                 {copy(pageContract, "action.cancel")}
-              </button>
+              </Button>
             </div>
           </form>
         ) : person ? (
@@ -286,19 +302,19 @@ export function PersonAddDrawer({
                 <input type="hidden" name="return_to" value={listHref} />
                 <input type="hidden" name="person_id" value={person.person_id} />
                 <input type="hidden" name="row_version" value={person.row_version} />
-                <label htmlFor="p-title">{copy(pageContract, "column.title")}</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <input
+                  <TextField
                     id="p-title"
                     name="title"
-                    maxLength={80}
+                    label={copy(pageContract, "column.title")}
                     defaultValue={person.title ?? ""}
                     placeholder={copy(pageContract, "title.placeholder")}
-                    style={{ flex: 1 }}
+                    slotProps={{ htmlInput: { maxLength: 80 }, inputLabel: { shrink: true } }}
+                    sx={{ flex: 1 }}
                   />
-                  <button type="submit" className="btn">
+                  <Button type="submit" variant="outlined">
                     {copy(pageContract, "action.save_title")}
-                  </button>
+                  </Button>
                 </div>
                 <div className="muted small" style={{ marginTop: 4 }}>
                   {copy(pageContract, "title.hint")}
@@ -362,26 +378,23 @@ export function PersonAddDrawer({
                   <input type="hidden" name="return_to" value={listHref} />
                   <input type="hidden" name="person_id" value={person.person_id} />
                   <input type="hidden" name="row_version" value={person.row_version} />
-                  <input
-                    type="hidden"
-                    name="target_status"
-                    value={person.status === "active" ? "deactivate" : "activate"}
-                  />
-                  <button type="submit" className={person.status === "active" ? "btn dng" : "btn primary"}>
+                  <input type="hidden" name="target_status" value={person.status === "active" ? "deactivate" : "activate"} />
+                  <Button type="submit" variant="contained" color={person.status === "active" ? "error" : "primary"}>
                     {copy(pageContract, "action.confirm")}
-                  </button>
-                  <button type="button" className="btn" onClick={() => setConfirmingStatus(false)}>
+                  </Button>
+                  <Button type="button" variant="outlined" onClick={() => setConfirmingStatus(false)}>
                     {copy(pageContract, "action.cancel")}
-                  </button>
+                  </Button>
                 </form>
               ) : (
-                <button
+                <Button
                   type="button"
-                  className={person.status === "active" ? "btn dng" : "btn primary"}
+                  variant="contained"
+                  color={person.status === "active" ? "error" : "primary"}
                   onClick={() => setConfirmingStatus(true)}
                 >
                   {copy(pageContract, person.status === "active" ? "action.deactivate" : "action.activate")}
-                </button>
+                </Button>
               )}
             </div>
           </>

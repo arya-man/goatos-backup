@@ -395,9 +395,23 @@ func roleLenses() []domain.RoleLensContract {
 
 func chromeCopy() map[string]string {
 	return map[string]string{
-		"route.unavailable":             "Route unavailable",
-		"nav.expand":                    "Expand navigation",
-		"nav.collapse":                  "Collapse navigation",
+		"route.unavailable": "Route unavailable",
+		"nav.expand":        "Expand navigation",
+		"nav.collapse":      "Collapse navigation",
+		// Shell-level states rendered without a page contract (2026-09-19).
+		"not_found.eyebrow":             "Mesha",
+		"not_found.title":               "Page not found",
+		"not_found.body":                "This page does not exist or has moved.",
+		"not_found.crumb_home":          "Home",
+		"not_found.crumb":               "Not found",
+		"not_found.home":                "Go to home",
+		"a11y.breadcrumb":               "Breadcrumb",
+		"a11y.select_all_rows":          "Select all rows on this page",
+		"a11y.search":                   "Search",
+		"a11y.clear_search":             "Clear search",
+		"confirm.title":                 "Please confirm",
+		"confirm.ok":                    "Confirm",
+		"confirm.cancel":                "Cancel",
 		"nav.back":                      "Back",
 		"nav.back_to_prefix":            "Back to",
 		"scope.no_parks_for_park_scope": "No parks available for park-wise scope",
@@ -1728,7 +1742,7 @@ func weighingWeightsCopy() map[string]string {
 		"growth_director.fair_fight.rank_label":    "Position in cohort",
 		"growth_director.slow.title":               "Slow-growth watchlist",
 		"growth_director.slow.caption":             "Groups of kids that are not gaining — worth a walk to the pen. Same breed and sex grouped together, so it points at a pen problem, not one sick kid.",
-		"growth_director.slow.note":                "Target ~200 g/day is the ops rule of thumb, not a contract. Changes within 3% of body weight count as gut fill; losses over 0.30 kg/day are treated as bad scans, not slow growth. Small groups stay hidden until 3 kids have a second weigh.",
+		"growth_director.slow.note":                "Target ~200 g/day is the ops rule of thumb, not a hard rule. Changes within 3% of body weight count as gut fill; losses over 0.30 kg/day are treated as bad scans, not slow growth. Small groups stay hidden until 3 kids have a second weigh.",
 		"growth_director.slow.col.shed":            "Pen",
 		"growth_director.slow.col.breed":           "Breed",
 		"growth_director.slow.col.sex":             "Sex",
@@ -1806,7 +1820,7 @@ func pageCopy(id string) map[string]string {
 		"action.success_tag":           "done",
 		"action.success_message":       "Action completed.",
 		"action.failed_message":        "Action could not be completed.",
-		"action.error_backend":         "Backend rejected the action. Review the form values or reload the page.",
+		"action.error_backend":         "This could not be saved. Check the form values or reload the page and try again.",
 		"action.error_form":            "Check the form values and try again.",
 		"action.failed_title":          "Action failed",
 		"pager.rows":                   "Rows",
@@ -1824,7 +1838,7 @@ func pageCopy(id string) map[string]string {
 		"filter.available_columns":     "Available columns",
 		"filter.facets_label":          "Facets",
 		"filter.column_separator":      " · ",
-		"filter.apply_immediately":     "Filters apply to the visible table immediately; deeper backend filters stay on the linked source surface.",
+		"filter.apply_immediately":     "Filters apply to the visible table immediately; the full filter set is on the linked source page.",
 		"filter.apply_filters":         "Apply filters",
 		"filter.close_label":           "Close filters",
 		"filter.no_visible_match":      "No rows match the current filters.",
@@ -1936,7 +1950,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.owner_label":                  "Owner / operator",
 			"filter.work_state.title":             "Work state",
 			"filter.severity.title":               "Severity",
-			"filter.scope_note":                   "Park and date scope come from the top bar. Work-state and severity apply immediately because those filters are backed by the Action Center API.",
+			"filter.scope_note":                   "Park and date scope come from the top bar. Work-state and severity apply immediately.",
 			"filter.clear_all":                    "Clear all",
 			"filter.clear_local":                  "Clear local",
 			"filter.apply_local":                  "Apply local",
@@ -2023,6 +2037,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"reason.no_recorded_dose_verify":      "No recorded dose to verify yet.",
 			"reason.no_recorded_dose_rework":      "No recorded dose to rework yet.",
 			"reason.no_sop_review_handle":         "SOP review handle required before verification can be reviewed.",
+			"label.row_actions":                   "Row actions",
 			"label.unassigned":                    "unassigned",
 			"label.owner_chain_assign":            "operator: assign",
 			"label.vaccination":                   "Vaccination",
@@ -2046,7 +2061,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.ledger.note":            "business view: what was expected, what happened, owner, next action",
 			"filter.drawer.title":            "Filter — Protocol Adherence",
 			"filter.search_reason":           "Search expected, actual, operator assignment, next action, evidence...",
-			"filter.reason":                  "Use severity and gap-state chips for backend filters; drawer search narrows visible rows.",
+			"filter.reason":                  "Use the severity and gap-state chips to narrow the list; drawer search narrows visible rows.",
 			"filter.search_label":            "Search adherence rows",
 			"filter.rows_suffix":             "expected, actual, gap, operator assignment, evidence",
 			"filter.click_row":               "click a row → adherence record",
@@ -2168,7 +2183,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"stage.verify.short":               "Verify",
 			"stage.close.short":                "Close",
 			"label.chain_note_selected":        "Selected workflow for",
-			"label.chain_note_selected_tail":   "Use the drawer/action page for the next backend-gated action; the full drilldown is available when you need the complete audit chain.",
+			"label.chain_note_selected_tail":   "Use the drawer/action page for the next action; the full drilldown is available when you need the complete audit chain.",
 			"label.chain_note_open":            "Open a workflow on the left to see its live chain-reaction map for that drive.",
 			"label.chain_note_empty":           "No live instances to map yet — this is the template every vaccination workflow follows.",
 			"note.engine":                      "Every node maps to the engine: event → obligation → SOP task → verification → closure. The SOP is the step template; the engine gates each next step on verified proof. See live work in the",
@@ -2187,6 +2202,8 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "workflow-record":
 		return map[string]string{
+			// Humanised drilldown failure (2026-09-19).
+			"error.row_unavailable":            "This workflow record could not be opened.",
 			"crumb":                            "Workflows · Vaccination",
 			"fallback.title":                   "Workflow drilldown",
 			"section.chain.title":              "Workflow chain",
@@ -2224,6 +2241,11 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "leave":
 		return map[string]string{
+			// Page header crumbs and the reject dialog (2026-09-19).
+			"crumb":                     "Operations",
+			"crumb.section":             "People",
+			"reject.title":              "Reject leave",
+			"reject.body":               "Tell the person why. They will see this.",
 			"queue.title":               "Waiting for you",
 			"queue.empty":               "No leave requests are waiting for your decision.",
 			"list.title":                "All leave requests",
@@ -2256,6 +2278,27 @@ func pageSpecificCopy(id string) map[string]string {
 			"config.saved":              "Saved.",
 			"config.disabled_no_access": "Setting who approves leave is limited to the CEO.",
 			"list.disabled_no_access":   "Seeing every leave request is limited to the CEO and HR.",
+			// Leave toolbar (kit filter bar + table footer, 2026-09-19): filters, chips, toolbar
+			// actions and the pager. Declared here, never as local fallbacks in admin-web.
+			"action.apply_search":       "Apply search",
+			"action.clear_all":          "Clear all",
+			"action.columns":            "Columns",
+			"action.export":             "Export",
+			"action.more":               "More actions",
+			"action.next":               "Next page",
+			"action.previous":           "Previous page",
+			"action.remove_filter":      "Remove filter",
+			"action.reset_filters":      "Reset filters",
+			"filter.dates":              "Leave dates",
+			"filter.dates_from":         "From",
+			"filter.dates_to":           "To",
+			"filter.designation":        "Designation",
+			"filter.designation.all":    "All designations",
+			"filter.park":               "Park",
+			"filter.park.all":           "All parks",
+			"filter.search_label":       "Search by person",
+			"filter.search_placeholder": "Search by person",
+			"label.rows_per_page":       "Rows",
 		}
 	case "alerts":
 		return map[string]string{
@@ -2568,6 +2611,27 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "pen-routines":
 		return map[string]string{
+			// Routines desk chrome (kit filter bar, toolbar, footer, themed date picker) — 2026-09-19.
+			"date.prev_month":                 "Previous month",
+			"action.apply_search":             "Apply search",
+			"action.clear_all":                "Clear all",
+			"action.columns":                  "Columns",
+			"action.dense":                    "Dense",
+			"action.export":                   "Export",
+			"action.more":                     "More actions",
+			"action.remove_filter":            "Remove filter",
+			"action.reset_filters":            "Reset filters",
+			"filter.assignee":                 "Assignee",
+			"filter.assignee.all":             "All assignees",
+			"filter.role":                     "Role",
+			"filter.role.all":                 "All roles",
+			"filter.routine.all":              "All routines",
+			"filter.search_label":             "Search routines",
+			"filter.state":                    "State",
+			"filter.state.all":                "All states",
+			"filter.status":                   "Status",
+			"filter.status.all":               "All statuses",
+			"label.rows_per_page":             "Rows",
 			"crumb":                           "Routines",
 			"table.routines.title":            "Routines",
 			"table.tasks.title":               "Today",
@@ -2943,7 +3007,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"pagination.previous":          "Previous page",
 			"pagination.position":          "Page",
 			"state.queue_unavailable":      "Actions are unavailable",
-			"state.queue_unavailable_body": "The verification queue could not be loaded from the backend.",
+			"state.queue_unavailable_body": "The verification queue could not be loaded. Reload the page to try again.",
 			// Deliberately no longer names an "action type": that filter was removed on
 			// 2026-08-07, so mentioning it sent the verifier hunting for a control that is not on
 			// the screen. The module now comes from the left nav.
@@ -3251,8 +3315,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.nudge_replay":                     "Nudge already sent (replay).",
 			"action.snooze_recorded":                  "Event snoozed.",
 			"action.snooze_replay":                    "Snooze already recorded (replay).",
-			"error.presentation_missing":              "Calendar response missing backend presentation contract.",
-			"reason.calendar_subworkstream_disabled":  "Sub-workstream filters need backend event_type support; this row is the module context.",
+			"error.presentation_missing":              "The calendar could not be shown. Reload the page to try again.",
+			"reason.calendar_subworkstream_disabled":  "Sub-workstream filters are not available yet; this row is the module context.",
 			"calendar.rhythm.title.all":               "Vaccination operating rhythm",
 			"calendar.rhythm.note.all":                "from the SOP handbook - all owner lanes",
 			"calendar.rhythm.title.pc":                "Preventive Care (PC) vaccination rhythm",
@@ -3260,7 +3324,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.rhythm.title.inventory":         "Vaccination stock readiness rhythm",
 			"calendar.rhythm.note.inventory":          "stock, FEFO, cold-chain, reorder, GRN",
 			"calendar.rhythm.title.admin_data_ops":    "Vaccination governance rhythm",
-			"calendar.rhythm.note.admin_data_ops":     "activation review, config approval, import, audit follow-up",
+			"calendar.rhythm.note.admin_data_ops":     "activation review, setup approval, import, audit follow-up",
 			"calendar.week.title.all":                 "This week",
 			"calendar.week.scope_only.all":            "",
 			"calendar.week.title.pc":                  "Preventive Care (PC) this week",
@@ -3278,7 +3342,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.week.rest_day":                  "Rest day · no drives",
 			"calendar.week.reminder_title":            "Reminders & escalation",
 			"calendar.week.reminder_empty":            "No reminders scheduled in this scope.",
-			"calendar.week.reminder_note":             "Reminders, nudges, snoozes, and escalations are durable backend kernel state. Open an event to act.",
+			"calendar.week.reminder_note":             "Reminders, nudges, snoozes, and escalations are saved with the event. Open an event to act.",
 			// DRV-005: reminder_rail is a backend-computed, whole-filtered-week summary (see
 			// domain.CalendarReminderRail / calendarReminderRailSQL) so this empty_message is the
 			// backend-owned copy for reminder_rail.empty_message, never a frontend-invented fallback.
@@ -3341,8 +3405,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.picker.other_hint":         "other due work",
 			"calendar.picker.history_hint":       "completed history",
 			"calendar.new_event.label":           "New event",
-			"calendar.new_event.disabled_reason": "Calendar events are generated from configured obligations. Create a campaign/catch-up via Config or the Preventive Care (PC) catch-up path - not a free-form Calendar entry.",
-			"calendar.empty.ok":                  "Configured vaccination drives, boosters, proof/rework, and stock gates will appear here when due.",
+			"calendar.new_event.disabled_reason": "Calendar events are generated from the vaccination plan. Create a campaign/catch-up via the plan or the Preventive Care (PC) catch-up path - not a free-form Calendar entry.",
+			"calendar.empty.ok":                  "Planned vaccination drives, boosters, proof/rework, and stock gates will appear here when due.",
 			"calendar.empty.error":               "Calendar is unavailable - resolve the error above, then reload.",
 			"calendar.empty.primary":             "Config",
 			"calendar.empty.secondary":           "Vaccination",
@@ -3356,7 +3420,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.reminder":                     "Reminder",
 			"label.channel":                      "Channel",
 			"label.escalates":                    "Escalates",
-			"label.not_configured":               "not configured",
+			"label.not_configured":               "not set",
 			"label.channels":                     "Channels",
 			"label.scope":                        "Scope",
 			"label.park_shed":                    "Park · Pen",
@@ -3442,7 +3506,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.attention.label":                   "Attention",
 			"kpi.attention.detail":                  "extra attempts · idle operator",
 			"kpi.live_tick":                         "▲ live",
-			"kpi.cross_filter_disabled":             "Tile cross-filtering is not wired. Use the filter bar above to narrow every section at once.",
+			"kpi.cross_filter_disabled":             "Tiles do not filter the page. Use the filter bar above to narrow every section at once.",
 			"kpi.truncated_note":                    "This drive day exceeds the tracker's per-read row budget. The totals above are still exact — they are aggregated over the whole day, not over the visible rows — but the tables below list only part of it. Narrow by park, pen or vaccine to see every row.",
 			"live.badge_live":                       "LIVE",
 			"live.badge_paused":                     "PAUSED",
@@ -3518,11 +3582,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.attention.truncated_note":      "Attention rows are capped server-side; the count above is the full total.",
 			"section.attention.elapsed_suffix":      "min idle",
 			"section.attention.nudge":               "Nudge dispatch is not recorded against drive operators.",
-			"section.attention.escalation":          "An idle-escalation deadline is not configured for drive operators.",
-			"section.attention.pace":                "Pen close time is not configured, so a finish estimate cannot be computed.",
+			"section.attention.escalation":          "An idle-escalation deadline has not been set for drive operators.",
+			"section.attention.pace":                "Pen close time has not been set, so a finish estimate cannot be computed.",
 			"section.attention.nudge_label":         "Nudge — not recorded",
-			"section.attention.escalate_label":      "Escalation — not configured",
-			"section.attention.pace_label":          "Finish estimate — not configured",
+			"section.attention.escalate_label":      "Escalation — not set",
+			"section.attention.pace_label":          "Finish estimate — not set",
 			"section.verification.title":            "Verification queue",
 			"section.verification.badge":            "post-drive",
 			"section.verification.awaiting":         "Awaiting verifier review (all dates)",
@@ -3557,6 +3621,12 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "vaccination":
 		return map[string]string{
+			// Kit table chrome on the shed board and pagers (2026-09-19).
+			"pager.dense":                                 "Dense",
+			"action.copy_id":                              "Copy pen ID",
+			"action.select_all":                           "Select all",
+			"label.actions":                               "Actions",
+			"label.row_actions":                           "Row actions",
 			"crumb":                                       "Preventive Care (PC) · operations",
 			"section.drive_flow.aria":                     "How a vaccination drive runs",
 			"section.supplier_warmup.aria":                "Supplier warmup loads",
@@ -3846,9 +3916,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"schedule.move.title":                              "Move vaccine date",
 			"schedule.move.close":                              "Close move date",
 			"schedule.move.recorded_title":                     "Move recorded",
-			"schedule.move.recorded_body":                      "The backend accepted the vaccine date override. The planner will recalculate assignments from the new vaccine date.",
+			"schedule.move.recorded_body":                      "The vaccine date override was saved. The planner will recalculate assignments from the new vaccine date.",
 			"schedule.move.error_title":                        "Move failed",
-			"schedule.move.error_body":                         "The backend rejected the date move. Check the vaccine/date and try again.",
+			"schedule.move.error_body":                         "The date move could not be saved. Check the vaccine/date and try again.",
 			"schedule.move.missing_title":                      "Pick a date",
 			"schedule.move.missing_body":                       "Choose the vaccine and new drive date before moving.",
 			"schedule.move.date_placeholder":                   "Select date",
@@ -3936,8 +4006,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"form.proof_upload.label":                          "Upload vaccination proof",
 			"form.proof_upload.select":                         "Select a video or image file",
 			"form.proof_upload.disabled":                       "Proof upload disabled",
-			"form.proof_upload.reason":                         "No SOP task on this pen-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced.",
-			"form.completion.reason":                           "No single recorded completion on this rollup (completionId null) — verify a recorded dose from the verification queue.",
+			"form.proof_upload.reason":                         "No SOP task on this pen-drive rollup yet — proof is uploaded per goat in the operator SOP task once the drive is assigned/advanced.",
+			"form.completion.reason":                           "No single recorded completion on this rollup — verify a recorded dose from the verification queue.",
 			"form.actions.unavailable":                         "This row is a generated rollup. Dose recording and proof happen on the operator SOP task; open the Action Center or workflow record for the live handle.",
 			"form.reject.placeholder":                          "Reason for rejection (required)",
 			"error.reject_reason":                              "Rejection reason required — provide a reason for requiring rework.",
@@ -3983,15 +4053,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.vaccination.eyebrow":                       "VACCINE",
 			"drawer.import.title":                              "Import vaccination sheet",
 			"drawer.import.subtitle":                           "Where vaccination drives and dose history actually enter Mesha.",
-			"drawer.import.note":                               "There is no in-app bulk drive importer on this surface — admin-web never writes vaccination state directly. Drives are generated from config, and supplier dose history is imported under Source Entry. Use the real paths below; nothing on this drawer submits.",
+			"drawer.import.note":                               "There is no in-app bulk drive importer on this page — drives are generated from the vaccination plan, and supplier dose history is imported under Source Entry. Use the real paths below; nothing on this drawer submits.",
 			"drawer.import.new_drives_title":                   "New drives",
 			"drawer.import.new_drives_body":                    "Publish a protocol rule in Config → obligations generate → the sweeper batches a pen drive.",
 			"drawer.import.hf_history_title":                   "Supplier / HF dose history",
 			"drawer.import.hf_history_body":                    "Import & review Holding-Farm vaccination evidence under Procurement · Source Entry.",
 			"drawer.import.columns_label":                      "Drive sheet columns (reference)",
-			"drawer.import.reference_only":                     "Reference only. The committed importer/contract is not built for this slice, so no upload control is shown rather than a fake preview-to-submit.",
+			"drawer.import.reference_only":                     "Reference only. Bulk import is not available on this page, so no upload control is shown.",
 			"drawer.new_drive.title":                           "New vaccination drive",
-			"drawer.new_drive.subtitle":                        "A drive is generated from config — it is not hand-created here.",
+			"drawer.new_drive.subtitle":                        "A drive is generated from the vaccination plan — it is not hand-created here.",
 			"drawer.new_drive.note":                            "A vaccination drive is the downstream effect of a published protocol rule, not a form on this screen. This drawer explains the mechanic and links to the real authoring surface; nothing here submits or is saved.",
 			"drawer.new_drive.aria":                            "How a new drive is generated",
 			"drawer.new_drive.publish_rule_title":              "1 · Publish rule",
@@ -4125,8 +4195,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"form.proof_upload.label":        "Upload vaccination proof",
 			"form.proof_upload.select":       "Select a video or image file",
 			"form.proof_upload.disabled":     "Proof upload disabled",
-			"form.proof_upload.reason":       "No SOP task on this pen-drive rollup yet (sopTaskId null) — proof is uploaded per-goat in the operator SOP task once the drive is assigned/advanced.",
-			"form.completion.reason":         "No single recorded completion on this rollup (completionId null) — verify a recorded dose from the verification queue.",
+			"form.proof_upload.reason":       "No SOP task on this pen-drive rollup yet — proof is uploaded per goat in the operator SOP task once the drive is assigned/advanced.",
+			"form.completion.reason":         "No single recorded completion on this rollup — verify a recorded dose from the verification queue.",
 			"form.actions.unavailable":       "This row is a generated rollup. Dose recording and proof happen on the operator SOP task; open the Action Center or workflow record for the live handle.",
 			"form.reject.placeholder":        "Reason for rejection (required)",
 			"error.reject_reason":            "Rejection reason required — provide a reason for requiring rework.",
@@ -4458,7 +4528,18 @@ func pageSpecificCopy(id string) map[string]string {
 		// Order matters only for the four keys both maps carry (crumb, value.none, action.close,
 		// error.load); the board's wording wins, and error.load is then replaced below because
 		// neither page's sentence names this one.
-		out := map[string]string{}
+		out := map[string]string{
+			// Kit table toolbar/footer labels (2026-09-19).
+			"action.dense":     "Dense",
+			"pager.rows":       "Rows",
+			"action.clear_all": "Clear all",
+			"action.columns":   "Columns",
+			"action.export":    "Export",
+			"action.more":      "More",
+			// Themed date picker on the sales record drawer (2026-09-19).
+			"date.prev_month": "Previous month",
+			"date.next_month": "Next month",
+			"date.invalid":    "Pick a valid date."}
 		for key, value := range pageSpecificCopy("sales-loads") {
 			out[key] = value
 		}
@@ -4578,7 +4659,18 @@ func pageSpecificCopy(id string) map[string]string {
 		// Backend-owned copy for the CEO/CXO's animal purchase review. Farm language only; the
 		// client renders these verbatim.
 		return map[string]string{
-			"crumb": "Procurement",
+			// Kit table toolbar/footer labels (2026-09-19).
+			"action.dense":     "Dense",
+			"pager.rows":       "Rows",
+			"action.clear_all": "Clear all",
+			"action.columns":   "Columns",
+			"action.export":    "Export",
+			"action.more":      "More",
+			// Themed date picker on the filter bar (2026-09-19).
+			"date.prev_month": "Previous month",
+			"date.next_month": "Next month",
+			"date.invalid":    "Pick a valid date.",
+			"crumb":           "Procurement",
 
 			"summary.loads":          "Loads",
 			"summary.pending":        "Awaiting decision",
@@ -4604,6 +4696,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.decision":        "Show",
 			"filter.recorded_from":   "Recorded from",
 			"filter.recorded_to":     "to",
+			"filter.from":            "From",
+			"pager.rows_per_page":    "Rows per page",
+			"pager.more_than":        "more than",
 			"filter.apply":           "Apply",
 			"filter.clear":           "Clear",
 			"filter.pending":         "Awaiting decision",
@@ -4670,7 +4765,14 @@ func pageSpecificCopy(id string) map[string]string {
 		// the golden rule it must not hardcode a label, an empty state or a disabled reason of its
 		// own. Farm language only -- no table, column or contract vocabulary reaches the screen.
 		return map[string]string{
-			"crumb": "Procurement",
+			// Kit table toolbar/footer labels (2026-09-19).
+			"action.dense":     "Dense",
+			"pager.rows":       "Rows",
+			"action.clear_all": "Clear all",
+			"action.columns":   "Columns",
+			"action.export":    "Export",
+			"action.more":      "More",
+			"crumb":            "Procurement",
 
 			// Header figures. Whole-filter aggregates, labelled as what they count.
 			// Both forms are published so the renderer picks one by the number rather than
@@ -4817,7 +4919,14 @@ func pageSpecificCopy(id string) map[string]string {
 		// renders these verbatim: every heading, filter label, column, KPI and empty state. Farm
 		// language only; PEN, never shed, on screen.
 		return map[string]string{
-			"crumb": "Sales",
+			// Kit table toolbar/footer labels (2026-09-19).
+			"action.dense":     "Dense",
+			"pager.rows":       "Rows",
+			"action.clear_all": "Clear all",
+			"action.columns":   "Columns",
+			"action.export":    "Export",
+			"action.more":      "More",
+			"crumb":            "Sales",
 			// The farm chips, shared with every Sales read page (one park filter, 2026-09-25). They
 			// replace the filter bar's own park select, which wrote the same `park` a second way.
 			"filter.farm": "Farm",
@@ -4904,7 +5013,14 @@ func pageSpecificCopy(id string) map[string]string {
 		// language only. The farm toggle and pager words are the sales pages' own, copied here
 		// by key so the toggle reads identically on every Sales page.
 		return map[string]string{
-			"crumb": "Sales",
+			// Kit table toolbar/footer labels (2026-09-19).
+			"action.dense":     "Dense",
+			"pager.rows":       "Rows",
+			"action.clear_all": "Clear all",
+			"action.columns":   "Columns",
+			"action.export":    "Export",
+			"action.more":      "More",
+			"crumb":            "Sales",
 			// Screen-reader suffix of a sortable header: the order covers every buyer, not the page.
 			"table.sort_all": "sort all rows",
 
@@ -4980,7 +5096,10 @@ func pageSpecificCopy(id string) map[string]string {
 		// they are the farm's own config, served on each row as the words the price was recorded
 		// against.
 		return map[string]string{
-			"crumb": "Sales",
+			// Market call-time fields (2026-09-19).
+			"market.call_time.hour":   "Hour",
+			"market.call_time.minute": "Minute",
+			"crumb":                   "Sales",
 
 			"kpi.cities.label":      "Cities phoned",
 			"kpi.cities.hint":       "with a price in this window",
@@ -5023,7 +5142,18 @@ func pageSpecificCopy(id string) map[string]string {
 		// that moved pages cannot come back with a different name. The "sales" map below is that
 		// source; no page is served under that id any more. Only the load-error sentence is
 		// each page's own.
-		out := map[string]string{}
+		out := map[string]string{
+			// Kit table toolbar/footer labels (2026-09-19).
+			"action.dense":     "Dense",
+			"pager.rows":       "Rows",
+			"action.clear_all": "Clear all",
+			"action.columns":   "Columns",
+			"action.export":    "Export",
+			"action.more":      "More",
+			// Themed date picker on the sales record drawer (2026-09-19).
+			"date.prev_month": "Previous month",
+			"date.next_month": "Next month",
+			"date.invalid":    "Pick a valid date."}
 		for key, value := range pageSpecificCopy("sales") {
 			out[key] = value
 		}
@@ -5419,6 +5549,12 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "source-entry":
 		return map[string]string{
+			// Themed date picker + time fields on the load forms (2026-09-19).
+			"date.prev_month":                "Previous month",
+			"date.next_month":                "Next month",
+			"date.invalid":                   "Pick a valid date.",
+			"field.hour":                     "Hour",
+			"field.minute":                   "Minute",
 			"crumb":                          "Procurement",
 			"section.loads.title":            "Supplier warmup — Holding Farm",
 			"section.loads.aria":             "Source-entry loads",
@@ -5456,7 +5592,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.arrival_review_recorded": "Arrival review recorded.",
 			"action.accept_intake_recorded":  "Accepted intake recorded; Preventive Care (PC) handoffs created when eligible.",
 			"empty.loads":                    "No source-entry loads for this scope.",
-			"empty.loads_detail":             "No source-entry loads for this scope. Loads appear here once a purchase/source load is created in the procurement backend.",
+			"empty.loads_detail":             "No source-entry loads for this scope. Loads appear here once a purchase/source load is created.",
 			"empty.loads_filtered_prefix":    "No loads in",
 			"empty.loads_filtered_suffix":    "for this scope.",
 			"empty.unavailable":              "Loads are unavailable until the procurement service responds.",
@@ -5498,7 +5634,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.goats.boundary_note":       "Only accepted intake animals link out to Preventive Care (PC). Rejected-before-truck, arrival-rejected, dead/sold/lost, and unresolved animals stay procurement history and are never shown as Preventive Care (PC) vaccination work.",
 			"section.pre_dispatch.title":        "Pre-dispatch decisions",
 			"section.pre_dispatch.note":         "accept · reject before truck · defer · block — audited",
-			"section.pre_dispatch.empty":        "No pre-dispatch decisions recorded yet. A decision (accept for truck, reject before truck, defer, or block) is recorded through the procurement backend with reason, proof, and audited actor/time.",
+			"section.pre_dispatch.empty":        "No pre-dispatch decisions recorded yet. A decision (accept for truck, reject before truck, defer, or block) is recorded with reason, proof, and the person and time.",
 			"section.arrival_gate.title":        "Arrival gate",
 			"section.arrival_gate.note":         "distinct checkpoint — reconciled before accepted herd intake",
 			"section.arrival_gate.empty":        "No arrival review yet. The arrival gate reconciles expected vs arrived animals (matched / missing / extra, health and weight flags) at the park before any animal becomes accepted herd truth.",
@@ -5633,7 +5769,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.arrival_review_recorded":    "Arrival review recorded.",
 			"action.accept_intake_recorded":     "Accepted intake recorded; Preventive Care (PC) handoffs created when eligible.",
 			"action.upload_media_disabled":      "Upload media proof (not in this slice)",
-			"reason.media_disabled":             "Media capture is not built in this frontend slice — enter a known proof ref id, or upload via the field app / proof API",
+			"reason.media_disabled":             "Media capture is not available here — enter a known proof ref id, or upload via the field app",
 			"empty.add_goats_first":             "Add source animals first. HF dose evidence must be keyed to an animal in this procurement load.",
 			"empty.hf_evidence":                 "No HF vaccination evidence imported for this load yet.",
 			"empty.pre_dispatch":                "No animals currently awaiting source health or a pre-dispatch decision. Accepted-intake and terminal animals are not shown here.",
@@ -5686,7 +5822,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.live.last_seen":     "Last seen",
 			"table.live.status":        "Status",
 			"empty.no_packets":         "No gateway packets yet",
-			"empty.no_packets_detail":  "No BLE gateway has posted a packet for this tenant. Check that the gateway is powered, on the site network, and configured with the ingest URL and credentials.",
+			"empty.no_packets_detail":  "No BLE gateway has posted a packet for this farm. Check that the gateway is powered, on the site network, and set up with the ingest address and credentials.",
 			"empty.no_mapped":          "No mapped smart tags",
 			"empty.no_mapped_detail":   "No active identifier is marked smart-tag capable yet. Map a tag in Tag Mapping and its signals resolve to an animal here.",
 			"empty.no_alerts":          "No signal alerts",
@@ -6056,7 +6192,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// 2026-09-07), read by the Comparison tab and the FCR tab alike, so the hard-coded
 			// 430/450 copy is gone. The note is composed from the served prices.
 			"note.load.rates.prefix":  "Assumed live-weight rates:",
-			"note.load.rates.missing": "No assumed live-weight sale price is configured, so stock cannot be valued.",
+			"note.load.rates.missing": "No assumed live-weight sale price is set, so stock cannot be valued.",
 			// Since 2026-09-24 a price may be set per stage and sex; the note names the all-stages
 			// defaults and says how many stage prices sit on top of them.
 			"note.load.rates.overrides": "set by stage and sex",
@@ -6092,7 +6228,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"fcr.price.per_kg":  "per kg live weight",
 			"fcr.price.set":     "set",
 			"fcr.price.by":      "by",
-			"fcr.price.missing": "No assumed sale price is configured for this species, so its gain is not valued.",
+			"fcr.price.missing": "No assumed sale price is set for this species, so its gain is not valued.",
 			"fcr.price.shared":  "The Comparison tab values stock at the same prices.",
 			// Maintainer decision 2026-09-24: prices may also be set per stage and sex.
 			"fcr.price.overrides": "set by stage and sex; each animal is valued at its own",
@@ -6459,7 +6595,9 @@ func pageSpecificCopy(id string) map[string]string {
 	// -------------------------------------------------------------------------------
 	case "health-analytics":
 		return map[string]string{
-			"crumb": "Health",
+			// Page-head action to the protocol catalogue (2026-09-19).
+			"action.manage_protocols": "Health setup",
+			"crumb":                   "Health",
 			"banner.basis": "Deaths recorded now use the disease named on the death form. " +
 				"Older deaths are attributed only when the animal had an open case at the time; every other death is counted as not attributed and is never given a disease.",
 
@@ -6851,7 +6989,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.inactive_session":            "—",
 			"empty.preparation":                 "No K1, K2 or K3 kids are currently present in this scope.",
 			"state.preparation_unavailable":     "Milk preparation direction unavailable",
-			"state.preparation_contract_absent": "Milk preparation page contract unavailable",
+			"state.preparation_contract_absent": "The milk preparation page could not be shown. Reload the page to try again.",
 			"state.try_again":                   "Try again. If the problem continues, contact Data Ops.",
 			"pager.page":                        "Page",
 			"pager.rows":                        "Rows",
@@ -7208,7 +7346,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.all_option":              "All",
 			"filter.apply":                   "Apply filters",
 			"filter.clear_all":               "Clear filters",
-			"filter.bar_aria":                "Filter leftover feed",
+			"filter.bar_aria":                "Filter feed analytics",
 			"filter.scope_readonly":          "Park scope is set in the top bar.",
 			"col.wastage.park":               "Farm",
 			"col.wastage.pen":                "Pen",
@@ -7253,7 +7391,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.sheds.label":            "Pens fed",
 			"kpi.sheds.sub":              "Pens with at least one generated row",
 			"kpi.blocked.label":          "Blocked rows",
-			"kpi.blocked.sub":            "Pens that cannot be fed until a ration is configured",
+			"kpi.blocked.sub":            "Pens that cannot be fed until a ration is set",
 			"table.direction.aria":       "Feed direction rows",
 			"table.direction.noun":       "row",
 			"table.direction.total_row":  "Total (rows)",
@@ -7281,17 +7419,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.current_count_note":   "Animals standing in the pen today, before any approved movement is applied.",
 			"label.pending_delta":        "Pending movement",
 			"label.pending_delta_note":   "Net animals this pen is due to gain or lose from approved-but-unexecuted movements that are feed-effective by the selected day.",
-			"label.blocked":              "Blocked — no ration configured",
-			"label.blocked_note":         "This pen's (ration group, pen tag, feed item) has NO authored rate. That is not a quantity of zero — it means we do not know what to feed these animals, so nothing is planned and this pen will not be fed until a rate is configured in Feed Config. Do not read the blank quantity as 0 kg.",
-			"label.blocked_short":        "No ration configured",
-			"label.configured_zero":      "Configured zero",
-			"label.configured_zero_note": "An authored rate of 0 g/head — correct and deliberate, for example K0 and K1 kids that are on milk and are fed none of this solid item. This pen IS configured; it is simply fed nothing of this item.",
+			"label.blocked":              "Blocked — no ration set",
+			"label.blocked_note":         "This pen's (ration group, pen tag, feed item) has NO authored rate. That is not a quantity of zero — it means we do not know what to feed these animals, so nothing is planned and this pen will not be fed until a rate is set in Feed Setup. Do not read the blank quantity as 0 kg.",
+			"label.blocked_short":        "No ration set",
+			"label.configured_zero":      "Set to zero",
+			"label.configured_zero_note": "An authored rate of 0 g/head — correct and deliberate, for example K0 and K1 kids that are on milk and are fed none of this solid item. This pen IS set up; it is simply fed nothing of this item.",
 			// Configured-zero lines are HIDDEN on this sheet (see feed-quantity-state.ts). This is the
 			// disclosure that keeps the omission honest: a reader who expects RGS Concentrate on a row
 			// and does not find it must be able to tell "authored as 0" from "we dropped it". The
 			// second sentence is the load-bearing half — it promises that a MISSING rate is never
 			// hidden, so an absent line can always be read as a deliberate zero and never as a gap.
-			"label.zero_items_omitted":           "Items authored at 0 g/head are not listed — those animals are fed none of that item, so there is nothing to weigh out. Items with NO authored rate are never hidden: they always appear as “No ration configured”.",
+			"label.zero_items_omitted":           "Items authored at 0 g/head are not listed — those animals are fed none of that item, so there is nothing to weigh out. Items with NO authored rate are never hidden: they always appear as “No ration set”.",
 			"empty.nothing_to_feed":              "Nothing to feed this session — every item for this pen is authored at 0 g/head.",
 			"label.overdue_shifting":             "Overdue movement",
 			"label.overdue_shifting_note":        "This projected count includes an approved movement that has been standing open since before today’s packing day without the animals physically being moved. A movement counts toward the feed plan from the day it is authorized, so the plan already assumes the animals are here. Execute or cancel the movement — it will keep counting toward this pen every day until you do.",
@@ -7305,10 +7443,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.session_split":                "Session split",
 			"label.session_split_note":           "The day's quantity for this pen is divided across the park's sessions by the authored split; the session splits for a park add up to the whole day.",
 			"label.ok":                           "Planned",
-			"label.ok_note":                      "A rate is configured and a quantity was computed for this row.",
+			"label.ok_note":                      "A rate is set and a quantity was computed for this row.",
 			"empty.direction":                    "No feed rows generated for this day and scope yet.",
 			"empty.direction_filtered":           "No feed rows match these filters.",
-			"empty.blocked":                      "No blocked rows — every pen in scope has a configured ration.",
+			"empty.blocked":                      "No blocked rows — every pen in scope has a ration set.",
 			"state.direction_unavailable":        "Feed direction unavailable",
 			"state.generation_blocked":           "Feed direction could not be generated for this day: the underlying counts projection is carrying unresolved blockers. Resolve them, then regenerate — a partial feed sheet is not published.",
 			"state.generation_pending":           "The counts projection for this day is still being built. Feed rows appear once it settles.",
@@ -7331,11 +7469,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"lifecycle.not_issued.title":     "No sheet issued",
 			"lifecycle.not_issued.body":      "The issue time passed with nothing issued for this feed day. This is a real gap — raise it rather than reading it as nothing to feed.",
 			"lifecycle.preview.title":        "Preview — not issued yet",
-			"lifecycle.preview.body":         "This feed day has not been issued yet, so these rows are GENERATED from the current herd and config — a preview, not a frozen sheet. It will be issued at its scheduled time, shown per workflow below.",
+			"lifecycle.preview.body":         "This feed day has not been issued yet, so these rows are GENERATED from the current herd and feed setup — a preview, not a frozen sheet. It will be issued at its scheduled time, shown per workflow below.",
 			"lifecycle.beyond_horizon.title": "Beyond the projection window",
 			"lifecycle.beyond_horizon.body":  "This feed day is outside the projection window. Feed counts are only meaningful for today (being fed) and tomorrow (being packed now) — beyond tomorrow the counts depend on movements not yet approved, and a past day's herd is not what it is now. No sheet can be generated for this day; open today or tomorrow, or wait for it to enter the window.",
 			"lifecycle.draft.title":          "Draft",
-			"lifecycle.draft.body":           "Live preview computed from the current herd and config — not an issued sheet.",
+			"lifecycle.draft.body":           "Live preview computed from the current herd and feed setup — not an issued sheet.",
 			"lifecycle.workflow.normal":      "Normal",
 			"lifecycle.workflow.experiment":  "Experiment",
 			"lifecycle.state.issued":         "issued",
@@ -7366,7 +7504,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.items.label":         "Feed items",
 			"kpi.items.sub":           "Distinct items in this day's pack",
 			"kpi.blocked.label":       "Blocked pens",
-			"kpi.blocked.sub":         "Pens with nothing to pack because no ration is configured",
+			"kpi.blocked.sub":         "Pens with nothing to pack because no ration is set",
 			"table.packing.aria":      "Feed packing lines",
 			"table.packing.noun":      "line",
 			"table.packing.total_row": "Total (lines)",
@@ -7387,15 +7525,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.kg_noun":              "kg",
 			"label.expected_kg":          "Expected",
 			"label.expected_kg_note":     "The quantity to weigh out for this pen, session and item. Derived from the day's feed direction — it is not entered here.",
-			"label.blocked":              "Blocked — no ration configured",
-			"label.blocked_note":         "Nothing is packed for this pen because its (ration group, pen tag, feed item) has NO authored rate. This is not a pack quantity of zero — the pen will not be fed at all until a rate is configured in Feed Config. Do not substitute a guess.",
-			"label.blocked_short":        "No ration configured",
-			"label.configured_zero":      "Configured zero",
-			"label.configured_zero_note": "An authored rate of 0 g/head — nothing to pack for this item, and that is correct (for example K0 and K1 kids on milk). Distinct from blocked: this pen IS configured.",
+			"label.blocked":              "Blocked — no ration set",
+			"label.blocked_note":         "Nothing is packed for this pen because its (ration group, pen tag, feed item) has NO authored rate. This is not a pack quantity of zero — the pen will not be fed at all until a rate is set in Feed Setup. Do not substitute a guess.",
+			"label.blocked_short":        "No ration set",
+			"label.configured_zero":      "Set to zero",
+			"label.configured_zero_note": "An authored rate of 0 g/head — nothing to pack for this item, and that is correct (for example K0 and K1 kids on milk). Distinct from blocked: this pen IS set up.",
 			// See the twin note on feed-direction. A packer must never be handed a line telling them to
 			// weigh out 0.000 kg, and must equally never have a blocked line quietly disappear — the
 			// second sentence is the promise that makes an absent line safe to interpret.
-			"label.zero_items_omitted":       "Items authored at 0 g/head are not listed — there is nothing to weigh out for them. Items with NO authored rate are never hidden: they always appear as “No ration configured”.",
+			"label.zero_items_omitted":       "Items authored at 0 g/head are not listed — there is nothing to weigh out for them. Items with NO authored rate are never hidden: they always appear as “No ration set”.",
 			"empty.nothing_to_feed":          "Nothing to pack for this session — every item for this pen is authored at 0 g/head.",
 			"label.overdue_shifting":         "Overdue movement",
 			"label.overdue_shifting_note":    "This pen's pack quantity is based on a projected count that includes an approved movement standing open since before today’s packing day without the animals being moved. A movement counts toward the feed plan from the day it is authorized. Pack to the plan, and get the movement executed or cancelled.",
@@ -7407,7 +7545,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.session_noun":             "session",
 			"label.ok":                       "Ready to pack",
 			"label.ok_note":                  "A quantity was computed and this line can be weighed out.",
-			"empty.blocked":                  "No blocked pens — every pen in scope has a configured ration.",
+			"empty.blocked":                  "No blocked pens — every pen in scope has a ration set.",
 			"empty.packing":                  "Nothing to pack for this day and scope yet.",
 			"empty.packing_filtered":         "No packing lines match these filters.",
 			"state.packing_unavailable":      "Packing worklist unavailable",
@@ -7429,11 +7567,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"lifecycle.not_issued.title":     "No sheet issued",
 			"lifecycle.not_issued.body":      "The issue time passed with nothing issued for this feed day. This is a real gap — raise it rather than reading it as nothing to pack.",
 			"lifecycle.preview.title":        "Preview — not issued yet",
-			"lifecycle.preview.body":         "This feed day has not been issued yet, so this worklist is GENERATED from the current herd and config — a preview, not a frozen sheet. It will be issued at its scheduled time, shown per workflow below.",
+			"lifecycle.preview.body":         "This feed day has not been issued yet, so this worklist is GENERATED from the current herd and feed setup — a preview, not a frozen sheet. It will be issued at its scheduled time, shown per workflow below.",
 			"lifecycle.beyond_horizon.title": "Beyond the projection window",
 			"lifecycle.beyond_horizon.body":  "This feed day is outside the projection window. Feed counts are only meaningful for today (being fed) and tomorrow (being packed now) — beyond tomorrow the counts depend on movements not yet approved, and a past day's herd is not what it is now. No worklist can be generated for this day; open today or tomorrow, or wait for it to enter the window.",
 			"lifecycle.draft.title":          "Draft",
-			"lifecycle.draft.body":           "Live preview computed from the current herd and config — not an issued sheet.",
+			"lifecycle.draft.body":           "Live preview computed from the current herd and feed setup — not an issued sheet.",
 			"lifecycle.workflow.normal":      "Normal",
 			"lifecycle.workflow.experiment":  "Experiment",
 			"lifecycle.state.issued":         "issued",
@@ -7529,6 +7667,7 @@ func pageSpecificCopy(id string) map[string]string {
 
 			"pager.next":      "Next",
 			"pager.restart":   "Back to start",
+			"pager.rows":      "Rows",
 			"pager.rows_note": "Server-paginated. This screen shows one page of the rulebook, never a running total.",
 
 			"empty.catalog": "No treatment protocols are authored yet.",
@@ -7987,17 +8126,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.scope_readonly":          "Park scope is set in the top bar.",
 			"label.grams_noun":               "g/head/day",
 			"label.kg_noun":                  "kg",
-			"label.configured_zero":          "Configured zero",
+			"label.configured_zero":          "Set to zero",
 			"label.configured_zero_note":     "0 g/head is a real authored rate, not a missing one. K0 and K1 kids are on milk and are correctly fed 0 g of every solid item. Saving 0 configures the combination; clearing the field does not.",
-			"label.blocked":                  "Not configured",
+			"label.blocked":                  "Not set",
 			"label.blocked_note":             "No rate has ever been authored for this ration group, pen tag and feed item. Any pen that resolves to it is BLOCKED and will not be fed — it is not fed zero. Author a rate (including an explicit 0 if the animals should get none of this item) to unblock it.",
-			"label.blocked_short":            "No ration configured",
+			"label.blocked_short":            "No ration set",
 			"label.effective_open":           "In force",
 			"label.effective_open_note":      "No end date — this is the rate currently being applied.",
 			"label.effective_closed":         "Superseded",
 			"label.effective_closed_note":    "Closed by a later edit. Kept so past feed sheets remain explainable; it is no longer applied.",
 			"label.kid_group_note":           "Kids resolve to a single ration group by age band and their breed is deliberately ignored, so one kid rate covers every breed.",
-			"label.park_scoped_note":         "Rates are authored per park. A rate configured for one park is never applied to another.",
+			"label.park_scoped_note":         "Rates are authored per park. A rate set for one park is never applied to another.",
 			"label.workflow_normal":          "Per-head (normal)",
 			"label.workflow_normal_note":     "Pens fed from this grid: quantity = projected head count × grams per head × feed factor.",
 			"label.workflow_experiment":      "Experiment (hand-entered)",
@@ -8047,6 +8186,10 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "herd-register":
 		return map[string]string{
+			// Themed date pickers on the register / reproductive forms (2026-09-19).
+			"date.prev_month":                          "Previous month",
+			"date.next_month":                          "Next month",
+			"date.invalid":                             "Pick a valid date.",
 			"crumb":                                    "Counts",
 			"section.herd.title":                       "Herd",
 			"section.herd.aria":                        "Herd register",
@@ -8098,7 +8241,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.goat_registered_ineligible":        "Herd animal registered; no vaccination obligations generated because the animal is ineligible by published rules.",
 			"action.goat_registered_no_generation":     "Herd animal registered; no vaccination generation applicable.",
 			"action.shed_registered":                   "Vaccination pen registered; it is now available for goat registration.",
-			"reason.report_pending":                    "No herd report API exists in this slice. New report stays disabled.",
+			"reason.report_pending":                    "Herd reports are not available yet. New report stays disabled.",
 			"action.edit_reproductive":                 "Edit",
 			"action.save_reproductive":                 "Save status",
 			"action.reproductive_updated":              "Reproductive status updated; vaccination rechecks queued where applicable.",
@@ -8112,7 +8255,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"option.select_reproductive_status":        "Select status",
 			"placeholder.reproductive_reason":          "e.g. ultrasound-confirmed pregnant on 12/06/2026",
 			"note.reproductive_dates_optional":         "Breeding and last-delivery dates are optional pregnancy-timing facts; leave blank to keep the stored value.",
-			"reason.reproductive_unavailable":          "Reproductive status options are not configured for this tenant yet. Seed reproductive status definitions before editing.",
+			"reason.reproductive_unavailable":          "Reproductive status options are not available for this farm yet. Add reproductive status definitions before editing.",
 			"drawer.shed_register.title":               "Register pen",
 			"drawer.shed_register.subtitle":            "Creates one active vaccination-usable pen under a real park.",
 			"drawer.register.title":                    "Register animal",
@@ -8126,13 +8269,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.animal_identifier_1":                "Tag 1",
 			"label.animal_identifier_2":                "Tag 2",
 			"alert.locations.title":                    "Locations unavailable",
-			"alert.locations.body":                     "Animal creation needs a real park and vaccination-usable pen from the locations master. Configure locations (or check the backend) before registering — no animal is created without a valid park/pen.",
+			"alert.locations.body":                     "Animal creation needs a real park and vaccination-usable pen from the locations master. Set up locations before registering — no animal is created without a valid park/pen.",
 			"alert.shed_locations.body":                "Pen creation needs a real active park from the locations master. Configure or seed parks before adding vaccination pens.",
 			"alert.stages.title":                       "Animal stages unavailable",
 			"alert.stages.body":                        "A vaccination trigger needs a real active animal stage from animal_stage_lookup. Seed or restore stages before registering animals.",
 			"empty.herd":                               "No herd animals for this scope yet. Use Register animal or Import sheet to add the first animals — each valid row generates vaccination obligations.",
 			"empty.herd_filtered":                      "No herd animals match these filters for this scope.",
-			"empty.unavailable":                        "Herd is unavailable until the goats read API responds.",
+			"empty.unavailable":                        "The herd could not be loaded. Reload the page to try again.",
 			"field.animal_identifier_1":                "Tag 1",
 			"field.animal_identifier_2":                "Tag 2",
 			"field.species":                            "Species",
@@ -8184,7 +8327,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"option.select_sex":                        "Select sex",
 			"option.select_origin":                     "Select origin",
 			"note.identifier_required":                 "Tag 1 is required now; Tag 2 is optional until double tagging is live. Tag values are never reused, even after death, sale, transfer, tag loss, or tag breakage.",
-			"note.media_capture":                       "Media capture is not in this slice. Provenance is recorded as a source-record evidence ref; photo upload happens via the field app / proof API.",
+			"note.media_capture":                       "Media capture is not available here. Provenance is recorded as a source-record evidence ref; photo upload happens via the field app.",
 			"note.shed_create":                         "The pen is created active, usable for counts, vaccination, and SOP execution, and not usable for feed/holding/quarantine/ICU in this vaccination-only entry path.",
 			"note.shed_bulk_template":                  "Each row needs Park plus Pen name. Park may be an active park id, code, or name. Imported pens are created active and vaccination-usable; bad rows return per-row errors below.",
 			"note.bulk_template":                       "Each row needs Tag 1, Species, Park, Pen, DOB, Sex, Origin, and Entry date. Tag 2 is optional until double tagging is live. Bad rows return per-row errors below; they are never silently dropped.",
@@ -8196,16 +8339,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.kids":                               "Kids",
 			"label.untagged_kids":                      "Untagged kids",
 			"label.total_records":                      "Total records",
-			"label.seeded_goat_rows":                   "seeded goat rows",
+			"label.seeded_goat_rows":                   "animals ever recorded",
 			"label.dead":                               "Dead",
 			"label.sold":                               "Sold",
 			"label.culled":                             "Culled",
-			"label.terminal_rows":                      "terminal rows",
-			"label.live_scoped_register":               "live scoped register",
+			"label.terminal_rows":                      "left the herd",
+			"label.live_scoped_register":               "in the herd now",
 			"label.stage_shed_inferred":                "age band / stage",
 			"label.invalid_id_rows":                    "invalid ID rows",
 			"label.first_live_rows_prefix":             "first",
-			"label.live_rows":                          "live rows",
+			"label.live_rows":                          "in the herd now",
 			"label.all_parks":                          "all parks",
 			"label.all_sheds":                          "all pens",
 			"label.identifiers":                        "Identifiers",
@@ -8233,6 +8376,8 @@ func pageSpecificCopy(id string) map[string]string {
 	case "audit-log":
 		return map[string]string{
 			"crumb":                       "Admin / Data Ops",
+			"filter.all_option":           "All",
+			"filter.bar_aria":             "Filter the audit trail",
 			"section.span.title":          "Span of control",
 			"section.activity.title":      "Activity trail",
 			"section.advanced.title":      "Advanced (raw) filters",
@@ -8294,7 +8439,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"placeholder.uuid":            "uuid",
 			"placeholder.source_entry":    "source_entry",
 			"placeholder.accepted_intake": "accepted_intake",
-			"reason.last_page_disabled":   "Cursor pagination cannot jump to the last page without a backend count cursor.",
+			"reason.last_page_disabled":   "Jumping to the last page is not available; page forward instead.",
 		}
 	case "dlq-center":
 		return map[string]string{
@@ -8327,7 +8472,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.record.eyebrow":         "DLQ",
 			"drawer.record.note":            "At-least-once event delivery is expected. This drawer shows the event, payload, error, retry count, and guarded repair actions.",
 			"empty.events":                  "No outbox messages match this DLQ filter.",
-			"empty.events_unavailable":      "DLQ rows are unavailable until the backend responds.",
+			"empty.events_unavailable":      "DLQ rows could not be loaded. Reload the page to try again.",
 			"error.dlq_unavailable":         "dlq_unavailable",
 			"label.dead_letter_count":       "Dead-letter",
 			"label.failed_count":            "Failed",
@@ -8375,11 +8520,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"capacity.status.capacity_breach":                           "Capacity action",
 			"capacity.field.overflow_policy":                            "Overflow policy",
 			"page.lede":                                                 "What should happen.",
-			"page.lede_detail":                                          "CEO/COO author + publish the business/medical config. Obligations, SOP tasks & adherence gaps all flow from published rules.",
-			"security.warning":                                          "Real business/medical config — not public. Only CEO/COO publish · Directors draft/propose if granted the capability · field / verifier / park never see raw config (they get generated obligations + SOP tasks only).",
+			"page.lede_detail":                                          "CEO/COO author + publish the business/medical rules. Obligations, SOP tasks & adherence gaps all flow from published rules.",
+			"security.warning":                                          "Real business/medical rules — not public. Only CEO/COO publish · Directors draft/propose if granted the capability · field / verifier / park never see the raw rules (they get generated obligations + SOP tasks only).",
 			"section.rules.title":                                       "Protocol rules",
 			"section.rules.aria":                                        "Protocol rules",
-			"section.rules.note":                                        "scoped config list",
+			"section.rules.note":                                        "scoped rule list",
 			"section.process_map.title":                                 "How this rule maps to the process",
 			"drawer.record.aria":                                        "Protocol rule record",
 			"drawer.record.close_label":                                 "Close protocol rule record",
@@ -8412,16 +8557,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.open_adherence":                                     "Protocol Adherence",
 			"empty.rules":                                               "No protocol rules yet — the engine stands up empty. Author one with New draft rule; complete versions can publish and generate obligations.",
 			"empty.rules_search":                                        "No protocol rules match this search.",
-			"error.rules_load":                                          "Could not load protocol rules from the backend. This is a real error, not an empty config — fix the API/connection and reload rather than treating the table as empty.",
-			"error.stages_load":                                         "Could not load animal stages from the backend. This is a real error, not no stages seeded — authoring is blocked until the stage reference read succeeds, so an outage is never mistaken for missing config. Fix the API/connection and reload.",
-			"error.sops_load":                                           "Could not load SOP versions from the backend. This is a real error, not no published SOP version — authoring is blocked until the SOP read succeeds, so an outage is never mistaken for an empty SOP Library. Fix the API/connection and reload.",
+			"error.rules_load":                                          "Protocol rules could not be loaded. This is a real error, not an empty rule set — reload the page rather than treating the table as empty.",
+			"error.stages_load":                                         "Animal stages could not be loaded. This is a real error, not missing stages — authoring is blocked until the stage list loads, so an outage is never mistaken for a missing setup. Reload the page.",
+			"error.sops_load":                                           "SOP versions could not be loaded. This is a real error, not an empty SOP Library — authoring is blocked until the SOP list loads. Reload the page.",
 			"pager.rules_noun":                                          "rules",
 			"process_map.text":                                          "published rule → obligations (per goat / dose) → pen-drive SOP task → proof + verify → adherence gap",
-			"process_map.note":                                          "After publish, every obligation, SOP task, and adherence gap is generated from this config. Review the effect in",
+			"process_map.note":                                          "After publish, every obligation, SOP task, and adherence gap is generated from these rules. Review the effect in",
 			"breadcrumb.config_rule_editor":                             "Config breadcrumb",
 			"modal.rule_editor.aria":                                    "Protocol rule editor",
 			"modal.rule_editor.title":                                   "New draft rule",
-			"modal.rule_editor.subtitle":                                "stored as rule_dsl (JSONB · JSON-Schema-validated · not YAML) · category changes fields and payload",
+			"modal.rule_editor.subtitle":                                "category changes fields and payload",
 			"modal.rule_editor.close":                                   "Close",
 			"modal.rule_editor.save_first":                              "Save the draft first",
 			"modal.rule_editor.preview_title":                           "Run server-side preview validation",
@@ -8429,20 +8574,20 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.resolve_title":                           "Resolve validation issues before publishing",
 			"modal.rule_editor.notice_ok":                               "ok",
 			"modal.rule_editor.stages_error_prefix":                     "Animal stages failed to load",
-			"modal.rule_editor.stages_error_body":                       "This is a real backend error, not no stages seeded — the stage picker is disabled and Save/Publish are blocked until the stage reference read succeeds. Fix the API/connection and reopen.",
+			"modal.rule_editor.stages_error_body":                       "This is a real loading error, not missing stages — the stage picker is disabled and Save/Publish are blocked until the stage list loads. Reload the page and reopen.",
 			"modal.rule_editor.sops_error_prefix":                       "SOP versions failed to load",
-			"modal.rule_editor.sops_error_body":                         "This is a real backend error, not no published SOP version — the SOP picker is disabled and Save/Publish are blocked until the SOP read succeeds. Fix the API/connection and reopen.",
-			"modal.rule_editor.categories_empty":                        "No protocol categories are configured yet — seed protocol_definitions before authoring a draft rule.",
-			"modal.rule_editor.no_stages_reason":                        "No animal stages configured — Data Ops must seed animal_stage_lookup to target a stage band",
+			"modal.rule_editor.sops_error_body":                         "This is a real loading error, not an empty SOP Library — the SOP picker is disabled and Save/Publish are blocked until the SOP list loads. Reload the page and reopen.",
+			"modal.rule_editor.categories_empty":                        "No protocol categories are available yet — add protocol definitions before authoring a draft rule.",
+			"modal.rule_editor.no_stages_reason":                        "No animal stages available — Data Ops must add the animal stage list to target a stage band",
 			"modal.rule_editor.no_sop_labels_reason":                    "No published SOP labels are available for the display-only schedule label. Publish a SOP in the SOP Library first.",
 			"modal.rule_editor.stage_load_block_prefix":                 "Stage reference data failed to load",
 			"modal.rule_editor.sop_load_block_prefix":                   "SOP reference data failed to load",
 			"modal.rule_editor.category_seed_block_prefix":              "Protocol categories are not seeded",
-			"modal.rule_editor.fix_reload_suffix":                       "fix the API and reload before authoring",
+			"modal.rule_editor.fix_reload_suffix":                       "reload the page before authoring",
 			"modal.rule_editor.only_ceo_publish":                        "Only CEO/COO can publish",
 			"modal.rule_editor.dirty_publish":                           "Inputs changed since the last save — save the draft again before publishing",
 			"modal.rule_editor.select_sop_publish":                      "Select an executable SOP version before publishing",
-			"modal.rule_editor.proof_publish":                           "Add at least one proof token before publishing (an empty proof policy is not publishable)",
+			"modal.rule_editor.proof_publish":                           "Add at least one proof step before publishing (an empty proof policy is not publishable)",
 			"modal.rule_editor.default_vaccination_escalation":          "miss -> Asst -> Park Head -> Preventive Care (PC) Director; overdue -> escalate",
 			"modal.rule_editor.default_vaccine_lot_policy":              "FEFO lot required; cold-chain and expiry checked before verification",
 			"modal.rule_editor.default_dose_primary":                    "primary",
@@ -8454,7 +8599,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.field.protocol":                          "Protocol code · name",
 			"modal.rule_editor.field.scope":                             "Scope · effective from",
 			"modal.rule_editor.field.sop_version":                       "Executable SOP version (required to publish)",
-			"modal.rule_editor.option.sops_failed":                      "SOP versions failed to load — fix the API and reload",
+			"modal.rule_editor.option.sops_failed":                      "SOP versions failed to load — reload the page",
 			"modal.rule_editor.option.no_sop":                           "no published SOP version — publish a SOP in the SOP Library first",
 			"modal.rule_editor.option.select_sop":                       "select a published SOP version...",
 			"modal.rule_editor.hint.sop_version":                        "Binds the obligation/SOP-task execution form. Publish requires a real published SOP version + a non-empty proof policy (derived from the proof tokens below).",
@@ -8501,14 +8646,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.title.keep_one_matrix_row":               "At least one matrix row is required",
 			"modal.rule_editor.field.vaccination_eligibility":           "Vaccination eligibility - animal / pen stage + sex",
 			"modal.rule_editor.option.all_stages":                       "all (every stage)",
-			"modal.rule_editor.hint.no_stages":                          "Stage bands (for example K1, K2) are backend reference data from animal_stage_lookup — until they are seeded you can only author an all-stages rule, not target a specific band.",
+			"modal.rule_editor.hint.no_stages":                          "Stage bands (for example K1, K2) come from the animal stage list — until they are added you can only author an all-stages rule, not target a specific band.",
 			"modal.rule_editor.field.lifecycle":                         "Lifecycle / reproductive",
 			"modal.rule_editor.field.defer":                             "Defer when (obligation marked deferred + event; not hidden)",
 			"modal.rule_editor.field.missed_dose":                       "Booster / catch-up / missed-dose policy",
 			"modal.rule_editor.field.vaccine_lot":                       "Stock / vaccine lot requirements",
 			"modal.rule_editor.label.rule_dsl":                          "Stored as rule_dsl (JSONB)",
 			"modal.rule_editor.rule_dsl_aria":                           "rule_dsl preview",
-			"modal.rule_editor.note.vaccination_dsl":                    "schedule = ARRAY of dose rows (multi-dose / multi-phase). Canonical keys: repeat_until_after_age, proof_policy, schedule_note. Next due from last accepted completion (not DOB) when prior history exists. JSON-Schema-validated · versioned · not YAML.",
+			"modal.rule_editor.note.vaccination_dsl":                    "schedule = a list of dose rows (multi-dose / multi-phase). Keys: repeat_until_after_age, proof_policy, schedule_note. Next due from last accepted completion (not DOB) when prior history exists. Validated and versioned.",
 			"modal.rule_editor.note.feed_dsl":                           "feed_direction stores source tables, parameter families, dimension keys, validation policy, calculation preview outputs, session slots, proof policy, and inventory policy. Numbers such as 80/20 are examples until reviewed and published.",
 			"modal.rule_editor.table.quantity":                          "Quantity",
 			"modal.rule_editor.table.proof":                             "Proof",
@@ -8619,7 +8764,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.guided.proof_info_body":                  "These chips become the proof checklist for every selected dose row. Publish is blocked if proof is empty; operators later submit these fields during vaccination execution.",
 			"modal.rule_editor.guided.selected_proof_tokens_aria":       "Selected proof tokens",
 			"modal.rule_editor.guided.advanced_title":                   "Advanced database preview",
-			"modal.rule_editor.guided.advanced_hint":                    "This is the exact JSON saved to the backend for the single active vaccination plan version.",
+			"modal.rule_editor.guided.advanced_hint":                    "This is the exact plan definition saved for the single active vaccination plan version.",
 			"modal.rule_editor.guided.schedule_editor":                  "Edit exact dose rows",
 			"modal.rule_editor.guided.selected_combo_label":             "Selected combo",
 			"modal.rule_editor.guided.dose_rows_count":                  "dose rows",
@@ -8650,7 +8795,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.table.weight":                            "Weight",
 			"modal.rule_editor.table.packing_execution_proof":           "packing + execution",
 			"modal.rule_editor.impact_title_feed":                       "Validation + calculation preview",
-			"modal.rule_editor.preview_feed_pending":                    "Feed calculation preview endpoint is not wired yet - Save only drafts reviewed template policy.",
+			"modal.rule_editor.preview_feed_pending":                    "Feed calculation preview is not available yet - Save only drafts reviewed template policy.",
 			"modal.rule_editor.preview_empty_feed":                      "Before publish, run import validation against the source tables, block bad rows, then preview ration, session, packing, transport, consumption, and reconciliation outputs.",
 			"feed_config.section.title":                                 "Feed Direction parameter templates",
 			"feed_config.section.note":                                  "Feed Direction Config is reopened here only as source-backed parameter/template authoring. Full Feed operational screens stay separate.",
@@ -8664,7 +8809,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"feed_config.table.validation":                              "Validation gate",
 			"feed_config.table.output":                                  "Calculation output",
 			"feed_config.action.preview":                                "Run feed calculation preview",
-			"feed_config.action.preview_disabled":                       "Feed import/solver preview endpoint is not built yet; the UI shows the required contract shape and blocks publish until preview support lands.",
+			"feed_config.action.preview_disabled":                       "Feed import/solver preview is not available yet; the page shows the required shape and blocks publish until preview support lands.",
 			"modal.rule_editor.impact_title_vaccination":                "Impact preview - selected dose row",
 			"modal.rule_editor.kpi.eligible_animals":                    "Eligible animals",
 			"modal.rule_editor.kpi.vaccination_cells":                   "Dose rows",
@@ -8702,6 +8847,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.people.aria":       "Farm staff directory",
 			"section.people.row_hint":   "everyone with a login or roster entry",
 			"filter.search_label":       "Search staff",
+			"filter.sheet_title":        "Filters",
+			"filter.sheet_close":        "Close filters",
 			"filter.search_placeholder": "Name or email...",
 			"filter.park":               "Park",
 			"filter.department":         "Department",
@@ -8871,6 +9018,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"notifications.column.setting":     "Setting",
 			"notifications.chip.default":       "Default",
 			"notifications.chip.custom":        "Customised",
+			"notifications.chip.unsaved":       "Unsaved",
 			"notifications.chip.nobody":        "Nobody receives this",
 			"notifications.action.save":        "Save",
 			"notifications.action.saving":      "Saving...",
@@ -8887,7 +9035,25 @@ func pageSpecificCopy(id string) map[string]string {
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.
 	case "counts-sops", "feed-sops", "milk-sops", "weighing-sops", "procurement-sops", "configuration-work-instructions", "sales-sops", "pc-care-sops":
 		m := map[string]string{
-			"filter.search_label":                     "Search SOPs",
+			"filter.search_label": "Search SOPs",
+			// SOP library chrome on the kit table card (2026-09-19): status/trigger filters, stat
+			// strip, columns/density toolbar and the card row menu. Declared here, never as local
+			// fallbacks in admin-web (copy-keys guard).
+			"filter.status.active":                    "Published",
+			"filter.status.draft":                     "Draft",
+			"filter.status.retired":                   "Retired",
+			"filter.trigger":                          "Trigger",
+			"filter.trigger.all":                      "All triggers",
+			"stat.total":                              "Total",
+			"action.columns":                          "Columns",
+			"action.more":                             "More actions",
+			"action.comfortable":                      "Comfortable cards",
+			"action.dense":                            "Dense cards",
+			"action.remove_filter":                    "Remove filter",
+			"action.clear_all":                        "Clear all",
+			"action.view_details":                     "View details",
+			"label.details":                           "Details",
+			"followup.totals.sessions":                "session series",
 			"filter.search_placeholder":               "Search SOP name, trigger, step, or proof...",
 			"filter.domain.aria":                      "SOP domains",
 			"action.new_sop":                          "New SOP",
@@ -8957,7 +9123,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.builder.field.proof_type":          "Proof type",
 			"modal.builder.field.min_count":           "Minimum proof count",
 			"modal.builder.field.subject_scope":       "Subject scope",
-			"modal.builder.proof_gap":                 "Proof required but no photo/video proof step — add one or turn proof off (backend rejects otherwise).",
+			"modal.builder.proof_gap":                 "Proof required but no photo/video proof step — add one or turn proof off (it cannot be published otherwise).",
 			"modal.builder.details_prefix":            "Emits valid form_dsl",
 			"modal.builder.details_middle":            "fields, native types) + proof_policy · integration notes",
 			"modal.builder.validation.valid":          "form_dsl valid",
@@ -12155,7 +12321,7 @@ func displayRules() []domain.DisplayRule {
 		{
 			ID:        "summary-vs-detail",
 			AppliesTo: []string{"table rows", "cards", "drawers", "matrix cells"},
-			Summary:   "Backend sends the object and presentation contract; frontend may render a compact subset in a row/card and the full object in a drawer.",
+			Summary:   "A list shows each record as a compact row or card; open it to see the full record in a drawer.",
 			FrontendOwns: []string{
 				"how many summary fields fit at the current breakpoint",
 				"drawer open/closed state and URL search-param selection",

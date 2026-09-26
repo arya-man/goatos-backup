@@ -20,11 +20,18 @@ export {
   type MentionComposerCopy,
   type NotificationCentreCopy,
 } from "./notification-copy";
+// Pure, import-free model values. `lib/api/notifications-server` (the GET route's read) needs the
+// four values; they were already in the shared chunk via `leadershipTaskNotificationHref`.
 export {
+  EMPTY_NOTIFICATION_FEED,
+  NOTIFICATION_PAGE_LIMIT,
   leadershipTaskNotificationHref,
+  normalizeNotificationIds,
+  sortNotificationsNewestFirst,
   type InAppNotification,
   type NotificationFeed,
 } from "./notification-model";
+export { type NotificationFeedActionResult } from "./notification-actions";
 // Types only, and from the eager half deliberately: a value re-export from `./mention-model`
 // here would pull the picker's rulebook into every route's chunk.
 export { type MentionCandidate, type MentionSelection, type MentionValue } from "./mention-value.ts";

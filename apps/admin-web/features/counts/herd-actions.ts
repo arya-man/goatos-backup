@@ -321,7 +321,7 @@ export async function commitGoatsAction(
   }
   const stablePreviewToken = (typeof previewToken === "string" ? previewToken : "").trim();
   if (stablePreviewToken === "") {
-    return { ok: false, error: { kind: "bad_request", code: "invalid_preview_token", message: "Goat import commit is missing the preview token; preview the CSV again." } };
+    return { ok: false, error: { kind: "bad_request", code: "invalid_preview_token", message: "This import preview has expired. Preview the CSV again before committing." } };
   }
   const commitHash = bulkCommitRowsHash(rows);
   const result = await commitAdminGoatBulkImport(

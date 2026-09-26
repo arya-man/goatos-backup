@@ -1,4 +1,5 @@
 "use client";
+import Table from "@mui/material/Table";
 
 import { Children, isValidElement, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
@@ -64,7 +65,7 @@ export function CeoAiMarkdown({ text }: { text: string }) {
           ),
           table: ({ children }) => (
             <div className="mzai-table" tabIndex={0}>
-              <table>{children}</table>
+              <Table>{children}</Table>
             </div>
           ),
         }}

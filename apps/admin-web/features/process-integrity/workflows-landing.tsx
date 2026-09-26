@@ -1,16 +1,23 @@
+import { Label } from "@/components/minimal/label";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, ArrowRight, Ban, Check, ChevronRight, Workflow } from "lucide-react";
+import { Activity, ArrowLeft, ArrowRight, Ban, Check, ChevronRight, Gauge, ShieldAlert, Workflow } from "lucide-react";
+import { PageHeader, type PageCrumb } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { getVaccinationActionCenter, getVaccinationActionCenterCounts } from "@/lib/api/server";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
-import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithParams, one, type RouteSearchParams } from "@/lib/search-params";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { TONE_SWATCH, type Tone } from "./process-integrity";
 import { Tag } from "@/components/ui-primitives";
 import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { actionDriveLabel, actionWorkTitle } from "./work-board";
 import { VaccinationFilterButton, VisibleTableSearch, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
+import { stageLabel } from "@/lib/stage-labels";
+import Alert from "@mui/material/Alert";
 
 // Top-level Workflows screen — vaccination-only, ported from the mock orchestration layout: KPI tiles,
 // module pill row, a left workflow catalog, and a right chain-reaction map. Each catalog row drills into
@@ -57,15 +64,6 @@ function chainStates(w: ActionCenterObligation | undefined, stepCount: number): 
   });
 }
 
-type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
-const accentVar: Record<Tone4, string> = {
-  ok: "var(--brand)",
-  warn: "var(--amber)",
-  dng: "var(--danger)",
-  info: "var(--info)",
-  mut: "var(--line)",
-};
-
 function hrefPreservingWorkflowPage(
   pathname: string,
   params: RouteSearchParams,
@@ -73,20 +71,6 @@ function hrefPreservingWorkflowPage(
   overrides: Record<string, string | string[] | null | undefined> = {},
 ): string {
   return hrefWithParams(pathname, params, workflowId ? { ...overrides, workflow: workflowId } : overrides, ["workflow"]);
-}
-
-function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.ReactNode; sub?: string; tone: Tone4; icon?: React.ReactNode }) {
-  return (
-    <div className="kpi">
-      <span className="acc" style={{ background: accentVar[tone] }} />
-      <div className="lab">
-        {icon}
-        {label}
-      </div>
-      <div className="val">{value}</div>
-      {sub ? <div className="dl muted">{sub}</div> : null}
-    </div>
-  );
 }
 
 const ACTIVE_STATES: WorkState[] = ["in_progress", "scheduled"];
@@ -116,7 +100,7 @@ export async function VaccinationWorkflowsPage({
     getVaccinationActionCenter({ parkId, asOf, cursor: workflowCursor, limit: requestedPageSize }),
   ]);
   const totalFromBackend = countsResult.ok ? countsResult.data.total_count : 0;
-  const rows: ActionCenterObligation[] = result.ok ? result.data.items : [];
+  const rows: ActionCenterObligation[] = result.ok ? listOrEmpty(result.data.items) : [];
   const nextCursor = result.ok ? result.data.next_cursor : undefined;
   if (requestedPage > 1 && !workflowCursor && !hasWorkflowCursorStack) {
     redirect(hrefWithPagedCursor(PATH, sp, "wf_cursor", null, "wf_page", "wf_cursor_stack") || scopeHref(PATH, scope, {}, { wf_page: "1", wf_cursor: undefined, wf_cursor_stack: undefined }));
@@ -143,7 +127,7 @@ export async function VaccinationWorkflowsPage({
 
   // Server-authoritative counts for the KPI tiles (not the capped page).
   const counts = new Map<WorkState, number>();
-  if (countsResult.ok) for (const c of countsResult.data.counts_by_work_state) counts.set(c.work_state, c.count);
+  if (countsResult.ok) for (const c of listOrEmpty(countsResult.data.counts_by_work_state)) counts.set(c.work_state, c.count);
   const sum = (states: WorkState[]) => states.reduce((n, s) => n + (counts.get(s) ?? 0), 0);
   const totalWorkflows = totalFromBackend;
   const activeRuns = sum(ACTIVE_STATES);
@@ -170,39 +154,48 @@ export async function VaccinationWorkflowsPage({
     return scopeHref(PATH, scope, {}, { wf_page: "1", wf_limit: String(pageSize), wf_cursor: undefined, wf_cursor_stack: undefined });
   }
 
+
+  // Breadcrumb trail. The parent segment is the contract's own `crumb` copy -- rendered only when
+  // the backend actually supplies one AND it is not just the page title again, which is what the
+  // old `<div className="crumb"><b>{title}</b></div>` rendered on every route in this module. No
+  // section name is invented here: a missing key means a single muted current segment, and the
+  // real two-level trail lands the moment the contract carries the section label.
+  const crumbSection = optionalCopy(pageContract, "crumb");
+  const crumbItems: PageCrumb[] = [
+    ...(crumbSection && crumbSection !== pageContract.title ? [{ label: crumbSection, href: "/" }] : []),
+    { label: pageContract.title },
+  ];
+
   return (
-	    <div className="screen on">
-	      <div className="phead">
-	        <div>
-	          <h1>{pageContract.title}</h1>
-	          <div className="sub">{pageContract.subtitle}</div>
-	        </div>
-	      </div>
+	    <div className="kit-enter screen on">
+      <div>
+        <PageHeader title={pageContract.title} crumbs={crumbItems} />
+      </div>
 
       {!countsResult.ok || !result.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           {(() => {
             const error = !countsResult.ok ? countsResult.error : !result.ok ? result.error : undefined;
             return error ? <><b>{error.code ?? error.kind}</b>&nbsp;{error.message}</> : null;
           })()}
-        </div>
+        </Alert>
       ) : null}
 
-      {/* KPI tiles (mock #wfTiles). */}
-      <div className="grid g4" style={{ marginBottom: 14 }}>
-	        <Kpi label={copy(pageContract, "label.workflows")} value={totalWorkflows} sub={copy(pageContract, "label.vaccination_chain")} tone="ok" icon={<Workflow className="ic" />} />
-	        <Kpi label={copy(pageContract, "label.active_runs")} value={activeRuns} sub={copy(pageContract, "label.scheduled_in_progress")} tone={activeRuns ? "info" : "mut"} />
-	        <Kpi label={copy(pageContract, "label.blocked_gated")} value={blocked} sub={copy(pageContract, "label.awaiting_proof_owner")} tone={blocked ? "dng" : "mut"} />
-	        <Kpi label={copy(pageContract, "label.avg_progress")} value={<>{avgProgress}<small>%</small></>} sub={copy(pageContract, "label.across_shown")} tone="warn" />
-	      </div>
+      {/* KPI tiles. */}
+      <KpiGrid min={220} className="kit-kpi-wrap">
+        <KpiCard label={copy(pageContract, "label.workflows")} value={totalWorkflows} hint={copy(pageContract, "label.vaccination_chain")} icon={<Workflow />} tone="primary" />
+        <KpiCard label={copy(pageContract, "label.active_runs")} value={activeRuns} hint={copy(pageContract, "label.scheduled_in_progress")} icon={<Activity />} tone={activeRuns ? "info" : "neutral"} />
+        <KpiCard label={copy(pageContract, "label.blocked_gated")} value={blocked} hint={copy(pageContract, "label.awaiting_proof_owner")} icon={<ShieldAlert />} tone={blocked ? "error" : "neutral"} />
+        <KpiCard label={copy(pageContract, "label.avg_progress")} value={avgProgress} unit="%" hint={copy(pageContract, "label.across_shown")} icon={<Gauge />} tone="warning" />
+      </KpiGrid>
 
       {/* Toolbar — module pill. Only the active vaccination module is visible in this slice. */}
       <div className="wftoolbar">
-	        <div className="subtabs" id="wfPills" style={{ margin: 0 }} aria-label={copy(pageContract, "filter.domains.aria")}>
-	          <Link href={scopeHref(PATH, scope)} className="on">
-	            {copy(pageContract, "label.all_domains")} <span className="cbq">{totalWorkflows}</span>
-	          </Link>
-	        </div>
+        <SegmentTabs
+          ariaLabel={copy(pageContract, "filter.domains.aria")}
+          value="all"
+          tabs={[{ value: "all", label: <>{copy(pageContract, "label.all_domains")} <Label variant="filled">{totalWorkflows}</Label></>, href: scopeHref(PATH, scope) }]}
+        />
       </div>
 
       {/* Catalog (left) + chain-reaction map (right) — mock .wfwrap. */}
@@ -231,7 +224,7 @@ export async function VaccinationWorkflowsPage({
 	                : copy(pageContract, "empty.unavailable")}
 	            </div>
 	          ) : (
-	            rows.map((row) => {
+	            rows.map((row, rowIndex) => {
 	              const title = actionWorkTitle(pageContract, row);
 	              const pct = row.expected_count > 0 ? Math.round((row.completed_count / row.expected_count) * 100) : 0;
 	              const isActive = activeWorkflow?.row_id === row.row_id;
@@ -240,7 +233,8 @@ export async function VaccinationWorkflowsPage({
                   key={row.row_id}
                   href={hrefPreservingWorkflowPage(PATH, sp, row.row_id)}
                   scroll={false}
-                  className={`wfrow${isActive ? " on" : ""}`}
+                  className={`wfrow cx-row${isActive ? " on" : ""}`}
+                  style={{ "--i": rowIndex } as React.CSSProperties}
                   aria-current={isActive ? "true" : undefined}
 	                  aria-label={`${copy(pageContract, "action.open_record")} ${title}`}
 	                  title={`${title} · ${row.park_name} · ${row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })} · ${optionLabel(pageContract, "work_state_filter_chips", row.work_state)}`}
@@ -320,7 +314,7 @@ export async function VaccinationWorkflowsPage({
                       className={`ostage${st === "done" ? " on" : ""}${st === "cur" || st === "blocked" ? " cur" : ""}`}
                       title={`${c.title}: ${c.detail}`}
                     >
-                      {c.stage}
+                      {stageLabel(c.stage)}
                     </span>
                   );
                 })}
@@ -381,7 +375,7 @@ export async function VaccinationWorkflowsPage({
                   <>
                     <ChevronRight className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
 	                    <span>
-	                      {copy(pageContract, "label.chain_note_selected")} <b>{activeWorkflow.operational_location_display || operationalLocationLabel({ shedName: activeWorkflow.shed_name, partitionLabel: activeWorkflow.partition_label })}</b>. {copy(pageContract, "label.chain_note_selected_tail")}
+	                      {copy(pageContract, "label.chain_note_selected")} <b>{activeWorkflow.operational_location_display || operationalLocationLabel({ shedName: activeWorkflow.shed_name, partitionLabel: activeWorkflow.partition_label })}</b>.
 	                    </span>
                   </>
                 ) : rows.length ? (
@@ -410,13 +404,6 @@ export async function VaccinationWorkflowsPage({
             </div>
           </section>
 
-          <div className="note" style={{ marginTop: 14 }}>
-	            {copy(pageContract, "note.engine")}{" "}
-	            <Link href={scopeHref("/action-center", scope)} className="lk">
-	              {copy(pageContract, "action.open_action_center")}
-	            </Link>
-	            .
-          </div>
         </div>
       </div>
     </div>

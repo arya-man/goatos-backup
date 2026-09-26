@@ -1,6 +1,6 @@
 import { ControlTowerPage } from "@/features/control-tower";
 import { landingWindow, sexFilterFromUrl, weightsWindowSettings, WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "@/features/weighing";
-import { getAdminWebBootstrap } from "@/lib/api/server";
+import { getAdminWebBootstrap, getAdminWebPageContract } from "@/lib/api/server";
 import { originFromParam } from "@/lib/animal-origin";
 import { todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
@@ -57,13 +57,25 @@ async function landingHref(landing: { href: string; copy?: Record<string, string
 }
 
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
-  const [sp, contract] = await Promise.all([searchParams, getAdminWebBootstrap()]);
+  // landingHref reads the landing page's COPY (its weights-window settings), so that page is read
+  // in full; the fallback redirect only needs hrefs and takes the summary view.
+  const [sp, contract, landing] = await Promise.all([
+    searchParams,
+    getAdminWebBootstrap(),
+    getAdminWebPageContract(LANDING_ROUTE_ID),
+  ]);
   const requestedControlTower = one(sp, "lens") === CONTROL_TOWER_LENS;
-  const landing = contract.ok ? contract.data.pages.find((item) => item.route_id === LANDING_ROUTE_ID) : null;
-  if (!requestedControlTower && landing?.href) {
+  // proxy.ts already sent "/" to the landing page; `fallback=1` is that page bouncing a principal
+  // who has no ADG contract back here for the Control Tower / first-published fallback below.
+  const fallbackRequested = one(sp, "fallback") === "1";
+  if (!requestedControlTower && !fallbackRequested && landing?.href) {
     redirect(await landingHref(landing, sp));
   }
-  const controlTower = contract.ok ? contract.data.pages.find((item) => item.route_id === "control-tower") : null;
+  const controlTower = contract.ok
+    ? requestedControlTower
+      ? await getAdminWebPageContract("control-tower")
+      : (contract.data.pages.find((item) => item.route_id === "control-tower") ?? null)
+    : null;
   if (requestedControlTower && controlTower) {
     return <ControlTowerPage searchParams={sp} pageContract={controlTower} />;
   }

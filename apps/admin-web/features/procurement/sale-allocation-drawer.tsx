@@ -1,4 +1,9 @@
 "use client";
+import Box from "@mui/material/Box";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 // "Tag animals to sale": pick the real animals a recorded sale is made of.
 //
@@ -16,6 +21,7 @@
 // backend and are rendered verbatim. The component never decides an animal is fine to sell.
 
 import { PackageCheck, X } from "lucide-react";
+import { Caption } from "@/components/app/caption";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 
 import { LOCAL_OVERLAY_URL_CHANGE_EVENT, replaceLocalOverlayUrl } from "@/components/local-overlay-link";
@@ -31,6 +37,9 @@ import {
 } from "./sale-allocation-actions";
 
 import type { SaleLocationCatalog } from "@/lib/api/server";
+import { FormSelect } from "./form-select";
+import { listOptions } from "./option-utils";
+import Checkbox from "@mui/material/Checkbox";
 
 const TAG_PARAM = "tag_sale";
 
@@ -269,38 +278,34 @@ export function SaleAllocationDrawer({
           {/* WHICH SALE these animals are being tagged to. Editable while picking, locked
               once the review step is reached: changing the sale under a reviewed list would
               silently re-point animals a person already checked. */}
-          <label className="sales-tagdeal">
-            <span className="muted small">{copy(pageContract, "field.sale")}</span>
-            <select
+          <Box className="sales-tagdeal" sx={{ "&&": { mb: 2.25 } }}>
+            <FormSelect
+              label={copy(pageContract, "field.sale")}
               value={deal?.deal_id ?? ""}
-              onChange={(e) => setDealId(e.target.value)}
+              onValueChange={setDealId}
               disabled={step !== "pick"}
-            >
-              {deals.map((d) => (
-                <option key={d.deal_id} value={d.deal_id}>
-                  {dealOptionLabel(d)}
-                </option>
-              ))}
-            </select>
-          </label>
+              options={listOptions(deals, (d) => d.deal_id, (d) => dealOptionLabel(d))}
+            />
+          </Box>
           {error ? <div className="banner err">{error}</div> : null}
 
           {step === "pick" ? (
             <div className="sales-tagpick">
               <div className="sales-tagpick-main">
-                <div className="sales-tagfilters">
+                <Box className="sales-tagfilters" sx={{ "&&": { rowGap: 2.5, alignItems: "end" } }}>
                   <div className="fld">
-                    <label htmlFor="tag-park">{copy(pageContract, "field.park")}</label>
-                    <select
+                    <FormSelect
+                      label={copy(pageContract, "field.park")}
                       id="tag-park"
                       value={parkId}
-                      onChange={(e) => { setParkId(e.target.value); setLocationKey(""); }}
-                    >
-                      <option value="">{copy(pageContract, "value.choose_park")}</option>
-                      {(locations?.parks ?? []).map((p) => (
-                        <option key={p.park_id} value={p.park_id}>{p.label}</option>
-                      ))}
-                    </select>
+                      onValueChange={(next) => { setParkId(next); setLocationKey(""); }}
+                      options={listOptions(
+                        locations?.parks ?? [],
+                        (p) => p.park_id,
+                        (p) => p.label,
+                        copy(pageContract, "value.choose_park"),
+                      )}
+                    />
                     {/*
                       A picker with nothing in it must SAY why. The two reasons are
                       different facts and carry different backend copy: the catalog read
@@ -314,20 +319,19 @@ export function SaleAllocationDrawer({
                     ) : null}
                   </div>
                   <div className="fld">
-                    <label htmlFor="tag-loc">{copy(pageContract, "field.shed")}</label>
-                    <select
+                    <FormSelect
+                      label={copy(pageContract, "field.shed")}
                       id="tag-loc"
                       value={locationKey}
-                      onChange={(e) => setLocationKey(e.target.value)}
+                      onValueChange={setLocationKey}
                       disabled={!parkId}
-                    >
-                      <option value="">{copy(pageContract, "value.all_sheds")}</option>
-                      {locationsInPark.map((l) => (
-                        <option key={locationEntryKey(l)} value={locationEntryKey(l)}>
-                          {l.operational_location_display}
-                        </option>
-                      ))}
-                    </select>
+                      options={listOptions(
+                        locationsInPark,
+                        (l) => locationEntryKey(l),
+                        (l) => l.operational_location_display,
+                        copy(pageContract, "value.all_sheds"),
+                      )}
+                    />
                   </div>
                   <div className="fld">
                     <label htmlFor="tag-q">{copy(pageContract, "field.search_tag")}</label>
@@ -339,43 +343,43 @@ export function SaleAllocationDrawer({
                       placeholder={copy(pageContract, "value.search_tag_hint")}
                     />
                   </div>
-                </div>
+                </Box>
 
                 <div className="tablewrap">
-                  <table className="tbl sales-tagtable">
-                    <tbody>
+                  <Table className="tbl sales-tagtable">
+                    <TableBody>
                       {candidates.map((c) => {
                         const on = picked.has(c.goat_id);
                         return (
-                          <tr key={c.goat_id} className={c.sellable ? "" : "muted"}>
-                            <td>
-                              <input
-                                type="checkbox"
+                          <TableRow key={c.goat_id} className={c.sellable ? "" : "muted"}>
+                            <TableCell>
+                              <Checkbox
                                 checked={on}
                                 disabled={!c.sellable}
                                 onChange={() => toggle(c)}
-                                aria-label={animalLabel(c)}
+                                sx={{ p: { xs: 1.5, sm: 1 } }}
+                                slotProps={{ input: { "aria-label": animalLabel(c) } }}
                               />
-                            </td>
+                            </TableCell>
                             {/* BOTH tags, because the search matches either one. A row
                                 showing only the primary answered a search for the
                                 secondary with a number that reads as a different animal. */}
-                            <td>
+                            <TableCell>
                               <b>{c.tag_number || c.display_id}</b>
                               {c.secondary_tag_number ? (
                                 <div className="muted small">{c.secondary_tag_number}</div>
                               ) : null}
-                            </td>
-                            <td>{c.operational_location_display}</td>
-                            <td>
+                            </TableCell>
+                            <TableCell>{c.operational_location_display}</TableCell>
+                            <TableCell>
                               {/* The refusal is the backend's sentence, verbatim. */}
                               {c.sellable ? null : <Tag tone="warn">{c.blocked_reason}</Tag>}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         );
                       })}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
                 {cursor ? (
                   <button type="button" className="btn" onClick={() => loadCandidates(cursor)} disabled={pending}>
@@ -415,7 +419,7 @@ export function SaleAllocationDrawer({
 
           {step === "review" && preview ? (
             <div className="sales-tagreview">
-              <p className="muted small">{copy(pageContract, "hint.review")}</p>
+              <Caption>{copy(pageContract, "hint.review")}</Caption>
               {preview.shed_groups.map((group) => (
                 <section key={`${group.shed_id}|${group.partition_label ?? ""}`} className="card">
                   <b>{group.operational_location_display}</b>{" "}
@@ -435,21 +439,21 @@ export function SaleAllocationDrawer({
                   {copy(pageContract, "hint.animal_weight")}
                 </p>
                 <div className="tablewrap">
-                  <table className="tbl sales-tagtable">
-                    <tbody>
+                  <Table className="tbl sales-tagtable">
+                    <TableBody>
                       {clearedAnimals.map((c) => {
                         const raw = weightOf(c.goat_id);
                         const bad = weightAttempted ? !weightLooksValid(raw) : raw !== "" && !weightLooksValid(raw);
                         return (
-                          <tr key={c.goat_id}>
-                            <td>
+                          <TableRow key={c.goat_id}>
+                            <TableCell>
                               <b>{c.tag_number || c.display_id}</b>
                               {c.secondary_tag_number ? (
                                 <div className="muted small">{c.secondary_tag_number}</div>
                               ) : null}
-                            </td>
-                            <td>{c.operational_location_display}</td>
-                            <td>
+                            </TableCell>
+                            <TableCell>{c.operational_location_display}</TableCell>
+                            <TableCell>
                               <input
                                 inputMode="decimal"
                                 required
@@ -466,12 +470,12 @@ export function SaleAllocationDrawer({
                                 }}
                                 style={{ width: 96 }}
                               />
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         );
                       })}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </section>
               {preview.blocked_animals.length > 0 ? (

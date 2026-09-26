@@ -13,8 +13,9 @@ test("tagged-not-closed is its own series, table cell and tile figure", () => {
   assert.match(section, /values: \[load\.purchased, load\.sold, load\.mortality, load\.remaining, load\.tagged_not_closed\]/);
   assert.match(section, /summary\.tagged_not_closed > 0/);
   assert.match(section, /load\.tagged_not_closed === 0/);
-  // A fifth solid colour would read as one of the four; the striped sold green cannot.
-  assert.match(css, /\.gcbar\.ok-hatch\{background:repeating-linear-gradient/);
+  // A fifth solid colour would read as one of the four; the striped sold green cannot (the Apex
+  // chart fills okHatch series with a pattern on the MUI redesign).
+  assert.match(chart, /s\.tone === "okHatch" \? "pattern" : "solid"/);
 });
 
 // Profit carries animals still on farm at a price nobody has paid. The money chart stacks that
@@ -29,9 +30,11 @@ test("the money chart stacks the assumed value on the sold value and shows the b
 
 test("a stacked series draws inside its base slot, and the scale covers the stacked total", () => {
   assert.match(chart, /stackOn\?: string/);
-  assert.match(chart, /if \(isStacked\(i\)\) return null;/);
-  assert.match(chart, /stackedOnto\.has\(i\) \? slotTotal\(d, i\)/);
-  assert.match(css, /\.gcstack\{display:flex;flex-direction:column/);
+  // Apex grouped stacking: a stacked series shares its base's group, and prints no figure of its own.
+  assert.match(chart, /group: groupOf\(i\)/);
+  assert.match(chart, /if \(baseIndex\(opts\.seriesIndex\) >= 0\) return "";/);
+  // The y scale is computed over the column sums.
+  assert.match(chart, /series\.map\(\(_, i\) => columnValue\(d, i\)\)/);
 });
 
 // "Fattening days on farm: sold, alive in any case at the bottom; show me when they reached the

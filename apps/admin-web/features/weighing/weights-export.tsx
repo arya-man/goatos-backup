@@ -10,10 +10,15 @@ import {
   LocalOverlayLink,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { weightsWindowSettings } from "./landing-window-constants";
 import { weightsSexChoices } from "./sex-filter-contract";
 import { exportWeightsCsvAction } from "./weights-export-action";
+import Button from "@mui/material/Button";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 export type WeightsExportPark = { park_id: string; name: string };
 
@@ -191,10 +196,10 @@ export function WeightsExportControl({
   }
 
   return (
-    <>
-      <LocalOverlayLink href={openHref} className="btn sm" scroll={false} aria-haspopup="dialog">
-        <Download className="ic" aria-hidden="true" /> {copy(pageContract, "export.button")}
-      </LocalOverlayLink>
+    <div className="wt-export-control">
+      <Button component={LocalOverlayLink} href={openHref} variant="contained" color="primary" scroll={false} aria-haspopup="dialog" startIcon={<Download className="ic" aria-hidden="true" />}>
+        {copy(pageContract, "export.button")}
+      </Button>
 
       <div
         className={`scrim${open ? " on" : ""}`}
@@ -252,48 +257,44 @@ export function WeightsExportControl({
           </div>
 
           <div className="fld">
-            <label htmlFor="wt-export-park">{copy(pageContract, "export.park.label")}</label>
-            <select
-              id="wt-export-park"
+            <TextField
+              select
+              label={copy(pageContract, "export.park.label")}
               value={parkId}
-              onChange={(event) => setParkId(event.target.value)}
               disabled={pending}
+              onChange={(event) => setParkId(event.target.value)}
+              sx={{ minWidth: { xs: 0, sm: 240 }, flexShrink: 0, maxWidth: 1 }}
+              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
             >
-              <option value="">{copy(pageContract, "export.park.all")}</option>
+              <MenuItem value="">{copy(pageContract, "export.park.all")}</MenuItem>
               {parks.map((park) => (
-                <option key={park.park_id} value={park.park_id}>
+                <MenuItem key={park.park_id} value={park.park_id}>
                   {park.name}
-                </option>
+                </MenuItem>
               ))}
-            </select>
+            </TextField>
           </div>
 
           <fieldset className="fld" style={{ border: 0, padding: 0, margin: 0 }}>
             <legend>
               <label>{copy(pageContract, "export.sheds.label")}</label>
             </legend>
-            <label className="wt-export-shed-row">
-              <input
-                type="checkbox"
-                checked={allSheds}
-                disabled={pending}
-                onChange={() => setSelectedSheds(new Set())}
-              />
-              {copy(pageContract, "export.sheds.all")}
-            </label>
+            <FormControlLabel
+              className="wt-export-shed-row"
+              disabled={pending}
+              control={<Checkbox checked={allSheds} disabled={pending} onChange={() => setSelectedSheds(new Set())} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+              label={<>{copy(pageContract, "export.sheds.all")}</>}
+            />
             <div className="wt-export-shed-list">
               {visibleSheds.map((shed) => (
-                <label key={shed.location_id} className="wt-export-shed-row">
-                  <input
-                    type="checkbox"
-                    checked={selectedSheds.has(shed.location_id)}
-                    disabled={pending}
-                    onChange={() => toggleShed(shed.location_id)}
-                  />
-                  {/* With no park selected the park travels on the row: 39 shed names exist in
+                <FormControlLabel
+                  key={shed.location_id}
+                  className="wt-export-shed-row"
+                  disabled={pending}
+                  control={<Checkbox checked={selectedSheds.has(shed.location_id)} disabled={pending} onChange={() => toggleShed(shed.location_id)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                  label={<>{/* With no park selected the park travels on the row: 39 shed names exist in
                       BOTH parks, so a bare shed name would appear twice, indistinguishably. */}
-                  {parkId === "" ? `${parkNameById.get(shed.park_id) ?? ""} · ${shed.label}` : shed.label}
-                </label>
+                  {parkId === "" ? `${parkNameById.get(shed.park_id) ?? ""} · ${shed.label}` : shed.label}</>} />
               ))}
             </div>
           </fieldset>
@@ -308,7 +309,7 @@ export function WeightsExportControl({
           </button>
         </div>
       </aside>
-    </>
+    </div>
   );
 }
 

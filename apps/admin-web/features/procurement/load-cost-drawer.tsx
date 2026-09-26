@@ -1,4 +1,8 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { Boxes, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
@@ -13,6 +17,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LoadwiseLoad } from "@/lib/api/procurement";
 import { humanDate, inr, num } from "./sales-format";
 import { recordLoadCostAction } from "./sales-actions";
+import Typography from "@mui/material/Typography";
 
 /** Reads the selected load from the address bar. "" means the drawer is closed. */
 function readCostLoadParam(): string {
@@ -162,7 +167,7 @@ export function LoadCostDrawer({
               {/* The load's pre-system history, with the dates the old records span. */}
               {load.prior_sold || load.prior_dead ? (
                 <div style={{ marginTop: 10 }}>
-                  <div className="mt">{copy(pageContract, "loadwise.prior.title")}</div>
+                  <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "loadwise.prior.title")}</Typography>
                   {load.prior_sold ? (
                     <div className="muted small">
                       {copy(pageContract, "loadwise.prior.sold")}: <b>{num(load.prior_sold.count)}</b>{" "}
@@ -204,32 +209,32 @@ export function LoadCostDrawer({
                   cost fields below already state the latter. */}
               {load.cost_lines && load.cost_lines.length > 0 ? (
                 <div style={{ marginTop: 10 }}>
-                  <div className="mt">{copy(pageContract, "loadwise.cost_breakdown.title")}</div>
+                  <Typography variant="overline" component="div" color="text.secondary" className="mt">{copy(pageContract, "loadwise.cost_breakdown.title")}</Typography>
                   <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
-                    <table aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
-                      <tbody>
+                    <Table aria-label={copy(pageContract, "loadwise.cost_breakdown.title")}>
+                      <TableBody>
                         {load.cost_lines.map((line, index) => (
-                          <tr key={`${line.kind}-${index}`}>
-                            <td>{copy(pageContract, `cost_kind.${line.kind}`, line.kind)}</td>
-                            <td className="num" style={{ whiteSpace: "nowrap" }}>
+                          <TableRow key={`${line.kind}-${index}`}>
+                            <TableCell>{copy(pageContract, `cost_kind.${line.kind}`, line.kind)}</TableCell>
+                            <TableCell className="num" style={{ whiteSpace: "nowrap" }}>
                               {inr(Math.round(line.amount))}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))}
                         {/* The total the reader is checking the parts against. Recomputed from the
                             lines rather than read from purchase_value so a breakdown that does not
                             add up is VISIBLE instead of hidden behind an authoritative-looking
                             figure. */}
-                        <tr>
-                          <td>
+                        <TableRow>
+                          <TableCell>
                             <b>{copy(pageContract, "loadwise.cost_breakdown.total")}</b>
-                          </td>
-                          <td className="num" style={{ whiteSpace: "nowrap" }}>
+                          </TableCell>
+                          <TableCell className="num" style={{ whiteSpace: "nowrap" }}>
                             <b>{inr(Math.round(load.cost_lines.reduce((sum, line) => sum + line.amount, 0)))}</b>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
                   </div>
                   <div className="muted small" style={{ marginTop: 4 }}>
                     {copy(pageContract, "loadwise.cost_breakdown.hint")}

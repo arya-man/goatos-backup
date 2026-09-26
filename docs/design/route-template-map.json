@@ -1,0 +1,219 @@
+{
+  "_note": [
+    "Every admin-web feature-area maps to a Minimal_TypeScript_v7.7.0 template section.",
+    "The template lives outside this repo at ~/mesha/mui/Minimal_TypeScript_v7.7.0 (Ravi laptop; licensed source, NOT committed).",
+    "Values here are the reference SECTION or PAGE the admin-web area was ported from, so a reviewer",
+    "can compare a rendered admin-web page against the template it was built on. `null` means the",
+    "area is deliberately Mesha-specific and has no direct template counterpart (Ravi's decision).",
+    "",
+    "check-design-system.mjs asserts every non-dynamic route name in smoke-visual-live.mjs matches",
+    "one of the `route_prefixes` here, so a NEW page must add a mapping in the same change.",
+    "",
+    "How to add a page: pick or add the closest template section here; port the section under",
+    "components/minimal/<area> or reuse a kit component; write the page.tsx that renders inside",
+    "PageShell/DashboardLayout; add a story per state; add the route to smoke-visual-live.mjs so",
+    "the visual lanes cover it.",
+    "",
+    "The Mesha palette is locked. Template gives structure, density, motion, and interaction",
+    "patterns only — never its brand colours, images or copy."
+  ],
+  "template_root": "~/mesha/mui/Minimal_TypeScript_v7.7.0/next-ts",
+  "areas": [
+    {
+      "area": "control-tower",
+      "route_prefixes": ["control-tower", "^$", "root"],
+      "template_section": "src/sections/overview/app",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "One-screen leadership rollup: KPI grid, area charts, activity list. Use the Overview/App section as the density and card rhythm reference."
+    },
+    {
+      "area": "action-center",
+      "route_prefixes": ["action-center", "alerts", "verify", "approvals"],
+      "template_section": "src/sections/mail",
+      "template_page": "src/app/dashboard/mail/page.tsx",
+      "notes": "Board / queue / drawer pattern. Mail's list + detail split is the reference for a queue with a same-page drawer."
+    },
+    {
+      "area": "calendar",
+      "route_prefixes": ["calendar"],
+      "template_section": "src/sections/calendar",
+      "template_page": "src/app/dashboard/calendar/page.tsx",
+      "notes": "FullCalendar shell with a right-side drawer. Vaccination drive rows render inside the same calendar chrome."
+    },
+    {
+      "area": "protocol-adherence",
+      "route_prefixes": ["protocol-adherence"],
+      "template_section": "src/sections/overview/analytics",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "KPI cards + severity chart + gap table. Analytics overview page is the reference for one dense scoring view."
+    },
+    {
+      "area": "workflows",
+      "route_prefixes": ["workflows"],
+      "template_section": "src/sections/kanban",
+      "template_page": "src/app/dashboard/kanban/page.tsx",
+      "notes": "Chain-of-work map and workflow catalog. Kanban's column + card + drawer pattern maps to the workflow chain view."
+    },
+    {
+      "area": "tasks",
+      "route_prefixes": ["tasks"],
+      "template_section": "src/sections/kanban",
+      "template_page": "src/app/dashboard/kanban/page.tsx",
+      "notes": "Board or list view of leadership tasks with the shared task-detail drawer."
+    },
+    {
+      "area": "preventive-care-vaccination",
+      "route_prefixes": ["vaccination"],
+      "template_section": "src/sections/overview/course",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "Module surface: cohort matrix, sheds, drives, live tracker. Course overview provides the multi-strip / progress list density."
+    },
+    {
+      "area": "counts",
+      "route_prefixes": ["counts"],
+      "template_section": "src/sections/overview/analytics",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "Register, herd analytics, breakdown census. Analytics section's chart+table rhythm applies."
+    },
+    {
+      "area": "feed",
+      "route_prefixes": ["feed"],
+      "template_section": "src/sections/overview/booking",
+      "template_page": "src/app/dashboard/booking/page.tsx",
+      "notes": "Direction / packing / transport / analytics. Booking overview's dense schedule + KPI shell fits."
+    },
+    {
+      "area": "weighing",
+      "route_prefixes": ["weighing"],
+      "template_section": "src/sections/overview/analytics",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "Weights read-out and ADG analytics. Multi-tab dense chart pattern."
+    },
+    {
+      "area": "sales",
+      "route_prefixes": ["sales"],
+      "template_section": "src/sections/overview/e-commerce",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "Sold / farm value / demand pipeline. E-commerce section provides the deals + KPI + drawer pattern."
+    },
+    {
+      "area": "procurement",
+      "route_prefixes": ["procurement"],
+      "template_section": "src/sections/order",
+      "template_page": "src/app/dashboard/order/page.tsx",
+      "notes": "Source entry board and per-load detail. Order list + detail is the closest template shell."
+    },
+    {
+      "area": "milk",
+      "route_prefixes": ["milk"],
+      "template_section": "src/sections/overview/course",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "Milk SOP flows (preparation, feeding). Same course-overview shell as vaccination."
+    },
+    {
+      "area": "config",
+      "route_prefixes": ["config", "configuration"],
+      "template_section": "src/sections/account",
+      "template_page": "src/app/dashboard/user/account/page.tsx",
+      "notes": "Multi-tab settings surface. Account page's tab + form grid + preview is the closest template."
+    },
+    {
+      "area": "sops",
+      "route_prefixes": ["sops"],
+      "template_section": "src/sections/blog",
+      "template_page": "src/app/dashboard/post/page.tsx",
+      "notes": "SOP library + editor (per module: vaccination, counts, feed, milk, weighing). Blog list + post editor is the shape."
+    },
+    {
+      "area": "audit",
+      "route_prefixes": ["operations-audit", "operations-dlq", "operations/audit", "operations/dlq"],
+      "template_section": "src/sections/invoice",
+      "template_page": "src/app/dashboard/invoice/page.tsx",
+      "notes": "Audit business log + dead-letter queue: filters + table + row drawer + status chips. Invoice list is the reference."
+    },
+    {
+      "area": "health",
+      "route_prefixes": ["health"],
+      "template_section": "src/sections/overview/analytics",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "Health analytics and config: disease/mortality/treatment/engine dashboards. Analytics overview provides the chart + KPI + table density."
+    },
+    {
+      "area": "leave",
+      "route_prefixes": ["leave"],
+      "template_section": "src/sections/order",
+      "template_page": "src/app/dashboard/order/page.tsx",
+      "notes": "Operator leave queue: pending / approved / rejected / withdrawn. Order list + status chips."
+    },
+    {
+      "area": "routines",
+      "route_prefixes": ["routines"],
+      "template_section": "src/sections/kanban",
+      "template_page": "src/app/dashboard/kanban/page.tsx",
+      "notes": "Scheduled routines board."
+    },
+    {
+      "area": "workflow-record",
+      "route_prefixes": ["workflow-record"],
+      "template_section": "src/sections/kanban",
+      "template_page": "src/app/dashboard/kanban/page.tsx",
+      "notes": "Single workflow drilldown. Same Kanban shell as tasks/workflows/work-board."
+    },
+    {
+      "area": "herd-signals",
+      "route_prefixes": ["herd-signals"],
+      "template_section": "src/sections/overview/course",
+      "template_page": "src/app/dashboard/page.tsx",
+      "notes": "Realtime KPI + long table with SSE fallback. Dense analytics dashboard shell."
+    },
+    {
+      "area": "goat-passport",
+      "route_prefixes": ["goats/", "goat-passport"],
+      "template_section": "src/sections/user/profile",
+      "template_page": "src/app/dashboard/user/[id]/page.tsx",
+      "notes": "Contextual drilldown from a row. User profile + tabs pattern applies to per-goat detail."
+    },
+    {
+      "area": "people",
+      "route_prefixes": ["people"],
+      "template_section": "src/sections/user",
+      "template_page": "src/app/dashboard/user/list/page.tsx",
+      "notes": "Operator roster + notification matrix."
+    },
+    {
+      "area": "work-board",
+      "route_prefixes": ["work-board"],
+      "template_section": "src/sections/kanban",
+      "template_page": "src/app/dashboard/kanban/page.tsx",
+      "notes": "Column pager + card drawer. Same Kanban template shell as tasks/workflows."
+    },
+    {
+      "area": "ceo-ai",
+      "route_prefixes": ["ceo-ai"],
+      "template_section": "src/sections/chat",
+      "template_page": "src/app/dashboard/chat/page.tsx",
+      "notes": "Ask Mesha panel and admin. Chat section is the composer + thread list + message bubble reference."
+    },
+    {
+      "area": "pc-care",
+      "route_prefixes": ["pc-care"],
+      "template_section": "src/sections/blog",
+      "template_page": "src/app/dashboard/post/page.tsx",
+      "notes": "Preventive Care SOP library and editor."
+    },
+    {
+      "area": "login",
+      "route_prefixes": ["login"],
+      "template_section": "src/auth",
+      "template_page": "src/app/auth/jwt/sign-in/page.tsx",
+      "notes": "Sign-in surface. Template auth section is the reference for the pre-shell layout."
+    },
+    {
+      "area": "ask-mesha-webview",
+      "route_prefixes": ["ask-mesha"],
+      "template_section": "src/sections/chat",
+      "template_page": "src/app/dashboard/chat/page.tsx",
+      "notes": "Phone-first assistant surface reused inside the Android WebView."
+    }
+  ]
+}

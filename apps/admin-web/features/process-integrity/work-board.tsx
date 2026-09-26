@@ -11,6 +11,8 @@ import { ClipText, Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
+import { stageLabel } from "@/lib/stage-labels";
+import { Avatar } from "@/components/app/avatar";
 
 export { actionDriveLabel, actionWorkTitle } from "./action-center-presenters";
 
@@ -88,7 +90,7 @@ function optionTone(options: AdminUiOption[], key: string): Tone {
 }
 
 // One mock-shaped task card for a single Action Center obligation (ported from the mock taskCard2).
-function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string; localOverlay: boolean }) {
+function WorkCard({ pageContract, row, href, localOverlay, index = 0 }: { pageContract: AdminUiPageContract; row: ActionCenterObligation; href: string; localOverlay: boolean; index?: number }) {
   const operatorMissing = row.owner_state === "missing" || !row.owner?.operator_name;
   const blocker = displayBlocker(row.blocker_reason);
   const drive = actionDriveLabel(pageContract, row);
@@ -127,7 +129,7 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
         <Tag tone={optionTone(severityOptions, row.severity)}>{optionLabel(severityOptions, row.severity)}</Tag>
       </div>
       <div className="row" style={{ marginTop: 6 }}>
-        <Tag tone="info">{row.animal_stage}</Tag>
+        <Tag tone="info">{stageLabel(row.animal_stage)}</Tag>
         <Tag tone={optionTone(workStateOptions, row.work_state)}>{optionLabel(workStateOptions, row.work_state)}</Tag>
         {row.proof_state !== "missing" ? <Tag tone={optionTone(proofStateOptions, row.proof_state)}>{optionLabel(proofStateOptions, row.proof_state)}</Tag> : null}
         {driveTag ? <Tag tone={driveTag.tone} title={driveTag.title}>{driveTag.label}</Tag> : null}
@@ -144,7 +146,7 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
         </div>
       ) : null}
       <div className="who">
-        <span className="av xs">{initials(row.owner?.operator_name)}</span>
+        <Avatar name={row.owner?.operator_name ?? ""} initials={initials(row.owner?.operator_name)} size={22} decorative />
         <ClipText title={ownerLabel} style={operatorMissing ? { color: "var(--danger)" } : undefined}>
           {ownerLabel}
         </ClipText>
@@ -155,11 +157,11 @@ function WorkCard({ pageContract, row, href, localOverlay }: { pageContract: Adm
   const linkProps = {
     href,
     scroll: false,
-    className: "task task-ac",
+    className: "task task-ac cx-row",
     "data-filter-row": true,
     "aria-label": openLabel,
     title: `${title} · ${drive} · ${ownerLabel ?? copy(pageContract, "label.unassigned")}`,
-    style: { color: "inherit", textDecoration: "none" },
+    style: { color: "inherit", textDecoration: "none", "--i": index } as React.CSSProperties,
   } as const;
   return localOverlay ? (
     <LocalOverlayLink {...linkProps}>{contents}</LocalOverlayLink>
@@ -253,9 +255,10 @@ export function WorkBoard({
             </div>
             <div className="tcards">
               {col.length ? (
-                col.map((row) => (
+                col.map((row, cardIndex) => (
                   <WorkCard
                     key={row.row_id}
+                    index={cardIndex}
                     pageContract={pageContract}
                     row={row}
                     href={drawerHrefForRow ? drawerHrefForRow(row) : `/workflows/${encodeURIComponent(row.row_id)}`}

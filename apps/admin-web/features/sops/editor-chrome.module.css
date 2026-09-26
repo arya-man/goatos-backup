@@ -1,0 +1,203 @@
+/*
+ * Layout-only styles for the SOP editor surfaces (builder, inspection, weighing, feed,
+ * operator steps). Colors are theme tokens only — no literals live here.
+ */
+
+.head {
+  margin-bottom: 18px;
+}
+
+/* The kit h1 carries `margin-right: auto` for the row header; inside this column title block an
+   auto cross-axis margin would size it to its text and push a long title past the phone edge. */
+.head h1 {
+  margin: 0;
+  max-width: 100%;
+}
+
+/* On a phone the editor title wraps rather than truncating: it is the page's whole name. */
+@media (max-width: 640px) {
+  .head h1 {
+    font-size: 28px !important;
+    line-height: 34px !important;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .head {
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .head :global(.kit-pagehead-title) {
+    gap: 8px;
+  }
+
+  .head :global(.kit-pagehead-title > p) {
+    font-size: 13px;
+    line-height: 21px;
+  }
+
+  .headActions {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+
+  .headActions :global(.studio-view-toggle) {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .backLink {
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+}
+
+.headMeta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+
+/* Separators are drawn between items, so a wrapped last item never trails a stray dot. */
+.headMeta > * + *::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+.headMeta > :global(.wide) {
+  flex-basis: 100%;
+}
+
+.headMeta > :global(.wide)::before {
+  display: none;
+}
+
+.headActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.backLink {
+  text-decoration: none;
+}
+
+/* An MUI select dropped into a dense question-card row. */
+.inlineSelect {
+  align-self: start;
+  justify-self: start;
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: 100%;
+}
+
+
+
+
+/* A labelled MUI select inside a card body — the floating label needs room above it. */
+.fieldSelect {
+  margin-top: 8px;
+  align-self: start;
+  justify-self: start;
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.fieldRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.stickyActions {
+  position: sticky;
+  /* .main reserves padding-bottom for the floating assistant button (minimal-theme.css), and a
+     sticky inset is measured from the scroller's padding box -- so `bottom: 0` parked the bar 88px
+     above the viewport edge with page content showing beneath it. Cancel that padding so the bar
+     sits on the viewport bottom; its own 80px right padding already clears the button. */
+  bottom: -88px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+  /* Right padding clears the floating assistant button that sits over the bottom-right corner. */
+  padding: 14px 80px 14px 16px;
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: var(--shadow-card, none);
+  transition: box-shadow 180ms ease, border-color 180ms ease;
+}
+
+/*
+ * Raised state. While the bar is stuck to the bottom of the viewport it must read as floating over
+ * the page, not as the last block of it. `bottom: -1px` makes the sticky element cross its
+ * container edge by a pixel, which is what lets `:not(:is(...))`-free detection work here: the
+ * stuck bar is the one whose bottom inset is clipped, so we raise it whenever the page can still
+ * scroll underneath. A plain media/scroll-driven query is enough — no JS scroll listener.
+ */
+@supports (animation-timeline: scroll()) {
+  .stickyActions {
+    animation: stickyActionsRaise linear both;
+    animation-timeline: scroll(root);
+    animation-range: 0 100%;
+  }
+}
+
+@keyframes stickyActionsRaise {
+  from {
+    box-shadow: var(--shadow-card-hover, var(--shadow-card, none));
+    border-color: var(--line);
+  }
+  99% {
+    box-shadow: var(--shadow-card-hover, var(--shadow-card, none));
+    border-color: var(--line);
+  }
+  to {
+    box-shadow: var(--shadow-card, none);
+    border-color: var(--line2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stickyActions {
+    transition: none;
+  }
+}
+
+.stickyActions > :global(.spacer) {
+  flex: 1;
+}
+
+@media (max-width: 640px) {
+  .stickyActions {
+    padding: 12px 12px 64px;
+  }
+}
+
+@media (max-width: 620px) {
+  .stickyActions {
+    bottom: -96px;
+  }
+}

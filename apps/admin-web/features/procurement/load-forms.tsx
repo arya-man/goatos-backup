@@ -1,9 +1,16 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { randomUUID } from "node:crypto";
 import { ChevronDown, Flag, HeartPulse, PackageCheck, Plus, Truck } from "lucide-react";
 import type { ProcurementHFVaccinationEvidence, ProcurementLoadGoat } from "@/lib/api/procurement";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { fmtDate } from "@/lib/format";
 import { copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { FormSelect } from "./form-select";
+import { contractOptions, listOptions } from "./option-utils";
 import { isAcceptedIntake, isProcurementHistoryOnly } from "./work-state";
 import {
   acceptIntakeAction,
@@ -17,6 +24,10 @@ import {
   reviewHFVaccinationEvidenceAction,
 } from "./actions";
 import { OptionalLocationSelect, ParkLocationSelect, ParkShedLocationSelects, type ProcurementLocations } from "./location-selects";
+import { DateTimeField } from "@/components/app/date-time-field";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 
 // Operator write surface for a load. Every control submits a real server action against a generated
 // backend endpoint (idempotency-keyed) — none are display-only. Media capture is not built in this slice,
@@ -27,16 +38,6 @@ function goatLabel(goat: ProcurementLoadGoat): string {
 	return goat.animal_identifier_1 || goat.animal_identifier_2 || (goat.goat_id ? goat.goat_id.slice(0, 8) : "—");
 }
 
-function SelectOptions({ pageContract, groupId }: { pageContract: AdminUiPageContract; groupId: string }) {
-  return (
-    <>
-      {optionGroup(pageContract, groupId).map((option) => (
-        <option key={option.key} value={option.key}>{option.label}</option>
-      ))}
-    </>
-  );
-}
-
 // A native disclosure that reads as a mock card header; no client JS needed in a server component.
 function Disclosure({
   icon,
@@ -44,15 +45,26 @@ function Disclosure({
   children,
   id,
   defaultOpen,
+  hiddenUntilOpen,
 }: {
   icon: React.ReactNode;
   title: string;
   children: React.ReactNode;
   id?: string;
   defaultOpen?: boolean;
+  hiddenUntilOpen?: boolean;
 }) {
   return (
-    <details id={id} className="card" open={defaultOpen} style={{ marginBottom: 12, scrollMarginTop: 82 }}>
+    <Box
+      component="details"
+      id={id}
+      className="card"
+      open={defaultOpen}
+      style={{ marginBottom: 12, scrollMarginTop: 82 }}
+      // Source entry's header "New load" button is the one way in: the form card stays hidden
+      // until that button opens it, so the page never shows "New load" twice.
+      sx={hiddenUntilOpen ? { "&:not([open])": { display: "none" } } : undefined}
+    >
       <summary className="hd" style={{ cursor: "pointer", listStyle: "none" }}>
         {icon}
         <h3>{title}</h3>
@@ -60,7 +72,7 @@ function Disclosure({
         <ChevronDown className="ic" aria-hidden="true" />
       </summary>
       <div className="bd">{children}</div>
-    </details>
+    </Box>
   );
 }
 
@@ -87,7 +99,7 @@ function IdempotencyKeyField() {
 
 export function NewLoadForm({ returnTo, pageContract }: { returnTo: string; pageContract: AdminUiPageContract }) {
   return (
-    <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title={copy(pageContract, "form.new_load.title")}>
+    <Disclosure id="new-load" hiddenUntilOpen icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title={copy(pageContract, "form.new_load.title")}>
       <form action={createLoadAction} style={{ maxWidth: 620 }}>
         <IdempotencyKeyField />
         <input type="hidden" name="return_to" value={returnTo} />
@@ -108,11 +120,24 @@ export function NewLoadForm({ returnTo, pageContract }: { returnTo: string; page
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <div className="fld" style={{ flex: 1, minWidth: 180 }}>
             <label>{copy(pageContract, "field.purchase_date")}</label>
-            <input name="purchase_date" type="date" />
+            <ThemedDatePicker
+              name="purchase_date"
+              label={copy(pageContract, "field.purchase_date")}
+              previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+              nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+              invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+            />
           </div>
-          <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-            <label>{copy(pageContract, "field.planned_dispatch")}</label>
-            <input name="planned_dispatch_at" type="datetime-local" />
+          <div className="fld" style={{ flex: "1 1 100%", minWidth: 280 }}>
+            <DateTimeField
+              name="planned_dispatch_at"
+              label={copy(pageContract, "field.planned_dispatch")}
+              hourLabel={copy(pageContract, "field.hour", "Hour")}
+              minuteLabel={copy(pageContract, "field.minute", "Minute")}
+              previousMonthLabel={copy(pageContract, "date.previous_month", "Previous month")}
+              nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+              invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+            />
           </div>
         </div>
         <div className="fld">
@@ -159,9 +184,9 @@ export function LoadWriteActions({
   return (
     <>
       {locationBlockReason ? (
-        <div className="alert warn" role="alert" style={{ marginBottom: 12 }}>
+        <Alert severity="warning" style={{ marginBottom: 12 }} role="alert">
           {locationBlockReason}
-        </div>
+        </Alert>
       ) : null}
       <Disclosure icon={<Plus className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />} title={copy(pageContract, "form.add_goat.title")}>
         <form action={addSourceGoatAction} style={{ maxWidth: 620 }}>
@@ -178,44 +203,56 @@ export function LoadWriteActions({
               <input name="animal_identifier_2" placeholder={copy(pageContract, "placeholder.animal_identifier_2")} />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 140 }}>
-              <label>{copy(pageContract, "field.species")}</label>
-              <select name="species" defaultValue="" required>
-                <option value="" disabled>{copy(pageContract, "placeholder.species")}</option>
-                <SelectOptions pageContract={pageContract} groupId="proc_species" />
-              </select>
+              <FormSelect
+                label={copy(pageContract, "field.species")}
+                name="species"
+                defaultValue=""
+                required
+                options={contractOptions(pageContract, "proc_species", copy(pageContract, "placeholder.species"))}
+              />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 140 }}>
-              <label>{copy(pageContract, "field.sex")}</label>
-              <select name="sex" defaultValue="" required>
-                <option value="" disabled>{copy(pageContract, "placeholder.sex")}</option>
-                <SelectOptions pageContract={pageContract} groupId="proc_sex" />
-              </select>
+              <FormSelect
+                label={copy(pageContract, "field.sex")}
+                name="sex"
+                defaultValue=""
+                required
+                options={contractOptions(pageContract, "proc_sex", copy(pageContract, "placeholder.sex"))}
+              />
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>{copy(pageContract, "field.selection_state")}</label>
-              <select name="selection_state" defaultValue="source_only">
-                <SelectOptions pageContract={pageContract} groupId="proc_selection_state" />
-              </select>
+              <FormSelect
+                label={copy(pageContract, "field.selection_state")}
+                name="selection_state"
+                defaultValue="source_only"
+                options={contractOptions(pageContract, "proc_selection_state")}
+              />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>{copy(pageContract, "field.health_state")}</label>
-              <select name="health_state" defaultValue="pending">
-                <SelectOptions pageContract={pageContract} groupId="proc_health_state" />
-              </select>
+              <FormSelect
+                label={copy(pageContract, "field.health_state")}
+                name="health_state"
+                defaultValue="pending"
+                options={contractOptions(pageContract, "proc_health_state")}
+              />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>{copy(pageContract, "field.ownership")}</label>
-              <select name="ownership_state" defaultValue="pending">
-                <SelectOptions pageContract={pageContract} groupId="proc_ownership_state" />
-              </select>
+              <FormSelect
+                label={copy(pageContract, "field.ownership")}
+                name="ownership_state"
+                defaultValue="pending"
+                options={contractOptions(pageContract, "proc_ownership_state")}
+              />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 150 }}>
-              <label>{copy(pageContract, "field.purpose")}</label>
-              <select name="purpose" defaultValue="unspecified">
-                <SelectOptions pageContract={pageContract} groupId="proc_purpose" />
-              </select>
+              <FormSelect
+                label={copy(pageContract, "field.purpose")}
+                name="purpose"
+                defaultValue="unspecified"
+                options={contractOptions(pageContract, "proc_purpose")}
+              />
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -256,22 +293,33 @@ export function LoadWriteActions({
               <input type="hidden" name="load_id" value={loadId} />
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <div className="fld" style={{ flex: 1, minWidth: 190 }}>
-                  <label>{copy(pageContract, "field.goat_in_load")}</label>
-                  <select name="goat_id" required aria-label={copy(pageContract, "field.goat_in_load")}>
-                    {goats.map((goat) => (
-                      <option key={goat.load_goat_id} value={goat.goat_id}>
-                        {goatLabel(goat)} · {optionLabel(pageContract, "proc_purpose", goat.purpose)}
-                      </option>
-                    ))}
-                  </select>
+                  <FormSelect
+                    label={copy(pageContract, "field.goat_in_load")}
+                    name="goat_id"
+                    required
+                    defaultValue={goats[0]?.goat_id ?? ""}
+                    options={listOptions(
+                      goats,
+                      (goat) => goat.goat_id,
+                      (goat) => `${goatLabel(goat)} · ${optionLabel(pageContract, "proc_purpose", goat.purpose)}`,
+                    )}
+                  />
                 </div>
                 <div className="fld" style={{ flex: 1, minWidth: 180 }}>
                   <label>{copy(pageContract, "field.dose_code")}</label>
                   <input name="dose_code" required placeholder={copy(pageContract, "placeholder.dose_code")} />
                 </div>
-                <div className="fld" style={{ flex: 1, minWidth: 190 }}>
-                  <label>{copy(pageContract, "field.administered_at_hf")}</label>
-                  <input name="administered_at" type="datetime-local" required aria-label={copy(pageContract, "field.administered_at_hf")} />
+                <div className="fld" style={{ flex: "1 1 100%", minWidth: 280 }}>
+                  <DateTimeField
+                    name="administered_at"
+                    required
+                    label={copy(pageContract, "field.administered_at_hf")}
+                    hourLabel={copy(pageContract, "field.hour", "Hour")}
+                    minuteLabel={copy(pageContract, "field.minute", "Minute")}
+                    previousMonthLabel={copy(pageContract, "date.previous_month", "Previous month")}
+                    nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+                    invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+                  />
                 </div>
               </div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -314,31 +362,31 @@ export function LoadWriteActions({
               </div>
             ) : (
               <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.hf_evidence.aria")}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>{copy(pageContract, "table.hf_evidence.goat")}</th>
-                      <th>{copy(pageContract, "table.hf_evidence.dose")}</th>
-                      <th>{copy(pageContract, "table.hf_evidence.administered")}</th>
-                      <th>{copy(pageContract, "table.hf_evidence.evidence")}</th>
-                      <th>{copy(pageContract, "table.hf_evidence.review")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell component="th">{copy(pageContract, "table.hf_evidence.goat")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "table.hf_evidence.dose")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "table.hf_evidence.administered")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "table.hf_evidence.evidence")}</TableCell>
+                      <TableCell component="th">{copy(pageContract, "table.hf_evidence.review")}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {hfEvidence.map((evidence) => (
-                      <tr key={evidence.evidence_id}>
-                        <td>
+                      <TableRow key={evidence.evidence_id}>
+                        <TableCell>
                           <span className="gid">{evidence.goat_id.slice(0, 8)}</span>
-                        </td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
                           <b>{evidence.dose_code}</b>
                           <div className="muted small">{evidence.vaccine_name || copy(pageContract, "label.vaccine_name_not_set")}</div>
-                        </td>
-                        <td className="muted">{fmtDate(evidence.administered_at)}</td>
-                        <td className="muted small">
+                        </TableCell>
+                        <TableCell className="muted">{fmtDate(evidence.administered_at)}</TableCell>
+                        <TableCell className="muted small">
                           {evidence.proof_ref_id ? `${copy(pageContract, "label.proof")} ${evidence.proof_ref_id.slice(0, 8)}` : copy(pageContract, "label.proof_ref_not_set")}
-                        </td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
                           {evidence.review_status === "trusted" ? (
                             <span className="muted small">{copy(pageContract, "label.trusted_locked")}</span>
                           ) : (
@@ -348,18 +396,22 @@ export function LoadWriteActions({
                               <input type="hidden" name="load_id" value={loadId} />
                               <input type="hidden" name="evidence_id" value={evidence.evidence_id} />
                               <input type="hidden" name="expected_row_version" value={evidence.row_version} />
-                              <select name="review_status" defaultValue="trusted" className="tsize" aria-label={copy(pageContract, "field.review_status")}>
-                                <SelectOptions pageContract={pageContract} groupId="proc_hf_review_status" />
-                              </select>
+                              <FormSelect
+                                label={copy(pageContract, "field.review_status")}
+                                name="review_status"
+                                defaultValue="trusted"
+                                className="tsize"
+                                options={contractOptions(pageContract, "proc_hf_review_status")}
+                              />
                               <input name="review_reason" placeholder={copy(pageContract, "placeholder.reason")} style={{ maxWidth: 170 }} />
                               <button type="submit" className="btn sm">{copy(pageContract, "action.review")}</button>
                             </form>
                           )}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
           </div>
@@ -388,10 +440,12 @@ export function LoadWriteActions({
                     <input type="hidden" name="load_id" value={loadId} />
                     <input type="hidden" name="goat_id" value={goat.goat_id} />
                     <div className="fld" style={{ width: 130, marginBottom: 0 }}>
-                      <label>{copy(pageContract, "field.source_health")}</label>
-                      <select name="health_state" defaultValue="passed">
-                        <SelectOptions pageContract={pageContract} groupId="proc_health_state" />
-                      </select>
+                      <FormSelect
+                        label={copy(pageContract, "field.source_health")}
+                        name="health_state"
+                        defaultValue="passed"
+                        options={contractOptions(pageContract, "proc_health_state")}
+                      />
                     </div>
                     <div className="fld" style={{ width: 160, marginBottom: 0 }}>
                       <label>{copy(pageContract, "field.reason")}</label>
@@ -406,16 +460,18 @@ export function LoadWriteActions({
                     <input type="hidden" name="load_id" value={loadId} />
                     <input type="hidden" name="goat_id" value={goat.goat_id} />
                     <div className="fld" style={{ width: 150, marginBottom: 0 }}>
-                      <label>{copy(pageContract, "field.pre_dispatch")}</label>
-                      <select name="decision_type" defaultValue="accepted">
-                        <SelectOptions pageContract={pageContract} groupId="proc_decision_type" />
-                      </select>
+                      <FormSelect
+                        label={copy(pageContract, "field.pre_dispatch")}
+                        name="decision_type"
+                        defaultValue="accepted"
+                        options={contractOptions(pageContract, "proc_decision_type")}
+                      />
                     </div>
                     <div className="fld" style={{ width: 160, marginBottom: 0 }}>
                       <label>{copy(pageContract, "field.reason")}</label>
                       <input name="reason" placeholder={copy(pageContract, "placeholder.optional")} />
                     </div>
-                    <ConfirmSubmitButton className="btn sm" message={`${copy(pageContract, "confirm.pre_dispatch.prefix")} ${goatLabel(goat)}? ${copy(pageContract, "confirm.pre_dispatch.suffix")}`}>
+                    <ConfirmSubmitButton confirmLabel={copy(pageContract, "confirm.ok", "Confirm")} cancelLabel={copy(pageContract, "action.cancel")} dialogTitle={copy(pageContract, "confirm.title", "Please confirm")} className="btn sm" message={`${copy(pageContract, "confirm.pre_dispatch.prefix")} ${goatLabel(goat)}? ${copy(pageContract, "confirm.pre_dispatch.suffix")}`}>
                       {copy(pageContract, "action.record_decision")}
                     </ConfirmSubmitButton>
                   </form>
@@ -434,12 +490,10 @@ export function LoadWriteActions({
           <input type="hidden" name="load_id" value={loadId} />
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>{copy(pageContract, "field.to_location_id")}</label>
-              <ParkLocationSelect name="to_location_id" parks={locations.parks} pageContract={pageContract} />
+              <ParkLocationSelect label={copy(pageContract, "field.to_location_id")} name="to_location_id" parks={locations.parks} pageContract={pageContract} />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 180 }}>
-              <label>{copy(pageContract, "field.from_location_id")}</label>
-              <OptionalLocationSelect name="from_location_id" locations={locations.origins} pageContract={pageContract} defaultValue={defaultFromLocationId} />
+              <OptionalLocationSelect label={copy(pageContract, "field.from_location_id")} name="from_location_id" locations={locations.origins} pageContract={pageContract} defaultValue={defaultFromLocationId} />
             </div>
           </div>
           <div className="fld">
@@ -447,9 +501,16 @@ export function LoadWriteActions({
             <input name="goat_ids" placeholder={copy(pageContract, "placeholder.goat_ids_dispatch")} />
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <div className="fld" style={{ maxWidth: 260 }}>
-              <label>{copy(pageContract, "field.dispatched_at")}</label>
-              <input name="dispatched_at" type="datetime-local" />
+            <div className="fld" style={{ flex: "1 1 100%", minWidth: 280 }}>
+              <DateTimeField
+                name="dispatched_at"
+                label={copy(pageContract, "field.dispatched_at")}
+                hourLabel={copy(pageContract, "field.hour", "Hour")}
+                minuteLabel={copy(pageContract, "field.minute", "Minute")}
+                previousMonthLabel={copy(pageContract, "date.previous_month", "Previous month")}
+                nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+                invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+              />
             </div>
             <div className="fld" style={{ flex: 1, minWidth: 220 }}>
               <label>{copy(pageContract, "field.dispatch_proof_ref_id")}</label>
@@ -470,8 +531,7 @@ export function LoadWriteActions({
           <input type="hidden" name="return_to" value={returnTo} />
           <input type="hidden" name="load_id" value={loadId} />
           <div className="fld">
-            <label>{copy(pageContract, "field.park_location_id")}</label>
-            <ParkLocationSelect name="park_location_id" parks={locations.parks} pageContract={pageContract} />
+            <ParkLocationSelect label={copy(pageContract, "field.park_location_id")} name="park_location_id" parks={locations.parks} pageContract={pageContract} />
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {optionGroup(pageContract, "proc_arrival_counts").map((count) => (
@@ -482,10 +542,12 @@ export function LoadWriteActions({
             ))}
           </div>
           <div className="fld" style={{ maxWidth: 220 }}>
-            <label>{copy(pageContract, "field.review_status")}</label>
-            <select name="status" defaultValue="pending">
-              <SelectOptions pageContract={pageContract} groupId="proc_arrival_status" />
-            </select>
+            <FormSelect
+              label={copy(pageContract, "field.review_status")}
+              name="status"
+              defaultValue="pending"
+              options={contractOptions(pageContract, "proc_arrival_status")}
+            />
           </div>
           <div className="fld">
             <label>{copy(pageContract, "field.arrival_rows")}</label>
@@ -522,19 +584,27 @@ export function LoadWriteActions({
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <div className="fld" style={{ width: 180 }}>
               <label>{copy(pageContract, "field.entry_date")}</label>
-              <input name="entry_date" type="date" />
+              <ThemedDatePicker
+                name="entry_date"
+                label={copy(pageContract, "field.entry_date")}
+                previousMonthLabel={copy(pageContract, "date.prev_month", "Previous month")}
+                nextMonthLabel={copy(pageContract, "date.next_month", "Next month")}
+                invalidDateText={copy(pageContract, "date.invalid", "Pick a valid date")}
+              />
             </div>
             <div className="fld" style={{ width: 180 }}>
-              <label>{copy(pageContract, "field.intake_health_signal")}</label>
-              <select name="intake_health_signal" defaultValue="clear">
-                <SelectOptions pageContract={pageContract} groupId="proc_intake_signal" />
-              </select>
+              <FormSelect
+                label={copy(pageContract, "field.intake_health_signal")}
+                name="intake_health_signal"
+                defaultValue="clear"
+                options={contractOptions(pageContract, "proc_intake_signal")}
+              />
             </div>
           </div>
           <div className="muted small" style={{ marginBottom: 8 }}>
             {copy(pageContract, "label.pc_handoff_note")}
           </div>
-          <ConfirmSubmitButton className="btn p" message={copy(pageContract, "confirm.accept_intake")} disabled={intakeDisabled} title={intakeBlockReason || undefined}>
+          <ConfirmSubmitButton confirmLabel={copy(pageContract, "confirm.ok", "Confirm")} cancelLabel={copy(pageContract, "action.cancel")} dialogTitle={copy(pageContract, "confirm.title", "Please confirm")} className="btn p" message={copy(pageContract, "confirm.accept_intake")} disabled={intakeDisabled} title={intakeBlockReason || undefined}>
             {copy(pageContract, "action.accept_intake")}
           </ConfirmSubmitButton>
         </form>

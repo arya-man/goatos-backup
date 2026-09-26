@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Pencil } from "lucide-react";
+import { Tag } from "@/components/ui-primitives";
 
+import { useEffect, useRef, useState } from "react";
+import MuiButton from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import MuiTextField from "@mui/material/TextField";
+import { CalendarClock, Check, ChevronDown, FlaskConical, Pencil, Plus, Power, SlidersHorizontal, Trash2, type LucideIcon } from "lucide-react";
+import { InfoHint } from "@/components/app/info-hint";
+
+import { FormSelect } from "@/components/form-select";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigActionResult } from "./feed-config-actions";
 import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState } from "@/lib/authoring-idempotency";
 import { clearSavedRate, publishSavedRate, rationRateKey } from "./feed-rate-optimistic";
 import { fmtClock, fmtInputNumber } from "./feed-config-format";
+import Checkbox from "@mui/material/Checkbox";
+import { DropdownPaper } from "@/components/app/dropdown-paper";
 import { fractionToPercent } from "./session-plan";
 
 // Inline editors for the three writable Feed Config surfaces.
@@ -54,6 +63,7 @@ function FeedConfigFormShell({
   children,
   editLabel,
   openLabel,
+  icon: Icon = Pencil,
   onSaved,
   onOptimistic,
   onRejected,
@@ -63,6 +73,8 @@ function FeedConfigFormShell({
   children: React.ReactNode;
   editLabel: string;
   openLabel: string;
+  /** Distinct per action (two pencils on one row said nothing): Pencil = rate, FlaskConical = experiment arm, Plus = add, Power = withdraw/restore, CalendarClock = schedule, SlidersHorizontal = factor. */
+  icon?: LucideIcon;
   /**
    * Called with the submitted form ONLY after a CONFIRMED save, so a caller can show the new value
    * before the route's re-render lands. Never called for a rejected write — the form already
@@ -154,10 +166,10 @@ function FeedConfigFormShell({
 
   if (!idem.open) {
     const openButton = (
-      <button type="button" className="btn sm" style={{ minWidth: 128, whiteSpace: "normal" }} onClick={handleOpen} title={openLabel}>
-        <Pencil className="ic" aria-hidden="true" />
-        {editLabel}
-      </button>
+      // An icon button per row, not ten outlined "Edit rate" primaries down a column (judge M2 #13).
+      <IconButton type="button" size="small" onClick={handleOpen} title={editLabel + (openLabel && openLabel !== editLabel ? ` — ${openLabel}` : "")} aria-label={editLabel}>
+        <Icon className="ic" aria-hidden="true" />
+      </IconButton>
     );
     // Nothing has been saved from this control yet — render exactly the bare button, so the closed
     // state stays byte-identical to what every table cell and section header lays out today.
@@ -177,14 +189,15 @@ function FeedConfigFormShell({
       <input type="hidden" name="idempotency_key" value={idem.key ?? ""} />
       {children}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <button type="submit" className="btn sm p" disabled={pending}>
-          {pending ? copy(pageContract, "state.loading") : copy(pageContract, "action.apply")}
-        </button>
+        <MuiButton type="submit" size="small" variant="contained" loading={pending}>
+          {copy(pageContract, "action.apply")}
+        </MuiButton>
         {/* Cancel drops a refusal with the form: the message was about values the operator just
             abandoned, and left under the closed button it reads as if something still failed. */}
-        <button
+        <MuiButton
           type="button"
-          className="btn sm"
+          size="small"
+          variant="outlined"
           onClick={() => {
             setIdem(CLOSED_STATE);
             setResult(null);
@@ -192,7 +205,7 @@ function FeedConfigFormShell({
           disabled={pending}
         >
           {copy(pageContract, "action.cancel")}
-        </button>
+        </MuiButton>
       </div>
       <Outcome result={result} pageContract={pageContract} />
     </form>
@@ -282,25 +295,24 @@ export function RationRateEditor({
       <input type="hidden" name="shed_tag" value={shedTag} />
       <input type="hidden" name="feed_item" value={feedItem} />
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`grams-${parkId}-${rationGroup}-${shedTag}-${feedItem}`}>
+        <label htmlFor={`grams-${parkId}-${rationGroup}-${shedTag}-${feedItem}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           {copy(pageContract, "label.grams_noun")}
+          <InfoHint text={copy(pageContract, "reason.blank_is_not_zero")} />
         </label>
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`grams-${parkId}-${rationGroup}-${shedTag}-${feedItem}`}
           name="grams_per_head"
-          type="text"
-          inputMode="decimal"
           // Uncontrolled: a cleared box stays cleared and is rejected server-side, never sent as 0.
           defaultValue={fmtInputNumber(gramsPerHead)}
-          aria-describedby={`grams-hint-${parkId}-${rationGroup}-${shedTag}-${feedItem}`}
+          slotProps={{
+            htmlInput: { inputMode: "decimal", "aria-describedby": `grams-hint-${parkId}-${rationGroup}-${shedTag}-${feedItem}` },
+          }}
         />
-        <div
-          id={`grams-hint-${parkId}-${rationGroup}-${shedTag}-${feedItem}`}
-          className="small muted"
-          style={{ marginTop: 4 }}
-        >
+        <span id={`grams-hint-${parkId}-${rationGroup}-${shedTag}-${feedItem}`} className="sr-only">
           {copy(pageContract, "reason.blank_is_not_zero")}
-        </div>
+        </span>
       </div>
     </FeedConfigFormShell>
   );
@@ -324,6 +336,7 @@ export function ShedFactorEditor({
 }) {
   return (
     <FeedConfigFormShell
+      icon={SlidersHorizontal}
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, multiplier === undefined ? "action.add_shed_factor" : "action.edit_shed_factor")}
@@ -334,12 +347,13 @@ export function ShedFactorEditor({
       <input type="hidden" name="feed_item" value={feedItem} />
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`factor-${shedId}-${feedItem}`}>{copy(pageContract, "section.shed_factors.caption")}</label>
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`factor-${shedId}-${feedItem}`}
           name="multiplier"
-          type="text"
-          inputMode="decimal"
           defaultValue={multiplier ?? ""}
+          slotProps={{ htmlInput: { inputMode: "decimal" } }}
         />
         <div className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "reason.blank_is_not_zero")}
@@ -398,6 +412,7 @@ export function ExperimentCellEditor({
   const fieldId = `exp-${shedId}-${partitionLabel}-${feedItem}`;
   return (
     <FeedConfigFormShell
+      icon={FlaskConical}
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.edit_experiment_cell")}
@@ -409,14 +424,14 @@ export function ExperimentCellEditor({
       <input type="hidden" name="feed_item" value={feedItem} />
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_grams_per_head")}</label>
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`${fieldId}-kg`}
           name="grams_per_head"
-          type="text"
-          inputMode="decimal"
           // Uncontrolled: a cleared box stays cleared and is rejected server-side, never sent as 0.
           defaultValue={fmtInputNumber(gramsPerHead)}
-          aria-describedby={`${fieldId}-kg-hint`}
+          slotProps={{ htmlInput: { inputMode: "decimal", "aria-describedby": `${fieldId}-kg-hint` } }}
         />
         <div id={`${fieldId}-kg-hint`} className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "reason.experiment_blank_is_not_zero")}
@@ -424,12 +439,13 @@ export function ExperimentCellEditor({
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`${fieldId}-arm`}>{copy(pageContract, "label.experiment_category")}</label>
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`${fieldId}-arm`}
           name="experiment_category"
-          type="text"
           defaultValue={experimentCategory}
-          aria-describedby={`${fieldId}-arm-hint`}
+          slotProps={{ htmlInput: { "aria-describedby": `${fieldId}-arm-hint` } }}
         />
         <div id={`${fieldId}-arm-hint`} className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "label.experiment_category_note")}
@@ -489,6 +505,7 @@ export function ExperimentCellAdder({
   const fieldId = `exp-add-${shedId}-${partitionLabel}`;
   return (
     <FeedConfigFormShell
+      icon={Plus}
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.add_experiment_item")}
@@ -498,29 +515,27 @@ export function ExperimentCellAdder({
       <input type="hidden" name="shed_id" value={shedId} />
       <input type="hidden" name="partition_label" value={partitionLabel} />
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`${fieldId}-item`}>{copy(pageContract, "filter.feed_item_label")}</label>
         {/* An explicit empty choice: without it the browser silently selects the first feed, and a
             quick save adds an item the author never picked. The action refuses a blank item. */}
-        <select id={`${fieldId}-item`} name="feed_item" defaultValue="" required>
-          <option value="" disabled />
-          {availableItems.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
+        <FormSelect
+          name="feed_item"
+          label={copy(pageContract, "filter.feed_item_label")}
+          defaultValue=""
+          required
+          options={availableItems.map((item) => ({ value: item, label: item }))}
+        />
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_grams_per_head")}</label>
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`${fieldId}-kg`}
           name="grams_per_head"
-          type="text"
-          inputMode="decimal"
           // Uncontrolled and blank: a new cell has no prior value, and a cleared box must stay
           // cleared so the server rejects it rather than authoring 0 for a pen nobody costed.
           defaultValue=""
-          aria-describedby={`${fieldId}-kg-hint`}
+          slotProps={{ htmlInput: { inputMode: "decimal", "aria-describedby": `${fieldId}-kg-hint` } }}
         />
         <div id={`${fieldId}-kg-hint`} className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "reason.experiment_blank_is_not_zero")}
@@ -528,12 +543,13 @@ export function ExperimentCellAdder({
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`${fieldId}-arm`}>{copy(pageContract, "label.experiment_category")}</label>
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`${fieldId}-arm`}
           name="experiment_category"
-          type="text"
           defaultValue={experimentCategory}
-          aria-describedby={`${fieldId}-arm-hint`}
+          slotProps={{ htmlInput: { "aria-describedby": `${fieldId}-arm-hint` } }}
         />
         <div id={`${fieldId}-arm-hint`} className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "label.experiment_category_note")}
@@ -586,6 +602,7 @@ export function ExperimentShedSwitch({
     targetStatus === "active" ? "label.experiment_active_note" : "label.experiment_retired_note";
   return (
     <FeedConfigFormShell
+      icon={Power}
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, labelKey)}
@@ -679,29 +696,25 @@ export function ExperimentPenEnroller({
   }
   return (
     <FeedConfigFormShell
+      icon={FlaskConical}
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, "action.add_experiment_pen")}
       openLabel={copy(pageContract, "section.experiment.switch_note")}
     >
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor="exp-new-park">{copy(pageContract, "filter.park_label")}</label>
-        <select
-          id="exp-new-park"
+        <FormSelect
           name="park_id"
+          label={copy(pageContract, "filter.park_label")}
           value={parkId}
-          onChange={(event) => onPark(event.target.value)}
-          aria-describedby="exp-new-park-hint"
-        >
-          {/* An explicit empty option when there is a real choice to make. Defaulting to the first
-              park would be the silent assumption this control exists to prevent. */}
-          {parks.length > 1 ? <option value="" /> : null}
-          {parks.map((park) => (
-            <option key={park.id} value={park.id}>
-              {park.name}
-            </option>
-          ))}
-        </select>
+          onChange={onPark}
+          options={[
+            // An explicit empty option when there is a real choice to make. Defaulting to the first
+            // park would be the silent assumption this control exists to prevent.
+            ...(parks.length > 1 ? [{ value: "", label: "" }] : []),
+            ...parks.map((park) => ({ value: park.id, label: park.name })),
+          ]}
+        />
         <div id="exp-new-park-hint" className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "reason.experiment_enrol_park")}
         </div>
@@ -737,7 +750,7 @@ export function ExperimentPenEnroller({
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor="exp-new-arm">{copy(pageContract, "label.experiment_category")}</label>
-        <input id="exp-new-arm" name="experiment_category" type="text" defaultValue="" />
+        <MuiTextField fullWidth size="small" id="exp-new-arm" name="experiment_category" defaultValue="" />
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <div className="small" style={{ fontWeight: 600 }}>
@@ -759,13 +772,13 @@ export function ExperimentPenEnroller({
             <label htmlFor={`exp-new-kg-${index}`} className="small" style={{ flex: 1 }}>
               {item}
             </label>
-            <input
+            <MuiTextField
+              size="small"
               id={`exp-new-kg-${index}`}
               name={`item_grams_${index}`}
-              type="text"
-              inputMode="decimal"
               defaultValue=""
-              style={{ width: 96 }}
+              slotProps={{ htmlInput: { inputMode: "decimal" } }}
+              sx={{ width: 96 }}
             />
           </div>
         ))}
@@ -855,13 +868,12 @@ function PenMultiSelect({
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           <span>{single ?? label}</span>
-          {ticked.length > 1 ? <span className="tag t-ok">{ticked.length}</span> : null}
+          {ticked.length > 1 ? <Tag tone="ok">{ticked.length}</Tag> : null}
         </span>
         <ChevronDown className="ic" aria-hidden="true" style={{ width: 14, height: 14 }} />
       </button>
       {open ? (
-        <div
-          className="card"
+        <DropdownPaper
           role="group"
           aria-label={copy(pageContract, "filter.pen_label")}
           style={{
@@ -870,7 +882,6 @@ function PenMultiSelect({
             left: 0,
             zIndex: 40,
             minWidth: 240,
-            padding: "8px 4px",
           }}
         >
           {/* Capped and scrollable: a park holds ~50 pens and a panel that grows without limit runs
@@ -890,7 +901,7 @@ function PenMultiSelect({
                       blank green box. An <svg> the page renders itself cannot be reshaped away, and
                       it is the same lucide set the rest of the console draws from. */}
                   <span className="exp-pen-box">
-                    <input type="checkbox" checked={chosen.has(value)} onChange={() => onToggle(value)} />
+                    <Checkbox checked={chosen.has(value)} onChange={() => onToggle(value)} sx={{ p: { xs: 1.5, sm: 1 } }} />
                     <Check className="exp-pen-tick" aria-hidden="true" />
                   </span>
                   <span>{pen.display}</span>
@@ -908,16 +919,16 @@ function PenMultiSelect({
               marginTop: 6,
             }}
           >
-            <button type="button" className="btn sm" onClick={onToggleAll}>
+            <MuiButton type="button" size="small" variant="outlined" onClick={onToggleAll}>
               {copy(
                 pageContract,
                 ticked.length === pens.length
                   ? "action.clear_experiment_pens"
                   : "action.select_all_experiment_pens",
               )}
-            </button>
+            </MuiButton>
           </div>
-        </div>
+        </DropdownPaper>
       ) : null}
     </span>
   );
@@ -954,6 +965,7 @@ export function FeedItemCreator({
     // rather than width so it still shrinks on a narrow viewport.
     <div style={{ maxWidth: 380, width: "100%" }}>
       <FeedConfigFormShell
+      icon={Plus}
         pageContract={pageContract}
         action={action}
         editLabel={copy(pageContract, "action.add_feed_item")}
@@ -961,14 +973,16 @@ export function FeedItemCreator({
       >
         <div className="fld" style={{ marginBottom: 0 }}>
           <label htmlFor="feed-item-new-name">{copy(pageContract, "label.feed_item_name")}</label>
-          <input
+          <MuiTextField
+            fullWidth
+            size="small"
             id="feed-item-new-name"
             name="feed_item"
-            type="text"
             defaultValue=""
-            // The contract's bound (80): the name is a table cell on every grid row.
-            maxLength={80}
-            aria-describedby="feed-item-new-name-hint"
+            slotProps={{
+              // The contract's bound (80): the name is a table cell on every grid row.
+              htmlInput: { maxLength: 80, "aria-describedby": "feed-item-new-name-hint" },
+            }}
           />
           <div id="feed-item-new-name-hint" className="small muted" style={{ marginTop: 4 }}>
             {copy(pageContract, "label.feed_item_name_note")}
@@ -979,13 +993,13 @@ export function FeedItemCreator({
             per-field, and the operator is deciding it one box at a time. */}
         <div className="fld" style={{ marginBottom: 0 }}>
           <label htmlFor="feed-item-new-energy">{copy(pageContract, "label.energy_kcal_per_kg")}</label>
-          <input
+          <MuiTextField
+            fullWidth
+            size="small"
             id="feed-item-new-energy"
             name="energy_kcal_per_kg"
-            type="text"
-            inputMode="decimal"
             defaultValue=""
-            aria-describedby="feed-item-new-energy-hint"
+            slotProps={{ htmlInput: { inputMode: "decimal", "aria-describedby": "feed-item-new-energy-hint" } }}
           />
           <div id="feed-item-new-energy-hint" className="small muted" style={{ marginTop: 4 }}>
             {copy(pageContract, "label.energy_kcal_per_kg_note")}
@@ -993,13 +1007,13 @@ export function FeedItemCreator({
         </div>
         <div className="fld" style={{ marginBottom: 0 }}>
           <label htmlFor="feed-item-new-dry-matter">{copy(pageContract, "label.dry_matter_factor")}</label>
-          <input
+          <MuiTextField
+            fullWidth
+            size="small"
             id="feed-item-new-dry-matter"
             name="dry_matter_factor"
-            type="text"
-            inputMode="decimal"
             defaultValue=""
-            aria-describedby="feed-item-new-dry-matter-hint"
+            slotProps={{ htmlInput: { inputMode: "decimal", "aria-describedby": "feed-item-new-dry-matter-hint" } }}
           />
           <div id="feed-item-new-dry-matter-hint" className="small muted" style={{ marginTop: 4 }}>
             {copy(pageContract, "label.dry_matter_factor_note")}
@@ -1007,13 +1021,13 @@ export function FeedItemCreator({
         </div>
         <div className="fld" style={{ marginBottom: 0 }}>
           <label htmlFor="feed-item-new-wastage">{copy(pageContract, "label.wastage_factor")}</label>
-          <input
+          <MuiTextField
+            fullWidth
+            size="small"
             id="feed-item-new-wastage"
             name="wastage_factor"
-            type="text"
-            inputMode="decimal"
             defaultValue=""
-            aria-describedby="feed-item-new-wastage-hint"
+            slotProps={{ htmlInput: { inputMode: "decimal", "aria-describedby": "feed-item-new-wastage-hint" } }}
           />
           <div id="feed-item-new-wastage-hint" className="small muted" style={{ marginTop: 4 }}>
             {copy(pageContract, "label.wastage_factor_note")}
@@ -1021,13 +1035,13 @@ export function FeedItemCreator({
         </div>
         <div className="fld" style={{ marginBottom: 0 }}>
           <label htmlFor="feed-item-new-order">{copy(pageContract, "label.display_order")}</label>
-          <input
+          <MuiTextField
+            fullWidth
+            size="small"
             id="feed-item-new-order"
             name="display_order"
-            type="text"
-            inputMode="numeric"
             defaultValue=""
-            aria-describedby="feed-item-new-order-hint"
+            slotProps={{ htmlInput: { inputMode: "numeric", "aria-describedby": "feed-item-new-order-hint" } }}
           />
           <div id="feed-item-new-order-hint" className="small muted" style={{ marginTop: 4 }}>
             {copy(pageContract, "label.display_order_note")}
@@ -1066,6 +1080,7 @@ export function ScheduleEditor({
 }) {
   return (
     <FeedConfigFormShell
+      icon={CalendarClock}
       pageContract={pageContract}
       action={action}
       editLabel={copy(pageContract, editLabelKey)}
@@ -1075,19 +1090,21 @@ export function ScheduleEditor({
       <input type="hidden" name="workflow" value={workflow} />
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`direction-${parkId}-${workflow}`}>{copy(pageContract, "section.schedule.title")}</label>
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`direction-${parkId}-${workflow}`}
           name="direction_time"
-          type="text"
           defaultValue={fmtClock(directionTime)}
         />
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`correction-${parkId}-${workflow}`}>{copy(pageContract, "section.schedule.caption")}</label>
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`correction-${parkId}-${workflow}`}
           name="correction_time"
-          type="text"
           defaultValue={fmtClock(correctionTime)}
         />
       </div>
@@ -1095,10 +1112,11 @@ export function ScheduleEditor({
         <label htmlFor={`transport-${parkId}-${workflow}`}>{copy(pageContract, "filter.effective_label")}</label>
         {/* Cleared records the explicit "no declared cutoff" the contract allows as null. It is the
             one blank on this screen that has an authored meaning, because the API models it. */}
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           id={`transport-${parkId}-${workflow}`}
           name="transport_time"
-          type="text"
           defaultValue={fmtClock(transportTime)}
         />
       </div>
@@ -1141,28 +1159,24 @@ export function SessionPlanEditor({
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="session_count" value={rows.length} />
       {rows.map((row, index) => (
-        <div key={row.session_no} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div key={row.session_no} style={{ display: "flex", gap: "var(--sp-1)", flexWrap: "wrap" }}>
           <input type="hidden" name={`session_no_${index}`} value={row.session_no} />
-          <div className="fld" style={{ marginBottom: 0, flex: "1 1 160px" }}>
-            <label htmlFor={`session-label-${parkId}-${row.session_no}`}>{copy(pageContract, "label.session_name")}</label>
-            <input
-              id={`session-label-${parkId}-${row.session_no}`}
-              name={`session_label_${index}`}
-              type="text"
-              maxLength={60}
-              defaultValue={row.session_label}
-            />
-          </div>
-          <div className="fld" style={{ marginBottom: 0, flex: "0 1 140px" }}>
-            <label htmlFor={`session-share-${parkId}-${row.session_no}`}>{copy(pageContract, "label.session_share")}</label>
-            <input
-              id={`session-share-${parkId}-${row.session_no}`}
-              name={`session_share_${index}`}
-              type="text"
-              inputMode="decimal"
-              defaultValue={row.share}
-            />
-          </div>
+          <MuiTextField
+            size="small"
+            id={`session-label-${parkId}-${row.session_no}`}
+            label={copy(pageContract, "label.session_name")}
+            name={`session_label_${index}`}
+            defaultValue={row.session_label}
+            slotProps={{ htmlInput: { maxLength: 60 } }}
+          />
+          <MuiTextField
+            size="small"
+            id={`session-share-${parkId}-${row.session_no}`}
+            label={copy(pageContract, "label.session_share")}
+            name={`session_share_${index}`}
+            defaultValue={row.share}
+            slotProps={{ htmlInput: { inputMode: "decimal" } }}
+          />
         </div>
       ))}
     </FeedConfigFormShell>
@@ -1212,6 +1226,7 @@ export function SessionFeedsCell({
           <div key={item.session_template_item_id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span className="tag">{item.feed_item}</span>
             <FeedConfigFormShell
+      icon={Trash2}
               pageContract={pageContract}
               action={action}
               editLabel={copy(pageContract, "action.remove_session_feed")}
@@ -1234,6 +1249,7 @@ export function SessionFeedsCell({
 
       {addable.length > 0 ? (
         <FeedConfigFormShell
+      icon={Plus}
           pageContract={pageContract}
           action={action}
           editLabel={copy(pageContract, "action.add_session_feed")}
@@ -1243,19 +1259,15 @@ export function SessionFeedsCell({
           <input type="hidden" name="session_no" value={sessionNo} />
           <input type="hidden" name="declared" value="true" />
           <div className="fld" style={{ marginBottom: 0 }}>
-            <label htmlFor={`session-feed-${parkId}-${sessionNo}`}>
-              {copy(pageContract, "action.add_session_feed_label")}
-            </label>
-            <select id={`session-feed-${parkId}-${sessionNo}`} name="feed_item" defaultValue="">
-              <option value="" disabled>
-                {copy(pageContract, "action.add_session_feed_label")}
-              </option>
-              {addable.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+            <FormSelect
+              name="feed_item"
+              label={copy(pageContract, "action.add_session_feed_label")}
+              defaultValue=""
+              options={[
+                { value: "", label: copy(pageContract, "action.add_session_feed_label") },
+                ...addable.map((item) => ({ value: item, label: item })),
+              ]}
+            />
           </div>
           {/* The split warning sits INSIDE the add form, at the moment of the decision. The grid
               quantity is a DAILY figure and each session serves its own share, so a feed added to

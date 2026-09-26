@@ -110,6 +110,7 @@ regardless of which layer changed.
 | Changed path pattern | Load reference(s) |
 |---|---|
 | `apps/admin-web/**`, `packages/ui`, `packages/rbac`, `packages/forms-dsl`, `packages/api-client` | `references/frontend.md` (includes laptop + mobile responsive UI/UX and visual-guard coverage) |
+| Any browser-visible `apps/admin-web/**` change (page, table, chart, filter bar, drawer/modal/popover, pager, `app/*.css`) | `.agents/skills/mobile-webview-guard/SKILL.md` **(always, in addition to `references/frontend.md`)** — the seven recurring mobile/WebView defect classes, the runtime check for each, and the `npm run smoke:webview` lanes that must be green at 393px in BOTH themes before push |
 | `apps/goatos-android/**` (Kotlin/Compose app) | `references/mobile.md` |
 | `backend/internal/**`, `backend/cmd/**`, `backend/migrations/**` | `references/backend.md` **+** `references/kernel-and-scale.md` |
 | `backend/internal/**/adapters/postgres/*.go` paginated SQL — a CTE/subquery under an outer `LIMIT` or keyset cursor | `references/review-lens-ledger.md` **sql-pagination-shape** lens (`scale-guard` rule `cte-limit-outside`) |
@@ -625,6 +626,25 @@ the breaks it names, and each is a finding at either viewport:
 | `C-cell-overpaint`, `C-cell-mid-word-wrap`, `chip-crushed` | table cells painting over the next column or broken mid-word; crushed chips/badges |
 | `J-raw-text` | a raw value, code, contract key, ISO date or doubled label leaking into the UI |
 
+Template-fidelity + visual-pattern lens (2026-09-26). Beyond the regression-checks families above,
+review the diff against the MUI Minimal template it maps to. `docs/design/route-template-map.json`
+names each admin-web area's template SECTION (template at `~/mesha/mui/Minimal_TypeScript_v7.7.0`;
+licensed, not committed). A NEW page must land its area mapping in the same change or fail
+`route-template-map-missing`. `scripts/lib/visual-pattern-guards.mjs` adds the production bug
+CLASSES the older lanes did not model on their own:
+
+| Guard | Catches |
+|---|---|
+| `P-text-icon-overlap` | text drawn over an icon sibling in a flex/grid row |
+| `P-wide-table-no-wrapper` | table wider than viewport with no `overflow-x` ancestor (every lane) |
+| `P-chart-axis-tiny` | chart axis / legend / SVG text below 11px on any viewport |
+| `P-pinned-bar-blur-flicker` | sticky/fixed bar with `backdrop-filter` above scrolling content (Android WebView repaint) |
+| `P-drawer-filter-mismatch` | overlay `data-drawer-filters` / `data-export-filters` differ from page `data-page-filters` |
+| `P-chart-hover-remount` | tooltip missing after hover or re-mounted between three rAF ticks |
+| `raw-chart-lib` | recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts — charts must be Apex or the two inline helpers |
+
+Full pattern → guard table and the how-to-add-a-page ordering live in `docs/design/README.md` §5b + §5c.
+
 Phone-390 is where these actually bite — crushed labels, sub-8px axis text and
 horizontal overflow mostly do not reproduce at 1440. Never approve a UI change
 off a desktop capture alone.
@@ -800,6 +820,41 @@ and source-reconciled before its task rows become visible. Reject both failure
 modes: a private Weighing task/scheduler/escalation island, and any inbound
 `task_nodes`, SOP, obligation, roster, herd, lifecycle, or generic-task gate in
 Weighing execution.
+
+## UI review lens: component stories + desktop AND mobile snapshots
+
+**HARD RULE - every UI change ships COMPONENT STORIES plus desktop AND mobile
+snapshot proof (2026-09-17).** The route sweep is not enough on its own: a kit
+component changes every page at once, so the component itself is pinned too.
+For any change under `apps/admin-web/components/kit/**`, `features/**` or a
+page's visual shell, Claude, Codex and humans must, in the SAME change:
+
+1. Add or update a Storybook story in `apps/admin-web/stories/` covering the
+   real states (default, selected, disabled, loading, empty, error, long text,
+   many rows) and a 390px variant for every table, popup/modal/drawer, tab
+   strip, pagination control and labelled chart.
+2. Run and pass, before pushing:
+
+   ```bash
+   npm --prefix apps/admin-web run smoke:stories:baseline   # 1440x900 + 390x844, dark + light
+   npm --prefix apps/admin-web run smoke:visual:all         # + route baselines + sales tolerance
+   ```
+
+   `scripts/smoke-stories-visual.mjs` builds `storybook-static`, drives every
+   story at both viewports in both themes, runs the play/interaction functions
+   (a throwing play function FAILS the lane) and pixelmatch-diffs each capture
+   against `.codex-goatos-render/admin-web-story-baselines/`. It needs Node 24
+   and Playwright chromium, and no live app or API.
+3. Rewrite baselines only for an INTENDED visual change:
+   `npm --prefix apps/admin-web run smoke:stories:update-baseline`, then open the
+   changed PNGs and state in the PR/handoff what changed and why. A silent
+   baseline rewrite is a review finding.
+4. Desktop-only proof is not proof, and a diff is never resolved by editing
+   brand tokens/hex in `app/mesha-theme.css` / `app/minimal-theme.css`.
+
+Both lanes are registered in `tools/ci/run-local-ci.sh` under the `admin-web`
+job. Details: `apps/admin-web/AGENTS.md` -> "Component visual regression
+(Storybook)".
 
 ## Proven performance patterns (from main + #415)
 

@@ -1,3 +1,5 @@
+import { EmptyState } from "@/components/app/empty-state";
+import { ProgressBar } from "@/components/app/progress-bar";
 // Grouped bars for the breed x daily-gain-band read on the Weights page.
 //
 // WHY GROUPED AND NOT STACKED. The four bands are DISJOINT (maintainer, 2026-08-24), so a
@@ -11,7 +13,7 @@
 // 103-kid breed sit on one scale; the head count rides under the breed name and in every
 // bar's hover title, so nobody reads "16.7%" off two kids without seeing the two.
 //
-// Server component — no client JS. Colours are theme tokens: `--gain-hi/mid/lo` is one hue
+// Each bar is the template LinearProgress (kit ProgressBar). Colours are theme tokens: `--gain-hi/mid/lo` is one hue
 // in three ordered steps for the three growing bands, and `--gain-under` is red for the
 // slowest band, which is a different KIND of fact rather than a fourth step on the ramp.
 // Correct in both themes by construction. It renders no copy of its own: every string
@@ -33,6 +35,13 @@ export type GainThresholdMark = {
   pct: number;
 };
 
+const STEP_COLOR: Record<GainThresholdMark["step"], string> = {
+  hi: "var(--gain-hi)",
+  mid: "var(--gain-mid)",
+  lo: "var(--gain-lo)",
+  under: "var(--gain-under)",
+};
+
 export function GainThresholdBars({
   rows,
   chartLabel,
@@ -51,9 +60,7 @@ export function GainThresholdBars({
 }) {
   if (rows.length === 0) {
     return (
-      <div className="empty">
-        <span className="muted small">{emptyLabel}</span>
-      </div>
+      <EmptyState title={emptyLabel} />
     );
   }
 
@@ -95,7 +102,7 @@ export function GainThresholdBars({
                     className="gmt"
                     title={`${mark.count.toLocaleString("en-IN")} ${ofLabel} ${row.animals.toLocaleString("en-IN")} ${kidsLabel} · ${mark.label}`}
                   >
-                    <i style={{ width: `${Math.max((mark.pct / axis) * 100, 0.8)}%` }} />
+                    <ProgressBar value={Math.max((mark.pct / axis) * 100, 0.8)} color={STEP_COLOR[mark.step]} />
                   </span>
                   {/* Share and count are SEPARATE cells, each right-aligned on tabular
                       figures, so the percentages line up down one column and the counts

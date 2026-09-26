@@ -5,6 +5,10 @@ import { CalendarRange, ChevronDown, ListFilter, Search, SlidersHorizontal, X } 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import InputBase from "@mui/material/InputBase";
+
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { TaskPeopleDropdown, type TaskPeopleOption } from "@/components/people-dropdown";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -16,6 +20,7 @@ import { patchApplies } from "./task-detail-pick";
 import { dateSpanLabel, personFilterLabel } from "./filter-labels";
 import { TASK_SORTS, type TaskSort } from "./task-url";
 import { useDialogShell } from "./use-dialog-shell";
+import { DropdownPaper } from "@/components/app/dropdown-paper";
 
 /** The Dates popover's desktop width (`.lt-fdrop-pop.lt-fdrop-dates` min-width in mesha-theme.css). */
 const DATES_POP_WIDTH = 352;
@@ -392,14 +397,16 @@ export function LeadershipTasksFilters({
     >
       <span className="lt-fsearch" title={searchHint}>
         <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-        <input
+        {/* Template's list-toolbar keyword field, kept inside .lt-fsearch so the row layout, clear
+            button and phone sheet chrome stay unchanged. InputBase (not TextField) so the outlined
+            border of the filter bar wraps the search + clear as one control. */}
+        <InputBase
           type="search"
           value={text}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder={searchLabel}
-          aria-label={searchHint}
-          autoComplete="off"
-          maxLength={120}
+          inputProps={{ "aria-label": searchHint, autoComplete: "off", maxLength: 120 }}
+          sx={{ flex: "1 1 auto", font: "inherit", color: "inherit", "& .MuiInputBase-input": { p: 0 } }}
         />
         {text ? (
           <button
@@ -553,16 +560,24 @@ export function LeadershipTasksFilters({
             pickers and the two date disclosures. The bar had three label treatments in one row
             (floating text beside a pill, a floating label beside a native select, and a bare
             disclosure); `.lt-fkey` is the one treatment now. */}
-        <label className="lt-fsel">
+        <div className="lt-fsel lt-fsel-kit">
           <span className="lt-fkey">{copy(pageContract, "filter.sort")}</span>
-          <select value={fieldValue(TASK_PARAM.sort, sort)} onChange={(event) => go(paramsWith({ [TASK_PARAM.sort]: event.target.value }))}>
+          {/* Kit listbox, not a native <select>: same apply-on-change, same param. */}
+          <TextField
+            select
+            label={copy(pageContract, "filter.sort")}
+            value={fieldValue(TASK_PARAM.sort, sort)}
+            onChange={({ target: { value } }) => go(paramsWith({ [TASK_PARAM.sort]: value }))}
+            sx={{ flexShrink: 0, maxWidth: 1 }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+          >
             {TASK_SORTS.map((option) => (
-              <option key={option} value={option}>
+              <MenuItem key={option} value={option}>
                 {copy(pageContract, `sort.${option}`)}
-              </option>
+              </MenuItem>
             ))}
-          </select>
-        </label>
+          </TextField>
+        </div>
 
         {/* THE DATE SPANS, behind ONE compact disclosure -- the Work Board's toolbar has one date
             control, and this bar now has one too. It STATES what is applied ("Dates · any", or
@@ -635,8 +650,9 @@ export function LeadershipTasksFilters({
                   <ChevronDown className="ic" style={{ width: 13 }} aria-hidden="true" />
                 </button>
                 {openRange === "dates" ? (
-                  <div
+                  <DropdownPaper
                     className={`lt-fdrop-pop lt-fdrop-dates${datesAlign === "left" ? " lt-fdrop-pop-left" : ""}`}
+                    sx={{ p: 1.5 }}
                     role="group"
                     aria-label={datesLabel}
                     // Escape unwinds ONE layer, as in the New task modal: an open calendar
@@ -715,7 +731,7 @@ export function LeadershipTasksFilters({
                         {applyLabel}
                       </button>
                     </div>
-                  </div>
+                  </DropdownPaper>
                 ) : null}
               </div>
             );

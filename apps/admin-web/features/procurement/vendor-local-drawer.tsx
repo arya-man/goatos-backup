@@ -14,6 +14,8 @@ import type { ProcurementVendor, ProcurementVendorCatalog, ProcurementVendorForm
 import { changeVendorStatusAction, createVendorAction, updateVendorAction } from "./vendor-actions";
 import { VendorFormFields, vendorAnswerRows } from "./vendor-form-fields";
 import { VendorVoiceNote } from "./vendor-voice-note";
+import { FormSelect } from "./form-select";
+import Typography from "@mui/material/Typography";
 
 type CatalogEntry = { value: string; label: string; is_active: boolean };
 
@@ -223,17 +225,14 @@ export function VendorLocalDrawer({
                 <input id="v-business_name" name="business_name" required maxLength={160} defaultValue={vendor?.business_name ?? ""} />
               </div>
               <div className="fld">
-                <label htmlFor="v-record_type">{field("record_type")}</label>
-                <select id="v-record_type" name="record_type" required defaultValue={vendor?.record_type ?? ""}>
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {optionsFor(catalog.record_types, vendor?.record_type).map((e) => (
-                    <option key={e.value} value={e.value}>
-                      {e.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("record_type")}
+                  name="record_type"
+                  id="v-record_type"
+                  defaultValue={vendor?.record_type ?? ""}
+                  required
+                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.record_types, vendor?.record_type)]}
+                />
               </div>
               <div className="fld">
                 <label htmlFor="v-contact">{field("contact_person_name")}</label>
@@ -244,53 +243,46 @@ export function VendorLocalDrawer({
                 <input id="v-phone" name="phone_number" required={isAdding} maxLength={64} defaultValue={vendor?.phone_number ?? ""} />
               </div>
               <div className="fld">
-                <label htmlFor="v-status">{field("status")}</label>
-                <select id="v-status" name="status" required defaultValue={vendor?.status ?? "active"}>
-                  {optionsFor(catalog.statuses, vendor?.status).map((e) => (
-                    <option key={e.value} value={e.value}>
-                      {e.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("status")}
+                  name="status"
+                  id="v-status"
+                  defaultValue={vendor?.status ?? "active"}
+                  required
+                  options={optionsFor(catalog.statuses, vendor?.status)}
+                />
               </div>
               <div className="fld">
-                <label htmlFor="v-state">{field("state")}</label>
-                <select id="v-state" name="state" required defaultValue={vendor?.state ?? ""}>
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {optionsFor(catalog.states, vendor?.state).map((e) => (
-                    <option key={e.value} value={e.value}>
-                      {e.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("state")}
+                  name="state"
+                  id="v-state"
+                  defaultValue={vendor?.state ?? ""}
+                  required
+                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.states, vendor?.state)]}
+                />
               </div>
               <div className="fld">
                 <label htmlFor="v-city">{field("city")}</label>
                 <input id="v-city" name="city" required={isAdding} maxLength={160} defaultValue={vendor?.city ?? ""} />
               </div>
               <div className="fld">
-                <label htmlFor="v-breed">{field("breed")}</label>
-                <select id="v-breed" name="breed" defaultValue={vendor?.breed ?? ""}>
-                  <option value="">—</option>
-                  {optionsFor(catalog.breeds, vendor?.breed).map((e) => (
-                    <option key={e.value} value={e.value}>
-                      {e.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("breed")}
+                  name="breed"
+                  id="v-breed"
+                  defaultValue={vendor?.breed ?? ""}
+                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.breeds, vendor?.breed)]}
+                />
               </div>
               <div className="fld">
-                <label htmlFor="v-feed">{field("feed")}</label>
-                <select id="v-feed" name="feed" defaultValue={vendor?.feed ?? ""}>
-                  <option value="">—</option>
-                  {optionsFor(catalog.feeds, vendor?.feed).map((e) => (
-                    <option key={e.value} value={e.value}>
-                      {e.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("feed")}
+                  name="feed"
+                  id="v-feed"
+                  defaultValue={vendor?.feed ?? ""}
+                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.feeds, vendor?.feed)]}
+                />
               </div>
               <div className="fld">
                 <label htmlFor="v-stock">{field("filtered_stock")}</label>
@@ -331,27 +323,23 @@ export function VendorLocalDrawer({
                   <input id="v-capacity_quantity" name="capacity_quantity" inputMode="decimal" defaultValue={vendor?.capacity_quantity ?? ""} />
                 </div>
                 <div className="fld">
-                  <label htmlFor="v-capacity_unit">{field("capacity_unit")}</label>
-                  <select id="v-capacity_unit" name="capacity_unit" defaultValue={vendor?.capacity_unit ?? ""}>
-                    <option value="">—</option>
-                    {optionsFor(catalog.capacity_units, vendor?.capacity_unit ?? undefined).map((e) => (
-                      <option key={e.value} value={e.value}>
-                        {e.label}
-                      </option>
-                    ))}
-                  </select>
+                  <FormSelect
+                    label={field("capacity_unit")}
+                    name="capacity_unit"
+                    id="v-capacity_unit"
+                    defaultValue={vendor?.capacity_unit ?? ""}
+                    options={[{ value: "", label: "—" }, ...optionsFor(catalog.capacity_units, vendor?.capacity_unit ?? undefined)]}
+                  />
                 </div>
               </div>
               <div className="fld">
-                <label htmlFor="v-supply_frequency">{field("supply_frequency")}</label>
-                <select id="v-supply_frequency" name="supply_frequency" defaultValue={vendor?.supply_frequency ?? ""}>
-                  <option value="">—</option>
-                  {optionsFor(catalog.supply_frequencies, vendor?.supply_frequency ?? undefined).map((e) => (
-                    <option key={e.value} value={e.value}>
-                      {e.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("supply_frequency")}
+                  name="supply_frequency"
+                  id="v-supply_frequency"
+                  defaultValue={vendor?.supply_frequency ?? ""}
+                  options={[{ value: "", label: "—" }, ...optionsFor(catalog.supply_frequencies, vendor?.supply_frequency ?? undefined)]}
+                />
                 <div className="muted small">{copy(pageContract, "hint.capacity")}</div>
               </div>
               </>
@@ -440,9 +428,9 @@ export function VendorLocalDrawer({
                 {vendorAnswerRows(form, vendor).map((row) => cell(row.label, row.value))}
               </div>
 
-              <div className="mt" style={{ marginTop: 4 }}>
+              <Typography variant="overline" component="div" color="text.secondary" className="mt" sx={{ mt: 0.5 }}>
                 {field("voice_note")}
-              </div>
+              </Typography>
               {vendor.voice_note_proof_ref ? (
                 <VendorVoiceNote
                   proofRef={vendor.voice_note_proof_ref}
@@ -453,9 +441,9 @@ export function VendorLocalDrawer({
                 <div className="note">{copy(pageContract, "voice_note.none")}</div>
               )}
 
-              <div className="mt" style={{ marginTop: 4 }}>
+              <Typography variant="overline" component="div" color="text.secondary" className="mt" sx={{ mt: 0.5 }}>
                 {copy(pageContract, "group.payment")}
-              </div>
+              </Typography>
               {vendor.finance_redacted ? (
                 // Never a blank block: withheld and absent must not look the same.
                 <div className="note">{copy(pageContract, "payment.hidden")}</div>
@@ -482,13 +470,13 @@ export function VendorLocalDrawer({
                 <input type="hidden" name="return_to" value={listHref} />
                 <input type="hidden" name="vendor_id" value={vendor.vendor_id} />
                 <input type="hidden" name="row_version" value={vendor.row_version} />
-                <select name="status" defaultValue={vendor.status} aria-label={field("status")} style={{ padding: "7px 9px", borderRadius: 9 }}>
-                  {optionsFor(catalog.statuses, vendor.status).map((e) => (
-                    <option key={e.value} value={e.value}>
-                      {e.label}
-                    </option>
-                  ))}
-                </select>
+                <FormSelect
+                  label={field("status")}
+                  name="status"
+                  defaultValue={vendor.status}
+                  className="pmx-fsel-inline"
+                  options={optionsFor(catalog.statuses, vendor.status)}
+                />
                 <button type="submit" className="btn">
                   {copy(pageContract, "action.save_status")}
                 </button>

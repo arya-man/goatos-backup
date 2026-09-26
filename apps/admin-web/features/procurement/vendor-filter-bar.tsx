@@ -4,6 +4,11 @@ import { Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import InputAdornment from "@mui/material/InputAdornment";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { worklistFilterIsStaged } from "@/lib/worklist-filter-draft";
 import type { ProcurementVendorCatalog } from "@/lib/api/server";
@@ -101,10 +106,28 @@ export function VendorFilterBar({
   const hasAnyApplied = Boolean(search) || FILTERS.some((f) => filters[f.key]);
 
   return (
-    <div className="fchipsbar" style={{ marginBottom: 14, gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-      <Search className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
-      <input
+    // Template table toolbar (ecommerce ProductTableToolbar / invoice InvoiceTableToolbar): search
+    // TextField with a start adornment, the facet selects, then the apply / clear actions, on the
+    // Card surface. On a phone the search takes its own row and the facets pair up two per row.
+    <Card
+      sx={(theme) => ({
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 1.25,
+        p: 1.5,
+        mb: 1.5,
+        width: "100%",
+        "& > .vendor-filter-select": { flex: "0 1 10rem", minWidth: "8.75rem" },
+        [theme.breakpoints.down("sm")]: {
+          p: 1.25,
+          "& > .vendor-filter-select, & > .MuiButton-root": { flex: "1 1 calc(50% - 5px)", minWidth: 0 },
+        },
+      })}
+    >
+      <TextField
         type="search"
+        size="small"
         value={effectiveSelection.search ?? ""}
         onChange={(event) => setDraft({ ...draft, search: event.target.value })}
         onKeyDown={(event) => {
@@ -116,50 +139,62 @@ export function VendorFilterBar({
           }
         }}
         placeholder={copy(pageContract, "filter.search_placeholder")}
-        aria-label={copy(pageContract, "filter.search_label")}
-        className="input"
-        style={{ minWidth: 240 }}
+        slotProps={{
+          htmlInput: { "aria-label": copy(pageContract, "filter.search_label") },
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search className="ic" aria-hidden="true" />
+              </InputAdornment>
+            ),
+          },
+        }}
+        sx={{ flex: { xs: "1 1 100%", sm: "1 1 16rem" }, minWidth: { xs: 0, sm: "12rem" }, maxWidth: { xs: "none", sm: "20rem" } }}
       />
 
+      {/* MUI TextField select, not a native <select>: five OS dropdowns sat in this bar with their own
+          height, font and chevron, so the register's filter row read as a different design system
+          from the page it filtered. The select reports the chosen value as
+          `event.target.value`, so the staged-draft logic below is unchanged. */}
       {FILTERS.map((filter) => (
-        <select
+        <TextField
           key={filter.key}
-          value={effectiveSelection[filter.key] ?? ""}
-          onChange={(event) => setDraft({ ...draft, [filter.key]: event.target.value })}
-          aria-label={copy(pageContract, filter.copyKey)}
-          className="input"
+          select
+          className="vendor-filter-select"
+          label={copy(pageContract, filter.copyKey)}
+          value={(catalog?.[filter.catalogKey] ?? []).some((entry) => entry.value === effectiveSelection[filter.key]) ? effectiveSelection[filter.key] : ""}
           disabled={!catalog}
+          onChange={({ target: { value } }) => setDraft({ ...draft, [filter.key]: value })}
+          sx={{ minWidth: { xs: 0, sm: 160 }, flexShrink: 0, maxWidth: 1 }}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
         >
-          <option value="">
-            {copy(pageContract, filter.copyKey)}: {copy(pageContract, "filter.all")}
-          </option>
+          <MenuItem value="">{copy(pageContract, "filter.all")}</MenuItem>
           {(catalog?.[filter.catalogKey] ?? []).map((entry) => (
-            <option key={entry.value} value={entry.value}>
+            <MenuItem key={entry.value} value={entry.value}>
               {entry.label}
-            </option>
+            </MenuItem>
           ))}
-        </select>
+        </TextField>
       ))}
 
       {/* Disabled with nothing staged, so the control tells the truth about whether pressing it
           would change anything. */}
-      <button
-        type="button"
-        className="btn p"
+      <Button
+        variant="contained"
         onClick={() => apply(draft)}
         disabled={pending || !staged}
         aria-disabled={pending || !staged}
         title={staged ? undefined : copy(pageContract, "filter.apply.nothing_staged")}
       >
         {pending ? copy(pageContract, "filter.applying") : copy(pageContract, "filter.apply")}
-      </button>
+      </Button>
 
       {hasAnyApplied || staged ? (
-        <button type="button" className="chip" onClick={() => apply({})} disabled={pending}>
+        <Button variant="outlined" color="inherit" onClick={() => apply({})} disabled={pending}>
           {copy(pageContract, "filter.clear")}
-        </button>
+        </Button>
       ) : null}
-    </div>
+    </Card>
   );
 }
 

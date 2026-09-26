@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { useSyncExternalStore } from "react";
 
 import Link from "@/components/no-prefetch-link";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { LOCAL_OVERLAY_URL_CHANGE_EVENT } from "@/components/local-overlay-link";
 import { liveQueryHref } from "./sales-park-scope";
 
@@ -51,5 +52,45 @@ export function LiveQueryLink({
     <Link href={href} scroll={false} className={className} aria-current={current ? "true" : undefined}>
       {children}
     </Link>
+  );
+}
+
+/**
+ * The same live-URL rule for a template pill tab strip (the Sales farm chips on the MUI redesign):
+ * every tab's href is rebuilt from the URL as it is NOW plus that tab's own `patch`, so an in-page
+ * parameter (Farm value's applied Over 35 kg margin) survives a farm switch. Before hydration each
+ * tab uses its server-built `fallbackHref`. The strip marks itself busy while the pressed tab's page
+ * is on its way (AnimatedTabs' pending line), which is the chips' in-place pending mark.
+ */
+export function LiveQueryTabs({
+  pagePath,
+  items,
+  value,
+  ariaLabel,
+  className,
+}: {
+  pagePath: string;
+  items: ReadonlyArray<{ value: string; label: ReactNode; patch: Record<string, string | null>; fallbackHref: string }>;
+  value: string;
+  ariaLabel?: string;
+  className?: string;
+}) {
+  const search = useSyncExternalStore(
+    subscribe,
+    () => window.location.search,
+    () => null,
+  );
+  return (
+    <AnimatedTabs
+      className={className}
+      variant="pill"
+      ariaLabel={ariaLabel}
+      value={value}
+      items={items.map(({ value: key, label, patch, fallbackHref }) => ({
+        value: key,
+        label,
+        href: search == null ? fallbackHref : liveQueryHref(pagePath, search, patch),
+      }))}
+    />
   );
 }

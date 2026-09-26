@@ -3,6 +3,17 @@ export function dash(value: unknown): string {
   return String(value);
 }
 
+/**
+ * A stored enum token as a reader sees it: "non_pregnant" -> "Non pregnant", "alive" -> "Alive".
+ * Formatting only (underscores/hyphens to spaces, first letter up) — never a vocabulary: a value the
+ * backend already labels keeps its label; this is for raw tokens that arrive without one.
+ */
+export function humanizeEnum(value: string | null | undefined): string {
+  if (!value) return "—";
+  const words = String(value).trim().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function shortId(value: string | null | undefined): string {
   if (!value) return "—";
   if (value.length <= 12) return value;
@@ -119,4 +130,20 @@ export function istDayPlus(day: string, days: number): string {
 export function istBusinessDayStartInstantIso(day: string): string {
   const instant = new Date(`${day}T00:00:00${IST_OFFSET}`);
   return Number.isNaN(instant.getTime()) ? day : instant.toISOString();
+}
+
+/**
+ * Kilograms for display: en-IN grouping, ONE decimal with a trailing zero trimmed, so the backend's
+ * fixed-scale "16.800" reads "16.8", "16.825" reads "16.8" and "0.000" reads "0". Non-numeric input
+ * is dashed. Gram-level precision belongs on the weighing sheet, not on a phone-width feed table.
+ */
+export function fmtKg(value: string | number | null | undefined): string {
+  return fmtQty(value);
+}
+
+/** Any fixed-scale quantity for display (grams, kg, factors): en-IN grouping, one decimal, trailing zero trimmed. */
+export function fmtQty(value: string | number | null | undefined): string {
+  const n = typeof value === "number" ? value : Number(value);
+  if (value === null || value === undefined || value === "" || !Number.isFinite(n)) return dash(null);
+  return n.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 }

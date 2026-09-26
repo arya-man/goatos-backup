@@ -1,6 +1,8 @@
 "use client";
 
-import { Download, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import CircularProgress from "@mui/material/CircularProgress";
+import LinearProgress from "@mui/material/LinearProgress";
+import { Download, FileSpreadsheet, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -225,7 +227,7 @@ export function SheetDrawer({
               data-testid="sheet-file"
             />
             <button type="button" className="btn sm b" disabled={busy || !fileName} onClick={() => void upload()} data-testid="sheet-upload">
-              {phase === "uploading" ? <Loader2 className="ic spin" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
+              {phase === "uploading" ? <CircularProgress size={14} color="inherit" aria-hidden="true" /> : <Upload className="ic" aria-hidden="true" />}
               {phase === "uploading" ? c("sheet.uploading") : c("sheet.upload_action")}
             </button>
           </div>
@@ -237,9 +239,7 @@ export function SheetDrawer({
                 <span className={`tag ${job.status === "applied" ? "ok" : job.status === "failed" ? "bad" : ""}`}>{statusLabel(job.status)}</span>
               </div>
               {inFlight(job) ? (
-                <div className="cfg-sheet-progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-                  <span style={{ width: `${progress}%` }} />
-                </div>
+                <LinearProgress variant="determinate" value={progress} />
               ) : null}
               <dl className="cfg-sheet-counts">
                 <div>

@@ -12,6 +12,7 @@
 // It renders NO copy of its own: labels arrive already resolved from the page contract.
 import { useEffect, useState, type ReactNode } from "react";
 import { replaceLocalOverlayUrl } from "@/components/local-overlay-link";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 
 const CHANGE_EVENT = "mesha:local-view-change";
 
@@ -51,29 +52,26 @@ export function LocalViewToggle({
 }) {
   const [selected, setSelected] = useLocalView(param, current);
   return (
-    <span className="metricseg" role="group" aria-label={ariaLabel}>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          className={option.value === selected ? "on" : ""}
-          aria-pressed={option.value === selected}
-          onClick={() => {
-            if (option.value === selected) return;
-            const url = new URL(window.location.href);
-            if (option.value === defaultValue) url.searchParams.delete(param);
-            else url.searchParams.set(param, option.value);
-            replaceLocalOverlayUrl(`${url.pathname}${url.search}${url.hash}`);
-            setSelected(option.value);
-            window.dispatchEvent(
-              new CustomEvent<ChangeDetail>(CHANGE_EVENT, { detail: { param, value: option.value } }),
-            );
-          }}
-        >
-          {option.label}
-        </button>
-      ))}
-    </span>
+    <SegmentTabs
+      className="metricseg"
+      ariaLabel={ariaLabel}
+      value={selected}
+      tabs={options.map((option) => ({
+        value: option.value,
+        label: option.label,
+        onClick: () => {
+          if (option.value === selected) return;
+          const url = new URL(window.location.href);
+          if (option.value === defaultValue) url.searchParams.delete(param);
+          else url.searchParams.set(param, option.value);
+          replaceLocalOverlayUrl(`${url.pathname}${url.search}${url.hash}`);
+          setSelected(option.value);
+          window.dispatchEvent(
+            new CustomEvent<ChangeDetail>(CHANGE_EVENT, { detail: { param, value: option.value } }),
+          );
+        },
+      }))}
+    />
   );
 }
 

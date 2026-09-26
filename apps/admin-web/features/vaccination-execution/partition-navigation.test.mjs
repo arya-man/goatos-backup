@@ -26,5 +26,6 @@ test("an unavailable pen shows farm copy only: no raw id, no API error string", 
 });
 
 test("a pen with no drive rows says so instead of an empty table", () => {
-  assert.match(drilldown, /shed\.rows\.length === 0 \? <p[^>]*>\{copy\(pageContract, "empty\.drive_rows"\)\}/);
+  // MUI redesign: the empty line is a template Typography inside the drive rows card.
+  assert.match(drilldown, /shed\.rows\.length === 0 \? \(\s*<Typography[^>]*>\s*\{copy\(pageContract, "empty\.drive_rows"\)\}/);
 });

@@ -1,19 +1,21 @@
 "use client";
 
-import { Calendar, Check, ChevronDown, Search } from "lucide-react";
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import { varAlpha } from "minimal-shared/utils";
+import { KanbanBoard, KanbanColumn, KanbanItemRoot } from "@/components/minimal/kanban";
+import { Label } from "@/components/minimal/label";
 import { TaskPeopleDropdown } from "@/components/people-dropdown";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { copy, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow, WorkBoardSummary } from "@/lib/api/work-board-server";
 import {
-  barSegments,
-  clockClass,
   dayLabel,
   findOption,
-  initials,
   lanes,
   laneCursorParams,
   laneParkResetParams,
@@ -30,6 +32,16 @@ import {
   PARAM_OWNER,
   type OwnerOption,
 } from "./work-board-model";
+import { AvatarGroup } from "@/components/app/avatar";
+import { ClockLabel, WorkProgress } from "./work-board-parts";
+import { usePopover } from "minimal-shared/hooks";
+import Checkbox from "@mui/material/Checkbox";
+import Divider from "@mui/material/Divider";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import type { Theme } from "@mui/material/styles";
+import { CustomPopover } from "@/components/minimal/custom-popover";
+import { TAP_MIN } from "@/components/minimal/_shared/tap";
 
 // The board, in the mock's shape: search · assignee avatars · park pick · date nav · Module menu,
 // the rule line, then four columns of cards. Park, date, module and assignee write the URL and the
@@ -62,39 +74,6 @@ function useUrlWriter() {
   return { write, pending };
 }
 
-// A toolbar menu closes on an outside click and on Escape (Escape hands focus back to the
-// trigger so a keyboard user is not dropped on the page body).
-function useOutsideClose(open: boolean, close: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      close();
-      ref.current?.querySelector<HTMLElement>("[aria-expanded]")?.focus();
-    };
-    document.addEventListener("click", onDoc);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("click", onDoc);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, [open, close]);
-  return ref;
-}
-
-function Avatar({ name, className = "" }: { name: string; className?: string }) {
-  return (
-    <span className={`av ${className}`.trim()} title={name}>
-      {initials(name)}
-    </span>
-  );
-}
-
 // The mock's assignee picker -- a stack of avatars, a "+N" chip, and a dropdown with a user
 // search -- now lives in `components/assignee-picker.tsx` so the Tasks desk can host the same
 // control as a form field. This board uses its `multi` mode, which is the picker exactly as it
@@ -104,27 +83,15 @@ function Avatar({ name, className = "" }: { name: string; className?: string }) 
 // and the trigger reading "Module · all" or the first chosen tag "+N".
 // `selected` empty means every module; `none` is the explicit empty selection after "Clear all".
 function ModuleMenu({ pageContract, options, selected, none, onChange }: { pageContract: AdminUiPageContract; options: AdminUiOption[]; selected: string[]; none: boolean; onChange: (next: string[]) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useOutsideClose(open, () => setOpen(false));
+  // Template menu popover (CustomPopover + MenuList): MUI keeps it inside the viewport, closes it on
+  // an outside click and on Escape, and hands focus back to the trigger.
+  const menu = usePopover();
   const all = !none && (selected.length === 0 || selected.length === options.length);
   const chosen = none ? [] : all ? options.map((o) => o.key) : selected;
-  const menuRef = useRef<HTMLDivElement>(null);
-  // Keep the open menu on screen: it opens from its control's left edge, and where that would run
-  // past either side of a narrow viewport it is nudged back inside a 16px gutter.
-  useLayoutEffect(() => {
-    const menu = menuRef.current;
-    if (!open || !menu) return;
-    menu.style.transform = "";
-    const box = menu.getBoundingClientRect();
-    const gutter = 16;
-    let shift = 0;
-    if (box.right > window.innerWidth - gutter) shift = window.innerWidth - gutter - box.right;
-    if (box.left + shift < gutter) shift = gutter - box.left;
-    if (shift) menu.style.transform = `translateX(${Math.round(shift)}px)`;
-  }, [open]);
+  const row = (theme: Theme) => ({ [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } });
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
-      <button type="button" className="sel" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <button type="button" className="sel" aria-expanded={menu.open} aria-haspopup="menu" onClick={menu.onOpen}>
         {all ? (
           copy(pageContract, "filter.module.all")
         ) : chosen.length === 0 ? (
@@ -137,51 +104,114 @@ function ModuleMenu({ pageContract, options, selected, none, onChange }: { pageC
         )}
         <ChevronDown className="ic" aria-hidden="true" />
       </button>
-      {open ? (
-        <div ref={menuRef} className="menu" role="menu">
+      <CustomPopover open={menu.open} anchorEl={menu.anchorEl} onClose={menu.onClose} slotProps={{ arrow: { placement: "top-left" } }}>
+        {/* `.wb` scopes the board's epic-tag colours (`.wb .etag`, `.wb .e-*`) inside the portal. */}
+        <MenuList className="wb" aria-label={copy(pageContract, "filter.module.all")}>
           {options.map((option) => {
             const on = chosen.includes(option.key);
             return (
-              <button type="button" key={option.key} role="menuitemcheckbox" aria-checked={on} className={`opt${on ? " on" : ""}`} onClick={() => {
+              <MenuItem key={option.key} role="menuitemcheckbox" aria-checked={on} selected={on} sx={row} onClick={() => {
                 const next = on ? chosen.filter((k) => k !== option.key) : [...chosen, option.key];
                 onChange(next.length === options.length ? [] : next.length === 0 ? [PARAM_MODULE_NONE] : next);
               }}>
-                <span className="cb" aria-hidden="true">{on ? <Check className="ic" strokeWidth={3} /> : null}</span>
+                <Checkbox size="small" checked={on} disableRipple tabIndex={-1} slotProps={{ input: { "aria-hidden": true } }} sx={{ p: 0 }} />
                 <span className={moduleClass(option.key)}>{option.label}</span>
-              </button>
+              </MenuItem>
             );
           })}
-          <button type="button" className="opt foot" onClick={() => onChange(all ? [PARAM_MODULE_NONE] : [])}>
+          <Divider sx={{ borderStyle: "dashed" }} />
+          <MenuItem sx={(theme) => ({ ...row(theme), color: theme.palette.text.secondary, ...theme.typography.body2 })} onClick={() => onChange(all ? [PARAM_MODULE_NONE] : [])}>
             {all ? copy(pageContract, "filter.assignee.clear") : copy(pageContract, "filter.assignee.select_all")}
-          </button>
-        </div>
-      ) : null}
+          </MenuItem>
+        </MenuList>
+      </CustomPopover>
     </div>
   );
 }
+
+// Board presentation (theme tokens only). Column width follows the template's
+// `--kanban-column-width`, fitted so four lanes share a laptop row and a phone swipes one lane at a time.
+const BOARD_SX = {
+  "--kanban-column-width": { xs: "86vw", sm: "clamp(calc(var(--sp-5) * 6), calc((100% - 3 * var(--kanban-column-gap)) / 4), var(--kanban-col-w))" },
+  overscrollBehaviorX: "contain",
+  scrollSnapType: { xs: "x mandatory", md: "none" },
+  "& > section": { scrollSnapAlign: "start" },
+  "& > section > ul": { maxHeight: "60dvh", overflowY: "auto" },
+} as const;
+const CARD_SX = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 1,
+  px: 2,
+  py: 2.5,
+  minWidth: 0,
+  overflow: "hidden",
+  color: "inherit",
+  textDecoration: "none",
+  borderRadius: "inherit",
+} as const;
+const TITLE_SX = { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" } as const;
+const COUNTS_SX = {
+  display: "flex",
+  flexWrap: "wrap",
+  columnGap: 1,
+  rowGap: 0.5,
+  minWidth: 0,
+  typography: "caption",
+  fontWeight: "fontWeightSemiBold",
+  color: "text.secondary",
+  "& b": { color: "text.primary" },
+  "& > span": { minWidth: 0, overflowWrap: "anywhere" },
+} as const;
+const META_SX = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  alignItems: "center",
+  columnGap: 1.25,
+  rowGap: 1,
+  minWidth: 0,
+  "& .stack": { gridColumn: 2, gridRow: 2, justifySelf: "end", overflow: "hidden" },
+} as const;
+const KEY_SX = {
+  gridColumn: "1 / -1",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 0.75,
+  minWidth: 0,
+  typography: "caption",
+  fontWeight: "fontWeightSemiBold",
+  color: "text.secondary",
+  overflowWrap: "anywhere",
+} as const;
+const EMPTY_SX = {
+  listStyle: "none",
+  p: 2,
+  border: 1,
+  borderStyle: "dashed",
+  borderColor: "divider",
+  borderRadius: "var(--r-lg)",
+  typography: "body2",
+  color: "text.disabled",
+} as const;
 
 function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContract; row: WorkBoardRow; href: string }) {
   const moduleOpt = findOption(moduleOptions(pageContract), row.module);
   const hot = needsAttention(row);
   const total = row.counts.done + row.counts.pending;
-  const seg = barSegments(row);
   const split = pendingSplit(row);
   const stack = ownerStack(row);
   const ownerLabel = stack.names[0] || (row.owner_state === "pool" ? copy(pageContract, "owner.pool") : copy(pageContract, "owner.missing"));
   return (
-    <LocalOverlayLink href={href} scroll={false} className={`card${hot ? " hot" : ""}`} aria-label={row.title} title={`${row.title} · ${ownerLabel}`} data-filter-row>
-      <div className="t">{row.title}</div>
-      <span className={moduleClass(row.module)}>{moduleOpt?.label ?? row.module}</span>
-      <span className="etag park" title={row.park_name || undefined}>{parkLabel(parkOptions(pageContract), row)}</span>
-      {total > 0 ? (
-        <div className="prog" aria-hidden="true">
-          <i className="ok" style={{ width: `${seg.ok}%` }} />
-          <i className="rev" style={{ width: `${seg.rev}%` }} />
-          <i className="run" style={{ width: `${seg.run}%` }} />
-          <i className="brk" style={{ width: `${seg.brk}%` }} />
-        </div>
-      ) : null}
-      <div className="cnt">
+    // Template kanban item: ItemRoot shell (paper, radius, z8 on hover) + ItemContent padding.
+    <KanbanItemRoot sx={hot ? (t) => ({ bgcolor: varAlpha(t.vars.palette.warning.mainChannel, 0.08) }) : undefined}>
+    <Box component={LocalOverlayLink} href={href} scroll={false} aria-label={row.title} title={`${row.title} · ${ownerLabel}`} data-filter-row sx={CARD_SX}>
+      <Typography component="div" variant="subtitle2" sx={TITLE_SX}>{row.title}</Typography>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, minWidth: 0 }}>
+        <span className={moduleClass(row.module)}>{moduleOpt?.label ?? row.module}</span>
+        <span className="etag park" title={row.park_name || undefined}>{parkLabel(parkOptions(pageContract), row)}</span>
+      </Box>
+      {total > 0 ? <WorkProgress row={row} /> : null}
+      <Box sx={COUNTS_SX}>
         {total > 0 ? (
           <span>
             <b>{row.counts.done}</b>/{total} {copy(pageContract, "card.done")}
@@ -189,32 +219,29 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
         ) : null}
         {split ? (
           <>
-            {split.inReview > 0 ? <span className="i">{split.inReview} {copy(pageContract, "card.in_review")}</span> : null}
+            {split.inReview > 0 ? <Box component="span" sx={{ color: "info.main" }}>{split.inReview} {copy(pageContract, "card.in_review")}</Box> : null}
             {split.started > 0 ? <span>{split.started} {copy(pageContract, "card.started")}</span> : null}
             {split.notStarted > 0 ? <span>{split.notStarted} {copy(pageContract, "card.not_started")}</span> : null}
           </>
         ) : (
           <>
-            {row.lane === "in_review" && row.counts.pending > 0 ? <span className="i">{row.counts.pending} {copy(pageContract, "card.in_review")}</span> : null}
+            {row.lane === "in_review" && row.counts.pending > 0 ? <Box component="span" sx={{ color: "info.main" }}>{row.counts.pending} {copy(pageContract, "card.in_review")}</Box> : null}
             {row.lane === "in_progress" && row.counts.pending > 0 ? <span>{row.counts.pending} {copy(pageContract, "card.started")}</span> : null}
           </>
         )}
-        {row.counts.needs_attention > 0 ? <span className="w">{row.counts.needs_attention} {copy(pageContract, "card.attention")}</span> : null}
-      </div>
-      <div className="row">
-        <span className="key" title={row.subtitle || row.pen.operational_location_display || ""}>
+        {row.counts.needs_attention > 0 ? <Box component="span" sx={{ color: "warning.main" }}>{row.counts.needs_attention} {copy(pageContract, "card.attention")}</Box> : null}
+      </Box>
+      {/* Meta: the key line spans the card; the clock sits under it with the owner stack at its end. */}
+      <Box sx={META_SX}>
+        <Box component="span" title={row.subtitle || row.pen.operational_location_display || ""} sx={KEY_SX}>
           <span className={`ti${row.module === "counts" ? " p" : ""}`} aria-hidden="true">{row.module === "counts" ? "✓" : row.module === "vaccination" ? "◆" : "▣"}</span>
-          <span className="kt">{row.subtitle || row.pen.operational_location_display || (moduleOpt?.label ?? row.module)}</span>
-        </span>
-        {row.clock_label ? <span className={`clk ${clockClass(row)}`.trim()}>{row.clock_label}</span> : null}
-        <span className="sp" />
-        <span className="stack" title={ownerLabel}>
-          {stack.names.map((name) => <Avatar key={name} name={name} />)}
-          {stack.extra > 0 ? <span className="av more">+{stack.extra}</span> : null}
-          {stack.names.length === 0 ? <span className="av more" style={row.owner_state === "missing" ? { color: "var(--danger)" } : undefined}>{row.owner_state === "pool" ? "–" : "!"}</span> : null}
-        </span>
-      </div>
-    </LocalOverlayLink>
+          <Box component="span" sx={{ minWidth: 0 }}>{row.subtitle || row.pen.operational_location_display || (moduleOpt?.label ?? row.module)}</Box>
+        </Box>
+        <Box sx={{ gridColumn: 1, minWidth: 0 }}><ClockLabel row={row} /></Box>
+        <AvatarGroup className="stack" title={ownerLabel} names={stack.names} extra={stack.extra} size={22} empty={row.owner_state === "pool" ? "–" : "!"} emptyTone={row.owner_state === "missing" ? "danger" : undefined} />
+      </Box>
+    </Box>
+    </KanbanItemRoot>
   );
 }
 
@@ -313,17 +340,19 @@ export function WorkBoardBoard({
           <span className="d">
             <Calendar className="ic" aria-hidden="true" />
             <span>{dayLabel(businessDate)}</span>
-            {isToday ? <span className="pill">{copy(pageContract, "filter.date.today")}</span> : null}
+            {isToday ? <Label variant="soft" color="primary">{copy(pageContract, "filter.date.today")}</Label> : null}
           </span>
           <Link href={nextDayHref} aria-label={copy(pageContract, "action.next")}>›</Link>
         </div>
         <ModuleMenu pageContract={pageContract} options={visibleModules} selected={selectedModules} none={noneSelected} onChange={(next) => write((p) => setParam(p, pageContract, PARAM_MODULE, next.length ? next.join(",") : undefined))} />
       </div>
+      {/* Board legend (cd3972443): how a card's column is chosen and what amber means. */}
       <div className="rule">
         <span>{copy(pageContract, "board.rule")}</span>
         <span>{copy(pageContract, "board.attention")}</span>
       </div>
-      <div className="board" role="group" tabIndex={0} aria-label={copy(pageContract, "section.board.aria")}>
+      {/* Template sections/kanban: KanbanBoard track + KanbanColumn (count Label, h6 title) + item shells. */}
+      <KanbanBoard role="group" tabIndex={0} aria-label={copy(pageContract, "section.board.aria")} sx={BOARD_SX}>
         {columns.map((column) => {
           const list = byLane.get(column.key) ?? [];
           const count = searching || !summary ? list.length : summary.by_lane[column.key] ?? 0;
@@ -333,46 +362,53 @@ export function WorkBoardBoard({
           const last = pager && page ? pager.offset + page : 0;
           const paged = Boolean(pager && (pager.nextHref || pager.previousHref));
           return (
-            <div className="col" key={column.key} title={column.title}>
-              <div className="ch">
-                {column.label}
-                {column.key === "done" ? <span className="chk">✓</span> : null}
-                <span className="n">{count}</span>
-              </div>
-              <div className="cards">
+            <KanbanColumn
+              key={column.key}
+              count={count}
+              title={
+                <Box component="span" title={column.title} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+                  {column.label}
+                  {column.key === "done" ? <Box component="span" sx={{ color: "success.main" }}>✓</Box> : null}
+                </Box>
+              }
+            >
                 {list.length ? (
                   list.map((row) => <WorkCard key={row.row_key} pageContract={pageContract} row={row} href={hrefForRow[row.row_key] ?? "#"} />)
                 ) : (
                   // The header count is whole-filter; a column with work on OTHER pages but none
                   // on this one says so, instead of "Nothing here" under a non-zero count.
-                  <div className="empty">{count > 0 ? copy(pageContract, "lane.empty.other_pages") : copy(pageContract, "lane.empty")}</div>
+                  <Box component="li" sx={EMPTY_SX}>{count > 0 ? copy(pageContract, "lane.empty.other_pages") : copy(pageContract, "lane.empty")}</Box>
                 )}
-              </div>
               {paged && !searching ? (
                 // Each column pages on its own: the header stays the whole count, the footer
-                // says which slice of it this is.
-                <div className="colpager">
-                  <span className="muted small">
-                    <b>{first}–{last}</b> {copy(pageContract, "drawer.subtasks.of")} <b>{count}</b>
-                  </span>
-                  <span className="pgnav">
+                // says which slice of it this is. It stays pinned at the foot of the lane's scroll.
+                <Box component="li" sx={{ listStyle: "none", position: "sticky", bottom: "calc(var(--kanban-column-pb) * -1)", zIndex: 1, pb: "var(--kanban-column-pb)", mb: "calc(var(--kanban-column-pb) * -1)", bgcolor: "background.neutral" }}>
+                <Box
+                  component="nav"
+                  className="colpager"
+                  aria-label={`${column.label}: ${copy(pageContract, "section.board.aria")}`}
+                  sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, minWidth: 0, pt: 1, typography: "caption", color: "text.secondary" }}
+                >
+                  <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, flex: "none", whiteSpace: "nowrap", width: "100%" }}>
+                    <Box component="span" sx={{ mr: "auto" }}>{first}–{last} {copy(pageContract, "drawer.subtasks.of")} {count}</Box>
                     {pager?.previousHref ? (
-                      <Link className="more" href={pager.previousHref} aria-label={`${column.label}: ${copy(pageContract, "action.previous")}`}>‹</Link>
+                      <Link className="iconbtn" href={pager.previousHref} aria-label={`${column.label}: ${copy(pageContract, "action.previous")}`}><ChevronLeft aria-hidden="true" /></Link>
                     ) : (
-                      <span className="more" aria-disabled="true">‹</span>
+                      <span className="iconbtn" role="link" aria-disabled="true" aria-label={`${column.label}: ${copy(pageContract, "action.previous")}`}><ChevronLeft aria-hidden="true" /></span>
                     )}
                     {pager?.nextHref ? (
-                      <Link className="more" href={pager.nextHref} aria-label={`${column.label}: ${copy(pageContract, "action.next")}`}>›</Link>
+                      <Link className="iconbtn" href={pager.nextHref} aria-label={`${column.label}: ${copy(pageContract, "action.next")}`}><ChevronRight aria-hidden="true" /></Link>
                     ) : (
-                      <span className="more" aria-disabled="true">›</span>
+                      <span className="iconbtn" role="link" aria-disabled="true" aria-label={`${column.label}: ${copy(pageContract, "action.next")}`}><ChevronRight aria-hidden="true" /></span>
                     )}
-                  </span>
-                </div>
+                  </Box>
+                </Box>
+                </Box>
               ) : null}
-            </div>
+            </KanbanColumn>
           );
         })}
-      </div>
+      </KanbanBoard>
     </>
   );
 }

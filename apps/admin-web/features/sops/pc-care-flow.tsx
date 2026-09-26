@@ -8,6 +8,7 @@ import { FlowCanvas, type CanvasEdge, type CanvasLayout, type CanvasNode } from 
 import { NODE_H, NODE_W } from "./flow-layout";
 import { PC_CARE_CATEGORIES, type PcCareCategory, type PcCareRows } from "./pc-care-model";
 import type { WeighingQuestionRow } from "./weighing-model";
+import { EmptyState } from "@/components/app/empty-state";
 
 /** A row the chart can select: one section's capture or question. "removal" is the pen card. */
 export type PcCareSection = PcCareCategory | "removal";
@@ -251,7 +252,9 @@ export function PcCareFlow({
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
         </div>
-        {selected ? renderCard(selected) : <p className="muted" style={{ padding: 16 }}>{copy(pc, "studio.flow.none_selected")}</p>}
+        {/* Nothing picked is an EMPTY STATE, not a paragraph under the heading: the frame has one
+            shape for "there is nothing here yet" and this panel uses it like every other. */}
+        {selected ? renderCard(selected) : <EmptyState title={copy(pc, "studio.flow.none_selected")} />}
       </aside>
     </div>
   );

@@ -7,6 +7,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PersonAccess } from "@/lib/api/server";
 import { loadPersonAccessAction } from "./access-actions";
 import { PersonAccessModal } from "./person-access-modal";
+import Alert from "@mui/material/Alert";
 
 /**
  * Opens the access editor for one directory row.
@@ -75,9 +76,9 @@ export function PersonAccessLauncher({
           <div className="vr-modal on" role="dialog" aria-modal="true" aria-label={personName}>
             <div className="vr-modal-bd">
               {error ? (
-                <div className="alert" role="alert">
+                <Alert severity="error" role="alert">
                   {error}
-                </div>
+                </Alert>
               ) : (
                 <div className="bd" aria-live="polite">
                   {pending ? copy(pageContract, "access.loading") : copy(pageContract, "access.error.load")}

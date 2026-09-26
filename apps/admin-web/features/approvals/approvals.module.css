@@ -1,0 +1,13 @@
+/* /approvals list toolbar: request-type count tabs and the status + farm selects share one row. */
+.toolbar{flex-direction:row;align-items:center;gap:12px 24px;flex-wrap:wrap}
+.typeTabs{flex:1 1 360px;min-width:0}
+.filters{display:flex;align-items:center;gap:12px;flex:0 0 auto;padding-block:10px}
+/* The kit field's min-width is a % of its parent. This row is shrink-to-fit, so that % counts as 0
+   while the row is sized and the Farm select then spilled past the viewport at 1440. Resolve the
+   same floor without the % here (the phone grid below resets it). */
+@media (max-width:640px){
+  .toolbar{gap:4px}
+  .typeTabs{flex-basis:100%}
+  .filters{flex:1 1 100%;display:grid;grid-template-columns:1fr 1fr}
+  .filters > *{min-width:0 !important}
+}

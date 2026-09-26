@@ -2,6 +2,7 @@
 
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DropdownPaper } from "@/components/app/dropdown-paper";
 
 const DATE_DISPLAY_LOCALE = "en-GB";
 
@@ -138,7 +139,7 @@ export function TopBarDatePicker({
         </span>
         <ChevronDown className="ic date-scope-chevron" aria-hidden="true" />
       </summary>
-      <div className="top-date-popover" role="group" aria-label={calendarAriaLabel}>
+      <DropdownPaper className="top-date-popover" role="group" aria-label={calendarAriaLabel}>
         <div className="top-date-head">
           <button
             type="button"
@@ -190,7 +191,7 @@ export function TopBarDatePicker({
         <div className="top-date-footer">
           <button type="button" onClick={() => selectDate(todayDate)}>{todayLabel}</button>
         </div>
-      </div>
+      </DropdownPaper>
     </details>
   );
 }

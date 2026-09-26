@@ -1,7 +1,11 @@
-import Link from "@/components/no-prefetch-link";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { ArrowRight, PackageSearch, Truck } from "lucide-react";
+import { ArrowRight, PackageSearch } from "lucide-react";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError } from "@/lib/api/server";
 import { getProcurementLoad, listProcurementLoads } from "@/lib/api/procurement-server";
@@ -15,6 +19,14 @@ import { NewLoadForm } from "./load-forms";
 import { ProcurementPager } from "./pager";
 import { SourceEntryLocalDrawer, type SourceEntryDrawerItem } from "./source-entry-local-drawer";
 import { VaccinationFilterButton, VisibleTableSearch } from "@/features/preventive-care-vaccination";
+import { PageHeader } from "@/components/app/page-header";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
+import { OpenDisclosureButton } from "./open-disclosure-button";
+import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
+import { phoneLoadCardsSx } from "./procurement-sx";
+
+const LOAD_CARDS_SX = phoneLoadCardsSx("source-loads-table", [{ nth: 1, column: "1", row: 1 }, { nth: 9, column: "2", row: 1, alignEnd: true }, { nth: 2, column: "1 / -1", row: 2, secondary: true }]);
 
 function daysSince(date: string | null | undefined): number | null {
   if (!date) return null;
@@ -179,7 +191,6 @@ export async function SourceEntryBoardPage({
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
   const prevHref = hrefPreviousCursor(pathname, sp);
   const loadLabels = tableLabels(pageContract, "source-loads");
-  const journeyStages = optionGroup(pageContract, "journey_stages");
   const closeDrawerHref = hrefWithQuery(pathname, sp, { source_load: null });
   const drawerItems: SourceEntryDrawerItem[] = loads.map((load) => {
     const detail = detailByLoad.get(load.load_id);
@@ -220,27 +231,30 @@ export async function SourceEntryBoardPage({
 
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-	          <div className="crumb">
-	            <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
-	          </div>
-	          <h1>{pageContract.title}</h1>
-	          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-      </div>
-
-      {/* Journey IA — the full source-entry chain, so park arrival reads as one late gate, not the start. */}
-	      <div className="fchipsbar" style={{ marginBottom: 14, flexWrap: "wrap" }} aria-label={copy(pageContract, "section.journey.aria")}>
-	        <Truck className="ic" style={{ width: 14, color: "var(--brand-d)" }} aria-hidden="true" />
-	        {journeyStages.map((stage, i) => (
-	          <span key={stage.key} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-	            <span className="muted small">{stage.label}</span>
-	            {i < journeyStages.length - 1 ? <ArrowRight className="ic" style={{ width: 12, opacity: 0.5 }} aria-hidden="true" /> : null}
-	          </span>
-	        ))}
-      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+        actions={<OpenDisclosureButton targetId="new-load" label={copy(pageContract, "form.new_load.title")} />}
+        tabs={
+          <Box sx={{ mb: 1.75 }}>
+            <AnimatedTabs
+              ariaLabel={copy(pageContract, "filter.all_states")}
+              value={statusFilter}
+              items={[
+                // No count badge here: `loads` is ALREADY narrowed by the selected status server-side,
+                // so a per-tab count computed from it would report the current filter's size on every
+                // tab. The backend does not issue whole-filter counts for this strip.
+                { value: "all", label: copy(pageContract, "filter.all_states"), href: statusHref("all") },
+                ...sourceLoadStatuses.map((status) => ({
+                  value: status.key,
+                  label: status.label,
+                  href: statusHref(status.key as ProcurementLoadStatus),
+                })),
+              ]}
+            />
+          </Box>
+        }
+      />
 
       {actionStatus ? (
         actionStatus === "success" ? (
@@ -248,39 +262,29 @@ export async function SourceEntryBoardPage({
 	            <Tag tone="ok">{copy(pageContract, "action.success_tag")}</Tag> {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
           </div>
         ) : (
-          <div className="alert" style={{ marginBottom: 14 }}>
+          <Alert severity="error" style={{ marginBottom: 14 }}>
 	            <b>{copy(pageContract, "action.failed_title")}</b>&nbsp;{actionFeedbackCopy(pageContract, actionStatus, actionKey)}
-          </div>
+          </Alert>
         )
       ) : null}
 
       <NewLoadForm returnTo={hrefWithQuery(pathname, sp, { source_load: null })} pageContract={pageContract} />
 
       {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
-        </div>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
+          {result.error.message}
+        </Alert>
       ) : null}
 
-      {/* Status filter (server-side ?status). Park/date scope stays in the top bar; this is a page control. */}
-      <div className="chipset" style={{ marginBottom: 14 }}>
-        <Link href={statusHref("all")} replace scroll={false} className={`chip${statusFilter === "all" ? " on" : ""}`}>
-	          {copy(pageContract, "filter.all_states")}
-        </Link>
-        {sourceLoadStatuses.map((status) => (
-          <Link key={status.key} href={statusHref(status.key as ProcurementLoadStatus)} replace scroll={false} className={`chip${statusFilter === status.key ? " on" : ""}`}>
-            {status.label}
-          </Link>
-        ))}
-      </div>
-
+      {/* The status tabs drive a server navigation. The kit `TabPanel` content transition is NOT
+          wrapped around this card: it branches on `useReducedMotion()`, which is false on the server
+          and true on a reduced-motion client, so it renders a different element tree on each side
+          and hydration fails on every load under that setting. */}
       <section className="card">
         <div className="hd">
           <PackageSearch className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
 	          <h3>{copy(pageContract, "section.loads.title")}</h3>
 	          <Tag tone={loads.length ? "info" : "mut"}>{copy(pageContract, "section.loads.badge")}</Tag>
-	          <div className="sp" style={{ flex: 1 }} />
-	          <span className="muted small">{copy(pageContract, "section.loads.note")}</span>
         </div>
         <div className="tbar">
 	          <VisibleTableSearch pageContract={pageContract} label={copy(pageContract, "filter.search_label")} />
@@ -292,97 +296,100 @@ export async function SourceEntryBoardPage({
 	            rowsLabel={`${loads.length} ${copy(pageContract, "label.rows")} · ${copy(pageContract, "filter.rows_suffix")}`}
 	            facets={loadLabels}
 	          />
-	          <span className="muted small">{loads.length} {copy(pageContract, "label.rows")}</span>
-	          <span className="muted small">{copy(pageContract, "section.loads.row_hint")}</span>
 	        </div>
 	        <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.loads.aria")}>
-          <table className="source-loads-table">
-            <thead>
-              <tr>
-	                {loadLabels.map((c) => (
-                  <th key={c}>{c}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loads.length === 0 ? (
-                <tr>
-	                  <td colSpan={loadLabels.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-	                      {result.ok
-	                        ? statusFilter === "all"
-	                          ? copy(pageContract, "empty.loads_detail")
-	                          : `${copy(pageContract, "empty.loads_filtered_prefix")} “${optionLabel(pageContract, "source_load_status", statusFilter as ProcurementLoadStatus)}” ${copy(pageContract, "empty.loads_filtered_suffix")}`
-	                        : copy(pageContract, "empty.unavailable")}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                loads.map((load) => {
-                  const drawerHref = hrefWithQuery(pathname, sp, { source_load: load.load_id });
-                  const healthSelection = healthSelectionLabel(load.status, pageContract);
-                  const detail = detailByLoad.get(load.load_id);
-                  const hfVaccination = hfVaccinationLabel(detail, pageContract);
-                  const purpose = purposeLabel(detail, pageContract);
-                  const warmup = warmupCell(load, detail, pageContract);
-                  return (
-                    <tr key={load.load_id}>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <span className="gid">{shortId(load.load_id)}</span>
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <b>{sourceLocationLabel(load, pageContract)}</b>
-                          <div className="muted small">{copy(pageContract, "label.supplier_prefix")} {sourcePartyLabel(load)}</div>
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone={purpose === copy(pageContract, "label.placeholder") || purpose === optionLabel(pageContract, "proc_purpose", "fattening") ? "mut" : "ok"}>{purpose}</Tag>
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          {load.expected_count}
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone={warmup.tone}>{warmup.label}</Tag>
-                          <div className="muted small" title={warmup.note}>
-                            {load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}
-                          </div>
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone="mut">{taggingLabel(detail, load.expected_count, pageContract)}</Tag>
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone={healthSelection.tone}>{healthSelection.label}</Tag>
-                        </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
-                          <ArrowRight className="ic" style={{ width: 13, flexShrink: 0, marginLeft: 6 }} aria-hidden="true" />
-                        </LocalOverlayLink>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          <Box sx={LOAD_CARDS_SX}>
+            <Table className="source-loads-table">
+              <TableHead>
+                <TableRow>
+  	                {loadLabels.map((c) => (
+                    <TableCell component="th" key={c}>{c}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {loads.length === 0 ? (
+                  <TableRow>
+  	                  <TableCell colSpan={loadLabels.length}>
+                      <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+  	                      {result.ok
+  	                        ? statusFilter === "all"
+  	                          ? copy(pageContract, "empty.loads_detail")
+  	                          : `${copy(pageContract, "empty.loads_filtered_prefix")} “${optionLabel(pageContract, "source_load_status", statusFilter as ProcurementLoadStatus)}” ${copy(pageContract, "empty.loads_filtered_suffix")}`
+  	                        : copy(pageContract, "empty.unavailable")}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  loads.map((load) => {
+                    const drawerHref = hrefWithQuery(pathname, sp, { source_load: load.load_id });
+                    const healthSelection = healthSelectionLabel(load.status, pageContract);
+                    const detail = detailByLoad.get(load.load_id);
+                    const hfVaccination = hfVaccinationLabel(detail, pageContract);
+                    const purpose = purposeLabel(detail, pageContract);
+                    const warmup = warmupCell(load, detail, pageContract);
+                    // An unknown value (no detail read yet) is a blank cell, not a grey "—" pill.
+                    const placeholder = copy(pageContract, "label.placeholder");
+                    const tagging = taggingLabel(detail, load.expected_count, pageContract);
+                    return (
+                      <TableRow key={load.load_id}>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            <b>{shortId(load.load_id)}</b>
+                          </LocalOverlayLink>
+                        </TableCell>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            <b>{sourceLocationLabel(load, pageContract)}</b>
+                            <div className="muted small">{copy(pageContract, "label.supplier_prefix")} {sourcePartyLabel(load)}</div>
+                          </LocalOverlayLink>
+                        </TableCell>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            {purpose === placeholder ? null : <Tag tone={purpose === optionLabel(pageContract, "proc_purpose", "fattening") ? "mut" : "ok"}>{purpose}</Tag>}
+                          </LocalOverlayLink>
+                        </TableCell>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            {load.expected_count}
+                          </LocalOverlayLink>
+                        </TableCell>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            {warmup.label === placeholder ? null : <Tag tone={warmup.tone}>{warmup.label}</Tag>}
+                            <div className="muted small" title={warmup.note}>
+                              {load.purchase_date ? `${copy(pageContract, "label.from_date_prefix")} ${fmtDate(load.purchase_date)}` : copy(pageContract, "label.purchase_date_missing")}
+                            </div>
+                          </LocalOverlayLink>
+                        </TableCell>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            {tagging === placeholder ? null : <Tag tone="mut">{tagging}</Tag>}
+                          </LocalOverlayLink>
+                        </TableCell>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            {hfVaccination.label === placeholder ? null : <Tag tone={hfVaccination.tone}>{hfVaccination.label}</Tag>}
+                          </LocalOverlayLink>
+                        </TableCell>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            <Tag tone={healthSelection.tone}>{healthSelection.label}</Tag>
+                          </LocalOverlayLink>
+                        </TableCell>
+                        <TableCell>
+                          <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                            <Tag tone={contractTone(pageContract, "source_load_status", load.status)}>{optionLabel(pageContract, "source_load_status", load.status)}</Tag>
+                            <ArrowRight className="ic" style={{ width: 13, flexShrink: 0, marginLeft: 6 }} aria-hidden="true" />
+                          </LocalOverlayLink>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </Box>
         </div>
         <ProcurementPager prevHref={prevHref} nextHref={nextHref} page={page} count={loads.length} noun={loadLabels[0].toLowerCase()} forceVisible />
       </section>

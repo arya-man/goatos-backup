@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
@@ -8,10 +13,15 @@ import type { ControlTowerAlert, ProcessIntegritySeverity, WorkState } from "@/l
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
+import type { KitTone } from "@/lib/tone";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity";
 import { ControlTowerLocalDrawer, type ControlTowerDrawerRecord } from "./control-tower-local-drawer";
+import Alert from "@mui/material/Alert";
 
 // Severity tint for the alert-band icon chip.
 const SEVERITY_FILL: Record<ProcessIntegritySeverity, { bg: string; fg: string }> = {
@@ -30,18 +40,10 @@ const accentVar: Record<Tone4, string> = {
   mut: "var(--line)",
 };
 
+const CT_TONE: Record<Tone4, KitTone> = { ok: "success", warn: "warning", dng: "error", info: "info", mut: "neutral" };
+
 function Kpi({ label, value, sub, tone, icon }: { label: string; value: React.ReactNode; sub?: string; tone: Tone4; icon?: React.ReactNode }) {
-  return (
-    <div className="kpi">
-      <span className="acc" style={{ background: accentVar[tone] }} />
-      <div className="lab">
-        {icon}
-        {label}
-      </div>
-      <div className="val">{value}</div>
-      {sub ? <div className="dl muted">{sub}</div> : null}
-    </div>
-  );
+  return <KpiCard label={label} value={value} tone={CT_TONE[tone]} icon={icon} hint={sub} />;
 }
 
 function fmtInt(n: number): string {
@@ -108,6 +110,17 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
     ? [...result.data.alerts].sort((a, b) => (severityRank.get(a.severity) ?? 999) - (severityRank.get(b.severity) ?? 999))
     : [];
   const visibleWorkStates = WORK_STATE_ORDER;
+  // Counts are honest only in the unfiltered view: `alerts` is one server-filtered page,
+  // so counting it under an active filter would report the filter back to itself.
+  const severityCounts = new Map<string, number>();
+  const stateCounts = new Map<string, number>();
+  if (severityFilter === "all" && stateFilter === "all") {
+    for (const alert of alerts) {
+      severityCounts.set(alert.severity, (severityCounts.get(alert.severity) ?? 0) + 1);
+      const ws = alert.work_state;
+      if (ws) stateCounts.set(ws, (stateCounts.get(ws) ?? 0) + 1);
+    }
+  }
 
   const processTone: Tone4 = !summary ? "mut" : !summary.process_intact ? (summary.critical_count > 0 ? "dng" : "warn") : "ok";
   const processLabel = !summary
@@ -175,21 +188,16 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
 
   return (
     <div className="screen on">
-      <div className="phead">
-        <div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-      </div>
+      <PageHeader title={pageContract.title} crumbs={[{ label: pageContract.title }]} />
 
       {/* Process-integrity KPIs only — no census/count totals (Counts is a separate vertical). */}
-      <div className="grid g4" style={{ marginBottom: 16 }}>
+      <KpiGrid min={210}>
         <Kpi
           label={copy(pageContract, "kpi.process")}
           value={processLabel}
           sub={summary ? pageContract.subtitle : copy(pageContract, "state.unavailable")}
           tone={processTone}
-          icon={processTone === "ok" ? <CheckCircle2 className="ic" /> : <AlertTriangle className="ic" />}
+          icon={processTone === "ok" ? <CheckCircle2 /> : <AlertTriangle />}
         />
         <Kpi label={copy(pageContract, "kpi.critical")} value={summary ? fmtInt(summary.critical_count) : "n/a"} sub={copy(pageContract, "label.process_not_intact")} tone={summary && summary.critical_count > 0 ? "dng" : "mut"} />
         <Kpi label={copy(pageContract, "kpi.open_gaps")} value={summary ? fmtInt(summary.warning_count) : "n/a"} sub={copy(pageContract, "label.process_at_risk")} tone={summary && summary.warning_count > 0 ? "warn" : "mut"} />
@@ -198,55 +206,53 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           value={summary ? fmtInt(summary.verification_backlog) : "n/a"}
           sub={openGapLabels[4]}
           tone={summary && summary.verification_backlog > 0 ? "info" : "mut"}
-          icon={<ShieldCheck className="ic" />}
+          icon={<ShieldCheck />}
+        />
+      </KpiGrid>
+
+      {!result.ok ? (
+        <Alert severity="error" style={{ marginBottom: 16 }}>
+          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
+        </Alert>
+      ) : null}
+
+      <div style={{ marginBottom: 8 }}>
+        <AnimatedTabs
+          variant="pill"
+          ariaLabel={copy(pageContract, "label.all_severity")}
+          value={severityFilter}
+          items={[
+            { value: "all", label: copy(pageContract, "label.all_severity"), href: hrefWith({ ct_severity: "all", ct_page: "1" }) },
+            ...SEVERITY_ORDER.map((severity) => ({
+              value: severity,
+              label: optionLabel(pageContract, "severity_chips", severity),
+              count: severityCounts.get(severity),
+              href: hrefWith({ ct_severity: severity, ct_page: "1" }),
+            })),
+          ]}
         />
       </div>
 
-      {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
-        </div>
-      ) : null}
-
-      <div className="chipset" style={{ marginBottom: 8 }}>
-        <Link href={hrefWith({ ct_severity: "all", ct_page: "1" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
-          {copy(pageContract, "label.all_severity")}
-        </Link>
-        {SEVERITY_ORDER.map((severity) => (
-          <Link
-            key={severity}
-            href={hrefWith({ ct_severity: severity, ct_page: "1" })}
-            replace
-            scroll={false}
-            className={`chip${severityFilter === severity ? " on" : ""}`}
-          >
-            {optionLabel(pageContract, "severity_chips", severity)}
-          </Link>
-        ))}
-      </div>
-
-      <div className="chipset" style={{ marginBottom: 16 }}>
-        <Link href={hrefWith({ ct_state: "all", ct_page: "1" })} replace scroll={false} className={`chip${stateFilter === "all" ? " on" : ""}`}>
-          {copy(pageContract, "label.all_states")}
-        </Link>
-        {visibleWorkStates.map((state) => (
-          <Link
-            key={state}
-            href={hrefWith({ ct_state: state, ct_page: "1" })}
-            replace
-            scroll={false}
-            className={`chip${stateFilter === state ? " on" : ""}`}
-          >
-            {optionLabel(pageContract, "work_state_filter_chips", state)}
-          </Link>
-        ))}
+      <div style={{ marginBottom: 16 }}>
+        <AnimatedTabs
+          variant="pill"
+          ariaLabel={copy(pageContract, "label.all_states")}
+          value={stateFilter}
+          items={[
+            { value: "all", label: copy(pageContract, "label.all_states"), href: hrefWith({ ct_state: "all", ct_page: "1" }) },
+            ...visibleWorkStates.map((state) => ({
+              value: state,
+              label: optionLabel(pageContract, "work_state_filter_chips", state),
+              count: stateCounts.get(state),
+              href: hrefWith({ ct_state: state, ct_page: "1" }),
+            })),
+          ]}
+        />
       </div>
 
       {/* Config / SOP authority gap — server-counted (config_or_sop_blockers). */}
       {summary && summary.config_or_sop_blockers > 0 ? (
-        <div className="alert warn" style={{ marginBottom: 16 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>
+        <Alert severity="warning" style={{ marginBottom: 16 }}><div>
             <b>
               {summary.config_or_sop_blockers} {copy(pageContract, summary.config_or_sop_blockers === 1 ? "alert.config_sop.singular" : "alert.config_sop.plural")} {copy(pageContract, "alert.config_sop.action_required")}
             </b>{" "}
@@ -260,9 +266,10 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
             </Link>
             {copy(pageContract, "alert.config_sop.body_suffix")}
           </div>
-        </div>
+        </Alert>
       ) : null}
 
+      <TabPanel tabKey={`${severityFilter}|${stateFilter}`}>
       {/* Critical alert band — top broken / at-risk vaccination process only. */}
       <section className="card" style={{ marginBottom: 16, borderColor: "color-mix(in srgb,var(--danger) 28%,var(--line))" }}>
         <div className="hd">
@@ -347,7 +354,6 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           <span className="muted small">
             {paged.start}-{paged.end} of {paged.total} {copy(pageContract, "table.open_gaps.noun")}s
           </span>
-          <span className="muted small">{copy(pageContract, "filter.click_row")}</span>
         </div>
         {paged.total === 0 ? (
           <div className="bd">
@@ -357,50 +363,50 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           </div>
         ) : (
           <div style={{ overflowX: "auto", padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "table.open_gaps.aria")}>
-            <table className="control-tower-gaps-table">
-              <thead>
-                <tr>
+            <Table className="control-tower-gaps-table">
+              <TableHead>
+                <TableRow>
                   {openGapLabels.map((label) => (
-                    <th key={label}>{label}</th>
+                    <TableCell component="th" key={label}>{label}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {paged.items.map((alert) => {
                   const capacityLabel = driveCapacityLabel(alert);
                   return (
-                  <tr key={alert.row_id} data-filter-row>
-                    <td>
+                  <TableRow key={alert.row_id} data-filter-row>
+                    <TableCell>
                       <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         <Tag tone={contractTone(pageContract, "work_state_filter_chips", alert.work_state)}>{optionLabel(pageContract, "work_state_filter_chips", alert.work_state)}</Tag>
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         <Tag tone={contractTone(pageContract, "severity_chips", alert.severity)}>{optionLabel(pageContract, "severity_chips", alert.severity)}</Tag>
                       </LocalOverlayLink>
-                    </td>
-                    <td className="muted">
+                    </TableCell>
+                    <TableCell className="muted">
                       <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         {alert.detail}
                         {capacityLabel ? <span className="mt">{capacityLabel}</span> : null}
                       </LocalOverlayLink>
-                    </td>
-                    <td className="muted">
+                    </TableCell>
+                    <TableCell className="muted">
                       <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         {ownerOf(alert, ownerUnassignedLabel)}
                       </LocalOverlayLink>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <LocalOverlayLink href={alertDrawerHref(alert)} className="celllink" scroll={false}>
                         <span className="lk small">{alert.next_action} →</span>
                       </LocalOverlayLink>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
         <VaccinationTablePager
@@ -433,6 +439,7 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
           </Link>
         </div>
       </section>
+      </TabPanel>
       <ControlTowerLocalDrawer
         records={drawerRecords}
         pageContract={pageContract}

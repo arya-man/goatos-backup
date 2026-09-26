@@ -1,6 +1,7 @@
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getVerificationSampling } from "@/lib/api/server";
-import { setVerificationSamplingPolicyAction } from "./randomization-actions";
+import { setVerificationSamplingPoliciesAction } from "./randomization-actions";
+import { InfoHint } from "@/components/app/info-hint";
 
 /**
  * RANDOMIZATION: per module, the share of that module's proof videos the verifier actually has to
@@ -35,9 +36,23 @@ export async function Randomization({
   }
   const { categories, business_date: businessDate } = result.data;
 
+  const editable = categories.some((row) => row.waivable);
   return (
-    <div className="vr-osec">
-      <div className="vr-osec-hd">{copy(pageContract, "randomization.share_help")}</div>
+    <form action={setVerificationSamplingPoliciesAction} className="vr-osec vr-rand-sheet">
+      <input type="hidden" name="return_to" value={returnTo} />
+      {/* Part of every save's idempotency identity -- see the action. */}
+      <input type="hidden" name="business_date" value={businessDate} />
+      <div className="kit-section-bar">
+        <span className="kit-section-bar-title">
+          {copy(pageContract, "randomization.col.share")}
+          <InfoHint text={copy(pageContract, "randomization.share_help")} />
+        </span>
+        {editable ? (
+          <button type="submit" className="btn sm p">
+            {copy(pageContract, "randomization.apply")}
+          </button>
+        ) : null}
+      </div>
       <div className="vr-omods">
         {categories.map((row) => {
           // Captured, selected and reviewed are NOT disjoint -- selected is a subset of captured,
@@ -84,25 +99,16 @@ export async function Randomization({
               </div>
 
               {row.waivable ? (
-                <form action={setVerificationSamplingPolicyAction} className="vr-rand-set">
-                  <input type="hidden" name="category" value={row.category} />
-                  <input type="hidden" name="return_to" value={returnTo} />
-                  {/* Part of the save's idempotency identity -- see the action. */}
-                  <input type="hidden" name="business_date" value={businessDate} />
+                <div className="vr-rand-set">
+                  <input type="hidden" name={`current__${row.category}`} value={row.sample_percent} />
                   <label className="fld" style={{ marginBottom: 0 }}>
                     <span>{copy(pageContract, "randomization.col.share")}</span>
-                    {/*
-                      defaultValue, never value: this is an uncontrolled field in a server-action
-                      form, so the CEO can type over it and the page does not fight him.
-
-                      No client-side clamp, and blank is NOT coerced to 0. Zero is a real setting
-                      ("review none of this module today"), and an out-of-range entry is the
-                      backend's refusal to make -- silently rewriting 140 to 100 would show a share
-                      nobody chose.
-                    */}
+                    {/* defaultValue, never value: an uncontrolled field in a server-action form.
+                        No client-side clamp, and blank is NOT coerced to 0 -- the sheet's action
+                        refuses it and the backend owns the range. */}
                     <input
                       type="number"
-                      name="sample_percent"
+                      name={`sample_percent__${row.category}`}
                       min="0"
                       max="100"
                       step="1"
@@ -110,12 +116,12 @@ export async function Randomization({
                       defaultValue={row.sample_percent}
                     />
                   </label>
-                  <button type="submit" className="btn sm p">
-                    {copy(pageContract, "randomization.apply")}
-                  </button>
-                </form>
+                </div>
               ) : (
-                <div className="vr-rand-locked small muted">{row.locked_reason}</div>
+                <div className="vr-rand-locked small muted" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {copy(pageContract, "randomization.locked")}
+                  {row.locked_reason ? <InfoHint text={row.locked_reason} /> : null}
+                </div>
               )}
 
               {row.effective_from ? (
@@ -128,6 +134,6 @@ export async function Randomization({
           );
         })}
       </div>
-    </div>
+    </form>
   );
 }

@@ -61,6 +61,7 @@ export function TaskActivityComposer({
   returnTo,
   mentionCandidates = [],
   initialIdempotencyKey,
+  activityLoading = false,
 }: {
   task: TaskRow;
   pageContract: AdminUiPageContract;
@@ -70,6 +71,8 @@ export function TaskActivityComposer({
   mentionCandidates?: readonly MentionCandidate[];
   /** A key minted by the server render, for the no-JS submit only. */
   initialIdempotencyKey: string;
+  /** The full feed is still being read: the feed shows no empty state meanwhile. */
+  activityLoading?: boolean;
 }) {
   const [record, setRecord] = useState<{
     activity: LeadershipTaskActivity[];
@@ -317,6 +320,7 @@ export function TaskActivityComposer({
       pageContract={pageContract}
       composer={composer}
       older={olderControl}
+      loading={activityLoading}
     />
   );
 }

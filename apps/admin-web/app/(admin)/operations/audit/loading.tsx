@@ -1,28 +1,17 @@
-import { ClipboardCheck } from "lucide-react";
+import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
+import { PageHeaderSkeleton } from "@/components/app/page-header";
 
 export default function Loading() {
   return (
-    <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="skel" style={{ width: 170, height: 14, marginBottom: 12 }} />
-          <div className="skel" style={{ width: 180, height: 30, marginBottom: 10 }} />
-          <div className="skel" style={{ width: 620, maxWidth: "100%", height: 18 }} />
-        </div>
+    <div className="screen on" aria-busy="true">
+      <PageHeaderSkeleton />
+      <SkeletonKpiRow count={4} />
+      <div style={{ display: "flex", gap: 8, margin: "20px 0 16px" }}>
+        {[120, 140, 100].map((w, wi) => (
+          <Skeleton key={`${wi}-${w}`} width={w} height={34} radius={10} />
+        ))}
       </div>
-      <section className="card" aria-busy="true">
-        <div className="hd">
-          <ClipboardCheck className="ic" aria-hidden="true" />
-          <div className="skel" style={{ width: 180, height: 22 }} />
-          <div className="sp" style={{ flex: 1 }} />
-          <div className="skel" style={{ width: 120, height: 34 }} />
-        </div>
-        <div className="bd">
-          {Array.from({ length: 8 }, (_, index) => (
-            <div key={index} className="skel" style={{ height: 34, marginBottom: 10 }} />
-          ))}
-        </div>
-      </section>
+      <SkeletonTable rows={9} />
     </div>
   );
 }

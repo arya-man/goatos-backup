@@ -1,3 +1,4 @@
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { SopBuilder, SopLibrary, builderInitialFromVersion, isVersionFaithfullyEditable, sopScopeKey, toSopView } from "@/features/sops";
 import { FollowUpEditor } from "./followup-editor";
 import { parseFollowUp } from "./followup-model";
@@ -267,7 +268,7 @@ export async function renderSopModulePage(
   // Module scoping: each page lists only its own module's SOP codes. A SOP outside every module
   // slice (sopScopeKey "general") is not silently dropped into limbo — it belongs to no shipped
   // module yet and stays invisible until its module page exists, which is the honest state.
-  const defs = listed.data.items.filter((def) => sopScopeKey(def.code, def.name) === slice);
+  const defs = listOrEmpty(listed.data.items).filter((def) => sopScopeKey(def.code, def.name) === slice);
   // Latest versions arrive EMBEDDED in the list response, populated by one batched backend query
   // (SOPListResponse.latest_versions, keyed by sop_id) — no per-SOP detail fan-out (C35-015).
   const latestVersions = listed.data.latest_versions ?? {};

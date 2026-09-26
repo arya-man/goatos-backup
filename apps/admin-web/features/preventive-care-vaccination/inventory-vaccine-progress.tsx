@@ -1,3 +1,8 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { ClipboardCheck, Clock, ShieldCheck, Snowflake, Video } from "lucide-react";
 import type { ReactNode } from "react";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -147,38 +152,38 @@ function InventoryProgressContent({
             {copy(pageContract, "inventory_progress.empty")}
           </div>
         ) : (
-          <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "inventory_progress.title")}>
-            <table className="data-table">
-              <thead>
-                <tr>
+          <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.inventory_progress.title")}>
+            <Table className="data-table">
+              <TableHead>
+                <TableRow>
                   {tableLabels(pageContract, "inventory-vaccine-progress").map((label) => (
-                    <th key={label}>{label}</th>
+                    <TableCell component="th" key={label}>{label}</TableCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((task) => (
-                  <tr key={task.task_id}>
-                    <td>{task.park_label}</td>
-                    <td>
+                  <TableRow key={task.task_id}>
+                    <TableCell>{task.park_label}</TableCell>
+                    <TableCell>
                       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                         <span>{task.task_label || task.operational_location_display || operationalLocationLabel({ shedName: task.shed_label, partitionLabel: task.partition_label })}</span>
                         {task.partition_label ? <span className="small muted">{task.partition_label}</span> : null}
                       </div>
-                    </td>
-                    <td>{assigneeLine(pageContract, task)}</td>
-                    <td>{requirementLine(pageContract, task)}</td>
-                    <td>{fmtDate(task.due_business_date)}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell>{assigneeLine(pageContract, task)}</TableCell>
+                    <TableCell>{requirementLine(pageContract, task)}</TableCell>
+                    <TableCell>{fmtDate(task.due_business_date)}</TableCell>
+                    <TableCell>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         <Tag tone={statusTone(task)}>{optionLabel(pageContract, "inventory_task_work_states", task.work_state)}</Tag>
                         <Tag tone={statusTone(task)}>{optionLabel(pageContract, "inventory_task_statuses", task.status)}</Tag>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

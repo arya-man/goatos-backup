@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import Link from "@/components/no-prefetch-link";
 import {
@@ -37,6 +42,8 @@ import {
   type CalendarPresentation,
   type OwnerPresentationMap,
 } from "./calendar-contract";
+import { stageLabel } from "@/lib/stage-labels";
+import Alert from "@mui/material/Alert";
 
 export type CalendarDrawerLoadResult = {
   eventId: string;
@@ -362,7 +369,7 @@ function CalendarEventDrawerPanel({
             <span className="sp" style={{ flex: 1 }} />
             <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={copy(pageContract, "drawer.event.close_label")} onClick={closeDrawer}><X className="ic" /></button>
           </div>
-          <div className="dc"><div className="alert">{data.detailError}</div></div>
+          <div className="dc"><Alert severity="error">{data.detailError}</Alert></div>
         </aside>
       </>
     );
@@ -603,13 +610,13 @@ function CalendarEventDrawerPanel({
                 {driveTargetHeading(pageContract, event, targets)}
               </div>
               {targetsError ? (
-                <div className="alert" style={{ marginBottom: 10 }}>
+                <Alert severity="error" style={{ marginBottom: 10 }}>
                   {targetsError}
-                </div>
+                </Alert>
               ) : null}
               {targets && targets.length > 0 ? (
                 <div
-                  className="bd"
+                  className="bd tablewrap"
                   style={{
                     padding: 0,
                     border: "1px solid var(--line2)",
@@ -618,32 +625,32 @@ function CalendarEventDrawerPanel({
                     overflowY: "hidden",
                   }}
                 >
-                  <table className="eligible-animals-table">
-                    <thead>
-                      <tr>
-                        <th>{copy(pageContract, "label.display_id")}</th>
-                        <th>{copy(pageContract, "calendar.drive.shed_header")}</th>
-                        <th>
+                  <Table className="eligible-animals-table">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell component="th">{copy(pageContract, "label.display_id")}</TableCell>
+                        <TableCell component="th">{copy(pageContract, "calendar.drive.shed_header")}</TableCell>
+                        <TableCell component="th">
                           {copy(pageContract, "label.animal_identifier_1")}
-                        </th>
-                        <th>
+                        </TableCell>
+                        <TableCell component="th">
                           {copy(pageContract, "label.animal_identifier_2")}
-                        </th>
-                        <th>{copy(pageContract, "label.stage")}</th>
-                        <th>{copy(pageContract, "label.lifecycle")}</th>
-                        <th>{copy(pageContract, "label.health")}</th>
-                        <th>{copy(pageContract, "calendar.drive.reason_header")}</th>
-                        <th>{copy(pageContract, "label.status")}</th>
-                        <th>{copy(pageContract, "label.when")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                        </TableCell>
+                        <TableCell component="th">{copy(pageContract, "label.stage")}</TableCell>
+                        <TableCell component="th">{copy(pageContract, "label.lifecycle")}</TableCell>
+                        <TableCell component="th">{copy(pageContract, "label.health")}</TableCell>
+                        <TableCell component="th">{copy(pageContract, "calendar.drive.reason_header")}</TableCell>
+                        <TableCell component="th">{copy(pageContract, "label.status")}</TableCell>
+                        <TableCell component="th">{copy(pageContract, "label.when")}</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {targets.map((row) => (
-                        <tr key={row.animal_id}>
-                          <td>
+                        <TableRow key={row.animal_id}>
+                          <TableCell>
                             <span className="gid">{row.display_id}</span>
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             {row.shed_name
                               ? row.operational_location_display ||
                                 operationalLocationLabel({
@@ -652,32 +659,32 @@ function CalendarEventDrawerPanel({
                                   sourceShedName: row.source_shed_name,
                                 })
                               : copy(pageContract, "label.placeholder")}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             {row.animal_identifier_1 ??
                               copy(pageContract, "label.placeholder")}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             {row.animal_identifier_2 ??
                               copy(pageContract, "label.placeholder")}
-                          </td>
-                          <td>
-                            {row.stage ??
+                          </TableCell>
+                          <TableCell>
+                            {stageLabel(row.stage) ||
                               copy(pageContract, "label.placeholder")}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             {row.lifecycle_status ??
                               copy(pageContract, "label.placeholder")}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             {row.health_status ??
                               copy(pageContract, "label.placeholder")}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             {driveTargetReason(row) ||
                               copy(pageContract, "label.placeholder")}
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             <Tag
                               tone={
                                 optionTone(
@@ -700,14 +707,14 @@ function CalendarEventDrawerPanel({
                                 row.status,
                               )}
                             </Tag>
-                          </td>
-                          <td className="muted small">
+                          </TableCell>
+                          <TableCell className="muted small">
                             {fmtDateTime(row.scheduled_at)}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                   {(targetsPage > 1 || data.targetsNextCursor) ? (
                     <div className="pager2">
                       <span className="muted small">

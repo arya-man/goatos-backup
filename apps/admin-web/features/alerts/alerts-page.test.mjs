@@ -39,7 +39,15 @@ async function render(data, searchParams = {}, pageContract = contract) {
     "./alerts-configure": { AlertsConfigure: () => null },
   };
   function load(filename) {
-    if (!path.extname(filename)) filename += existsSync(`${filename}.tsx`) ? ".tsx" : ".ts";
+    // A bare specifier may be a directory module (`@/components/kit` → kit/index.ts) now that the
+    // page imports from the kit barrel.
+    if (!path.extname(filename)) {
+      if (existsSync(`${filename}.tsx`)) filename += ".tsx";
+      else if (existsSync(`${filename}.ts`)) filename += ".ts";
+      else if (existsSync(path.join(filename, "index.ts"))) filename = path.join(filename, "index.ts");
+      else filename += ".tsx";
+    }
+    if (filename.endsWith(".css")) return {};
     if (modules.has(filename)) return modules.get(filename).exports;
     const loaded = { exports: {} };
     modules.set(filename, loaded);
@@ -55,7 +63,10 @@ async function render(data, searchParams = {}, pageContract = contract) {
     return loaded.exports;
   }
   const { AlertsPage } = load(path.join(root, "features/alerts/alerts-page.tsx"));
-  return renderToStaticMarkup(await AlertsPage({ searchParams, pageContract }));
+  // The page header, tabs and labels are template MUI components: render inside the app's own theme.
+  const { ThemeProvider } = require("@mui/material/styles");
+  const theme = load(path.join(root, "theme/create-theme.ts")).createTheme();
+  return renderToStaticMarkup(React.createElement(ThemeProvider, { theme }, await AlertsPage({ searchParams, pageContract })));
 }
 const clean = { rows: [], total: 0, critical: 0, rules_run: ["pen_feed_quantity_change"] };
 for (const [name, data, params, expected] of [

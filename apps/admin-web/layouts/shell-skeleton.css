@@ -1,0 +1,26 @@
+/* Shell skeleton (components/kit/shell-skeleton.tsx): the MUI Minimal DashboardLayout geometry
+   (layouts/dashboard/css-vars.ts + layouts/core/css-vars.ts) drawn before the bootstrap contract
+   arrives. Nav 300px / mini 88px (html[data-nav-rail="mini"]), hidden below 1200px; header
+   64px / 72px at >=1200px; content gutters 16px / 24px at >=600px / 40px at >=1200px. */
+.msh-skel{min-height:100dvh;background:var(--bg)}
+.msh-skel-nav{display:none;position:fixed;top:0;bottom:0;left:0;z-index:1;width:300px;overflow:hidden;background:var(--sidebar);border-right:1px solid color-mix(in srgb,var(--muted) 12%,transparent)}
+.msh-skel-logo{padding:20px 0 8px 28px}
+.msh-skel-mark{width:40px;height:40px;display:grid;place-items:center;border-radius:50%;background:var(--brand);color:var(--on-brand);font-weight:800;font-size:18px;line-height:1}
+.msh-skel-group{padding:0 16px 8px}
+.msh-skel-subheader{padding:16px 12px 8px}
+.msh-skel-item{display:flex;align-items:center;gap:16px;min-height:44px;padding:4px 12px}
+.msh-skel-header{display:flex;align-items:center;justify-content:flex-end;gap:6px;height:64px;padding:0 16px}
+.msh-skel-main.main{padding-top:8px;padding-left:16px;padding-right:16px}
+@media (min-width:600px){.msh-skel-header{padding:0 24px}.msh-skel-main.main{padding-left:24px;padding-right:24px}}
+@media (min-width:1200px){
+  .msh-skel-nav{display:block}
+  .msh-skel-col{padding-left:300px}
+  .msh-skel-header{height:72px;padding:0 40px}
+  .msh-skel-main.main{padding-left:40px;padding-right:40px}
+  html[data-nav-rail="mini"] .msh-skel-nav{width:88px}
+  html[data-nav-rail="mini"] .msh-skel-col{padding-left:88px}
+  html[data-nav-rail="mini"] .msh-skel-logo{padding:20px 0 8px;display:flex;justify-content:center}
+  html[data-nav-rail="mini"] .msh-skel-group{padding:0 4px 8px}
+  html[data-nav-rail="mini"] .msh-skel-subheader,html[data-nav-rail="mini"] .msh-skel-label{display:none}
+  html[data-nav-rail="mini"] .msh-skel-item{justify-content:center;min-height:56px}
+}

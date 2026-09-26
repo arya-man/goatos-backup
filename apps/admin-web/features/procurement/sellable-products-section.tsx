@@ -28,6 +28,8 @@ import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SellableProduct, SellableProductPage } from "@/lib/api/procurement";
 import { saveSellableProductAction, type SellableProductActionState } from "./sales-actions";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 const INITIAL: SellableProductActionState = { status: "idle", code: "", ticket: 0 };
 
@@ -139,17 +141,20 @@ function ProductRow({
         {product ? <input type="hidden" name="sort_order" value={product.sort_order} /> : null}
         {/* The console's own checkbox line -- NOT inside a .fld, whose label styling turned this
             into a small-caps field header with a bare box beside it. */}
-        <label className="chkline sellable-product-inuse" htmlFor={`sp-inuse-${id}`}>
-          <input
-            id={`sp-inuse-${id}`}
-            name="in_use"
-            type="checkbox"
-            value="1"
-            defaultChecked={product ? product.status === "active" : true}
-            disabled={!canWrite}
-          />
-          {copy(pageContract, "status.product_active")}
-        </label>
+        <FormControlLabel
+          className="chkline sellable-product-inuse"
+          disabled={!canWrite}
+          control={
+            <Checkbox
+              id={`sp-inuse-${id}`}
+              name="in_use"
+              value="1"
+              defaultChecked={product ? product.status === "active" : true}
+              sx={{ p: { xs: 1.5, sm: 1 } }}
+            />
+          }
+          label={<>{copy(pageContract, "status.product_active")}</>}
+        />
         {/* A feed item is a BUCKET: which feed is chosen on the sale, from the farm's configured
             feed list. Naming them here makes that visible -- the reader can see the row covers
             their Feed config and invents nothing. */}

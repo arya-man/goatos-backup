@@ -198,5 +198,5 @@ test("the board carries no person filter of its own", () => {
   assert.doesNotMatch(board, /aria-hidden="true">\+/);
   assert.equal(existsSync(new URL("./task-people-filter.tsx", import.meta.url)), false);
   const dropdown = readFileSync(new URL("../../components/people-dropdown.tsx", import.meta.url), "utf8");
-  assert.match(dropdown, /type="checkbox"/);
+  assert.match(dropdown, /<Checkbox\b/);
 });

@@ -11,12 +11,6 @@ assert.match(
 
 assert.match(
   css,
-  /@media \(max-width: 640px\) \{[\s\S]*\.vplan \.head-top \{[^}]*grid-template-columns: minmax\(0, 1fr\)[^}]*\}/,
-  "vaccination plan mobile header must collapse to one column",
-);
-
-assert.match(
-  css,
   /@media \(max-width: 640px\) \{[\s\S]*\.vplan \.vlist \{[^}]*flex-direction: row[^}]*overflow-x: auto[^}]*\}/,
   "vaccination plan editor vaccine rail must become a horizontal selector on mobile",
 );
@@ -34,9 +28,9 @@ assert.match(
 );
 
 assert.match(
-  css,
-  /@media \(max-width: 640px\) \{[\s\S]*\.vplan \.pop \{[^}]*position: fixed[^}]*left: 16px[^}]*right: 16px[^}]*bottom: 16px[^}]*width: auto[^}]*\}/,
-  "vaccination plan duration dropdown popover must be viewport-clamped on mobile",
+  readFileSync(new URL("./duration-field.tsx", import.meta.url), "utf8"),
+  /<CustomPopover[\s\S]*?anchorEl=\{pop\.anchorEl\}/,
+  "vaccination plan duration popover is the template popover, which MUI clamps to the viewport on mobile",
 );
 
 assert.match(

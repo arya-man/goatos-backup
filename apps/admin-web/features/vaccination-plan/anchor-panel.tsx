@@ -1,4 +1,9 @@
 "use client";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 
 import { Fragment, useMemo, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
@@ -6,6 +11,9 @@ import { Pencil, Plus } from "lucide-react";
 import { fmtDate, todayIso } from "@/lib/format";
 import type { AnchorConfig } from "./editor-model";
 import { humanDays, type ScheduleRule, type VaccineGroup } from "./plan-model";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 type AnchorState = AnchorConfig;
 
@@ -53,18 +61,18 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
 
   return (
     <div className="scroll anchor-rule-table" tabIndex={0}>
-      <table className="tabl">
-        <thead>
-          <tr>
-            <th>Vaccine</th>
-            <th>Rule/dose</th>
-            <th>Timing</th>
-            <th>Repeat</th>
-            <th>Anchor/base date</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table className="tabl">
+        <TableHead>
+          <TableRow>
+            <TableCell component="th">Vaccine</TableCell>
+            <TableCell component="th">Rule/dose</TableCell>
+            <TableCell component="th">Timing</TableCell>
+            <TableCell component="th">Repeat</TableCell>
+            <TableCell component="th">Anchor/base date</TableCell>
+            <TableCell component="th">Action</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {rows.map((row) => {
             const key = rowKey(row);
             const editing = editingKey === key;
@@ -72,16 +80,16 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
             const canSave = isValidIsoDate(state.anchorDate);
             return (
               <Fragment key={key}>
-                <tr className={editing ? "selrow" : undefined}>
-                  <td>
+                <TableRow className={editing ? "selrow" : undefined}>
+                  <TableCell>
                     <b>{row.vaccine.name}</b>
-                  </td>
+                  </TableCell>
                   {/* The dose's farm name, never its rule code ("et_tt_kid_4w"). */}
-                  <td>{doseLabel(row.rule)}</td>
-                  <td>{ruleTiming(row.rule)}</td>
-                  <td>{repeatLabel(row.rule)}</td>
-                  <td>{anchorDate ? fmtDate(anchorDate) : "No anchor"}</td>
-                  <td>
+                  <TableCell>{doseLabel(row.rule)}</TableCell>
+                  <TableCell>{ruleTiming(row.rule)}</TableCell>
+                  <TableCell>{repeatLabel(row.rule)}</TableCell>
+                  <TableCell>{anchorDate ? fmtDate(anchorDate) : "No anchor"}</TableCell>
+                  <TableCell>
                     <button
                       className="btn ghost sm icon"
                       type="button"
@@ -91,21 +99,24 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                     >
                       {anchorDate ? <Pencil size={18} strokeWidth={2.6} aria-hidden /> : <Plus size={18} strokeWidth={2.8} aria-hidden />}
                     </button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
                 {editing ? (
-                  <tr className="anchoredit" key={`${key}-editor`}>
-                    <td colSpan={6}>
+                  <TableRow className="anchoredit" key={`${key}-editor`}>
+                    <TableCell colSpan={6}>
                       <div className="anchorform inline">
-                        <label className="field">
+                        <div className="field">
                           <span>Anchor/base date</span>
-                          <input
-                            type="date"
+                          <ThemedDatePicker
+                            name="anchor_date"
+                            label="Anchor/base date"
                             value={state.anchorDate}
-                            onChange={(event) => update("anchorDate", event.target.value)}
-                            onInput={(event) => update("anchorDate", event.currentTarget.value)}
+                            onChange={(key) => update("anchorDate", key)}
+                            previousMonthLabel="Previous month"
+                            nextMonthLabel="Next month"
+                            invalidDateText=""
                           />
-                        </label>
+                        </div>
                         <label className="field">
                           <span>Reason</span>
                           <input value={state.reason} onChange={(event) => update("reason", event.target.value)} />
@@ -116,34 +127,40 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                         </label>
                       </div>
                       <div className="anchorflags" aria-label="Anchor behavior">
-                        <label>
-                          <input type="checkbox" checked readOnly />
-                          {"Apply anchor to this rule's eligible scope"}
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={state.suppressBeforeAnchor}
-                            onChange={(event) => update("suppressBeforeAnchor", event.target.checked)}
-                          />
-                          Suppress earlier catch-up rows before anchor
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={state.chainFutureFromAnchor}
-                            onChange={(event) => update("chainFutureFromAnchor", event.target.checked)}
-                          />
-                          Chain boosters/revacs from anchor
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={state.enforceAgeEligibility}
-                            onChange={(event) => update("enforceAgeEligibility", event.target.checked)}
-                          />
-                          Enforce age eligibility
-                        </label>
+                        <FormControlLabel
+                          control={<Checkbox checked readOnly sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                          label={"Apply anchor to this rule's eligible scope"}
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={state.suppressBeforeAnchor}
+                              onChange={(event) => update("suppressBeforeAnchor", event.target.checked)}
+                              sx={{ p: { xs: 1.5, sm: 1 } }}
+                            />
+                          }
+                          label="Suppress earlier catch-up rows before anchor"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={state.chainFutureFromAnchor}
+                              onChange={(event) => update("chainFutureFromAnchor", event.target.checked)}
+                              sx={{ p: { xs: 1.5, sm: 1 } }}
+                            />
+                          }
+                          label="Chain boosters/revacs from anchor"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={state.enforceAgeEligibility}
+                              onChange={(event) => update("enforceAgeEligibility", event.target.checked)}
+                              sx={{ p: { xs: 1.5, sm: 1 } }}
+                            />
+                          }
+                          label="Enforce age eligibility"
+                        />
                       </div>
                       <div className="anchoractions">
                         <button
@@ -162,14 +179,14 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                           Close
                         </button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : null}
               </Fragment>
             );
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 }

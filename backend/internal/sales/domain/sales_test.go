@@ -268,3 +268,26 @@ func TestBucketWeightGapBucketsAreDisjoint(t *testing.T) {
 		t.Fatalf("max gap = %v", s.MaxGapKg)
 	}
 }
+
+// TestMonthlyRealizedPricePerKg pins the per-month price: live revenue over live weight of that
+// month's priced lines only (manure and unweighed lines excluded), 0 for a month with none.
+func TestMonthlyRealizedPricePerKg(t *testing.T) {
+	closed := []Deal{
+		{SaleDate: "2025-04-15", ProductType: ProductSheep, Breed: "A", BuyerName: "x", AnimalCount: fp(20), TotalWeightKg: fp(500), SalesValue: 150000},
+		{SaleDate: "2025-05-02", ProductType: ProductSheep, Breed: "A", BuyerName: "x", AnimalCount: fp(10), TotalWeightKg: fp(250), SalesValue: 100000},
+		{SaleDate: "2025-05-20", ProductType: ProductGoat, Breed: "S", BuyerName: "y", MaleCount: fp(5), TotalWeightKg: fp(200), SalesValue: 90000},
+		{SaleDate: "2025-05-21", ProductType: ProductGoat, Breed: "S", BuyerName: "y", MaleCount: fp(2), SalesValue: 50000},
+		{SaleDate: "2025-05-25", ProductType: ProductManure, Breed: "Manure", BuyerName: "z", TotalWeightKg: fp(3000), SalesValue: 30000},
+		{SaleDate: "2025-06-01", ProductType: ProductManure, Breed: "Manure", BuyerName: "z", TotalWeightKg: fp(1000), SalesValue: 10000},
+	}
+	_, monthly, _, _ := BuildDealAggregates(closed)
+	want := map[string]float64{"2025-04": 300, "2025-05": 190000.0 / 450.0, "2025-06": 0}
+	if len(monthly) != 3 {
+		t.Fatalf("months = %d", len(monthly))
+	}
+	for _, m := range monthly {
+		if math.Abs(m.RealizedPricePerKg-want[m.Month]) > 1e-9 {
+			t.Fatalf("%s realized price = %v want %v", m.Month, m.RealizedPricePerKg, want[m.Month])
+		}
+	}
+}

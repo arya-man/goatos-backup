@@ -33,7 +33,7 @@ try {
     const footer = page.locator('.sales-ready-tolerance');
     await footer.waitFor();
     const bounds = await footer.evaluate(el => {
-      const card = el.closest('.kpi').getBoundingClientRect();
+      const card = (el.closest('.kit-kpi, .MuiCard-root, .kpi, .card') ?? el.parentElement).getBoundingClientRect();
       return [...el.querySelectorAll('label,strong,input,output,button')].map(child => {
         const box = child.getBoundingClientRect();
         return { tag: child.tagName, inside: box.left >= card.left && box.right <= card.right && box.top >= card.top && box.bottom <= card.bottom };

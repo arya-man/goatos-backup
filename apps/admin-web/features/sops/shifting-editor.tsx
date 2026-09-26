@@ -1,4 +1,5 @@
 "use client";
+import Box from "@mui/material/Box";
 
 // SHIFTING SOP (maintainer decision 2026-09-16, docs/decisions/shifting-sop.md).
 //
@@ -9,16 +10,23 @@
 // refuses one the phone could not render, naming the field. Park head approval before completion,
 // the Feed Config fingerprint on a high-priority movement, the atomic herd move and verifier review
 // are maintainer locks and are shown, not edited.
+import MenuItem from "@mui/material/MenuItem";
 import { useMemo, useState, useTransition } from "react";
-import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronUp, Lock, Plus, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
+import MuiButton from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import MuiTextField from "@mui/material/TextField";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { blankProofSlot, blankQuestion, followQuestionKey, keyForTitle, type RemovalProofKind, type RemovalProofRow, type WeighingQuestionRow } from "./weighing-model";
 import { QuestionCard } from "./weighing-editor";
 import { SHIFTING_SECTIONS, emitShifting, shiftingProblems, type ShiftingRows, type ShiftingSection, type ShiftingSectionRows } from "./shifting-model";
 import { publishedHref } from "./published-href";
 import { publishShiftingVersion, saveShiftingVersion, type ShiftingSaveResult } from "./sop-actions";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Alert from "@mui/material/Alert";
+import { EditorHeader, inspectionEditorSx } from "./editor-chrome";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -64,30 +72,21 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
   }
 
   return (
-    <div className="screen on sop-inspection sop-weighing sop-feed sop-shifting">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pc, "crumb")} · {pc.title} · <b>{sopName}</b>
-          </div>
-          <h1>{copy(pc, "ssop.title")}</h1>
-          <div className="sub">{copy(pc, "ssop.subtitle")}</div>
-          <div className="muted small" style={{ marginTop: 4 }}>
-            {versionLabel} · {copy(pc, "ssop.notice.pinned")}
-          </div>
-        </div>
-        <div className="acts">
-          <Link className="btn" href={basePath}>
-            <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
-          </Link>
-        </div>
-      </div>
+    <Box className="screen on sop-inspection sop-weighing sop-feed sop-shifting" sx={inspectionEditorSx}>
+      <EditorHeader
+        crumbs={[copy(pc, "crumb"), pc.title, sopName]}
+        title={copy(pc, "ssop.title")}
+        subtitle={copy(pc, "ssop.subtitle")}
+        version={versionLabel}
+        notice={copy(pc, "ssop.notice.pinned")}
+        backHref={basePath}
+      />
 
       {result ? (
-        <div className={`alert ${result.ok ? "ok" : ""}`} role="status">
+        <Alert severity={result.ok ? "success" : "error"} role="status">
           {result.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />}
           <div>{result.message}</div>
-        </div>
+        </Alert>
       ) : null}
 
       {SHIFTING_SECTIONS.map((section, si) => {
@@ -137,9 +136,9 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
                       onRemove={() => patchSection(section, (s) => ({ ...s, proofs: s.proofs.filter((x) => x.id !== p.id) }))}
                     />
                   ))}
-                  <button type="button" className="btn sm ghost" onClick={() => patchSection(section, (s) => ({ ...s, proofs: [...s.proofs, blankProofSlot()] }))}>
-                    <Plus className="ic" /> {copy(pc, "ssop.proof.add")}
-                  </button>
+                  <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => patchSection(section, (s) => ({ ...s, proofs: [...s.proofs, blankProofSlot()] }))}>
+                    {copy(pc, "ssop.proof.add")}
+                  </MuiButton>
                 </div>
               </div>
 
@@ -181,9 +180,9 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
                       onRemove={() => patchSection(section, (s) => ({ ...s, questions: s.questions.filter((x) => x.id !== q.id) }))}
                     />
                   ))}
-                  <button type="button" className="btn sm ghost" onClick={() => patchSection(section, (s) => ({ ...s, questions: [...s.questions, blankQuestion()] }))}>
-                    <Plus className="ic" /> {copy(pc, "inspection.question.add")}
-                  </button>
+                  <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => patchSection(section, (s) => ({ ...s, questions: [...s.questions, blankQuestion()] }))}>
+                    {copy(pc, "inspection.question.add")}
+                  </MuiButton>
                 </div>
               </div>
             </div>
@@ -215,14 +214,14 @@ export function ShiftingEditor({ pageContract: pc, basePath, sopId, sopName, ver
           )}
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
+        <MuiButton type="button" variant="outlined" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
-        </button>
-        <button type="button" className="btn p" disabled={pending || problems.length > 0} onClick={() => submit(true)}>
-          <Check className="ic" /> {copy(pc, "inspection.action.publish")}
-        </button>
+        </MuiButton>
+        <MuiButton type="button" variant="contained" startIcon={<Check className="ic" />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+          {copy(pc, "inspection.action.publish")}
+        </MuiButton>
       </div>
-    </div>
+    </Box>
   );
 }
 
@@ -246,30 +245,39 @@ function SlotCard({
       <div className="qhead">
         <span className="qnum">{index + 1}</span>
         <span className="qtype">
-          <select value={slot.kind} onChange={(e) => onChange({ kind: e.target.value as RemovalProofKind })}>
+          <MuiTextField
+            select
+            label={copy(pc, "ssop.proofs")}
+            value={slot.kind}
+            onChange={({ target: { value: kind } }) => onChange({ kind: kind as RemovalProofKind })}
+            sx={{ minWidth: { xs: 0, sm: 150 }, flexShrink: 0, maxWidth: 1 }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+          >
             {proofKinds.map((k) => (
-              <option key={k.key} value={k.key} title={k.title}>
+              <MenuItem key={k.key} value={k.key}>
                 {k.label}
-              </option>
+              </MenuItem>
             ))}
-          </select>
+          </MuiTextField>
         </span>
         {slot.key ? <code className="muted small">{slot.key}</code> : null}
         <span className="sp" style={{ flex: 1 }} />
-        <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
+        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => onMove(-1)}>
           <ChevronUp className="ic" />
-        </button>
-        <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
+        </IconButton>
+        <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === count - 1} onClick={() => onMove(1)}>
           <ChevronDown className="ic" />
-        </button>
-        <button type="button" className="ia del" aria-label={copy(pc, "ssop.proof.remove")} onClick={onRemove}>
+        </IconButton>
+        <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "ssop.proof.remove")} onClick={onRemove}>
           <X className="ic" />
-        </button>
+        </IconButton>
       </div>
       <div className="qbody">
         <label className="numfield">
           <span className="numlbl">{copy(pc, "ssop.proof.title")}</span>
-          <input
+          <MuiTextField
+            fullWidth
+            size="small"
             className="qtext"
             value={slot.title}
             onChange={(e) => {
@@ -282,18 +290,16 @@ function SlotCard({
         </label>
         <label className="numfield">
           <span className="numlbl">{copy(pc, "ssop.proof.hint")}</span>
-          <input value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
+          <MuiTextField fullWidth size="small" value={slot.hint} onChange={(e) => onChange({ hint: e.target.value })} />
         </label>
         {!slot.key ? (
           <label className="numfield">
             <span className="numlbl">{copy(pc, "inspection.question.key")}</span>
-            <input value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
+            <MuiTextField fullWidth size="small" value={slot.key} onChange={(e) => onChange({ key: e.target.value })} />
           </label>
         ) : null}
         <div className="qfoot">
-          <label className="chkline">
-            <input type="checkbox" checked={slot.required} onChange={(e) => onChange({ required: e.target.checked })} /> {copy(pc, "inspection.question.required")}
-          </label>
+          <FormControlLabel className="chkline" control={<Checkbox checked={slot.required} onChange={(e) => onChange({ required: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "inspection.question.required")}</>} />
         </div>
       </div>
     </div>

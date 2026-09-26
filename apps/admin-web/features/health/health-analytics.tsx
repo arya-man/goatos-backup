@@ -1,11 +1,22 @@
 import { redirect } from "next/navigation";
 
-import { ChartHover } from "@/components/chart-hover";
+import Link from "@/components/no-prefetch-link";
+
+import { Activity, AlertTriangle, Bug, CalendarClock, CircleHelp, ClipboardCheck, HeartPulse, Hourglass, Skull, Stethoscope, Timer, TrendingDown } from "lucide-react";
+
 import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { SvgBars, type SvgBarDatum } from "@/components/svg-bars";
-import { SeriesLegend, SeriesLines, type LineSeries } from "@/components/svg-series";
 import { WindowDateFilter } from "@/components/window-date-filter";
+import { TrendChart } from "@/components/app/trend-chart";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import type { KitTone } from "@/lib/tone";
+import { Caption } from "@/components/app/caption";
+import { EmptyState } from "@/components/app/empty-state";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -34,6 +45,7 @@ import {
   type MedicineRow,
 } from "./health-analytics-tables";
 import { HealthAnalyticsTelemetry } from "./health-analytics-telemetry";
+import { LinkButton } from "@/components/minimal/link-button";
 
 /**
  * Health -> Health Analytics. Three questions on one screen, and the page has to be honest
@@ -77,16 +89,6 @@ const FLOOR_DATE = "2026-08-01";
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Type size on the bar charts, relative to the shared chart's base — the same multiplier and
- * the same reason as Herd Analytics.
- *
- * These cards run the FULL WIDTH of the page, so the 1100-unit viewBox scales up barely at all
- * and the base 9-unit type lands at roughly 9 real pixels: legible on a card three to a row,
- * too small on one that fills the page. Confirmed on the rendered screen before it was set.
- */
-const BAR_TEXT_SCALE = 1.7;
-
-/**
  * A series colour follows the SERIES, never its rank on one chart: a death under treatment is
  * always teal and one nobody saw coming is always amber, on every chart and in every filter
  * state, so a reader's eye can carry between the two.
@@ -95,6 +97,17 @@ const SERIES_COLOR = {
   attributed: "var(--teal)",
   unattributed: "var(--amber)",
 } as const;
+
+/** Existing status tokens only (brand lock): each accent this page already used maps to its kit tone. */
+const ACCENT_TONE: Record<string, KitTone> = {
+  "var(--brand)": "primary",
+  "var(--info)": "info",
+  "var(--teal)": "info",
+  "var(--danger)": "error",
+  "var(--amber)": "warning",
+  "var(--purple)": "violet",
+  "var(--muted)": "neutral",
+};
 
 const nf = (value: number) => value.toLocaleString("en-IN");
 const pct = (value: number) => `${value.toLocaleString("en-IN", { maximumFractionDigits: 1 })}%`;
@@ -199,22 +212,18 @@ function Kpi({
   label,
   value,
   sub,
+  icon,
+  sparkline,
 }: {
   accent: string;
   label: string;
   value: string;
   sub: string;
+  icon?: React.ReactNode;
+  /** The monthly series behind the figure, when the page has one (same rows the chart draws). */
+  sparkline?: number[];
 }) {
-  return (
-    <div className="kpi">
-      <span className="acc" style={{ background: accent }} />
-      <div className="lab">{label}</div>
-      <div className="val">{value}</div>
-      <div className="dl">
-        <span className="muted">{sub}</span>
-      </div>
-    </div>
-  );
+  return <KpiCard tone={ACCENT_TONE[accent] ?? "neutral"} icon={icon} label={label} value={value} hint={sub} sparkline={sparkline} />;
 }
 
 export async function HealthAnalyticsPage({
@@ -241,37 +250,27 @@ export async function HealthAnalyticsPage({
 
   if (!data) {
     return (
-      <div className="pagegrid">
+      <div className="pagegrid ha-kit-stack">
         <HealthAnalyticsTelemetry routeId={pageContract.route_id} parkId={parkId} tab={tab} months={0} />
-        <section className="card">
-          <h2 className="h">{ha(pageContract, "error.title")}</h2>
-          <p className="muted small">{ha(pageContract, "error.body")}</p>
-        </section>
+        <Card>
+          <CardHeader title={ha(pageContract, "error.title")} subheader={ha(pageContract, "error.body")} sx={{ pb: 3 }} />
+        </Card>
       </div>
     );
   }
 
   const totals = data.totals;
-  const monthLabels = data.months.map((month) => month.label);
-  const deathSeries: LineSeries[] = [
-    {
-      label: ha(pageContract, "series.attributed"),
-      colorVar: SERIES_COLOR.attributed,
-      points: data.months.map((month) => month.deaths_attributed),
-    },
-    {
-      label: ha(pageContract, "series.unattributed"),
-      colorVar: SERIES_COLOR.unattributed,
-      points: data.months.map((month) => month.deaths_unattributed),
-    },
+  // Same backend month rows, re-shaped for the TrendChart wrapper (no arithmetic).
+  const deathRowsByMonth = data.months.map((m) => ({
+    month: m.label,
+    attributed: m.deaths_attributed,
+    unattributed: m.deaths_unattributed,
+  }));
+  const deathChartSeries = [
+    { key: "attributed", label: ha(pageContract, "series.attributed"), color: SERIES_COLOR.attributed },
+    { key: "unattributed", label: ha(pageContract, "series.unattributed"), color: SERIES_COLOR.unattributed },
   ];
-  const newCaseSeries: LineSeries[] = [
-    {
-      label: ha(pageContract, "kpi.new.label"),
-      colorVar: "var(--brand)",
-      points: data.months.map((month) => month.new_cases),
-    },
-  ];
+  const newCaseRowsByMonth = data.months.map((m) => ({ month: m.label, new_cases: m.new_cases }));
 
   const diseaseBars: SvgBarDatum[] = data.diseases.map((row) => ({
     key: row.key,
@@ -309,6 +308,15 @@ export async function HealthAnalyticsPage({
   );
   const medicineRows: MedicineRow[] = toMedicineRows(data.medicines);
   const engineRuleRows: EngineRuleRow[] = toEngineRuleRows(data.engine.rules);
+  const TAB_COUNTS: Record<(typeof TABS)[number], number | undefined> = {
+    overview: undefined,
+    // The problems tab's own grain: episodes in the window, which the backend already totals.
+    problems: data.problems.total,
+    diseases: diseaseRows.length,
+    mortality: deathRows.length,
+    treatment: medicineRows.length,
+    engine: engineRuleRows.length,
+  };
 
   // Every visible string in the shared calendar arrives resolved from the page contract.
   const pickerLabels: DateRangePickerLabels = {
@@ -359,7 +367,7 @@ export async function HealthAnalyticsPage({
     data.adherence.sessions_due === 0;
 
   return (
-    <div className="pagegrid">
+    <div className="pagegrid ha-kit-stack">
       <HealthAnalyticsTelemetry
         routeId={pageContract.route_id}
         parkId={parkId}
@@ -367,11 +375,18 @@ export async function HealthAnalyticsPage({
         months={data.months.length}
       />
 
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: copy(pageContract, "crumb", "Health") }, { label: pageContract.title }]}
+        actions={
+          <LinkButton href="/health/config" variant="contained" color="primary" startIcon={<ClipboardCheck className="ic" aria-hidden="true" />}>
+            {copy(pageContract, "action.manage_protocols", "Health config")}
+          </LinkButton>
+        }
+      />
+
       {/* THE HONEST DISCLOSURE, above everything. Without it the "not attributed" column
           reads as missing data rather than as the detection gap it measures. */}
-      <p className="muted small" style={{ margin: "0 0 4px" }}>
-        {ha(pageContract, "banner.basis")}
-      </p>
 
       <div className="ha-filter">
         <WindowDateFilter
@@ -410,28 +425,30 @@ export async function HealthAnalyticsPage({
       </div>
 
       {nothingRecorded ? (
-        <section className="card">
-          <h2 className="h">{ha(pageContract, "empty.title")}</h2>
-          <p className="muted small">{ha(pageContract, "empty.body")}</p>
-        </section>
+        <EmptyState icon={<HeartPulse className="ic" />} title={ha(pageContract, "empty.title")} />
       ) : null}
 
-      <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={ha(pageContract, "section.kpi.aria")}>
+      <section className={nothingRecorded ? "ha-kpi-empty" : undefined} aria-label={ha(pageContract, "section.kpi.aria")}>
+        <KpiGrid min={210}>
         <Kpi
           accent="var(--info)"
           label={ha(pageContract, "kpi.open.label")}
+              icon={<Stethoscope size={22} />}
           value={nf(totals.open_cases)}
           sub={ha(pageContract, "kpi.open.sub")}
         />
         <Kpi
           accent="var(--brand)"
           label={ha(pageContract, "kpi.new.label")}
+              icon={<Bug size={22} />}
+          sparkline={newCaseRowsByMonth.length > 1 ? newCaseRowsByMonth.map((m) => m.new_cases) : undefined}
           value={nf(totals.new_cases)}
           sub={ha(pageContract, "kpi.new.sub")}
         />
         <Kpi
           accent="var(--teal)"
           label={ha(pageContract, "kpi.recovery.label")}
+              icon={<HeartPulse size={22} />}
           // Of the cases CLOSED in the window: a still-open course has no outcome yet, and
           // counting it against recovery would drag a long supportive case down forever.
           value={pct(totals.closed_cases === 0 ? 0 : (totals.recovered / totals.closed_cases) * 100)}
@@ -440,62 +457,59 @@ export async function HealthAnalyticsPage({
         <Kpi
           accent="var(--danger)"
           label={ha(pageContract, "kpi.deaths.label")}
+              icon={<Skull size={22} />}
+          sparkline={deathRowsByMonth.length > 1 ? deathRowsByMonth.map((m) => m.attributed + m.unattributed) : undefined}
           value={nf(totals.deaths)}
           sub={ha(pageContract, "kpi.deaths.sub")}
         />
         <Kpi
           accent="var(--amber)"
           label={ha(pageContract, "kpi.unattributed.label")}
+              icon={<CircleHelp size={22} />}
           value={pct(totals.deaths === 0 ? 0 : (totals.deaths_unattributed / totals.deaths) * 100)}
           sub={ha(pageContract, "kpi.unattributed.sub")}
         />
+        </KpiGrid>
       </section>
 
-      <div className="feed-tabbar">
-        <SegmentedLinks
-          ariaLabel={ha(pageContract, "tab.group.aria")}
-          current={tab}
-          options={TABS.map((name) => ({
-            value: name,
-            label: ha(pageContract, `tab.${name}`),
-            // The default tab clears the parameter, so a shared link keeps meaning "the tab
-            // this page opens on" rather than freezing on the one it was copied from.
-            href: hrefWith(sp, { [TAB_PARAM]: name === "overview" ? null : name }),
-          }))}
-        />
-      </div>
+      <AnimatedTabs
+        ariaLabel={ha(pageContract, "tab.group.aria")}
+        value={tab}
+        items={TABS.map((name) => ({
+          value: name,
+          label: ha(pageContract, `tab.${name}`),
+          // Count badges (spec 6): every tab but the overview fronts one table, so the badge is
+          // that table's row count for the current window.
+          count: TAB_COUNTS[name] === undefined ? undefined : nf(TAB_COUNTS[name] as number),
+          // The default tab clears the parameter, so a shared link keeps meaning "the tab
+          // this page opens on" rather than freezing on the one it was copied from.
+          href: hrefWith(sp, { [TAB_PARAM]: name === "overview" ? null : name }),
+        }))}
+      />
 
       {tab === "overview" ? (
         <>
-          <section className="card wchart" aria-label={ha(pageContract, "chart.deaths.title")}>
-            <h2 className="h">{ha(pageContract, "chart.deaths.title")}</h2>
-            <p className="muted small">{ha(pageContract, "chart.deaths.hint")}</p>
-            <ChartHover>
-              <SeriesLines
-                series={deathSeries}
-                dayLabels={monthLabels}
-                valueNoun={ha(pageContract, "kpi.deaths.label")}
-                chartLabel={ha(pageContract, "chart.deaths.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
-            <SeriesLegend entries={deathSeries.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
-          </section>
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "chart.deaths.title")}>
+            <CardHeader title={ha(pageContract, "chart.deaths.title")} subheader={ha(pageContract, "chart.deaths.hint")} sx={{ p: 0, mb: 2 }} />
+            {deathRowsByMonth.length === 0 ? (
+              <p className="muted small">{emptyChart}</p>
+            ) : (
+              // Monthly counts are discrete: columns, not an area. A two-point area drew one straight
+              // line with a wash under it and read as a trend that was never measured.
+              <TrendChart data={deathRowsByMonth} xKey="month" kind="bar" stacked integerY series={deathChartSeries} height={300} />
+            )}
+          </Card>
 
-          <section className="card wchart" aria-label={ha(pageContract, "chart.diseases.title")}>
-            <h2 className="h">{ha(pageContract, "chart.diseases.title")}</h2>
-            <p className="muted small">{ha(pageContract, "chart.diseases.hint")}</p>
-            <ChartHover>
-              <SvgBars
-                data={diseaseBars}
-                maxBars={diseaseBars.length}
-                textScale={BAR_TEXT_SCALE}
-                valueNoun={casesNoun}
-                chartLabel={ha(pageContract, "chart.diseases.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
-          </section>
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "chart.diseases.title")}>
+            <CardHeader title={ha(pageContract, "chart.diseases.title")} subheader={ha(pageContract, "chart.diseases.hint")} sx={{ p: 0, mb: 2 }} />
+            <SvgBars
+              data={diseaseBars}
+              maxBars={diseaseBars.length}
+              valueNoun={casesNoun}
+              chartLabel={ha(pageContract, "chart.diseases.title")}
+              emptyLabel={emptyChart}
+            />
+          </Card>
         </>
       ) : null}
 
@@ -511,140 +525,131 @@ export async function HealthAnalyticsPage({
             {ha(pageContract, "problems.note")}
           </p>
 
-          <section className="card wchart" aria-label={ha(pageContract, "problems.chart.month.title")}>
-            <h2 className="h">{ha(pageContract, "problems.chart.month.title")}</h2>
-            <p className="muted small">{ha(pageContract, "problems.chart.month.hint")}</p>
-            <ChartHover>
-              <SeriesLines
-                series={newCaseSeries}
-                dayLabels={monthLabels}
-                valueNoun={casesNoun}
-                chartLabel={ha(pageContract, "problems.chart.month.title")}
-                emptyLabel={emptyChart}
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "problems.chart.month.title")}>
+            <CardHeader title={ha(pageContract, "problems.chart.month.title")} subheader={ha(pageContract, "problems.chart.month.hint")} sx={{ p: 0, mb: 2 }} />
+            {newCaseRowsByMonth.length === 0 ? (
+              <EmptyState title={emptyChart} />
+            ) : (
+              <TrendChart
+                data={newCaseRowsByMonth}
+                xKey="month"
+                kind={newCaseRowsByMonth.length <= 3 ? "bar" : "area"}
+                integerY
+                series={[{ key: "new_cases", label: ha(pageContract, "kpi.new.label"), color: "var(--brand)" }]}
+                height={300}
               />
-            </ChartHover>
-          </section>
+            )}
+          </Card>
 
-          <section className="card wchart" aria-label={ha(pageContract, "problems.chart.breed.title")}>
-            <h2 className="h">{ha(pageContract, "problems.chart.breed.title")}</h2>
-            <p className="muted small">{ha(pageContract, "problems.chart.breed.hint")}</p>
-            <ChartHover>
-              <SvgBars
-                data={breedBars}
-                maxBars={breedBars.length}
-                textScale={BAR_TEXT_SCALE}
-                valueNoun={casesNoun}
-                chartLabel={ha(pageContract, "problems.chart.breed.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
-            <p className="muted small">{ha(pageContract, "problems.capped_breeds")}</p>
-          </section>
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "problems.chart.breed.title")} className="wchart">
+            <CardHeader title={ha(pageContract, "problems.chart.breed.title")} subheader={ha(pageContract, "problems.chart.breed.hint")} sx={{ p: 0, mb: 2 }} />
+            <SvgBars
+              data={breedBars}
+              maxBars={breedBars.length}
+              valueNoun={casesNoun}
+              chartLabel={ha(pageContract, "problems.chart.breed.title")}
+              emptyLabel={emptyChart}
+            />
+            <Caption>{ha(pageContract, "problems.capped_breeds")}</Caption>
+          </Card>
 
-          <section className="card wchart" aria-label={ha(pageContract, "problems.chart.pen_type.title")}>
-            <h2 className="h">{ha(pageContract, "problems.chart.pen_type.title")}</h2>
-            <p className="muted small">{ha(pageContract, "problems.chart.pen_type.hint")}</p>
-            <ChartHover>
-              <SvgBars
-                data={penTypeBars}
-                maxBars={penTypeBars.length}
-                textScale={BAR_TEXT_SCALE}
-                valueNoun={casesNoun}
-                chartLabel={ha(pageContract, "problems.chart.pen_type.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "problems.chart.pen_type.title")} className="wchart">
+            <CardHeader title={ha(pageContract, "problems.chart.pen_type.title")} subheader={ha(pageContract, "problems.chart.pen_type.hint")} sx={{ p: 0, mb: 2 }} />
+            <SvgBars
+              data={penTypeBars}
+              maxBars={penTypeBars.length}
+              valueNoun={casesNoun}
+              chartLabel={ha(pageContract, "problems.chart.pen_type.title")}
+              emptyLabel={emptyChart}
+            />
             <EmptyBuckets lead={noneRecorded} names={emptyNames(problems.by_pen_type)} />
-          </section>
+          </Card>
 
-          <section className="card wchart" aria-label={ha(pageContract, "problems.chart.age.title")}>
-            <h2 className="h">{ha(pageContract, "problems.chart.age.title")}</h2>
-            <p className="muted small">{ha(pageContract, "problems.chart.age.hint")}</p>
-            <ChartHover>
-              <SvgBars
-                data={ageBars}
-                maxBars={ageBars.length}
-                textScale={BAR_TEXT_SCALE}
-                valueNoun={casesNoun}
-                chartLabel={ha(pageContract, "problems.chart.age.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "problems.chart.age.title")} className="wchart">
+            <CardHeader title={ha(pageContract, "problems.chart.age.title")} subheader={ha(pageContract, "problems.chart.age.hint")} sx={{ p: 0, mb: 2 }} />
+            <SvgBars
+              data={ageBars}
+              maxBars={ageBars.length}
+              valueNoun={casesNoun}
+              chartLabel={ha(pageContract, "problems.chart.age.title")}
+              emptyLabel={emptyChart}
+            />
             <EmptyBuckets lead={noneRecorded} names={emptyNames(problems.by_age)} />
-          </section>
+          </Card>
         </>
       ) : null}
 
       {tab === "diseases" ? (
         <>
-          <section className="card">
-            <h2 className="h">{ha(pageContract, "section.diseases.title")}</h2>
-            <p className="muted small">{ha(pageContract, "section.diseases.note")}</p>
+          <Card sx={{ p: { xs: 2, sm: 3 } }}>
+            <CardHeader title={ha(pageContract, "section.diseases.title")} subheader={ha(pageContract, "section.diseases.note")} sx={{ p: 0, mb: 2 }} />
             <DiseaseBoardTable
               contract={table(pageContract, "health-disease-board")}
               rows={diseaseRows}
               ariaLabel={ha(pageContract, "section.diseases.title")}
               empty={emptyChart}
             />
-          </section>
+          </Card>
 
-          <section className="card wchart" aria-label={ha(pageContract, "chart.trend.title")}>
-            <h2 className="h">{ha(pageContract, "chart.trend.title")}</h2>
-            <p className="muted small">{ha(pageContract, "chart.trend.hint")}</p>
-            <ChartHover>
-              <SeriesLines
-                series={newCaseSeries}
-                dayLabels={monthLabels}
-                valueNoun={casesNoun}
-                chartLabel={ha(pageContract, "chart.trend.title")}
-                emptyLabel={emptyChart}
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "chart.trend.title")}>
+            <CardHeader title={ha(pageContract, "chart.trend.title")} subheader={ha(pageContract, "chart.trend.hint")} sx={{ p: 0, mb: 2 }} />
+            {newCaseRowsByMonth.length === 0 ? (
+              <p className="muted small">{emptyChart}</p>
+            ) : (
+              <TrendChart
+                data={newCaseRowsByMonth}
+                xKey="month"
+                kind={newCaseRowsByMonth.length <= 3 ? "bar" : "area"}
+                integerY
+                series={[{ key: "new_cases", label: ha(pageContract, "kpi.new.label"), color: "var(--brand)" }]}
+                height={300}
               />
-            </ChartHover>
-          </section>
+            )}
+          </Card>
         </>
       ) : null}
 
       {tab === "mortality" ? (
         <>
-          <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={ha(pageContract, "section.kpi.aria")}>
+          <section aria-label={ha(pageContract, "section.kpi.aria")}>
+            <KpiGrid min={210}>
             <Kpi
               accent="var(--teal)"
               label={ha(pageContract, "label.attributed")}
+              icon={<ClipboardCheck size={22} />}
               sub={ha(pageContract, "stat.attributed.sub")}
               value={nf(totals.deaths_attributed)}
             />
             <Kpi
               accent="var(--amber)"
               label={ha(pageContract, "label.unattributed")}
+              icon={<CircleHelp size={22} />}
               value={nf(totals.deaths_unattributed)}
               sub={ha(pageContract, "kpi.unattributed.sub")}
             />
             <Kpi
               accent="var(--muted)"
               label={ha(pageContract, "stat.never.label")}
+              icon={<AlertTriangle size={22} />}
               value={nf(totals.deaths_never_diagnosed)}
               sub={ha(pageContract, "stat.never.sub")}
             />
+            </KpiGrid>
           </section>
 
-          <section className="card wchart" aria-label={ha(pageContract, "chart.fatality.title")}>
-            <h2 className="h">{ha(pageContract, "chart.fatality.title")}</h2>
-            <p className="muted small">{ha(pageContract, "chart.fatality.hint")}</p>
-            <ChartHover>
-              <SvgBars
-                data={fatalityBars}
-                maxBars={fatalityBars.length}
-                textScale={BAR_TEXT_SCALE}
-                valueNoun="%"
-                chartLabel={ha(pageContract, "chart.fatality.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
-          </section>
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "chart.fatality.title")}>
+            <CardHeader title={ha(pageContract, "chart.fatality.title")} subheader={ha(pageContract, "chart.fatality.hint")} sx={{ p: 0, mb: 2 }} />
+            <SvgBars
+              data={fatalityBars}
+              maxBars={fatalityBars.length}
+              valueNoun="%"
+              chartLabel={ha(pageContract, "chart.fatality.title")}
+              emptyLabel={emptyChart}
+            />
+          </Card>
 
-          <section className="card">
-            <h2 className="h">{ha(pageContract, "section.deaths.title")}</h2>
-            <p className="muted small">{ha(pageContract, "section.deaths.note")}</p>
+          <Card sx={{ p: { xs: 2, sm: 3 } }}>
+            <CardHeader title={ha(pageContract, "section.deaths.title")} subheader={ha(pageContract, "section.deaths.note")} sx={{ p: 0, mb: 2 }} />
             <DeathsTable
               contract={table(pageContract, "health-deaths")}
               rows={deathRows}
@@ -653,84 +658,89 @@ export async function HealthAnalyticsPage({
               noDataLabel={ha(pageContract, "label.no_pen")}
               inferredLabel={ha(pageContract, "label.inferred")}
             />
-          </section>
+          </Card>
         </>
       ) : null}
 
       {tab === "treatment" ? (
         <>
-          <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={ha(pageContract, "section.kpi.aria")}>
+          <section aria-label={ha(pageContract, "section.kpi.aria")}>
+            <KpiGrid min={210}>
             <Kpi
               accent="var(--brand)"
               label={ha(pageContract, "stat.sessions.label")}
+              icon={<CalendarClock size={22} />}
               value={nf(data.adherence.sessions_due)}
               sub={ha(pageContract, "stat.sessions.sub")}
             />
             <Kpi
               accent="var(--info)"
               label={ha(pageContract, "stat.awaiting.label")}
+              icon={<Hourglass size={22} />}
               value={nf(data.adherence.awaiting_verification)}
               sub={ha(pageContract, "stat.awaiting.sub")}
             />
+            </KpiGrid>
           </section>
 
-          <section className="card wchart" aria-label={ha(pageContract, "chart.adherence.title")}>
-            <h2 className="h">{ha(pageContract, "chart.adherence.title")}</h2>
-            <p className="muted small">{ha(pageContract, "chart.adherence.hint")}</p>
-            <ChartHover>
-              <SvgBars
-                data={adherenceBars}
-                maxBars={adherenceBars.length}
-                textScale={BAR_TEXT_SCALE}
-                // The four buckets PARTITION sessions_due, so a share is a real share here.
-                showShare
-                valueNoun={ha(pageContract, "stat.sessions.label")}
-                chartLabel={ha(pageContract, "chart.adherence.title")}
-                emptyLabel={emptyChart}
-              />
-            </ChartHover>
-          </section>
+          <Card sx={{ p: { xs: 2, sm: 3 } }} aria-label={ha(pageContract, "chart.adherence.title")}>
+            <CardHeader title={ha(pageContract, "chart.adherence.title")} subheader={ha(pageContract, "chart.adherence.hint")} sx={{ p: 0, mb: 2 }} />
+            <SvgBars
+              data={adherenceBars}
+              maxBars={adherenceBars.length}
+              // The four buckets PARTITION sessions_due, so a share is a real share here.
+              showShare
+              valueNoun={ha(pageContract, "stat.sessions.label")}
+              chartLabel={ha(pageContract, "chart.adherence.title")}
+              emptyLabel={emptyChart}
+            />
+          </Card>
 
-          <section className="card">
-            <h2 className="h">{ha(pageContract, "section.medicines.title")}</h2>
-            <p className="muted small">{ha(pageContract, "section.medicines.note")}</p>
+          <Card sx={{ p: { xs: 2, sm: 3 } }}>
+            <CardHeader title={ha(pageContract, "section.medicines.title")} subheader={ha(pageContract, "section.medicines.note")} sx={{ p: 0, mb: 2 }} />
             <MedicinesTable
               contract={table(pageContract, "health-medicines")}
               rows={medicineRows}
               ariaLabel={ha(pageContract, "section.medicines.title")}
               empty={ha(pageContract, "empty.medicines")}
             />
-          </section>
+          </Card>
         </>
       ) : null}
 
       {tab === "engine" ? (
         <>
+          {/* What the engine tab measures (a3fef7bd2) -- kept above the KPIs. */}
           <p className="muted small" style={{ margin: "0 0 -4px" }}>
             {ha(pageContract, "section.engine.note")}
           </p>
-          <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={ha(pageContract, "section.engine.title")}>
+          <section aria-label={ha(pageContract, "section.engine.title")}>
+            <KpiGrid min={210}>
             <Kpi
               accent="var(--info)"
               label={ha(pageContract, "stat.observations.label")}
+              icon={<Activity size={22} />}
               value={nf(data.engine.observations)}
               sub={ha(pageContract, "stat.observations.sub")}
             />
             <Kpi
               accent="var(--brand)"
               label={ha(pageContract, "stat.confirmed.label")}
+              icon={<ClipboardCheck size={22} />}
               value={nf(data.engine.confirmed)}
               sub={pct(data.engine.confirmed_pct)}
             />
             <Kpi
               accent="var(--amber)"
               label={ha(pageContract, "stat.declined.label")}
+              icon={<TrendingDown size={22} />}
               value={nf(data.engine.declined)}
               sub={ha(pageContract, "stat.pending.label") + ": " + nf(data.engine.pending)}
             />
             <Kpi
               accent="var(--purple)"
               label={ha(pageContract, "stat.median.label")}
+              icon={<Timer size={22} />}
               // NULL is "nothing was confirmed", not "confirmed instantly": a zero here would
               // be a claim the data cannot make.
               value={
@@ -740,18 +750,18 @@ export async function HealthAnalyticsPage({
               }
               sub={ha(pageContract, "stat.superseded.label") + ": " + nf(data.engine.superseded)}
             />
+            </KpiGrid>
           </section>
 
-          <section className="card">
-            <h2 className="h">{ha(pageContract, "section.engine_rules.title")}</h2>
-            <p className="muted small">{ha(pageContract, "section.engine_rules.note")}</p>
+          <Card sx={{ p: { xs: 2, sm: 3 } }}>
+            <CardHeader title={ha(pageContract, "section.engine_rules.title")} subheader={ha(pageContract, "section.engine_rules.note")} sx={{ p: 0, mb: 2 }} />
             <EngineRulesTable
               contract={table(pageContract, "health-engine-rules")}
               rows={engineRuleRows}
               ariaLabel={ha(pageContract, "section.engine_rules.title")}
               empty={ha(pageContract, "empty.engine")}
             />
-          </section>
+          </Card>
         </>
       ) : null}
     </div>

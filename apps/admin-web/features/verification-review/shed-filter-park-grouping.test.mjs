@@ -17,19 +17,21 @@ import test from "node:test";
 const pageSource = readFileSync(new URL("./verification-review-page.tsx", import.meta.url), "utf8");
 
 test("the shed picker groups options by park", () => {
-  assert.match(pageSource, /<optgroup key=\{parkLabel\} label=\{parkLabel\}>/, "shed options must render inside a per-park <optgroup>");
+  // VrFormSelect (MUI TextField select, no native <select>) carries the park as each option's `group`, which is
+  // rendered as a non-interactive heading — the <optgroup> equivalent.
+  assert.match(pageSource, /group: parkLabel,/, "shed options must carry their park as the VrFormSelect group (the <optgroup> equivalent)");
   assert.match(pageSource, /shedsByPark/, "the page must derive the park grouping");
 });
 
 test("the park is never concatenated into the shed's operational-location display", () => {
   // The one thing that would silently undo Rule 5: building "Coimbatore · Castro - 1" here
   // instead of grouping. The option's text must remain exactly what the backend composed.
-  const optionText = pageSource.match(/<option key=\{option\.id\} value=\{option\.id\}>[\s\S]{0,160}?<\/option>/g) ?? [];
+  const optionText = pageSource.match(/value: option\.id,\s*label: [^\n]*/g) ?? [];
   assert.ok(optionText.length >= 2, "expected the grouped and ungrouped option renderers");
   for (const rendered of optionText) {
     assert.match(
       rendered,
-      /\{option\.operational_location_display \|\| option\.label\}/,
+      /label: option\.operational_location_display \|\| option\.label,/,
       "an option's text must be the backend-composed display verbatim",
     );
     assert.doesNotMatch(rendered, /park_label/, "the park must not be folded into the option text");
@@ -45,7 +47,7 @@ test("a shed whose park the backend could not resolve is still offered", () => {
     "park-less options must be kept and rendered outside the groups",
   );
   const ungroupedAt = pageSource.indexOf("shedsWithoutPark.map");
-  const groupedAt = pageSource.indexOf("shedsByPark.map");
+  const groupedAt = pageSource.indexOf("shedsByPark.flatMap");
   assert.ok(ungroupedAt > 0 && groupedAt > ungroupedAt, "ungrouped options render before the park groups");
 });
 

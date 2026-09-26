@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "@/components/no-prefetch-link";
+import { ArrowUpRight } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { WorkBoardRow, WorkBoardSubtask, WorkBoardSubtaskPage } from "@/lib/api/work-board-server";
 import { loadSubtasksAction } from "./actions";
 import { initials, lanes } from "./work-board-model";
+import { Avatar } from "@/components/app/avatar";
 
 // The issue view's subtask list, in the mock's shape: worst first, ten per page, each row with
 // its name, subtitle, step chips, owner and status; a click unfolds the steps. The page is read
@@ -13,7 +15,6 @@ import { initials, lanes } from "./work-board-model";
 // state and label is the backend's.
 const PAGE = 10;
 
-const STEP_GLYPH: Record<string, string> = { done: "✓", in_review: "◔", in_progress: "▸", rework: "↻", needs_attention: "!", todo: "", locked: "" };
 
 function stepLabel(pageContract: AdminUiPageContract, state: string): string {
   return copy(pageContract, `step.${state}`, state);
@@ -31,27 +32,21 @@ function SubtaskRow({ pageContract, sub }: { pageContract: AdminUiPageContract; 
         <span className="nm">
           <b>{sub.name}</b>
           {sub.subtitle ? <span className="s">{sub.subtitle}</span> : null}
-          <div className="stp">
-            {sub.steps.map((step, i) => (
-              <span key={`${step.name}-${i}`} className={step.state} title={stepLabel(pageContract, step.state)}>
-                {step.name}
-                {STEP_GLYPH[step.state] ? ` ${STEP_GLYPH[step.state]}` : ""}
-              </span>
-            ))}
-          </div>
+          {/* Step pills live in the expanded panel below; the collapsed row is name · owner · ONE status chip. */}
+          <span className="sr-only">{sub.steps.map((step) => `${step.name} ${stepLabel(pageContract, step.state)}`).join(", ")}</span>
         </span>
         <span className="who">
           {sub.owner?.name ? (
             <>
-              <span className="av">{initials(sub.owner.name)}</span>
+              <Avatar name={sub.owner.name} initials={initials(sub.owner.name)} size={22} decorative />
               <span className="n" title={sub.owner.name}>{sub.owner.name}</span>
             </>
           ) : null}
         </span>
         <span className={`tag ${tone}`}>{status}</span>
         {sub.href ? (
-          <Link href={sub.href} className="lk" onClick={(e) => e.stopPropagation()}>
-            {copy(pageContract, "drawer.subtasks.open")} →
+          <Link href={sub.href} className="iconbtn kit-row-edit lk" title={copy(pageContract, "drawer.subtasks.open")} aria-label={copy(pageContract, "drawer.subtasks.open")} onClick={(e) => e.stopPropagation()}>
+            <ArrowUpRight className="ic" aria-hidden="true" />
           </Link>
         ) : (
           <span />

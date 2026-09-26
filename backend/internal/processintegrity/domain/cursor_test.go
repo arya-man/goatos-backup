@@ -42,6 +42,21 @@ func TestDecodeCursorStrictlyValidatesShape(t *testing.T) {
 	}
 }
 
+// The partition segment carries the stored label verbatim, and live labels have a space in them.
+func TestValidateRowIDAcceptsPartitionLabelsWithSpaces(t *testing.T) {
+	const base = "batch:eb4d2912-3004-47f7-a19e-1bf6037868f7:rule:9c021f57-8604-4dc1-b6db-6929b144a302:protocol_version:c6a481f9-7e1f-44d3-89aa-5adf40a5f136:shed:58fadf01-8f26-537a-9740-729c884acfab:partition:"
+	for _, label := range []string{"Part 5", "whole", "Part-7", "North wing 2"} {
+		if err := ValidateRowID(base + label + ":date:2026-09-11"); err != nil {
+			t.Fatalf("partition %q rejected: %v", label, err)
+		}
+	}
+	for _, label := range []string{" Part 5", "Part 5 ", "Part  5", "Part:5", "Part/5", ""} {
+		if err := ValidateRowID(base + label + ":date:2026-09-11"); err == nil {
+			t.Fatalf("partition %q must be rejected", label)
+		}
+	}
+}
+
 func TestValidateRowIDAllowsCurrentWorkflowKeys(t *testing.T) {
 	for _, rowID := range []string{
 		validBatchRowID,

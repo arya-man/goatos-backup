@@ -18,6 +18,7 @@ type contextPayload struct {
 	MessageKey *string `json:"message_key,omitempty"`
 	Target     *string `json:"target,omitempty"`
 	Status     *string `json:"status,omitempty"`
+	LoadID     *string `json:"load_id,omitempty"`
 }
 
 // notificationPayload is one card in the notification centre.
@@ -37,6 +38,7 @@ type notificationPayload struct {
 type notificationPagePayload struct {
 	Items       []notificationPayload `json:"items"`
 	UnreadCount int                   `json:"unread_count"`
+	TotalCount  int                   `json:"total_count"`
 	NextCursor  *string               `json:"next_cursor,omitempty"`
 	TraceID     string                `json:"trace_id"`
 }
@@ -70,6 +72,7 @@ func toContextPayload(c domain.Context) contextPayload {
 		MessageKey: optional(c.MessageKey),
 		Target:     optional(c.Target),
 		Status:     optional(c.Status),
+		LoadID:     optional(c.LoadID),
 	}
 }
 

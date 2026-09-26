@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { UsersRound } from "lucide-react";
+import Box from "@mui/material/Box";
 
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeaveApprovalConfig } from "@/lib/api/server";
 import { saveLeaveConfigAction } from "./actions";
@@ -45,50 +52,61 @@ export function LeaveConfigPanel({
   };
 
   return (
-    <section className="card" data-testid="leave-config" style={{ marginBottom: 16 }}>
-      <div className="chead">
-        <h3>{t("config.title")}</h3>
-      </div>
-      <div className="cbody">
-        <p className="small muted" style={{ marginTop: 0 }}>
-          {t("config.help")}
-        </p>
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "center" }}>
-          <label className="small" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input
-              type="checkbox"
+    <Card data-testid="leave-config" sx={{ p: { xs: 2, sm: 3 }, mb: 2 }}>
+      <CardHeader
+        sx={{ p: 0, mb: 2, alignItems: "center" }}
+        title={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <UsersRound className="ic" style={{ width: 18, color: "var(--primary)" }} aria-hidden="true" />
+            {t("config.title")}
+          </span>
+        }
+        subheader={t("config.help")}
+      />
+      <Box sx={{ display: "flex", gap: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+        <FormControlLabel
+          disabled={!canEdit || pending}
+          control={
+            <Checkbox
               name="park_head_required"
               checked={parkHead}
-              disabled={!canEdit || pending}
               onChange={(e) => setParkHead(e.target.checked)}
+              sx={{ p: { xs: 1.5, sm: 1 } }}
             />
-            {t("config.park_head")}
-          </label>
-          <label className="small" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input type="checkbox" name="hr_required" checked={hr} disabled={!canEdit || pending} onChange={(e) => setHr(e.target.checked)} />
-            {t("config.hr")}
-          </label>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={!canEdit || pending || !dirty || (!parkHead && !hr)}
-            onClick={onSave}
-            title={disabledReason || undefined}
-          >
-            {t("config.save")}
-          </button>
+          }
+          label={t("config.park_head")}
+        />
+        <FormControlLabel
+          disabled={!canEdit || pending}
+          control={<Checkbox name="hr_required" checked={hr} onChange={(e) => setHr(e.target.checked)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+          label={t("config.hr")}
+        />
+        <Button
+          variant="contained"
+          color="primary"
+          size="small"
+          loading={pending}
+          disabled={!canEdit || !dirty || (!parkHead && !hr)}
+          onClick={onSave}
+          title={disabledReason || undefined}
+        >
+          {t("config.save")}
+        </Button>
+      </Box>
+      {!canEdit && disabledReason ? (
+        <div className="small muted" style={{ marginTop: 10 }}>
+          {disabledReason}
         </div>
-        {!canEdit && disabledReason ? (
-          <div className="small muted" style={{ marginTop: 8 }}>
-            {disabledReason}
-          </div>
-        ) : null}
-        {message ? (
-          <div className={`small ${message.tone === "ok" ? "" : "muted"}`} style={{ marginTop: 8, color: message.tone === "dng" ? "var(--dng)" : undefined }}>
-            {message.text}
-          </div>
-        ) : null}
-      </div>
-    </section>
+      ) : null}
+      {message ? (
+        <div
+          role="status"
+          className="small"
+          style={{ marginTop: 10, color: message.tone === "ok" ? "var(--success-ink)" : "var(--error-ink)" }}
+        >
+          {message.text}
+        </div>
+      ) : null}
+    </Card>
   );
 }

@@ -1,11 +1,24 @@
-import { ListChecks } from "lucide-react";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import Alert from "@mui/material/Alert";
+import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
+import { listOrEmpty } from "@/lib/list-or-empty";
+import { AlarmClock, CalendarCheck2, ClipboardCheck, ListChecks, Plus, RotateCcw, Send } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
+import Card from "@mui/material/Card";
+import CardHeader from "@mui/material/CardHeader";
+import type { KitTone } from "@/lib/tone";
+import { PageHeader } from "@/components/app/page-header";
+import { EmptyState } from "@/components/app/empty-state";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
-import { SegmentedLinks, type SegmentedOption } from "@/components/segmented-links";
 import { Tag, type Tone } from "@/components/ui-primitives";
-import { ProcurementPager } from "@/features/procurement";
 import { controlEnabled, copy, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   PenRoutineCatalog,
@@ -16,10 +29,11 @@ import type {
   PenRoutineTaskRow,
 } from "@/lib/api/pen-routines-server";
 import type { ApiResult } from "@/lib/api/server";
-import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { RoutineDrawerForm, RoutineSaveFooter } from "./routine-drawer";
-import { RoutineFilter } from "./routine-filter";
+import { RoutinesTableChrome } from "./routines-chrome";
+import Button from "@mui/material/Button";
 
 /**
  * /routines (maintainer instruction 2026-09-16, docs/decisions/pen-routines.md): the routines of
@@ -50,10 +64,57 @@ export const PARAM_EDIT = "edit";
 const PARAM_CURSOR = "cursor";
 const PARAM_PAGE = "page";
 const PARAM_STACK = "cursor_stack";
+const PARAM_Q = "q";
+const PARAM_ROUTINE_STATUS = "rstatus";
+const PARAM_ROLE = "role";
+const PARAM_STATE = "state";
+const PARAM_ASSIGNEE = "assignee";
+const PARAM_TO = "to";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const STATUS_TONE: Record<PenRoutineRow["status"], Tone> = { active: "ok", paused: "warn", retired: "mut" };
 const STATE_TONE: Record<PenRoutineTaskRow["state_tone"], Tone> = { info: "info", review: "info", danger: "dng", success: "ok", muted: "mut" };
+
+/** Columns whose value is a count: right-aligned, tabular numerals (spec §3). */
+const NUMERIC_ROUTINE_COLUMNS = new Set(["open_today", "delayed"]);
+
+/** The current query string, so a client control can patch one parameter and keep the rest. */
+function queryOf(params: RouteSearchParams): string {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) for (const item of value) next.append(key, item);
+    else if (value) next.set(key, value);
+  }
+  return next.toString();
+}
+
+/** Distinct [value, label] pairs for a toolbar select, in first-seen order. */
+function uniqueBy<T>(rows: T[], pick: (row: T) => [string, string]): { value: string; label: string }[] {
+  const seen = new Map<string, string>();
+  for (const row of rows) {
+    const [value, label] = pick(row);
+    if (value && !seen.has(value)) seen.set(value, label || value);
+  }
+  return Array.from(seen, ([value, label]) => ({ value, label }));
+}
+
+/** Read-only CSV of exactly the routines on screen. */
+function routinesCsv(rows: PenRoutineRow[]): string {
+  const head = ["name", "park", "cadence", "evidence", "status", "open_today", "delayed"];
+  const body = rows.map((r) => [r.name, r.park_name, r.cadence_line, r.evidence_line, r.status_label, r.open_today, r.delayed]);
+  return csvOf([head, ...body]);
+}
+
+/** Read-only CSV of exactly the Today tasks on screen. */
+function tasksCsv(rows: PenRoutineTaskRow[]): string {
+  const head = ["routine", "park", "location", "assignees", "state", "due"];
+  const body = rows.map((r) => [r.routine_name, r.park_name, r.operational_location_display ?? "", r.assignee_names.join("; "), r.state_chip, r.due_business_date]);
+  return csvOf([head, ...body]);
+}
+
+function csvOf(rows: Array<Array<string | number>>): string {
+  return rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+}
 
 /** Rebuilds the page URL from the current params with a patch; paging keys are always dropped. */
 function href(params: RouteSearchParams, patch: Record<string, string | undefined>, keepPaging = false): string {
@@ -130,20 +191,12 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   const canSetStatus = controlEnabled(pageContract, "set_routine_status", false);
   const canConfigure = canCreate || canEdit || canSetStatus;
 
-  const parks = data.list.ok ? data.list.data.parks : [];
-  const routines = data.list.ok ? data.list.data.rows : [];
+  const parks = data.list.ok ? listOrEmpty(data.list.data.parks) : [];
+  const routines = data.list.ok ? listOrEmpty(data.list.data.rows) : [];
   const selectedPark = one(sp, PARAM_PARK) ?? "";
   const listHref = href(sp, { [PARAM_EDIT]: undefined }, true);
   const editHref = (id: string) => href(sp, { [PARAM_EDIT]: id }, true);
-  const today = todayIso();
-  const isToday = data.businessDate === today;
 
-  // Park segments in the backend's served order: CBE, then CPT. The unfiltered segment carries
-  // the filter's own label because the contract names no "all parks" sentence yet.
-  const parkSegments: SegmentedOption[] = [
-    { value: "", label: copy(pageContract, "filter.park.all", c("filter.park")), href: href(sp, { [PARAM_PARK]: undefined, [PARAM_ROUTINE]: undefined }) },
-    ...parks.map((park) => ({ value: park.park_id, label: park.name, href: href(sp, { [PARAM_PARK]: park.park_id, [PARAM_ROUTINE]: undefined }) })),
-  ];
 
   const routinesTable = table(pageContract, "pen-routines");
   const tasksTable = table(pageContract, "pen-routine-tasks");
@@ -155,8 +208,57 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   for (const routine of todayRoutines) routineFilterHrefs[routine.routine_id] = href(sp, { [PARAM_ROUTINE]: routine.routine_id });
 
   const tasks = data.tasks && data.tasks.ok ? data.tasks.data : null;
-  const taskRows = tasks?.rows ?? [];
+  const allTaskRows = tasks?.rows ?? [];
   const page = boundedInt(one(sp, PARAM_PAGE), 1, 1, 1000000);
+  const currentQuery = queryOf(sp);
+  const chromeLabels: Record<string, string> = {
+    columns: copy(pageContract, "action.columns", "Columns"),
+    export: copy(pageContract, "action.export", "Export"),
+    more: copy(pageContract, "action.more", "More actions"),
+    apply_search: copy(pageContract, "action.apply_search", "Apply search"),
+    reset: copy(pageContract, "action.reset_filters", "Reset filters"),
+    clear_all: copy(pageContract, "action.clear_all", "Clear all"),
+    remove_filter: copy(pageContract, "action.remove_filter", "Remove filter"),
+    dense: copy(pageContract, "action.dense", "Dense"),
+    rows_per_page: copy(pageContract, "label.rows_per_page", "Rows per page:"),
+    previous: c("action.previous"),
+    next: c("action.next"),
+  };
+
+  // Toolbar filters. The backend reads take park / business date / routine / cursor only, so
+  // search, status, role, state, assignee and the date range narrow the window already fetched.
+  const routineQuery = (one(sp, PARAM_Q) ?? "").trim();
+  const routineStatus = one(sp, PARAM_ROUTINE_STATUS) ?? "";
+  const routineRole = one(sp, PARAM_ROLE) ?? "";
+  const filteredRoutines = routines.filter((routine) => {
+    if (routineQuery && !`${routine.name} ${routine.park_name}`.toLowerCase().includes(routineQuery.toLowerCase())) return false;
+    if (routineStatus && routine.status !== routineStatus) return false;
+    if (routineRole && !routine.assignee_roles.some((option) => option.key === routineRole)) return false;
+    return true;
+  });
+
+  const taskQuery = (one(sp, PARAM_Q) ?? "").trim();
+  const taskState = one(sp, PARAM_STATE) ?? "";
+  const taskAssignee = one(sp, PARAM_ASSIGNEE) ?? "";
+  const taskRows = allTaskRows.filter((row) => {
+    if (taskQuery && !`${row.routine_name} ${row.park_name} ${row.operational_location_display ?? ""}`.toLowerCase().includes(taskQuery.toLowerCase())) return false;
+    if (taskState && row.state_chip !== taskState) return false;
+    if (taskAssignee && !row.assignee_names.includes(taskAssignee)) return false;
+    return true;
+  });
+
+  const routineStatusOptions = uniqueBy(routines, (r) => [r.status, r.status_label]);
+  const roleOptions = uniqueBy(
+    routines.flatMap((r) => r.assignee_roles),
+    (o) => [o.key, o.label],
+  );
+  const stateOptions = uniqueBy(allTaskRows, (r) => [r.state_chip, r.state_chip]);
+  const assigneeOptions = uniqueBy(
+    allTaskRows.flatMap((r) => r.assignee_names),
+    (n) => [n, n],
+  );
+  const routineSizes = tablePageSizes(pageContract, "pen-routines");
+  const taskSizes = tablePageSizes(pageContract, "pen-routine-tasks");
 
   const catalogParkId = data.todayPark?.park_id ?? "";
   // The create form's park switch: a real navigation that selects the park (and so its catalog)
@@ -213,9 +315,21 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
   const routineCell = (routine: PenRoutineRow, key: string) => {
     switch (key) {
       case "name":
-        // The name IS the way in (it opens the routine's drawer); a separate Edit column pushed the
-        // table past its card at 1440.
-        return openRoutine(routine, "prt-name-link", routine.name);
+        // Spec §3 identity cell: initial tile + primary line + the muted park line beneath.
+        // Template user-table-row identity: Avatar + name over the muted secondary line.
+        return openRoutine(
+          routine,
+          undefined,
+          <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1.5, minWidth: 0, color: "inherit" }}>
+            <Avatar variant="rounded" aria-hidden="true" sx={{ bgcolor: "primary.lighter", color: "primary.dark", typography: "caption", fontWeight: "fontWeightBold" }}>
+              {initialsOf(routine.name)}
+            </Avatar>
+            <Box component="span" sx={{ display: "grid", minWidth: 0, typography: "body2" }}>
+              <Box component="span" sx={{ fontWeight: "fontWeightSemiBold", color: "text.primary" }}>{routine.name}</Box>
+              <Box component="span" sx={{ typography: "caption", color: "text.disabled", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{routine.park_name}</Box>
+            </Box>
+          </Box>,
+        );
       case "park":
         return routine.park_name;
       case "cadence":
@@ -230,26 +344,26 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
           return routine.assignee.display_name ? (
             routine.assignee.display_name
           ) : (
-            <span className="prt-warn">{copy(pageContract, "assignee.unavailable", c("label.placeholder"))}</span>
+            <Box component="span" sx={{ color: "warning.dark" }}>{copy(pageContract, "assignee.unavailable", c("label.placeholder"))}</Box>
           );
         }
         if (!routine.assignee_roles.length) return c("label.placeholder");
         const names = routine.people.map((person) => person.display_name).join(", ");
         return (
-          <span className="prt-people">
+          <Box component="span" sx={{ display: "flex", flexDirection: "column", maxWidth: 260 }}>
             <span>{routine.assignee_roles.map((option) => option.label).join(", ")}</span>
-            <span className="muted small prt-people-names" title={names}>
+            <Box component="span" title={names} sx={{ typography: "caption", color: "text.secondary", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {names ? `${c("table.people.preview")} ${names}` : c("empty.role_people")}
-            </span>
-          </span>
+            </Box>
+          </Box>
         );
       }
       case "status":
         return <Tag tone={STATUS_TONE[routine.status]}>{routine.status_label}</Tag>;
       case "open_today":
         return (
-          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-            <span>{routine.open_today}</span>
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+            <Box component="span" sx={{ fontWeight: "fontWeightBold", fontVariantNumeric: "tabular-nums" }}>{routine.open_today}</Box>
             {routine.delayed > 0 ? (
               <Tag tone="dng">
                 {routine.delayed} {c("summary.delayed")}
@@ -281,175 +395,251 @@ export function RoutinesPage({ searchParams, pageContract, data }: { searchParam
     }
   };
 
-  const summaryTiles: { key: keyof NonNullable<typeof tasks>["summary"]; copyKey: string; color?: string }[] = [
-    { key: "due", copyKey: "summary.due" },
-    { key: "delayed", copyKey: "summary.delayed", color: "var(--danger)" },
-    { key: "in_review", copyKey: "summary.in_review" },
-    { key: "sent_back", copyKey: "summary.sent_back", color: "var(--warn)" },
-    { key: "done", copyKey: "summary.done", color: "var(--ok)" },
+  // The Today strip: the backend's own whole-filter aggregates, one KPI tile each, in the order
+  // the reader works through them. Tone and icon are presentation; every number and word is the
+  // backend's.
+  const summaryTiles: { key: keyof NonNullable<typeof tasks>["summary"]; copyKey: string; tone: KitTone; icon: React.ReactNode }[] = [
+    { key: "due", copyKey: "summary.due", tone: "primary", icon: <CalendarCheck2 /> },
+    { key: "delayed", copyKey: "summary.delayed", tone: "error", icon: <AlarmClock /> },
+    { key: "in_review", copyKey: "summary.in_review", tone: "info", icon: <ClipboardCheck /> },
+    { key: "sent_back", copyKey: "summary.sent_back", tone: "warning", icon: <RotateCcw /> },
+    { key: "done", copyKey: "summary.done", tone: "success", icon: <Send /> },
   ];
 
   return (
-    <div className="screen on">
-      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div>
-          <div className="crumb">
-            <b>{c("crumb")}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {parks.length > 1 ? <SegmentedLinks options={parkSegments} current={selectedPark} ariaLabel={c("filter.park")} /> : null}
-      </div>
-
-      {!data.list.ok ? (
-        <div className="alert" role="alert">
-          {data.list.error.message}
-        </div>
-      ) : null}
-
-      <section className="card" aria-label={routinesTable.title}>
-        <div className="hd">
-          <ListChecks className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h3>{routinesTable.title}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          {canCreate && catalogParkId ? (
-            <LocalOverlayLink href={editHref("new")} scroll={false} className="btn sm primary">
+    <div className="screen on proc-mx routines-page">
+      <PageHeader
+        title={pageContract.title}
+        crumbs={[{ label: c("crumb") }, { label: pageContract.title }]}
+        actions={
+          canCreate && catalogParkId ? (
+            <Button component={LocalOverlayLink} href={editHref("new")} scroll={false} variant="contained" color="primary" startIcon={<Plus size={16} aria-hidden="true" />}>
               {c("action.create_routine.label")}
-            </LocalOverlayLink>
-          ) : null}
-        </div>
-        {!canConfigure ? <div className="note" style={{ margin: "10px 16px 0" }}>{c("configure.disabled_no_access")}</div> : null}
-        <div className="bd">
-          {routines.length === 0 ? (
-            <div className="empty">{c("empty.routines")}</div>
-          ) : (
-            <>
-            {/* Phone: one card per routine, so status, who and today's count are on screen rather
-                than past the right edge of a table a thumb has to pan. Same cells, same contract. */}
-            <ul className="prt-cards" aria-label={routinesTable.title}>
-              {routines.map((routine) => (
-                <li key={routine.routine_id} className="prt-card">
-                  <div className="prt-card-hd">
-                    <span className="prt-card-name">{routineCell(routine, "name")}</span>
-                    {routineCell(routine, "status")}
-                  </div>
-                  <dl>
-                    {routineColumns
-                      .filter((column) => column.key !== "name" && column.key !== "status")
-                      .map((column) => (
-                        <div key={column.key}>
-                          <dt>{column.label}</dt>
-                          <dd>{routineCell(routine, column.key)}</dd>
-                        </div>
-                      ))}
-                  </dl>
-                </li>
-              ))}
-            </ul>
-            <div className="tablewrap prt-table" tabIndex={0} role="group" aria-label={routinesTable.title}>
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    {routineColumns.map((column) => (
-                      <th key={column.key}>{column.label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {routines.map((routine) => (
-                    <tr key={routine.routine_id}>
-                      {routineColumns.map((column) => (
-                        <td key={column.key} className={`prt-col-${column.key}`}>
-                          {routineCell(routine, column.key)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            </>
-          )}
-        </div>
-      </section>
+            </Button>
+          ) : null
+        }
+      />
 
-      <section className="card" aria-label={tasksTable.title}>
-        <div className="hd">
-          <h3>
-            {tasksTable.title}
-            {data.todayPark ? <span className="muted"> · {data.todayPark.name}</span> : null}
-          </h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <div role="group" aria-label={c("filter.business_date")} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Link href={href(sp, { [PARAM_DAY]: istDayPlus(data.businessDate, -1) })} scroll={false} className="btn sm" aria-label={c("action.previous")}>
-              ‹
-            </Link>
-            <span className="small" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span>{fmtDate(data.businessDate)}</span>
-              {isToday ? <span className="pill">{c("table.tasks.title")}</span> : null}
-            </span>
-            <Link href={href(sp, { [PARAM_DAY]: istDayPlus(data.businessDate, 1) })} scroll={false} className="btn sm" aria-label={c("action.next")}>
-              ›
-            </Link>
-          </div>
-          {todayRoutines.length > 0 ? (
-            <RoutineFilter
-              label={c("filter.routine")}
-              current={one(sp, PARAM_ROUTINE) ?? ""}
-              options={todayRoutines.map((routine) => ({ value: routine.routine_id, label: routine.name }))}
-              hrefFor={routineFilterHrefs}
-            />
-          ) : null}
-        </div>
-        <div className="bd">
-          {data.tasks && !data.tasks.ok ? (
-            <div className="alert" role="alert">
-              {data.tasks.error.message}
-            </div>
-          ) : null}
-          {tasks ? (
-            <div className="grid g5 kpi-row prt-kpis" style={{ margin: "10px 0" }}>
+      <div className="kit-enter">
+        {!data.list.ok ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {data.list.error.message}
+          </Alert>
+        ) : null}
+
+        {/* A deck of zeros is a wall, not a reading: the tiles render only once a day has counts. */}
+        {tasks && summaryTiles.some((tile) => Number(tasks.summary[tile.key]) > 0) ? (
+          <div>
+            <KpiGrid min={200}>
               {summaryTiles.map((tile) => (
-                <div className="kpi" key={tile.key}>
-                  <div className="lab">{c(tile.copyKey)}</div>
-                  <div className="val" style={tile.color && tasks.summary[tile.key] > 0 ? { color: tile.color } : undefined}>
-                    {tasks.summary[tile.key]}
-                  </div>
-                </div>
+                <KpiCard key={tile.key} label={c(tile.copyKey)} value={tasks.summary[tile.key]} tone={tile.tone} icon={tile.icon} />
               ))}
-            </div>
-          ) : null}
-          {taskRows.length === 0 ? (
-            <div className="empty">{c("empty.tasks")}</div>
-          ) : (
-            <div className="tablewrap" tabIndex={0} role="group" aria-label={tasksTable.title}>
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    {taskColumns.map((column) => (
-                      <th key={column.key}>{column.label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {taskRows.map((row) => (
-                    <tr key={row.task_id}>
-                      {taskColumns.map((column) => (
-                        <td key={column.key}>{taskCell(row, column.key)}</td>
+            </KpiGrid>
+          </div>
+        ) : null}
+
+        <div style={{ marginTop: 16 }}>
+          <Card className="kit-tablecard" aria-label={routinesTable.title}>
+            <CardHeader
+              sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
+              title={
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <ListChecks className="ic" style={{ width: 18, color: "var(--primary)" }} aria-hidden="true" />
+                  {routinesTable.title}
+                </span>
+              }
+              action={routines.length ? <Tag tone="info">{filteredRoutines.length}</Tag> : null}
+            />
+            {!canConfigure ? <Alert severity="info" sx={{ mx: 3, mb: 1.5 }}>{c("configure.disabled_no_access")}</Alert> : null}
+            {routines.length === 0 ? (
+              <EmptyState icon={<ListChecks className="ic" aria-hidden="true" />} title={c("empty.routines")} sx={{ mx: 3, mb: 3 }} />
+            ) : (
+              <RoutinesTableChrome
+                tableAriaLabel={routinesTable.title}
+                basePath={ROUTINES_PATH}
+                currentQuery={currentQuery}
+                searchParam={PARAM_Q}
+                searchValue={routineQuery}
+                searchPlaceholder={copy(pageContract, "filter.search_placeholder", c("filter.routine"))}
+                searchLabel={copy(pageContract, "filter.search_label", c("filter.routine"))}
+                filters={[
+                  {
+                    param: PARAM_PARK,
+                    label: c("filter.park"),
+                    value: selectedPark,
+                    allLabel: copy(pageContract, "filter.park.all", c("filter.park")),
+                    options: parks.map((park) => ({ value: park.park_id, label: park.name })),
+                  },
+                  {
+                    param: PARAM_ROUTINE_STATUS,
+                    label: copy(pageContract, "filter.status", "Status"),
+                    value: routineStatus,
+                    allLabel: copy(pageContract, "filter.status.all", "All statuses"),
+                    options: routineStatusOptions,
+                  },
+                  {
+                    param: PARAM_ROLE,
+                    label: copy(pageContract, "filter.role", "Role"),
+                    value: routineRole,
+                    allLabel: copy(pageContract, "filter.role.all", "All roles"),
+                    options: roleOptions,
+                  },
+                ]}
+                clearable={[PARAM_Q, PARAM_PARK, PARAM_ROUTINE_STATUS, PARAM_ROLE]}
+                cursorParams={[PARAM_CURSOR, PARAM_PAGE, PARAM_STACK]}
+                shown={filteredRoutines.length}
+                total={routines.length}
+                csv={routinesCsv(filteredRoutines)}
+                csvName="pen-routines.csv"
+                footer={{
+                  nextHref: "",
+                  hasPrevious: false,
+                  pageSizeOptions: routineSizes,
+                  pageSize: routineSizes[0] ?? 25,
+                  limitParam: "rlimit",
+                  rangeLabel: filteredRoutines.length === 0 ? "0" : `1–${filteredRoutines.length}`,
+                }}
+                labels={chromeLabels}
+              >
+                <Table stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      {routineColumns.map((column) => (
+                        <TableCell component="th" key={column.key} align={NUMERIC_ROUTINE_COLUMNS.has(column.key) ? "right" : undefined}>
+                          {column.label}
+                        </TableCell>
                       ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <ProcurementPager prevHref={previousHref(sp)} nextHref={nextHref(sp, tasks?.next_cursor)} page={page} count={taskRows.length} noun="check" />
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredRoutines.map((routine) => (
+                      <TableRow key={routine.routine_id}>
+                        {routineColumns.map((column) => (
+                          <TableCell key={column.key} align={NUMERIC_ROUTINE_COLUMNS.has(column.key) ? "right" : undefined} sx={NUMERIC_ROUTINE_COLUMNS.has(column.key) ? { fontVariantNumeric: "tabular-nums" } : undefined}>
+                            {routineCell(routine, column.key)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </RoutinesTableChrome>
+            )}
+          </Card>
         </div>
-      </section>
+
+        <div style={{ marginTop: 16 }}>
+          <Card className="kit-tablecard" aria-label={tasksTable.title}>
+            <CardHeader
+              sx={{ px: 3, pt: 2.5, pb: 1.5, alignItems: "center", gap: 1.5, flexWrap: "wrap" }}
+              title={
+                <>
+                  {tasksTable.title}
+                  {data.todayPark ? <span className="muted"> · {data.todayPark.name}</span> : null}
+                </>
+              }
+              action={data.todayPark ? <Tag tone="info">{taskRows.length}</Tag> : null}
+            />
+            {data.tasks && !data.tasks.ok ? (
+              <Alert severity="error" sx={{ mx: 3, mb: 2 }}>
+                {data.tasks.error.message}
+              </Alert>
+            ) : null}
+            {allTaskRows.length === 0 ? (
+              <EmptyState icon={<CalendarCheck2 className="ic" aria-hidden="true" />} title={c("empty.tasks")} sx={{ mx: 3, mb: 3 }} />
+            ) : (
+              <RoutinesTableChrome
+                tableAriaLabel={tasksTable.title}
+                basePath={ROUTINES_PATH}
+                currentQuery={currentQuery}
+                searchParam={PARAM_Q}
+                searchValue={taskQuery}
+                searchPlaceholder={copy(pageContract, "filter.search_placeholder", c("filter.routine"))}
+                searchLabel={copy(pageContract, "filter.search_label", c("filter.routine"))}
+                filters={[
+                  {
+                    param: PARAM_ROUTINE,
+                    label: c("filter.routine"),
+                    value: one(sp, PARAM_ROUTINE) ?? "",
+                    allLabel: copy(pageContract, "filter.routine.all", c("filter.routine")),
+                    options: todayRoutines.map((routine) => ({ value: routine.routine_id, label: routine.name })),
+                  },
+                  {
+                    param: PARAM_STATE,
+                    label: copy(pageContract, "filter.state", "State"),
+                    value: taskState,
+                    allLabel: copy(pageContract, "filter.state.all", "All states"),
+                    options: stateOptions,
+                  },
+                  {
+                    param: PARAM_ASSIGNEE,
+                    label: copy(pageContract, "filter.assignee", "Assignee"),
+                    value: taskAssignee,
+                    allLabel: copy(pageContract, "filter.assignee.all", "All assignees"),
+                    options: assigneeOptions,
+                  },
+                ]}
+                dateRange={{
+                  label: c("filter.business_date"),
+                  fromParam: PARAM_DAY,
+                  toParam: PARAM_TO,
+                  from: data.businessDate,
+                  to: one(sp, PARAM_TO) ?? "",
+                  fromLabel: c("filter.business_date"),
+                  toLabel: c("filter.business_date"),
+                }}
+                clearable={[PARAM_Q, PARAM_ROUTINE, PARAM_STATE, PARAM_ASSIGNEE, PARAM_TO]}
+                cursorParams={[PARAM_CURSOR, PARAM_PAGE, PARAM_STACK]}
+                shown={taskRows.length}
+                total={allTaskRows.length}
+                csv={tasksCsv(taskRows)}
+                csvName="pen-routine-tasks.csv"
+                footer={{
+                  nextHref: nextHref(sp, tasks?.next_cursor) ?? "",
+                  hasPrevious: Boolean(previousHref(sp)),
+                  pageSizeOptions: taskSizes,
+                  pageSize: taskSizes[0] ?? 25,
+                  limitParam: "tlimit",
+                  rangeLabel: taskRows.length === 0 ? "0" : `1–${taskRows.length} · ${c("label.page")} ${page}`,
+                }}
+                labels={chromeLabels}
+              >
+                <Table stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      {taskColumns.map((column) => (
+                        <TableCell component="th" key={column.key}>{column.label}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {taskRows.map((row) => (
+                      <TableRow key={row.task_id}>
+                        {taskColumns.map((column) => (
+                          <TableCell key={column.key}>{taskCell(row, column.key)}</TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </RoutinesTableChrome>
+            )}
+
+          </Card>
+        </div>
+      </div>
 
       <LocalOverlayDrawer items={drawerItems} selectionKey={PARAM_EDIT} initialSelectedId={one(sp, PARAM_EDIT)} closeHref={listHref} ariaLabel={c("drawer.routine.title")} closeLabel={c("action.close")} />
     </div>
   );
+}
+
+/** Two letters for the routine identity tile; presentation only, it composes no copy. */
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 }

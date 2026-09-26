@@ -1,8 +1,24 @@
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import TextField from "@mui/material/TextField";
+import { Iconify } from "@/components/minimal/iconify";
+import { LinkButton } from "@/components/minimal/link-button";
+import { SearchTextField } from "@/components/minimal/list/search-text-field";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, DatabaseZap, Filter, Search, ShieldAlert, Trash2 } from "lucide-react";
+import { AlertTriangle, DatabaseZap, ShieldAlert, Trash2 } from "lucide-react";
 
+import type { KitTone } from "@/lib/tone";
+import { PageHeader } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listOutboxDLQ, type OutboxDLQMessage, type OutboxDLQStatus } from "@/lib/api/server";
@@ -10,6 +26,7 @@ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { dash, fmtDateTime, shortId } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { DLQLocalDrawer, type DLQDrawerRecord } from "./dlq-local-drawer";
+import Alert from "@mui/material/Alert";
 
 const PATHNAME = "/operations/dlq";
 const STATUS_KEYS = ["dead_letter", "failed", "discarded"] as const;
@@ -56,111 +73,113 @@ export async function OperationsDLQPage({
   const actionStatus = one(sp, "action_status");
 
   return (
-    <div className="screen on">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pageContract, "crumb")} / <b>{pageContract.title}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <Link href="/operations/audit?domain=operations&module=dlq" className="btn">
-          <ShieldAlert className="ic" aria-hidden="true" />
-          {copy(pageContract, "action.open_audit")}
-        </Link>
+    <div className="kit-enter screen on">
+      <div>
+        <PageHeader
+          title={pageContract.title}
+          crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
+          actions={
+            <Link href="/operations/audit?domain=operations&module=dlq" className="btn">
+              <ShieldAlert className="ic" aria-hidden="true" />
+              {copy(pageContract, "action.open_audit")}
+            </Link>
+          }
+        />
       </div>
 
       {result.ok ? null : (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           <b>{result.error.code ?? copy(pageContract, "error.dlq_unavailable")}</b>&nbsp;{result.error.message}
-        </div>
+        </Alert>
       )}
 
       {actionStatus && actionKey ? (
-        <div className={actionStatus === "success" ? "alert ok" : "alert warn"} style={{ marginBottom: 14 }}>
+        <Alert severity={actionStatus === "success" ? "success" : "warning"} style={{ marginBottom: 14 }}>
           <b>{copy(pageContract, actionKey)}</b>
           {one(sp, "action_code") ? <span>&nbsp;{one(sp, "action_code")}</span> : null}
-        </div>
+        </Alert>
       ) : null}
 
-      <div className="grid g4" style={{ marginBottom: 14 }}>
+      <div>
+      <KpiGrid min={210}>
         <KPI label={copy(pageContract, "label.dead_letter_count")} value={String(countStatus(allRows, "dead_letter"))} tone="dng" icon={ShieldAlert} />
         <KPI label={copy(pageContract, "label.failed_count")} value={String(countStatus(allRows, "failed"))} tone="warn" icon={AlertTriangle} />
         <KPI label={copy(pageContract, "label.discarded_count")} value={String(countStatus(allRows, "discarded"))} tone="mut" icon={Trash2} />
         <KPI label={copy(pageContract, "label.rows_in_view")} value={String(rows.length)} tone="info" icon={DatabaseZap} />
+      </KpiGrid>
       </div>
 
-      <div className="subtabs" style={{ marginBottom: 12 }}>
-        {STATUS_KEYS.map((key) => (
-          <Link key={key} href={hrefWithUpdates(sp, { status: key, dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null })} replace scroll={false} className={status === key ? "on" : ""}>
-            {optionLabel(pageContract, "dlq_status_tabs", key)}
-          </Link>
-        ))}
+      <div style={{ margin: "14px 0 12px" }}>
+        <AnimatedTabs
+          value={status}
+          ariaLabel={copy(pageContract, "filter.search_label")}
+          items={STATUS_KEYS.map((key) => ({
+            value: key,
+            label: optionLabel(pageContract, "dlq_status_tabs", key),
+            // The count is the whole reason an operator picks one of these tabs over another.
+            count: countStatus(allRows, key),
+            href: hrefWithUpdates(sp, { status: key, dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null }),
+          }))}
+        />
       </div>
 
-      <div className="wftoolbar" style={{ marginBottom: 14 }}>
-        <form className="tsearch" action={PATHNAME} style={{ maxWidth: 320 }} title={copy(pageContract, "filter.search_label")}>
-          {hiddenInputs(sp, ["q", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
-          <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
-          <input name="q" defaultValue={one(sp, "q") ?? ""} placeholder={copy(pageContract, "filter.search_placeholder")} aria-label={copy(pageContract, "filter.search_label")} />
-        </form>
-        <form action={PATHNAME} style={{ display: "contents" }}>
-          {hiddenInputs(sp, ["event_type", "topic", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
-          <div className="fld" style={{ width: 170, marginBottom: 0 }}>
-            <label htmlFor="dlq-event-type">{copy(pageContract, "filter.event_type_label")}</label>
-            <input id="dlq-event-type" name="event_type" defaultValue={eventType ?? ""} placeholder={copy(pageContract, "filter.event_type_placeholder")} />
-          </div>
-          <div className="fld" style={{ width: 170, marginBottom: 0 }}>
-            <label htmlFor="dlq-topic">{copy(pageContract, "filter.topic_label")}</label>
-            <input id="dlq-topic" name="topic" defaultValue={topic ?? ""} placeholder={copy(pageContract, "filter.topic_placeholder")} />
-          </div>
-          <button type="submit" className="btn sm">
-            <Filter className="ic" aria-hidden="true" />
-            {copy(pageContract, "filter.apply")}
-          </button>
-        </form>
-        <Link href={PATHNAME} replace scroll={false} className="lk small">
-          {copy(pageContract, "filter.clear_all")}
-        </Link>
+      {/* Template list toolbar on a Card: keyword search, then the event-type / topic filters. */}
+      <div style={{ marginBottom: 14 }}>
+        <Card sx={{ p: 2.5, display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center", overflow: "visible" }}>
+          <Box component="form" action={PATHNAME} title={copy(pageContract, "filter.search_label")} sx={{ flex: "1 1 280px", minWidth: 0 }}>
+            {hiddenInputs(sp, ["q", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
+            <SearchTextField name="q" defaultValue={one(sp, "q") ?? ""} placeholder={copy(pageContract, "filter.search_placeholder")} ariaLabel={copy(pageContract, "filter.search_label")} />
+          </Box>
+          <Box component="form" action={PATHNAME} sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
+            {hiddenInputs(sp, ["event_type", "topic", "dlq_id", "action_status", "action_key", "action_code", "updated"])}
+            <TextField id="dlq-event-type" name="event_type" label={copy(pageContract, "filter.event_type_label")} defaultValue={eventType ?? ""} placeholder={copy(pageContract, "filter.event_type_placeholder")} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField id="dlq-topic" name="topic" label={copy(pageContract, "filter.topic_label")} defaultValue={topic ?? ""} placeholder={copy(pageContract, "filter.topic_placeholder")} sx={{ width: { xs: 1, sm: 210 } }} slotProps={{ inputLabel: { shrink: true } }} />
+            <Button type="submit" variant="contained">
+              {copy(pageContract, "filter.apply")}
+            </Button>
+          </Box>
+          <LinkButton href={PATHNAME} replace scroll={false} color="error" startIcon={<Iconify icon="solar:trash-bin-trash-bold" />}>
+            {copy(pageContract, "filter.clear_all")}
+          </LinkButton>
+        </Card>
       </div>
 
-      <section className="card" style={{ minWidth: 0 }}>
+      <div>
+      <TabPanel tabKey={status}>
+      <section className="card kit-tablecard" style={{ minWidth: 0 }}>
         <div className="hd">
           <DatabaseZap className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
           <h3>{copy(pageContract, "section.events.title")}</h3>
           <div className="sp" style={{ flex: 1 }} />
           <span className="pill">{copy(pageContract, "pager.fixed_reason")}</span>
         </div>
-        <div className="bd twrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.events.aria")}>
-          <table data-enh="1" className="operations-dlq-table">
-            <thead>
-              <tr>
+        <div className="bd twrap tablewrap" style={{ padding: 0 }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.events.aria")}>
+          <Table data-enh="1" className="operations-dlq-table">
+            <TableHead>
+              <TableRow>
                 {cols.map((label) => (
-                  <th key={label}>{label}</th>
+                  <TableCell component="th" key={label}>{label}</TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={cols.length}>
+                <TableRow>
+                  <TableCell colSpan={cols.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
                       {result.ok ? copy(pageContract, "empty.events") : copy(pageContract, "empty.events_unavailable")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 rows.map((row) => <DLQTableRow key={row.outbox_id} row={row} searchParams={sp} pageContract={pageContract} />)
               )}
-            </tbody>
-          </table>
-          <div className="note" style={{ margin: "12px 14px" }}>
-            <b>{copy(pageContract, "label.replay_safe")}</b> · {copy(pageContract, "reason.replay")}
-          </div>
+            </TableBody>
+          </Table>
         </div>
       </section>
+      </TabPanel>
+      </div>
 
       <DLQLocalDrawer
         rows={drawerRows}
@@ -176,44 +195,38 @@ function DLQTableRow({ row, searchParams, pageContract }: { row: OutboxDLQMessag
   const closeHref = hrefWithUpdates(searchParams, { dlq_id: null, action_status: null, action_key: null, action_code: null, updated: null });
   const href = `${closeHref}#dlq_id=${encodeURIComponent(row.outbox_id)}`;
   return (
-    <tr>
-      <td>
+    <TableRow>
+      <TableCell>
         <LocalOverlayLink href={href} className="celllink" scroll={false}>
           <ClipText title={row.event_type} className="strong">
             {row.event_type}
           </ClipText>
           <span className="mt">{shortId(row.event_id)}</span>
         </LocalOverlayLink>
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         <ClipText title={row.topic}>{row.topic}</ClipText>
         <div className="mt">
           <Tag tone={toneForStatus(row.status, pageContract)}>{optionLabel(pageContract, "dlq_status_tabs", row.status)}</Tag>
         </div>
-      </td>
-      <td>{row.attempt_count}</td>
-      <td>{row.replay_count}</td>
-      <td>
+      </TableCell>
+      <TableCell>{row.attempt_count}</TableCell>
+      <TableCell>{row.replay_count}</TableCell>
+      <TableCell>
         <ClipText title={row.last_error}>{dash(row.last_error)}</ClipText>
-      </td>
-      <td className="muted" style={{ whiteSpace: "nowrap" }}>
+      </TableCell>
+      <TableCell className="muted" style={{ whiteSpace: "nowrap" }}>
         {fmtDateTime(row.updated_at)}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
+const KPI_TONE: Record<Tone, KitTone> = { ok: "success", warn: "warning", dng: "error", info: "info", mut: "neutral", pur: "violet", teal: "info" };
+
 function KPI({ label, value, tone, icon: Icon }: { label: string; value: string; tone: Tone; icon: typeof DatabaseZap }) {
-  return (
-    <div className="kpi">
-      <span className="acc" style={{ background: accentForTone(tone) }} aria-hidden="true" />
-      <div className="lab">
-        <Icon className="ic" style={{ width: 14 }} aria-hidden="true" />
-        {label}
-      </div>
-      <div className="val">{value}</div>
-    </div>
-  );
+  const numeric = /^\d+$/.test(value) ? Number(value) : null;
+  return <KpiCard label={label} value={numeric ?? value} tone={KPI_TONE[tone]} icon={<Icon />} />;
 }
 
 function parseStatus(raw: string | undefined): OutboxDLQStatus {
@@ -266,21 +279,3 @@ function hiddenInputs(params: RouteSearchParams, exclude: string[]) {
   });
 }
 
-function accentForTone(toneValue: Tone) {
-  switch (toneValue) {
-    case "ok":
-      return "#6fd043";
-    case "warn":
-      return "#f7c948";
-    case "dng":
-      return "#ff6b6b";
-    case "pur":
-      return "#a77cff";
-    case "teal":
-      return "#35d2c6";
-    case "info":
-      return "#5da8ff";
-    default:
-      return "#7a8b78";
-  }
-}

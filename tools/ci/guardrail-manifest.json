@@ -8,6 +8,17 @@
   },
   "guards": [
     {
+      "id": "admin-web-design-system",
+      "script": "apps/admin-web/scripts/check-design-system.mjs",
+      "makeTarget": null,
+      "realCheck": "npm --prefix apps/admin-web run design:guard",
+      "selfTest": "node apps/admin-web/scripts/check-design-system.mjs --self-test",
+      "owningDoc": "docs/design/README.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web design guard",
+      "notes": "Design-system contract for the admin-web redesign (.agents/skills/design-system/SKILL.md): P0 brand lock (foreign palette, theme token drift vs origin/main, Google Fonts link) plus waivable banned patterns (native select/date, window.confirm, colour literals, Tailwind palette classes, legacy F2 code, fixed px widths >= 480, prose under titles, charts without tooltip/draw-in, admin page without loading.tsx, page outside PageShell). Debt keyed in apps/admin-web/scripts/check-design-system-waivers/design-system-waivers.json. The visual twins (npm run visual:stories / visual:routes) carry the runtime render-integrity checks and are wired in run_admin_web beside the story/route visual steps. Lives under apps/admin-web/scripts so it is registered by hand, not auto-enumerated."
+    },
+    {
       "id": "additive-publish",
       "script": "tools/agent-hooks/check-additive-publish.mjs",
       "makeTarget": "additive-publish-guard",

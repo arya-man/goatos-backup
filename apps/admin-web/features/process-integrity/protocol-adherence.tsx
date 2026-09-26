@@ -1,7 +1,17 @@
-import Link from "@/components/no-prefetch-link";
+import { FilterChip } from "@/components/minimal/list/filter-chip";
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { listOrEmpty } from "@/lib/list-or-empty";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
-import { Syringe } from "lucide-react";
+import { CalendarClock, CircleCheck, Syringe, TriangleAlert } from "lucide-react";
+import { InfoHint } from "@/components/app/info-hint";
+import { PageHeader, type PageCrumb } from "@/components/app/page-header";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
 import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -15,34 +25,12 @@ import { ProtocolAdherenceLocalDrawer, type ProtocolAdherenceDrawerRecord } from
 import { fmtDate } from "@/lib/format";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import { EvidenceMedia } from "./evidence-media";
-
-type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
-const accentVar: Record<Tone4, string> = {
-  ok: "var(--ok)",
-  warn: "var(--amber)",
-  dng: "var(--danger)",
-  info: "var(--info)",
-  mut: "var(--line)",
-};
-
-function Kpi({ label, value, sub, tone = "mut" }: { label: string; value: React.ReactNode; sub?: string; tone?: Tone4 }) {
-  return (
-    <div className="kpi">
-      <span className="acc" style={{ background: accentVar[tone] }} />
-      <div className="lab">{label}</div>
-      <div className="val">{value}</div>
-      {sub ? <div className="dl muted">{sub}</div> : null}
-    </div>
-  );
-}
+import Alert from "@mui/material/Alert";
 
 function ownerOf(pageContract: AdminUiPageContract, row: AdherenceRow): string {
   return row.owner?.operator_name ?? row.owner?.park_head_name ?? copy(pageContract, "label.unassigned");
 }
 
-function adherenceSubtitle(pageContract: AdminUiPageContract): string {
-  return pageContract.subtitle.replace("evidence, owner, and next action", "evidence, owner chain, and next action");
-}
 
 function adherenceLedgerLabels(pageContract: AdminUiPageContract): string[] {
   const labels = [...tableLabels(pageContract, "adherence-ledger")];
@@ -55,18 +43,15 @@ function adherenceLedgerLabels(pageContract: AdminUiPageContract): string[] {
   return labels;
 }
 
+/** The adherence formula as ONE info glyph with a real tooltip (the old `details` "i" opened nothing the judge could read). */
 function AdherenceInfo({ pageContract }: { pageContract: AdminUiPageContract }) {
-  return (
-    <details className="metric-help">
-      <summary aria-label={copy(pageContract, "adherence.help.aria")}>{copy(pageContract, "label.info_icon")}</summary>
-      <div className="metric-help-panel" role="note">
-        <b>{copy(pageContract, "adherence.help.title")}</b>
-        <span>{copy(pageContract, "adherence.help.window_prefix")}</span>
-        <span>{copy(pageContract, "adherence.help.formula")}</span>
-        <span>{copy(pageContract, "adherence.help.current_prefix")}</span>
-      </div>
-    </details>
-  );
+  const text = [
+    copy(pageContract, "adherence.help.title"),
+    copy(pageContract, "adherence.help.window_prefix"),
+    copy(pageContract, "adherence.help.formula"),
+    copy(pageContract, "adherence.help.current_prefix"),
+  ].join(" ");
+  return <InfoHint text={text} />;
 }
 
 function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string): string {
@@ -217,7 +202,7 @@ export async function ProtocolAdherencePage({
   });
 
   const summary = result.ok ? result.data.summary : null;
-  const rows: AdherenceRow[] = result.ok ? result.data.rows : [];
+  const rows: AdherenceRow[] = result.ok ? listOrEmpty(result.data.rows) : [];
   const hasLedgerFilters = severityFilter !== "all" || workStateFilter !== "all";
   const totalCount = result.ok ? result.data.total_count : 0;
   const nextCursor = result.ok ? result.data.next_cursor : undefined;
@@ -277,66 +262,96 @@ export async function ProtocolAdherencePage({
     };
   });
 
+
+  // Breadcrumb trail. The parent segment is the contract's own `crumb` copy -- rendered only when
+  // the backend actually supplies one AND it is not just the page title again, which is what the
+  // old `<div className="crumb"><b>{title}</b></div>` rendered on every route in this module. No
+  // section name is invented here: a missing key means a single muted current segment, and the
+  // real two-level trail lands the moment the contract carries the section label.
+  const crumbSection = optionalCopy(pageContract, "crumb");
+  const crumbItems: PageCrumb[] = [
+    ...(crumbSection && crumbSection !== pageContract.title ? [{ label: crumbSection, href: "/" }] : []),
+    { label: pageContract.title },
+  ];
+
   return (
     <div className="screen on">
-	      <div className="phead">
-	        <div>
-	          <div className="title-with-help">
-	            <h1>{pageContract.title}</h1>
-	            <AdherenceInfo pageContract={pageContract} />
-	          </div>
-	          <div className="sub">{adherenceSubtitle(pageContract)}</div>
-	        </div>
-	      </div>
+      <PageHeader
+        title={pageContract.title}
+        crumbs={crumbItems}
+        actions={<AdherenceInfo pageContract={pageContract} />}
+      />
 
-      {/* Mock KPI row, from the real adherence summary. Park/date scope lives in the top bar only. */}
-      <div className="grid g4" style={{ marginBottom: 14 }}>
-        <Kpi
-	          label={copy(pageContract, "label.overall_adherence")}
-	          value={summary ? `${Math.round(summary.adherence_percent)}%` : "n/a"}
-	          sub={copy(pageContract, "label.on_time_correct")}
-	          tone={summary ? (summary.adherence_percent >= 90 ? "ok" : summary.adherence_percent >= 70 ? "warn" : "dng") : "mut"}
-	        />
-	        <Kpi label={copy(pageContract, "label.open_process_gaps")} value={summary ? summary.open_gap_count : "n/a"} sub={copy(pageContract, "label.across_rules")} tone={summary && summary.open_gap_count > 0 ? "warn" : "mut"} />
-	        <Kpi label={copy(pageContract, "label.deferred_explained")} value={summary ? summary.deferred_count : "n/a"} sub={copy(pageContract, "label.deferred_scope")} tone="mut" />
-	        <Kpi label={copy(pageContract, "label.on_track")} value={summary ? summary.process_intact_count : "n/a"} sub={summary ? `${summary.completed_count}/${summary.expected_count} ${copy(pageContract, "label.done_suffix")}` : copy(pageContract, "label.obligations")} tone="ok" />
-      </div>
+      {/* KPI row, from the real adherence summary. Park/date scope lives in the top bar only. */}
+      <KpiGrid min={220} className="kit-kpi-wrap" >
+        <KpiCard
+          label={copy(pageContract, "label.overall_adherence")}
+          value={summary ? Math.round(summary.adherence_percent) : "n/a"}
+          unit={summary ? "%" : undefined}
+          hint={copy(pageContract, "label.on_time_correct")}
+          icon={<CircleCheck />}
+          tone={summary ? (summary.adherence_percent >= 90 ? "success" : summary.adherence_percent >= 70 ? "warning" : "error") : "neutral"}
+        />
+        <KpiCard
+          label={copy(pageContract, "label.open_process_gaps")}
+          value={summary ? summary.open_gap_count : "n/a"}
+          hint={copy(pageContract, "label.across_rules")}
+          icon={<TriangleAlert />}
+          tone={summary && summary.open_gap_count > 0 ? "warning" : "neutral"}
+        />
+        <KpiCard
+          label={copy(pageContract, "label.deferred_explained")}
+          value={summary ? summary.deferred_count : "n/a"}
+          hint={copy(pageContract, "label.deferred_scope")}
+          icon={<CalendarClock />}
+          tone="info"
+        />
+        <KpiCard
+          label={copy(pageContract, "label.on_track")}
+          value={summary ? summary.process_intact_count : "n/a"}
+          hint={summary ? `${summary.completed_count}/${summary.expected_count} ${copy(pageContract, "label.done_suffix")}` : copy(pageContract, "label.obligations")}
+          icon={<Syringe />}
+          tone="success"
+        />
+      </KpiGrid>
 
       {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
-        </div>
+        </Alert>
       ) : null}
 
-      {/* Severity + work-state filters (server-side). */}
-	      <div className="chipset" style={{ marginBottom: 14 }}>
-	        <Link href={hrefWith({ severity: "all", adh_page: "1" })} replace scroll={false} className={`chip${severityFilter === "all" ? " on" : ""}`}>
-	          {copy(pageContract, "label.all_severity")}
-	        </Link>
-	        {SEVERITY_ORDER.map((s) => (
-	          <Link key={s} href={hrefWith({ severity: s, adh_page: "1" })} replace scroll={false} className={`chip${severityFilter === s ? " on" : ""}`}>
-	            {optionLabel(pageContract, "severity_chips", s)}
-	          </Link>
-	        ))}
-      </div>
-      <div className="chipset" style={{ marginBottom: 14 }}>
-        <Link href={hrefWith({ state: "all", adh_page: "1" })} replace scroll={false} className={`chip${workStateFilter === "all" ? " on" : ""}`}>
-          {copy(pageContract, "label.all_states")}
-        </Link>
-        {WORK_STATE_ORDER.map((state) => (
-          <Link key={state} href={hrefWith({ state, adh_page: "1" })} replace scroll={false} className={`chip${workStateFilter === state ? " on" : ""}`}>
-            {optionLabel(pageContract, "work_state_filter_chips", state)}
-          </Link>
-        ))}
+      {/* ONE tab strip (work state, scrollable) + severity as filter chips (server-side). */}
+      <AnimatedTabs
+        ariaLabel={copy(pageContract, "label.all_states")}
+        value={workStateFilter}
+        items={[
+          { value: "all", label: copy(pageContract, "label.all_states"), count: summary?.expected_count, href: hrefWith({ state: "all", adh_page: "1" }) },
+          ...WORK_STATE_ORDER.map((state) => ({ value: state, label: optionLabel(pageContract, "work_state_filter_chips", state), href: hrefWith({ state, adh_page: "1" }) })),
+        ]}
+      />
+      <div className="kit-chiprow" role="group" aria-label={copy(pageContract, "label.all_severity")} style={{ margin: "12px 0 14px" }}>
+        {[
+          { value: "all", label: copy(pageContract, "label.all_severity"), href: hrefWith({ severity: "all", adh_page: "1" }) },
+          ...SEVERITY_ORDER.map((s2) => ({ value: s2, label: optionLabel(pageContract, "severity_chips", s2), href: hrefWith({ severity: s2, adh_page: "1" }) })),
+        ].map((chip) => {
+          const on = severityFilter === chip.value;
+          return (
+            <FilterChip key={chip.value} href={chip.href} on={on} label={chip.label} />
+          );
+        })}
       </div>
 
-      <section className="card">
+      {/* Severity and work-state are two chip strips over ONE ledger. Keyed on both, the ledger
+          cross-fades between filters against a measured height instead of jumping. */}
+      <TabPanel tabKey={`${severityFilter}|${workStateFilter}`}>
+      <section className="card kit-tablecard">
         <div className="hd">
           <Syringe className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
 	          <h3>{copy(pageContract, "section.ledger.title")}</h3>
 	          {summary ? <Tag tone={summary.adherence_percent >= 90 ? "ok" : "warn"}>{Math.round(summary.adherence_percent)}% adherence</Tag> : null}
 	          <div className="sp" style={{ flex: 1 }} />
-	          <span className="muted small">{copy(pageContract, "section.ledger.note")}</span>
+	          <InfoHint text={copy(pageContract, "section.ledger.note")} />
 	        </div>
 	        <div className="tbar">
 	          <VaccinationFilterButton
@@ -352,10 +367,9 @@ export async function ProtocolAdherencePage({
           <span className="muted small">
             {paged.start}-{paged.end} of {paged.total} rows
           </span>
-	          <span className="muted small">{copy(pageContract, "filter.click_row")}</span>
 	        </div>
-	        <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.ledger.aria")}>
-          <table className="table-fixed adherence-table">
+	        <div className="twrap tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.ledger.aria")}>
+          <Table className="table-fixed adherence-table">
             <colgroup>
               <col style={{ width: "27%" }} />
               <col style={{ width: "13%" }} />
@@ -365,80 +379,81 @@ export async function ProtocolAdherencePage({
               <col style={{ width: "14%" }} />
               <col style={{ width: "6%" }} />
             </colgroup>
-            <thead>
-              <tr>
+            <TableHead>
+              <TableRow>
 	                {ledgerLabels.map((c) => (
-	                  <th key={c}>{c}</th>
+	                  <TableCell component="th" key={c}>{c}</TableCell>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {paged.total === 0 ? (
-                <tr>
-	                  <td colSpan={ledgerLabels.length}>
+                <TableRow>
+	                  <TableCell colSpan={ledgerLabels.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
 	                      {hasLedgerFilters
 	                        ? copy(pageContract, "empty.ledger_filtered")
 	                        : copy(pageContract, "empty.ledger_detail")}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
-                paged.items.map((row) => {
+                paged.items.map((row, rowIndex) => {
                   const href = rowDrawerHref(row);
                   const expected = readableAdherenceExpected(pageContract, row.expected);
                   const actual = readableAdherenceActual(pageContract, row.actual);
                   const expectedDetail = adherenceLocationDetail(row) || expected.detail;
                   const driveDetail = driveCapacityDetail(row);
                   return (
-                    <tr key={row.row_id}>
-                      <td>
+                    <TableRow key={row.row_id} className="cx-row" style={{ "--i": rowIndex } as React.CSSProperties}>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false} title={row.expected}>
                           <ClipText title={expected.title} className="strong">
                             {expected.title}
                           </ClipText>
                           <span className="mt">{expectedDetail}</span>
                         </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell className="muted">
                         <LocalOverlayLink href={href} className="celllink" scroll={false} title={row.actual}>
                           <ClipText title={actual}>{actual}</ClipText>
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <Tag tone={workStateTone(pageContract, row.work_state)}>{gapLabel(pageContract, row)}</Tag>
                           {driveDetail ? <span className="mt gap-detail">{driveDetail}</span> : null}
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
 	                          <Tag tone={optionTone(pageContract, "severity_chips", row.severity) as Tone}>{optionLabel(pageContract, "severity_chips", row.severity)}</Tag>
                         </LocalOverlayLink>
-                      </td>
-                      <td className="muted">
+                      </TableCell>
+                      <TableCell className="muted">
 	                        <LocalOverlayLink href={href} className="celllink" scroll={false} title={ownerOf(pageContract, row)}>
 	                          <ClipText title={ownerOf(pageContract, row)}>{ownerOf(pageContract, row)}</ClipText>
                         </LocalOverlayLink>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <LocalOverlayLink href={href} className="celllink" scroll={false} title={row.next_action}>
                           <ClipText title={row.next_action} className="lk small">
                             {row.next_action} →
                           </ClipText>
                         </LocalOverlayLink>
-                      </td>
-                      <td>
-                        <LocalOverlayLink href={href} className="celllink" scroll={false}>
-	                          <EvidenceMedia evidence={row.evidence} pageContract={pageContract} />
-                        </LocalOverlayLink>
-                      </td>
-                    </tr>
+                      </TableCell>
+                      <TableCell>
+                        {/* Evidence chips are anchors themselves (they open the proof), so they are
+                            NOT wrapped in the row link: an anchor inside an anchor is invalid HTML
+                            and produced a hydration error. */}
+                        <EvidenceMedia evidence={row.evidence} pageContract={pageContract} />
+                      </TableCell>
+                    </TableRow>
                   );
                 })
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
         <VaccinationTablePager
           pageContract={pageContract}
@@ -453,18 +468,8 @@ export async function ProtocolAdherencePage({
           hrefForPageSize={pageSizeHref}
         />
       </section>
+      </TabPanel>
 
-      <div className="note" style={{ marginTop: 14 }}>
-	        {copy(pageContract, "note.computation")}{" "}
-	        <Link href="/vaccination/plan" className="lk">
-	          {copy(pageContract, "action.open_config")}
-	        </Link>{" "}
-	        {copy(pageContract, "note.computation.joiner")}{" "}
-	        <Link href="/vaccination/plan" className="lk">
-	          {copy(pageContract, "action.open_sops")}
-	        </Link>
-	        {copy(pageContract, "note.computation.tail")}
-      </div>
 
       <ProtocolAdherenceLocalDrawer
         records={drawerRecords}

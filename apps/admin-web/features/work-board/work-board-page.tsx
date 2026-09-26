@@ -1,3 +1,5 @@
+import { listOrEmpty } from "@/lib/list-or-empty";
+import { PageHeader } from "@/components/app/page-header";
 import { redirect } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
 import { actionFeedbackCopy, copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -204,7 +206,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const allResults = [...summaryResults, ...vocabularyResults, ...pageResults];
   if (firstAuthRequiredError(...allResults)) redirect(INTERNAL_LOGIN_PATH);
 
-  const rows: WorkBoardRow[] = laneParkReads.flatMap((read) => (read.result.ok ? read.result.data.rows : []));
+  const rows: WorkBoardRow[] = laneParkReads.flatMap((read) => (read.result.ok ? listOrEmpty(read.result.data.rows) : []));
   const ownerOptions = ownerOptionsFromVocabulary(pageResults.flatMap((result) => (result.ok ? result.data.owner_vocabulary ?? [] : []))) || ownersOnPage(rows);
   // Which modules could not be COUNTED, per park: each page read carries its own deduped list.
   const degradedByPark = new Map<string, Set<string>>();
@@ -237,7 +239,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
       const read = forLane.find((entry) => entry.parkKey === park.key);
       return { parkKey: park.key, nextCursor: read && read.result.ok ? read.result.data.next_cursor : undefined };
     });
-    const laneRows = forLane.flatMap((read) => (read.result.ok ? read.result.data.rows : []));
+    const laneRows = forLane.flatMap((read) => (read.result.ok ? listOrEmpty(read.result.data.rows) : []));
     return {
       lane,
       rows: laneRows,
@@ -288,12 +290,9 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
   const rowMissing = Boolean(selectedRow) && !error && !rows.some((row) => row.row_key === selectedRow);
 
   return (
-    <div className="wb">
-      <div className="crumb">{copy(pageContract, "crumb")}</div>
-      <div className="phead">
-        <h1>{copy(pageContract, "board.title")}</h1>
-        <span className="muted small">{roleline}</span>
-        <span className="sp" />
+    <div className="kit-enter wb">
+      <div>
+        <PageHeader title={copy(pageContract, "board.title")} crumbs={[{ label: copy(pageContract, "crumb") }, { label: roleline }]} />
       </div>
 
       {feedback ? (
@@ -337,7 +336,7 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
       ) : null}
 
       {!error && !noneSelected && rows.length === 0 && (summary?.total ?? 0) === 0 ? (
-        <div className="note muted small" style={{ marginTop: 8 }}>{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>
+        <div className="note muted small wb-alert" style={{ marginTop: 8 }}>{ownRowsOnly ? copy(pageContract, "state.empty.own_rows") : copy(pageContract, "state.empty")}</div>
       ) : null}
       {rowMissing ? (
         <div className="note muted small" role="status" style={{ marginTop: 8 }}>

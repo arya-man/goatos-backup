@@ -104,7 +104,7 @@ export async function loadVaccinationOperatorsScreen(
     api
       .getVaccinationCapacityConfig()
       .then((res) => ({ ok: true as const, data: res.data }))
-      .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : 'Failed to load vaccination capacity config' })),
+      .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : 'Could not load the vaccination capacity setting. Reload the page and try again.' })),
     api.listStaffLeave({ limit: 500 }).catch(() => ({ data: { items: [] } })),
     api.listVaccinationOperatorShifts(resolvedParkId),
   ]);

@@ -1,0 +1,2063 @@
+{
+  "note": "Accepted design-system debt. Every entry is a KNOWN violation of .agents/skills/design-system/SKILL.md that a future change must not multiply. Shrink this list; never grow it to land a change. P0 checks (foreign-palette, theme-token-drift, google-fonts-link) can never be waived.",
+  "updated_at": "2026-09-26T15:30:53.745Z",
+  "waived": [
+    "f2-literal|features/counts/counts-summary-cards.ts|fattening: [\"F2\", \"F2-Male\", \"F2-Female\", \"Fattening\", \"Fattening male\", \"Fattening female\"],",
+    "f2-literal|lib/admin-ui-contract.ts|{ key: \"F2\", label: \"Fattening\", title: \"\", tone: \"\", enabled: true, disabled_reason: \"\" },",
+    "fixed-px-width|features/ceo-ai/ceo-ai-styles.tsx|@media (min-width:621px){",
+    "fixed-px-width|features/leadership-tasks/task-board-dnd.tsx|const DRAG_MEDIA_QUERY = \"(min-width: 761px) and (pointer: fine)\";",
+    "fixed-px-width|lib/hooks.ts|return useMediaQuery(\"(min-width: 640px)\");",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-property{color:#79c0ff}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-built_in,.hljs-name,.hljs-tag{color:#7ee787}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-comment,.hljs-quote{color:#8b949e;font-style:italic}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-type{color:#ff7b72}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-meta{color:#ffa657}.hljs-deletion{color:#ffa198}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-number,.hljs-symbol,.hljs-bullet{color:#79c0ff}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-string,.hljs-regexp,.hljs-addition{color:#a5d6ff}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.hljs-title,.hljs-section,.hljs-title.function_{color:#d2a8ff}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code .mzai-copy-ic:hover{color:#e6edf3}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code .mzai-copy-ic{color:#9aa4ae;width:24px;height:24px}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code pre{margin:0;padding:.8em .9em;overflow-x:auto;color:#e6edf3;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.5",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code-head{display:flex;justify-content:space-between;align-items:center;padding:.35em .5em .35em .8em;font-size:11.5px;color:#9aa4ae;background:#161b22;bo",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|.mzai-code{margin:.3em 0 .9em;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0d1117}",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<circle fill=\"#292F33\" cx=\"7\" cy=\"9.285\" r=\"1\" />",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<path fill=\"#CCD6DD\" d=\"M35.159 10.49c-.68-1.643-2.313-2.705-4.159-2.705-.553 0-1 .448-1 1s.447 1 1 1c1.034 0 1.941.577 2.312 1.471.341.824.168 1.758-.455 2.647",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<path fill=\"#E1E8ED\" d=\"M5 14.785c0 4-2 4.827-2 4 0-2-1 0-1-1v-3c0-1.657.671-3 1.5-3s1.5 1.343 1.5 3z\" />",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<path fill=\"#FFAC33\" d=\"M7.44 7.503c-1-4 3.687-6 8-4 .907.421.948 1.316 0 1-3-1-6 1-4 4 1.109 1.664-3.233 2.068-4-1z\" />",
+    "hex-colour-in-code|features/ceo-ai/ceo-ai-styles.tsx|<path fill=\"#FFCC4D\" d=\"M6.136 5.785c-1-4 3.687-6 8-4 .907.421.949 1.316 0 1-3-1-6 1-4 4 1.11 1.664-3.233 2.067-4-1z\" />",
+    "missing-loading-tsx|app/(admin)/actions/page.tsx|no sibling loading.tsx",
+    "missing-loading-tsx|app/(admin)/configuration/items/page.tsx|no sibling loading.tsx",
+    "missing-loading-tsx|app/(admin)/page.tsx|no sibling loading.tsx",
+    "missing-loading-tsx|app/(admin)/procurement/page.tsx|no sibling loading.tsx",
+    "missing-loading-tsx|app/(admin)/verification/page.tsx|no sibling loading.tsx",
+    "native-date-input|features/herd-signals/herd-signals-history-fullscreen.tsx|type=\"datetime-local\"",
+    "native-date-input|features/herd-signals/herd-signals-history-fullscreen.tsx|type=\"datetime-local\"",
+    "native-date-input|features/procurement/sales-record-drawer.tsx|type=\"date\"",
+    "native-select|features/procurement/sellable-products-section.tsx|<select id={`sp-species-${id}`} name=\"species_code\" required defaultValue={product?.species_code ?? \"\"} disabled={!canWrite}>",
+    "native-select|features/procurement/sellable-products-section.tsx|<select id={`sp-unit-${id}`} name=\"unit\" required defaultValue={product?.unit ?? page.units[0]?.key} disabled={!canWrite}>",
+    "native-select|features/weighing/weights-export.tsx|<select id=\"wt-export-sex\" value={sex} onChange={(event) => setSex(event.target.value)} disabled={pending}>",
+    "page-outside-shell|app/(admin)/actions/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
+    "page-outside-shell|app/(admin)/procurement/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
+    "page-outside-shell|app/(admin)/sales/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
+    "page-outside-shell|app/(admin)/verification/page.tsx|neither the page nor its feature entry uses PageHeader / .kit-page",
+    "prose-under-title|features/counts/herd-analytics.tsx|<p className=\"muted small\">{emptyChart}</p>",
+    "prose-under-title|features/feed/feed-analytics.tsx|<p className=\"muted small\">",
+    "prose-under-title|features/feed/feed-analytics.tsx|<p className=\"muted small\">{fa(pageContract, \"empty.body\")}</p>",
+    "prose-under-title|features/feed/feed-analytics.tsx|<p className=\"muted small\">{fa(pageContract, \"empty.execution.body\")}</p>",
+    "prose-under-title|features/feed/feed-analytics.tsx|<p className=\"muted small\">{fa(pageContract, \"empty.experiment.body\")}</p>",
+    "prose-under-title|features/feed/feed-analytics.tsx|<p className=\"muted small\">{failedError?.message || fa(pageContract, \"error.body\")}</p>",
+    "prose-under-title|features/health/health-analytics.tsx|<p className=\"muted small\">{emptyChart}</p>",
+    "prose-under-title|features/health/health-analytics.tsx|<p className=\"muted small\">{emptyChart}</p>",
+    "prose-under-title|features/health/health-types.tsx|<p className=\"small muted\" style={{ margin: \"0 14px 10px\", lineHeight: 1.6 }}>",
+    "prose-under-title|features/health/health-types.tsx|<p className=\"small muted\" style={{ margin: \"0 14px 10px\", lineHeight: 1.6 }}>",
+    "prose-under-title|features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx|<p className=\"muted small\">",
+    "prose-under-title|features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx|<p className=\"muted small\">",
+    "prose-under-title|features/preventive-care-vaccination/passport-section.tsx|<p className=\"muted small\">{copy(pageContract, \"vaccination.unavailable_prefix\")}: {res.error.message ?? res.error.code}</p>",
+    "prose-under-title|features/procurement/valuation-section.tsx|<p className=\"muted small sales-config-card-copy\">{copy(pageContract, \"section.valuation.sub\")}</p>",
+    "prose-under-title|features/sops/sop-library.tsx|<p className=\"muted\" style={{ maxWidth: 640, margin: \"8px auto 0\", lineHeight: 1.6, fontSize: 13 }}>",
+    "prose-under-title|features/weighing/growth-director.tsx|<p className=\"muted small\">{gd(pageContract, \"error.body\")}</p>",
+    "prose-under-title|features/weighing/weights-analytics.tsx|<p className=\"muted small\">{copy(pageContract, \"error.load.body\")}</p>",
+    "prose-under-title|features/weighing/weights.tsx|<p className=\"muted small\">{copy(pageContract, \"error.load.body\")}</p>",
+    "prose-under-title|features/weighing/weights.tsx|<p className=\"muted small\">{copy(pageContract, \"error.load.body\")}</p>",
+    "raw-float-format|features/ceo-ai/ceo-ai-chart-geometry.ts|const value = Number(v.toFixed(6));",
+    "raw-float-format|features/people/clock-entry-drawer.tsx|? `${event.latitude!.toFixed(5)}, ${event.longitude!.toFixed(5)}`",
+    "technical-copy|backend/internal/adminui/app/service.go|\"hint.product_feed_covers\": \"Which feed is chosen on the sale itself, from Feed config:\",",
+    "technical-copy|components/data-table.tsx|throw new Error(`data-table: no cell renderer for contract column \"${column.key}\"`);",
+    "technical-copy|components/mesha-shell.tsx|throw new Error(`Admin-web bootstrap contract missing copy key ${key}`);",
+    "technical-copy|features/operations-dlq/dlq-local-drawer.tsx|if (!action) throw new Error(`Admin-web page contract ${pageContract.route_id} missing option dlq_repair_actions.${key}`);",
+    "technical-copy|features/process-integrity/action-center-local-drawer.tsx|if (!option) throw new Error(`Admin-web contract missing option ${key}`);",
+    "technical-copy|features/process-integrity/action-center-local-drawer.tsx|if (!option) throw new Error(`Admin-web contract missing option ${key}`);",
+    "technical-copy|features/process-integrity/action-center.tsx|if (!option) throw new Error(`Admin-web contract missing option ${key}`);",
+    "technical-copy|features/process-integrity/work-board.tsx|if (!option) throw new Error(`Admin-web contract missing option ${key}`);",
+    "technical-copy|features/process-integrity/work-board.tsx|if (!option) throw new Error(`Admin-web contract missing option ${key}`);",
+    "technical-copy|features/sops/sop-builder.tsx|if (!first) throw new Error(`page contract ${pc.route_id} empty option group`);",
+    "technical-copy|lib/admin-ui-contract.ts|if (typeof value !== \"string\") throw new Error(`Admin-web bootstrap contract missing copy key ${key}`);",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing control ${controlId}`);",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing copy key ${key}`);",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing option ${groupId}.${key}`);",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing option group ${groupId}`);",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing table ${tableId}`);",
+    "technical-copy|lib/api/admin-bootstrap-cache.ts|if (!cached) throw new Error(\"admin bootstrap returned 304 without a cached contract\");",
+    "technical-copy|lib/api/admin-bootstrap-cache.ts|throw new Error(`admin bootstrap returned ${result.status} without a contract`);"
+  ],
+  "reasons": {
+    "technical-copy|components/data-table.tsx|throw new Error(`data-table: no cell renderer for contract column \"${column.key}\"`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|components/mesha-shell.tsx|throw new Error(`Admin-web bootstrap contract missing copy key ${key}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|features/operations-dlq/dlq-local-drawer.tsx|if (!action) throw new Error(`Admin-web page contract ${pageContract.route_id} missing option dlq_repair_actions.${key}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|features/process-integrity/action-center-local-drawer.tsx|if (!option) throw new Error(`Admin-web contract missing option ${key}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|features/process-integrity/action-center.tsx|if (!option) throw new Error(`Admin-web contract missing option ${key}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|features/process-integrity/work-board.tsx|if (!option) throw new Error(`Admin-web contract missing option ${key}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|features/sops/sop-builder.tsx|if (!first) throw new Error(`page contract ${pc.route_id} empty option group`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|lib/admin-ui-contract.ts|if (typeof value !== \"string\") throw new Error(`Admin-web bootstrap contract missing copy key ${key}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing copy key ${key}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing table ${tableId}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing control ${controlId}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing option group ${groupId}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|lib/admin-ui-contract.ts|throw new Error(`Admin-web page contract ${page.route_id} missing option ${groupId}.${key}`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|lib/api/admin-bootstrap-cache.ts|throw new Error(`admin bootstrap returned ${result.status} without a contract`);": "developer invariant: fires only on a build/contract shape mismatch, caught by the error boundary which shows generic copy; not a message a user reads",
+    "technical-copy|lib/api/admin-bootstrap-cache.ts|if (!cached) throw new Error(\"admin bootstrap returned 304 without a cached contract\");": "developer invariant: a 304 with no cached entry is a server-side cache bug, caught by the admin-shell boundary which shows plain copy; not a message a user reads",
+    "technical-copy|backend/internal/adminui/app/service.go|\"hint.product_feed_covers\": \"Which feed is chosen on the sale itself, from Feed config:\",": "main-origin copy (on origin/main before rebase 2): \"Feed config\" names the admin page the person opens, not a technical term"
+  },
+  "ratchet": {
+    "fixed-overlay-no-portal|features/ceo-ai/ceo-ai-styles.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
+    },
+    "fixed-overlay-no-portal|features/counts/herd-filters-modal.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
+    },
+    "fixed-overlay-no-portal|features/feed/range-coverage-note.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
+    },
+    "fixed-overlay-no-portal|features/herd-signals/herd-signals-mapping-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
+    },
+    "fixed-overlay-no-portal|features/process-integrity/action-center-filters.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
+    },
+    "fixed-overlay-no-portal|features/process-integrity/protocol-adherence.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: position:fixed overlay rendered in place; wrap in kit BodyPortal (or use kit Sheet/Dialog)"
+    },
+    "raw-button|components/assignee-picker.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|components/confirm-submit-button.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|components/local-overlay-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|components/observability/error-boundary.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|components/push-permission-prompt.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|components/top-bar-date-picker.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/alerts/alerts-configure.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/alerts/alerts-page.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/approvals/approvals-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/calendar/calendar-drive-detail.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/calendar/calendar-event-drawer.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/ceo-ai/ceo-ai-attachments.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/ceo-ai/ceo-ai-markdown.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/ceo-ai/ceo-ai-watch.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/configuration/sheet-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/configuration/workbook-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/control-tower/control-tower-local-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/counts/herd-actions-ui.tsx": {
+      "allowed": 17,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/counts/herd-filters-modal-client.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/counts/herd-filters-modal.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/counts/herd-passport-local-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/goat-passport/index.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/health/health-register-editor.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/health/health-types-controls.tsx": {
+      "allowed": 11,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/herd-signals/herd-signals-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/herd-signals/herd-signals-history-fullscreen.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/herd-signals/herd-signals-mapping-table.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/herd-signals/herd-signals-stream-bridge.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/herd-signals/herd-signals-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/leadership-tasks/task-activity-composer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/leadership-tasks/task-detail-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/leadership-tasks/task-detail-panel.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/leadership-tasks/task-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/leave/leave-toolbar.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/notifications/notification-panel.tsx": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/operations-audit/audit-log-local-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/operations-audit/audit-log.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/operations-dlq/dlq-local-drawer.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/pen-routines/routine-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/pen-routines/routines-chrome.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/people/clock-screen.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/people/notification-matrix.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/people/people-board.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/people/person-access-modal.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/people/vaccination-operators-screen.tsx": {
+      "allowed": 10,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/preventive-care-vaccination/command-board-view.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/preventive-care-vaccination/record-verify-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/preventive-care-vaccination/sop-quick-view.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/process-integrity/action-center-filters.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/process-integrity/action-center-local-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/process-integrity/protocol-adherence-local-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/animal-purchase-decision-form.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/animal-purchase-lightbox.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/feed-purchase-drawer.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/load-cost-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/load-forms.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/market-reporters-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/sale-allocation-drawer.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/sale-lines-editor.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/sellable-products-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/source-entry-local-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/valuation-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/vendor-local-drawer.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/procurement/vendor-voice-note.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/sops/builder-preview.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/sops/feed-flow.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/sops/flow-canvas.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/sops/followup-editor.tsx": {
+      "allowed": 1,
+      "reason": ".followup-track-head collapse toggle keeps raw button for its custom track-head chrome (P3G 2026-09-26); slot move icons, add-row, and step slot inputs converted to MUI"
+    },
+    "raw-button|features/sops/inspection-editor.tsx": {
+      "allowed": 1,
+      "reason": ".inspection-page-head collapse toggle keeps raw button for its custom chrome (P3G 2026-09-26); slot move icons, add-row and question inputs converted to MUI"
+    },
+    "raw-button|features/sops/pc-care-flow.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/sops/weighing-flow.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/vaccination-live-tracker/live-tracker-filters.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/vaccination-live-tracker/live-tracker-passport-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/vaccination-plan/anchor-panel.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/vaccination-plan/plan-console.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/vaccination-plan/version-sheet.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/vaccination-sheds/shed-passport-local-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/analytics-panel.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/randomization-panel.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/randomization.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/toxin-review-list.tsx": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/verification-review-drawer.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/verification-review-page.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/video-log-csv-button.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/video-log-panel.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/verification-review/video-log.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/weighing/feed-weight-band-exits-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/weighing/weights-assumptions.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/weighing/weights-export.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/work-board/work-board-board.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/work-board/work-board-modal.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-button|features/work-board/work-board-subtasks.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw <button> in feature code; use kit Button (or RowMenu / MenuItem / AnimatedTabs)"
+    },
+    "raw-chip|features/health/health-types-controls.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
+    },
+    "raw-chip|features/health/health-types.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
+    },
+    "raw-chip|features/preventive-care-vaccination/full-vaccine-schedule.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
+    },
+    "raw-chip|features/preventive-care-vaccination/supplier-warmup-context.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
+    },
+    "raw-chip|features/procurement/valuation-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
+    },
+    "raw-chip|features/vaccination-live-tracker/live-tracker-rail.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
+    },
+    "raw-chip|features/verification-review/toxin-review-list.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
+    },
+    "raw-chip|features/verification-review/verification-review-page.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled chip/label; use Tag (components/ui-primitives) with a tone"
+    },
+    "raw-dialog|features/calendar/calendar-event-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/ceo-ai/ceo-ai-attachments.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/counts/herd-actions-ui.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/counts/herd-filters-modal.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/herd-signals/herd-signals-history-fullscreen.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/herd-signals/herd-signals-mapping-table.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/leadership-tasks/task-detail-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/people/person-access-launcher.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/people/person-access-modal.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/people/vaccination-operators-screen.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/preventive-care-vaccination/command-board-view.tsx": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/preventive-care-vaccination/sop-quick-view.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/process-integrity/action-center-filters.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/procurement/animal-purchase-lightbox.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/procurement/sale-allocation-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/vaccination-plan/plan-editor.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/vaccination-plan/version-sheet.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/verification-review/toxin-review-list.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-dialog|features/work-board/work-board-modal.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled dialog/sheet; use kit Dialog / Sheet / PopSurface"
+    },
+    "raw-font-size|app/frame.css": {
+      "allowed": 54,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|components/charts-premium.css": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|components/review-queue/review-queue.module.css": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/calendar/calendar-drive-detail.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/ceo-ai-admin/trace-viewer-styles.tsx": {
+      "allowed": 15,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/ceo-ai/ceo-ai-styles.tsx": {
+      "allowed": 38,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/ceo-ai/ceo-ai-watch-css.ts": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/configuration/configuration-kit.css": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/counts/counts-breakdown-pens-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/counts/herd-actions-ui.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/counts/herd-actions.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/counts/herd-filters-modal.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/counts/herd-passport-local-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/counts/herd-passport-vaccination.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/counts/mortality.css": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/feed/feed-analytics.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/feed/feed-config.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/feed/feed-direction.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/feed/feed-packing.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/feed/feed-quantity.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/feed/feed-rate-optimistic.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/feed/range-coverage-note.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/feed/ration-grid-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/goat-passport/goat-passport.css": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/herd-signals/herd-signals-history-fullscreen.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/herd-signals/herd-signals-insights.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/leadership-tasks/leadership-tasks-kit.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/notifications/notification-panel.css": {
+      "allowed": 19,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/operations-dlq/dlq-local-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/people/notification-matrix.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/preventive-care-vaccination/execution-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/preventive-care-vaccination/full-vaccine-schedule.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/preventive-care-vaccination/inventory-vaccine-progress.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/preventive-care-vaccination/sop-quick-view.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/preventive-care-vaccination/status-matrix.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/procurement/animal-purchases.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/procurement/load-detail.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/procurement/load-forms.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/procurement/loadwise-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/procurement/market-config-form.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/procurement/sellable-products-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/procurement/valuation-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/sops/editor-chrome.module.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/sops/sop-builder.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/sops/sop-library.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/vaccination-execution/execution-board.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/vaccination-live-tracker/live-tracker-board.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/vaccination-live-tracker/live-tracker-combo.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/vaccination-live-tracker/live-tracker-operators.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/vaccination-live-tracker/live-tracker-rail.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/vaccination-live-tracker/live-tracker-sheds.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/vaccination-sheds/shed-board.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-font-size|features/vaccination-sheds/shed-passport-local-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw font-size; use the type scale var(--fs-h1…h6|--fs-body1|--fs-body2|--fs-caption …)"
+    },
+    "raw-input|features/calendar/calendar-drive-detail.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/ceo-ai-admin/trace-viewer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/ceo-ai/ceo-ai-panel.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/configuration/catalogue-lists.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/configuration/items-page.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/configuration/register-preview.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/configuration/sheet-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/configuration/workbook-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/counts/herd-actions-ui.tsx": {
+      "allowed": 11,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/counts/herd-filters-modal-client.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/counts/herd-filters-modal.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/health/health-register-editor.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/health/health-register-sheet.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/health/health-types-controls.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/herd-signals/herd-signals-history-fullscreen.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/herd-signals/herd-signals-mapping-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/leadership-tasks/edit-task-modal.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/leadership-tasks/task-write-forms.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/notifications/push-settings.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/people/clock-screen.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/people/people-board.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/people/vaccination-operators-screen.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/process-integrity/action-center-filters.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/animal-purchase-decision-form.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/feed-purchase-drawer.tsx": {
+      "allowed": 22,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/feed-purchase-extra-fields.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/load-cost-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/load-forms.tsx": {
+      "allowed": 22,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/sale-allocation-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/sale-lines-editor.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/sellable-products-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/valuation-section.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/procurement/vendor-local-drawer.tsx": {
+      "allowed": 15,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/sops/branch-field.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/sops/builder-preview.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/sops/question-card.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/sops/sop-builder.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/vaccination-plan/anchor-panel.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/verification-review/randomization.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/verification-review/verification-review-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/verification-review/video-log.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/weighing/feed-weight-band-exits-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/weighing/weights-assumptions.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-input|features/work-board/work-board-board.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw text-like <input> in feature code; use kit TextField (dates: DateRangeField/DateTimeField/TimeField). Checkbox/radio/hidden/file/range stay native"
+    },
+    "raw-menu|features/herd-signals/herd-signals-mapping-table.tsx": {
+      "allowed": 1,
+      "reason": "inline search-result list inside the mapping drawer (role=listbox, not a floating dropdown); inventoried 2026-09-26 when raw-menu landed"
+    },
+    "raw-px|app/(admin)/action-center/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/alerts/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/approvals/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/calendar/drive/[eventId]/loading.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/calendar/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/ceo-ai-admin/loading.tsx": {
+      "allowed": 11,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/counts/analytics/loading.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/counts/breakdown/loading.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/counts/herd/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/counts/milk-preparation/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/counts/mortality/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/feed/analytics/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/feed/config/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/feed/direction/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/feed/packing/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/goats/[goat_id]/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/health/analytics/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/health/config/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/herd-signals/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/leave/loading.tsx": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/operations/audit/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/operations/dlq/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/people/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/protocol-adherence/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/routines/loading.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/sales/farm-born/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/sales/farm-value/loading.tsx": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/sales/loads/loading.tsx": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/tasks/loading.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/vaccination/execution/sheds/[shedId]/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/vaccination/live-tracker/loading.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/vaccination/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/vaccination/plan/edit/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/vaccination/plan/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/verify/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/weighing/analytics/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/weighing/loading.tsx": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/weighing/weights/loading.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/work-board/loading.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/workflows/[row_id]/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/(admin)/workflows/loading.tsx": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/frame.css": {
+      "allowed": 166,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|app/login/page.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|components/assignee-picker.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|components/charts-premium.css": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|components/procurement-page-skeleton.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|components/review-queue/review-queue.module.css": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|components/sop-route-skeleton.tsx": {
+      "allowed": 11,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/alerts/alerts-configure.tsx": {
+      "allowed": 13,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/alerts/alerts-page.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/approvals/approvals-drawer.tsx": {
+      "allowed": 11,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/approvals/approvals-page.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/approvals/approvals-queue-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/approvals/approvals.module.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/calendar/calendar-drive-detail.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/calendar/calendar-event-drawer.tsx": {
+      "allowed": 19,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/calendar/calendar.tsx": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/ceo-ai-admin/trace-viewer-styles.tsx": {
+      "allowed": 19,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/ceo-ai-admin/trace-viewer.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/ceo-ai/ceo-ai-panel.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/ceo-ai/ceo-ai-styles.tsx": {
+      "allowed": 116,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/ceo-ai/ceo-ai-watch-css.ts": {
+      "allowed": 13,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/configuration/catalogue-lists.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/configuration/configuration-kit.css": {
+      "allowed": 24,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/configuration/items-page.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/configuration/register-preview.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/configuration/row-drawer.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/control-tower/control-tower-local-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/control-tower/index.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/counts-breakdown-loads.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/counts-breakdown.css": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/counts-breakdown.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/herd-actions-ui.tsx": {
+      "allowed": 23,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/herd-actions.css": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/herd-filters-modal-client.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/herd-filters-modal.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/herd-passport-local-drawer.tsx": {
+      "allowed": 12,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/herd-passport-vaccination.tsx": {
+      "allowed": 15,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/herd-register.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/milk-preparation.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/milk-preparation.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/counts/mortality.css": {
+      "allowed": 15,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-analytics.tsx": {
+      "allowed": 13,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-completion-table.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-config-editor.tsx": {
+      "allowed": 27,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-config.tsx": {
+      "allowed": 17,
+      "reason": "main-merge debt (rebase 4, 2026-09-25): origin/main feed-config fixes (missing-rates / retired-feeds / schedule sections) landed as legacy markup; migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css"
+    },
+    "raw-px|features/feed/feed-direction.tsx": {
+      "allowed": 6,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-items-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-lifecycle.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-packing.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-quantity.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/feed-rate-optimistic.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/range-coverage-note.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/feed/ration-grid-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/goat-passport/goat-passport.css": {
+      "allowed": 27,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/goat-passport/index.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-analytics.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-config-editor.tsx": {
+      "allowed": 15,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-config.tsx": {
+      "allowed": 14,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-register-editor.tsx": {
+      "allowed": 29,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-register-sheet.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-register.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-stale-version-recovery.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-types-controls.tsx": {
+      "allowed": 15,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/health/health-types.tsx": {
+      "allowed": 14,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/herd-signals/herd-signals-board.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/herd-signals/herd-signals-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/herd-signals/herd-signals-gateways.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/herd-signals/herd-signals-history-fullscreen.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/herd-signals/herd-signals-insights.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/herd-signals/herd-signals-mapping-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/leadership-tasks/leadership-tasks-kit.css": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/leadership-tasks/leadership-tasks-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/leadership-tasks/task-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/leave/leave-config-panel.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/leave/leave-page.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/notifications/notification-panel.css": {
+      "allowed": 38,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/operations-audit/audit-log-local-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/operations-audit/audit-log.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/operations-dlq/dlq-local-drawer.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/operations-dlq/index.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/pen-routines/routine-drawer.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/pen-routines/routines-page.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/clock-entry-drawer.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/clock-screen.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/notification-matrix.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/notifications-screen.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/people-board.module.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/people-board.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/people-filter-fold.module.css": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/person-access-modal.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/person-add-drawer.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/people/vaccination-operators-screen.tsx": {
+      "allowed": 18,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/cohort-detail.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/command-board-view.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/execution-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/full-vaccine-schedule.tsx": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/inventory-vaccine-progress.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/operations.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/passport-section.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/record-verify-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/sop-quick-view.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/status-matrix.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/preventive-care-vaccination/supplier-warmup-context.tsx": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/action-center-filters.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/action-center-local-drawer.tsx": {
+      "allowed": 12,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/action-center.tsx": {
+      "allowed": 10,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/protocol-adherence-local-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/protocol-adherence.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/verification-row-actions.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/work-board.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/workflow-drilldown.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/workflow-stepper.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/process-integrity/workflows-landing.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/animal-purchases.tsx": {
+      "allowed": 7,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/feed-purchase-drawer.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/feed-purchases.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/load-cost-drawer.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/load-detail.tsx": {
+      "allowed": 21,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/load-forms.tsx": {
+      "allowed": 29,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/loadwise-section.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/market-analytics.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/market-config-form.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/market-config-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/sale-allocation-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/sales-buyer-analytics.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/sales-config.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/sales-farm-value.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/sales-record-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/sales-sold.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/sellable-products-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/source-entry-board.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/source-entry-local-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/valuation-section.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/vendor-board.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/procurement/vendor-local-drawer.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/capture-editor.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/capture-summary.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/editor-chrome.module.css": {
+      "allowed": 20,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/feed-editor.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/feed-flow.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/feed-summary.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/followup-editor.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/followup-flow.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/followup-summary.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/inspection-editor.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/inspection-summary.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/pc-care-editor.tsx": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/pc-care-summary.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/shifting-editor.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/shifting-summary.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/sop-builder.tsx": {
+      "allowed": 20,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/sop-library.tsx": {
+      "allowed": 14,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/toxin-editor.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/toxin-flow.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/toxin-summary.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/weighing-editor.tsx": {
+      "allowed": 17,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/weighing-flow.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/sops/weighing-summary.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-execution/execution-board.tsx": {
+      "allowed": 20,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-execution/shed-drilldown.tsx": {
+      "allowed": 12,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-live-tracker/live-tracker-board.tsx": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-live-tracker/live-tracker-combo.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-live-tracker/live-tracker-filters.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-live-tracker/live-tracker-passport-drawer.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-live-tracker/live-tracker-rail.tsx": {
+      "allowed": 9,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-plan/plan-console.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-plan/plan-editor.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-plan/version-sheet.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-sheds/shed-board.tsx": {
+      "allowed": 20,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-sheds/shed-detail.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/vaccination-sheds/shed-passport-local-drawer.tsx": {
+      "allowed": 14,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/verification-review/randomization.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/verification-review/toxin-review-list.tsx": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/verification-review/toxin-review-section.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/verification-review/verification-review-drawer.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/verification-review/verification-review-page.tsx": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/weighing/fcr-pens-table.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/weighing/fcr-tab.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/weighing/feed-weight-band-card.css": {
+      "allowed": 8,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/weighing/feed-weight-band-exits-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/weighing/load-comparison-tab.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/weighing/weights-assumptions.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/work-board/work-board-modal.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-px|features/work-board/work-board-page.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
+    },
+    "raw-radius|app/(admin)/ceo-ai-admin/loading.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|app/(admin)/sales/farm-value/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|app/(admin)/workflows/loading.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|app/frame.css": {
+      "allowed": 34,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|components/assignee-picker.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|components/charts-premium.css": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|components/review-queue/review-queue.module.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/calendar/calendar-event-drawer.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/ceo-ai/ceo-ai-styles.tsx": {
+      "allowed": 29,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/ceo-ai/ceo-ai-watch-css.ts": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/configuration/configuration-kit.css": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/counts/herd-actions.css": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/health/health-config-editor.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/health/health-register-editor.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/leadership-tasks/leadership-tasks-kit.css": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/notifications/notification-panel.css": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/preventive-care-vaccination/full-vaccine-schedule.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/preventive-care-vaccination/inventory-vaccine-progress.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/preventive-care-vaccination/sop-quick-view.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/procurement/load-detail.tsx": {
+      "allowed": 2,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/procurement/load-forms.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/sops/editor-chrome.module.css": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/sops/sop-builder.tsx": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/sops/sop-library.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/vaccination-execution/execution-board.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-radius|features/vaccination-sheds/shed-board.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw border-radius; use var(--r-sm|--r-md|--r-lg|--r-xl|--r-pill|--r-round) or a --radius-* token"
+    },
+    "raw-shadow|app/frame.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
+    },
+    "raw-shadow|components/review-queue/review-queue.module.css": {
+      "allowed": 3,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
+    },
+    "raw-shadow|features/ceo-ai/ceo-ai-styles.tsx": {
+      "allowed": 11,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
+    },
+    "raw-shadow|features/ceo-ai/ceo-ai-watch-css.ts": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
+    },
+    "raw-shadow|features/counts/herd-actions.css": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
+    },
+    "raw-shadow|features/leadership-tasks/leadership-tasks-kit.css": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
+    },
+    "raw-shadow|features/notifications/notification-panel.css": {
+      "allowed": 5,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
+    },
+    "raw-shadow|features/sops/editor-chrome.module.css": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw box-shadow; use var(--shadow-z1…z24|--shadow-card|--shadow-dropdown|--shadow-dialog)"
+    },
+    "raw-tabs|features/leadership-tasks/task-activity-feed.tsx": {
+      "allowed": 1,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled role=tablist; use kit AnimatedTabs or template SegmentTabs"
+    },
+    "raw-tooltip|features/feed/feed-analytics.tsx": {
+      "allowed": 4,
+      "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: hand-rolled role=tooltip; use kit InfoHint / ChartTooltipCard"
+    }
+  }
+}

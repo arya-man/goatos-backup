@@ -1,23 +1,26 @@
-// Horizontal bar chart, ported from the mock's `svgHBars` helper
-// (the dashboard mock) together with its `palette()` series colours.
+// (The svg- file name is historical: nothing here draws SVG by hand any more; the importers keep
+// the path so no page changes.)
 //
-// Deliberately NOT a charting library. The mock's chart anatomy is dependency-free inline SVG,
-// and the mock is the UI source of truth, so porting it keeps this a pure SERVER component:
-// no "use client", no client bundle, no hydration. recharts is in package.json with zero
-// importers — do not make this its first use without a chart that actually needs interaction.
+// Horizontal bar charts (plain and stacked) on the licensed MUI Minimal template's ApexCharts
+// `Chart`: AnalyticsConversionRates for the bars, AppAreaInstalled for the stack. The drawing
+// lives in the client component components/minimal/bar-charts/bar-charts.tsx.
 //
-// Every colour is a CSS custom property, never a hex literal, so the series stay theme-correct
-// in light and dark and the mock-fidelity banned-hex scan passes by construction.
+// These exports stay SERVER-SAFE wrappers (no "use client") so the server pages that call them do
+// not change: every visible string -- the value label beside each bar, its share, the tooltip
+// line, the stacked split -- is composed HERE and handed to the client chart as plain data, so no
+// formatter or function ever crosses the server/client boundary.
+//
+// Every colour is a CSS custom property, never a hex literal; the template Chart resolves each
+// `var(--x)` to the live colour for the active light/dark scheme.
 //
 // This component renders NO copy of its own. Titles, captions, legends, empty states and the
-// value noun are all passed in already resolved from the backend page contract by the caller,
-// so every visible string on the page stays traceable to one copy(pageContract, ...) call.
-//
-// RESPONSIVE: an SVG scales its viewBox UNIFORMLY to the container, so a single fixed viewBox
-// cannot stay readable at both widths — a 1100-wide box inside a 330px phone card renders at
-// ~30% scale, shrinking 20px rows to ~6px of unreadable text. Row height only stays constant if
-// the viewBox width tracks the container width, so this renders the bars at BOTH scales and lets
-// one CSS media query show the right one. Two static SVGs, no JS, no layout measurement.
+// value noun are all passed in already resolved from the backend page contract by the caller.
+
+import "./charts-premium.css";
+
+import { HorizontalBars, StackedHorizontalBars, type HorizontalBarRow, type StackedBarRow, type StackedBarSeries } from "./minimal/bar-charts/bar-charts";
+
+export { VISIBLE_BARS, barsViewHeight } from "./minimal/bar-charts/geometry";
 
 export type SvgBarDatum = {
   key: string;
@@ -25,86 +28,7 @@ export type SvgBarDatum = {
   value: number;
 };
 
-// The mock's palette(), in order. Seven series colours that exist in both themes.
-const SERIES_PALETTE = [
-  "var(--brand)",
-  "var(--info)",
-  "var(--amber)",
-  "var(--purple)",
-  "var(--teal)",
-  "var(--danger)",
-  "var(--ok)",
-] as const;
-
-// Mock geometry: 20px rows on a 10px gap, with a label gutter and a value gutter either side.
-//
-// The gap was 6 and read as CLAUSTROPHOBIC on a full-width card (maintainer, 2026-09-22): the
-// wide scale renders its 1100-unit viewBox at roughly 1:1, so a 6-unit gap is 6 real pixels
-// between 20-pixel bars and the rows run together into one block. Half a bar's height of air
-// is what separates them into rows the eye can count.
-//
-// It is ONE number for every bar chart in the product rather than a per-chart prop, for two
-// reasons: the scroll window's aspect ratio in mesha-theme.css is derived from this geometry
-// and holds exactly ten rows, so a second geometry would show nine somewhere; and a stacked
-// chart sitting under a plain one must still line up with it row for row.
-const ROW_HEIGHT = 20;
-const ROW_GAP = 10;
-// Room at the right for the value label. A bare count needs 40; a count with its share
-// ("1,061 · 63%") needs roughly twice that. Sized per chart rather than globally so a chart
-// that shows no share keeps its bars exactly as long as they were.
-const VALUE_GUTTER = 40;
-const VALUE_GUTTER_WITH_SHARE = 84;
-// Type size at scale 1, and the baseline nudge that centres it in a row.
-const BASE_FONT_SIZE = 9;
-const BASE_BASELINE_OFFSET = 3;
-
-// The two rendered scales. NARROW matches the mock's original 280-wide card; WIDE suits a
-// full-page-width card. The breakpoint lives in mesha-theme.css alongside the other layout rules.
-const NARROW_VIEW_WIDTH = 280;
-const WIDE_VIEW_WIDTH = 1100;
-
-/**
- * How many bars stand in the card before the rest scroll (maintainer, 2026-08-12).
- *
- * The window is sized by ASPECT RATIO, not a pixel height, and that is not a stylistic choice: the
- * SVG carries no height attribute, so its rendered height is `containerWidth × viewBoxHeight /
- * viewBoxWidth`. A fixed `max-height` would therefore show ten rows at one card width and six at
- * another. Ratio `viewWidth : barsHeight(VISIBLE_BARS)` holds exactly ten rows at every width, and
- * because the two scales have different viewBox widths each needs its own ratio — both are exported
- * so mesha-theme.css cannot drift from the geometry that produced them.
- */
-export const VISIBLE_BARS = 10;
-
-/** Height of the SVG viewBox for `count` rows — the one place row geometry is turned into height. */
-export function barsViewHeight(count: number): number {
-  return count * (ROW_HEIGHT + ROW_GAP) + 4;
-}
-
-export const SCROLL_ASPECT_WIDE = `${WIDE_VIEW_WIDTH} / ${barsViewHeight(VISIBLE_BARS)}`;
-export const SCROLL_ASPECT_NARROW = `${NARROW_VIEW_WIDTH} / ${barsViewHeight(VISIBLE_BARS)}`;
-
-// Approximate advance width of one glyph at the rendered size. Shared by the gutter and the
-// clip so the two cannot disagree about how much text fits.
-const CHAR_WIDTH = 5.2;
-
-/**
- * Label gutter sized to the labels ACTUALLY PRESENT, not to a fixed fraction of the viewBox.
- *
- * A flat fraction reserved the same column for "Anantapur Sheep" as it would for a shed name
- * three times longer, which left an obvious canyon between the names and the bars on a
- * short-label chart. Measuring the longest label closes that gap and hands the space back to
- * the bars, where it carries meaning.
- *
- * The ceiling is what keeps one very long label from squeezing every bar into nothing; past
- * it, clipLabel truncates and the full text stays in the tooltip.
- */
-function labelGutterFor(viewWidth: number, textScale: number, bars: SvgBarDatum[]): number {
-  const longest = bars.reduce((width, bar) => Math.max(width, bar.label.length), 0);
-  const needed = Math.round(longest * CHAR_WIDTH * textScale) + 10;
-  const floor = Math.round(40 * textScale);
-  const ceiling = Math.round(viewWidth * 0.32);
-  return Math.min(Math.max(needed, floor), ceiling);
-}
+const count = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
 
 /**
  * A bar's share of the series, as the label beside its count.
@@ -115,100 +39,13 @@ function labelGutterFor(viewWidth: number, textScale: number, bars: SvgBarDatum[
  *
  * A non-zero value that rounds to nothing renders "<1%" rather than "0%", because a bar
  * that is visibly there while its label says zero reads as a bug. Whole percentages
- * otherwise — a herd census does not support a decimal place, and a column of "45.8%"
- * invites a precision the source data has not got.
+ * otherwise — a herd census does not support a decimal place.
  */
 function shareLabel(value: number, total: number): string {
   if (total <= 0) return "";
   const share = (value / total) * 100;
   if (share > 0 && share < 0.5) return "<1%";
   return `${Math.round(share)}%`;
-}
-
-// Roughly how many characters fit the gutter at the rendered font size. Longer labels are clipped
-// with an ellipsis; the untruncated text stays in <title> so the value is never actually lost.
-function clipLabel(label: string, gutter: number, textScale: number): string {
-  const maxChars = Math.max(8, Math.floor(gutter / (CHAR_WIDTH * textScale)));
-  if (label.length <= maxChars) return label;
-  return `${label.slice(0, maxChars - 1)}…`;
-}
-
-function BarsSvg({
-  bars,
-  max,
-  total,
-  viewWidth,
-  className,
-  valueNoun,
-  textScale,
-}: {
-  bars: SvgBarDatum[];
-  max: number;
-  /** Sum of the whole series; 0 turns the share off. */
-  total: number;
-  viewWidth: number;
-  className: string;
-  valueNoun: string;
-  /** Multiplier on the type size and the gutters that hold it. */
-  textScale: number;
-}) {
-  const labelGutter = labelGutterFor(viewWidth, textScale, bars);
-  const valueGutter = Math.round((total > 0 ? VALUE_GUTTER_WITH_SHARE : VALUE_GUTTER) * textScale);
-  const barMaxWidth = viewWidth - labelGutter - valueGutter;
-  const fontSize = (BASE_FONT_SIZE * textScale).toFixed(1);
-  // Baseline sits on the row's optical centre; the +3 at base size scales with the glyphs.
-  const baselineOffset = BASE_BASELINE_OFFSET * textScale;
-  const height = barsViewHeight(bars.length);
-
-  return (
-    // No height attribute: the viewBox aspect ratio sizes it, so the box never leaves dead
-    // vertical space around a scaled-down drawing.
-    // aria-hidden because the wrapper carries the accessible name — otherwise a screen reader
-    // would announce the same chart twice, once per scale.
-    <svg className={className} viewBox={`0 0 ${viewWidth} ${height}`} width="100%" aria-hidden="true">
-      {bars.map((datum, index) => {
-        const y = index * (ROW_HEIGHT + ROW_GAP) + 2;
-        const barWidth = Math.max((datum.value / max) * barMaxWidth, 1);
-        const share = shareLabel(datum.value, total);
-        const count = datum.value.toLocaleString("en-IN");
-        const tip = share
-          ? `${datum.label}: ${count} ${valueNoun} · ${share}`
-          : `${datum.label}: ${count} ${valueNoun}`;
-        return (
-          <g key={datum.key}>
-            <text x="0" y={y + ROW_HEIGHT / 2 + baselineOffset} fontSize={fontSize} fill="var(--muted)">
-              {clipLabel(datum.label, labelGutter, textScale)}
-            </text>
-            <rect
-              x={labelGutter}
-              y={y}
-              width={barWidth.toFixed(1)}
-              height={ROW_HEIGHT}
-              rx="4"
-              fill={SERIES_PALETTE[index % SERIES_PALETTE.length]}
-              data-tip={tip}
-            >
-              <title>{tip}</title>
-            </rect>
-            <text
-              x={(labelGutter + barWidth + 4).toFixed(1)}
-              y={y + ROW_HEIGHT / 2 + baselineOffset}
-              fontSize={fontSize}
-              fill="var(--ink)"
-              fontWeight="700"
-            >
-              {count}
-              {share ? (
-                // The share is the secondary reading: same row, lighter weight and colour, so
-                // the count stays the figure the eye lands on.
-                <tspan fill="var(--muted)" fontWeight="600">{` · ${share}`}</tspan>
-              ) : null}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
 }
 
 export function SvgBars({
@@ -218,7 +55,7 @@ export function SvgBars({
   chartLabel,
   maxBars = 8,
   showShare = false,
-  textScale = 1,
+  multiTone = false,
 }: {
   data: SvgBarDatum[];
   /** Resolved from the page contract by the caller. */
@@ -231,89 +68,59 @@ export function SvgBars({
   /**
    * Renders each bar's share of the series beside its count.
    *
-   * OPT-IN, because a share is only meaningful where the series PARTITIONS one whole —
-   * every live animal falls in exactly one breed, so "46%" means something. On a series of
-   * unrelated magnitudes, or one capped by `maxBars` so the visible bars are a sample
-   * rather than the set, a percentage would invent a denominator the chart cannot back.
+   * OPT-IN, because a share is only meaningful where the series PARTITIONS one whole.
+   * On a series of unrelated magnitudes, or one capped by `maxBars` so the visible bars are a
+   * sample rather than the set, a percentage would invent a denominator the chart cannot back.
    */
   showShare?: boolean;
   /**
-   * Multiplier on the type size, applied to the WIDE scale only.
-   *
-   * Only the wide drawing needs it. The narrow one packs the same rows into a 280-unit
-   * viewBox, so a phone already scales those glyphs up far more than a desktop card scales
-   * the 1100-unit one — and enlarging the type there would eat the gutters until there was
-   * no room left to draw the bar. Default 1 leaves every existing chart untouched.
+   * Rotating series palette instead of one brand tone. A plain ranked bar list is one measure,
+   * so one tone; only a caller whose rows are genuinely different series should paint them
+   * differently, and such a caller owes the reader a legend.
    */
-  textScale?: number;
+  multiTone?: boolean;
 }) {
-  const bars = data.filter((d) => d.value > 0).slice(0, maxBars);
+  // A zero draws no bar here (callers name empty buckets under the chart); a loss is real data
+  // and draws left of the zero rule in the error colour.
+  const bars = data.filter((d) => Number.isFinite(d.value) && d.value !== 0).slice(0, maxBars);
   // Shared against EVERY datum handed in, including any the cap or the zero filter dropped,
   // so the visible percentages never add to more than the whole they came from.
   const total = showShare ? data.reduce((sum, d) => sum + d.value, 0) : 0;
 
   if (bars.length === 0) {
     return (
-      <div className="muted small" style={{ padding: "14px 2px", textAlign: "center" }}>
+      <div className="cx-empty muted small">
         {emptyLabel}
       </div>
     );
   }
 
-  const max = Math.max(...bars.map((d) => d.value)) || 1;
-  // The window only appears once there is something to scroll to. Applied unconditionally it would
-  // stretch a three-bar chart to ten rows of empty card.
-  const scrolls = bars.length > VISIBLE_BARS;
+  const rows: HorizontalBarRow[] = bars.map((datum) => {
+    const share = shareLabel(datum.value, total);
+    const figure = count(datum.value);
+    return {
+      key: datum.key,
+      label: datum.label,
+      value: datum.value,
+      valueLabel: share ? `${figure} · ${share}` : figure,
+      tipValue: share ? `${figure} ${valueNoun} · ${share}` : `${figure} ${valueNoun}`,
+    };
+  });
 
-  return (
-    <div
-      className={`svgbars${scrolls ? " svgbars-scroll" : ""}`}
-      role="img"
-      aria-label={chartLabel}
-      // Keyboard-reachable when it scrolls: a scroll region a keyboard user cannot focus is one they
-      // cannot read past row ten. Left alone when everything fits, so a short chart does not add a
-      // pointless tab stop.
-      tabIndex={scrolls ? 0 : undefined}
-    >
-      <BarsSvg
-        bars={bars}
-        max={max}
-        total={total}
-        viewWidth={WIDE_VIEW_WIDTH}
-        className="svgbars-wide"
-        valueNoun={valueNoun}
-        textScale={textScale}
-      />
-      <BarsSvg
-        bars={bars}
-        max={max}
-        total={total}
-        viewWidth={NARROW_VIEW_WIDTH}
-        className="svgbars-narrow"
-        valueNoun={valueNoun}
-        textScale={1}
-      />
-    </div>
-  );
+  return <HorizontalBars rows={rows} chartLabel={chartLabel} multiTone={multiTone} />;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Stacked bars.
 //
-// Same geometry as SvgBars above — same row height, gap, gutters, scroll window and two rendered
-// scales — so a stacked chart sitting under a plain one on the same page lines up with it row for
-// row. What differs is the mark: one bar is DIVIDED between named segments, and the colour follows
-// the SEGMENT rather than the bar's rank, because the whole point is that the third bar's blue
-// means the same thing as the first bar's blue.
-//
-// A segment is drawn only when it carries animals, so a stage that is female by definition renders
-// one solid bar rather than a segment of width zero with a hairline seam beside it. Corner rounding
-// is applied to the bar as a whole through a clip path, not per segment, so the divisions inside it
-// stay square and read as one bar split rather than several bars abutting.
+// Same row geometry and scroll window as SvgBars, so a stacked chart sitting under a plain one
+// lines up with it. One bar is DIVIDED between named segments, and the colour follows the
+// SEGMENT, because the third bar's blue must mean the same thing as the first bar's blue. Every
+// segment actually drawn is named in the chart's legend.
 
 export type SvgStackedSegment = {
   key: string;
-  /** Resolved from the page contract by the caller; used in the tooltip. */
+  /** Resolved from the page contract by the caller; used in the legend and tooltip. */
   label: string;
   value: number;
   /** A CSS custom property, never a hex literal — see the file header. */
@@ -323,9 +130,8 @@ export type SvgStackedSegment = {
 export type SvgStackedDatum = {
   key: string;
   label: string;
-  /** Bar length. The caller supplies it rather than it being summed here, so the bar is the
-   *  backend's own head count and a segment that failed to reconcile shows as a gap instead of
-   *  quietly redefining the total. */
+  /** Head count printed beside the bar. The caller supplies it rather than it being summed here,
+   *  so the figure is the backend's own head count. */
   total: number;
   segments: SvgStackedSegment[];
 };
@@ -347,164 +153,49 @@ function segmentText(datum: SvgStackedDatum): string {
     .join(" · ");
 }
 
-/** The whole value column for one bar — total plus split — used to size the gutter that holds it. */
-function valueText(datum: SvgStackedDatum): string {
-  const breakdown = segmentText(datum);
-  const count = datum.total.toLocaleString("en-IN");
-  return breakdown ? `${count} ${breakdown}` : count;
-}
-
-function StackedBarsSvg({
-  bars,
-  max,
-  viewWidth,
-  className,
-  valueNoun,
-  textScale,
-}: {
-  bars: SvgStackedDatum[];
-  max: number;
-  viewWidth: number;
-  className: string;
-  valueNoun: string;
-  textScale: number;
-}) {
-  const labelGutter = labelGutterFor(
-    viewWidth,
-    textScale,
-    bars.map((bar) => ({ key: bar.key, label: bar.label, value: bar.total })),
-  );
-  // The value column carries the bar total AND the split that makes up the bar, so it is sized to
-  // the longest one actually rendered rather than to a fixed width — a stage reading
-  // "41  28 female · 13 male" needs roughly three times the room a bare count does, and a fixed
-  // gutter would either clip the longest row or leave a canyon on a chart whose stages are all
-  // single-sex.
-  const longestValue = bars.reduce((width, bar) => Math.max(width, valueText(bar).length), 0);
-  const valueGutter = Math.round(Math.max(longestValue * CHAR_WIDTH * textScale + 8, VALUE_GUTTER * textScale));
-  const barMaxWidth = viewWidth - labelGutter - valueGutter;
-  const fontSize = (BASE_FONT_SIZE * textScale).toFixed(1);
-  const baselineOffset = BASE_BASELINE_OFFSET * textScale;
-  const height = barsViewHeight(bars.length);
-
-  return (
-    <svg className={className} viewBox={`0 0 ${viewWidth} ${height}`} width="100%" aria-hidden="true">
-      {bars.map((datum, index) => {
-        const y = index * (ROW_HEIGHT + ROW_GAP) + 2;
-        const barWidth = Math.max((datum.total / max) * barMaxWidth, 1);
-        const count = datum.total.toLocaleString("en-IN");
-        // The split, printed beside the total rather than left to a hover: a segment can be one
-        // animal wide, which is a hover target nobody can hit, and reading a chart should not
-        // require a mouse at all.
-        const breakdown = segmentText(datum);
-        const tip = breakdown
-          ? `${datum.label}: ${count} ${valueNoun} — ${breakdown}`
-          : `${datum.label}: ${count} ${valueNoun}`;
-        const clipId = `stackclip-${className}-${index}`;
-        let offset = 0;
-        return (
-          <g key={datum.key}>
-            <text x="0" y={y + ROW_HEIGHT / 2 + baselineOffset} fontSize={fontSize} fill="var(--muted)">
-              {clipLabel(datum.label, labelGutter, textScale)}
-            </text>
-            <clipPath id={clipId}>
-              <rect x={labelGutter} y={y} width={barWidth.toFixed(1)} height={ROW_HEIGHT} rx="4" />
-            </clipPath>
-            <g clipPath={`url(#${clipId})`}>
-              {datum.segments.map((segment) => {
-                if (segment.value <= 0) return null;
-                const width = (segment.value / datum.total) * barWidth;
-                const x = labelGutter + offset;
-                offset += width;
-                return (
-                  <rect
-                    key={segment.key}
-                    x={x.toFixed(1)}
-                    y={y}
-                    width={Math.max(width, 0.5).toFixed(1)}
-                    height={ROW_HEIGHT}
-                    fill={segment.colorVar}
-                    data-tip={tip}
-                  >
-                    <title>{tip}</title>
-                  </rect>
-                );
-              })}
-            </g>
-            <text
-              x={(labelGutter + barWidth + 4).toFixed(1)}
-              y={y + ROW_HEIGHT / 2 + baselineOffset}
-              fontSize={fontSize}
-              fill="var(--ink)"
-              fontWeight="700"
-            >
-              {count}
-              {breakdown ? (
-                // Secondary reading: same row, lighter weight and colour, so the head count stays
-                // the figure the eye lands on and the split explains it. The gap is `dx`, not
-                // spaces — SVG collapses a run of whitespace, which ran "41" straight into
-                // "28 female" and read as one number.
-                <tspan dx={(4 * textScale).toFixed(1)} fill="var(--muted)" fontWeight="600">
-                  {breakdown}
-                </tspan>
-              ) : null}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
 export function SvgStackedBars({
   data,
   emptyLabel,
   valueNoun,
   chartLabel,
   maxBars = 8,
-  textScale = 1,
 }: {
   data: SvgStackedDatum[];
   emptyLabel: string;
   valueNoun: string;
   chartLabel: string;
   maxBars?: number;
-  textScale?: number;
 }) {
   const bars = data.filter((datum) => datum.total > 0).slice(0, maxBars);
   if (bars.length === 0) {
     return (
-      <div className="muted small" style={{ padding: "14px 2px", textAlign: "center" }}>
+      <div className="cx-empty muted small">
         {emptyLabel}
       </div>
     );
   }
 
-  const max = Math.max(...bars.map((datum) => datum.total)) || 1;
-  const scrolls = bars.length > VISIBLE_BARS;
+  // Segment order and identity come from the first bar; every bar carries the same segment keys.
+  // A segment that carries no animal on ANY bar is left out, so the legend never advertises a key
+  // the chart does not draw.
+  const series: StackedBarSeries[] = bars[0].segments
+    .map((segment) => {
+      const values = bars.map((bar) => bar.segments.find((s) => s.key === segment.key)?.value ?? 0);
+      return {
+        key: segment.key,
+        name: segment.label,
+        color: segment.colorVar,
+        values,
+        tipValues: values.map((value) => `${value.toLocaleString("en-IN")} ${valueNoun}`),
+      };
+    })
+    .filter((s) => s.values.some((value) => value > 0));
 
-  return (
-    <div
-      className={`svgbars${scrolls ? " svgbars-scroll" : ""}`}
-      role="img"
-      aria-label={chartLabel}
-      tabIndex={scrolls ? 0 : undefined}
-    >
-      <StackedBarsSvg
-        bars={bars}
-        max={max}
-        viewWidth={WIDE_VIEW_WIDTH}
-        className="svgbars-wide"
-        valueNoun={valueNoun}
-        textScale={textScale}
-      />
-      <StackedBarsSvg
-        bars={bars}
-        max={max}
-        viewWidth={NARROW_VIEW_WIDTH}
-        className="svgbars-narrow"
-        valueNoun={valueNoun}
-        textScale={textScale}
-      />
-    </div>
-  );
+  const rows: StackedBarRow[] = bars.map((datum) => {
+    const breakdown = segmentText(datum);
+    const figure = datum.total.toLocaleString("en-IN");
+    return { key: datum.key, label: datum.label, totalLabel: breakdown ? `${figure} · ${breakdown}` : figure };
+  });
+
+  return <StackedHorizontalBars rows={rows} series={series} chartLabel={chartLabel} />;
 }

@@ -1,20 +1,56 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
 import { redirect } from "next/navigation";
+import { IndianRupee } from "lucide-react";
 
-import Link from "@/components/no-prefetch-link";
-import { LinkPending } from "@/components/link-pending";
+import CardHeader, { cardHeaderClasses } from "@mui/material/CardHeader";
+import { EmptyState } from "@/components/app/empty-state";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { GoatGlyph } from "@/components/goat-glyph";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { copy, optionGroup, table, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError } from "@/lib/api/server";
+import { firstAuthRequiredError, listAnimalStages } from "@/lib/api/server";
 import { getFarmBornSales } from "@/lib/api/procurement-server";
 import type { FarmBornBucket, FarmBornSales } from "@/lib/api/procurement";
 import { todayIso } from "@/lib/format";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
+import { stageNameMap, stageVocabularyLabel, type StageNameMap } from "@/lib/stage-display";
+import { KpiValue } from "./kpi-value";
 import { humanDate, inr, num } from "./sales-format";
 import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
 import { FarmBornSoldTable } from "./farm-born-sold-table";
+import { ProcurementTableFooter } from "./table-footer-links";
+import { ProgressBar } from "@/components/app/progress-bar";
+import Alert from "@mui/material/Alert";
 import { tableOrderFromParams, type TableOrder } from "./table-order";
 import { salesErrorText } from "./sales-error";
+import Box from "@mui/material/Box";
+import Card from "@mui/material/Card";
+import Typography from "@mui/material/Typography";
+import { cardTableScrollSx, salesKpiRowSx } from "./procurement-sx";
+
+// Breakdown table (template analytics table anatomy): the label column keeps a readable floor so
+// words never break per letter; on a laptop the table fits its half-width card, on a phone it
+// scrolls inside the card from a 38.75rem floor.
+// Six columns since main added "Tagged, sale not closed" (cc940b351): cells sit a little tighter
+// and number headers may wrap onto a second line (figures never do), so the table still fits its
+// half-width card on a laptop.
+const FB_TABLE_SX = {
+  width: "100%",
+  tableLayout: "auto",
+  minWidth: { xs: "38.75rem", sm: 0 },
+  "& th, & td": { px: 1 },
+  "& th": { lineHeight: 1.2, verticalAlign: "bottom" },
+  "& th.num": { whiteSpace: "normal", maxWidth: "12ch" },
+  "& td:first-of-type, & th:first-of-type": { minWidth: "8.75rem", whiteSpace: "normal", overflowWrap: "break-word" },
+  "& td.num": { whiteSpace: "nowrap" },
+} as const;
+const FB_SHARE_CELL_SX = { minWidth: { xs: 0, sm: "7.5rem" } } as const;
+
 
 const PAGE_PATH = "/sales/farm-born";
 /** Only used when an older backend contract carries no sold table; the contract page size wins. */
@@ -23,11 +59,6 @@ const MAX_OFFSET = 10000;
 /** The By pen card pages its rows: a farm has dozens of pens and the card sat 1,600px tall. */
 const PEN_PAGE_SIZE = 10;
 const PEN_OFFSET_PARAM = "pen_offset";
-
-/** Fills a backend copy template's `{name}` slots; the sentence itself stays backend-owned. */
-function fill(template: string, values: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
-}
 
 /**
  * One calendar month before an ISO day, the way the backend's DefaultFarmBornWindow counts it
@@ -92,89 +123,87 @@ function BreakdownCard({
   const shown = pager ? rows.slice(pager.offset, pager.offset + pager.limit) : rows;
   const pageCount = pager ? Math.max(1, Math.ceil(rows.length / pager.limit)) : 1;
   const pageNumber = pager ? Math.floor(pager.offset / pager.limit) + 1 : 1;
+  const maxSold = Math.max(0, ...rows.map((row) => row.sold));
+  const tableId = `farm-born-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
-    <section className="card" aria-label={title}>
-      <div className="hd">
-        <h3>{title}</h3>
-        {pager && pageCount > 1 ? (
-          <>
-            <div className="sp" style={{ flex: 1 }} />
-            <span className="muted small">
-              {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount} ·{" "}
-              {num(rows.length)} {pager.noun}
-            </span>
-          </>
-        ) : null}
-      </div>
-      <div className="twrap farm-born-breakdown" tabIndex={0} role="region" aria-label={title}>
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th />
-              <th className="num">{copy(pageContract, "column.on_farm")}</th>
-              <th className="num" title={copy(pageContract, "value.tagged_not_closed.hint")}>
+    <div>
+    <Card component="section" className="sales-card" aria-label={title} sx={{ minWidth: 0 }}>
+      <CardHeader
+        title={title}
+        action={pager && pageCount > 1 ? <span className="muted small">{num(rows.length)} {pager.noun}</span> : null}
+        sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", alignItems: "center", [`& .${cardHeaderClasses.action}`]: { alignSelf: "center", m: 0 } }}
+      />
+      <Box id={tableId} tabIndex={0} role="region" aria-label={title} sx={cardTableScrollSx}>
+        <Table sx={FB_TABLE_SX}>
+          <TableHead>
+            <TableRow>
+              <TableCell component="th" />
+              <TableCell component="th" className="num">{copy(pageContract, "column.on_farm")}</TableCell>
+              <TableCell component="th" className="num" title={copy(pageContract, "value.tagged_not_closed.hint")}>
                 {copy(pageContract, "column.tagged_not_closed")}
-              </th>
-              <th className="num">{copy(pageContract, "column.sold")}</th>
-              <th className="num">{copy(pageContract, "column.share_pct")}</th>
-              <th className="num">{copy(pageContract, "column.revenue")}</th>
-            </tr>
-          </thead>
-          <tbody>
+              </TableCell>
+              <TableCell component="th" className="num">{copy(pageContract, "column.sold")}</TableCell>
+              <TableCell component="th" className="num" sx={FB_SHARE_CELL_SX}>{copy(pageContract, "column.share_pct")}</TableCell>
+              <TableCell component="th" className="num">{copy(pageContract, "column.revenue")}</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {rows.length === 0 ? (
-              <tr>
-                <td colSpan={6}>
-                  <div className="empty">{copy(pageContract, "empty.breakdown")}</div>
-                </td>
-              </tr>
+              <TableRow>
+                <TableCell colSpan={6}>
+                  <EmptyState title={copy(pageContract, "empty.breakdown")} />
+                </TableCell>
+              </TableRow>
             ) : (
-              shown.map((row) => (
-                <tr key={row.key}>
-                  <td>
+              shown.map((row) => {
+                const share = totalSold > 0 ? (row.sold / totalSold) * 100 : null;
+                return (
+                <TableRow key={row.key}>
+                  <TableCell>
                     <b>{row.label}</b>
                     {row.detail ? <div className="muted small">{row.detail}</div> : null}
-                  </td>
-                  <td className="num">{num(row.on_farm)}</td>
-                  <td className="num">{num(row.tagged_not_closed)}</td>
-                  <td className="num">
+                  </TableCell>
+                  <TableCell className="num">{num(row.on_farm)}</TableCell>
+                  <TableCell className="num">{num(row.tagged_not_closed)}</TableCell>
+                  <TableCell className="num">
                     <b>{num(row.sold)}</b>
-                  </td>
-                  <td className="num">{totalSold > 0 ? `${num((row.sold / totalSold) * 100, 0)}%` : "—"}</td>
-                  <td className="num">{row.sold_priced > 0 ? inr(row.revenue) : "—"}</td>
-                </tr>
-              ))
+                  </TableCell>
+                  <TableCell className="num" sx={FB_SHARE_CELL_SX}>
+                    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1.25, width: "100%", justifyContent: "flex-end" }}>
+                      {/* Inline mini-bar: the row's sold against the largest row, so a breed that
+                          sold ten times another reads at a glance; the share text stays the number. */}
+                      <Box component="span" sx={{ display: { xs: "none", sm: "block" }, flex: "1 1 3rem", maxWidth: "4.5rem" }}>
+                        <ProgressBar value={maxSold > 0 ? (row.sold / maxSold) * 100 : 0} />
+                      </Box>
+                      <Box component="span" sx={{ minWidth: "2.25rem", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {share == null ? "—" : `${num(share, 0)}%`}
+                      </Box>
+                    </Box>
+                  </TableCell>
+                  <TableCell className="num">{row.sold_priced > 0 ? inr(row.revenue) : "—"}</TableCell>
+                </TableRow>
+                );
+              })
             )}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </Box>
       {pager && pageCount > 1 ? (
-        <div className="pager2">
-          <span className="muted">
-            {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount}
-          </span>
-          {pager.offset > 0 ? (
-            <Link href={pager.href(Math.max(0, pager.offset - pager.limit))} scroll={false} className="btn">
-              {copy(pageContract, "action.previous")}
-              <LinkPending />
-            </Link>
-          ) : (
-            <span className="btn" aria-disabled="true">
-              {copy(pageContract, "action.previous")}
-            </span>
-          )}
-          {pager.offset + pager.limit < rows.length ? (
-            <Link href={pager.href(pager.offset + pager.limit)} scroll={false} className="btn">
-              {copy(pageContract, "action.next")}
-              <LinkPending />
-            </Link>
-          ) : (
-            <span className="btn" aria-disabled="true">
-              {copy(pageContract, "action.next")}
-            </span>
-          )}
-        </div>
+        <ProcurementTableFooter
+          denseLabel={copy(pageContract, "action.dense", "Dense")}
+          rowsLabel={copy(pageContract, "pager.rows", "Rows")}
+          page={pageNumber}
+          pageCount={pageCount}
+          rangeLabel={`${pager.offset + 1}\u2013${Math.min(pager.offset + pager.limit, rows.length)} ${copy(pageContract, "pager.of")} ${num(rows.length)} ${pager.noun}`}
+          prevHref={pager.href(Math.max(0, pager.offset - pager.limit))}
+          nextHref={pager.href(pager.offset + pager.limit)}
+          prevLabel={copy(pageContract, "action.previous")}
+          nextLabel={copy(pageContract, "action.next")}
+          denseTargetId={tableId}
+        />
       ) : null}
-    </section>
+    </Card>
+    </div>
   );
 }
 
@@ -184,6 +213,7 @@ function FarmBornSections({
   pageHref,
   penOffset,
   penHref,
+  stageNames,
   order,
 }: {
   data: FarmBornSales;
@@ -191,6 +221,7 @@ function FarmBornSections({
   pageHref: (offset: number) => string;
   penOffset: number;
   penHref: (offset: number) => string;
+  stageNames: StageNameMap;
   order: TableOrder;
 }) {
   const s = data.summary;
@@ -202,65 +233,90 @@ function FarmBornSections({
 
   return (
     <>
-      <section className="grid g4 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.on_farm")}</div>
-          <div className="val">{num(s.on_farm)}</div>
-          <div className="dl">{copy(pageContract, "kpi.on_farm.detail")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.sold")}</div>
-          <div className="val">{num(s.sold)}</div>
-          <div className="dl">
-            {humanDate(s.from)} {copy(pageContract, "filter.period.range_separator")} {humanDate(s.to)}
-            {s.tagged_not_closed > 0 ? (
-              <span title={copy(pageContract, "value.tagged_not_closed.hint")}>
-                {" · "}
-                {num(s.tagged_not_closed)} {copy(pageContract, "kpi.tagged_not_closed")}
-              </span>
-            ) : null}
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.revenue")}</div>
-          <div className="val">{inr(s.revenue)}</div>
-          <div className="dl">
-            {unpriced > 0
-              ? fill(copy(pageContract, "kpi.revenue.unpriced"), { count: num(unpriced) })
-              : copy(pageContract, "kpi.revenue.detail")}
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.avg_price")}</div>
-          <div className="val">{s.sold_priced > 0 ? inr(s.avg_price) : "—"}</div>
-          <div className="dl">
-            {num(s.sold_priced)} {copy(pageContract, "kpi.avg_price.detail")}
-          </div>
-        </div>
-      </section>
+      <div>
+        <Box component="section" aria-label={copy(pageContract, "section.headline.aria")} sx={salesKpiRowSx}>
+          <KpiGrid className="sales-kpi-row">
+            <KpiCard
+              variant="gradient"
+              tone="primary"
+              label={copy(pageContract, "kpi.on_farm")}
+              value={<KpiValue value={s.on_farm} />}
+              watermark={<GoatGlyph aria-hidden="true" />}
+            />
+            <KpiCard
+              variant="tint"
+              tone="info"
+              label={copy(pageContract, "kpi.sold")}
+              value={<KpiValue value={s.sold} />}
+              watermark={<GoatGlyph aria-hidden="true" />}
+              // Tagged to a sale that has not closed: out of the herd, not yet sold (main 054918241).
+              hint={
+                <>
+                  {humanDate(s.from)} {copy(pageContract, "filter.period.range_separator")} {humanDate(s.to)}
+                  {s.tagged_not_closed > 0 ? (
+                    <span title={copy(pageContract, "value.tagged_not_closed.hint")}>
+                      {" · "}
+                      {num(s.tagged_not_closed)} {copy(pageContract, "kpi.tagged_not_closed")}
+                    </span>
+                  ) : null}
+                </>
+              }
+            />
+            <KpiCard
+              variant="tint"
+              tone="success"
+              label={copy(pageContract, "kpi.revenue")}
+              value={<KpiValue value={s.revenue} kind="inr" />}
+              watermark={<IndianRupee aria-hidden="true" />}
+              hint={unpriced > 0 ? `${num(s.sold_priced)} / ${num(s.sold)}` : undefined}
+            />
+            <KpiCard
+              variant="tint"
+              tone="violet"
+              label={copy(pageContract, "kpi.avg_price")}
+              value={s.sold_priced > 0 ? <KpiValue value={s.avg_price} kind="inr" /> : "—"}
+              watermark={<IndianRupee aria-hidden="true" />}
+            />
+          </KpiGrid>
+        </Box>
+      </div>
 
-      <div className="phead" style={{ marginTop: 18, paddingBottom: 4 }}>
-        <div>
-          <h2 style={{ margin: 0 }}>{copy(pageContract, "section.breakdowns.title")}</h2>
-          <div className="sub">{copy(pageContract, "section.breakdowns.subtitle")}</div>
-        </div>
+      <div>
+        {/* Section title between blocks: the template CardHeader title scale (h6). */}
+        <Typography variant="h6" component="h3" sx={{ mt: 2.75 }}>
+          {copy(pageContract, "section.breakdowns.title")}
+        </Typography>
       </div>
       {/* Breed on the left; Sex and Stage stacked on the right (both short). Pen gets its own
           full-width card below: a farm has dozens of pens, and beside a two-row sex table it left
           the right column mostly blank. */}
-      <div className="grid g2">
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2,minmax(0,1fr))" },
+          gap: 2,
+          mt: 1.75,
+          alignItems: "start",
+          "& > *": { minWidth: 0, maxWidth: "100%" },
+        }}
+      >
         <BreakdownCard title={copy(pageContract, "section.by_breed.title")} rows={data.by_breed} totalSold={s.sold} pageContract={pageContract} />
-        <div style={{ display: "grid", gap: 14, alignContent: "start" }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 2, alignContent: "start", minWidth: 0, "& > *": { minWidth: 0 } }}>
           <BreakdownCard
             title={copy(pageContract, "section.by_sex.title")}
             rows={data.by_sex.map((row) => ({ ...row, label: sexLabel(row.key) === row.key ? row.label : sexLabel(row.key) }))}
             totalSold={s.sold}
             pageContract={pageContract}
           />
-          <BreakdownCard title={copy(pageContract, "section.by_stage.title")} rows={data.by_stage} totalSold={s.sold} pageContract={pageContract} />
-        </div>
-      </div>
-      <div style={{ marginTop: 14 }}>
+          <BreakdownCard
+            title={copy(pageContract, "section.by_stage.title")}
+            rows={data.by_stage.map((row) => ({ ...row, label: stageVocabularyLabel(row.label, stageNames) }))}
+            totalSold={s.sold}
+            pageContract={pageContract}
+          />
+        </Box>
+      </Box>
+      <Box sx={{ mt: 2, "& > *": { minWidth: 0, maxWidth: "100%" } }}>
         <BreakdownCard
           title={copy(pageContract, "section.by_pen.title")}
           rows={data.by_pen}
@@ -268,18 +324,19 @@ function FarmBornSections({
           pageContract={pageContract}
           pager={{ offset: penOffset, limit: PEN_PAGE_SIZE, noun: copy(pageContract, "pager.pens"), href: penHref }}
         />
-      </div>
+      </Box>
 
-      <section className="card" aria-label={copy(pageContract, "section.sold.aria")} style={{ marginTop: 14 }}>
-        <div className="hd">
-          <h3>{copy(pageContract, "section.sold.title")}</h3>
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="muted small">{copy(pageContract, "section.sold.subtitle")}</span>
-        </div>
-        <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sold.aria")}>
+      <div>
+      <Card component="section" className="sales-card" aria-label={copy(pageContract, "section.sold.aria")} sx={{ minWidth: 0, mt: 2 }}>
+        <CardHeader
+          title={copy(pageContract, "section.sold.title")}
+          action={<span className="muted small">{num(data.total_sold)} {copy(pageContract, "pager.noun")}</span>}
+          sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider", alignItems: "center", [`& .${cardHeaderClasses.action}`]: { alignSelf: "center", m: 0 } }}
+        />
+        <Box id="farm-born-sold" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sold.aria")} sx={cardTableScrollSx}>
           <FarmBornSoldTable
             contract={table(pageContract, "sales-farm-born-sold")}
-            rows={data.sold}
+            rows={data.sold.map((row) => ({ ...row, stage: stageVocabularyLabel(row.stage, stageNames) }))}
             order={order}
             labels={{
               sortAll: copy(pageContract, "table.sort_all"),
@@ -289,39 +346,26 @@ function FarmBornSections({
               sexLabels: Object.fromEntries(
                 optionGroup(pageContract, "farm_born_sexes").map((option) => [option.key, option.label]),
               ),
-              empty: <div className="empty">{copy(pageContract, "empty.sold")}</div>,
+              empty: <EmptyState title={copy(pageContract, "empty.sold")} />,
             }}
           />
-        </div>
+        </Box>
         {pageCount > 1 ? (
-          <div className="pager2">
-            <span className="muted">
-              {copy(pageContract, "pager.page")} {pageNumber} {copy(pageContract, "pager.of")} {pageCount} ·{" "}
-              {num(data.total_sold)} {copy(pageContract, "pager.noun")}
-            </span>
-            {data.offset > 0 ? (
-              <Link href={pageHref(Math.max(0, data.offset - data.limit))} scroll={false} className="btn">
-                {copy(pageContract, "action.previous")}
-                <LinkPending />
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.previous")}
-              </span>
-            )}
-            {data.offset + data.limit < data.total_sold ? (
-              <Link href={pageHref(data.offset + data.limit)} scroll={false} className="btn">
-                {copy(pageContract, "action.next")}
-                <LinkPending />
-              </Link>
-            ) : (
-              <span className="btn" aria-disabled="true">
-                {copy(pageContract, "action.next")}
-              </span>
-            )}
-          </div>
+          <ProcurementTableFooter
+            denseLabel={copy(pageContract, "action.dense", "Dense")}
+            rowsLabel={copy(pageContract, "pager.rows", "Rows")}
+            page={pageNumber}
+            pageCount={pageCount}
+            rangeLabel={`${data.offset + 1}\u2013${Math.min(data.offset + data.limit, data.total_sold)} ${copy(pageContract, "pager.of")} ${num(data.total_sold)} ${copy(pageContract, "pager.noun")}`}
+            prevHref={pageHref(Math.max(0, data.offset - data.limit))}
+            nextHref={pageHref(data.offset + data.limit)}
+            prevLabel={copy(pageContract, "action.previous")}
+            nextLabel={copy(pageContract, "action.next")}
+            denseTargetId="farm-born-sold"
+          />
         ) : null}
-      </section>
+      </Card>
+      </div>
     </>
   );
 }
@@ -379,21 +423,27 @@ export async function SalesFarmBornPage({
   // The sold ledger's whole-result order, validated against the contract's sortable columns.
   const order = tableOrderFromParams(sp, table(pageContract, "sales-farm-born-sold"));
   // serial-await: allow farm-born read depends on readSalesParkScope validating the shell park.
-  const result = await getFarmBornSales({
-    from: from || undefined,
-    to: to || undefined,
-    park_id: park || undefined,
-    pen: pen || undefined,
-    species: species || undefined,
-    breed: breed || undefined,
-    sex: sex || undefined,
-    stage: stage || undefined,
-    limit,
-    offset,
-    sort: order.sort || undefined,
-    dir: order.sort ? order.dir : undefined,
-  });
-  if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
+  const [result, stageResult] = await Promise.all([
+    getFarmBornSales({
+      from: from || undefined,
+      to: to || undefined,
+      park_id: park || undefined,
+      pen: pen || undefined,
+      species: species || undefined,
+      breed: breed || undefined,
+      sex: sex || undefined,
+      stage: stage || undefined,
+      limit,
+      offset,
+      sort: order.sort || undefined,
+      dir: order.sort ? order.dir : undefined,
+    }),
+    // Tenant stage vocabulary, so the fattening family shows its configured name rather than
+    // its "F2" code (lib/stage-display). Values stay the code; only the words change.
+    listAnimalStages(),
+  ]);
+  if (firstAuthRequiredError(result, stageResult)) redirect(INTERNAL_LOGIN_PATH);
+  const stageNames = stageNameMap(stageResult.ok ? stageResult.data.items : undefined);
 
   const options = result.ok ? result.data.options : null;
   // The pen list follows the park select: a pen belongs to one park, so with a park chosen only
@@ -476,7 +526,7 @@ export async function SalesFarmBornPage({
       value: stage,
       allowAll: true,
       clears: [PEN_OFFSET_PARAM],
-      options: (options?.stages ?? []).map((option) => ({ value: option.key, label: option.label })),
+      options: (options?.stages ?? []).map((option) => ({ value: option.key, label: stageVocabularyLabel(option.label, stageNames) })),
     },
   ];
 
@@ -488,8 +538,8 @@ export async function SalesFarmBornPage({
   const penHref = (nextOffset: number) => hrefWith(sp, { [PEN_OFFSET_PARAM]: nextOffset > 0 ? String(nextOffset) : null });
 
   return (
-    <div className="screen on sales-farm-born-page">
-      <SalesPageHeader pageContract={pageContract} />
+    <div className="kit-enter screen on sales-farm-born-page">
+      <SalesPageHeader pageContract={pageContract} subtitle={false} />
 
       {/* A park change drops the pen (a pen belongs to one park) and every page offset. */}
       <SalesFarmToggle
@@ -512,11 +562,11 @@ export async function SalesFarmBornPage({
         holdChildren={false}
       >
         {!result.ok ? (
-          <div className="alert" style={{ marginBottom: 14 }}>
+          <Alert severity="error" sx={{ mb: 1.75 }}>
             {salesErrorText(result.error, copy(pageContract, "error.load"))}
-          </div>
+          </Alert>
         ) : (
-          <FarmBornSections data={result.data} pageContract={pageContract} pageHref={pageHref} penOffset={penOffset} penHref={penHref} order={order} />
+          <FarmBornSections data={result.data} pageContract={pageContract} pageHref={pageHref} penOffset={penOffset} penHref={penHref} stageNames={stageNames} order={order} />
         )}
       </WorklistFilters>
     </div>

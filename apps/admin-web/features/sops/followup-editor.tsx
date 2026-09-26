@@ -4,10 +4,16 @@ import { useMemo, useState, useTransition } from "react";
 import { BranchField } from "./branch-field";
 import { FollowUpFlow } from "./followup-flow";
 import type { FlowInsert } from "./flow-layout";
-import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronLeft, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
+import IconButton from "@mui/material/IconButton";
+import MuiTextField from "@mui/material/TextField";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import { AnimatedTabs, TabPanel } from "@/components/minimal/list/animated-tabs";
+import Box from "@mui/material/Box";
+import { EditorHeader, InlineSelect, StickyActions, StudioViewToggle } from "./editor-chrome";
 import {
   ENGINE_BOUND_TASK_TYPES,
   blankStep,
@@ -25,6 +31,9 @@ import {
 import { publishFollowUpVersion, saveFollowUpVersion, type FollowUpSaveResult } from "./sop-actions";
 import { publishedHref } from "./published-href";
 import { followUpCopy, roundWhen } from "./followup-summary";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Alert from "@mui/material/Alert";
 
 // SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13,
 // docs/decisions/sop-driven-herd-operations.md). The operator-steps editor for a Herd Operations
@@ -36,6 +45,24 @@ import { followUpCopy, roundWhen } from "./followup-summary";
 // Engine-bound steps (weigh, tag, record_pen, feed_colostrum, death_evidence, return_to_pen) keep
 // their key and type fixed -- the server matches behaviour on them -- and everything else is
 // editable. Publishing applies to workflows opened from then on.
+
+
+// Spec §7 totals block under an editor section's items (theme tokens only).
+const TOTALS_SX = {
+  display: "flex",
+  alignItems: "center",
+  columnGap: 2.25,
+  rowGap: 0.5,
+  flexWrap: "wrap",
+  mt: 1.5,
+  pt: 1.5,
+  borderTop: 1,
+  borderTopStyle: "dashed",
+  borderColor: "divider",
+  typography: "caption",
+  color: "text.secondary",
+  "& b": { typography: "subtitle2", color: "text.primary", fontVariantNumeric: "tabular-nums" },
+} as const;
 
 export function FollowUpEditor({
   pageContract,
@@ -178,34 +205,40 @@ export function FollowUpEditor({
   }
 
   return (
-    <div className="screen on sop-followup" aria-label={copy(pc, "followup.title")}>
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pc, "crumb")} · {pc.title} · <b>{sopName}</b>
-          </div>
-          <h1>{copy(pc, "followup.title")}</h1>
-          <div className="sub">{copy(pc, "followup.subtitle")}</div>
-          <div className="sub muted small">
-            {versionLabel} · {copy(pc, "followup.notice.capture_kept")}
-          </div>
+    <div className="kit-enter screen on sop-kit sop-followup">
+      <EditorHeader
+        crumbs={[copy(pc, "crumb"), pc.title, sopName]}
+        title={copy(pc, "followup.title")}
+        subtitle={copy(pc, "followup.subtitle")}
+        version={versionLabel}
+        notice={copy(pc, "followup.notice.capture_kept")}
+        backHref={basePath}
+        actions={
+          <StudioViewToggle
+            label={copy(pc, "studio.view.label")}
+            listLabel={copy(pc, "studio.view.list")}
+            flowLabel={copy(pc, "studio.view.flow")}
+            value={view}
+            onChange={switchView}
+          />
+        }
+      />
+
+      {/* One track at a time: the strip selects which track's steps are open below. */}
+      {rows.tracks.length > 1 ? (
+        <div style={{ marginBottom: 14 }}>
+          <AnimatedTabs
+            variant="pill"
+            ariaLabel={copy(pc, "followup.track")}
+            value={openTrack}
+            items={rows.tracks.map((t) => ({ value: t.key, label: t.label || t.key, count: t.steps.length }))}
+            onChange={(next) => setOpenTrack(next)}
+          />
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        <div className="subtabs studio-view-toggle" role="tablist" aria-label={copy(pc, "studio.view.label")}>
-          <button type="button" role="tab" className={view === "list" ? "on" : ""} aria-selected={view === "list"} onClick={() => switchView("list")} data-testid="studio-view-list">
-            {copy(pc, "studio.view.list")}
-          </button>
-          <button type="button" role="tab" className={view === "flow" ? "on" : ""} aria-selected={view === "flow"} onClick={() => switchView("flow")} data-testid="studio-view-flow">
-            {copy(pc, "studio.view.flow")}
-          </button>
-        </div>
-        <Link className="btn" href={basePath}>
-          <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
-        </Link>
-      </div>
+      ) : null}
 
       {notice ? (
-        <div className={notice.ok ? "note" : "alert warn"} role="status" style={{ marginBottom: 12 }}>
+        <Alert severity={notice.ok ? "info" : "warning"} role="status" style={{ marginBottom: 12 }}>
           {notice.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />} {notice.message}
           {notice.report && !notice.report.valid ? (
             <ul>
@@ -216,13 +249,14 @@ export function FollowUpEditor({
               ))}
             </ul>
           ) : null}
-        </div>
+        </Alert>
       ) : null}
 
       {rows.tracks.map((track) => {
         const open = openTrack === track.key;
         return (
-          <div className="card followup-track" key={track.key}>
+          <div key={track.key}>
+          <Card className="card followup-track" sx={{ overflow: "visible" }}>
             <button type="button" className="followup-track-head" aria-expanded={open} onClick={() => setOpenTrack(open ? "" : track.key)}>
               <span className="qtype">{copy(pc, "followup.track")}</span>
               <strong>{track.label || track.key}</strong>
@@ -269,7 +303,9 @@ export function FollowUpEditor({
               />
             ) : null}
             {open && view === "list" ? (
-              <div className="followup-steps">
+              // Spec §6: the panel swap fades out and rises in, and the card keeps its height
+              // instead of jumping between tracks of different lengths.
+              <TabPanel tabKey={track.key} className="followup-steps">
                 {track.steps.length === 0 ? <p className="muted">{copy(pc, "followup.empty")}</p> : null}
                 {track.steps.map((step, index) => (
                   <StepCard
@@ -292,16 +328,27 @@ export function FollowUpEditor({
                     legacyCondition={hasEngineCondition(track.module)}
                   />
                 ))}
-                <button type="button" className="btn sm ghost" onClick={() => addStep(track.key)}>
-                  <Plus size={14} /> {copy(pc, "followup.step.add")}
-                </button>
-              </div>
+                <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => addStep(track.key)}>
+                  {copy(pc, "followup.step.add")}
+                </Button>
+                {/* Spec §7 totals block: what this track actually runs. */}
+                <Box sx={TOTALS_SX}>
+                  <span>
+                    <b>{track.steps.length}</b> {copy(pc, "label.steps")}
+                  </span>
+                  <span>
+                    <b>{track.steps.filter((s) => s.scheduleKind === "series").length}</b>{" "}
+                    {copy(pc, "followup.totals.sessions")}
+                  </span>
+                </Box>
+              </TabPanel>
             ) : null}
+          </Card>
           </div>
         );
       })}
 
-      <footer className="card followup-publish">
+      <StickyActions>
         <div>
           <strong>{rows.tracks.reduce((n, t) => n + t.steps.length, 0)}</strong> {copy(pc, "label.steps")}
           {problems.length > 0 ? (
@@ -312,15 +359,16 @@ export function FollowUpEditor({
             </ul>
           ) : null}
         </div>
+        <span className="spacer" style={{ flex: 1 }} />
         <div className="followup-actions">
-          <button type="button" className="btn" disabled={pending} onClick={() => submit(false)}>
+          <Button color="primary" variant="outlined" loading={pending} disabled={pending} onClick={() => submit(false)}>
             {copy(pc, "followup.action.save_draft")}
-          </button>
-          <button type="button" className="btn p" disabled={pending || problems.length > 0} onClick={() => submit(true)}>
-            <Check className="ic" /> {copy(pc, "followup.action.publish")}
-          </button>
+          </Button>
+          <Button variant="contained" color="primary" startIcon={<Check size={16} />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+            {copy(pc, "followup.action.publish")}
+          </Button>
         </div>
-      </footer>
+      </StickyActions>
     </div>
   );
 }
@@ -382,38 +430,40 @@ function StepCard({
     <div className="qcard followup-step" data-step-key={step.key}>
       <div className="qcfg-head">
         <span className="qnum">{index + 1}</span>
-        <label className="qtype">
-          {copy(pc, "followup.step.type")}
-          <select value={step.taskType} disabled={locked} onChange={(e) => onChange({ taskType: e.target.value, answer: "" })}>
-            {taskTypes.map((t) => (
-              <option key={t.key} value={t.key}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span className="qtype">
+          <InlineSelect
+            label={copy(pc, "followup.step.type")}
+            value={step.taskType}
+            disabled={locked}
+            minWidth={190}
+            options={taskTypes.map((t) => ({ value: t.key, label: t.label }))}
+            onChange={(next) => onChange({ taskType: next, answer: "" })}
+          />
+        </span>
         {locked ? (
           <span className="muted small" title={copy(pc, "followup.notice.locked_key")}>
             <Lock size={12} /> {step.key}
           </span>
         ) : null}
         <span className="qcfg-actions">
-          <button type="button" className="ia" aria-label={copy(pc, "followup.step.move_up")} onClick={() => onMove(-1)}>
+          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "followup.step.move_up")} onClick={() => onMove(-1)}>
             <ChevronUp size={14} />
-          </button>
-          <button type="button" className="ia" aria-label={copy(pc, "followup.step.move_down")} onClick={() => onMove(1)}>
+          </IconButton>
+          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "followup.step.move_down")} onClick={() => onMove(1)}>
             <ChevronDown size={14} />
-          </button>
-          <button type="button" className="ia del" aria-label={copy(pc, "followup.step.remove")} disabled={locked} onClick={onRemove}>
+          </IconButton>
+          <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "followup.step.remove")} disabled={locked} onClick={onRemove}>
             <X size={14} />
-          </button>
+          </IconButton>
         </span>
       </div>
       {typeDescription ? <p className="qhelp muted small">{typeDescription}</p> : null}
 
       <label className="qtext">
         {copy(pc, "followup.step.title")}
-        <input
+        <MuiTextField
+          fullWidth
+          size="small"
           value={step.title}
           placeholder={step.titlePattern || ""}
           onChange={(e) => {
@@ -435,115 +485,114 @@ function StepCard({
           <div className="qcfg-title">{copy(pc, "followup.step.options")}</div>
           {step.options.map((opt, i) => (
             <div className="rowf" key={i}>
-              <input value={opt} onChange={(e) => onChange({ options: step.options.map((o, j) => (j === i ? e.target.value : o)) })} />
-              <button type="button" className="ia del" aria-label={copy(pc, "followup.step.remove")} onClick={() => onChange({ options: step.options.filter((_, j) => j !== i) })}>
+              <MuiTextField fullWidth size="small" value={opt} onChange={(e) => onChange({ options: step.options.map((o, j) => (j === i ? e.target.value : o)) })} />
+              <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "followup.step.remove")} onClick={() => onChange({ options: step.options.filter((_, j) => j !== i) })}>
                 <X size={14} />
-              </button>
+              </IconButton>
             </div>
           ))}
-          <button type="button" className="btn sm ghost" onClick={() => onChange({ options: [...step.options, ""] })}>
-            <Plus size={14} /> {copy(pc, "followup.step.add_option")}
-          </button>
+          <Button color="primary" variant="text" size="small" startIcon={<Plus size={14} />} onClick={() => onChange({ options: [...step.options, ""] })}>
+            {copy(pc, "followup.step.add_option")}
+          </Button>
         </div>
       ) : null}
 
       <div className="qcfg followup-proof">
         <label className="numlbl">
           {copy(pc, "followup.step.proof_videos")}
-          <input className="numfield" type="number" min={0} max={10} value={step.proofVideos} onChange={(e) => onChange({ proofVideos: Math.max(0, Number(e.target.value) || 0) })} />
+          <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0, max: 10 } }} value={step.proofVideos} onChange={(e) => onChange({ proofVideos: Math.max(0, Number(e.target.value) || 0) })} />
         </label>
         <label className="numlbl">
           {copy(pc, "followup.step.proof_photos")}
-          <input className="numfield" type="number" min={0} max={10} value={step.proofPhotos} onChange={(e) => onChange({ proofPhotos: Math.max(0, Number(e.target.value) || 0) })} />
+          <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0, max: 10 } }} value={step.proofPhotos} onChange={(e) => onChange({ proofPhotos: Math.max(0, Number(e.target.value) || 0) })} />
         </label>
       </div>
 
       {owners.length > 0 ? (
         <div className="qcfg followup-owner">
-          <label title={copy(pc, "followup.step.owner_hint")}>
-            {copy(pc, "followup.step.owner")}
-            <select data-testid="step-owner" value={step.owner} onChange={(e) => onChange({ owner: e.target.value })}>
-              <option value="">{copy(pc, "followup.step.owner_any")}</option>
-              {owners.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <InlineSelect
+            label={copy(pc, "followup.step.owner")}
+            value={step.owner}
+            minWidth={220}
+            options={[{ value: "", label: copy(pc, "followup.step.owner_any") }, ...owners.map((o) => ({ value: o.key, label: o.label }))]}
+            onChange={(next) => onChange({ owner: next })}
+          />
+          <span className="sr-only" data-testid="step-owner">
+            {copy(pc, "followup.step.owner_hint")}
+          </span>
         </div>
       ) : null}
 
       <div className="qcfg followup-schedule">
-        <label>
-          {copy(pc, "followup.step.schedule")}
-          <select value={step.scheduleKind} onChange={(e) => onChange({ scheduleKind: e.target.value as ScheduleKind })}>
-            {scheduleKinds.map((k) => (
-              <option key={k.key} value={k.key} title={k.title}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <InlineSelect
+          label={copy(pc, "followup.step.schedule")}
+          value={step.scheduleKind}
+          minWidth={180}
+          options={scheduleKinds.map((k) => ({ value: k.key, label: k.label }))}
+          onChange={(next) => onChange({ scheduleKind: next as ScheduleKind })}
+        />
         {step.scheduleKind === "after_event" ? (
           <label className="numlbl">
             {copy(pc, "followup.step.offset_minutes")}
-            <input className="numfield" type="number" min={0} value={step.offsetMinutes} onChange={(e) => onChange({ offsetMinutes: Number(e.target.value) || 0 })} />
+            <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.offsetMinutes} onChange={(e) => onChange({ offsetMinutes: Number(e.target.value) || 0 })} />
           </label>
         ) : null}
         {step.scheduleKind === "at_fixed_time" ? (
           <>
             <label className="numlbl">
               {copy(pc, "followup.step.day_offset")}
-              <input className="numfield" type="number" min={0} value={step.dayOffset} onChange={(e) => onChange({ dayOffset: Number(e.target.value) || 0 })} />
+              <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.dayOffset} onChange={(e) => onChange({ dayOffset: Number(e.target.value) || 0 })} />
             </label>
             <label className="numlbl">
               {copy(pc, "followup.step.time")}
-              <input className="numfield" value={step.time} placeholder="07:00" onChange={(e) => onChange({ time: e.target.value })} />
+              <MuiTextField size="small" className="numfield" value={step.time} placeholder="07:00" onChange={(e) => onChange({ time: e.target.value })} />
             </label>
           </>
         ) : null}
         {step.scheduleKind === "series" ? (
           <>
-            <label>
-              {copy(pc, "followup.step.basis")}
-              <select value={step.basis} onChange={(e) => onChange({ basis: e.target.value as SeriesBasis })}>
-                <option value="fixed_times">{copy(pc, "followup.basis.fixed_times")}</option>
-                <option value="next_sessions">{copy(pc, "followup.basis.next_sessions")}</option>
-                <option value="from_event">{copy(pc, "followup.basis.from_event")}</option>
-              </select>
-            </label>
+            <InlineSelect
+              label={copy(pc, "followup.step.basis")}
+              value={step.basis}
+              minWidth={180}
+              options={[
+                { value: "fixed_times", label: copy(pc, "followup.basis.fixed_times") },
+                { value: "next_sessions", label: copy(pc, "followup.basis.next_sessions") },
+                { value: "from_event", label: copy(pc, "followup.basis.from_event") },
+              ]}
+              onChange={(next) => onChange({ basis: next as SeriesBasis })}
+            />
             {step.basis === "from_event" ? (
               <>
                 <label className="numlbl">
                   {copy(pc, "followup.step.interval_minutes")}
-                  <input className="numfield" type="number" min={1} value={step.intervalMinutes} onChange={(e) => onChange({ intervalMinutes: Math.max(1, Number(e.target.value) || 1) })} />
+                  <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.intervalMinutes} onChange={(e) => onChange({ intervalMinutes: Math.max(1, Number(e.target.value) || 1) })} />
                 </label>
                 <label className="numlbl">
                   {copy(pc, "followup.step.count")}
-                  <input className="numfield" type="number" min={1} max={100} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
+                  <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1, max: 100 } }} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
                 </label>
               </>
             ) : (
               <>
                 <label>
                   {copy(pc, "followup.step.times")}
-                  <input value={step.times} placeholder="07:00, 11:00, 15:00" onChange={(e) => onChange({ times: e.target.value })} />
+                  <MuiTextField fullWidth size="small" value={step.times} placeholder="07:00, 11:00, 15:00" onChange={(e) => onChange({ times: e.target.value })} />
                 </label>
                 {step.basis === "next_sessions" ? (
                   <label className="numlbl">
                     {copy(pc, "followup.step.count")}
-                    <input className="numfield" type="number" min={1} max={100} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
+                    <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1, max: 100 } }} value={step.count} onChange={(e) => onChange({ count: Math.max(1, Number(e.target.value) || 1) })} />
                   </label>
                 ) : (
                   <label className="numlbl">
                     {copy(pc, "followup.step.days")}
-                    <input className="numfield" type="number" min={1} value={step.days} onChange={(e) => onChange({ days: Math.max(1, Number(e.target.value) || 1) })} />
+                    <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.days} onChange={(e) => onChange({ days: Math.max(1, Number(e.target.value) || 1) })} />
                   </label>
                 )}
                 <label className="numlbl">
                   {copy(pc, "followup.step.pre_notify")}
-                  <input className="numfield" type="number" min={0} value={step.preNotifyMinutes} onChange={(e) => onChange({ preNotifyMinutes: Number(e.target.value) || 0 })} />
+                  <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 0 } }} value={step.preNotifyMinutes} onChange={(e) => onChange({ preNotifyMinutes: Number(e.target.value) || 0 })} />
                 </label>
               </>
             )}
@@ -551,7 +600,7 @@ function StepCard({
               {step.basis === "next_sessions" ? (
                 <span>
                   {followUpCopy(pc)("followup.preview.series_next_sessions", { n: step.count })}{" "}
-                  <input className="numfield followup-example-time" value={exampleTime} placeholder="15:00" aria-label={copy(pc, "followup.preview.example_time")} onChange={(e) => setExampleTime(e.target.value)} />
+                  <MuiTextField size="small" className="numfield followup-example-time" value={exampleTime} placeholder="15:00" aria-label={copy(pc, "followup.preview.example_time")} onChange={(e) => setExampleTime(e.target.value)} />
                 </span>
               ) : (
                 followUpCopy(pc)(step.basis === "from_event" ? "followup.preview.series_from_event" : "followup.preview.series", { n: expandSeriesRows(step).length })
@@ -568,71 +617,51 @@ function StepCard({
         ) : null}
         {step.scheduleKind === "after_step" ? (
           <>
-            <label>
-              {copy(pc, "followup.step.after_step")}
-              <select value={step.afterStep} onChange={(e) => onChange({ afterStep: e.target.value })}>
-                <option value="">—</option>
-                {earlier.map((s) => (
-                  <option key={s.key} value={s.key}>
-                    {s.title || s.key}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <InlineSelect
+              label={copy(pc, "followup.step.after_step")}
+              value={step.afterStep}
+              minWidth={180}
+              options={[{ value: "", label: "—" }, ...earlier.map((s) => ({ value: s.key, label: s.title || s.key }))]}
+              onChange={(next) => onChange({ afterStep: next })}
+            />
             <label className="numlbl">
               {copy(pc, "followup.step.offset_minutes")}
-              <input className="numfield" type="number" min={1} value={step.offsetMinutes} onChange={(e) => onChange({ offsetMinutes: Number(e.target.value) || 0 })} />
+              <MuiTextField size="small" className="numfield" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.offsetMinutes} onChange={(e) => onChange({ offsetMinutes: Number(e.target.value) || 0 })} />
             </label>
           </>
         ) : null}
       </div>
 
       <div className="qcfg followup-gates">
-        <label>
-          {copy(pc, "followup.step.section")}
-          <select value={step.section} onChange={(e) => onChange({ section: e.target.value })}>
-            {sections.map((s) => (
-              <option key={s.key} value={s.key} title={s.title}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <InlineSelect
+          label={copy(pc, "followup.step.section")}
+          value={step.section}
+          minWidth={170}
+          options={sections.map((s) => ({ value: s.key, label: s.label, title: s.title }))}
+          onChange={(next) => onChange({ section: next })}
+        />
         {/* The legacy engine condition (kid pen unresolved) and an answer-driven branch are two
             gates; rendering both selects on one step read as a contradiction (PR 308 review).
             The legacy select is offered only where it means something: a track that has such a
             condition and a step not already on a branch. */}
         {legacyCondition && !step.whenStep ? (
-          <label>
-            {copy(pc, "followup.step.condition")}
-            <select value={step.when} onChange={(e) => onChange({ when: e.target.value })}>
-              {conditions.map((c) => (
-                <option key={c.key || "always"} value={c.key}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <InlineSelect
+            label={copy(pc, "followup.step.condition")}
+            value={step.when}
+            minWidth={170}
+            options={conditions.map((c) => ({ value: c.key, label: c.label }))}
+            onChange={(next) => onChange({ when: next })}
+          />
         ) : null}
         {step.when ? null : <BranchField pc={pc} step={step} earlier={earlier} answerKinds={answerKinds} onChange={onChange} />}
-        <label className="chkline">
-          <input type="checkbox" checked={step.hardTimeGate} onChange={(e) => onChange({ hardTimeGate: e.target.checked })} /> {copy(pc, "followup.step.hard_time_gate")}
-        </label>
-        <label className="chkline">
-          <input type="checkbox" checked={step.waitForAll} onChange={(e) => onChange({ waitForAll: e.target.checked })} /> {copy(pc, "followup.step.wait_for_all")}
-        </label>
+        <FormControlLabel className="chkline" control={<Checkbox checked={step.hardTimeGate} onChange={(e) => onChange({ hardTimeGate: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "followup.step.hard_time_gate")}</>} />
+        <FormControlLabel className="chkline" control={<Checkbox checked={step.waitForAll} onChange={(e) => onChange({ waitForAll: e.target.checked })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{copy(pc, "followup.step.wait_for_all")}</>} />
         {earlier.length > 0 ? (
           <div className="followup-requires">
             <span className="muted small">{copy(pc, "followup.step.requires")}</span>
             {earlier.map((s) => (
-              <label key={s.key} className="chkline">
-                <input
-                  type="checkbox"
-                  checked={step.requires.includes(s.key)}
-                  onChange={(e) => onChange({ requires: e.target.checked ? [...step.requires, s.key] : step.requires.filter((r) => r !== s.key) })}
-                />{" "}
-                {s.title || s.key}
-              </label>
+              <FormControlLabel key={s.key} className="chkline" control={<Checkbox checked={step.requires.includes(s.key)} onChange={(e) => onChange({ requires: e.target.checked ? [...step.requires, s.key] : step.requires.filter((r) => r !== s.key) })} sx={{ p: { xs: 1.5, sm: 1 } }} />} label={<>{" "}
+                {s.title || s.key}</>} />
             ))}
           </div>
         ) : null}

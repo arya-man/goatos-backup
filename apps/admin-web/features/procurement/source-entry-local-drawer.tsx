@@ -309,7 +309,6 @@ export function SourceEntryLocalDrawer({
             <div className="hk">{loadLabels[8]}</div>
             <div><Tag tone={displayedItem.status.tone}>{displayedItem.status.label}</Tag></div>
           </div>
-          <div className="note" style={{ marginTop: 14 }}>{copy(pageContract, "drawer.load.note")}</div>
         </div>
         <div className="df">
           <Link href={displayedItem.detailHref} className="btn p">{copy(pageContract, "action.open_load_actions")}</Link>

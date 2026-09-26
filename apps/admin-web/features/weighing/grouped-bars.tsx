@@ -19,9 +19,14 @@
 // shed in one breed is directly comparable to a shed in another — which is the whole point of
 // the shed tab.
 //
-// Server component: no client JS, theme tokens only, and every string arrives already resolved
+// Each bar is the MUI Minimal template's EcommerceSalesOverview item (via the kit BarList), with
+// the template Tooltip on hover. Theme tokens only, and every string arrives already resolved
 // from the page contract. It renders no copy of its own.
+import { BarList, type BarListRow } from "@/components/bar-list";
+import { EmptyState } from "@/components/app/empty-state";
 import { Tag, type Tone } from "@/components/ui-primitives";
+import Box from "@mui/material/Box";
+import Tooltip from "@mui/material/Tooltip";
 
 /** One measured bar inside a group. `seriesKey` selects which scale and unit it is drawn on. */
 export type GroupedBar = {
@@ -106,9 +111,7 @@ export function GroupedBars({
   const drawable = groups.filter((group) => group.bars.some((bar) => Number.isFinite(bar.value)));
   if (drawable.length === 0) {
     return (
-      <div className="wbars-empty wbars-bands" role="note">
-        <span className="muted small">{emptyLabel}</span>
-      </div>
+      <EmptyState title={emptyLabel} className="wbars-empty wbars-bands" />
     );
   }
 
@@ -129,91 +132,97 @@ export function GroupedBars({
     }),
   );
 
-  return (
-    <div className="wgrouped" role="group" aria-label={chartLabel}>
-      <div className="wgrouped-legend">
-        {series.map((s, index) => (
-          <span key={s.key}>
-            <i className={`wgl s${index}`} aria-hidden /> {s.label}
+  const seriesColor = ["var(--brand)", "var(--muted)", "var(--teal)"];
+  // TWO SCALES: every bar is drawn against its OWN series' domain (see the header note), so the
+  // kit list receives pre-scaled values on a common 0-100 axis and prints the real figure.
+  const scaled = (value: number, domain: { lo: number; hi: number; span: number }) => {
+    const k = 100 / Math.max(Math.abs(domain.lo), domain.hi, 1);
+    return value * k;
+  };
+  const anyNegative = [...domains.values()].some((d) => d.lo < 0);
+  const anyPositive = [...domains.values()].some((d) => d.hi > 0);
+  const hintNode = (bar: GroupedBar) =>
+    bar.hint ? (
+      <span className="wgl-hint">
+        {/* The template Tooltip: hover, keyboard focus and a tap (no long-press) open it; it is
+            portalled, so no card or scroll box can clip it. The `i` is focusable so the list is
+            reachable without a pointer; `note` because it describes the bar. */}
+        <Tooltip
+          enterTouchDelay={0}
+          leaveTouchDelay={8000}
+          title={
+            <Box component="span" sx={{ display: "flex", flexDirection: "column", gap: 0.5, maxHeight: 260, overflowY: "auto", textAlign: "left" }}>
+              <Box component="b" sx={{ typography: "subtitle2" }}>{bar.hint.title}</Box>
+              {bar.hint.sections.some((section) => section.items.length > 0) ? (
+                bar.hint.sections.map((section) => (
+                  <Box component="span" key={section.heading ?? "all"} sx={{ display: "flex", flexDirection: "column", gap: 0.25, "& + &": { mt: 0.75 } }}>
+                    {section.heading ? (
+                      <Box component="span" sx={{ typography: "overline", opacity: 0.72 }}>{section.heading}</Box>
+                    ) : null}
+                    {section.items.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </Box>
+                ))
+              ) : (
+                <Box component="span" sx={{ opacity: 0.72 }}>{bar.hint.emptyLabel}</Box>
+              )}
+            </Box>
+          }
+        >
+          <span className="wgl-i" tabIndex={0} role="note" aria-label={bar.hint.ariaLabel}>
+            i
           </span>
-        ))}
-      </div>
-      {drawable.map((group) => (
-        <section className="wgrouped-group" key={group.key} aria-label={group.heading}>
-          <h3 className="wgrouped-heading">
+        </Tooltip>
+      </span>
+    ) : null;
+  return (
+    <BarList
+      ariaLabel={chartLabel}
+      className="wgrouped"
+      legend={series.map((s, index) => ({ label: s.label, color: seriesColor[index % seriesColor.length] }))}
+      domain={{ lo: anyNegative ? -100 : 0, hi: anyPositive ? 100 : 0 }}
+      groups={drawable.map((group) => ({
+        key: group.key,
+        headingText: group.heading,
+        heading: (
+          <>
             {group.heading}
             {group.subheading ? <span className="muted small"> · {group.subheading}</span> : null}
-          </h3>
-          <ul className="wbars wbars-bands">
-            {group.bars
-              .filter((bar) => Number.isFinite(bar.value))
-              .map((bar) => {
-                const s = seriesByKey.get(bar.seriesKey);
-                const domain = domains.get(scaleOf(bar.seriesKey));
-                if (!s || !domain) return null;
-                const seriesIndex = series.findIndex((entry) => entry.key === bar.seriesKey);
-                const zeroPct = ((0 - domain.lo) / domain.span) * 100;
-                const width = (Math.abs(bar.value) / domain.span) * 100;
-                const negative = bar.value < 0;
-                return (
-                  <li className="wbar" key={bar.key}>
-                    <span className="wbl" title={bar.label}>
-                      <span className="wbl-text">{bar.label}</span>
-                      {bar.hint ? (
-                        <span className="wgl-hint">
-                          {/* Focusable so the panel is reachable without a pointer; `note` because
-                              it describes the bar rather than doing anything. */}
-                          <span className="wgl-i" tabIndex={0} role="note" aria-label={bar.hint.ariaLabel}>
-                            i
-                          </span>
-                          <span className="wgl-pop">
-                            <b>{bar.hint.title}</b>
-                            {bar.hint.sections.some((section) => section.items.length > 0) ? (
-                              bar.hint.sections.map((section) => (
-                                <span className="wgl-pop-list" key={section.heading ?? "all"}>
-                                  {section.heading ? <i className="wgl-pop-park">{section.heading}</i> : null}
-                                  {section.items.map((item) => (
-                                    <span key={item}>{item}</span>
-                                  ))}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="muted small">{bar.hint.emptyLabel}</span>
-                            )}
-                          </span>
-                        </span>
-                      ) : null}
-                      {bar.noteLabel ? (
-                        <span className="wbar-mode">
-                          <Tag tone={bar.noteTone ?? "mut"}>{bar.noteLabel}</Tag>
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="wbt">
-                      {domain.lo < 0 && domain.hi > 0 ? (
-                        <b className="wbzero" style={{ left: `${zeroPct}%` }} />
-                      ) : null}
-                      <i
-                        className={`s${seriesIndex}${negative ? " neg" : ""}`}
-                        style={{
-                          marginLeft: `${negative ? zeroPct - width : zeroPct}%`,
-                          width: `${Math.max(width, 0.6)}%`,
-                        }}
-                      />
-                    </span>
-                    <span className={`wbv${negative ? " neg" : ""}`}>
-                      {bar.value.toLocaleString("en-IN", {
-                        maximumFractionDigits: s.fractionDigits ?? 0,
-                        minimumFractionDigits: s.fractionDigits ?? 0,
-                      })}{" "}
-                      {s.unit}
-                    </span>
-                  </li>
-                );
-              })}
-          </ul>
-        </section>
-      ))}
-    </div>
+          </>
+        ),
+        rows: group.bars
+          .filter((bar) => Number.isFinite(bar.value))
+          .map((bar): BarListRow | null => {
+            const s = seriesByKey.get(bar.seriesKey);
+            const domain = domains.get(scaleOf(bar.seriesKey));
+            if (!s || !domain) return null;
+            const seriesIndex = series.findIndex((entry) => entry.key === bar.seriesKey);
+            const figure = `${bar.value.toLocaleString("en-IN", {
+              maximumFractionDigits: s.fractionDigits ?? 0,
+              minimumFractionDigits: s.fractionDigits ?? 0,
+            })} ${s.unit}`;
+            return {
+              key: bar.key,
+              label: <span className="wbl-text">{bar.label}</span>,
+              labelText: `${group.heading} · ${bar.label}`,
+              value: scaled(bar.value, domain),
+              display: figure,
+              series: s.label === bar.label ? undefined : s.label,
+              color: bar.value < 0 ? "var(--danger)" : seriesColor[seriesIndex % seriesColor.length],
+              // The `i` hint rides in the note slot, OUTSIDE the clamped label text, so the clamp's
+              // overflow can never clip its panel; the chip follows it as before.
+              note:
+                bar.hint || bar.noteLabel ? (
+                  <>
+                    {hintNode(bar)}
+                    {bar.noteLabel ? <Tag tone={bar.noteTone ?? "mut"}>{bar.noteLabel}</Tag> : null}
+                  </>
+                ) : undefined,
+            };
+          })
+          .filter((row): row is BarListRow => row !== null),
+      }))}
+    />
   );
 }

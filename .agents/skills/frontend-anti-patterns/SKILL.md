@@ -131,6 +131,29 @@ chapters below; do not review from the summary.
   fixed sleeps. Axe plus pixel screenshots do not replace keyboard and visual
   review.
 
+## UI must match the MUI Minimal kit (machine gate: `npm --prefix apps/admin-web run design:guard`)
+
+- Use `components/kit` + `DataTable`/`DenseTable`/`Tag` and `var(--…)` tokens from
+  `apps/admin-web/app/minimal-tokens.css` only. Raw px/radius/shadow/font-size literals and raw
+  `<table>`/`<button>`/`<select>`/tablist/dialog/tooltip/chip markup in feature code fail the guard.
+- New component: spec (`docs/design/mui-minimal-spec.md` + token) -> kit -> story (states + 390px,
+  light/dark) -> baseline. A kit component without a story fails `kit-missing-story`.
+- A restyle never introduces new UI behaviour; never reopen an item in `docs/design/redesign-regression-guard.md`.
+- Mobile webview: tap targets >= `var(--tap-min)` (44px), fixed overlays through kit `BodyPortal` /
+  `Sheet` / `Dialog`, `100dvh`, no sideways page scroll.
+- Legacy debt is a shrink-only per-file ratchet in `design-system-waivers.json`; never raise it.
+- Production bug CLASSES are automated guards. `scripts/lib/visual-pattern-guards.mjs` (route visual
+  lane) adds `P-text-icon-overlap`, `P-wide-table-no-wrapper`, `P-chart-axis-tiny` (<11px),
+  `P-pinned-bar-blur-flicker`, `P-drawer-filter-mismatch` and `P-chart-hover-remount`. `raw-chart-lib`
+  refuses recharts/d3/chart.js/nivo/victory/visx/echarts/highcharts — charts are Apex (via
+  `components/minimal/chart` or `components/kit`) or the two inline helpers (`svg-bars`, `svg-series`).
+  Full pattern → guard table: `docs/design/README.md` §5b.
+- MUI Minimal template is the reference. Every non-dynamic route in `scripts/smoke-visual-live.mjs`
+  matches a `route_prefixes` entry in `docs/design/route-template-map.json`; a NEW page must add its
+  area in the same change or fail `route-template-map-missing`. Template lives at
+  `~/mesha/mui/Minimal_TypeScript_v7.7.0` (Ravi laptop; licensed, NOT in the repo). Palette is
+  locked to Mesha green; template gives structure, density, motion and interaction patterns only.
+
 ## Proven performance patterns (from main + #415)
 
 Fix catalog PP-1..PP-21 (bad/good snippet, source commit, enforcing guard or

@@ -1,7 +1,10 @@
 "use client";
 
-import { Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import { DropdownPaper } from "@/components/app/dropdown-paper";
 
 /**
  * The toolbar's people filter as the CEO asked for it (2026-09-18): a plain dropdown button
@@ -10,6 +13,9 @@ import { useEffect, useId, useRef, useState } from "react";
  *
  * No avatar stack, no overflow chip, no custom square standing in for a checkbox: the box IS
  * the tick, drawn with the same icon the rest of the console uses.
+ *
+ * The list is the template dropdown paper IN PLACE (not a portalled popover): inside the phone
+ * filter sheet it opens in flow, full width, so the sheet's own scroll reaches every row.
  */
 export type PeopleDropdownOption = { id: string; name: string; title?: string };
 
@@ -82,37 +88,38 @@ export function TaskPeopleDropdown({
         <ChevronDown className="ic" style={{ width: 13 }} aria-hidden="true" />
       </button>
       {open ? (
-        <div className="lt-fdrop-pop lt-people-pop" role="group" id={listID} aria-label={label}>
-          <label className={`lt-people-row${selected.length === 0 ? " is-on" : ""}`}>
-            <input
-              type="checkbox"
-              checked={selected.length === 0}
-              onChange={() => {
-                onChange([]);
-                setOpen(false);
-              }}
-            />
-            <span className="lt-people-box" aria-hidden="true">
-              {selected.length === 0 ? <Check className="ic" /> : null}
-            </span>
-            <span className="lt-people-name">{allLabel}</span>
-          </label>
+        <DropdownPaper className="lt-fdrop-pop lt-people-pop" role="group" id={listID} aria-label={label}>
+          <FormControlLabel
+            className={`lt-people-row${selected.length === 0 ? " is-on" : ""}`}
+            control={
+              <Checkbox
+                checked={selected.length === 0}
+                onChange={() => {
+                  onChange([]);
+                  setOpen(false);
+                }}
+                sx={{ p: { xs: 1.5, sm: 1 } }}
+              />
+            }
+            label={<span className="lt-people-name">{allLabel}</span>}
+          />
           {options.map((option) => {
             const on = selected.includes(option.id);
             return (
-              <label key={option.id} className={`lt-people-row${on ? " is-on" : ""}`}>
-                <input type="checkbox" checked={on} onChange={() => toggle(option.id)} />
-                <span className="lt-people-box" aria-hidden="true">
-                  {on ? <Check className="ic" /> : null}
-                </span>
-                <span className="lt-people-name">
-                  {option.name}
-                  {option.title ? <span className="lt-people-title"> — {option.title}</span> : null}
-                </span>
-              </label>
+              <FormControlLabel
+                key={option.id}
+                className={`lt-people-row${on ? " is-on" : ""}`}
+                control={<Checkbox checked={on} onChange={() => toggle(option.id)} sx={{ p: { xs: 1.5, sm: 1 } }} />}
+                label={
+                  <span className="lt-people-name">
+                    {option.name}
+                    {option.title ? <span className="lt-people-title"> — {option.title}</span> : null}
+                  </span>
+                }
+              />
             );
           })}
-        </div>
+        </DropdownPaper>
       ) : null}
     </div>
   );

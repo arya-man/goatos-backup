@@ -1,8 +1,16 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { Caption } from "@/components/app/caption";
+import { EmptyState } from "@/components/app/empty-state";
+import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
+import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { redirect } from "next/navigation";
-import { Phone } from "lucide-react";
+import { Building2, CalendarRange, CircleCheck, Clock, Phone } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
-import { LinkPending } from "@/components/link-pending";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -13,8 +21,10 @@ import { istDayPlus, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { humanDate, num } from "./sales-format";
 import { SalesPageHeader } from "./sales-chrome";
+import Alert from "@mui/material/Alert";
 import { MarketTrendSection } from "./market-trend-section";
 import { salesErrorText } from "./sales-error";
+import Box from "@mui/material/Box";
 
 const PAGE_PATH = "/sales/market-analytics";
 /** The window chips, in days. 90 is the backend's own default. */
@@ -100,53 +110,65 @@ export async function MarketAnalyticsPage({
       <SalesPageHeader pageContract={pageContract} />
 
       {!analyticsResult.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
+        <Alert severity="error" style={{ marginBottom: 14 }}>
           {salesErrorText(analyticsResult.error, copy(pageContract, "error.load"))}
-        </div>
+        </Alert>
       ) : null}
 
-      <div className="grid g4 kpi-row" style={{ marginTop: 12 }}>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.cities.label")}</div>
-          <div className="val">{num(cities.length)}</div>
-          <div className="dl">{copy(pageContract, "kpi.cities.hint")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.days.label")}</div>
-          <div className="val">{num(analytics.days)}</div>
-          <div className="dl">{copy(pageContract, "kpi.days.hint")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.latest.label")}</div>
-          <div className="val">{latestDate ? humanDate(latestDate) : none}</div>
-          <div className="dl">{copy(pageContract, "kpi.latest.hint")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.coverage.label")}</div>
-          <div className="val">{day ? `${num(day.done)} / ${num(day.done + day.pending)}` : none}</div>
-          <div className="dl">{copy(pageContract, "kpi.coverage.hint")}</div>
-        </div>
-      </div>
+      <Box sx={{ mt: 1.5 }}>
+      <KpiGrid>
+        <KpiCard
+          variant="gradient"
+          tone="primary"
+          label={copy(pageContract, "kpi.cities.label")}
+          value={cities.length}
+          watermark={<Building2 aria-hidden="true" />}
+        />
+        <KpiCard
+          variant="tint"
+          tone="info"
+          label={copy(pageContract, "kpi.days.label")}
+          value={analytics.days}
+          watermark={<CalendarRange aria-hidden="true" />}
+        />
+        <KpiCard
+          variant="tint"
+          tone="violet"
+          label={copy(pageContract, "kpi.latest.label")}
+          value={latestDate ? <Box component="span" sx={{ whiteSpace: "nowrap", overflowWrap: "normal", wordBreak: "normal", fontSize: { xs: "clamp(1.0625rem, 5.2vw, 1.375rem)", sm: "inherit" } }}>{humanDate(latestDate)}</Box> : none}
+          watermark={<Clock aria-hidden="true" />}
+        />
+        <KpiCard
+          variant="tint"
+          tone="success"
+          label={copy(pageContract, "kpi.coverage.label")}
+          value={day ? `${num(day.done)} / ${num(day.done + day.pending)}` : none}
+          watermark={<CircleCheck aria-hidden="true" />}
+        />
+      </KpiGrid>
+      </Box>
 
-      <div className="chips" role="group" aria-label={copy(pageContract, "filter.window.label")} style={{ marginTop: 12 }}>
-        {WINDOWS.map((w) => (
-          <Link
-            key={w}
-            href={hrefWithQuery(sp, { window: w === DEFAULT_WINDOW ? null : String(w) })}
-            scroll={false}
-            className={w === windowDays ? "btn sm p" : "btn sm"}
-            aria-current={w === windowDays ? "true" : undefined}
-          >
-            {copy(pageContract, `filter.window.${w}`)}
-            <LinkPending />
-          </Link>
-        ))}
-      </div>
+      <Box sx={{ mt: 1.5, mb: 1.75 }}>
+
+        <AnimatedTabs
+          variant="pill"
+          ariaLabel={copy(pageContract, "filter.window.label")}
+          value={String(windowDays)}
+          items={WINDOWS.map((w) => ({
+            value: String(w),
+            label: copy(pageContract, `filter.window.${w}`),
+            href: hrefWithQuery(sp, { window: w === DEFAULT_WINDOW ? null : String(w) }),
+          }))}
+        />
+
+      </Box>
 
       {analytics.series.length === 0 ? (
-        <div className="empty" style={{ marginTop: 12 }}>
-          {day && day.cards.length === 0 ? copy(pageContract, "empty.config") : copy(pageContract, "empty.analytics")}{" "}
-          <Link href="/sales/config">{copy(pageContract, "link.sales_config")}</Link>
+        <div style={{ marginTop: 12 }}>
+          <EmptyState
+            title={day && day.cards.length === 0 ? copy(pageContract, "empty.config") : copy(pageContract, "empty.analytics")}
+            action={<Link href="/sales/config" className="btn">{copy(pageContract, "link.sales_config")}</Link>}
+          />
         </div>
       ) : (
         <>
@@ -157,56 +179,58 @@ export async function MarketAnalyticsPage({
               <div className="sp" style={{ flex: 1 }} />
               {latestDate ? <Tag tone="info">{humanDate(latestDate)}</Tag> : null}
             </div>
-            <p className="muted small">{copy(pageContract, "section.latest.sub")}</p>
+            <Caption>{copy(pageContract, "section.latest.sub")}</Caption>
             <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.latest.title")}>
-              <table className="market-latest-table">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "column.city")}</th>
+              <Table className="market-latest-table">
+                <TableHead>
+                  <TableRow>
+                    <TableCell component="th">{copy(pageContract, "column.city")}</TableCell>
                     {latestQuestions.map((q) => (
-                      <th key={q.id} className="num">
+                      <TableCell component="th" key={q.id} className="num">
                         {q.label}
-                      </th>
+                      </TableCell>
                     ))}
-                    <th>{copy(pageContract, "column.recorded_on")}</th>
-                  </tr>
-                </thead>
-                <tbody>
+                    <TableCell component="th">{copy(pageContract, "column.recorded_on")}</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {latestCities.map((city) => {
                     const row = latestByCity.get(city.id);
                     const rowDate = row ? [...row.values()].reduce((max, c) => (c.business_date > max ? c.business_date : max), "") : "";
                     return (
-                      <tr key={city.id}>
-                        <td>
+                      <TableRow key={city.id}>
+                        <TableCell data-label={copy(pageContract, "column.city")}>
                           <b>{city.label}</b>
-                        </td>
+                        </TableCell>
                         {latestQuestions.map((q) => {
                           const cell = row?.get(q.id);
                           if (!cell) {
                             return (
-                              <td key={q.id} className="num muted">
+                              <TableCell key={q.id} className="num muted" data-label={q.label}>
                                 {none}
-                              </td>
+                              </TableCell>
                             );
                           }
                           const delta = cell.previous_price == null ? null : cell.price - cell.previous_price;
                           return (
-                            <td key={q.id} className="num" title={`${copy(pageContract, "column.recorded_on")} ${humanDate(cell.business_date)}`}>
+                            <TableCell key={q.id} className="num" data-label={q.label} title={`${copy(pageContract, "column.recorded_on")} ${humanDate(cell.business_date)}`}>
+                              <Box component="span" sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.25 }}>
                               <b>{priceWithUnit(cell.price, cell.unit_label)}</b>
-                              <div className="small" style={{ color: delta == null ? "var(--mut)" : delta > 0 ? "var(--ok)" : delta < 0 ? "var(--danger)" : "var(--mut)" }}>
+                              <span className="small"style={{ color: delta == null ? "var(--mut)" : delta > 0 ? "var(--ok)" : delta < 0 ? "var(--danger)" : "var(--mut)" }}>
                                 {delta == null
                                   ? copy(pageContract, "value.no_previous")
                                   : `${delta > 0 ? "▲" : delta < 0 ? "▼" : "•"} ${num(Math.abs(delta), Number.isInteger(delta) ? 0 : 2)}`}
-                              </div>
-                            </td>
+                              </span>
+                              </Box>
+                            </TableCell>
                           );
                         })}
-                        <td className="muted small">{rowDate ? humanDate(rowDate) : none}</td>
-                      </tr>
+                        <TableCell className="muted small" data-label={copy(pageContract, "column.recorded_on")}>{rowDate ? humanDate(rowDate) : none}</TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </section>
 

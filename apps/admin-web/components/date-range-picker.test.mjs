@@ -58,9 +58,9 @@ test("hosts can mark domain-specific days without giving the picker routing know
   assert.match(pickerSource, /markerFetchPath/);
   assert.match(pickerSource, /const markerDateSet = useMemo\(\(\) => new Set\(visibleMarkerDates\), \[visibleMarkerDates\]\);/);
   assert.match(pickerSource, /const marked = markerDateSet\.has\(key\);/);
-  assert.match(pickerSource, /className="top-date-marker"/);
-  assert.match(pickerSource, /className="top-date-marker-help"/);
-  assert.match(pickerSource, /className="top-date-marker-tip"/);
+  // Template anatomy: a dot Badge on the marked day and an info Tooltip in the footer that names it.
+  assert.match(pickerSource, /<Badge[\s\S]*?variant="dot"[\s\S]*?invisible=\{!marked/);
+  assert.match(pickerSource, /<Tooltip title=\{labels\.markerHint\}>/);
   assert.match(pickerSource, /labels\.markerHint/);
   assert.match(pickerSource, /const \[fetchedMarkerDates, setFetchedMarkerDates\] = useState<readonly string\[\]>\(\[\]\);/);
   assert.match(pickerSource, /const visibleMarkerDates = markerFetchPath \? \(markerMonthStartsInFuture \? \[\] : fetchedMarkerDates\) : markerDates;/);
@@ -84,11 +84,11 @@ test("a range is two clicks and stays ordered whichever end is picked first", ()
   assert.match(pickerSource, /if \(key < rangeStart\) commit\(key, rangeStart\);\s*\n\s*else commit\(rangeStart, key\);/);
 });
 
-test("opening the calendar scrolls it into view on a short window", () => {
-  // A filter row sits well down the page, so on a 700px-tall window the last weeks and the Today
-  // button open below the fold. "nearest" scrolls only as far as needed and is a no-op when it fits.
-  assert.match(pickerSource, /onToggle=/);
-  assert.match(pickerSource, /scrollIntoView\(\{ block: "nearest"/);
+test("the calendar opens fully on screen on a short window", () => {
+  // A filter row sits well down the page. The calendar is the template CustomPopover (a portaled
+  // MUI Popover), which positions itself inside the viewport and flips instead of opening below the
+  // fold or being clipped by the card it sits in.
+  assert.match(pickerSource, /<CustomPopover open=\{open\} anchorEl=\{anchor\}/);
 });
 
 test("the board card does not clip the calendar popover", () => {
@@ -107,9 +107,11 @@ test("date text is deterministic across server and browser locales", () => {
   // which tears the tree down. Same rule the top-bar picker carries.
   assert.doesNotMatch(pickerSource, /new Intl\.DateTimeFormat\(undefined,/);
   assert.match(pickerSource, /const DATE_DISPLAY_LOCALE = "en-GB";/);
+  // The trigger value and the day aria-labels; month and weekday headings come from the MUI X
+  // DateCalendar (adapter locale) inside the client-only popover, never server-rendered.
   assert.equal(
     pickerSource.match(/new Intl\.DateTimeFormat\(DATE_DISPLAY_LOCALE,/g)?.length,
-    4,
+    2,
     "every date label rendered by the picker must use the same explicit locale",
   );
 });

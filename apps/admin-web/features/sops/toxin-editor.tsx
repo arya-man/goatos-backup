@@ -1,4 +1,5 @@
 "use client";
+import Box from "@mui/material/Box";
 
 // THE TOXIN PROCEDURE IS AUTHORED (maintainer decision 2026-09-20,
 // docs/decisions/procurement-sop-driven.md).
@@ -13,15 +14,20 @@
 // The document says what the procedure IS; the engine still decides what happens when a strip
 // comes back void.
 import { useMemo, useState, useTransition } from "react";
-import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronUp, Lock, Plus, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, Lock, Plus, X } from "lucide-react";
+import MuiButton from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import MuiTextField from "@mui/material/TextField";
 
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { publishedHref } from "./published-href";
 import { blankToxinStep, emitToxin, toxinProblems, type ToxinRows, type ToxinStepKind, type ToxinStepRow } from "./toxin-model";
 import { ToxinFlow, toxinStepSummaryLine, waitWords, type ToxinInsert } from "./toxin-flow";
 import { publishToxinVersion, saveToxinVersion, type ToxinSaveResult } from "./sop-actions";
+import Alert from "@mui/material/Alert";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
+import { EditorHeader, inspectionEditorSx } from "./editor-chrome";
 
 type Props = {
   pageContract: AdminUiPageContract;
@@ -145,20 +151,20 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
           </span>
           <span className="muted small">{toxinStepSummaryLine(step, kindLabels, pc)}</span>
           <span className="sp" style={{ flex: 1 }} />
-          <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => moveStep(step.id, -1)}>
+          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_up")} disabled={index === 0} onClick={() => moveStep(step.id, -1)}>
             <ChevronUp className="ic" />
-          </button>
-          <button type="button" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === rows.steps.length - 1} onClick={() => moveStep(step.id, 1)}>
+          </IconButton>
+          <IconButton type="button" size="small" className="ia" aria-label={copy(pc, "inspection.question.move_down")} disabled={index === rows.steps.length - 1} onClick={() => moveStep(step.id, 1)}>
             <ChevronDown className="ic" />
-          </button>
-          <button type="button" className="ia del" aria-label={copy(pc, "tsop.step.remove")} onClick={() => removeStep(step.id)}>
+          </IconButton>
+          <IconButton type="button" size="small" className="ia del" aria-label={copy(pc, "tsop.step.remove")} onClick={() => removeStep(step.id)}>
             <X className="ic" />
-          </button>
+          </IconButton>
         </div>
         <div className="qbody">
           <label className="numfield">
             <span className="numlbl">{copy(pc, "tsop.step.title")}</span>
-            <input className="qtext" value={step.title} onChange={(e) => patchStep(step.id, { title: e.target.value })} />
+            <MuiTextField fullWidth size="small" className="qtext" value={step.title} onChange={(e) => patchStep(step.id, { title: e.target.value })} />
           </label>
           <label className="numfield">
             <span className="numlbl">{copy(pc, "tsop.step.instruction")}</span>
@@ -167,7 +173,7 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
           {step.kind === "wait" ? (
             <label className="numfield">
               <span className="numlbl">{copy(pc, "tsop.step.wait_minutes")}</span>
-              <input type="number" min={1} value={step.waitMinutes} onChange={(e) => patchStep(step.id, { waitMinutes: Number(e.target.value) || 0 })} />
+              <MuiTextField fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.waitMinutes} onChange={(e) => patchStep(step.id, { waitMinutes: Number(e.target.value) || 0 })} />
             </label>
           ) : (
             <div className="qcfg">
@@ -195,7 +201,7 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
               {step.gateAfterStep > 0 ? (
                 <label className="numfield">
                   <span className="numlbl">{copy(pc, "tsop.gate.minutes")}</span>
-                  <input type="number" min={1} value={step.gateMinutes} onChange={(e) => patchStep(step.id, { gateMinutes: Number(e.target.value) || 0 })} />
+                  <MuiTextField fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1 } }} value={step.gateMinutes} onChange={(e) => patchStep(step.id, { gateMinutes: Number(e.target.value) || 0 })} />
                 </label>
               ) : null}
             </div>
@@ -220,38 +226,32 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
   const totalWait = rows.steps.reduce((sum, s) => sum + (s.kind === "wait" ? s.waitMinutes : 0), 0);
 
   return (
-    <div className="screen on sop-inspection sop-weighing sop-feed">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            {copy(pc, "crumb")} · {pc.title} · <b>{sopName}</b>
-          </div>
-          <h1>{copy(pc, "tsop.title")}</h1>
-          <div className="sub">{copy(pc, "tsop.subtitle")}</div>
-          <div className="muted small" style={{ marginTop: 4 }}>
-            {versionLabel} · {copy(pc, "tsop.notice.pinned")}
-          </div>
-        </div>
-        <div className="acts">
-          <div className="subtabs studio-view-toggle" role="tablist" aria-label={copy(pc, "studio.view.label")}>
-            <button type="button" role="tab" className={view === "list" ? "on" : ""} aria-selected={view === "list"} onClick={() => switchView("list")} data-testid="studio-view-list">
-              {copy(pc, "studio.view.list")}
-            </button>
-            <button type="button" role="tab" className={view === "flow" ? "on" : ""} aria-selected={view === "flow"} onClick={() => switchView("flow")} data-testid="studio-view-flow">
-              {copy(pc, "studio.view.flow")}
-            </button>
-          </div>
-          <Link className="btn" href={basePath}>
-            <ChevronLeft className="ic" /> {copy(pc, "builder.back")}
-          </Link>
-        </div>
-      </div>
+    <Box className="screen on sop-inspection sop-weighing sop-feed" sx={inspectionEditorSx}>
+      <EditorHeader
+        crumbs={[copy(pc, "crumb"), pc.title, sopName]}
+        title={copy(pc, "tsop.title")}
+        subtitle={copy(pc, "tsop.subtitle")}
+        version={versionLabel}
+        notice={copy(pc, "tsop.notice.pinned")}
+        backHref={basePath}
+        actions={
+          <SegmentTabs
+            className="studio-view-toggle"
+            ariaLabel={copy(pc, "studio.view.label")}
+            value={view}
+            tabs={[
+              { value: "list", label: copy(pc, "studio.view.list"), onClick: () => switchView("list"), testId: "studio-view-list" },
+              { value: "flow", label: copy(pc, "studio.view.flow"), onClick: () => switchView("flow"), testId: "studio-view-flow" },
+            ]}
+          />
+        }
+      />
 
       {result ? (
-        <div className={`alert ${result.ok ? "ok" : ""}`} role="status">
+        <Alert severity={result.ok ? "success" : "error"} role="status">
           {result.ok ? <Check className="ic" /> : <AlertTriangle className="ic" />}
           <div>{result.message}</div>
-        </div>
+        </Alert>
       ) : null}
 
       {view === "flow" ? (
@@ -268,9 +268,9 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
           <div className="bd">
             <div className="qlist">
               {rows.steps.map((s, i) => stepCard(s, i))}
-              <button type="button" className="btn sm ghost" onClick={() => insertAt({ index: rows.steps.length })} data-testid="toxin-add-step">
-                <Plus className="ic" /> {copy(pc, "tsop.step.add")}
-              </button>
+              <MuiButton type="button" variant="text" size="small" startIcon={<Plus className="ic" />} onClick={() => insertAt({ index: rows.steps.length })} data-testid="toxin-add-step">
+                {copy(pc, "tsop.step.add")}
+              </MuiButton>
             </div>
           </div>
         </section>
@@ -297,13 +297,13 @@ export function ToxinEditor({ pageContract: pc, basePath, sopId, sopName, versio
           )}
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <button type="button" className="btn" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
+        <MuiButton type="button" variant="outlined" disabled={pending || problems.length > 0} onClick={() => submit(false)}>
           {copy(pc, "inspection.action.save_draft")}
-        </button>
-        <button type="button" className="btn p" disabled={pending || problems.length > 0} onClick={() => submit(true)}>
-          <Check className="ic" /> {copy(pc, "inspection.action.publish")}
-        </button>
+        </MuiButton>
+        <MuiButton type="button" variant="contained" startIcon={<Check className="ic" />} disabled={pending || problems.length > 0} onClick={() => submit(true)}>
+          {copy(pc, "inspection.action.publish")}
+        </MuiButton>
       </div>
-    </div>
+    </Box>
   );
 }

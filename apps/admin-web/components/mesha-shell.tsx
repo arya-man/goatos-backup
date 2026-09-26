@@ -2,43 +2,57 @@
 
 import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { LinkNavPending } from "@/components/app/link-nav-pending";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, MapPin } from "lucide-react";
+import { usePopover } from "minimal-shared/hooks";
+import Box from "@mui/material/Box";
+import Divider from "@mui/material/Divider";
+import ListSubheader from "@mui/material/ListSubheader";
+import MenuItem from "@mui/material/MenuItem";
+import MenuList from "@mui/material/MenuList";
+import Typography from "@mui/material/Typography";
+import type { Theme } from "@mui/material/styles";
+import { CustomPopover } from "@/components/minimal/custom-popover";
+import { Iconify } from "@/components/minimal/iconify";
+import { Label } from "@/components/minimal/label";
+import { TAP_MIN } from "@/components/minimal/_shared/tap";
 import {
-  AlertTriangle,
   Banknote,
   BarChart3,
+  BellRing,
   CalendarDays,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ClipboardCheck,
   ClipboardList,
   Edit3,
   Gavel,
-  SquareKanban,
   HeartPulse,
   ListChecks,
-  Menu,
-  MapPin,
   Milk,
-  Moon,
   Scale,
   Settings,
+  SquareKanban,
   Stethoscope,
-  Sun,
   TowerControl,
   Truck,
   Wheat,
   Workflow,
   Zap,
-} from "lucide-react";
+} from "@/components/shell/nav-icons";
+import type { NavSectionProps } from "@/layouts/template/nav-section";
+import { DashboardContent, DashboardLayout } from "@/layouts/dashboard";
+import { AccountButton } from "@/layouts/components/account-button";
+import "@/layouts/mesha-layout.css";
+import { ThemeToggle } from "@/components/app/theme-toggle";
+import Alert from "@mui/material/Alert";
+import { Avatar } from "@/components/app/avatar";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
+import { ScrollEdges } from "@/components/app/scroll-edges";
+import { NavTrailContext, type NavTrail } from "@/components/shell/nav-trail-context";
 import { NotificationBell } from "@/features/notifications";
 import {
-  PushPermissionPromptLazy,
   PushReceiptSync,
   PushRegistrationSync,
 } from "@/components/push-permission-prompt-lazy";
@@ -49,7 +63,7 @@ import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
 type NavItem = AdminWebBootstrapResponse["navigation"]["primary"][number];
 type RouteLabelRule = AdminWebBootstrapResponse["route_labels"][number];
-type TrailItem = { label: string; href: string };
+type TrailItem = NavTrail["items"][number];
 type PendingNavigationTiming = {
   id: string;
   from: string;
@@ -74,6 +88,9 @@ const iconByToken: Record<string, ElementType> = {
   // to the Control Tower icon.
   banknote: Banknote,
   "bar-chart-3": BarChart3,
+  // Alerts' declared icon in the backend nav contract (2026-09-16). It was never registered, so
+  // Alerts silently rendered the Control Tower icon.
+  "bell-ring": BellRing,
   "calendar-days": CalendarDays,
   "clipboard-check": ClipboardCheck,
   "clipboard-list": ClipboardList,
@@ -250,6 +267,10 @@ function normalizeTrail(items: TrailItem[]): TrailItem[] {
   return out.slice(-6);
 }
 
+
+/** Header popover rows: the template's MenuItem, with the webview tap floor at phone width. */
+const menuRowSx = (theme: Theme) => ({ gap: 1.5, [theme.breakpoints.down("sm")]: { minHeight: TAP_MIN } });
+
 export function MeshaShell({
   children,
   parks = [],
@@ -384,12 +405,11 @@ export function MeshaShell({
     ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE,
     ROUTE_PATTERNS_WITH_LOCAL_OR_NO_PARK_SCOPE,
   );
-  const [navOpen, setNavOpen] = useState(false);
-  const [rail, setRail] = useState(false);
-
-  const [isLight, setIsLight] = useState(false);
-  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
-  const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
+  // Top-bar menus are the template's header popovers (layouts/components/workspaces-popover and
+  // account-popover): CustomPopover owns the portal, outside-click and Escape dismissal and focus
+  // return, and opening one is a modal layer, so the other can never stay open underneath it.
+  const scopeMenu = usePopover();
+  const roleMenu = usePopover();
   const [routePending, setRoutePending] = useState(false);
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
   const trailRef = useRef<TrailItem[]>([]);
@@ -397,33 +417,6 @@ export function MeshaShell({
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNavigationRef = useRef<PendingNavigationTiming | null>(null);
   const pendingQueryNavigationRef = useRef<PendingQueryNavigationTiming | null>(null);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {};
-    for (const g of groups) {
-      init[g.id] = Boolean(g.default_open) || g.leaves.some((l) => l.href === active);
-    }
-    return init;
-  });
-  // Collapsed rail: the group's leaves are hidden, so toggling one open would be a click that
-  // visibly does nothing. In rail mode the icon navigates to that group's first leaf instead;
-  // expanded, it keeps the normal open/close behaviour.
-  const activateGroup = useCallback(
-    (group: { id: string; leaves?: { href: string }[] }): void => {
-      if (rail) {
-        const first = group.leaves?.[0]?.href;
-        if (first) {
-          router.push(first);
-          return;
-        }
-      }
-      // Inlined rather than calling toggleGroup(): that helper is declared ~200 lines below and
-      // relying on hoisting trips no-use-before-define, while moving this hook down would put it
-      // after an early return and break the rules of hooks.
-      setOpenGroups((prev) => ({ ...prev, [group.id]: !prev[group.id] }));
-    },
-    [rail, router],
-  );
-  const currentPageLabel = labelForPath(pathname, contract);
   const parkScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "park");
   const actor = contract.top_bar.role_preview;
   const ceoAIChatCopy: CEOAIChatCopy = {
@@ -448,7 +441,11 @@ export function MeshaShell({
       shellCopy(contract, "ceo_ai.starter_help"),
     ],
   };
+  // Error-class display rules the shell surfaces. Two weights: a DEGRADED contract (the DB-backed
+  // option families did not load, so some dropdowns are thin -- every page still works) is a compact
+  // muted notice; anything else keeps the full-width warning, because the page may be unusable.
   const alertDisplayRules = contract.display_rules.filter((rule) => rule.id.includes("error"));
+  const degradedRuleIds = new Set(["admin_ui_contract_family_load_error"]);
 
   useEffect(() => {
     preloadFirebasePerformance();
@@ -639,6 +636,19 @@ export function MeshaShell({
 
   useEffect(() => clearRoutePending, [clearRoutePending]);
 
+  const navTrailValue = useMemo<NavTrail>(
+    () => ({
+      items: navTrail,
+      back: () => {
+        startRoutePending();
+        applyNavTrail(trailRef.current.slice(0, -1));
+        router.back();
+      },
+      backTitle: (item) => `${shellCopy(contract, "nav.back_to_prefix")} ${item.label}`,
+    }),
+    [navTrail, applyNavTrail, startRoutePending, router, contract],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     function onClick(event: MouseEvent) {
@@ -648,6 +658,8 @@ export function MeshaShell({
       if (!anchor || anchor.target || anchor.hasAttribute("download")) return;
       if (anchor.getAttribute("aria-disabled") === "true") return;
       if (anchor.dataset.localOverlayNavigation === "true") return;
+      // The page header's trail back link steps history back itself (NavTrailContext.back).
+      if (anchor.dataset.navBack === "true") return;
       const nextUrl = new URL(anchor.href, window.location.href);
       if (nextUrl.origin !== window.location.origin) return;
       if (nextUrl.pathname === window.location.pathname && nextUrl.search === window.location.search) return;
@@ -656,7 +668,7 @@ export function MeshaShell({
       // reads as a stuck full-page navigation when the payload finishes before React reports a route
       // change. Reserve it for actual path changes.
       if (nextUrl.pathname === window.location.pathname) {
-        const source = anchor.closest(".side") ? "sidebar" : "link";
+        const source = anchor.closest(".msh-side") ? "sidebar" : "link";
         const from = `${window.location.pathname}${window.location.search}`;
         const to = `${nextUrl.pathname}${nextUrl.search}`;
         const superseded = pendingQueryNavigationRef.current;
@@ -687,10 +699,8 @@ export function MeshaShell({
         });
         return;
       }
-      startRoutePending(anchor, `${nextUrl.pathname}${nextUrl.search}`, anchor.closest(".side") ? "sidebar" : "link");
-      if (anchor.closest(".navback")) return;
-
-      if (anchor.closest(".side")) {
+      startRoutePending(anchor, `${nextUrl.pathname}${nextUrl.search}`, anchor.closest(".msh-side, .minimal__nav__dropdown__root") ? "sidebar" : "link");
+      if (anchor.closest(".msh-side, .minimal__nav__dropdown__root, [data-page-header]")) {
         applyNavTrail([]);
         return;
       }
@@ -714,49 +724,6 @@ export function MeshaShell({
     };
   }, [applyNavTrail, contract, popTrailForPath, startRoutePending]);
 
-  // All top-bar dropdowns (park scope, role/user) close together: clicking outside any
-  // menu root or pressing Escape dismisses them, and opening one closes the others (handled per-button).
-  function closeMenus() {
-    setScopeMenuOpen(false);
-    setRoleMenuOpen(false);
-  }
-  useEffect(() => {
-    if (!scopeMenuOpen && !roleMenuOpen) return;
-    function onDown(e: MouseEvent) {
-      const el = e.target as HTMLElement | null;
-      if (el && el.closest("[data-menu-root]")) return; // click inside a menu/trigger — its own handler acts
-      closeMenus();
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") closeMenus();
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [scopeMenuOpen, roleMenuOpen]);
-
-  useEffect(() => {
-    if (lockTopBarParkSelector && scopeMenuOpen) {
-      const id = window.setTimeout(() => setScopeMenuOpen(false), 0);
-      return () => window.clearTimeout(id);
-    }
-  }, [lockTopBarParkSelector, scopeMenuOpen]);
-
-  function toggleTheme() {
-    const next = !document.documentElement.classList.contains("light");
-    document.documentElement.classList.toggle("light", next);
-    setIsLight(next);
-  }
-  function toggleNav() {
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 880px)").matches) {
-      setNavOpen((o) => !o);
-      return;
-    }
-    setRail((o) => !o);
-  }
   function navHref(leaf: NavItem): string {
     // Calendar is a date-first command surface. Entering it from the global nav should open on today's
     // operating date, not inherit a stale top-bar as_of left behind by another screen.
@@ -796,285 +763,231 @@ export function MeshaShell({
     return scopeHref(pathname, scope, overrides, pageFilters);
   }
 
-  return (
+  // Minimal NavSection data from the backend nav contract. The shell keeps ownership of hrefs (scope
+  // carried per leaf) and of the active state (query-discriminated shared routes such as /actions),
+  // so each item passes `active` explicitly instead of the template's pathname rule.
+  const navIcon = (token: string) => {
+    const Icon = navIconForToken(token);
+    return <Icon className="msh-icon" />;
+  };
+  const groupFirstHref = (g: (typeof groups)[number]) => {
+    const first = g.leaves.find((l) => l.enabled) ?? g.leaves[0];
+    return first ? (first.enabled ? navHref(first) : first.href) : "#";
+  };
+  const navData: NavSectionProps["data"] = [];
+  if (primary.length) {
+    navData.push({
+      subheader: contract.copy["nav.eyebrow.primary"] ?? "Overview",
+      items: primary.map((n) => ({
+        title: n.label,
+        path: n.enabled ? navHref(n) : n.href,
+        icon: navIcon(n.icon),
+        active: n.enabled ? navActive(n) : false,
+        disabled: !n.enabled,
+      })),
+    });
+  }
+  if (groups.length) {
+    navData.push({
+      subheader: contract.copy["nav.eyebrow.groups"] ?? "Modules",
+      items: groups.map((g) => ({
+        title: g.label,
+        // Group path = first enabled leaf: the mini rail icon links there (layouts/dashboard/nav-vertical.tsx).
+        path: groupFirstHref(g),
+        icon: navIcon(g.icon),
+        active: g.leaves.some((l) => l.enabled && navActive(l)),
+        defaultOpen: Boolean(g.default_open),
+        children: g.leaves.map((l) => ({
+          title: l.label,
+          path: l.enabled ? navHref(l) : l.href,
+          active: l.enabled ? navActive(l) : false,
+          disabled: !l.enabled,
+        })),
+      })),
+    });
+  }
+
+  const headerRight = (
     <>
-      <div className="top">
-        {showSidebar ? (
-          <button
-            type="button"
-            className="iconbtn hamb"
-            onClick={toggleNav}
-            title={rail ? shellCopy(contract, "nav.expand") : shellCopy(contract, "nav.collapse")}
-            aria-label={rail ? shellCopy(contract, "nav.expand") : shellCopy(contract, "nav.collapse")}
-            aria-expanded={!rail}
-          >
-            <Menu className="ic" />
-          </button>
-        ) : null}
-        <div className="brand">
-          <span className="logo">{contract.top_bar.logo_text}</span>
-          <b style={{ fontSize: 16, letterSpacing: "-.3px" }}>{contract.top_bar.product_name}</b>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
-            this slice, so the label reads "· all sheds" and the menu disables shed selection with a reason —
-            never a faked shed filter. The UI shows the human label; links write the backend-safe ?park=uuid. */}
-        {lockTopBarParkSelector ? null : (
-        <div className="parksel" data-menu-root style={{ marginRight: 4 }}>
+      {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
+          this slice, so the label reads "· all sheds" -- never a faked shed filter. The UI shows the human
+          label; links write the backend-safe ?park=uuid. Pages that own the park in their own filter bar
+          HIDE the top-bar chip (maintainer decision 2026-08-18, 7be3a816e). */}
+      {lockTopBarParkSelector ? null : (
+        <div className="parksel">
           <button
             type="button"
             className="pscope"
-            onClick={() => {
-              setScopeMenuOpen((o) => !o);
-              setRoleMenuOpen(false);
-            }}
-            aria-expanded={scopeMenuOpen}
+            onClick={scopeMenu.onOpen}
+            aria-expanded={scopeMenu.open}
+            aria-haspopup="listbox"
             title={contract.top_bar.park_selector.label}
           >
-            <MapPin className="ic" style={{ width: 14 }} aria-hidden="true" />
+            <MapPin className="ic" aria-hidden="true" />
             <b>{activeParkLabel}</b>
             {activeParkId ? (
-              <span className="muted" style={{ fontWeight: 400 }}>
-                · {shellCopy(contract, "scope.all_sheds")}
-              </span>
+              <span className="muted msh-scope-sub">· {shellCopy(contract, "scope.all_sheds")}</span>
             ) : null}
-            <ChevronDown className="ic" style={{ width: 12 }} aria-hidden="true" />
+            <ChevronDown className="ic" aria-hidden="true" />
           </button>
-          <div className={`parkmenu ${scopeMenuOpen ? "on" : ""}`} role="listbox" aria-label={shellCopy(contract, "scope.park_menu_aria")}>
-            <div className="pm-label">{contract.top_bar.park_selector.label}</div>
-            <div className="pm-list">
-              <Link
+          <CustomPopover
+            open={scopeMenu.open}
+            anchorEl={scopeMenu.anchorEl}
+            onClose={scopeMenu.onClose}
+            slotProps={{ arrow: { placement: "top-left" }, paper: { sx: { width: 280 } } }}
+          >
+            <MenuList
+              role="listbox"
+              aria-label={shellCopy(contract, "scope.park_menu_aria")}
+              subheader={
+                <ListSubheader disableSticky sx={{ typography: "overline", color: "text.secondary", lineHeight: 2.5, bgcolor: "transparent" }}>
+                  {contract.top_bar.park_selector.label}
+                </ListSubheader>
+              }
+              sx={{ maxHeight: 360, overflowY: "auto" }}
+            >
+              <MenuItem
+                component={Link}
                 href={currentScopeHref({ park: null, mode: renderedScope.mode })}
                 replace
                 scroll={false}
-                onClick={closeMenus}
-                className={`pm-item ${!activeParkId ? "on" : ""}`}
+                onClick={scopeMenu.onClose}
                 role="option"
                 aria-selected={!activeParkId}
+                selected={!activeParkId}
+                sx={menuRowSx}
               >
-                <span className="pn">
+                <Box component="span" sx={{ flexGrow: 1, minWidth: 0, whiteSpace: "normal" }}>
                   {shellCopy(contract, "scope.all_parks")}{" "}
-                  <span className="muted" style={{ fontWeight: 400 }}>
+                  <Box component="span" sx={{ color: "text.secondary" }}>
                     · {renderedScope.mode === "park" ? (parkScopeOption?.label ?? shellCopy(contract, "scope.company_wide")) : shellCopy(contract, "scope.company_wide")}
-                  </span>
-                </span>
-                {!activeParkId ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
-              </Link>
+                  </Box>
+                </Box>
+                {!activeParkId ? <Iconify icon="eva:checkmark-fill" sx={{ color: "primary.main", flex: "none" }} /> : null}
+              </MenuItem>
               {parks.map((p) => (
-                <Link
+                <MenuItem
                   key={p.id}
+                  component={Link}
                   href={currentScopeHref({ park: p.id, mode: "park" })}
                   replace
                   scroll={false}
-                  onClick={closeMenus}
-                  className={`pm-item ${activeParkId === p.id ? "on" : ""}`}
+                  onClick={scopeMenu.onClose}
                   role="option"
                   aria-selected={activeParkId === p.id}
+                  selected={activeParkId === p.id}
+                  sx={menuRowSx}
                 >
-                  {p.code ? <span className="pc">{p.code}</span> : null}
-                  <span className="pn">{p.name}</span>
-                  {activeParkId === p.id ? <Check className="ic tick" style={{ width: 14 }} aria-hidden="true" /> : null}
-                </Link>
+                  {p.code ? <Label variant="soft" color="default" sx={{ flex: "none" }}>{p.code}</Label> : null}
+                  <Box component="span" sx={{ flexGrow: 1, minWidth: 0, whiteSpace: "normal" }}>{p.name}</Box>
+                  {activeParkId === p.id ? <Iconify icon="eva:checkmark-fill" sx={{ color: "primary.main", flex: "none" }} /> : null}
+                </MenuItem>
               ))}
-              {parks.length === 0 ? <div className="pm-hint">{shellCopy(contract, "scope.no_parks_for_tenant")}</div> : null}
-            </div>
-            <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
-          </div>
+              {parks.length === 0 ? (
+                <Typography component="li" variant="caption" sx={{ px: 1, py: 1, color: "text.secondary" }}>{shellCopy(contract, "scope.no_parks_for_tenant")}</Typography>
+              ) : null}
+            </MenuList>
+          </CustomPopover>
         </div>
-        )}
-        <button
-          type="button"
-          className="iconbtn"
-          onClick={toggleTheme}
-          title={isLight ? shellCopy(contract, "theme.switch_to_dark") : shellCopy(contract, "theme.switch_to_light")}
-          aria-label={isLight ? shellCopy(contract, "theme.switch_to_dark") : shellCopy(contract, "theme.switch_to_light")}
-        >
-          {isLight ? <Moon className="ic" /> : <Sun className="ic" />}
-        </button>
-        {/* The in-app notification centre. The bell slot and its backend-owned label were already
-            here as a DISABLED button; the same slot, the same label key, now live. The component
-            owns its own popover, its own reads and its own failures: if the feed cannot be loaded
-            the bell stays quiet and every screen in the shell renders exactly as before. */}
-        {/* Browser (Chrome) web push rides the SAME bell rather than a second control: the
-            permission ask belongs where a person already goes to read their notifications, and it
-            is behind an explicit click inside the panel -- never a prompt on page load. */}
-        <NotificationBell
-          openLabel={
-            contract.top_bar.notifications.enabled
-              ? contract.top_bar.notifications.label
-              : contract.top_bar.notifications.disabled_reason
-          }
-          contractCopy={contract.copy}
-          permissionSlot={<PushPermissionPromptLazy contractCopy={contract.copy} />}
+      )}
+      {/* Dock for the CEO assistant launcher (features/ceo-ai): a slot in the bar, so the closed bubble
+          never floats over a table's last column or a footer pager. */}
+      <span id="topbar-ai-slot" className="topbar-ai-slot" />
+      <ThemeToggle
+        labelToLight={shellCopy(contract, "theme.switch_to_light")}
+        labelToDark={shellCopy(contract, "theme.switch_to_dark")}
+      />
+      {/* The in-app notification centre (owns its popover, reads and failures). Browser web push rides
+          the same bell; the permission ask is an explicit click inside the panel. */}
+      <NotificationBell
+        openLabel={
+          contract.top_bar.notifications.enabled
+            ? contract.top_bar.notifications.label
+            : contract.top_bar.notifications.disabled_reason
+        }
+        contractCopy={contract.copy}
+      />
+      {/* Renders nothing: keeps an already-granted browser's FCM token registered on mount. */}
+      <PushRegistrationSync />
+      <PushReceiptSync />
+      {/* Account: the Minimal header AccountButton (animated border avatar); name and role read inside its menu. */}
+      <div className="userpick">
+        <AccountButton
+          className="msh-account"
+          photoURL=""
+          displayName={actor.display_name}
+          aria-label={shellCopy(contract, "account.open_menu")}
+          aria-expanded={roleMenu.open}
+          aria-haspopup="menu"
+          title={`${actor.display_name} · ${actor.subtitle}`}
+          onClick={roleMenu.onOpen}
         />
-        {/* Renders nothing. It keeps an ALREADY-granted browser's FCM token registered on mount,
-            which the push control used to do from its own mount effect -- now that the control is
-            fetched on the bell's first open, that silent half has to stay out here. It reads
-            `Notification.permission` and imports the push client only when it is "granted", so a
-            browser that never granted loads no firebase. See push-permission-prompt-lazy.tsx. */}
-        <PushRegistrationSync />
-        <PushReceiptSync />
-        <div className="userpick" data-menu-root>
-          <button
-            type="button"
-            className="me"
-            aria-label={shellCopy(contract, "account.open_menu")}
-            aria-expanded={roleMenuOpen}
-            onClick={() => {
-              setRoleMenuOpen((open) => !open);
-              setScopeMenuOpen(false);
-            }}
-          >
-            <span className="av">{actor.initials}</span>
-            <span>
-              <span className="nm">{actor.display_name}</span>
-              <span className="rl">{actor.subtitle}</span>
-            </span>
-            <ChevronRight className="ic" style={{ width: 14 }} />
-          </button>
-          <div id="userMenu" className={`parkmenu ${roleMenuOpen ? "on" : ""}`}>
-            <div className="role-menu-title">
-              <b>{actor.display_name}</b>
-              <span>{actor.subtitle}</span>
-            </div>
-            <div className="role-divider" />
-            <SignOutButton />
-          </div>
-        </div>
-      </div>
-      <div className={`routebar ${routePending ? "on" : ""}`} aria-hidden="true">
-        <span />
-      </div>
-
-      {showSidebar ? <div className={`navscrim ${navOpen ? "on" : ""}`} onClick={() => setNavOpen(false)} /> : null}
-      <div className={`layout ${rail ? "rail" : ""} ${routePending ? "route-pending" : ""}`}>
-        {showSidebar ? (
-        <aside className={`side ${navOpen ? "open" : ""}`} id="side">
-          {primary.map((n) => {
-            const Icon = navIconForToken(n.icon);
-            if (!n.enabled) {
-              return (
-                <span
-                  key={`${n.label}:${n.href}`}
-                  className="nav"
-                  aria-disabled="true"
-                  title={n.disabled_reason}
-                  style={{ opacity: 0.4, cursor: "not-allowed" }}
-                >
-                  <Icon className="ic" />
-                  {n.label}
-                </span>
-              );
-            }
-            return (
-              <Link
-                key={`${n.label}:${n.href}`}
-                href={navHref(n)}
-                className={`nav ${navActive(n) ? "on" : ""}`}
-                onClick={() => setNavOpen(false)}
-              >
-                <Icon className="ic" />
-                {n.label}
-              </Link>
-            );
-          })}
-
-          {groups.map((g) => {
-            const GroupIcon = navIconForToken(g.icon);
-            const open = openGroups[g.id];
-            return (
-              <div key={g.id}>
-                <div
-                  className={`ggrp ${open ? "open" : ""}`}
-                  onClick={() => activateGroup(g)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    activateGroup(g);
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={open}
-                  title={rail ? g.label : undefined}
-                >
-                  <GroupIcon className="ic" />
-                  {g.label}
-                  <ChevronRight className="ic chev" />
-                </div>
-                <div className={`subnav ${open ? "open" : ""}`}>
-                  {g.leaves.map((l) =>
-                    !l.enabled ? (
-                      <span
-                        key={`${g.id}:${l.label}:${l.href}`}
-                        className="leaf"
-                        aria-disabled="true"
-                        title={l.disabled_reason}
-                        style={{ opacity: 0.4, cursor: "not-allowed" }}
-                      >
-                        {l.label}
-                      </span>
-                    ) : (
-                      <Link
-                        key={`${g.id}:${l.label}:${l.href}`}
-                        href={navHref(l)}
-                        className={`leaf ${navActive(l) ? "on" : ""}`}
-                        onClick={() => setNavOpen(false)}
-                      >
-                        {l.label}
-                      </Link>
-                    ),
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          <div className="grow" />
-          <div className="sidefoot">{contract.navigation.footer}</div>
-        </aside>
-        ) : null}
-
-        <main className="main">
-          {navTrail.length ? (
-            <div className="navback">
-              <button
-                type="button"
-                className="nbback"
-                onClick={() => {
-                  startRoutePending();
-                  applyNavTrail(navTrail.slice(0, -1));
-                  router.back();
-                }}
-                title={`${shellCopy(contract, "nav.back_to_prefix")} ${navTrail[navTrail.length - 1].label}`}
-              >
-                <ChevronLeft className="ic" aria-hidden="true" /> {shellCopy(contract, "nav.back")}
-              </button>
-              <div className="nbtrail">
-                {navTrail.map((crumb, index) => (
-                  <span key={`${crumb.href}:${index}`} style={{ display: "contents" }}>
-                    {index > 0 ? <ChevronRight className="ic nbsep" aria-hidden="true" /> : null}
-                    <Link href={crumb.href} className="nbc" onClick={() => applyNavTrail(navTrail.slice(0, index))}>
-                      {crumb.label}
-                    </Link>
-                  </span>
-                ))}
-                <ChevronRight className="ic nbsep" aria-hidden="true" />
-                <span className="nbc cur">{currentPageLabel}</span>
-              </div>
-            </div>
+        <CustomPopover open={roleMenu.open} anchorEl={roleMenu.anchorEl} onClose={roleMenu.onClose} slotProps={{ paper: { sx: { p: 0, width: 260 } } }}>
+          <Box sx={{ p: 2, pb: 1.5, display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Avatar name={actor.display_name} initials={actor.initials} size={36} decorative />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="subtitle2" noWrap>{actor.display_name}</Typography>
+              <Typography variant="body2" sx={{ color: "text.secondary" }} noWrap>{actor.subtitle}</Typography>
+            </Box>
+          </Box>
+          <Divider sx={{ borderStyle: "dashed" }} />
+          {parkScopeOption ? (
+            <MenuList sx={{ p: 1, my: 1 }} aria-label={shellCopy(contract, "account.open_menu")}>
+              <MenuItem component={Link} href={scopeHref(pathname, renderedScope)} onClick={roleMenu.onClose} sx={menuRowSx}>
+                <MapPin className="ic" aria-hidden="true" />
+                <Box component="span" sx={{ flexGrow: 1 }}>{contract.top_bar.park_selector.label}</Box>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>{activeParkLabel}</Typography>
+              </MenuItem>
+            </MenuList>
           ) : null}
-          <div className="wrap">
-            {alertDisplayRules.map((rule) => (
-              <div key={rule.id} className="alert warn" role="alert" style={{ marginBottom: 14 }}>
-                <AlertTriangle className="ic" aria-hidden="true" />
-                <div>{rule.summary}</div>
-              </div>
-            ))}
-            {children}
-          </div>
-        </main>
+          <Divider sx={{ borderStyle: "dashed" }} />
+          <Box sx={{ p: 1 }}>
+            <SignOutButton />
+          </Box>
+        </CustomPopover>
       </div>
-      <CEOAIChat displayName={actor.display_name} subtitle={actor.subtitle} copy={ceoAIChatCopy} />
     </>
+  );
+
+  return (
+    <NavTrailContext.Provider value={navTrailValue}>
+      <DashboardLayout
+        navData={navData}
+        showNav={showSidebar}
+        logoText={contract.top_bar.logo_text}
+        navLabel={contract.top_bar.product_name}
+        menuLabel={shellCopy(contract, "nav.expand")}
+        closeLabel={shellCopy(contract, "nav.collapse")}
+        navBottom={contract.navigation.footer ? <div className="msh-foot">{contract.navigation.footer}</div> : null}
+        headerRight={headerRight}
+        sx={routePending ? { "--msh-route-pending": 1 } : undefined}
+      >
+        <div className={`routebar ${routePending ? "on" : ""}`} aria-hidden="true">
+          <span />
+        </div>
+        {/* `main` = the page-content class contract the page CSS is scoped to; see layouts/mesha-layout.css. */}
+        <DashboardContent maxWidth={false} className="main msh-content">
+          <ScrollEdges />
+          {/* `.wrap` keeps the page frame rules (frame.css) the page bodies are built on; the template
+              DashboardContent owns the gutters, so the wrap's own padding is zeroed in layouts/mesha-layout.css. */}
+          <div className="wrap msh-wrap">
+            {alertDisplayRules.map((rule) =>
+              degradedRuleIds.has(rule.id) ? (
+                <p key={rule.id} className="note msh-degraded" role="status">
+                  {rule.summary}
+                </p>
+              ) : (
+                <Alert key={rule.id} severity="warning" role="alert" className="msh-alert">
+                  {rule.summary}
+                </Alert>
+              ),
+            )}
+            {children}
+            <LinkNavPending />
+          </div>
+        </DashboardContent>
+      </DashboardLayout>
+      <CEOAIChat displayName={actor.display_name} subtitle={actor.subtitle} copy={ceoAIChatCopy} />
+    </NavTrailContext.Provider>
   );
 }

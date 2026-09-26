@@ -1,18 +1,19 @@
 import { Suspense } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { ObservabilityErrorBoundary } from "@/components/observability/error-boundary";
+import { ShellSkeleton } from "@/components/shell-skeleton";
+import { RouteSkeleton } from "@/components/route-skeleton";
 
+// The shell-shaped skeleton (top bar + sidebar column) shows while the bootstrap contract is
+// fetched. Its page column is the SAME skeleton the route's loading.tsx renders (route-aware by
+// pathname), so a direct load is one continuous skeleton: shell chrome fills in around a page
+// shape that never changes until the content arrives. Routes without a loading.tsx get the
+// generic page skeleton.
 function AdminShellFallback() {
   return (
-    <main className="wrap" style={{ padding: 24 }}>
-      <section className="card" aria-busy="true">
-        <div className="bd">
-          <div className="skel" style={{ width: 170, height: 14, marginBottom: 12 }} />
-          <div className="skel" style={{ width: 260, height: 30, marginBottom: 10 }} />
-          <div className="skel" style={{ width: "100%", maxWidth: 680, height: 18 }} />
-        </div>
-      </section>
-    </main>
+    <ShellSkeleton>
+      <RouteSkeleton />
+    </ShellSkeleton>
   );
 }
 

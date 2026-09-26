@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { useState, useTransition } from "react";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import { HerdFiltersModal } from "./herd-filters-modal";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -63,10 +65,11 @@ export function HerdFiltersModalClient({
     });
   }
 
-  function onPageSize(event: React.ChangeEvent<HTMLSelectElement>) {
-    setOptimisticPageSize({ from: current, value: event.target.value });
+  // Takes the chosen value directly: the MUI select reports `event.target.value`.
+  function onPageSize(value: string) {
+    setOptimisticPageSize({ from: current, value });
     startTransition(() => {
-      router.replace(paramsWith({ limit: event.target.value }), { scroll: false });
+      router.replace(paramsWith({ limit: value }), { scroll: false });
     });
   }
 
@@ -74,7 +77,7 @@ export function HerdFiltersModalClient({
 
   return (
     <>
-      <div className="tbar" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", flexWrap: "wrap" }}>
+      <div className="tbar hr-tbar" style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 16px 12px", flexWrap: "wrap", overflow: "visible" }}>
         <form onSubmit={onSearch} className="tsearch" style={{ margin: 0, minWidth: 260, flex: "1 1 280px" }}>
           <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
           <input
@@ -95,18 +98,22 @@ export function HerdFiltersModalClient({
           ) : null}
         </button>
         <span className="muted small">{rowCount ?? 0} {copy(pageContract, "label.rows")}</span>
-        <select
-          className="tsize"
+        <TextField
+          select
+          label={copy(pageContract, "filter.rows_per_page_aria")}
           value={selectedPageSize}
-          onChange={onPageSize}
-          aria-label={copy(pageContract, "filter.rows_per_page_aria")}
-          aria-busy={isPending}
+          disabled={isPending}
           title={isPending ? copy(pageContract, "state.loading") : undefined}
+          onChange={(event) => onPageSize(event.target.value)}
+          sx={{ minWidth: { xs: 0, sm: 132 }, flexShrink: 0, maxWidth: 1 }}
+          slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
         >
           {pageSizeOptions.map((size) => (
-            <option key={size} value={size}>{size} / {copy(pageContract, "pager.page")}</option>
+            <MenuItem key={String(size)} value={String(size)}>
+              {`${size} / ${copy(pageContract, "pager.page")}`}
+            </MenuItem>
           ))}
-        </select>
+        </TextField>
       </div>
 
       <HerdFiltersModal open={isOpen} pageContract={pageContract} searchParams={params} onClose={() => setIsOpen(false)} />

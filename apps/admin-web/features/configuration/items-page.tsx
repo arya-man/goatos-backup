@@ -1,8 +1,16 @@
+import Table from "@mui/material/Table";
+import TableHead from "@mui/material/TableHead";
+import TableBody from "@mui/material/TableBody";
+import TableRow from "@mui/material/TableRow";
+import TableCell from "@mui/material/TableCell";
+import { SegmentTabs } from "@/components/minimal/list/segment-tabs";
 import { BookOpen, FileSpreadsheet, Plus, Search, Settings } from "lucide-react";
 
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayDrawer, type LocalOverlayDrawerItem } from "@/components/local-overlay-drawer";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { EmptyState } from "@/components/app/empty-state";
+import { PageHeader } from "@/components/app/page-header";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { ProcurementPager } from "@/features/procurement";
 import { controlEnabled, copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -17,11 +25,14 @@ import type {
 import type { ApiResult, ApiUiError } from "@/lib/api/server";
 import { all, boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { CatalogueLists, type CatalogueList } from "./catalogue-lists";
+import "./configuration-kit.css";
 import { RegisterFilter } from "./register-filter";
 import { RowActions } from "./row-actions";
 import { RowDrawerForm } from "./row-drawer";
 import { SheetDrawer } from "./sheet-drawer";
 import { WorkbookDrawer } from "./workbook-drawer";
+import Alert from "@mui/material/Alert";
+import Button from "@mui/material/Button";
 
 /**
  * /configuration/items (maintainer instruction 2026-09-18, from the Claude prototype merged in
@@ -388,25 +399,17 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
 
   return (
     <div className="screen on cfg-items">
-      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div>
-          <div className="crumb">
-            <b>{c("crumb")}</b>
-          </div>
-          <h1>{pageContract.title}</h1>
-          <div className="sub">{pageContract.subtitle}</div>
-        </div>
-      </div>
+      <PageHeader title={pageContract.title} crumbs={[{ label: c("crumb") }, { label: pageContract.title }]} />
 
       {!data.registers.ok ? (
-        <div className="alert">
+        <Alert severity="error">
           <b>{data.registers.error.code ?? data.registers.error.kind}</b>&nbsp;{data.registers.error.message}
-        </div>
+        </Alert>
       ) : null}
       {data.loadErrors.map((error, index) => (
-        <div className="alert" key={`${error.code ?? error.kind}-${index}`}>
+        <Alert severity="error" key={`${error.code ?? error.kind}-${index}`}>
           <b>{error.code ?? error.kind}</b>&nbsp;{error.message}
-        </div>
+        </Alert>
       ))}
 
       <div className={isCatalogue ? "cfg-layout cfg-layout-3" : "cfg-layout"}>
@@ -459,13 +462,15 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
           />
         ) : null}
 
-        <section className="card cfg-main" aria-label={register?.label ?? c("crumb")}>
-          <div className="hd" style={{ flexWrap: "wrap" }}>
+        <section className="card cfg-main kit-tablecard" aria-label={register?.label ?? c("crumb")}>
+          <div className="hd cfg-main-hd" style={{ flexWrap: "wrap" }}>
             <div>
               <h3>
-                {register?.label ?? params.register} {page ? <span className="cfg-count">{page.total}</span> : null}
+                {register?.label ?? params.register}{" "}
+                {/* Same number as the rail: the rail counts ACTIVE rows, so the header shows the
+                    active count on the default view and the page's own total under a status filter. */}
+                {page ? <Tag tone="mut">{params.status === "active" && register ? (catalog?.counts[register.key] ?? page.total) : page.total}</Tag> : null}
               </h3>
-              {register?.hint ? <div className="muted small" style={{ marginTop: 3 }}>{register.hint}</div> : null}
             </div>
             <div className="sp" style={{ flex: 1 }} />
             {register?.list_key && canEdit && data.openList ? (
@@ -491,10 +496,9 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
               </Link>
             ) : null}
             {register && writable && canCreate ? (
-              <LocalOverlayLink href={editHref("new")} scroll={false} className="btn sm b">
-                <Plus className="ic" style={{ width: 14 }} aria-hidden="true" />
+              <Button component={LocalOverlayLink} href={editHref("new")} scroll={false} variant="contained" color="primary" size="small" startIcon={<Plus size={14} aria-hidden="true" />}>
                 {c("action.create_row.label")} {register.one.toLowerCase()}
-              </LocalOverlayLink>
+              </Button>
             ) : null}
           </div>
           {!canWrite ? <div className="note" style={{ margin: "10px 16px 0" }}>{c("configure.disabled_no_access")}</div> : null}
@@ -544,52 +548,51 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
               const hrefFor: Record<string, string> = { "": href(sp, { [FILTER_PREFIX + column.key]: undefined, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) }) };
               for (const option of opts) hrefFor[option.id] = href(sp, { [FILTER_PREFIX + column.key]: option.id, ...(column.key === "park_id" ? { [FILTER_PREFIX + "pen_id"]: undefined } : {}) });
               const label = column.key === "department" ? c("filter.department.all") : column.label;
-              return <RegisterFilter key={column.key} label={label} current={params.filters[column.key] ?? ""} options={opts.map((option) => ({ value: option.id, label: option.label }))} hrefFor={hrefFor} />;
+              return <RegisterFilter key={column.key} label={label} allLabel={copy(pageContract, "filter.all", "All")} current={params.filters[column.key] ?? ""} options={opts.map((option) => ({ value: option.id, label: option.label }))} hrefFor={hrefFor} />;
             })}
             <div className="sp" style={{ flex: 1 }} />
-            <div className="subtabs" aria-label={c("column.status")}>
-              {(["active", "archived", "all"] as const).map((status) => (
-                <Link key={status} href={href(sp, { [PARAM_STATUS]: status === "active" ? undefined : status })} scroll={false} className={params.status === status ? "on" : ""}>
-                  {c(`status.${status}`)}
-                </Link>
-              ))}
-            </div>
+            <SegmentTabs
+              ariaLabel={c("column.status")}
+              value={params.status}
+              keepScroll
+              tabs={(["active", "archived", "all"] as const).map((status) => ({ value: status, label: c(`status.${status}`), href: href(sp, { [PARAM_STATUS]: status === "active" ? undefined : status }) }))}
+            />
           </div>
 
           <div className="bd">
             {data.rows && !data.rows.ok ? (
-              <div className="alert">
+              <Alert severity="error">
                 <b>{data.rows.error.code ?? data.rows.error.kind}</b>&nbsp;{data.rows.error.message}
-              </div>
+              </Alert>
             ) : null}
             {!register ? (
-              <div className="empty">{c("empty.rows")}</div>
+              <EmptyState title={c("empty.rows")} />
             ) : rows.length === 0 ? (
-              <div className="empty">{params.q || Object.keys(params.filters).length ? c("empty.search") : c("empty.rows")}</div>
+              <EmptyState title={params.q || Object.keys(params.filters).length ? c("empty.search") : c("empty.rows")} />
             ) : (
               <div className="tablewrap" tabIndex={0} role="group" aria-label={register.label}>
-                <table className="tbl">
-                  <thead>
-                    <tr>
+                <Table className="tbl">
+                  <TableHead>
+                    <TableRow>
                       {/* A register that names its own display column is headed by THAT column's
                           own label, which the backend contract carries: the Animals table used to
                           file an animal tag under the generic header, and an animal has no name. */}
-                      <th>{isCatalogue ? c("column.item") : displayColumnLabel}</th>
-                      {isCatalogue ? <th>{c("column.tracking")}</th> : null}
+                      <TableCell component="th">{isCatalogue ? c("column.item") : displayColumnLabel}</TableCell>
+                      {isCatalogue ? <TableCell component="th">{c("column.tracking")}</TableCell> : null}
                       {(isCatalogue ? [] : listColumns).map((column) => (
-                        <th key={column.key}>{column.label}</th>
+                        <TableCell component="th" key={column.key}>{column.label}</TableCell>
                       ))}
-                      {hasCounts && !isCatalogue ? <th>{c("column.counts")}</th> : null}
-                      <th>{c("column.status")}</th>
+                      {hasCounts && !isCatalogue ? <TableCell component="th">{c("column.counts")}</TableCell> : null}
+                      <TableCell component="th">{c("column.status")}</TableCell>
                       {/* The actions column carries no heading: its buttons name themselves, and a
                           heading over a 2-button cell reads as a data column that is always blank. */}
-                      {rowActionsOffered ? <th aria-label={c("action.row_actions")} /> : null}
-                    </tr>
-                  </thead>
-                  <tbody>
+                      {rowActionsOffered ? <TableCell component="th" aria-label={c("action.row_actions")} /> : null}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {rows.map((row) => (
-                      <tr key={row.id} className={row.status === "archived" ? "cfg-archived" : undefined}>
-                        <td>
+                      <TableRow key={row.id} className={row.status === "archived" ? "cfg-archived" : undefined}>
+                        <TableCell>
                           <LocalOverlayLink href={editHref(row.id)} scroll={false} className="cfg-row-link">
                             <b>{row.display}</b>
                           </LocalOverlayLink>
@@ -603,28 +606,28 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                               {[String(row.fields.unit ?? ""), row.labels.category_id ?? "", departmentLabel(row.fields.department)].filter(Boolean).join(" · ")}
                             </div>
                           ) : null}
-                        </td>
-                        {isCatalogue ? <td>{row.fields.tracking ? <Tag tone="mut">{String(row.fields.tracking)}</Tag> : null}</td> : null}
+                        </TableCell>
+                        {isCatalogue ? <TableCell>{row.fields.tracking ? <Tag tone="mut">{String(row.fields.tracking)}</Tag> : null}</TableCell> : null}
                         {(isCatalogue ? [] : listColumns).map((column) => (
-                          <td key={column.key} className={column.type === "number" ? "num" : undefined}>
+                          <TableCell key={column.key} className={column.type === "number" ? "num" : undefined}>
                             {column.type === "code" || column.key === "code" ? <span className="mono muted">{fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}</span> : fieldText(row, column, placeholder, c("value.yes"), c("value.no"))}
-                          </td>
+                          </TableCell>
                         ))}
                         {hasCounts && !isCatalogue ? (
-                          <td className="muted small">
+                          <TableCell className="muted small">
                             {row.counts
                               ? Object.entries(row.counts)
                                   .filter(([, n]) => n > 0)
                                   .map(([noun, n]) => `${n} ${noun.replace(/_/g, " ")}`)
                                   .join(" · ") || placeholder
                               : placeholder}
-                          </td>
+                          </TableCell>
                         ) : null}
-                        <td>
+                        <TableCell>
                           <Tag tone={STATUS_TONE[row.status]}>{c(`status.${row.status}`)}</Tag>
-                        </td>
+                        </TableCell>
                         {rowActionsOffered ? (
-                          <td className="cfg-rowacts-cell">
+                          <TableCell className="cfg-rowacts-cell">
                             <RowActions
                               register={params.register}
                               rowId={row.id}
@@ -637,15 +640,25 @@ export function ItemsPage({ searchParams, pageContract, data }: { searchParams?:
                               canDelete={rowsWritable && canDelete && row.fields.read_only !== true}
                               labels={rowActionLabels}
                             />
-                          </td>
+                          </TableCell>
                         ) : null}
-                      </tr>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
-            <ProcurementPager prevHref={previousHref(sp)} nextHref={nextHref(sp, page?.next_cursor)} page={pageNo} count={rows.length} noun={c("pager.noun").replace(/s$/, "")} />
+            {/* Kit footer wording: the slice this page shows against the whole-filter total the
+                backend reports; cursor paging, so the arrows are real links. */}
+            <ProcurementPager
+              prevHref={previousHref(sp)}
+              nextHref={nextHref(sp, page?.next_cursor)}
+              page={pageNo}
+              count={rows.length}
+              noun={c("pager.noun").replace(/s$/, "")}
+              forceVisible={rows.length > 0}
+              rangeLabel={rows.length === 0 ? "0" : `${(pageNo - 1) * params.limit + 1}–${(pageNo - 1) * params.limit + rows.length} ${copy(pageContract, "pager.of", "of")} ${page?.total ?? rows.length}`}
+            />
           </div>
         </section>
       </div>
