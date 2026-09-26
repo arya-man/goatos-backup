@@ -15,12 +15,12 @@ type ErrorEnvelope struct {
 }
 
 type OperatorProfile struct {
-	OperatorID        string         `json:"operator_id"`
-	UserID            *string        `json:"user_id"`
-	DisplayCode       string         `json:"display_code"`
-	DisplayName       string         `json:"display_name"`
-	Status            string         `json:"status"`
-	PrimaryRoleHint   string         `json:"primary_role_hint"`
+	OperatorID      string  `json:"operator_id"`
+	UserID          *string `json:"user_id"`
+	DisplayCode     string  `json:"display_code"`
+	DisplayName     string  `json:"display_name"`
+	Status          string  `json:"status"`
+	PrimaryRoleHint string  `json:"primary_role_hint"`
 	// PrimaryRoleLabel is the role hint in farm words ("Director", "Park Head"), composed by
 	// the backend so the phone's drawer never renders the raw code ("pc_director"). Served on
 	// /app/bootstrap only; empty (omitted) everywhere else and for a hint with no copy.

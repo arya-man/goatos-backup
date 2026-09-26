@@ -239,7 +239,7 @@ class DefaultSalesRepository(
     override fun observeLeadMeta(side: SalesLeadSide, search: String, status: String): Flow<SalesLeadBoardMetaDto?> =
         observeBlob(salesLeadMetaCacheKey(side, search, status))
 
-    override suspend fun refreshLeadMeta(side: SalesLeadSide): Boolean {
+    override suspend fun refreshLeadMeta(side: SalesLeadSide): Boolean { // offline-first-guard:ignore: lead meta is persisted through the shared blob cache via putBlob, not a feature DAO upsert
         // exception:exempt expected refresh failure; the cached count stays on the hub row.
         return runCatching {
             // One row is enough: the hub shows the COUNT, and the board fetches its own pages.

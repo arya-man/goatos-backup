@@ -32,6 +32,12 @@ Land PR #445, "Sales: end-to-end audit fixes (web, phone, backend) and nine main
   - `node --test --experimental-strip-types lib/api/write-marker.test.mjs lib/api/backend-write-marker-contract.test.mjs components/admin-shell-unavailable.test.mjs features/procurement/sales-format.test.mjs` from `apps/admin-web`
   - `ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew -q :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.ui.SalesWriteGateTest' --tests 'sg.mesha.goatos.viewmodel.ProfileViewModelLogoutTest'`
 - `features/procurement/buyer-table.test.mjs` could not run directly in this worktree because `typescript` was not present in `apps/admin-web/node_modules`; the full landing gate remains the required authority.
+- First landing gate failed before push after 6s:
+  - `offline-first-guard` flagged `SalesRepository.refreshLeadMeta`; resolved with an explicit guard annotation because the method persists the response through shared blob cache `putBlob`, not a feature DAO upsert.
+  - `backend-foundations-guard` flagged gofmt drift in `loadwise_repository.go` and `workforce/domain/types.go`; resolved with `gofmt`.
+- Failed landing steps rerun and passed:
+  - `GOATOS_CI_ONLY_STEP='offline-first-guard' tools/ci/run-local-ci.sh android`
+  - `GOATOS_CI_ONLY_STEP='backend-foundations-guard' tools/ci/run-local-ci.sh backend`
 
 ## Pending
 
