@@ -193,6 +193,7 @@ const CHECKS = {
   "f2-literal": { tier: "waivable", why: "never show the legacy 'F2' code; lifecycle names only" },
   "fixed-px-width": { tier: "waivable", why: "fixed px width >= 480 cannot fit a 390px phone; use min(…, 100%) (a template drawer width on MinimalDrawer/DetailDrawer is allowed: phones get the full width)" },
   "drawer-off-template": { tier: "waivable", why: "right drawer not on the template temporary Drawer: use MinimalDrawer / DetailDrawer (portal, visible backdrop, template width 320/360/420/480, header+close, Scrollbar body, footer); wide tables scroll in DrawerTableScroll (Ravi R2-4)" },
+  "progress-bar-px-min-width": { tier: "p0", why: "a template progress bar (LinearProgress) takes its length from its row/column (EcommerceSalesOverview); a raw px minWidth on the bar overflows narrow cells and drifts from the template — size the column (TableCell width %) instead" },
   "sx-hidden-full-width": { tier: "p0", why: "an sx visually-hidden box with width: 1 / height: 1 is 100% wide in MUI (1 = 100%), so an absolute live region pushes the page sideways; use visuallyHidden from @mui/utils" },
   "prose-under-title": { tier: "waivable", why: "no explanatory paragraph under a title/card header" },
   "raw-float-format": { tier: "waivable", why: "numbers render through lib/format (max 2 decimals); no toFixed(3+) or raw `${n} kg` templates" },
@@ -351,6 +352,7 @@ function runGuard(root, { themeDiff }) {
       if (F2_LITERAL.test(code) && !F2_ALLOWED.has(file.rel)) findings.push(finding("f2-literal", file.rel, lineNo, raw));
       if (FIXED_PX_WIDTH.test(code) && !/max-?[wW]idth|overflow/.test(code) && !(drawerLines.has(lineNo) && onlyTemplateDrawerWidths(code))) findings.push(finding("fixed-px-width", file.rel, lineNo, raw));
       if (/position:\s*["']absolute["'][^}]*\bwidth:\s*1\s*,[^}]*\bheight:\s*1\b/.test(code) || /\bwidth:\s*1\s*,\s*height:\s*1\b[^}]*clipPath/.test(code)) findings.push(finding("sx-hidden-full-width", file.rel, lineNo, raw));
+      if (/<LinearProgress\b|LinearProgress[^\n]*sx=/.test(code) && /\bminWidth:\s*[1-9]\d*\b/.test(code) || (/^\s*sx=\{\{[^}]*\bheight:\s*\d+\s*,\s*minWidth:\s*[1-9]\d*/.test(code) && /LinearProgress/.test(lines.slice(Math.max(0, index - 8), index).join("\n")))) findings.push(finding("progress-bar-px-min-width", file.rel, lineNo, raw));
       if (CHART_NO_ANIM.test(code)) findings.push(finding("chart-animation-disabled", file.rel, lineNo, raw));
       if (RAW_FLOAT_FIXED.test(code) || RAW_UNIT_TEMPLATE.test(code)) findings.push(finding("raw-float-format", file.rel, lineNo, raw));
       if (RAW_CHART_LIB.test(code)) findings.push(finding("raw-chart-lib", file.rel, lineNo, raw));
@@ -1007,6 +1009,7 @@ async function selfTest() {
     'import { LineChart } from "recharts";',
     '<Card sx={{ backgroundColor: "common.white" }} />',
     '<div style={{ background: "rgba(0,0,0,.6)" }} />',
+    '<LinearProgress variant="determinate" value={v} sx={{ height: 8, minWidth: 80 }} />',
   ].join("\n"));
   put("app/frame.css", ".wrap .MuiCard-root{background:var(--paper)}\n.fld label:where(:not(.MuiFormLabel-root)){color:var(--muted)}\n.MuiInputBase-input{border:0;background-color:transparent}\n.main th{color:var(--fg-muted)}\n.main td:not(.MuiTableCell-root){border-bottom:1px dashed var(--line)}\n");
   put("components/bad.css", ".x { color: #abcdef; }\n.g{background:#0E1512}\n.y{padding:12px;border-radius:10px;box-shadow:0 4px 8px black;font-size:13px}\n@media (max-width:600px){\n.btn{min-height:32px}\n}\n.metricseg a.on{background:var(--paper)}\n");

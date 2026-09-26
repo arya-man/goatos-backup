@@ -1121,6 +1121,10 @@
       "allowed": 1,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"
     },
+    "raw-px|features/counts/mortality.tsx": {
+      "allowed": 1,
+      "reason": "template EcommerceSalesOverview progress bar: LinearProgress sx height 8, copied as-is (no raw minWidth; guard progress-bar-px-min-width)"
+    },
     "raw-px|app/(admin)/feed/analytics/loading.tsx": {
       "allowed": 3,
       "reason": "pre-kit legacy (inventoried 2026-09-25 when the Minimal kit guard landed); migrate: raw px spacing/size literal; use a token from app/minimal-tokens.css (var(--sp-*), --btn-h, --input-h, --table-row-h …)"

@@ -12,6 +12,7 @@ import { StatStrip } from "@/components/minimal/widgets/stat-strip";
 import { EcommerceSalesOverview } from "@/components/minimal/sections/overview/e-commerce/ecommerce-sales-overview";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { ApiResult, GrowthDirectorWeightsResponse } from "@/lib/api/server";
+import { fmtQty } from "@/lib/format";
 
 // Growth Director — the analytics block UNDER the live Weights dashboard.
 //
@@ -152,7 +153,7 @@ export function GrowthDirectorSection({
                   label: shed.shed_display_name,
                   // A non-positive leader leaves every track empty: there is no gain to share.
                   value: best.median_adg_g_per_day > 0 ? Math.max(0, (shed.median_adg_g_per_day / best.median_adg_g_per_day) * 100) : 0,
-                  display: `${nf(shed.median_adg_g_per_day)} g`,
+                  display: `${fmtQty(shed.median_adg_g_per_day)} g`,
                   color: shed.median_adg_g_per_day < 0 ? ("error" as const) : isLeader ? ("primary" as const) : ("info" as const),
                   caption: (
                     <>

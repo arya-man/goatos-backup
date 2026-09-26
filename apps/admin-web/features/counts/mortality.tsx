@@ -139,7 +139,7 @@ function RateBar({ value, muted }: { value: number; muted?: boolean }) {
       color={muted ? "inherit" : "error"}
       aria-hidden="true"
       // Static sx: this helper renders in a Server Component, so no (theme) => function may cross.
-      sx={{ height: 8, minWidth: 80, bgcolor: varAlpha("var(--palette-grey-500Channel)", 0.16), ...(muted ? { color: "text.disabled" } : {}) }}
+      sx={{ height: 8, bgcolor: varAlpha("var(--palette-grey-500Channel)", 0.16), ...(muted ? { color: "text.disabled" } : {}) }}
     />
   );
 }
