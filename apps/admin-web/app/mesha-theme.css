@@ -4413,31 +4413,8 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
    control that produced it, and it is a status region rather than a toast that can be missed. */
 .herd-signals-page .hs-flash{display:block;margin:0 0 14px;padding:9px 13px;border-radius:10px;font-size:12.5px;background:var(--okx,var(--panel-2));border:1px solid color-mix(in srgb,var(--ok) 42%,var(--line));color:var(--ok)}
 
-.herd-signals-page .hs-mapping-modal{width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
-.herd-signals-page .hs-mapping-modal .hd{border-bottom:1px solid var(--line2);flex:0 0 auto}
-.herd-signals-page .hs-mapping-modal .bd{flex:1 1 auto;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
-.herd-signals-page .hs-mapping-modal .mf{flex:0 0 auto}
 
-.herd-signals-page .hs-picker{display:flex;flex-direction:column;gap:8px}
-/* `.fsel.search` carries `flex:1 1 320px` for the horizontal filter bar; inside this COLUMN
-   picker that basis applies to HEIGHT and stretched the field into a 340px-tall box with the
-   input pinned to its bottom edge. */
-.herd-signals-page .hs-picker .fsel.search{flex:0 0 auto}
-.herd-signals-page .hs-picker label{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:800}
-.herd-signals-page .hs-results{display:flex;flex-direction:column;gap:4px;max-height:210px;overflow-y:auto}
-.herd-signals-page .hs-results p{margin:4px 2px}
-.herd-signals-page .hs-result{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--panel);border-radius:9px;padding:8px 11px;font:inherit;color:var(--ink);cursor:pointer}
-.herd-signals-page .hs-result:hover{border-color:var(--brand);background:var(--brand-soft)}
-.herd-signals-page .hs-result b{display:block;font-size:13px}
-.herd-signals-page .hs-result small,.herd-signals-page .hs-picked small{display:block;color:var(--muted);font-size:11px;margin-top:1px}
-.herd-signals-page .hs-picked{display:flex;align-items:center;gap:10px;border:1px solid var(--brand);background:var(--brand-soft);border-radius:9px;padding:9px 11px}
-.herd-signals-page .hs-picked > div{flex:1;min-width:0}
-.herd-signals-page .hs-picked b{font-size:13px}
 
-/* The monitoring boundary (backend/migrations/postgres 000196). Binding stamps the instant animal
-   monitoring begins; everything the tag emitted before it is device telemetry. This note is not
-   decoration -- it is the one sentence that stops a fresh mapping being read as inherited record. */
-.herd-signals-page .hs-boundary{font-size:11.5px;line-height:1.55;color:var(--muted);background:var(--panel-2);border:1px solid var(--line2);border-left:3px solid var(--info);border-radius:9px;padding:9px 11px}
 
 /* Ported from mock/herd-signals-mock.html. The app-wide `.banner` (mesha-theme.css
    "Config safety" block) is a left-accent BLOCK with `margin-top` and no icon row, so the

@@ -16,6 +16,22 @@ import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
 import { EmptyState } from "@/components/app/empty-state";
+import Box from "@mui/material/Box";
+import Alert from "@mui/material/Alert";
+import Paper from "@mui/material/Paper";
+import Stack from "@mui/material/Stack";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import IconButton from "@mui/material/IconButton";
+import Typography from "@mui/material/Typography";
+import DialogTitle from "@mui/material/DialogTitle";
+import ListItemText from "@mui/material/ListItemText";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import InputAdornment from "@mui/material/InputAdornment";
+import ListItemButton from "@mui/material/ListItemButton";
+import CircularProgress from "@mui/material/CircularProgress";
+import { Iconify } from "@/components/minimal/iconify";
 
 // The Tag Mapping tab is NOT the live view with different filters: it answers "which BLE tag
 // belongs to which animal identifier, who said so, and when", so it has its own ten columns
@@ -204,73 +220,77 @@ function AnimalPicker({
     }, 300);
   }
 
+  const secondary = (animal: AnimalOption) =>
+    `${animal.animal_identifier_1 ? `Tag ${animal.animal_identifier_1}` : "No ear-tag value on record"}${animal.breed ? ` · ${animal.breed}` : ""}`;
+
+  // Template search field + outlined result list (sections/_examples list + TextField search pattern).
   return (
-    <div className="hs-picker">
-      <label htmlFor="hs-animal-q">Animal</label>
-      <span className={`fsel search${q ? " has" : ""}`}>
-        <svg className="ic sm" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
-        <input
-          id="hs-animal-q"
-          type="search"
-          placeholder="Search by animal ID or ear-tag value"
-          value={q}
-          onChange={(event) => runSearch(event.target.value)}
-          autoComplete="off"
-        />
-        {state === "loading" ? <span className="wfspin" aria-hidden="true" title="Searching" /> : null}
-      </span>
+    <Stack spacing={1}>
+      <TextField
+        id="hs-animal-q"
+        type="search"
+        label="Animal"
+        placeholder="Search by animal ID or ear-tag value"
+        value={q}
+        onChange={(event) => runSearch(event.target.value)}
+        autoComplete="off"
+        fullWidth
+        slotProps={{
+          inputLabel: { shrink: true },
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <Iconify icon="eva:search-fill" sx={{ color: "text.disabled" }} />
+              </InputAdornment>
+            ),
+            endAdornment:
+              state === "loading" ? (
+                <InputAdornment position="end">
+                  <CircularProgress size={16} color="inherit" aria-hidden />
+                </InputAdornment>
+              ) : null,
+          },
+        }}
+      />
 
       {selected ? (
-        <div className="hs-picked">
-          <div>
-            <b>{selected.display_id}</b>
-            <small>
-              {selected.animal_identifier_1 ? `Tag ${selected.animal_identifier_1}` : "No ear-tag value on record"}
-              {selected.breed ? ` · ${selected.breed}` : ""}
-            </small>
-          </div>
-          <button type="button" className="btn sm" onClick={() => onSelect(null)}>
+        <Paper variant="outlined" sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 1.5, py: 1, borderColor: "primary.main", bgcolor: "action.selected" }}>
+          <ListItemText primary={selected.display_id} secondary={secondary(selected)} slotProps={{ primary: { variant: "subtitle2" } }} sx={{ m: 0, minWidth: 0 }} />
+          <Button size="small" variant="outlined" color="inherit" onClick={() => onSelect(null)}>
             Change
-          </button>
-        </div>
+          </Button>
+        </Paper>
       ) : (
-        <div className="hs-results" role="listbox" aria-label="Animal search results">
+        <Box role="listbox" aria-label="Animal search results" sx={{ maxHeight: 210, overflowY: "auto", display: "flex", flexDirection: "column", gap: 0.5 }}>
           {q.trim().length < 2 ? (
-            <p className="faint small">Type at least two characters of an animal ID or ear-tag value.</p>
+            <Typography variant="body2" sx={{ color: "text.disabled" }}>Type at least two characters of an animal ID or ear-tag value.</Typography>
           ) : state === "error" ? (
-            <p className="small" style={{ color: "var(--danger)" }}>{error}</p>
+            <Typography variant="body2" sx={{ color: "error.main" }}>{error}</Typography>
           ) : state === "loading" ? (
-            <p className="faint small">Searching…</p>
+            <Typography variant="body2" sx={{ color: "text.disabled" }}>Searching…</Typography>
           ) : results.length === 0 ? (
-            <p className="faint small">No living animal matches that search.</p>
+            <Typography variant="body2" sx={{ color: "text.disabled" }}>No living animal matches that search.</Typography>
           ) : (
             results.map((animal) => (
-              <button
+              <ListItemButton
                 key={animal.goat_id}
-                type="button"
-                className="hs-result"
                 role="option"
                 aria-selected={false}
                 onClick={() => onSelect(animal)}
+                divider
+                sx={{ flex: "none" }}
               >
-                <b>{animal.display_id}</b>
-                <small>
-                  {animal.animal_identifier_1 ? `Tag ${animal.animal_identifier_1}` : "No ear-tag value on record"}
-                  {animal.breed ? ` · ${animal.breed}` : ""}
-                </small>
-              </button>
+                <ListItemText primary={animal.display_id} secondary={secondary(animal)} slotProps={{ primary: { variant: "subtitle2" } }} sx={{ m: 0 }} />
+              </ListItemButton>
             ))
           )}
-        </div>
+        </Box>
       )}
 
       {/* What the chosen animal ALREADY carries. This is the whole point of probing before submit:
           an animal that already has a live smart tag needs REPLACE, not MAP. */}
       {selected ? (
-        <p className="small faint" style={{ margin: "8px 0 0" }}>
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {liveTagsState === "loading"
             ? "Checking what this animal already carries…"
             : liveTagsState === "error"
@@ -278,9 +298,9 @@ function AnimalPicker({
               : liveTags.length === 0
                 ? "This animal carries no live smart tag."
                 : `This animal already carries ${liveTags.length === 1 ? "a live smart tag" : `${liveTags.length} live smart tags`}: ${liveTags.map((tag) => tag.tag_id).join(", ")}.`}
-        </p>
+        </Typography>
       ) : null}
-    </div>
+    </Stack>
   );
 }
 
@@ -299,7 +319,6 @@ function MappingDialog({
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const [animal, setAnimal] = useState<AnimalOption | null>(null);
   const [liveTags, setLiveTags] = useState<LiveSmartTag[]>([]);
   const [liveTagsState, setLiveTagsState] = useState<"unasked" | "loading" | "ready" | "error">("unasked");
@@ -310,26 +329,6 @@ function MappingDialog({
     if (submitting) return;
     onClose();
   }, [onClose, submitting]);
-
-  useEffect(() => {
-    const node = panelRef.current;
-    // The INPUT first, explicitly -- a plain "first focusable" query returns the header's Close
-    // button (it comes earlier in the DOM), which swallowed every keystroke meant for the picker.
-    const first =
-      node?.querySelector<HTMLElement>('input:not([disabled])') ??
-      node?.querySelector<HTMLElement>('button:not([disabled])');
-    (first ?? node)?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [close]);
 
   // Reset the probe when the chosen animal changes, using React's "adjust state during render"
   // pattern (react.dev/learn/you-might-not-need-an-effect) rather than a setState inside the
@@ -432,84 +431,83 @@ function MappingDialog({
 
   const needsAnimal = action === "map" || action === "replace";
 
+  // Template custom-dialog (ConfirmDialog) layout on MUI Dialog: portals, traps focus, restores it
+  // to the row action on close, and Escape / scrim close it (blocked while the write is in flight).
   return (
-    <>
-      <div onClick={close} aria-hidden="true" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 210 }} />
-      <div
-        ref={panelRef}
-        className="modal on card hs-mapping-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={ACTION_TITLE[action]}
-        aria-busy={submitting}
-        tabIndex={-1}
-      >
-        <div className="hd">
-          <div>
-            <h3>{ACTION_TITLE[action]}</h3>
-            <div className="muted small" style={{ marginTop: 2 }}>
-              BLE tag <span className="mono">{item.tag_id}</span>
-              {item.tag_mac ? (
-                <>
-                  {" · MAC "}
-                  <span className="mono">{fmtBleMac(item.tag_mac)}</span>
-                </>
-              ) : null}
-            </div>
-          </div>
-          <div className="sp" style={{ flex: 1 }} />
-          <button type="button" className="btn sm" onClick={close} disabled={submitting} aria-label="Close">
-            Close
-          </button>
-        </div>
+    <Dialog
+      open
+      fullWidth
+      maxWidth="sm"
+      onClose={close}
+      aria-labelledby="hs-mapping-title"
+      slotProps={{ paper: { "aria-label": ACTION_TITLE[action], "aria-busy": submitting } }}
+    >
+      <DialogTitle id="hs-mapping-title" component="div" sx={{ display: "flex", alignItems: "flex-start", gap: 1, pb: 1 }}>
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Typography variant="h6" component="h3">{ACTION_TITLE[action]}</Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.25 }}>
+            BLE tag <Box component="span" sx={{ fontFamily: "monospace" }}>{item.tag_id}</Box>
+            {item.tag_mac ? (
+              <>
+                {" · MAC "}
+                <Box component="span" sx={{ fontFamily: "monospace" }}>{fmtBleMac(item.tag_mac)}</Box>
+              </>
+            ) : null}
+          </Typography>
+        </Box>
+        <IconButton onClick={close} disabled={submitting} aria-label="Close">
+          <Iconify icon="mingcute:close-line" />
+        </IconButton>
+      </DialogTitle>
 
-        <div className="bd">
-          {needsAnimal ? (
-            <AnimalPicker selected={animal} onSelect={setAnimal} liveTags={liveTags} liveTagsState={liveTagsState} />
-          ) : (
-            <p className="small" style={{ margin: 0 }}>
-              {item.display_id
-                ? `This releases the binding between ${item.tag_id} and ${item.display_id}.`
-                : `This releases the binding for ${item.tag_id}.`}
-            </p>
-          )}
+      <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+        {needsAnimal ? (
+          <AnimalPicker selected={animal} onSelect={setAnimal} liveTags={liveTags} liveTagsState={liveTagsState} />
+        ) : (
+          <Typography variant="body2">
+            {item.display_id
+              ? `This releases the binding between ${item.tag_id} and ${item.display_id}.`
+              : `This releases the binding for ${item.tag_id}.`}
+          </Typography>
+        )}
 
-          {/* The monitoring boundary (backend/migrations/postgres 000196). Mapping stamps the
-              instant this animal's monitoring begins; every packet the tag sent before it stays
-              device telemetry and never enters this animal's baseline, pattern window, or
-              correlations. The operator must not read a fresh mapping as inherited record. */}
-          <div className="hs-boundary">
-            {action === "unmap"
-              ? "This tag keeps broadcasting and nothing already stored is deleted — it simply stops being attributed to an animal from now on, and no further animal-attributed value is produced for it."
-              : "Monitoring for this animal starts at the moment you confirm. Everything this tag broadcast earlier stays device telemetry and never becomes part of this animal's record."}
-          </div>
+        {/* The monitoring boundary (backend/migrations/postgres 000196). Mapping stamps the
+            instant this animal's monitoring begins; every packet the tag sent before it stays
+            device telemetry and never enters this animal's baseline, pattern window, or
+            correlations. The operator must not read a fresh mapping as inherited record. */}
+        <Alert severity="info" variant="outlined" icon={false} sx={{ typography: "caption" }}>
+          {action === "unmap"
+            ? "This tag keeps broadcasting and nothing already stored is deleted — it simply stops being attributed to an animal from now on, and no further animal-attributed value is produced for it."
+            : "Monitoring for this animal starts at the moment you confirm. Everything this tag broadcast earlier stays device telemetry and never becomes part of this animal's record."}
+        </Alert>
 
-          {error ? (
-            <div className="err on" role="alert">
-              {error}
-            </div>
-          ) : null}
-        </div>
+        {error ? (
+          <Alert severity="error" role="alert">
+            {error}
+          </Alert>
+        ) : null}
+      </DialogContent>
 
-        <div className="mf">
-          {blockedReason && !error ? <span className="faint small" style={{ marginRight: "auto" }}>{blockedReason}</span> : null}
-          <button type="button" className="btn sm" onClick={close} disabled={submitting}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn sm p"
-            onClick={submit}
-            disabled={submitting || blockedReason !== null}
-            title={blockedReason ?? undefined}
-            aria-busy={submitting}
-          >
-            {submitting ? <span className="wfspin" aria-hidden="true" /> : null}
-            {submitting ? "Working…" : action === "map" ? "Map to animal" : action === "replace" ? "Replace tag" : "Unmap"}
-          </button>
-        </div>
-      </div>
-    </>
+      <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
+        {blockedReason && !error ? (
+          <Typography variant="caption" sx={{ color: "text.disabled", mr: "auto" }}>{blockedReason}</Typography>
+        ) : null}
+        <Button variant="outlined" color="inherit" onClick={close} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          onClick={submit}
+          disabled={submitting || blockedReason !== null}
+          title={blockedReason ?? undefined}
+          aria-busy={submitting}
+          loading={submitting}
+          loadingPosition="start"
+        >
+          {submitting ? "Working…" : action === "map" ? "Map to animal" : action === "replace" ? "Replace tag" : "Unmap"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
