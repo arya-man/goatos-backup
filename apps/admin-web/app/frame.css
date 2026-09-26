@@ -207,7 +207,7 @@
 /* ---- Tabs: single measured indicator + crossfade panels ---- */
 .kit-tabpanel{position:relative;min-width:0}
 .kit-tabpanel-inner{display:grid;gap:24px;min-width:0}
-.kit-tabpanel-in .kit-tabpanel-item{animation:kit-tab-item-in 260ms var(--ease-out) both;animation-delay:var(--kit-tab-delay,0ms)}
+.kit-tabpanel-in .kit-tabpanel-item{animation:kit-tab-item-in 260ms var(--ease-out) backwards;animation-delay:var(--kit-tab-delay,0ms)}
 .kit-tabpanel-out{position:absolute;inset:0 0 auto 0;pointer-events:none;animation:kit-tab-out 180ms var(--ease) both}
 @keyframes kit-tab-item-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes kit-tab-out{from{opacity:1}to{opacity:0}}
@@ -284,7 +284,7 @@
   :root .main .top-date-picker .top-date-grid .top-date-day,:root .top .top-date-grid .top-date-day{min-height:44px;height:44px;min-width:44px;aspect-ratio:auto}
   :root .main .top-date-picker .top-date-head .top-date-arrow,:root .main .top-date-picker .top-date-modes .top-date-mode,:root .main .top-date-picker .top-date-footer button,:root .main .top-date-picker .pscope{min-height:44px;min-width:44px}
   :root .main .top-date-picker .top-date-grid{gap:2px}
-  :root .top .parksel>button.pscope,:root .top .pscope{min-height:44px;height:44px}
+  :root .parksel>button.pscope{min-height:44px;height:44px}
   :root .main .metricseg a,:root .main .metricseg button,:root .main .subtabs a,:root .main .subtabs button{min-height:44px;display:inline-flex;align-items:center}
   :root .main .lt-fsearch input,:root .main .tsearch input{min-height:44px}
   :root .main .btn{min-height:44px}
