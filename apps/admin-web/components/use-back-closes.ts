@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-const BACK_CLOSES_KEY = "__goatosBackCloses";
+const BACK_CLOSES_KEY = "__meshaBackCloses";
 
 function entryIsOurs(): boolean {
   const state = window.history.state;

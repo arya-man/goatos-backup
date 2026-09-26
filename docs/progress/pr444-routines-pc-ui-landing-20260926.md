@@ -1,6 +1,6 @@
 # PR 444 Routines / Preventive Care Landing Progress
 
-Updated: 2026-09-26 15:21 IST
+Updated: 2026-09-26 15:32 IST
 
 ## Scope
 
@@ -19,10 +19,11 @@ Updated: 2026-09-26 15:21 IST
   - `git diff --check origin/main...HEAD`
 - First `make land-main` attempt failed at `leadership-assistant-coverage-guard`; fixed by adding `docs/ceo-ai/coverage-matrix.md` coverage for `RoleHoldersFromSQL` / `RoutineAssigneeSQL`, then reran the exact guard green.
 - Second `make land-main` attempt failed at `scale-guard-plan-proof`; the changed `driveAssignmentsSQL` line now carries a narrow plan-proof exemption because the added lookup is post-group and keyed by the `shed_partitions` primary key, not a changed scan over goats or obligation tables.
+- Third `make land-main` attempt failed at `agent: boundaries` because an internal browser history-state marker used legacy Goat OS wording; the marker has been renamed to a Mesha-neutral key.
 
 ## Pending
 
-- Run final `make land-main` from the clean isolated worktree after the scale-guard fix is committed.
+- Rerun the exact `agent: boundaries` guard, then run final `make land-main` from the clean isolated worktree after the boundary fix is committed.
 - Verify the final landed SHA matches local `HEAD`, local `origin/main`, and remote `main`.
 - Resolve or close PR #444 only after landing succeeds.
 
@@ -34,6 +35,6 @@ Updated: 2026-09-26 15:21 IST
 
 ## Current State Before Landing Gate
 
-- Current candidate SHA before the scale-guard fix commit: `84f5cc983835d24d7086ce6da3cfc77f3325bd5a`.
+- Current candidate SHA before the boundary fix commit: `77fc1bc21666f7dede3c8501d71b59b7e7626272`.
 - Deployment state: not deployed.
 - Judge/review state: no blocking review findings found; local landing certification pending.
