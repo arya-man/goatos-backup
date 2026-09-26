@@ -103,6 +103,7 @@ export function NewTaskModal({
         ref={openerRef}
         type="button"
         variant="contained"
+        color="primary"
         onClick={openModal}
         disabled={!assignees.length}
         startIcon={<Plus className="ic" aria-hidden="true" />}

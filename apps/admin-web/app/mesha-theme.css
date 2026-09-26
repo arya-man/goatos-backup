@@ -1505,21 +1505,6 @@
   .main .feed-scroll::-webkit-scrollbar{height:10px}
   .main .feed-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
   .main .feed-scroll::-webkit-scrollbar-track{background:transparent}
-  .feed-ration-mobile-list{display:none}
-  @media(max-width:720px){
-    .feed-ration-desktop-table{display:none}
-    .feed-ration-mobile-list{display:grid;gap:0}
-    .feed-ration-mobile-row{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(112px,.85fr) 44px;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--paper) 78%,transparent)}
-    .feed-ration-mobile-row:nth-child(even){background:color-mix(in srgb,var(--paper-2) 64%,transparent)}
-    .feed-ration-mobile-main{display:grid;gap:4px;min-width:0}
-    .feed-ration-mobile-main strong{min-width:0;font-size:15px;line-height:1.25;color:var(--ink);overflow-wrap:anywhere}
-    .feed-ration-mobile-meta{min-width:0;color:var(--muted);font-size:12px;font-weight:650;line-height:1.25;overflow-wrap:anywhere}
-    .feed-ration-mobile-k{display:block;color:var(--faint);font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;line-height:1.1}
-    .feed-ration-mobile-rate{display:grid;gap:4px;justify-items:start;min-width:0}
-    .feed-ration-mobile-rate .feed-rate-value{font-size:15px;font-weight:800;color:var(--ink)}
-    .feed-ration-mobile-edit{display:flex;justify-content:flex-end;align-items:center}
-    .feed-ration-mobile-edit button{width:38px;min-width:38px;height:38px;min-height:38px;padding:0;border-radius:10px}
-  }
   /* Headline KPIs sit inside the table card, between the filter bar and the header row, so they
      read as totals FOR the current filter rather than as a separate page-level summary. */
   .main .counts-breakdown-summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;padding:14px}
@@ -3415,7 +3400,6 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 
 /* Page head: the mock's own top bar collapses into the page head, since brand,
    park/date scope and theme are the app shell's job. */
-.lt-page .lt-phead{align-items:flex-start;flex-wrap:wrap;margin:4px 0 14px}
 .lt-page .lt-headbtns{display:flex;gap:8px;flex-wrap:wrap}
 .lt-page .lt-livebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .lt-page .lt-livebadge{display:inline-flex;align-items:center;gap:7px;min-height:40px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--ink);border-radius:999px;padding:5px 13px;font:inherit;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
@@ -3651,7 +3635,6 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
      down, not just within the wrapper's own ~200px box. */
   .lt-page .lt-fsticky{display:contents}
   .lt-page .lt-fsticky .lt-scopebar{position:sticky;top:0;z-index:12;margin:0 0 12px;padding:2px 0 8px;background:var(--bg)}
-  .lt-page .lt-phead{gap:12px}
   .lt-page .lt-scopebar{display:grid;gap:8px;margin-bottom:10px}
   .lt-page .lt-scopebar .subtabs{width:100%;overflow-x:auto;scrollbar-width:none;border-radius:10px;padding:3px}
   .lt-page .lt-scopebar .subtabs::-webkit-scrollbar{display:none}
@@ -4284,7 +4267,6 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
 @media(max-width:760px){.herd-signals-page .grid2{grid-template-columns:1fr}}
 
 @media(max-width:640px){
-  .lt-page .lt-phead{display:grid;grid-template-columns:1fr;gap:10px}
   .lt-page .lt-headbtns,.lt-page .lt-livebar{justify-content:flex-start}
   .lt-page .lt-refreshmeta{white-space:normal}
   .lt-page .lt-fbar{position:static;display:grid;grid-template-columns:1fr;gap:8px;padding:10px}

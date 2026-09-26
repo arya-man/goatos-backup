@@ -1,6 +1,9 @@
 "use client";
 
 import { createContext, useContext, useMemo } from "react";
+import Box from "@mui/material/Box";
+import Stack from "@mui/material/Stack";
+import Typography from "@mui/material/Typography";
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { fmtDate } from "@/lib/format";
@@ -180,21 +183,43 @@ export function RationGridTable({
 
   return (
     <RationGridCellContext.Provider value={cellContext}>
-      <div className="feed-ration-mobile-list" aria-label={ariaLabel}>
+      {/* Phone: one row card per rate; md+: the contract table. Breakpoint display via sx, so the
+          DataTable's own styles cannot override a stylesheet hide (AUDIT1 P0-6). */}
+      <Box aria-label={ariaLabel} sx={{ display: { xs: "grid", md: "none" } }}>
         {rows.length === 0 ? (
           typeof empty === "string" ? <EmptyState title={empty} filled /> : empty
         ) : (
           rows.map((row) => (
-            <article className="feed-ration-mobile-row" key={row.ration_rate_id}>
-              <div className="feed-ration-mobile-main">
-                <span className="feed-ration-mobile-k">{labelFor("feed_item")}</span>
-                <strong>{row.feed_item}</strong>
-                <span className="feed-ration-mobile-meta">
+            <Box
+              component="article"
+              key={row.ration_rate_id}
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1.15fr) minmax(112px, 0.85fr) 44px",
+                gap: 1.25,
+                alignItems: "center",
+                px: 2,
+                py: 1.75,
+                borderBottom: 1,
+                borderColor: "divider",
+                "&:nth-of-type(even)": { bgcolor: "background.neutral" },
+              }}
+            >
+              <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+                <Typography variant="overline" sx={{ color: "text.disabled", lineHeight: 1.1 }}>
+                  {labelFor("feed_item")}
+                </Typography>
+                <Typography variant="subtitle2" sx={{ overflowWrap: "anywhere" }}>
+                  {row.feed_item}
+                </Typography>
+                <Typography variant="caption" sx={{ color: "text.secondary", overflowWrap: "anywhere" }}>
                   {row.ration_group} · {stageLabel(row.shed_tag)}
-                </span>
-              </div>
-              <div className="feed-ration-mobile-rate">
-                <span className="feed-ration-mobile-k">{labelFor("grams_per_head")}</span>
+                </Typography>
+              </Stack>
+              <Stack spacing={0.5} sx={{ minWidth: 0, alignItems: "flex-start", typography: "subtitle2" }}>
+                <Typography variant="overline" sx={{ color: "text.disabled", lineHeight: 1.1 }}>
+                  {labelFor("grams_per_head")}
+                </Typography>
                 <RationRateValue
                   pageContract={pageContract}
                   parkId={row.park_id}
@@ -203,8 +228,11 @@ export function RationGridTable({
                   feedItem={row.feed_item}
                   gramsPerHead={row.grams_per_head}
                 />
-              </div>
-              <div className="feed-ration-mobile-edit" aria-label={copy(pageContract, "action.edit_rate")}>
+              </Stack>
+              <Box
+                aria-label={copy(pageContract, "action.edit_rate")}
+                sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}
+              >
                 <RationRateEditor
                   pageContract={pageContract}
                   action={action}
@@ -214,19 +242,21 @@ export function RationGridTable({
                   feedItem={row.feed_item}
                   gramsPerHead={row.grams_per_head}
                 />
-              </div>
-            </article>
+              </Box>
+            </Box>
           ))
         )}
-      </div>
-      <DataTable
-        className="feed-table feed-ration-desktop-table"
-        ariaLabel={ariaLabel}
-        columns={columns}
-        data={rows}
-        getRowId={(row) => row.ration_rate_id}
-        empty={empty}
-      />
+      </Box>
+      <Box sx={{ display: { xs: "none", md: "block" } }}>
+        <DataTable
+          className="feed-table"
+          ariaLabel={ariaLabel}
+          columns={columns}
+          data={rows}
+          getRowId={(row) => row.ration_rate_id}
+          empty={empty}
+        />
+      </Box>
     </RationGridCellContext.Provider>
   );
 }

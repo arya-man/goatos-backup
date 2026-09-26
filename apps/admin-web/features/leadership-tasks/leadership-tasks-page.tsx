@@ -291,7 +291,6 @@ export function LeadershipTasksPage({
     <TaskViewProvider initial={params.view}>
     <div className="screen on lt-page">
       <PageHeader
-        className="lt-phead"
         title={page?.title || pageContract.title}
         crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]}
         actions={
