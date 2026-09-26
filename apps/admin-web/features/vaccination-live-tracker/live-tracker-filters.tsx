@@ -2,9 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import { Layers, Syringe, User } from "lucide-react";
+import { X } from "lucide-react";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Typography from "@mui/material/Typography";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
 export type LiveFilterChoice = { value: string; label: string; href: string };
@@ -45,71 +50,74 @@ export function LiveTrackerFilters({
 
   const active = filters.filter((filter) => filter.selected !== "");
 
+  // Template list toolbar card (UserTableToolbar + UserTableFiltersResult): outlined TextField
+  // selects that stack full-width on a phone, applied filters as MUI Chips with a Clear action.
   return (
-    <div className={`lt-fbar${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
-      {filters.map((filter) => {
-        const Icon = filter.icon === "layers" ? Layers : filter.icon === "syringe" ? Syringe : filter.icon === "user" ? User : null;
-        return (
-          <span className="lt-fsel" key={filter.id}>
-            {Icon ? <Icon className="ic" style={{ width: 14, height: 14 }} aria-hidden="true" /> : null}
-            <TextField
-              select
-              label={filter.label}
-              value={filter.choices.some((choice) => choice.value === filter.selected) ? filter.selected : ""}
-              onChange={({ target: { value } }) => {
-                const next = filter.choices.find((choice) => choice.value === value);
-                go(next ? next.href : filter.clearHref);
-              }}
-              sx={{ minWidth: { xs: 0, sm: 180 }, flexShrink: 0, maxWidth: 1 }}
-              slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
-            >
-              <MenuItem value="">{filter.allLabel}</MenuItem>
-              {filter.choices.map((c) => (
-                <MenuItem key={c.value} value={c.value}>
-                  {c.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </span>
-        );
-      })}
+    <Card aria-busy={isPending} sx={{ mb: 3, opacity: isPending ? 0.6 : 1, transition: (theme) => theme.transitions.create("opacity") }}>
+      <Box
+        sx={{
+          p: 2.5,
+          gap: 2,
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(auto-fill, minmax(200px, 1fr))" },
+          alignItems: "center",
+        }}
+      >
+        {filters.map((filter) => (
+          <TextField
+            key={filter.id}
+            select
+            fullWidth
+            label={filter.label}
+            value={filter.choices.some((choice) => choice.value === filter.selected) ? filter.selected : ""}
+            onChange={({ target: { value } }) => {
+              const next = filter.choices.find((choice) => choice.value === value);
+              go(next ? next.href : filter.clearHref);
+            }}
+            slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true, MenuProps: { slotProps: { paper: { sx: { maxHeight: 300 } } } } } }}
+          >
+            <MenuItem value="">{filter.allLabel}</MenuItem>
+            {filter.choices.map((c) => (
+              <MenuItem key={c.value} value={c.value}>
+                {c.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        ))}
+      </Box>
 
-      <span className="lt-chips">
-        {active.map((filter) => {
-          const choice = filter.choices.find((candidate) => candidate.value === filter.selected);
-          // NEVER fall through to the raw value. filter.selected is an internal identifier (a park or
-          // shed uuid, a vaccine family token), and the vocabulary is compiled from the day's OWN
-          // rows — so a selection that has no work on this drive day is simply absent from choices.
-          // The old fallback then printed the uuid in the chip while the <select> beside it, having
-          // no matching <option>, rendered "All parks": two controls contradicting each other while
-          // the data really was narrowed.
-          return (
-            <span className="achip" key={filter.id}>
-              {choice?.label ?? copy(pageContract, "filter.unlisted_selection")}
-              <b
-                role="button"
-                tabIndex={0}
-                aria-label={`${copy(pageContract, "filter.remove_one")} — ${filter.label}`}
-                onClick={() => go(filter.clearHref)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") go(filter.clearHref);
-                }}
-              >
-                ×
-              </b>
-            </span>
-          );
-        })}
-        {clearAllHref ? (
-          <button type="button" className="achip clr" onClick={() => go(clearAllHref)}>
-            {copy(pageContract, "filter.clear_all")}
-          </button>
-        ) : null}
-      </span>
-
-      {optionsTruncated ? (
-        <span className="lt-fnote">{copy(pageContract, "filter.truncated_note")}</span>
+      {active.length > 0 || clearAllHref || optionsTruncated ? (
+        <Box sx={{ px: 2.5, pb: 2.5, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1 }}>
+          {active.map((filter) => {
+            const choice = filter.choices.find((candidate) => candidate.value === filter.selected);
+            // NEVER fall through to the raw value. filter.selected is an internal identifier (a park or
+            // shed uuid, a vaccine family token), and the vocabulary is compiled from the day's OWN
+            // rows — so a selection that has no work on this drive day is simply absent from choices.
+            // The old fallback then printed the uuid in the chip while the select beside it, having
+            // no matching option, rendered "All parks": two controls contradicting each other while
+            // the data really was narrowed.
+            return (
+              <Chip
+                key={filter.id}
+                size="small"
+                label={choice?.label ?? copy(pageContract, "filter.unlisted_selection")}
+                onDelete={() => go(filter.clearHref)}
+                deleteIcon={<X aria-label={`${copy(pageContract, "filter.remove_one")} — ${filter.label}`} role="button" />}
+              />
+            );
+          })}
+          {clearAllHref ? (
+            <Button color="error" onClick={() => go(clearAllHref)} sx={{ minHeight: { xs: 44, sm: 36 } }}>
+              {copy(pageContract, "filter.clear_all")}
+            </Button>
+          ) : null}
+          {optionsTruncated ? (
+            <Typography variant="caption" sx={{ color: "text.disabled", ml: { sm: "auto" } }}>
+              {copy(pageContract, "filter.truncated_note")}
+            </Typography>
+          ) : null}
+        </Box>
       ) : null}
-    </div>
+    </Card>
   );
 }

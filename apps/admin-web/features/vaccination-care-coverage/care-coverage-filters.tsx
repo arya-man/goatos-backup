@@ -263,7 +263,7 @@ function PenMultiSelect({
             <Button size="small" color="inherit" onClick={() => setStaged([])} disabled={staged.length === 0}>
               {copy(pageContract, "filter.clear")}
             </Button>
-            <Button size="small" variant="contained" onClick={apply}>
+            <Button size="small" variant="contained" color="primary" onClick={apply}>
               {copy(pageContract, "filter.apply")}
             </Button>
           </Box>

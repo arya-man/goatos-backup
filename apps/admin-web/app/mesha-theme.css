@@ -3295,9 +3295,6 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 @keyframes lt-lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
 .lt-page .lt-refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
 .lt-page .lt-refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
-.lt-page .lt-intervalpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
-.lt-page .lt-intervalpick button{border:0;background:transparent;min-width:40px;min-height:40px;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
-.lt-page .lt-intervalpick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
 .lt-page .lt-stale{display:inline-flex;align-items:center;gap:8px;background:var(--warnx);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn);border-radius:9px;padding:8px 13px;font-size:12px;font-weight:650}
 
 /* Persistent filter bar */
@@ -4163,8 +4160,6 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
   .lt-live-page .lt-livebar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;width:100%;align-items:center}
   .lt-live-page .lt-livebadge{min-height:36px;padding:4px 10px;font-size:11px;letter-spacing:.45px}
   .lt-live-page .lt-refreshmeta{min-width:0;font-size:11.5px;line-height:1.35}
-  .lt-live-page .lt-intervalpick{grid-column:1 / -1;width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-radius:10px}
-  .lt-live-page .lt-intervalpick button{min-width:0;min-height:38px;padding:4px 6px;font-size:11px}
   .lt-live-page .lt-fbar{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px;border-radius:12px;box-shadow:none;background:color-mix(in srgb,var(--panel) 96%,transparent)}
   .lt-live-page .lt-fsel{min-height:44px;padding:4px 8px;border-radius:10px}
   .lt-live-page .lt-fsel .ic{width:13px!important;height:13px!important}

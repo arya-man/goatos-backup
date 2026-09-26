@@ -279,7 +279,7 @@
   :root .main summary,:root .main .chip,:root .main .pgbtn,:root .main .parkpick a,:root .main .datenav a,:root .main a.more,:root .main .wt-feedband-gone,:root .main .vaccination-schedule-legend a{display:inline-flex;align-items:center;justify-content:center;min-width:44px;box-sizing:border-box}
   :root .main .move-date-popover,:root .main .top-date-popover{width:min(100vw - 16px,360px);max-width:calc(100vw - 16px);left:0;right:auto;padding:12px}
   :root .main .top-date-grid{gap:1px}
-  :root .main .lt-intervalpick button,:root .main .lt-livebar .livebadge{min-height:44px;min-width:44px}
+  :root .main .lt-livebar .livebadge{min-height:44px;min-width:44px}
   :root .main .vr-legend a.vr-lg,:root .main .fbar a.btn{min-height:44px}
   :root .main .cfgchk label,:root .main label.chkline{min-height:44px;display:inline-flex;align-items:center;gap:8px}
   :root .main .market-config-line input{min-height:44px;min-width:44px;width:auto;flex:1 1 44px}

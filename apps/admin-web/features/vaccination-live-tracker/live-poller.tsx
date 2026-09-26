@@ -1,5 +1,8 @@
 "use client";
 
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import { TAP_MIN } from "@/components/minimal/_shared/tap";
 import { useCallback, useEffect, useRef, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -166,23 +169,23 @@ export function LivePoller({
         {copy(pageContract, "live.updated_prefix")} <b>{fmtClockSeconds(generatedAt)}</b>{" "}
         {copy(pageContract, "live.updated_suffix")}
       </div>
-      <div className="lt-intervalpick" role="group" aria-label={copy(pageContract, "live.interval_label")}>
-        {intervals.map((option) => {
-          const seconds = Number(option.key);
-          return (
-            <button
-              key={option.key}
-              type="button"
-              className={seconds === intervalSeconds ? "on" : undefined}
-              onClick={() => writeInterval(seconds)}
-              aria-pressed={seconds === intervalSeconds}
-              title={option.title || undefined}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* Template ToggleButtonGroup (exclusive): one tap sets the interval; full width on a phone. */}
+      <ToggleButtonGroup
+        exclusive
+        size="small"
+        value={intervalSeconds}
+        onChange={(_event, seconds: number | null) => {
+          if (seconds !== null) writeInterval(seconds);
+        }}
+        aria-label={copy(pageContract, "live.interval_label")}
+        sx={{ width: { xs: 1, sm: "auto" }, "& .MuiToggleButton-root": { flex: { xs: 1, sm: "none" }, minWidth: TAP_MIN, minHeight: TAP_MIN } }}
+      >
+        {intervals.map((option) => (
+          <ToggleButton key={option.key} value={Number(option.key)} title={option.title || undefined}>
+            {option.label}
+          </ToggleButton>
+        ))}
+      </ToggleButtonGroup>
       {/* "Data shown as of" is the timestamp of the data actually on screen. A paused board does not
           refresh, so generatedAt cannot move underneath it — deriving this instead of holding it in
           state is what lets PAUSED survive the Suspense remount that every filter change triggers. */}
