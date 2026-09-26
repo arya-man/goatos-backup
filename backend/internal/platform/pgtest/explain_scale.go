@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -29,7 +31,12 @@ func ExplainAnalyzeAtScale(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	if _, err := tx.Exec(ctx, "SET LOCAL jit = off"); err != nil {
 		t.Fatalf("disable JIT: %v", err)
 	}
-	rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+sql, args...)
+	bound, err := sqlbind.Bind("EXPLAIN (ANALYZE, BUFFERS) "+sql, args...)
+	if err != nil {
+		t.Fatalf("bind explain analyze: %v", err)
+		return ScalePlan{}
+	}
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		t.Fatalf("explain analyze: %v", err)
 	}
