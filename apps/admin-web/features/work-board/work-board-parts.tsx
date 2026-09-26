@@ -45,7 +45,7 @@ export function ClockLabel({ row }: { row: WorkBoardRow }) {
   const cls = clockClass(row);
   const tone = cls === "brk" || cls === "run" ? cls : "";
   return (
-    <Label variant="soft" color={tone ? CLOCK_COLOR[tone] : "default"} sx={{ maxWidth: 1, height: "auto", minHeight: "var(--chip-h)", whiteSpace: "normal", fontVariantNumeric: "tabular-nums" }}>
+    <Label variant="soft" color={tone ? CLOCK_COLOR[tone] : "default"} sx={{ maxWidth: 1, height: "auto", minHeight: (theme) => theme.spacing(3), whiteSpace: "normal", fontVariantNumeric: "tabular-nums" }}>
       {row.clock_label}
     </Label>
   );

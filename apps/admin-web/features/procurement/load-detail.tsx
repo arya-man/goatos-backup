@@ -72,8 +72,8 @@ const LW_ACTIONS_SX: SxProps<Theme> = {
     m: 0,
     px: 0.5,
     py: 0,
-    fontSize: "var(--fs-caption)",
-    lineHeight: "var(--lh-caption)",
+    // Theme caption scale (size + line height) in place of the retired --fs/--lh-caption tokens.
+    typography: "caption",
     fontWeight: 600,
     color: "text.secondary",
     bgcolor: "background.paper",
@@ -81,7 +81,7 @@ const LW_ACTIONS_SX: SxProps<Theme> = {
     pointerEvents: "none",
   },
   "& .fld > input, & .fld > textarea": {
-    height: "var(--input-h-sm)",
+    height: "calc(5 * var(--spacing))", // theme spacing(5): template small-input height (TextField size="small")
     px: 1.75,
     py: 0,
     border: "1px solid var(--line-strong)",
@@ -98,7 +98,7 @@ const LW_ACTIONS_SX: SxProps<Theme> = {
     display: "inline-flex",
     alignItems: "center",
     gap: 1,
-    minHeight: "var(--input-h-sm)",
+    minHeight: "calc(5 * var(--spacing))",
     fontSize: "var(--fs-body2)",
     color: "text.primary",
     fontWeight: 500,
