@@ -87,13 +87,14 @@ export const overlayJourneys = {
   people: [
     {
       id: "person-access-modal",
-      // features/people/person-access-launcher.tsx: button.btn.sm.ghost aria-label="Access — <name>" ; modal: person-access-modal.tsx
+      // features/people/person-access-launcher.tsx: button.btn.sm.ghost aria-label="Access — <name>" ; the
+      // editor is a portalled MUI Dialog (person-access-modal.tsx: DialogTitle / DialogContent / close IconButton).
       trigger: 'button.btn.sm.ghost[aria-label^="Access"]',
-      overlay: ".vr-modal.on[role=dialog]:has(.vr-modal-hd)",
-      header: ".vr-modal-hd",
-      body: ".vr-modal-bd",
+      overlay: ".MuiDialog-paper[role=dialog]",
+      header: ".MuiDialogTitle-root",
+      body: ".MuiDialogContent-root",
       kind: "dialog",
-      close: ".vr-modal.on .vr-modal-hd button.x",
+      close: ".MuiDialog-paper .MuiDialogTitle-root button[aria-label]",
       source: "features/people/person-access-launcher.tsx, person-access-modal.tsx",
     },
   ],
@@ -135,10 +136,10 @@ export const overlayJourneys = {
       // (components/minimal/widgets/kpi-card.tsx: clickable tile = MUI CardActionArea button) -> closed drawer
       trigger: ".kit-kpi button.MuiCardActionArea-root",
       triggerText: /closed/i,
-      overlay: ".dscrim.on aside.drawer.on[role=dialog]",
-      header: ".dh",
+      // The closed drawer is the template MinimalDrawer (portalled MUI Drawer paper, role=dialog).
+      overlay: ".MuiDrawer-paper[role=dialog]",
       kind: "drawer",
-      source: "features/preventive-care-vaccination/command-board-view.tsx (tile ~L871, drawer ~L1623)",
+      source: "features/preventive-care-vaccination/command-board-view.tsx (tile ~L871, drawer ~L1617)",
     },
   ],
   "configuration-items": [

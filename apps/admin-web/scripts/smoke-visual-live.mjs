@@ -2289,7 +2289,9 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName, inspec
       : Promise.resolve(),
     trigger.click(),
   ]);
-  const drawer = page.locator(".drawer.on").first();
+  // Legacy local drawers are `aside.drawer.on`; converted ones are the template MinimalDrawer
+  // (portalled MUI Drawer paper, role=dialog).
+  const drawer = page.locator('.drawer.on, .MuiDrawer-paper[role="dialog"]').filter({ visible: true }).first();
   try {
     await drawer.waitFor({ state: "visible", timeout: 10_000 });
   } catch (error) {
@@ -2312,7 +2314,7 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName, inspec
     }
   }
   await page.waitForFunction(() => {
-    const openDrawer = document.querySelector(".drawer.on");
+    const openDrawer = document.querySelector('.drawer.on, .MuiDrawer-paper[role="dialog"]');
     return openDrawer instanceof HTMLElement && getComputedStyle(openDrawer).transform === "none";
   });
   await drawer.getByText(expectedText, { exact: false }).first().waitFor({ state: "visible", timeout: 5_000 });
