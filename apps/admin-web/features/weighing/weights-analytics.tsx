@@ -61,6 +61,7 @@ import {
 import { WINDOW_FROM_PARAM, WINDOW_TO_PARAM } from "./landing-window-constants";
 import { SEX_ALL, resolveSexFilter, sexControlValue } from "./sex-filter";
 import { weightsSexChoices } from "./sex-filter-contract";
+import { WEIGHTS_DEFAULT_LIMIT, WEIGHTS_TABS } from "./weights-analytics-layout";
 
 const PAGE_PATH = "/weighing/analytics";
 const SEX_PARAM = "sex";
@@ -128,11 +129,11 @@ function compareKg(actual: number, op: string, wanted: number): boolean {
       return true;
   }
 }
-const DEFAULT_LIMIT = 25;
+const DEFAULT_LIMIT = WEIGHTS_DEFAULT_LIMIT;
 /** These three figures have no per-week series behind them, so the widget draws no sparkline. */
 const NO_SPARK = { categories: [], series: [] };
 
-const TABS = ["general", "breed", "birth", "shed", "weight", "time", "load", "fcr"] as const;
+const TABS = WEIGHTS_TABS;
 
 type Tab = (typeof TABS)[number];
 

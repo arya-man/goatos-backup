@@ -25,10 +25,11 @@ import Alert from "@mui/material/Alert";
 import { MarketTrendSection } from "./market-trend-section";
 import { salesErrorText } from "./sales-error";
 import Box from "@mui/material/Box";
+import { MARKET_WINDOWS } from "./market-analytics-layout";
 
 const PAGE_PATH = "/sales/market-analytics";
 /** The window chips, in days. 90 is the backend's own default. */
-const WINDOWS = [30, 90, 180, 365] as const;
+const WINDOWS = MARKET_WINDOWS;
 const DEFAULT_WINDOW = 90;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {

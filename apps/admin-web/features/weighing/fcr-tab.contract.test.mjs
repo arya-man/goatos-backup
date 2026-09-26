@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pageSource = readFileSync(join(here, "weights-analytics.tsx"), "utf8");
+// The tab list lives in the layout module the page and its loading.tsx share.
+const layoutSource = readFileSync(join(here, "weights-analytics-layout.ts"), "utf8");
 const tabSource = readFileSync(join(here, "fcr-tab.tsx"), "utf8");
 const tableSource = readFileSync(join(here, "fcr-pens-table.tsx"), "utf8");
 const loadSource = readFileSync(join(here, "load-comparison-tab.tsx"), "utf8");
@@ -19,7 +21,8 @@ const serviceSource = readFileSync(
 );
 
 test("the FCR tab is in the strip and fetched inside the page's single Promise.all under the page filters", () => {
-  assert.match(pageSource, /const TABS = \[[^\]]*"fcr"\]/, "TABS must end with the fcr tab");
+  assert.match(layoutSource, /export const WEIGHTS_TABS = \[[^\]]*"fcr"\]/, "WEIGHTS_TABS must end with the fcr tab");
+  assert.match(pageSource, /const TABS = WEIGHTS_TABS;/);
   const promiseAll = pageSource.match(/const \[weights, growth, demographics, loadwise, loadValues, feedBand, fcr, salePrices\] = await Promise\.all\(\[[\s\S]*?\]\);/);
   assert.ok(promiseAll, "weights-analytics.tsx must keep a single Promise.all request plan");
   assert.match(

@@ -7,7 +7,7 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import { Check, ShieldPlus } from "lucide-react";
-import { PageHeader, PageHeaderSkeleton } from "@/components/app/page-header";
+import { PageHeader } from "@/components/app/page-header";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { TablePaginationLinks } from "@/components/minimal/table/table-pagination-links";
 import { getPCCarePenCoverage, type PCCarePenCoverage } from "@/lib/api/server";
@@ -62,22 +62,6 @@ function CardHeader({ pageContract }: { pageContract: AdminUiPageContract }) {
 
 function PageHead({ pageContract }: { pageContract: AdminUiPageContract }) {
   return <PageHeader title={pageContract.title} crumbs={[{ label: copy(pageContract, "crumb") }, { label: pageContract.title }]} />;
-}
-
-export function CareCoverageSkeleton({ pageContract }: { pageContract: AdminUiPageContract }) {
-  return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <Card>
-        <CardHeader pageContract={pageContract} />
-        <Box sx={{ px: 3, pb: 3, display: "grid", gap: 1 }}>
-          {[0, 1, 2, 3, 4, 5].map((row) => (
-            <Box key={row} className="skel" sx={{ display: "block", width: 1, height: "var(--table-row-h, 44px)" }} />
-          ))}
-        </Box>
-      </Card>
-    </div>
-  );
 }
 
 function DoneCell({ done, date, label, pageContract }: { done: boolean; date?: string; label: string; pageContract: AdminUiPageContract }) {

@@ -1,14 +1,14 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { FilterCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
 
-/** Route-shaped shimmer: mirrors the real layout of this route so the page settles instead of flashing. */
+/** /counts/milk-preparation: header + export, the park filter, four KPI cards, the preparation table card. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton action />
-      <Skeleton height={56} radius={14} style={{ marginBottom: 16 }} />
-      <SkeletonKpiRow count={4} spark />
-      <SkeletonTable rows={10} widths={["1.8fr", "1fr", "1fr", "1fr", "110px"]} />
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton actions={1} />
+      <FilterCardSkeleton fields={[200]} />
+      <KpiRowSkeleton count={4} />
+      {/* Contract table "milk-preparation": 10 columns. */}
+      <TableSkeleton columns={10} rows={10} headerAction />
+    </PageSkeleton>
   );
 }

@@ -3,7 +3,6 @@
 import type { MouseEvent, ReactNode } from "react";
 
 import Box from "@mui/material/Box";
-import Skeleton from "@mui/material/Skeleton";
 
 import { CustomBreadcrumbs } from "@/components/minimal/custom-breadcrumbs";
 import { useNavTrail } from "@/components/shell/nav-trail-context";
@@ -72,19 +71,6 @@ export function PageHeader({ title, crumbs: crumbsIn, actions, backHref, tabs, t
       />
       {tabs ? <div>{tabs}</div> : null}
       {toolbar ? <div>{toolbar}</div> : null}
-    </Box>
-  );
-}
-
-/** Loading twin of `PageHeader`: the `CustomBreadcrumbs` heading + links rows (MUI `Skeleton`). */
-export function PageHeaderSkeleton({ action = false }: { action?: boolean }) {
-  return (
-    <Box component="header" aria-hidden="true" sx={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "flex-start" }}>
-      <Box sx={{ flex: "1 1 auto", display: "flex", flexDirection: "column", gap: 2 }}>
-        <Skeleton variant="rounded" width={220} height={36} sx={{ maxWidth: "100%" }} />
-        <Skeleton variant="rounded" width={180} height={22} sx={{ maxWidth: "100%" }} />
-      </Box>
-      {action ? <Skeleton variant="rounded" width={132} height={36} /> : null}
     </Box>
   );
 }

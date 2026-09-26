@@ -51,8 +51,6 @@
   .mortality-page .mortality-card-head{padding:16px 16px 8px}
 }
 /* Loading shape: the deck is 3 x 2 on a wide screen, one column on a phone, like the real KPIs. */
-.mortality-page .kit-sk-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
-@media(max-width:640px){.mortality-page .kit-sk-kpis{grid-template-columns:minmax(0,1fr)}}
 
 /* Under the frame (app/frame.css): these mini tables FIT their card, so no 640px floor and no
    sticky identity column (whose own paper background broke the row hover). Header band from the

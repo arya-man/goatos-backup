@@ -336,63 +336,6 @@ export function vaccinationScheduleYear(searchParams: RouteSearchParams | undefi
   return selectedScheduleYear(searchParams);
 }
 
-export function VaccinationFullScheduleSkeleton({
-  pageContract,
-}: {
-  pageContract: AdminUiPageContract;
-}) {
-  return (
-    <section id="full-schedule" className="card vaccination-schedule-card" style={{ scrollMarginTop: 80 }} aria-busy="true">
-      <HashSectionScroller id="full-schedule" />
-      <div className="hd vaccination-schedule-hd">
-        <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <div style={{ minWidth: 0 }}>
-          <h3>{copy(pageContract, "section.full_schedule.operator_title")}</h3>
-          <span className="muted small">{copy(pageContract, "section.full_schedule.loading_operator_note")}</span>
-        </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {[70, 70, 120].map((w, i) => (
-          <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: 999 }} />
-        ))}
-      </div>
-      <div className="bd" style={{ display: "grid", gap: 12 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {Array.from({ length: 12 }, (_, i) => (
-            <div key={i} className="skel" style={{ width: 62, height: 28, borderRadius: 999 }} />
-          ))}
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <Table className="shed-summary-table">
-            <TableHead>
-              <TableRow>
-                <TableCell component="th">{copy(pageContract, "schedule.column.date")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.operator")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.park")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.shed")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.vaccines")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.workload")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.capacity")}</TableCell>
-                <TableCell component="th">{copy(pageContract, "schedule.column.postpone")}</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {Array.from({ length: 5 }, (_, row) => (
-                <TableRow key={row}>
-                  {Array.from({ length: 8 }, (_, col) => (
-                    <TableCell key={col}>
-                      <span className="skel" style={{ width: col === 5 ? 48 : 96, height: 16 }} />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export async function VaccinationFullSchedule({
   searchParams,
   scope,

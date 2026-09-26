@@ -12,7 +12,7 @@
 .wrap>.screen,.wrap>.kit-page,.wrap>.kit-enter,.wrap>.pagegrid,.wrap>.herd-signals-page,.wrap>.weights-page,.wrap>.lt-page,.wrap>.vplan,.kit-page,.kit-enter{display:grid;gap:24px;min-width:0;align-content:start}
 .wrap>.screen>*,.kit-page>*,.kit-enter>*,.wrap>.pagegrid>*,.wrap>.herd-signals-page>*,.wrap>.weights-page>*,.wrap>.lt-page>*,.wrap>.vplan>*{margin-top:0;margin-bottom:0;min-width:0}
 /* legacy spacer divs / empty fragments must not consume a rhythm slot */
-.wrap>.screen>:empty:not(.kit-skeleton):not(.skel):not(i):not(hr){display:none}
+.wrap>.screen>:empty:not(.MuiSkeleton-root):not(i):not(hr){display:none}
 
 /* Description prose is deleted at its call sites, never hidden by CSS (a blanket display:none also killed real empty states). */
 .kit-pagehead{align-items:flex-start;gap:16px 24px}
@@ -137,7 +137,6 @@
 .drawer .db{padding:24px;display:grid;gap:24px}
 
 /* ---- Skeleton frame ---- */
-.kit-page .skel,.wrap .skel{border-radius:var(--radius-skeleton)}
 
 /* ---- Motion: reduced motion turns every frame animation off ---- */
 @media(prefers-reduced-motion:reduce){
@@ -156,7 +155,6 @@
 @keyframes kit-tab-out{from{opacity:1}to{opacity:0}}
 @media(prefers-reduced-motion:reduce){.kit-tabpanel-in .kit-tabpanel-item,.kit-tabpanel-out{animation:none!important}.kit-tabpanel-out{display:none}}
 /* skeleton tables sit in a card like the real table */
-.wrap>.screen>.kit-sk-rows,.kit-page>.kit-sk-rows,.wrap>.screen>div>.kit-sk-rows{background:var(--paper);border-radius:16px;box-shadow:var(--shadow-card);padding:8px 24px}
 
 /* table toolbars inside cards keep the card gutter */
 .card>.tbar{padding:0 24px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -246,11 +244,8 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 .card{overflow:clip;display:flow-root}
 /* Route skeletons (loading.tsx) never run past their card or the viewport at 390: fixed-width pills wrap. */
 .screen[aria-busy="true"] div{flex-wrap:wrap;min-width:0}
-.screen[aria-busy="true"] .kit-skeleton{max-width:100%}
 /* A table skeleton is a table card: paper, radius, hairline rows, header band — the shape it resolves into. */
-.screen[aria-busy="true"] .kit-sk-rows:not(.card .kit-sk-rows){background:var(--paper);border-radius:16px;box-shadow:var(--shadow-card);overflow:clip}
 /* Tab-level skeletons sit inside their table card, never wider than it (owner shot ravi-shots/32). */
-.kit-sk-rows .kit-skeleton{max-width:100%}
 /* A status chip is never a bar: it hugs its text even inside a stretched flex column / grid cell. */
 .tag{align-self:flex-start;justify-self:start;width:max-content;max-width:100%}
 /* Fair-fight rows: label column ellipsises, the value never overlaps it; ≤640 the value sits under the label. */
@@ -299,7 +294,6 @@ details.top-date-picker:not([open])>.top-date-popover,details.move-date-picker:n
 /* ---- Shell skeleton (first paint before the bootstrap contract) ---- */
 .shell-skeleton .top{display:flex;align-items:center;overflow:hidden}
 .shell-skeleton .brand{display:flex;align-items:center;gap:10px;min-width:0}
-@media(max-width:430px){.shell-skeleton .brand>.kit-skeleton{display:none}}
 .shell-skeleton .main{flex:1;min-width:0;overflow:hidden}
 
 /* pending server-navigation on a link tab strip: thin progress line + muted panel */

@@ -206,6 +206,7 @@ const CHECKS = {
   "page-template-map": { tier: "p0", why: "every route row in docs/design/page-template-map.md names the feature files that render it and the template section modules they must compose; a mapped page that stops importing one of its template sections (or maps to a file that no longer exists) has drifted back to hand-made UI" },
   "legacy-kit-import": { tier: "p0", why: "the hand-built components/kit is retired; import the template (components/minimal), MUI, or a components/app behaviour wrapper instead — components/kit must not come back" },
   "client-api-without-use-client": { tier: "p0", why: "a module that calls a client-only React/Next API (useState/useEffect/useRef/useTransition/useRouter/useSearchParams/usePathname/useLinkStatus …) or wires a JSX event handler (onClick={…}) must start with \"use client\"; otherwise a server component that imports it breaks `next build` (typecheck does not catch it)" },
+  "hand-drawn-skeleton": { tier: "p0", why: "loading shapes come only from the shared blocks in components/app/skeletons (they render the same Card/Grid/Tabs/Table parts as the page): a loading.tsx or a features/**/*skeleton*.tsx composes those blocks and nothing else (no MUI Skeleton, no raw elements, no inline style, no legacy .skel/.kit-sk classes), and no other app code draws its own MUI Skeleton" },
   "app-wrapper-css-import": { tier: "p0", why: "components/app/ holds thin behaviour wrappers over template + MUI components only; they must not import .css / .module.css — style through the template component's props/theme instead" },
   // MUI Minimal kit + token enforcement (scripts/lib/design-kit-ratchet.mjs). Ratchet tier:
   // counted per check|file against an explicit allowance that may only shrink.
@@ -468,6 +469,32 @@ function runGuard(root, { themeDiff }) {
           const spec = new RegExp(`from\\s+["']@/${mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:["'/])`);
           if (!spec.test(imports)) findings.push(finding("page-template-map", mapRel, index + 1, `${route}: none of ${files.join(", ")} imports @/${mod}`));
         }
+      });
+    }
+  }
+
+  // Loading shapes (R2 item 7): every route loading.tsx and panel fallback composes the shared
+  // blocks in components/app/skeletons, which render the page's own layout parts. A hand-drawn
+  // placeholder (its own MUI Skeleton, raw divs with inline sizes, the retired .skel/.kit-sk CSS) is
+  // how every page ended up shimmering a shape unlike the content it loads.
+  {
+    const MUI_SKELETON_IMPORT = /from\s+["']@mui\/material\/Skeleton["']|import\s*\{[^}]*\bSkeleton\b[^}]*\}\s*from\s+["']@mui\/material["']/;
+    const LEGACY_SKEL_CLASS = /className=["'{`][^"'}`]*(?<![\w-])(?:skel|skelrow|kit-sk-[\w-]+|kit-skeleton)(?![\w-])/;
+    const INTRINSIC_JSX = /<(?:div|span|section|article|ul|li|p|header|aside|table|tr|td|th)\b/;
+    const isComposition = (rel) => /^app\/\(admin\)\/.*\/loading\.tsx$/.test(rel) || /^features\/.*skeleton[\w-]*\.tsx$/.test(rel);
+    // The blocks themselves, the template code, and the shell chrome placeholder (sidebar + top bar,
+    // not a page shape) may use MUI Skeleton directly.
+    const mayDrawSkeleton = (rel) => rel.startsWith("components/app/skeletons/") || rel.startsWith("components/minimal/") || rel === "components/shell-skeleton.tsx";
+    for (const abs of SCAN_DIRS.flatMap((dir) => walk(join(root, dir)))) {
+      const rel = toRel(root, abs);
+      if (!/\.tsx?$/.test(rel) || /\.(test|stories)\.tsx?$/.test(rel)) continue;
+      const lines = readFileSync(abs, "utf8").split("\n");
+      const composition = isComposition(rel);
+      lines.forEach((line, index) => {
+        const code = line.replace(/\/\/.*$/, "");
+        if (!mayDrawSkeleton(rel) && MUI_SKELETON_IMPORT.test(code)) findings.push(finding("hand-drawn-skeleton", rel, index + 1, line));
+        else if (LEGACY_SKEL_CLASS.test(code)) findings.push(finding("hand-drawn-skeleton", rel, index + 1, line));
+        else if (composition && (INTRINSIC_JSX.test(code) || /\bstyle=\{/.test(code))) findings.push(finding("hand-drawn-skeleton", rel, index + 1, line));
       });
     }
   }
@@ -897,6 +924,8 @@ async function selfTest() {
   put("app/(admin)/foo/page.tsx", 'export default function Page() { return <div />; }\n');
   put("app/(admin)/ok/page.tsx", 'import { PageHeader } from "@/components/app/page-header";\nexport default function Page() { return <div className="kit-page"><PageHeader /></div>; }\n');
   put("app/(admin)/ok/loading.tsx", "export default function L() { return null; }\n");
+  put("app/(admin)/drawn/loading.tsx", 'import Skeleton from "@mui/material/Skeleton";\nexport default function L() { return <div style={{ height: 40 }}><Skeleton /></div>; }\n');
+  put("app/(admin)/composed/loading.tsx", 'import { PageSkeleton, TableSkeleton } from "@/components/app/skeletons";\nexport default function L() { return <PageSkeleton><TableSkeleton columns={4} /></PageSkeleton>; }\n');
   put("docs/design/page-template-map.md", [
     "| Route | Template | Files | Sections |",
     "|---|---|---|---|",
@@ -917,6 +946,10 @@ async function selfTest() {
   const okPageFlagged = findings.some((f) => f.file === "app/(admin)/ok/page.tsx");
   if (findings.some((f) => f.check === "client-api-without-use-client" && f.file === "components/client-ok.tsx")) {
     console.error("design_system_self_test=FAIL client-api-without-use-client flagged a \"use client\" module");
+    process.exit(1);
+  }
+  if (findings.some((f) => f.check === "hand-drawn-skeleton" && f.file === "app/(admin)/composed/loading.tsx")) {
+    console.error("design_system_self_test=FAIL hand-drawn-skeleton flagged a loading.tsx composed only from components/app/skeletons");
     process.exit(1);
   }
   // A `:where(:not(.Mui…))` selector excludes MUI parts: it must not count as a MUI colour rule.

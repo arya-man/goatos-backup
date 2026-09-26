@@ -48,7 +48,7 @@ import {
 } from "lucide-react";
 import { cx } from "@/lib/tone";
 import { IconBadge } from "@/components/app/icon-badge";
-import { Skeleton } from "@/components/app/page-skeletons";
+import { NotificationRowsSkeleton } from "./notification-skeleton";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { formatNotificationTime, type NotificationCentreCopy } from "./notification-copy";
 import { notificationKind, notificationTabCounts, relativeNotificationTime, type NotificationIconName, type NotificationTab } from "./notification-kind";
@@ -91,23 +91,6 @@ const readBrowserCanPush = () => isPushCapable();
 
 const SKELETON_ROWS = 5;
 const STAGGER_S = 0.04;
-
-/** Rows of avatar circle + two bars: the exact shape the list resolves into. */
-export function NotificationSkeletonRows({ rows = SKELETON_ROWS }: { rows?: number }) {
-  return (
-    <ul className="nc-items" aria-hidden="true">
-      {Array.from({ length: rows }, (_, i) => (
-        <li key={i} className="nc-row nc-row-sk">
-          <Skeleton width={40} height={40} radius="50%" />
-          <span className="nc-main">
-            <Skeleton height={14} width={`${58 + ((i * 17) % 30)}%`} />
-            <Skeleton height={11} width={`${28 + ((i * 23) % 22)}%`} />
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 export function NotificationPanel({
   feed,
@@ -238,7 +221,7 @@ export function NotificationPanel({
 
       <div className="nc-scroll" aria-busy={busy || loading}>
         {showSkeleton ? (
-          <NotificationSkeletonRows />
+          <NotificationRowsSkeleton rows={SKELETON_ROWS} />
         ) : rows.length === 0 ? (
           <div className="nc-empty">
             <span className="nc-empty-ic">{emptyIcon}</span>
@@ -271,7 +254,7 @@ export function NotificationPanel({
         {hasMore && rows.length > 0 ? (
           <div ref={sentinel} className="nc-more">
             {loadingMore ? (
-              <NotificationSkeletonRows rows={2} />
+              <NotificationRowsSkeleton rows={2} />
             ) : (
               <button type="button" className="nc-more-btn" onClick={onLoadMore}>
                 {centreCopy.loadMore}

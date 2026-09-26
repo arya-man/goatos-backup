@@ -109,8 +109,6 @@
   .routebar.on span{animation:routebar-slide 1.05s ease-in-out infinite}
   @keyframes routebar-slide{0%{transform:translateX(-105%)}55%{transform:translateX(78vw)}100%{transform:translateX(105vw)}}
   html.route-busy,html.route-busy body{cursor:progress}
-  .skel{display:inline-block;vertical-align:middle;border-radius:7px;background:linear-gradient(90deg,var(--line),color-mix(in srgb,var(--line) 45%,var(--brand-soft)),var(--line));background-size:220% 100%;animation:skel-shimmer 1.15s ease-in-out infinite;opacity:.82}
-  @keyframes skel-shimmer{0%{background-position:120% 0}100%{background-position:-120% 0}}
   a[data-route-pending="true"]{position:relative;isolation:isolate;cursor:progress}
   a[data-route-pending="true"]::after{content:"";position:absolute;inset:2px;border-radius:inherit;pointer-events:none;background:linear-gradient(100deg,transparent,color-mix(in srgb,var(--brand) 24%,transparent),transparent);opacity:.85;animation:route-pending-sheen .9s ease-in-out infinite;z-index:-1}
   a.nav[data-route-pending="true"],a.leaf[data-route-pending="true"],a.chip[data-route-pending="true"],a.btn[data-route-pending="true"],a.celllink[data-route-pending="true"],a.pexr[data-route-pending="true"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 72%,var(--line)),0 0 0 3px var(--brand-soft)}
@@ -131,7 +129,6 @@
   .tablewrap-busy tbody{opacity:.6;transition:opacity .12s ease-in-out;pointer-events:none}
   @media(prefers-reduced-motion:reduce){
     .routebar.on span{animation:none;transform:none;width:100%}
-    .skel{animation:none}
     a[data-route-pending="true"]::after{animation:none}
     /* Still, but still VISIBLE: the ring keeps its brand-coloured top edge, so "busy" is carried by
        contrast rather than by motion. */
@@ -1824,10 +1821,6 @@
       overflow-x:auto;
       -webkit-overflow-scrolling:touch;
     }
-    .screen[aria-busy="true"] .skel{
-      max-width:100%;
-      box-sizing:border-box;
-    }
   }
 
   /* ===== SOP full-page builder (features/sops/sop-builder + question-card + builder-preview) =====
@@ -3497,8 +3490,6 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
 .herd-signals-page .empty p{margin:0;max-width:460px;color:var(--muted);font-size:12.5px}
 .herd-signals-page .empty .eact{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px}
 .herd-signals-page .empty.dngstate .eicon{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 38%,var(--line));color:var(--danger)}
-.herd-signals-page .skelrow{height:13px;border-radius:6px;background:linear-gradient(90deg,var(--line2),var(--line),var(--line2));background-size:220% 100%;animation:hs-sk 1.15s ease-in-out infinite}
-@keyframes hs-sk{0%{background-position:120% 0}100%{background-position:-120% 0}}
 
 .herd-signals-page .pager{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 15px;border-top:1px solid var(--line2);font-size:12px;color:var(--muted)}
 /* The rows-per-page pill is the one control the mock keeps in the card header instead; sized to the

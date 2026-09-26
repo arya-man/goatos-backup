@@ -189,7 +189,7 @@ async function waitUsable(page, expectedPath, expectedSearch = null) {
           if (currentSearchText !== expectedSearchText) return false;
         }
         if (document.querySelector(".layout.route-pending")) return false;
-        if (visible('[aria-busy="true"], .skel, .wt-tab-skeleton')) return false;
+        if (visible('[aria-busy="true"], .MuiSkeleton-root')) return false;
         const bodyText = document.body?.innerText || "";
         if (bodyText.includes("Loading")) return false;
         const pattern = new RegExp(readyPattern, "i");
@@ -201,7 +201,7 @@ async function waitUsable(page, expectedPath, expectedSearch = null) {
     );
   } catch (error) {
     const state = await page.evaluate(() => {
-      const busy = [...document.querySelectorAll('[aria-busy="true"], .skel, .wt-tab-skeleton')]
+      const busy = [...document.querySelectorAll('[aria-busy="true"], .MuiSkeleton-root')]
         .filter((element) => {
           const style = window.getComputedStyle(element);
           const rect = element.getBoundingClientRect();
@@ -325,7 +325,7 @@ async function clickTab(page, flowRoute, tab) {
         if (new URLSearchParams(window.location.search).get(key) !== value) return false;
       }
       if (document.querySelector(".layout.route-pending")) return false;
-      if ([...document.querySelectorAll('[aria-busy="true"], .skel, .wt-tab-skeleton')].some((element) => {
+      if ([...document.querySelectorAll('[aria-busy="true"], .MuiSkeleton-root')].some((element) => {
         const style = window.getComputedStyle(element);
         const rect = element.getBoundingClientRect();
         return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;

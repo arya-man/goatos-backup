@@ -1,34 +1,34 @@
 "use client";
 
 /**
- * The eager Suspense fallback for the bell's lazy panel: header title + five skeleton rows, the
- * exact shape the panel resolves into. Kept tiny and separate from `./notification-panel` on
- * purpose -- it ships in the shell chunk of every route, so it imports only the kit Skeleton and
- * the panel's stylesheet (which the panel would load anyway).
+ * The eager Suspense fallback for the bell's lazy panel: header title + five rows, the shape the
+ * panel resolves into, from the shared skeleton blocks. Kept tiny and separate from
+ * `./notification-panel` on purpose -- it ships in the shell chunk of every route, so it imports only
+ * the blocks and the panel's stylesheet (which the panel would load anyway) for the panel shell.
  */
 
-import { Skeleton } from "@/components/app/page-skeletons";
+import Box from "@mui/material/Box";
+import { ListRowsSkeleton, SkeletonLine } from "@/components/app/skeletons";
 import "./notification-panel.css";
 
 export function NotificationSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="nc" data-notification-panel-fallback aria-busy="true">
-      <div className="nc-head">
-        <Skeleton width={120} height={16} />
-      </div>
-      <div className="nc-scroll">
-        <ul className="nc-items" aria-hidden="true">
-          {Array.from({ length: rows }, (_, i) => (
-            <li key={i} className="nc-row nc-row-sk">
-              <Skeleton width={40} height={40} radius="50%" />
-              <span className="nc-main">
-                <Skeleton height={13} width={`${58 + ((i * 17) % 30)}%`} />
-                <Skeleton height={10} width={`${28 + ((i * 23) % 22)}%`} />
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
+    <Box className="nc" data-notification-panel-fallback aria-busy="true">
+      <Box className="nc-head">
+        <SkeletonLine variant="subtitle1" width={120} />
+      </Box>
+      <Box className="nc-scroll">
+        <NotificationRowsSkeleton rows={rows} />
+      </Box>
+    </Box>
+  );
+}
+
+/** The list rows: 72px notification rows (avatar + title + meta). */
+export function NotificationRowsSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <Box sx={{ px: 2, py: 1.75 }}>
+      <ListRowsSkeleton rows={rows} trailing={false} spacing={3.5} />
+    </Box>
   );
 }

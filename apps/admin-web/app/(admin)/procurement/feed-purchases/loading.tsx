@@ -1,7 +1,14 @@
-import { ProcurementPageSkeleton } from "@/components/procurement-page-skeleton";
+import { PageHeaderSkeleton, PageSkeleton, TableSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { DEFAULT_LIMIT } from "@/features/procurement/feed-purchases-layout";
 
-// Shimmer placeholder shaped like this route's real layout, so the page settles in instead of
-// flashing raw. Presentation only -- it renders no copy.
+/** /procurement/feed-purchases: header + Record, the farm / delivery toolbar, the purchases table card. */
 export default function Loading() {
-  return <ProcurementPageSkeleton kpis={0} charts={0} table={10} tableWidths={["1.4fr", "1.6fr", "0.9fr", "0.9fr", "0.9fr", "0.8fr"]} />;
+  return (
+    <PageSkeleton>
+      <PageHeaderSkeleton actions={1} />
+      <ToolbarSkeleton fields={[200, 200]} />
+      {/* Contract table "feed-purchases": 11 columns. */}
+      <TableSkeleton columns={11} rows={DEFAULT_LIMIT} />
+    </PageSkeleton>
+  );
 }

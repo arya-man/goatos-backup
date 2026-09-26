@@ -4,7 +4,7 @@ import Card from "@mui/material/Card";
 import CardHeader from "@mui/material/CardHeader";
 import { expect, waitFor } from "storybook/test";
 import { RadialStat } from "@/components/app/radial-stat";
-import { Skeleton } from "@/components/app/page-skeletons";
+import { StatStripSkeleton } from "@/components/app/skeletons";
 import { Frame, MOBILE, StateBlock, States } from "./_fixtures";
 
 const meta = {
@@ -90,10 +90,7 @@ export const AllStates: Story = {
 
       <StateBlock label="Loading skeleton / no data">
         <Row>
-          <div style={{ display: "grid", gap: 10, justifyItems: "center" }}>
-            <Skeleton width={132} height={132} radius={999} />
-            <Skeleton width={110} height={12} />
-          </div>
+          <StatStripSkeleton count={1} card={false} />
           <RadialStat value={0} tone="neutral" centerLabel="No data" caption="Pen E-12 — not weighed today" />
         </Row>
       </StateBlock>

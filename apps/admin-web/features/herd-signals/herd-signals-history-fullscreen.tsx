@@ -28,6 +28,7 @@ import {
   MAPPING_LABEL,
 } from "./format";
 import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
+import { BlockSkeleton } from "@/components/app/skeletons";
 
 type RangeKey = "1h" | "6h" | "12h" | "24h" | "3d" | "7d" | "30d" | "custom";
 const RANGE_LABEL: Record<RangeKey, string> = {
@@ -367,7 +368,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
               </div>
             ) : buckets === null ? (
               <div style={{ padding: 20 }}>
-                <div className="skelrow" style={{ width: "100%", height: 240 }} />
+                <BlockSkeleton card={false} height={240} />
               </div>
             ) : (
               <div style={{ padding: "12px 12px 0" }}>
@@ -450,7 +451,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                       <TableRow>
                         <TableCell colSpan={6}>
                           <div style={{ padding: 16 }}>
-                            <div className="skelrow" style={{ width: "100%", height: 40 }} />
+                            <BlockSkeleton card={false} height={40} />
                           </div>
                         </TableCell>
                       </TableRow>

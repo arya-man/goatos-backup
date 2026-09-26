@@ -1,16 +1,17 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { ChipRowSkeleton, KanbanSkeleton, PageHeaderSkeleton, PageSkeleton, PagerSkeleton, StackSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
+/** /action-center: header, board / verify tabs, then the board panel (chip + search toolbar, severity chips, lanes, pager). */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
+    <PageSkeleton>
       <PageHeaderSkeleton />
-      <SkeletonKpiRow count={4} className="kit-kpi-wrap" />
-      <div style={{ display: "flex", gap: 10, margin: "14px 0" }}>
-        <Skeleton width={230} height={36} radius={999} />
-        <Skeleton width={180} height={36} radius={999} />
-      </div>
-      <SkeletonTable rows={8} />
-    </div>
+      <TabsSkeleton count={2} counts />
+      <StackSkeleton spacing={2}>
+        <ToolbarSkeleton left={<ChipRowSkeleton count={4} />} fields={["search", 120, 120]} />
+        <ChipRowSkeleton count={4} />
+        <KanbanSkeleton layout="grid" lanes={[3, 3, 2, 2, 1]} minHeight={360} />
+        <PagerSkeleton />
+      </StackSkeleton>
+    </PageSkeleton>
   );
 }

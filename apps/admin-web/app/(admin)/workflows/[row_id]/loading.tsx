@@ -1,16 +1,16 @@
-import { Skeleton, SkeletonCard } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { DetailCardSkeleton, GridSkeleton, ListCardSkeleton, PageHeaderSkeleton, PageSkeleton } from "@/components/app/skeletons";
 
+/** /workflows/[row_id]: back header with the status chips, then the chain card beside the summary card. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-        {Array.from({ length: 5 }, (_, i) => (
-          <Skeleton key={i} width={110} height={26} radius={999} />
-        ))}
-      </div>
-      <SkeletonCard lines={6} />
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton actionWidths={[72, 72, 72, 72, 72]} />
+      <GridSkeleton
+        items={[
+          { size: { xs: 12, md: 8 }, node: <ListCardSkeleton rows={7} /> },
+          { size: { xs: 12, md: 4 }, node: <DetailCardSkeleton rows={6} header={false} /> },
+        ]}
+      />
+    </PageSkeleton>
   );
 }

@@ -1,17 +1,21 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { ControlsCardSkeleton, BlockSkeleton, FilterCardSkeleton, GridSkeleton, KpiRowSkeleton, ListCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { PAGE_SIZE } from "@/features/operations-audit/audit-layout";
 
+/** /operations/audit: header, four KPI cards, domain filter, status tabs + search card, span list beside the activity table, advanced filters. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <SkeletonKpiRow count={4} />
-      <div style={{ display: "flex", gap: 8, margin: "20px 0 16px" }}>
-        {[120, 140, 100].map((w, wi) => (
-          <Skeleton key={`${wi}-${w}`} width={w} height={34} radius={10} />
-        ))}
-      </div>
-      <SkeletonTable rows={9} />
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton actions={1} />
+      <KpiRowSkeleton count={4} />
+      <FilterCardSkeleton fields={[240]} />
+      <ControlsCardSkeleton tabs={<TabsSkeleton count={4} counts />} toolbar={<FilterCardSkeleton inCard fields={["search", 140]} />} />
+      <GridSkeleton
+        items={[
+          { size: { xs: 12, lg: 3 }, node: <ListCardSkeleton rows={4} /> },
+          { size: { xs: 12, lg: 9 }, node: <TableSkeleton columns={7} rows={PAGE_SIZE} /> },
+        ]}
+      />
+      <BlockSkeleton height={68} />
+    </PageSkeleton>
   );
 }

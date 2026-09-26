@@ -66,6 +66,7 @@ import { TablePaginationLinks } from "@/components/minimal/table";
 import { fPercent } from "@/components/minimal/_shared/format-number";
 import { InvoiceAnalytic } from "@/components/minimal/sections/invoice/invoice-analytic";
 import { VrQueueHead } from "./vr-queue-head";
+import { QUEUE_LIMIT } from "./verification-layout";
 
 const PATHNAME = "/verify";
 
@@ -136,7 +137,7 @@ export async function VerificationReviewPage({
       : { businessDateFrom: dateRange.from, businessDateTo: dateRange.to }),
     parkId: scope.parkId,
     shedId,
-    limit: 20,
+    limit: QUEUE_LIMIT,
     cursor: one(sp, "vi_cursor"),
     sort,
   });

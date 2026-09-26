@@ -1,5 +1,5 @@
-import { PageHeaderSkeleton } from "@/components/app/page-header";
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
+import MuiSkeleton from "@mui/material/Skeleton";
+import { KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import "@/layouts/mesha-layout.css";
 import "@/layouts/shell-skeleton.css";
 
@@ -21,13 +21,13 @@ export function ShellSkeleton({ children }: { children?: React.ReactNode }) {
         {[6, 8].map((rows, group) => (
           <div key={group} className="msh-skel-group">
             <div className="msh-skel-subheader">
-              <Skeleton width={group ? 56 : 64} height={10} />
+              <MuiSkeleton variant="text" width={group ? 56 : 64} />
             </div>
             {Array.from({ length: rows }, (_, i) => (
               <div key={i} className="msh-skel-item">
-                <Skeleton width={24} height={24} radius={6} />
+                <MuiSkeleton variant="rounded" width={24} height={24} />
                 <span className="msh-skel-label">
-                  <Skeleton width={(group ? 80 : 90) + (i % (group ? 4 : 3)) * (group ? 16 : 18)} height={14} />
+                  <MuiSkeleton variant="text" width={(group ? 80 : 90) + (i % (group ? 4 : 3)) * (group ? 16 : 18)} />
                 </span>
               </div>
             ))}
@@ -36,9 +36,9 @@ export function ShellSkeleton({ children }: { children?: React.ReactNode }) {
       </aside>
       <div className="msh-skel-col">
         <div className="msh-skel-header" aria-hidden="true">
-          <Skeleton width={40} height={40} radius={20} />
-          <Skeleton width={40} height={40} radius={20} />
-          <Skeleton width={40} height={40} radius={20} />
+          <MuiSkeleton variant="circular" width={40} height={40} />
+          <MuiSkeleton variant="circular" width={40} height={40} />
+          <MuiSkeleton variant="circular" width={40} height={40} />
         </div>
         <main className="main msh-content msh-skel-main">
           <div className="wrap msh-wrap">{children ?? <GenericPageSkeleton />}</div>
@@ -48,13 +48,13 @@ export function ShellSkeleton({ children }: { children?: React.ReactNode }) {
   );
 }
 
-/** The page-column skeleton for a route that has no loading.tsx of its own. */
+/** The page-column skeleton for a route that has no loading.tsx of its own: header, KPI deck, table card. */
 export function GenericPageSkeleton() {
   return (
-    <div className="kit-page">
-      <PageHeaderSkeleton action />
-      <SkeletonKpiRow count={4} />
-      <SkeletonTable rows={8} widths={["1.6fr", "1fr", "1fr", "1fr", "88px"]} />
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton actions={1} />
+      <KpiRowSkeleton count={4} />
+      <TableSkeleton columns={5} rows={8} />
+    </PageSkeleton>
   );
 }

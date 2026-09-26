@@ -5,7 +5,7 @@ import CardHeader from "@mui/material/CardHeader";
 import { expect, within } from "storybook/test";
 import Button from "@mui/material/Button";
 import { BarList } from "@/components/bar-list";
-import { SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
+import { KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
 import { PageHeader } from "@/components/app/page-header";
 import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
@@ -147,13 +147,11 @@ export const MobileSingleIconAction: Story = {
 /** Loading: the SAME shell and header so the skeleton cannot bleed to the edges (FRAME-SPEC). */
 export const Loading: Story = {
   render: () => (
-    <div className="kit-page" aria-label="Herd analytics loading">
-      <PageHeader title="Herd analytics" crumbs={[{ label: "Counts", href: "#" }, { label: "Herd analytics" }]} />
-      <SkeletonKpiRow />
-      <Card sx={{ p: { xs: 2, sm: 3 } }}>
-        <SkeletonTable />
-      </Card>
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton />
+      <KpiRowSkeleton count={4} />
+      <TableSkeleton columns={6} rows={8} />
+    </PageSkeleton>
   ),
 };
 

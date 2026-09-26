@@ -100,7 +100,6 @@ aside.drawer.on{transition:transform 320ms cubic-bezier(.32,.72,0,1),visibility 
 .main input:focus,.main select:focus,.main textarea:focus,.drawer input:focus,.drawer select:focus,.drawer textarea:focus{outline:0;border-color:var(--fg);box-shadow:inset 0 0 0 1px var(--fg)}
 select option{background:var(--paper);color:var(--fg)}
 
-/* (skeleton shimmer is defined once, near the end of this file: .kit-skeleton,.skel) */
 
 /* =====================================================================
    Kit components (components/kit/*)
@@ -346,35 +345,6 @@ a:focus-visible,button:focus-visible,[role="button"]:focus-visible,[tabindex="0"
 @keyframes cx-grow-x{from{transform:scaleX(0)}to{transform:none}}
 @keyframes cx-fade-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 
-/* -- skeleton shimmer (one definition; overrides the .skel in mesha-theme.css) -- */
-/* Minimal Skeleton: rounded (radius 16), grey-400 .12 fill, MUI wave (2s linear, .5s delay). */
-.skel{display:block;position:relative;overflow:hidden;border-radius:var(--radius-skeleton);
-  background:rgb(var(--g400-rgb)/.12);opacity:1;animation:none}
-.skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
-  background:linear-gradient(90deg,transparent,rgb(var(--g500-rgb)/.08),transparent)}
-@media (prefers-reduced-motion:no-preference){
-  .skel::after{animation:cx-wave 2s linear .5s infinite}
-}
-@keyframes cx-wave{0%{transform:translateX(-100%)}50%{transform:translateX(100%)}100%{transform:translateX(100%)}}
-.kit-sk-group{display:grid;gap:10px;min-width:0}
-.kit-sk-card{background:var(--paper);border-radius:var(--r-xl);box-shadow:var(--shadow-card);padding:24px;display:grid;gap:12px;min-width:0}
-.kit-sk-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
-.kit-sk-chart{display:flex;align-items:flex-end;gap:8px;height:var(--h,200px);padding-top:8px}
-.kit-sk-chart>span{flex:1;min-width:6px;border-radius:6px 6px 0 0}
-.kit-sk-kpi{gap:10px;padding:20px}
-.kit-sk-plot{display:flex;align-items:stretch;gap:12px;min-width:0}
-.kit-sk-axis{display:flex;flex-direction:column;justify-content:space-between;flex:none;padding:8px 0}
-.kit-sk-xaxis{display:flex;justify-content:space-between;padding:0 4px}
-.kit-sk-plot .kit-sk-chart{flex:1;min-width:0}
-.kit-sk-legend{display:flex;gap:16px;flex-wrap:wrap}
-.kit-sk-legend-item{display:inline-flex;align-items:center;gap:6px}
-.kit-sk-rows{display:grid;gap:0;min-width:0}
-.kit-sk-list{display:grid;gap:0}
-.kit-sk-listrow{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px dashed var(--line)}
-.kit-sk-listrow:last-child{border-bottom:0}
-.kit-sk-drawer{display:grid;gap:22px;padding:20px}
-.kit-sk-drawer-hd{display:flex;align-items:center;gap:14px}
-.kit-sk-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 
 /* -- Tab content transition (TabPanel) -- */
 

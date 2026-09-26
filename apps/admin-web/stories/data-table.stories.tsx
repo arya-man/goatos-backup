@@ -7,7 +7,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { AlertTriangle, ListChecks, Pencil, Trash2 } from "lucide-react";
 import { DenseToggle } from "@/components/app/dense-toggle";
 import { RowMenu } from "@/components/app/row-menu";
-import { SkeletonTable } from "@/components/app/page-skeletons";
+import { TableSkeleton } from "@/components/app/skeletons";
 import { TableFooter } from "@/components/app/table-footer";
 import { cx, toneVars, type KitTone } from "@/lib/tone";
 import { Frame, MOBILE, PENS, StateBlock, States, VENDORS } from "./_fixtures";
@@ -121,7 +121,7 @@ export const Dense: Story = {
 export const LoadingSkeleton: Story = {
   render: () => (
     <Shell>
-      <SkeletonTable rows={8} cols={7} />
+      <TableSkeleton columns={7} rows={8} header={false} bare />
     </Shell>
   ),
 };

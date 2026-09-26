@@ -1,7 +1,15 @@
-import { ProcurementPageSkeleton } from "@/components/procurement-page-skeleton";
+import { ChartCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { MARKET_WINDOWS } from "@/features/procurement/market-analytics-layout";
 
-// Shimmer placeholder shaped like this route's real layout, so the page settles in instead of
-// flashing raw. Presentation only -- it renders no copy.
+/** /sales/market-analytics: header, four KPI cards, the window pills, the latest-readings card, the trend chart card. */
 export default function Loading() {
-  return <ProcurementPageSkeleton kpis={4} charts={1} table={8} tabs={4} kpiPhonePairs />;
+  return (
+    <PageSkeleton className="market-analytics-page">
+      <PageHeaderSkeleton />
+      <KpiRowSkeleton count={4} hero />
+      <ToolbarSkeleton left={<TabsSkeleton count={MARKET_WINDOWS.length} variant="pill" />} />
+      <TableSkeleton columns={5} rows={4} pager={false} />
+      <ChartCardSkeleton height={{ xs: 240, md: 280 }} legend />
+    </PageSkeleton>
+  );
 }

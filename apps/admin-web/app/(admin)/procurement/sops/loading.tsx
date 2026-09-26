@@ -1,9 +1,6 @@
-import { SopRouteSkeleton } from "@/components/sop-route-skeleton";
+import { SopRouteSkeleton } from "@/features/sops/sop-route-skeleton";
 
-/**
- * Route-shaped shimmer. One shared shape for all five module SOP libraries so it cannot drift, and
- * it branches to the editor shape on `?compose=1` (the builder shares this route).
- */
+/** Module SOP library: the one shared SOP library shape (builder shape on ?compose=1 / ?edit=). */
 export default function Loading() {
   return <SopRouteSkeleton />;
 }

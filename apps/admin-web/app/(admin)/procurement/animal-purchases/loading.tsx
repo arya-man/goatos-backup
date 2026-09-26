@@ -1,7 +1,14 @@
-import { ProcurementPageSkeleton } from "@/components/procurement-page-skeleton";
+import { KpiRowSkeleton, ListCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
 
-// Shimmer placeholder shaped like this route's real layout, so the page settles in instead of
-// flashing raw. Presentation only -- it renders no copy.
+/** /procurement/animal-purchases: header, four KPI cards, the loads table card, the animals card. */
 export default function Loading() {
-  return <ProcurementPageSkeleton kpis={4} charts={0} table={10} tabs={4} tableWidths={["1.2fr", "1.6fr", "1fr", "0.9fr", "0.9fr"]} />;
+  return (
+    <PageSkeleton>
+      <PageHeaderSkeleton />
+      <KpiRowSkeleton count={4} />
+      {/* Contract table "animal-purchase-loads": 9 columns. */}
+      <TableSkeleton columns={9} rows={5} headerAction={<TabsSkeleton count={2} variant="pill" />} />
+      <ListCardSkeleton rows={6} />
+    </PageSkeleton>
+  );
 }

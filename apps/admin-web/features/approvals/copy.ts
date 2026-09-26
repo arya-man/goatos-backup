@@ -12,6 +12,12 @@
 // (title/subtitle/columns/status tabs/disabled reasons), delete this file, drop the
 // features/approvals entry from scripts/check-ui-contract-literals.mjs SKIP_PATH_PARTS, and switch
 // to requireAdminWebPageContract("approvals") + copy/tableLabels from @/lib/admin-ui-contract.
+import type { AdminWebApprovalRequestType, AdminWebApprovalStatus } from "@/lib/api/server";
+
+/** Status choices and request-type tabs, in order (the page and its loading.tsx both read these). */
+export const STATUS_TABS: AdminWebApprovalStatus[] = ["pending", "approved", "rejected"];
+export const TYPE_TABS: Array<"all" | AdminWebApprovalRequestType> = ["all", "birth", "death", "shifting"];
+
 export const APPROVALS_COPY = {
   crumb: "Approvals",
   title: "Approvals",

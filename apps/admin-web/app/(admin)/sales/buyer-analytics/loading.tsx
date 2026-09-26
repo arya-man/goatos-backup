@@ -1,7 +1,14 @@
-import { ProcurementPageSkeleton } from "@/components/procurement-page-skeleton";
+import { DetailCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
-// Shimmer placeholder shaped like this route's real layout, so the page settles in instead of
-// flashing raw. Presentation only -- it renders no copy.
+/** /sales/buyer-analytics: header, farm toggle, four KPI cards, the gauges card, the buyers table card. */
 export default function Loading() {
-  return <ProcurementPageSkeleton kpis={4} charts={0} table={10} spark tableWidths={["2fr", "1fr", "1fr", "1fr", "0.8fr", "0.8fr"]} />;
+  return (
+    <PageSkeleton className="sales-buyer-analytics-page">
+      <PageHeaderSkeleton />
+      <ToolbarSkeleton left={<TabsSkeleton count={2} variant="pill" />} />
+      <KpiRowSkeleton count={4} hero hint />
+      <DetailCardSkeleton rows={4} columns={2} />
+      <TableSkeleton columns={9} rows={25} />
+    </PageSkeleton>
+  );
 }

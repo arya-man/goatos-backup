@@ -1,26 +1,16 @@
-import { Skeleton, SkeletonChart, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
-import { skeletonClasses } from "@/components/app/page-skeletons";
+import { ChartCardSkeleton, GridSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
-/** Route-shaped shimmer for Counts -> Mortality: window filter, six KPI tiles, the monthly
- *  stacked chart, then the two-up rate tables. Same column rhythm as the real cards. */
+/** /counts/mortality: header, date range, six KPI cards, the monthly stacked chart, then the two-up rate cards. */
 export default function Loading() {
   return (
-    <div className="pagegrid mortality-page" aria-busy="true">
+    <PageSkeleton root="kit-enter pagegrid mortality-page">
       <PageHeaderSkeleton />
-      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        <Skeleton width={280} height={40} radius={10} />
-      </div>
-      <SkeletonKpiRow count={6} spark />
-      <SkeletonChart bars={12} height={240} withLegend />
-      <div className="mortality-grid">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className={skeletonClasses.card}>
-            <Skeleton width="34%" height={18} />
-            <SkeletonTable rows={5} widths={["2fr", "70px", "70px", "60px", "1.4fr"]} />
-          </div>
-        ))}
-      </div>
-    </div>
+      <ToolbarSkeleton fields={[280]} />
+      <KpiRowSkeleton count={6} shapes={[{ spark: true }, { spark: true }, { spark: true }, {}, {}, {}]} />
+      <ChartCardSkeleton height={300} action />
+      <GridSkeleton
+        items={[0, 1, 2, 3].map(() => ({ size: { xs: 12, lg: 6 }, node: <TableSkeleton columns={5} rows={5} pager={false} /> }))}
+      />
+    </PageSkeleton>
   );
 }

@@ -1,23 +1,17 @@
-import { Skeleton, SkeletonChart, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { FilterCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { WEIGHTS_DEFAULT_LIMIT, WEIGHTS_TABS } from "@/features/weighing/weights-analytics-layout";
 
-/** Route-shaped shimmer: matches the real page's header, deck, and blocks, so the swap is a fade, not a jump. */
+/** /weighing/analytics: header + export with the eight analytics tabs, the filter card, the General tab (KPI decks, pens table). */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-        {[96, 88, 104, 92, 84].map((w, wi) => (
-          <Skeleton key={`${wi}-${w}`} width={w} height={36} radius={999} />
-        ))}
-      </div>
-      <div style={{ marginBottom: 20 }}>
-        <SkeletonKpiRow count={5} />
-      </div>
-      <div style={{ display: "grid", gap: 20 }}>
-        <SkeletonChart bars={14} height={260} />
-        <SkeletonChart bars={10} height={220} />
-      </div>
-    </div>
+    <PageSkeleton root="weights-page">
+      <PageHeaderSkeleton actions={1} tabs={<TabsSkeleton count={WEIGHTS_TABS.length} />} />
+      <FilterCardSkeleton fields={[200, 260, 200, 160, 160]} />
+      <StackSkeleton>
+        <KpiRowSkeleton count={5} shapes={[{}, { parts: true }, {}, {}, {}]} />
+        <KpiRowSkeleton count={3} shapes={[{ spark: true, trend: true }, {}, {}]} />
+        <TableSkeleton columns={9} rows={WEIGHTS_DEFAULT_LIMIT} />
+      </StackSkeleton>
+    </PageSkeleton>
   );
 }

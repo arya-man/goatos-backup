@@ -1,17 +1,13 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { PAGE_SIZE, PEOPLE_COLUMNS } from "@/features/people/people-layout";
 
+/** /people: header, the people tabs, the people list card (search + three selects, pager). */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
+    <PageSkeleton>
       <PageHeaderSkeleton />
-      <div style={{ display: "flex", gap: 8, margin: "20px 0 16px" }}>
-        {[120, 140, 100].map((w, wi) => (
-          <Skeleton key={`${wi}-${w}`} width={w} height={34} radius={10} />
-        ))}
-      </div>
-      <SkeletonKpiRow count={4} />
-      <SkeletonTable rows={9} />
-    </div>
+      <TabsSkeleton count={4} />
+      <TableSkeleton columns={PEOPLE_COLUMNS} rows={PAGE_SIZE} headerAction toolbar={<FilterCardSkeleton inCard fields={["search", 160, 160, 160]} actions={1} />} />
+    </PageSkeleton>
   );
 }

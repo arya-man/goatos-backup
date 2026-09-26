@@ -43,6 +43,7 @@ import { visuallyHidden } from "@mui/utils";
 import { Label } from "@/components/minimal/label";
 import { EmptyContent } from "@/components/minimal/empty-content";
 import { LinkButton } from "@/components/minimal/link-button";
+import { CATALOG_PAGE_SIZE } from "./health-config-layout";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
 // age band, the day-by-day course of medicines, actions and critical handoffs.
@@ -65,7 +66,6 @@ import { LinkButton } from "@/components/minimal/link-button";
 const PAGE_PATH = "/health/config";
 // The catalog is authored config (54 rows today), not herd data. 25 keeps it a bounded page while
 // showing a whole disease's two bands together in almost every case.
-const CATALOG_PAGE_SIZE = 25;
 
 function SectionError({
   result,

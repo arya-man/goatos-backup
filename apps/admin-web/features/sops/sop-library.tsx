@@ -69,6 +69,7 @@ import Chip from "@mui/material/Chip";
 import MuiCard from "@mui/material/Card";
 import Paper from "@mui/material/Paper";
 import { StatStrip } from "@/components/minimal/widgets/stat-strip";
+import { CARDS_PER_PAGE } from "./sop-library-layout";
 
 // The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
 // route as the module page (never a nested /new page). Legacy `?new=1` deep-links resolve to it too.
@@ -102,9 +103,6 @@ function moduleSegment(basePath: string): string {
 }
 
 const STATUS_COLOR: Record<SopCardView["status"], LabelColor> = { active: "success", draft: "default", retired: "warning" };
-
-// Cards per page: a multiple of the 1/2/3-column grid (template job list), not a table page size.
-const CARDS_PER_PAGE = 12;
 
 // Dialog body rhythm: theme spacing/typography only.
 const DLG_BODY_SX = {

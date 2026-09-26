@@ -11,7 +11,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import Link from "@mui/material/Link";
-import Skeleton from "@mui/material/Skeleton";
+import { BlockSkeleton } from "@/components/app/skeletons";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
@@ -356,7 +356,7 @@ export function GoogleLogin({
               aria-hidden={status !== "ready"}
               style={{ display: status === "ready" ? "block" : "none" }}
             />
-            {status === "loading" ? <Skeleton variant="rounded" width="100%" height={44} /> : null}
+            {status === "loading" ? <BlockSkeleton card={false} height={44} /> : null}
           </>
         ) : null}
         {showAuthProgress ? (

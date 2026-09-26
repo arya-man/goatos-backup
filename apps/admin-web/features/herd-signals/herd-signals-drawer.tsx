@@ -23,6 +23,7 @@ import {
 } from "./format";
 import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
 import { useNowMs } from "./herd-signals-stream-bridge";
+import { BlockSkeleton } from "@/components/app/skeletons";
 
 type RangeKey = "1h" | "6h" | "24h";
 const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600 };
@@ -196,7 +197,7 @@ export function HerdSignalsDrawer({
                 </div>
               ) : buckets === null ? (
                 <div style={{ padding: 20 }}>
-                  <div className="skelrow" style={{ width: "100%", height: 110 }} />
+                  <BlockSkeleton card={false} height={110} />
                 </div>
               ) : (
                 <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={110} onHover={setHovered} />

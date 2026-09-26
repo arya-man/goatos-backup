@@ -1,18 +1,12 @@
-import Table from "@mui/material/Table";
-import TableHead from "@mui/material/TableHead";
-import TableBody from "@mui/material/TableBody";
-import TableRow from "@mui/material/TableRow";
-import TableCell from "@mui/material/TableCell";
 import { Activity, AlertTriangle, CalendarDays } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import { getVaccinationLiveTracker, type ApiResult, type VaccinationLiveTrackerResponse } from "@/lib/api/server";
-import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import type { LiveTrackerShedRow } from "@/lib/api/vaccination-live-tracker";
 import { liveTrackerHref, liveTrackerResetHref, parseLiveTrackerParams } from "./params";
 import { vaccinationScheduleYear } from "@/features/preventive-care-vaccination";
-import { SkeletonKpiRow } from "@/components/app/page-skeletons";
 import { PageHeader } from "@/components/app/page-header";
 import { Label } from "@/components/minimal/label";
 import { LiveTrackerKpis } from "./live-tracker-kpis";
@@ -43,58 +37,6 @@ export function loadLiveTracker(searchParams: RouteSearchParams | undefined): Pr
     activityBefore: params.activityBefore,
     activityBeforeId: params.activityBeforeId,
   });
-}
-
-export function LiveTrackerSkeleton({ pageContract }: { pageContract: AdminUiPageContract }) {
-  const operatorCols = tableLabels(pageContract, "live-operators");
-  return (
-    <div className="lt-page lt-live-page" aria-busy="true">
-      <SkeletonKpiRow count={6} />
-      <div className="lt-grid">
-        <div className="lt-stack">
-          <section className="card lt-card">
-            <div className="hd">
-              <div className="skel" style={{ width: 160, height: 16 }} />
-            </div>
-            <div className="bd lt-tablewrap">
-              <Table className="lt-operator-table">
-                <TableHead>
-                  <TableRow>
-                    {operatorCols.map((label) => (
-                      <TableCell component="th" key={label}>{label}</TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {Array.from({ length: 5 }, (_, row) => (
-                    <TableRow key={row}>
-                      {operatorCols.map((label, index) => (
-                        <TableCell key={label}>
-                          <span className="skel" style={{ width: index < 3 ? 116 : 48, height: 16 }} />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </section>
-        </div>
-        <div className="lt-stack">
-          <section className="card lt-card">
-            <div className="hd">
-              <div className="skel" style={{ width: 120, height: 16 }} />
-            </div>
-            <div className="bd">
-              {Array.from({ length: 5 }, (_, row) => (
-                <div key={row} className="skel" style={{ display: "block", width: "100%", height: 34, marginBottom: 8 }} />
-              ))}
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // The live drive tracker board.

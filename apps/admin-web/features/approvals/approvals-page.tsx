@@ -13,14 +13,13 @@ import {
   getAdminWebApproval,
   listAdminWebApprovals,
   type AdminWebApprovalItem,
-  type AdminWebApprovalRequestType,
   type AdminWebApprovalStatus,
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { APPROVALS_COPY as COPY } from "./copy";
+import { STATUS_TABS, TYPE_TABS, APPROVALS_COPY as COPY } from "./copy";
 import { ApprovalsDrawer } from "./approvals-drawer";
 import { ApprovalsDateFilter } from "./approvals-date-filter";
 import { ApprovalsQueueTable, approvalsHref } from "./approvals-queue-table";
@@ -33,8 +32,6 @@ import Stack from "@mui/material/Stack";
 
 const PATHNAME = "/approvals";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STATUS_TABS: AdminWebApprovalStatus[] = ["pending", "approved", "rejected"];
-const TYPE_TABS: Array<"all" | AdminWebApprovalRequestType> = ["all", "birth", "death", "shifting"];
 
 export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSearchParams }) {
   const sp = searchParams ?? {};

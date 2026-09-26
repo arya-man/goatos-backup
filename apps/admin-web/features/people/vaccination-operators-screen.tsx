@@ -31,7 +31,7 @@ import DialogActions from "@mui/material/DialogActions";
 import Typography from "@mui/material/Typography";
 import MuiTextField from "@mui/material/TextField";
 import { Caption } from "@/components/app/caption";
-import { SkeletonList } from "@/components/app/page-skeletons";
+import { ListCardSkeleton } from "@/components/app/skeletons";
 import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
 import { Avatar } from "@/components/app/avatar";
 import Alert from "@mui/material/Alert";
@@ -799,7 +799,7 @@ export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: Vaccin
     );
   }
 
-  if (loading) return <div style={{ padding: 24 }}><SkeletonList rows={5} /></div>;
+  if (loading) return <ListCardSkeleton rows={5} />;
   if (error)
     return (
       <div style={{ padding: 24 }}>

@@ -60,7 +60,6 @@ import L46 from "@/app/(admin)/feed/sops/loading";
 import L47 from "@/app/(admin)/approvals/loading";
 import L48 from "@/app/(admin)/calendar/loading";
 import L49 from "@/app/(admin)/routines/loading";
-import L50 from "@/app/(admin)/weighing/loading";
 import L51 from "@/app/(admin)/verify/loading";
 import L52 from "@/app/(admin)/alerts/loading";
 import L53 from "@/app/(admin)/people/loading";
@@ -68,6 +67,9 @@ import L54 from "@/app/(admin)/tasks/loading";
 import L56 from "@/app/(admin)/leave/loading";
 import L57 from "@/app/(admin)/vaccination/care-coverage/loading";
 
+import L100 from "@/app/(admin)/pc-care/sops/loading";
+import L101 from "@/app/(admin)/configuration/work-instructions/loading";
+import L102 from "@/app/(admin)/sales/sops/loading";
 const ROUTE_SKELETONS: Array<[RegExp, ComponentType]> = [
   [/^\/procurement\/source-entry\/loads\/[^/]+(?:\/|$)/, L0],
   [/^\/vaccination\/execution\/sheds\/[^/]+(?:\/|$)/, L1],
@@ -119,12 +121,14 @@ const ROUTE_SKELETONS: Array<[RegExp, ComponentType]> = [
   [/^\/approvals(?:\/|$)/, L47],
   [/^\/calendar(?:\/|$)/, L48],
   [/^\/routines(?:\/|$)/, L49],
-  [/^\/weighing(?:\/|$)/, L50],
   [/^\/verify(?:\/|$)/, L51],
   [/^\/alerts(?:\/|$)/, L52],
   [/^\/people(?:\/|$)/, L53],
   [/^\/tasks(?:\/|$)/, L54],
   [/^\/leave(?:\/|$)/, L56],
+  [/^\/pc-care\/sops(?:\/|$)/, L100],
+  [/^\/configuration\/work-instructions(?:\/|$)/, L101],
+  [/^\/sales\/sops(?:\/|$)/, L102],
 ];
 
 export function routeSkeletonElement(pathname: string): ReactNode {

@@ -111,88 +111,16 @@ export function loadVaccinationShedSummary(searchParams: RouteSearchParams | und
   });
 }
 
-export function VaccinationShedBoardSkeleton({
-  pageContract,
-}: {
-  pageContract: AdminUiPageContract;
-}) {
-  const shedTable = table(pageContract, "shed-summary");
-  const skeletonCols = shedTable.columns.filter((column) => column.visible && column.key !== "park");
-  return (
-    <section id="sheds" className="card" style={{ scrollMarginTop: 80 }} aria-busy="true">
-      <div className="hd">
-        <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <h3>{copy(pageContract, "section.sheds.title")}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        <span className="muted small">{copy(pageContract, "section.sheds.note")}</span>
-      </div>
-      <div className="bd" style={{ padding: "14px 14px 0" }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <div className="skel" style={{ width: 280, maxWidth: "100%", height: 34 }} />
-          <div className="skel" style={{ width: 72, height: 34 }} />
-          <div className="sp" style={{ flex: 1 }} />
-          <div className="skel" style={{ width: 118, height: 18 }} />
-        </div>
-      </div>
-      <div className="chipset" style={{ padding: "12px 14px 8px" }}>
-        {[96, 86, 116, 72, 110, 132].map((w, i) => (
-          <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: 999 }} />
-        ))}
-      </div>
-      <div className="bd twrap" style={{ padding: 0 }}>
-        {/* Shape-matched to the real table: checkbox column, ONE identity column (shed + park), the
-            remaining contract columns, and the trailing row-action circle. The real `thead` is
-            rendered above it so the header does not pop in when the data lands. */}
-        <Table className="shed-summary-table">
-          <TableHead>
-            <TableRow>
-              <TableCell component="th" className="kit-check" />
-              {skeletonCols.map((col) => (
-                <TableCell component="th" key={col.key} className={NUMERIC_COLUMNS.has(col.key) ? "num" : undefined}>{col.label}</TableCell>
-              ))}
-              <TableCell component="th" className="kit-rowactions-th" />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {Array.from({ length: 5 }, (_, row) => (
-              <TableRow key={row}>
-                <TableCell className="kit-check">
-                  <span className="skel" style={{ width: 18, height: 18, borderRadius: 5 }} />
-                </TableCell>
-                {skeletonCols.map((col, index) => (
-                  <TableCell key={col.key} className={NUMERIC_COLUMNS.has(col.key) ? "num muted" : index === 0 ? undefined : "muted"}>
-                    {index === 0 ? (
-                      <span className="kit-idcell">
-                        <span className="kit-idcell-lead">
-                          <span className="skel" style={{ width: 28, height: 28, borderRadius: 999 }} />
-                        </span>
-                        <span className="kit-idcell-copy">
-                          <span className="skel" style={{ width: 128, height: 13 }} />
-                          <span className="skel" style={{ width: 88, height: 11, marginTop: 4 }} />
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="skel" style={{ width: SKELETON_CELL_WIDTHS[col.key] ?? 64, height: 16 }} />
-                    )}
-                  </TableCell>
-                ))}
-                <TableCell className="kit-rowactions">
-                  <span className="skel" style={{ width: 28, height: 28, borderRadius: 999 }} />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
-  );
-}
-
 // Shed-wise vaccination board — the MAIN /vaccination table (one row per shed). Animal-level Due/Done,
 // planned Sessions, capacity, and a merged CEO Status headline, all computed server-side. Park scope comes
 // from the shell top bar (?park); status/capacity/search filters + offset pagination are server-side via
 // GET /vaccination/sheds. Rows deep-link to /vaccination/execution/sheds/{shedId} (shed detail), carrying
 // the current board state in ?ret so Back returns to the same filtered/paginated list.
+/** Header cells of the pen table: leading checkbox + the contract's visible columns + row actions. */
+export function shedBoardColumns(pageContract: AdminUiPageContract): number {
+  return table(pageContract, "shed-summary").columns.filter((column) => column.visible).length + 2;
+}
+
 export async function VaccinationShedBoard({
   searchParams,
   pageContract,

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { HerdSignalsBoard, HerdSignalsSkeleton } from "@/features/herd-signals";
+import { HerdSignalsBoard } from "@/features/herd-signals";
+import Loading from "./loading";
 import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
@@ -16,7 +17,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   // (A `{/* ... */}` JSX comment cannot be the direct child of `return (` -- as written it was a
   // syntax error and the whole route failed to compile.)
   return (
-    <Suspense fallback={<HerdSignalsSkeleton />}>
+    <Suspense fallback={<Loading />}>
       <HerdSignalsBoard searchParams={sp} pageContract={pageContract} />
     </Suspense>
   );

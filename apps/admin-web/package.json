@@ -61,6 +61,7 @@
     "visual:gate": "bash ../../tools/ci/admin-web-visual-gate.sh",
     "visual:routes:drawers": "node scripts/smoke-routes-visual.mjs --require-baseline --open-drawers",
     "visual:routes:update-baseline": "node scripts/smoke-routes-visual.mjs --update-baseline",
+    "visual:skeletons": "node scripts/r2-skeleton-iou.mjs",
     "visual:all": "npm run design:guard && npm run visual:stories && npm run visual:routes"
   },
   "dependencies": {

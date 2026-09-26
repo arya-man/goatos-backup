@@ -1,24 +1,14 @@
-import { Skeleton, SkeletonChart, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
-import { skeletonClasses } from "@/components/app/page-skeletons";
+import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { CATALOG_PAGE_SIZE } from "@/features/health/health-config-layout";
 
-/** Route-shaped shimmer: matches the real page's header, deck, and blocks, so the swap is a fade, not a jump. */
+/** /health/config: header + Add disease, the three rulebook tabs, the protocol catalogue card (search, two filters, keyset pager). */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <div style={{ marginBottom: 20 }}>
-        <SkeletonKpiRow count={5} />
-      </div>
-      <div className={skeletonClasses.card} style={{ gap: 16 }}>
-        <Skeleton width="30%" height={18} />
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {[240, 160, 160, 120].map((w, wi) => (
-            <Skeleton key={`${wi}-${w}`} width={w} height={40} radius={10} />
-          ))}
-        </div>
-        <SkeletonTable rows={10} />
-      </div>
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton actions={1} />
+      <TabsSkeleton count={3} />
+      {/* Contract table "protocol-catalog" + the trailing actions column. */}
+      <TableSkeleton columns={9} rows={CATALOG_PAGE_SIZE} toolbar={<FilterCardSkeleton inCard fields={["search", 180, 180]} />} />
+    </PageSkeleton>
   );
 }

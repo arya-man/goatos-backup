@@ -61,9 +61,9 @@ import { boundedInt, hrefPreviousCursor, hrefWithCursor, one, type RouteSearchPa
 import { AuditLogLocalDrawer, type AuditDrawerRecord } from "./audit-log-local-drawer";
 import { WorklistFilters } from "@/components/worklist-filters";
 import Alert from "@mui/material/Alert";
+import { PAGE_SIZE } from "./audit-layout";
 
 const PATHNAME = "/operations/audit";
-const PAGE_SIZE = 25;
 const ACTOR_TYPES = ["human", "system", "worker", "service", "user"] as const;
 
 // Top-bar scope state to keep when a user clears the page filters.

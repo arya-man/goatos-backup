@@ -5,7 +5,7 @@ import CardHeader from "@mui/material/CardHeader";
 import { ProgressRow } from "@/components/app/progress-row";
 import { useTheme } from "@mui/material/styles";
 import { chartColors } from "@/components/app/chart-colors";
-import { Skeleton } from "@/components/app/page-skeletons";
+import { ListRowsSkeleton } from "@/components/app/skeletons";
 import { Frame, MOBILE, StateBlock, States } from "./_fixtures";
 
 const meta = {
@@ -67,14 +67,7 @@ export const AllStates: Story = {
       </StateBlock>
 
       <StateBlock label="Loading skeleton">
-        <div style={{ display: "grid", gap: 14 }}>
-          {[0, 1, 2].map((i) => (
-            <div key={i} style={{ display: "grid", gap: 8 }}>
-              <Skeleton width="55%" height={12} />
-              <Skeleton height={8} radius={999} />
-            </div>
-          ))}
-        </div>
+        <ListRowsSkeleton rows={3} avatar={false} trailing={false} />
       </StateBlock>
 
       <StateBlock label="Empty / no data">

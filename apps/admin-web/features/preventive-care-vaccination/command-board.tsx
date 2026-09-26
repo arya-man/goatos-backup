@@ -7,22 +7,10 @@ import type { RouteSearchParams } from "@/lib/search-params";
 import { CommandBoardView } from "./command-board-view";
 import { resolveSelectedDrive } from "./command-board-future-drives";
 import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
+import { VaccinationCommandBoardSkeleton } from "./vaccination-skeletons";
 
 interface VaccinationCommandBoardSkeletonProps {
   pageContract: AdminUiPageContract;
-}
-
-export function VaccinationCommandBoardSkeleton({ pageContract }: VaccinationCommandBoardSkeletonProps) {
-  return (
-    <section className="card cbm">
-      <div className="hd">
-        <h2>{copy(pageContract, "section.command_board.title")}</h2>
-      </div>
-      <div className="bd">
-        <div className="cbm-loading">{copy(pageContract, "section.command_board.loading")}</div>
-      </div>
-    </section>
-  );
 }
 
 interface VaccinationCommandBoardProps {
@@ -119,7 +107,7 @@ export function VaccinationCommandBoard({ pageContract, searchParams, driveBatch
   return (
     <Suspense
       key={`${driveBatchId ?? ""}:${driveParkId ?? ""}:${parseScope(searchParams ?? {}).parkId ?? ""}`}
-      fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}
+      fallback={<VaccinationCommandBoardSkeleton />}
     >
       <VaccinationCommandBoardContent
         pageContract={pageContract}

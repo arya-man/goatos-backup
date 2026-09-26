@@ -1,14 +1,14 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { FilterCardSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton } from "@/components/app/skeletons";
 
-/** Route-shaped shimmer: mirrors the real layout of this route so the page settles instead of flashing. */
+/** /feed/config: header, the ration grid card (five filters, pager), then the experiment card. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton action />
-      <Skeleton height={56} radius={14} style={{ marginBottom: 16 }} />
-      <SkeletonKpiRow count={4} spark />
-      <SkeletonTable rows={10} widths={["1.6fr", "1fr", "1fr", "1fr", "120px", "44px"]} />
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton />
+      {/* Contract table "ration-grid": 6 columns. */}
+      <TableSkeleton columns={6} rows={10} toolbar={<FilterCardSkeleton inCard fields={[180, 180, 180, 180, 180]} />} />
+      {/* Contract table "experiment-config": 7 columns + the edit column. */}
+      <TableSkeleton columns={8} rows={10} toolbar={<FilterCardSkeleton inCard fields={[180, 180, 180, 180, 180]} />} />
+    </PageSkeleton>
   );
 }

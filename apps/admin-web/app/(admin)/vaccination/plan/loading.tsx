@@ -1,16 +1,13 @@
-import { SkeletonCard, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { PageHeaderSkeleton, PageSkeleton, StackSkeleton, StatStripSkeleton, TableSkeleton } from "@/components/app/skeletons";
 
+/** /vaccination/plan: header + the version action, then the live plan card (key tiles, vaccine table). */
 export default function Loading() {
   return (
-    <div className="screen on">
-      <PageHeaderSkeleton />
-      <div style={{ display: "grid", gap: 16 }} aria-busy="true">
-        <SkeletonCard lines={0}>
-          <SkeletonTable rows={6} />
-        </SkeletonCard>
-        <SkeletonCard lines={3} />
-      </div>
-    </div>
+    <PageSkeleton root="kit-enter vplan" gap={2}>
+      <PageHeaderSkeleton actions={1} />
+      <StackSkeleton spacing={0}>
+        <TableSkeleton columns={4} rows={6} toolbar={<StatStripSkeleton count={4} card={false} />} />
+      </StackSkeleton>
+    </PageSkeleton>
   );
 }

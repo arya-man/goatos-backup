@@ -1,17 +1,13 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
 
+/** /alerts: header + Configure, three KPI cards, the alerts table card (park / severity / day pills in its header). */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <SkeletonKpiRow count={3} />
-      <div style={{ display: "flex", gap: 8, margin: "20px 0 16px" }}>
-        {[120, 140, 100].map((w, wi) => (
-          <Skeleton key={`${wi}-${w}`} width={w} height={34} radius={10} />
-        ))}
-      </div>
-      <SkeletonTable rows={8} />
-    </div>
+    <PageSkeleton className="alerts-page">
+      <PageHeaderSkeleton actions={1} />
+      <KpiRowSkeleton count={3} icon />
+      {/* Contract table "alerts": severity, alert, park, pen, detail, rule. No pager: every row renders. */}
+      <TableSkeleton columns={6} rows={8} pager={false} headerAction={<TabsSkeleton count={3} variant="pill" />} />
+    </PageSkeleton>
   );
 }

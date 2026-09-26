@@ -1,16 +1,16 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { ChipRowSkeleton, FilterCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { SEVERITY_ORDER, WORK_STATE_ORDER } from "@/features/process-integrity/process-integrity";
 
+/** /protocol-adherence: header, four KPI cards, work-state tabs, severity chips, the ledger table card. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <SkeletonKpiRow count={4} className="kit-kpi-wrap" />
-      <div style={{ display: "flex", gap: 10, margin: "14px 0" }}>
-        <Skeleton width={230} height={36} radius={999} />
-        <Skeleton width={180} height={36} radius={999} />
-      </div>
-      <SkeletonTable rows={10} />
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton actions={1} />
+      <KpiRowSkeleton count={4} icon hint />
+      <TabsSkeleton count={WORK_STATE_ORDER.length + 1} counts />
+      <ChipRowSkeleton count={SEVERITY_ORDER.length + 1} />
+      {/* Contract table "adherence-ledger": 7 columns. */}
+      <TableSkeleton columns={7} rows={10} toolbar={<FilterCardSkeleton inCard fields={[120]} small />} />
+    </PageSkeleton>
   );
 }

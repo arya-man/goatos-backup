@@ -1,19 +1,19 @@
-import { Skeleton, SkeletonChart, SkeletonKpiRow } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { ChartCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
-/** Route-shaped shimmer: mirrors the real layout of this route so the page settles instead of flashing. */
+/** /counts/analytics: header + export, date range, six KPI cards, the flow chart, then the composition cards. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton action />
-      <Skeleton height={56} radius={14} style={{ marginBottom: 16 }} />
-      <SkeletonKpiRow count={6} spark />
-      <SkeletonChart bars={14} height={300} withLegend />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(360px,100%),1fr))", gap: 16, marginTop: 16 }}>
-        <SkeletonChart bars={8} height={200} />
-        <SkeletonChart bars={8} height={200} />
-        <SkeletonChart bars={8} height={200} />
-      </div>
-    </div>
+    <PageSkeleton root="kit-enter pagegrid ha-kit-stack">
+      <PageHeaderSkeleton actions={1} />
+      <ToolbarSkeleton fields={[280]} />
+      <KpiRowSkeleton count={6} shapes={[{ spark: true }, { spark: true }, { spark: true }, {}, { parts: true }, {}]} />
+      <ChartCardSkeleton height={300} />
+      <StackSkeleton spacing={2.75}>
+        <ChartCardSkeleton height={220} />
+        <ChartCardSkeleton height={160} />
+        <ChartCardSkeleton height={120} />
+        <ChartCardSkeleton height={80} />
+      </StackSkeleton>
+    </PageSkeleton>
   );
 }

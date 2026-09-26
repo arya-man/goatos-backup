@@ -147,6 +147,21 @@ Spec: `docs/design/mui-minimal-spec.md`. Tokens: `app/minimal-tokens.css`. Gate:
   in a transition, the pressed tab selected at once, the header / crumbs / tabs / filters and the old
   panel kept on screen (dimmed at most) until the new page is ready. Never hide the live panel or
   swap the page for a skeleton on a same-route param change; `loading.tsx` is for the first entry.
+- **Loading shapes are composed, never drawn (guard: `hand-drawn-skeleton` in `design:guard`, P0; runtime:
+  `scripts/r2-skeleton-iou.mjs` + the `skeleton` check of `scripts/r2-visual-audit.mjs`).** Every
+  `app/(admin)/**/loading.tsx` and every in-page Suspense / panel fallback composes ONLY the blocks in
+  `components/app/skeletons` (PageSkeleton, PageHeaderSkeleton, TabsSkeleton, FilterCardSkeleton,
+  KpiRowSkeleton, ChartCardSkeleton, TableSkeleton, CardGridSkeleton, StatStripSkeleton, …), which render
+  the SAME parts as the page (CustomBreadcrumbs anatomy, MUI Tabs, KpiGrid, Card + CardHeader, Table,
+  the 64px template pager, the job-list grid). The loading.tsx mirrors its page 1:1 — same root class,
+  same blocks in the same order, the page's own column / field / KPI / tab counts and rows per page,
+  read from a shared `features/**/*-layout.ts` constant when the page has one. A page streamed behind
+  `<Suspense>` uses its route's `loading.tsx` (or a `features/**/*skeleton*.tsx` built from the blocks)
+  as the fallback, so a hard load and a panel stream paint one shape. No MUI `Skeleton` outside the
+  blocks, no raw elements / inline style in a skeleton composition, no `.skel` / `.kit-sk-*` CSS. A
+  block the page renders only with data sits in `OptionalSkeleton`. Proof: skeleton vs loaded
+  top-level block IoU ≥ 0.8 at 1440 and 390, dark and light
+  (`node scripts/r2-skeleton-iou.mjs --base <url>`, side-by-sides + overlay per route).
 - **Template-fidelity guards (`components/app/template-fidelity-guards.test.mjs`, runs in `npm test`).**
   One rule id per recurring audit defect on PR #294:
   - `brand-primary-contained`: every contained `Button` names its colour (`color="primary"` for the

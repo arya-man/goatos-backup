@@ -85,13 +85,17 @@ test("admin weighing reads are short-cached per user and cleared on writes", () 
 	);
 });
 
-test("weighing routes keep a local loading boundary instead of the global app fallback", () => {
-  const loadingUrl = new URL("../../app/(admin)/weighing/loading.tsx", import.meta.url);
-  assert.equal(existsSync(loadingUrl), true, "weighing must not fall back to app/loading.tsx");
-  const loadingSource = readFileSync(loadingUrl, "utf8");
-  assert.match(loadingSource, /aria-label="Weighing analytics loading"/);
-  assert.match(loadingSource, /key=\{`\$\{width\}-\$\{index\}`\}/);
-  assert.doesNotMatch(loadingSource, /Loading Mesha admin data/);
+test("every weighing route has its own page-shaped loading boundary, and no orphan parent loader", () => {
+  // /weighing has no page: a /weighing/loading.tsx would wrap every child and flash a shape that is
+  // none of them before the child's own loader. Each child composes the shared skeleton blocks.
+  assert.equal(existsSync(new URL("../../app/(admin)/weighing/loading.tsx", import.meta.url)), false);
+  for (const child of ["analytics", "weights", "sops"]) {
+    const url = new URL(`../../app/(admin)/weighing/${child}/loading.tsx`, import.meta.url);
+    assert.equal(existsSync(url), true, `weighing/${child} must not fall back to app/loading.tsx`);
+    const loadingSource = readFileSync(url, "utf8");
+    assert.match(loadingSource, /@\/components\/app\/skeletons|sop-route-skeleton/);
+    assert.doesNotMatch(loadingSource, /Loading Mesha admin data/);
+  }
 });
 
 test("the period control is a calendar, not a fixed-window select", () => {

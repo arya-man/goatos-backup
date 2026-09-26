@@ -42,11 +42,11 @@ import { ProcurementFiltersResult, ProcurementListToolbar, type ToolbarChip } fr
 import { FeedPurchaseDrawer } from "./feed-purchase-drawer";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
+import { DEFAULT_LIMIT } from "./feed-purchases-layout";
 
 const PATHNAME = "/procurement/feed-purchases";
 const DEFAULT_FARM = "all";
 const DEFAULT_DELIVERY = "all";
-const DEFAULT_LIMIT = 25;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
   const query = new URLSearchParams();

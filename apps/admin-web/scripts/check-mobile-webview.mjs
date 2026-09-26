@@ -595,7 +595,7 @@ try {
           }
           await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => {});
           // Settle on state, not time: the loading markers gone and the theme attribute applied.
-          await page.waitForFunction(() => !document.querySelector('[data-loading="true"], .kit-skeleton, .skeleton') && document.documentElement.hasAttribute("data-theme"), { timeout: 8_000 }).catch(() => {});
+          await page.waitForFunction(() => !document.querySelector('[data-loading="true"], .MuiSkeleton-root, [data-skel-root], .skeleton') && document.documentElement.hasAttribute("data-theme"), { timeout: 8_000 }).catch(() => {});
           const appliedTheme = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
           if (route.url === undefined && appliedTheme !== theme) {
             record({

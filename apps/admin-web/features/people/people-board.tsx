@@ -30,8 +30,8 @@ import { PersonAccessLauncher } from "./person-access-launcher";
 import { PersonAddDrawer } from "./person-add-drawer";
 import Alert from "@mui/material/Alert";
 import { EmptyState } from "@/components/app/empty-state";
+import { PAGE_SIZE } from "./people-layout";
 
-const PAGE_SIZE = 25;
 
 const PERSON_STATUSES = ["active", "candidate", "inactive", "suspended", "left"] as const;
 

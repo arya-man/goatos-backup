@@ -36,8 +36,8 @@ import { VendorLocalDrawer } from "./vendor-local-drawer";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { salesErrorText } from "./sales-error";
+import { PAGE_SIZE, VENDOR_FILTER_KEYS } from "./vendor-layout";
 
-const PAGE_SIZE = 25;
 
 /**
  * Status colour for the register's Label.
@@ -77,7 +77,7 @@ function hrefWithQuery(pathname: string, sp: RouteSearchParams, patch: Record<st
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-const FILTER_KEYS: VendorFilterKey[] = ["record_type", "status", "state", "city", "breed"];
+const FILTER_KEYS = VENDOR_FILTER_KEYS;
 
 /** Where each facet's offered values live in the vendor catalog (mirrors the filter bar's selects). */
 const VENDOR_CATALOG_KEY = {

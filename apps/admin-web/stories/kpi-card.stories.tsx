@@ -2,7 +2,7 @@ import * as React from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Baby, HeartPulse, Scale, Syringe, Truck, Users } from "lucide-react";
 import { KpiCard, KpiGrid } from "@/components/minimal/widgets";
-import { SkeletonKpiRow } from "@/components/app/page-skeletons";
+import { KpiRowSkeleton } from "@/components/app/skeletons";
 import { ADG_WEEKS, Frame, LOADS_PER_DAY, MOBILE, StateBlock, States } from "./_fixtures";
 
 const meta = {
@@ -80,7 +80,7 @@ export const Variants: Story = {
       </StateBlock>
 
       <StateBlock label="Loading skeleton">
-        <SkeletonKpiRow count={4} spark />
+        <KpiRowSkeleton count={4} spark />
       </StateBlock>
 
       <StateBlock label="Empty / error">

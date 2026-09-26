@@ -1,8 +1,6 @@
-import { SopRouteSkeleton } from "@/components/sop-route-skeleton";
+import { SopRouteSkeleton } from "@/features/sops/sop-route-skeleton";
 
-/**
- * Route-shaped shimmer. Sales SOP uses the same editor/library surface as the other module SOPs.
- */
+/** Module SOP library: the one shared SOP library shape (builder shape on ?compose=1 / ?edit=). */
 export default function Loading() {
   return <SopRouteSkeleton />;
 }

@@ -41,9 +41,9 @@ import Alert from "@mui/material/Alert";
 import { EmptyState } from "@/components/app/empty-state";
 import Button from "@mui/material/Button";
 import { salesErrorText } from "./sales-error";
+import { DEFAULT_LIMIT } from "./sales-config-layout";
 
 const PAGE_PATH = "/sales/config";
-const DEFAULT_LIMIT = 25;
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
   const query = new URLSearchParams();

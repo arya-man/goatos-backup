@@ -71,3 +71,14 @@ test("P0 classification covers the gate's pattern families", () => {
   for (const p of ["interact|Tab|full-reload", "interact|Filter link|skeleton-flash", "off-palette|color|x", "drawer|no-backdrop|drawer", "drawer|overflow|clipped", "skeleton|mismatch|tabs", "skeleton|missing|kpi-row", "tap|button", "sideways-scroll|390", "route|error"]) assert.ok(isP0(p), p);
   for (const p of ["interact|Tab|layout-jump", "contrast|x", "drawer|width|narrower", "skeleton|not-shown", "drawer|overflow|table-scroll"]) assert.ok(!isP0(p), p);
 });
+
+test("compareBlocks: an optional skeleton block the page skipped is not an extra", () => {
+  const skel = [{ x: 0, y: 0, w: 100, h: 40, kind: "header" }, { x: 0, y: 64, w: 100, h: 140, kind: "kpi-row", optional: true }, { x: 0, y: 228, w: 100, h: 400, kind: "table" }];
+  const loaded = [{ x: 0, y: 0, w: 100, h: 40, kind: "header" }, { x: 0, y: 64, w: 100, h: 400, kind: "table" }];
+  const cmp = compareBlocks(skel, loaded);
+  assert.equal(cmp.extra.length, 0);
+  // The blocks under a skipped optional block still move up: that jump stays a mismatch.
+  assert.equal(cmp.mismatched.length, 1);
+  const required = compareBlocks(skel.map(({ optional, ...b }) => b), loaded);
+  assert.equal(required.extra.length + required.mismatched.length > 0, true);
+});

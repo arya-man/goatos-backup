@@ -143,8 +143,20 @@ export function iou(a, b) {
   return union > 0 ? inter / union : 0;
 }
 
-/** Greedy IoU matching of skeleton blocks to loaded blocks. */
+/**
+ * Greedy IoU matching of skeleton blocks to loaded blocks. When the skeleton carries optional blocks
+ * (OptionalSkeleton: rendered by the page only with data) and the page has fewer blocks, the match
+ * is also tried without them and the pairing with fewer failures wins.
+ */
 export function compareBlocks(skel, loaded, threshold = 0.8) {
+  const full = greedyBlocks(skel, loaded, threshold);
+  if (!skel.some((s) => s.optional) || skel.length <= loaded.length) return full;
+  const lean = greedyBlocks(skel.filter((s) => !s.optional), loaded, threshold);
+  const fails = (c) => c.mismatched.length + c.missing.length + c.extra.length;
+  return fails(lean) <= fails(full) ? lean : full;
+}
+
+function greedyBlocks(skel, loaded, threshold) {
   const pairs = [];
   skel.forEach((s, i) => loaded.forEach((l, j) => { const v = iou(s, l); if (v > 0.1) pairs.push({ i, j, v }); }));
   pairs.sort((p, q) => q.v - p.v);
@@ -158,7 +170,9 @@ export function compareBlocks(skel, loaded, threshold = 0.8) {
     matches,
     mismatched: matches.filter((m) => m.iou < threshold),
     missing: loaded.filter((_, j) => !usedL.has(j)),
-    extra: skel.filter((_, i) => !usedS.has(i)),
+    // A skeleton block wrapped in OptionalSkeleton (components/app/skeletons) stands for a block the
+    // page renders only with data (a KPI deck hidden at all-zero); its absence is not an extra.
+    extra: skel.filter((s, i) => !usedS.has(i) && !s.optional),
   };
 }
 
@@ -493,7 +507,10 @@ function r2PageLib() {
       if ((bg && bg[3] > 0.05) || cs.boxShadow !== "none" || (cs.backgroundImage && cs.backgroundImage !== "none")) return true;
       return ["top", "right", "bottom", "left"].some((s) => parseFloat(cs[`border-${s}-width`]) > 0 && cs[`border-${s}-style`] !== "none");
     };
-    const kids = (el) => [...el.children].filter((c) => { const b = c.getBoundingClientRect(); return b.width >= 40 && b.height >= 12 && visible(c); });
+    // `display: contents` wrappers are layout-transparent: their children are the blocks
+    // (OptionalSkeleton marks its children optional with data-skel-optional).
+    const flat = (c) => (getComputedStyle(c).display === "contents" ? [...c.children].flatMap(flat) : [c]);
+    const kids = (el) => [...el.children].flatMap(flat).filter((c) => { const b = c.getBoundingClientRect(); return b.width >= 40 && b.height >= 12 && visible(c); });
     const stackedVertically = (list) => {
       const rs = list.map((c) => c.getBoundingClientRect()).sort((a, b) => a.top - b.top);
       for (let i = 1; i < rs.length; i++) if (rs[i].top < rs[i - 1].bottom - 2) return false;
@@ -519,7 +536,7 @@ function r2PageLib() {
         const cks = kids(ch);
         if (depth < 8 && !surface(ch, cs) && cks.length > 0 && stackedVertically(cks)) { visit(ch, depth + 1); continue; }
         if (b.width * b.height < 2400) continue;
-        out.push({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(Math.min(b.bottom, vh) - b.top), kind: kind(ch), sig: sig(ch) });
+        out.push({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(Math.min(b.bottom, vh) - b.top), kind: kind(ch), sig: sig(ch), optional: Boolean(ch.closest("[data-skel-optional]")) });
       }
     };
     visit(r0, 0);

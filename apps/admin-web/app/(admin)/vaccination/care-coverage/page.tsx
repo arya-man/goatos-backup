@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { CareCoverageBoard, CareCoverageSkeleton } from "@/features/vaccination-care-coverage";
+import { CareCoverageBoard } from "@/features/vaccination-care-coverage";
+import Loading from "./loading";
 import { requireAdminWebPageContract } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const [sp, pageContract] = await Promise.all([searchParams, requireAdminWebPageContract("vaccination-care-coverage")]);
   return (
-    <Suspense fallback={<CareCoverageSkeleton pageContract={pageContract} />}>
+    <Suspense fallback={<Loading />}>
       <CareCoverageBoard searchParams={sp} pageContract={pageContract} />
     </Suspense>
   );

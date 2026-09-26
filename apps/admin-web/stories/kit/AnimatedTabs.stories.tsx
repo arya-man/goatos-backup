@@ -5,7 +5,7 @@ import CardHeader from "@mui/material/CardHeader";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { Activity, Scale, Syringe, Truck, Users } from "lucide-react";
 import { TrendChart } from "@/components/app/trend-chart";
-import { SkeletonTable } from "@/components/app/page-skeletons";
+import { TableSkeleton } from "@/components/app/skeletons";
 import { AnimatedTabs, TabPanel, type AnimatedTabItem } from "@/components/minimal/list/animated-tabs";
 import { Frame, Labelled, mobile } from "../_fixtures/frame";
 import { adgWeeks, gPerDay, penRows, vendorLoads } from "../_fixtures/goatos";
@@ -122,10 +122,7 @@ function Panels({ loading = false, empty = false }: { loading?: boolean; empty?:
       <AnimatedTabs items={countItemsForPanels} value={value} onChange={setValue} ariaLabel="Herd sections" />
       <TabPanel tabKey={value}>
         {loading ? (
-          <Card sx={{ p: { xs: 2, sm: 3 } }}>
-            <CardHeader sx={{ p: 0, mb: 2 }} title="Loading" />
-            <SkeletonTable rows={5} widths={["120px", "2fr", "1fr", "90px"]} />
-          </Card>
+          <TableSkeleton columns={4} rows={5} pager={false} />
         ) : empty ? (
           <Card sx={{ p: { xs: 2, sm: 3 } }}>
             <CardHeader sx={{ p: 0, mb: 2 }} title="Nothing here" subheader="No records for this section in the selected range" />

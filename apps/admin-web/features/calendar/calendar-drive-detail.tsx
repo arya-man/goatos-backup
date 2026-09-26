@@ -3,6 +3,7 @@ import TableHead from "@mui/material/TableHead";
 import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
+import { DRIVE_ROSTER_HEADER_KEYS, DRIVE_ROSTER_PAGE_SIZE } from "./calendar-drive-layout";
 import { listOrEmpty } from "@/lib/list-or-empty";
 import { randomUUID } from "node:crypto";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
@@ -116,7 +117,7 @@ export async function VaccinationDriveDetail({
 
   const [detail, targets] = await Promise.all([
     getCalendarVaccinationEventDetail(eventId),
-    getCalendarDriveTargets(eventId, { cursor, limit: 25, q: targetSearch || undefined }),
+    getCalendarDriveTargets(eventId, { cursor, limit: DRIVE_ROSTER_PAGE_SIZE, q: targetSearch || undefined }),
   ]);
 
   if (!detail.ok) {
@@ -191,17 +192,7 @@ export async function VaccinationDriveDetail({
 
 
   const cell = { whiteSpace: "nowrap" } as const;
-  const headers = [
-    "calendar.drive.display_id_header",
-    "calendar.drive.shed_header",
-    "calendar.drive.tag_1_header",
-    "calendar.drive.tag_2_header",
-    "calendar.drive.stage_header",
-    "calendar.drive.lifecycle_header",
-    "calendar.drive.health_header",
-    "calendar.drive.reason_header",
-    "calendar.drive.status_header",
-  ];
+  const headers = DRIVE_ROSTER_HEADER_KEYS;
   const statusText = (status: string) => optionLabel(pageContract, "calendar_status", status) || status;
   const pager = (
     <Stack direction="row" spacing={1.5} sx={{ p: 2, alignItems: "center", justifyContent: "flex-end", borderTop: 1, borderColor: "divider" }}>

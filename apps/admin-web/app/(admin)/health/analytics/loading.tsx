@@ -1,23 +1,15 @@
-import { Skeleton, SkeletonChart, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { ChartCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
 
-/** Route-shaped shimmer: matches the real page's header, deck, and blocks, so the swap is a fade, not a jump. */
+/** /health/analytics: header + config link, window filter, five KPI cards, the view tabs, the overview charts. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-        {[96, 88, 104, 92, 84].map((w, wi) => (
-          <Skeleton key={`${wi}-${w}`} width={w} height={36} radius={999} />
-        ))}
-      </div>
-      <div style={{ marginBottom: 20 }}>
-        <SkeletonKpiRow count={5} />
-      </div>
-      <div style={{ display: "grid", gap: 20 }}>
-        <SkeletonChart bars={14} height={260} />
-        <SkeletonChart bars={10} height={220} />
-      </div>
-    </div>
+    <PageSkeleton root="pagegrid ha-kit-stack">
+      <PageHeaderSkeleton actions={1} />
+      <ToolbarSkeleton left={<TabsSkeleton count={5} variant="pill" />} fields={[280]} />
+      <KpiRowSkeleton count={5} icon hint shapes={[{ spark: true, hint: true }, { spark: true, hint: true }, { icon: true, hint: true }, { icon: true, hint: true }, { icon: true, hint: true }]} />
+      <TabsSkeleton count={6} counts />
+      <ChartCardSkeleton height={300} />
+      <ChartCardSkeleton height={160} />
+    </PageSkeleton>
   );
 }

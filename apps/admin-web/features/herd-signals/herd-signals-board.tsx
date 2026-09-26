@@ -2,7 +2,6 @@ import { listOrEmpty } from "@/lib/list-or-empty";
 import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
 import { EmptyState } from "@/components/app/empty-state";
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
 import { PageHeader } from "@/components/app/page-header";
 import { AnimatedTabs } from "@/components/minimal/list/animated-tabs";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -152,21 +151,6 @@ function herdSignalsLiveStreamKey(params: HerdSignalsParams): string {
     out.set("risk_state", "attention");
   }
   return out.toString();
-}
-
-export function HerdSignalsSkeleton() {
-  return (
-    <div className="herd-signals-page" aria-busy="true">
-      <PageHeader title="Herd Signals" crumbs={[{ label: "Herd Signals" }, { label: "Live Monitor" }]} />
-      <SkeletonKpiRow count={6} />
-      <div style={{ display: "flex", gap: 8 }}>
-        {[130, 150, 110].map((w, wi) => (
-          <Skeleton key={`${wi}-${w}`} width={w} height={34} radius={10} />
-        ))}
-      </div>
-      <SkeletonTable rows={10} />
-    </div>
-  );
 }
 
 export async function HerdSignalsBoard({

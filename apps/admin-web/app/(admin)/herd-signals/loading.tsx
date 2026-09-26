@@ -1,17 +1,16 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { FilterCardSkeleton, HeadingSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton } from "@/components/app/skeletons";
+import { HERD_SIGNALS_TABS, LIMIT_DEFAULT } from "@/features/herd-signals/params";
 
+/** /herd-signals (route loading AND the page's Suspense fallback): header with the six signal tabs, the filter card, the eight KPI filters, the live table card. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <SkeletonKpiRow count={6} />
-      <div style={{ display: "flex", gap: 8, margin: "20px 0 16px" }}>
-        {[120, 140, 100].map((w, wi) => (
-          <Skeleton key={`${wi}-${w}`} width={w} height={34} radius={10} />
-        ))}
-      </div>
-      <SkeletonTable rows={10} />
-    </div>
+    <PageSkeleton root="herd-signals-page">
+      <PageHeaderSkeleton actionWidths={[120]} tabs={<TabsSkeleton count={HERD_SIGNALS_TABS.length} counts />} />
+      <FilterCardSkeleton fields={["search", 180, 180, 120]} />
+      {/* KPI_DEFS in herd-signals-kpis.tsx: eight KPI filter cards. */}
+      <KpiRowSkeleton count={8} />
+      <HeadingSkeleton variant="caption" width={320} />
+      <TableSkeleton columns={21} rows={LIMIT_DEFAULT} />
+    </PageSkeleton>
   );
 }

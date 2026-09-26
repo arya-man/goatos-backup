@@ -1,17 +1,17 @@
-import { Skeleton, SkeletonChart, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { ChartCardSkeleton, FilterCardSkeleton, KpiRowSkeleton, PageHeaderSkeleton, PageSkeleton, StackSkeleton, TableSkeleton } from "@/components/app/skeletons";
 
-/** Route-shaped shimmer: mirrors the real layout of this route so the page settles instead of flashing. */
+/** /counts/breakdown: header, the count deck, the pen table card (filters in the card, pager), the three distribution charts. */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton action />
-      <Skeleton height={56} radius={14} style={{ marginBottom: 16 }} />
-      <SkeletonKpiRow count={6} spark />
-      <SkeletonChart bars={12} height={260} withLegend />
-      <div style={{ marginTop: 16 }}>
-        <SkeletonTable rows={10} widths={["1.8fr", "1fr", "1fr", "1fr", "1fr", "44px"]} />
-      </div>
-    </div>
+    <PageSkeleton className="counts-breakdown-page">
+      <PageHeaderSkeleton />
+      <KpiRowSkeleton count={6} shapes={[{}, { parts: true }, {}, {}, {}, {}]} />
+      <TableSkeleton columns={8} rows={10} header={false} toolbar={<FilterCardSkeleton inCard fields={[160, 160, 160, 160, 160]} />} />
+      <StackSkeleton>
+        <ChartCardSkeleton height={260} />
+        <ChartCardSkeleton height={260} />
+        <ChartCardSkeleton height={260} />
+      </StackSkeleton>
+    </PageSkeleton>
   );
 }

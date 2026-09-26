@@ -382,7 +382,7 @@ try {
           if (response && response.status() >= 400) throw new Error(`HTTP ${response.status()} for ${route.path}`);
           await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
           // Let skeletons resolve: wait for the app's loading markers to leave (best effort).
-          await page.waitForFunction(() => !document.querySelector('[data-loading="true"], .kit-skeleton, .skeleton'), { timeout: 8_000 }).catch(() => {});
+          await page.waitForFunction(() => !document.querySelector('[data-loading="true"], .MuiSkeleton-root, [data-skel-root], .skeleton'), { timeout: 8_000 }).catch(() => {});
           await waitForSettledDom(page, "main, body");
           // The theme attribute is applied by the boot script and re-asserted after hydration:
           // wait for the state, do not sample it once.

@@ -179,7 +179,7 @@ export const RENDER_INTEGRITY_PROBE = ({ viewportWidth, fonts = ["Public Sans", 
       if (header && (el === header || header.contains(el))) continue;
       if (!visible(el)) continue;
       // Controls and empty/chart containers count wherever they sit (a form card's inputs may share the header row).
-      if (el.matches(".kit-empty, .kit-emptystate, [class*=\"empty\"], .kit-skeleton, .skeleton, [data-empty], .cx-fig, .kit-chart, [data-chart], .minimal__chart__root, input, select, textarea, button, [role=\"switch\"], [role=\"tablist\"]")) { hasContent = true; break; }
+      if (el.matches(".kit-empty, .kit-emptystate, [class*=\"empty\"], .MuiSkeleton-root, [data-skel-root], .skeleton, [data-empty], .cx-fig, .kit-chart, [data-chart], .minimal__chart__root, input, select, textarea, button, [role=\"switch\"], [role=\"tablist\"]")) { hasContent = true; break; }
       if (el.getBoundingClientRect().top < headerBottom - 1) continue;
       if (el.matches("tr, li, img, canvas, video")) { hasContent = true; break; }
       if (el.tagName.toLowerCase() === "svg" && el.querySelector("path, rect, circle, line, polyline, polygon")) { hasContent = true; break; }
@@ -288,7 +288,7 @@ export const LOAD_PHASES_INSTALL = `(() => {
   const docStart = performance.timeOrigin + performance.now();
   const mine = [];
   let last = -1000;
-  const isSkeleton = (el) => el.matches(".kit-skeleton, .skeleton, [data-skeleton], .kit-sk-row, .kit-sk-chart, [aria-busy='true']");
+  const isSkeleton = (el) => el.matches(".MuiSkeleton-root, [data-skel-root], .skeleton, [data-skeleton], [aria-busy='true']");
   const tick = () => {
     const now = performance.now();
     if (now - last >= 100) {
@@ -298,7 +298,7 @@ export const LOAD_PHASES_INSTALL = `(() => {
       if (main) {
         for (const el of main.querySelectorAll("*")) {
           if (isSkeleton(el)) { skeleton += 1; continue; }
-          if (el.closest(".kit-skeleton, .skeleton, [data-skeleton]")) continue;
+          if (el.closest(".MuiSkeleton-root, [data-skel-root], .skeleton, [data-skeleton]")) continue;
           for (const n of el.childNodes) { if (n.nodeType === 3 && n.textContent.trim().length > 0) { content += 1; break; } }
           if (el.tagName === "svg" && el.querySelector("path, rect, circle")) content += 1;
         }

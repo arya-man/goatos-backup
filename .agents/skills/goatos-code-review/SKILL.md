@@ -698,6 +698,10 @@ inapplicable row must be marked `N/A` with a concrete reason. This is the bind
 to operational invariants that turns "the build is green" into "this is safe to
 merge":
 
+- [ ] **Loading shape = page shape (admin-web):** every touched `loading.tsx` / Suspense or panel
+      fallback composes only `components/app/skeletons` blocks (`design:guard` → `hand-drawn-skeleton`),
+      mirrors the page's blocks, counts and rows per page, and `scripts/r2-skeleton-iou.mjs` shows
+      skeleton vs loaded block IoU ≥ 0.8 at 1440 + 390 for the touched routes (side-by-sides opened)
 - [ ] **Performance budget lens passed:** perf packet attached (EXPLAIN ANALYZE
       BUFFERS before/after, p95 before/after, statements/request, retention for new
       tables, list page caps) and no scale-anti-patterns P1-P25 item added

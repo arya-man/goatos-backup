@@ -41,7 +41,7 @@ try {
   });
   await livePage.waitForSelector("aside.drawer.on .hchart", { timeout: 15_000 });
   await livePage
-    .waitForFunction(() => !document.querySelector("aside.drawer .skelrow"), null, { timeout: 15_000 })
+    .waitForFunction(() => !document.querySelector("aside.drawer .MuiSkeleton-root"), null, { timeout: 15_000 })
     .catch(() => undefined);
   await livePage.waitForTimeout(800);
   const rawLiveAxisLabels = await axisLabels(livePage, "aside.drawer");

@@ -1,16 +1,13 @@
-import { Skeleton, SkeletonKpiRow, SkeletonTable } from "@/components/app/page-skeletons";
-import { PageHeaderSkeleton } from "@/components/app/page-header";
+import { PageHeaderSkeleton, PageSkeleton, TableSkeleton, TabsSkeleton, ToolbarSkeleton } from "@/components/app/skeletons";
+import { APPROVALS_COPY, TYPE_TABS } from "@/features/approvals/copy";
 
+/** /approvals: header, the type tabs + status / farm / date toolbar, the queue table card (first / next pager). */
 export default function Loading() {
   return (
-    <div className="screen on" aria-busy="true">
-      <PageHeaderSkeleton />
-      <SkeletonKpiRow count={4} className="kit-kpi-wrap" />
-      <div style={{ display: "flex", gap: 10, margin: "14px 0" }}>
-        <Skeleton width={230} height={36} radius={999} />
-        <Skeleton width={180} height={36} radius={999} />
-      </div>
-      <SkeletonTable rows={8} />
-    </div>
+    <PageSkeleton>
+      <PageHeaderSkeleton crumbs={false} />
+      <ToolbarSkeleton left={<TabsSkeleton count={TYPE_TABS.length} />} fields={[140, 160, 200]} />
+      <TableSkeleton columns={APPROVALS_COPY.table.columns.length} rows={20} />
+    </PageSkeleton>
   );
 }

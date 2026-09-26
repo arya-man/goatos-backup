@@ -35,10 +35,9 @@ import { LeaveConfigPanel } from "./leave-config-panel";
 import { LeaveActionTelemetry } from "./leave-telemetry";
 import { LeaveRejectDialog } from "./leave-reject-dialog";
 import { LeaveTableChrome } from "./leave-toolbar";
+import { DEFAULT_PAGE_SIZE, STATUS_FILTERS } from "./leave-layout";
 
 const PATHNAME = "/leave";
-const DEFAULT_PAGE_SIZE = 20;
-const STATUS_FILTERS = ["", "pending", "approved", "rejected", "withdrawn"] as const;
 const LEAVE_TILES = [
   { key: "pending", icon: COURSE_WIDGET_ICONS.progress, color: "warning" },
   { key: "approved", icon: COURSE_WIDGET_ICONS.completed, color: "success" },
