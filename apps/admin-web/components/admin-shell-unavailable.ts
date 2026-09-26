@@ -38,7 +38,7 @@ export function contractUnavailableCopy(kind: string): ContractUnavailableCopy {
     default:
       return {
         title: "The dashboard could not load",
-        body: "Something went wrong while opening your workspace. Wait a minute and try again.",
+        body: "The dashboard did not open this time. Wait a minute and try again.",
         retry: RETRY,
       };
   }

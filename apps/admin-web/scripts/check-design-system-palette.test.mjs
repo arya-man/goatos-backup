@@ -106,6 +106,7 @@ test("selected / primary states must fill with brand tokens", () => {
 
 test("removing a legacy avatar fill is not drift; removing a brand or neutral colour is", () => {
   assert.equal(isDriftRemoval("#26384D"), false);
+  assert.equal(isDriftRemoval("#7AC142"), false);
   assert.equal(isDriftRemoval("#7ccb45"), true);
   assert.equal(isDriftRemoval("#0e1512"), true);
   assert.equal(isDriftRemoval("#F4F7F2"), true);

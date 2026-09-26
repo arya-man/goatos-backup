@@ -88,6 +88,13 @@ export const RETIRED_NEUTRALS = new Set([
   "#edf2ea", "#cfd9cc", "#33463a",
   // legacy .av avatar fills, replaced by kit Avatar (grey-300 / grey-700)
   "#26384d", "#2e4a63",
+  // Colours that lived only in legacy rules the P4 sweeps deleted once the redesign had replaced
+  // (or main had already dropped) every producer: the old sidebar's parked-park badge and footer
+  // (.parked .leaf .pk, .sidefoot -> MUI nav), the old calendar picker's day badge (.calpicker-day b
+  // -> MUI DateCalendar), the old weighing bar/segment fills (.weighing-bar.pur, .weighing-segment
+  // .individual/.lumpsum, no producer on main), and the config-sheet progress fallback
+  // (.cfg-sheet-progress -> MUI LinearProgress). None is a palette token.
+  "#6f8779", "#2c4337", "#243a2e", "#061016", "#a98bf5", "#79b7ff", "#c6b4ff", "#7ac142",
 ]);
 
 const hexToTriple = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
