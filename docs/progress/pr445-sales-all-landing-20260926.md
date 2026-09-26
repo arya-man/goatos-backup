@@ -38,6 +38,11 @@ Land PR #445, "Sales: end-to-end audit fixes (web, phone, backend) and nine main
 - Failed landing steps rerun and passed:
   - `GOATOS_CI_ONLY_STEP='offline-first-guard' tools/ci/run-local-ci.sh android`
   - `GOATOS_CI_ONLY_STEP='backend-foundations-guard' tools/ci/run-local-ci.sh backend`
+- Second landing gate failed before push after 15s:
+  - `cascade-event-wiring-guard` flagged `SaleFailedReleaseHandler` as hidden behind the shared helper and not visibly registered in both durable buses.
+  - Resolved by directly registering `identityapp.NewSaleFailedReleaseHandler(identityRepo)` in `kernelstages.BuildDomainBus` and `cmd/domain-event-consumer` while leaving the shared helper for the other bus builders.
+- Failed cascade step rerun and passed:
+  - `GOATOS_CI_ONLY_STEP='cascade-event-wiring-guard' tools/ci/run-local-ci.sh backend`
 
 ## Pending
 

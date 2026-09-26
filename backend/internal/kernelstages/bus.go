@@ -18,6 +18,7 @@ import (
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
+	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	notificationaudiencepg "github.com/vgoats/goatos/backend/internal/notificationaudience/adapters/postgres"
@@ -156,7 +157,7 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	eventwiring.RegisterWorkflowConsumers(bus, workflowService, logger)
 	captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, pgCfg.QueryTimeout)
 	eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews, workflowService)
-	eventwiring.RegisterSaleReleaseConsumers(bus, pool, pgCfg.QueryTimeout)
+	identityapp.NewSaleFailedReleaseHandler(identityRepo).Register(bus)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 
 	if logger != nil {
