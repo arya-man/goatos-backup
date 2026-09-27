@@ -12,8 +12,11 @@
 // the repo file against those. `node scripts/refresh-template-hashes.mjs` regenerates them from
 // ~/mesha/mesha-ui/vendor/minimal/Minimal_TypeScript_v7.7.0/next-ts.
 //
-// Ratchet: docs/design/template-verbatim-baseline.json lists files that still drift. It is
-// shrink-only: a listed file that now matches must be removed, and no new file may drift.
+// Ratchet: docs/design/template-verbatim-baseline.json maps each file that still drifts to the
+// sha256 of its CURRENT bytes. It is shrink-only: a listed file that now matches must be removed,
+// no new file may drift, and a listed file whose bytes change fails (a hand edit to a drifted
+// template file is still a hand edit; make the file verbatim and drop its entry instead). Never
+// re-record a hash to get past this.
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -54,19 +57,30 @@ export function templateVerbatimFindings(root, manifestFile, baselineFile) {
   }
   const sources = manifest.sources ?? {};
   const verbatim = manifest.verbatim ?? {};
-  let baseline = [];
+  const BASELINE = "docs/design/template-verbatim-baseline.json";
+  let drift = {};
   if (existsSync(baselineFile)) {
     try {
-      baseline = JSON.parse(readFileSync(baselineFile, "utf8")).drift ?? [];
+      drift = JSON.parse(readFileSync(baselineFile, "utf8")).drift ?? {};
     } catch {
-      hits.push({ file: "docs/design/template-verbatim-baseline.json", line: 1, snippet: "baseline is not valid JSON" });
+      hits.push({ file: BASELINE, line: 1, snippet: "baseline is not valid JSON" });
     }
   }
+  if (Array.isArray(drift) || typeof drift !== "object" || drift === null) {
+    hits.push({ file: BASELINE, line: 1, snippet: "drift must map each file to the sha256 of its current bytes ({ \"path\": \"<sha256>\" })" });
+    drift = {};
+  }
+  const baseline = Object.keys(drift);
   const allowed = new Set(baseline);
+  const bytesHash = (abs) => createHash("sha256").update(readFileSync(abs)).digest("hex");
   for (const rel of Object.keys(sources)) {
     const abs = join(root, rel);
     if (!existsSync(abs)) continue; // unsourced-minimal-file reports stale entries
     const expect = verbatim[rel];
+    if (allowed.has(rel) && bytesHash(abs) !== drift[rel]) {
+      hits.push({ file: rel, line: 1, snippet: `baselined drift file changed (sha256 ${bytesHash(abs).slice(0, 12)} != baseline ${String(drift[rel]).slice(0, 12)}): restore it to the template source ${sources[rel] ?? ""} and remove its baseline entry; never re-record the hash` });
+      continue;
+    }
     if (!expect?.sha256) {
       if (!allowed.has(rel)) hits.push({ file: rel, line: 1, snippet: `no template source / verbatim hash in template-sources.json (not a template file? move it out of the template folders; else run node scripts/refresh-template-hashes.mjs)` });
       continue;

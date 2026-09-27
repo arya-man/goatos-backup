@@ -24,6 +24,7 @@
 // Finding key = check|file|normalized-line (no line numbers, so a waiver survives edits
 // elsewhere in the file but dies when the offending line itself changes).
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -1096,7 +1097,8 @@ async function selfTest() {
   put("features/sfp/inner.tsx", 'import Box from "@mui/material/Box";\nexport const Inner = () => <Box sx={[(theme) => ({ p: 1 })]} />;\n');
   // template-verbatim: tpl-ok.tsx differs only by import path + "use client" (clean); tpl-drift.tsx
   // changed a copy string (flagged); tpl-pkg.tsx swapped a package import (flagged); tpl-listed.tsx
-  // drifts but is in the baseline (allowed); tpl-healed.tsx is in the baseline yet verbatim (flagged).
+  // drifts but is in the baseline with its current sha256 (allowed); tpl-healed.tsx is in the baseline
+  // yet verbatim (flagged); tpl-edited.tsx is baselined but its bytes changed since (flagged).
   {
     const tplSrc = "import Box from '@mui/material/Box';\n\nimport { fNumber } from 'src/utils/format-number';\n\nexport const W = ({ n }: { n: number }) => <Box>{fNumber(n)} last week</Box>;\n";
     const tplHash = templateHash(tplSrc);
@@ -1107,12 +1109,18 @@ async function selfTest() {
     put("components/minimal/tpl-pkg.tsx", mine.replace("@mui/material/Box", "@/components/app/box"));
     put("components/minimal/tpl-listed.tsx", mine.replace("last week", "custom"));
     put("components/minimal/tpl-healed.tsx", mine);
-    const files = ["tpl-ok", "tpl-drift", "tpl-pkg", "tpl-listed", "tpl-healed"].map((n) => `components/minimal/${n}.tsx`);
+    put("components/minimal/tpl-edited.tsx", mine.replace("last week", "custom, then hand-edited"));
+    const files = ["tpl-ok", "tpl-drift", "tpl-pkg", "tpl-listed", "tpl-healed", "tpl-edited"].map((n) => `components/minimal/${n}.tsx`);
     put("docs/design/template-sources.json", JSON.stringify({
       sources: Object.fromEntries(files.map((f) => [f, "src/sections/demo/w.tsx"])),
       verbatim: Object.fromEntries(files.map((f) => [f, { sha256: tplHash, imports }])),
     }));
-    put("docs/design/template-verbatim-baseline.json", JSON.stringify({ drift: ["components/minimal/tpl-listed.tsx", "components/minimal/tpl-healed.tsx"] }));
+    const sha = (text) => createHash("sha256").update(text).digest("hex");
+    put("docs/design/template-verbatim-baseline.json", JSON.stringify({ drift: {
+      "components/minimal/tpl-listed.tsx": sha(mine.replace("last week", "custom")),
+      "components/minimal/tpl-healed.tsx": sha(mine),
+      "components/minimal/tpl-edited.tsx": sha(mine.replace("last week", "custom")),
+    } }));
   }
   const { findings } = runGuard(root, { themeDiff: false });
   const got = new Set(findings.map((f) => f.check));
@@ -1152,7 +1160,7 @@ async function selfTest() {
     process.exit(1);
   }
   const verbatimHits = findings.filter((f) => f.check === "template-verbatim").map((f) => `${f.file}:${f.snippet.includes("tpl-healed") ? "healed" : ""}`).sort();
-  const wantVerbatim = ["components/minimal/tpl-drift.tsx:", "components/minimal/tpl-pkg.tsx:", "docs/design/template-verbatim-baseline.json:healed"];
+  const wantVerbatim = ["components/minimal/tpl-drift.tsx:", "components/minimal/tpl-edited.tsx:", "components/minimal/tpl-pkg.tsx:", "docs/design/template-verbatim-baseline.json:healed"];
   if (verbatimHits.join("|") !== wantVerbatim.join("|")) {
     console.error(`design_system_self_test=FAIL template-verbatim flagged=${verbatimHits.join(",") || "none"} (want ${wantVerbatim.join(",")})`);
     process.exit(1);
