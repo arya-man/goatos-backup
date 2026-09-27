@@ -49,7 +49,6 @@ const UNRESOLVED = {
   "/action-center": { linked: true, reason: "crumbItems: the section crumb links to / (href: \"/\")" },
   "/protocol-adherence": { linked: true, reason: "crumbItems: the section crumb links to / (href: \"/\")" },
   "/workflows": { linked: true, reason: "crumbItems: the section crumb links to / (href: \"/\")" },
-  "/workflows/[row_id]": { linked: null, reason: "the drilldown header is built from the workflow record" },
   "/sales/buyer-analytics": { linked: true, reason: "SalesChrome: [{ label: crumb, href: \"/sales\" }, …] unless the crumb repeats the title (then no trail)" },
   "/sales/farm-born": { linked: true, reason: "SalesChrome (see /sales/buyer-analytics)" },
   "/sales/farm-value": { linked: true, reason: "SalesChrome (see /sales/buyer-analytics)" },
@@ -102,7 +101,7 @@ function definingFile(file, name, depth = 0) {
 }
 
 /** Files that define the JSX components rendered from `entry`, followed `depth` levels into features/. */
-function rendered(entry, depth) {
+function rendered(entry, depth, keep = inFeatures) {
   const seen = new Set([entry]);
   let frontier = [entry];
   for (let d = 0; d < depth; d++) {
@@ -116,7 +115,7 @@ function rendered(entry, depth) {
         const imp = imports.get(tag);
         if (!imp) continue;
         const def = definingFile(resolveImport(imp.spec, f), imp.name);
-        if (def && !seen.has(def) && inFeatures(def)) { seen.add(def); next.push(def); }
+        if (def && !seen.has(def) && keep(def)) { seen.add(def); next.push(def); }
       }
     }
     frontier = next;
@@ -125,6 +124,32 @@ function rendered(entry, depth) {
 }
 
 const inFeatures = (f) => relative(root, f).startsWith("features/");
+// Skeleton side: feature twins AND shared app components (shell skeletons, section twins), never the
+// verbatim template or the block definitions themselves.
+const inSkeletonScope = (f) => {
+  const rel = relative(root, f);
+  return rel.startsWith("features/") || (rel.startsWith("components/") && !rel.startsWith("components/minimal/") && rel !== "components/app/skeletons/blocks.tsx");
+};
+
+/**
+ * Route skeletons that draw no crumb row (crumbs={false}, or no PageHeaderSkeleton at all), each with
+ * the reason the page shows no PageHeader crumb trail (hand-verified; PageHeader hides a trail whose
+ * labels only repeat the title). Any other skeleton without a crumb row fails.
+ */
+const NO_CRUMB_ROW = {
+  "/alerts": "crumbs [t(crumb), t(title)]: the crumb copy is the title, so PageHeader hides the trail",
+  "/approvals": "crumbs [{ label: COPY.title }]: a trail that only repeats the title is hidden",
+  "/routines": "crumbs [c(crumb), title]: the crumb copy is the title, so PageHeader hides the trail",
+  "/workflows/[row_id]": "OrderDetailsToolbar (DetailsToolbarSkeleton), no PageHeader",
+  "/procurement/source-entry/loads/[load_id]": "OrderDetailsToolbar, no PageHeader",
+};
+/**
+ * Known mismatches with an owner, tolerated only while they last: the entry fails once the skeleton is
+ * fixed, so it gets removed with the fix.
+ */
+const PENDING_MISMATCH = {
+  "/procurement/source-entry/loads/[load_id]": "SK2 (REVIEW-50 O82): loading.tsx draws a PageHeader skeleton, the page renders OrderDetailsToolbar",
+};
 const walk = (dir) => readdirSync(dir).flatMap((n) => {
   const full = join(dir, n);
   return statSync(full).isDirectory() ? walk(full) : n === "loading.tsx" ? [full] : [];
@@ -147,8 +172,17 @@ test("crumb-link-truth: every route skeleton's crumbLink equals its page's paren
     const route = "/" + relative(admin, dir).split("/").filter((s) => !/^\(.*\)$/.test(s)).join("/");
     const page = join(dir, "page.tsx");
     if (!existsSync(page)) continue;
-    const skelLinks = rendered(loading, 2).flatMap((f) => skeletonCrumbLinks(readFileSync(f, "utf8")));
-    if (!skelLinks.length) continue; // the skeleton shows no crumb row
+    const skelFiles = rendered(loading, 3, inSkeletonScope);
+    const skelLinks = skelFiles.flatMap((f) => skeletonCrumbLinks(readFileSync(f, "utf8")));
+    if (!skelLinks.length) {
+      if (route in PENDING_MISMATCH) problems.push(`${route}: fixed; remove it from PENDING_MISMATCH`);
+      if (!(route in NO_CRUMB_ROW)) problems.push(`${route}: its skeleton draws no crumb row (crumbs={false} or no PageHeaderSkeleton); list it in NO_CRUMB_ROW with the page's reason`);
+      continue;
+    }
+    if (route in NO_CRUMB_ROW) {
+      if (!(route in PENDING_MISMATCH)) problems.push(`${route}: listed in NO_CRUMB_ROW but its skeleton draws a crumb row`);
+      continue;
+    }
     const pageLinks = rendered(page, 5).flatMap((f) => parentCrumbLinks(readFileSync(f, "utf8")));
     let linked;
     if (route in UNRESOLVED) linked = UNRESOLVED[route].linked;
