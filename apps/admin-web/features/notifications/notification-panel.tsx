@@ -20,7 +20,7 @@
  * Styling lives in `./notification-panel.css` (Mesha tokens only; no hexes) and the shared kit.
  */
 
-import { motion, useReducedMotion } from "motion/react";
+import { m, useReducedMotion } from "motion/react";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import { isPushCapable } from "@/lib/push-capable";
@@ -301,7 +301,7 @@ function NotificationRow({
   const actor = (item.actor_name ?? "").trim();
 
   return (
-    <motion.li
+    <m.li
       className={cx("nc-row", !read && "nc-unread", expanded && "nc-open")}
       initial={reduce ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
@@ -362,7 +362,7 @@ function NotificationRow({
           </>
         )}
       </span>
-    </motion.li>
+    </m.li>
   );
 }
 

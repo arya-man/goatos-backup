@@ -74,3 +74,19 @@ test("the lock fails a color-mix() blend inside a chart series array", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a data-URI SVG used only as a CSS mask is not a theme colour; the same SVG as a background is", () => {
+  const root = mkdtempSync(join(tmpdir(), "mui-lock-mask-"));
+  try {
+    for (const d of ["theme", "app", "layouts"]) mkdirSync(join(root, d), { recursive: true });
+    cpSync(join(appRoot, "theme", "theme-config.ts"), join(root, "theme", "theme-config.ts"));
+    cpSync(join(appRoot, "app", "mesha-theme.css"), join(root, "app", "mesha-theme.css"));
+    const svg = "const bulletSvg = `\"data:image/svg+xml,%3Csvg stroke='%23efefef'%3E%3C/svg%3E\"`;";
+    writeFileSync(join(root, "layouts", "mask.tsx"), `${svg}\nconst s = { mask: \`url(\${bulletSvg}) no-repeat\`, WebkitMask: \`url(\${bulletSvg})\` };\n`);
+    assert.deepEqual(muiPaletteLockFindings(root), []);
+    writeFileSync(join(root, "layouts", "bg.tsx"), `${svg}\nconst s = { backgroundImage: \`url(\${bulletSvg})\` };\n`);
+    assert.match(muiPaletteLockFindings(root).join("\n"), /layouts\/bg\.tsx carries #EFEFEF/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

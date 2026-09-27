@@ -11,7 +11,7 @@ import {
   useMotionValue,
   useAnimationFrame,
   useMotionTemplate,
-} from 'motion/react';
+} from 'framer-motion';
 
 import Box from '@mui/material/Box';
 import { useTheme } from '@mui/material/styles';

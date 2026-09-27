@@ -177,7 +177,11 @@
     "components/minimal/sections/overview/app/app-widget-summary.tsx": "src/sections/overview/app/app-widget-summary.tsx",
     "components/minimal/sections/overview/booking/booking-widget-summary.tsx": "src/sections/overview/booking/booking-widget-summary.tsx",
     "components/minimal/upload/classes.ts": "src/components/upload/classes.ts",
-    "components/minimal/upload/default/styles.tsx": "src/components/upload/default/styles.tsx"
+    "components/minimal/upload/default/styles.tsx": "src/components/upload/default/styles.tsx",
+    "layouts/template/nav-section/horizontal/index.ts": "src/components/nav-section/horizontal/index.ts",
+    "layouts/template/nav-section/horizontal/nav-item.tsx": "src/components/nav-section/horizontal/nav-item.tsx",
+    "layouts/template/nav-section/horizontal/nav-list.tsx": "src/components/nav-section/horizontal/nav-list.tsx",
+    "layouts/template/nav-section/horizontal/nav-section-horizontal.tsx": "src/components/nav-section/horizontal/nav-section-horizontal.tsx"
   },
   "verbatim": {
     "components/minimal/_shared/format-number.ts": {
@@ -1510,6 +1514,54 @@
         "@mui/material/ListSubheader",
         "../styles",
         "../../iconify"
+      ]
+    },
+    "layouts/template/nav-section/horizontal/index.ts": {
+      "sha256": "b7fb7b55be5e74af9d47761eae763a089b16ccca7de9fd49e529dc79ff1b681d",
+      "imports": [
+        "./nav-section-horizontal",
+        "./nav-item"
+      ]
+    },
+    "layouts/template/nav-section/horizontal/nav-item.tsx": {
+      "sha256": "a3e64be67d1a74582136f146729cfd4aaae6abf0bf41e1428172fec85aa9b398",
+      "imports": [
+        "@mui/material/styles",
+        "../types",
+        "minimal-shared/utils",
+        "@mui/material/Tooltip",
+        "@mui/material/styles",
+        "@mui/material/ButtonBase",
+        "../../iconify",
+        "../utils",
+        "../styles"
+      ]
+    },
+    "layouts/template/nav-section/horizontal/nav-list.tsx": {
+      "sha256": "67dc393207404cd8b47f7e270fb94fd914a31e0c33a7d30be5029f971ed16802",
+      "imports": [
+        "../types",
+        "react",
+        "minimal-shared/hooks",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "@mui/material/Popover",
+        "src/routes/hooks",
+        "./nav-item",
+        "../styles",
+        "../components"
+      ]
+    },
+    "layouts/template/nav-section/horizontal/nav-section-horizontal.tsx": {
+      "sha256": "be21164c39c05447e8ae01b01154f24f020e767cbdfc7e12113f525fb1a4a202",
+      "imports": [
+        "../types",
+        "minimal-shared/utils",
+        "@mui/material/styles",
+        "./nav-list",
+        "../../scrollbar",
+        "../components",
+        "../styles"
       ]
     },
     "layouts/template/nav-section/index.ts": {

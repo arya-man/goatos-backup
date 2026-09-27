@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, m, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, m, useReducedMotion } from "motion/react";
 import IconButton from "@mui/material/IconButton";
 import { varTap, varHover, transitionTap } from "@/layouts/template/animate";
 import { Moon, Sun } from "lucide-react";
@@ -45,7 +45,7 @@ export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: 
       }}
     >
       <AnimatePresence mode="wait" initial={false}>
-        <motion.span
+        <m.span
           key={mode}
           style={{ display: "grid", placeItems: "center" }}
           initial={reduce ? false : { rotate: -90, opacity: 0, scale: 0.8 }}
@@ -54,7 +54,7 @@ export function ThemeToggle({ labelToLight, labelToDark, className, onChange }: 
           transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
         >
           {isLight ? <Moon width={24} height={24} /> : <Sun width={24} height={24} />}
-        </motion.span>
+        </m.span>
       </AnimatePresence>
     </IconButton>
   );

@@ -73,23 +73,20 @@ export function NavItem({
       )}
 
       {title && (
-        <ItemTexts {...ownerState} className={navSectionClasses.item.texts} sx={slotProps?.texts}>
-          <ItemTitle {...ownerState} className={navSectionClasses.item.title} sx={slotProps?.title}>
-            {title}
-          </ItemTitle>
+        <ItemTitle {...ownerState} className={navSectionClasses.item.title} sx={slotProps?.title}>
+          {title}
+        </ItemTitle>
+      )}
 
-          {caption && (
-            <Tooltip title={caption} placement="top-start">
-              <ItemCaptionText
-                {...ownerState}
-                className={navSectionClasses.item.caption}
-                sx={slotProps?.caption}
-              >
-                {caption}
-              </ItemCaptionText>
-            </Tooltip>
-          )}
-        </ItemTexts>
+      {caption && (
+        <Tooltip title={caption} arrow>
+          <ItemCaptionIcon
+            {...ownerState}
+            icon="eva:info-outline"
+            className={navSectionClasses.item.caption}
+            sx={slotProps?.caption}
+          />
+        </Tooltip>
       )}
 
       {info && (
@@ -101,7 +98,7 @@ export function NavItem({
       {hasChild && (
         <ItemArrow
           {...ownerState}
-          icon={open ? 'eva:arrow-ios-downward-fill' : 'eva:arrow-ios-forward-fill'}
+          icon={navItem.subItem ? 'eva:arrow-ios-forward-fill' : 'eva:arrow-ios-downward-fill'}
           className={navSectionClasses.item.arrow}
           sx={slotProps?.arrow}
         />
@@ -127,27 +124,8 @@ const ItemRoot = styled(ButtonBase, { shouldForwardProp })<StyledState>(({
   open,
   theme,
 }) => {
-  const bulletSvg = `"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' viewBox='0 0 14 14'%3E%3Cpath d='M1 1v4a8 8 0 0 0 8 8h4' stroke='%23efefef' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"`;
-
-  const bulletStyles: CSSObject = {
-    left: 0,
-    content: '""',
-    position: 'absolute',
-    width: 'var(--nav-bullet-size)',
-    height: 'var(--nav-bullet-size)',
-    backgroundColor: 'var(--nav-bullet-light-color)',
-    mask: `url(${bulletSvg}) no-repeat 50% 50%/100% auto`,
-    WebkitMask: `url(${bulletSvg}) no-repeat 50% 50%/100% auto`,
-    transform:
-      theme.direction === 'rtl'
-        ? 'translate(calc(var(--nav-bullet-size) * 1), calc(var(--nav-bullet-size) * -0.4)) scaleX(-1)'
-        : 'translate(calc(var(--nav-bullet-size) * -1), calc(var(--nav-bullet-size) * -0.4))',
-    ...theme.applyStyles('dark', {
-      backgroundColor: 'var(--nav-bullet-dark-color)',
-    }),
-  };
-
   const rootItemStyles: CSSObject = {
+    padding: 'var(--nav-item-root-padding)',
     minHeight: 'var(--nav-item-root-height)',
     ...(open && {
       color: 'var(--nav-item-root-open-color)',
@@ -164,8 +142,9 @@ const ItemRoot = styled(ButtonBase, { shouldForwardProp })<StyledState>(({
   };
 
   const subItemStyles: CSSObject = {
+    padding: 'var(--nav-item-sub-padding)',
     minHeight: 'var(--nav-item-sub-height)',
-    '&::before': bulletStyles,
+    color: theme.vars.palette.text.secondary,
     ...(open && {
       color: 'var(--nav-item-sub-open-color)',
       backgroundColor: 'var(--nav-item-sub-open-bg)',
@@ -178,12 +157,9 @@ const ItemRoot = styled(ButtonBase, { shouldForwardProp })<StyledState>(({
 
   return {
     width: '100%',
-    paddingTop: 'var(--nav-item-pt)',
-    paddingLeft: 'var(--nav-item-pl)',
-    paddingRight: 'var(--nav-item-pr)',
-    paddingBottom: 'var(--nav-item-pb)',
-    borderRadius: 'var(--nav-item-radius)',
+    flexShrink: 0,
     color: 'var(--nav-item-color)',
+    borderRadius: 'var(--nav-item-radius)',
     '&:hover': { backgroundColor: 'var(--nav-item-hover-bg)' },
     variants: [
       { props: { variant: 'rootItem' }, style: rootItemStyles },
@@ -200,14 +176,8 @@ const ItemIcon = styled('span', { shouldForwardProp })<StyledState>(() => ({
   ...navItemStyles.icon,
   width: 'var(--nav-icon-size)',
   height: 'var(--nav-icon-size)',
-  margin: 'var(--nav-icon-margin)',
-}));
-
-/**
- * @slot texts
- */
-const ItemTexts = styled('span', { shouldForwardProp })<StyledState>(() => ({
-  ...navItemStyles.texts,
+  margin: 'var(--nav-icon-root-margin)',
+  variants: [{ props: { variant: 'subItem' }, style: { margin: 'var(--nav-icon-sub-margin)' } }],
 }));
 
 /**
@@ -216,6 +186,7 @@ const ItemTexts = styled('span', { shouldForwardProp })<StyledState>(() => ({
 const ItemTitle = styled('span', { shouldForwardProp })<StyledState>(({ theme }) => ({
   ...navItemStyles.title(theme),
   ...theme.typography.body2,
+  whiteSpace: 'nowrap',
   fontWeight: theme.typography.fontWeightMedium,
   variants: [
     { props: { active: true }, style: { fontWeight: theme.typography.fontWeightSemiBold } },
@@ -223,11 +194,12 @@ const ItemTitle = styled('span', { shouldForwardProp })<StyledState>(({ theme })
 }));
 
 /**
- * @slot caption text
+ * @slot caption icon
  */
-const ItemCaptionText = styled('span', { shouldForwardProp })<StyledState>(({ theme }) => ({
-  ...navItemStyles.captionText(theme),
+const ItemCaptionIcon = styled(Iconify, { shouldForwardProp })<StyledState>(({ theme }) => ({
+  ...navItemStyles.captionIcon,
   color: 'var(--nav-item-caption-color)',
+  variants: [{ props: { variant: 'rootItem' }, style: { marginLeft: theme.spacing(0.75) } }],
 }));
 
 /**
@@ -242,4 +214,5 @@ const ItemInfo = styled('span', { shouldForwardProp })<StyledState>(({ theme }) 
  */
 const ItemArrow = styled(Iconify, { shouldForwardProp })<StyledState>(({ theme }) => ({
   ...navItemStyles.arrow(theme),
+  variants: [{ props: { variant: 'subItem' }, style: { marginRight: theme.spacing(-0.5) } }],
 }));

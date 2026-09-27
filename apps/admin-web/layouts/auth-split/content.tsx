@@ -9,7 +9,7 @@ import Box from '@mui/material/Box';
 
 import { layoutClasses } from '../core';
 
-// Template-exact: Minimal_TypeScript_v7.7.0 next-ts src/layouts/auth-split/content.tsx.
+// ----------------------------------------------------------------------
 
 export type AuthSplitContentProps = BoxProps & { layoutQuery?: Breakpoint };
 

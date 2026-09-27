@@ -66,6 +66,17 @@ export function muiPaletteLockFindings(appRoot) {
   // colour cannot hide inside a background image (Judge 3 P1-A). Iconify icon bodies (brand logos
   // inside icon-sets.ts) are artwork, not theme colour. public/ SVGs (the template's empty-state
   // illustration) are scanned too.
+  // A data-URI SVG used ONLY as a CSS mask (template nav bullet: `mask: url(${bulletSvg})`) paints
+  // nothing in its own colour (a mask reads alpha), so its stroke hex is not a theme colour.
+  const maskOnlySvgRemoved = (text) => {
+    let out = text;
+    for (const m of text.matchAll(/const\s+(\w+)\s*=\s*`"data:image\/svg\+xml,[^`]*`;/g)) {
+      const name = m[1];
+      const uses = text.split("\n").filter((line) => line.includes(`\${${name}}`));
+      if (uses.length && uses.every((line) => /\b(?:mask|WebkitMask)\s*:/.test(line))) out = out.replace(m[0], `const ${name} = "";`);
+    }
+    return out;
+  };
   const lockedCss = existsSync(join(appRoot, "app", "mesha-theme.css")) ? readFileSync(join(appRoot, "app", "mesha-theme.css"), "utf8") : "";
   const tokensCss = existsSync(join(appRoot, "app", "minimal-tokens.css")) ? readFileSync(join(appRoot, "app", "minimal-tokens.css"), "utf8") : "";
   const locked = new Set([...`${lockedCss}\n${tokensCss}`.matchAll(/#[0-9a-f]{6}\b/gi)].map((m) => m[0].toUpperCase()));
@@ -82,7 +93,7 @@ export function muiPaletteLockFindings(appRoot) {
         if (e.isDirectory()) walk(f);
         else if (/\.(tsx?|css|svg)$/.test(e.name)) {
           if (/\.(test|stories)\.tsx?$/.test(e.name)) continue;
-          const src = withDecodedDataUris(readFileSync(f, "utf8")).replace(/%23([0-9a-f]{6})\b/gi, "#$1");
+          const src = withDecodedDataUris(maskOnlySvgRemoved(readFileSync(f, "utf8"))).replace(/%23([0-9a-f]{6})\b/gi, "#$1");
           if (src.split("\n").some(hasRetiredNeutralLiteral)) out.push(`${relative(appRoot, f)} carries a retired Mesha green neutral`);
           const m = src.match(MINIMAL_DEFAULT_BRAND);
           if (m) out.push(`${relative(appRoot, f)} carries Minimal default colour ${m[0]}`);
